@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { homedir } from "node:os";
 
 import { serve } from "@hono/node-server";
 import { createNodeWebSocket } from "@hono/node-ws";
@@ -16,6 +17,40 @@ interface FileInfo {
   path: string;
   name: string;
   type: "file" | "directory";
+}
+
+// Claude credentials management
+interface ClaudeCredentials {
+  claudeAiOauth: {
+    accessToken: string;
+    refreshToken: string;
+    expiresAt: number;
+    scopes: string[];
+  };
+}
+
+function createClaudeCredentials(accessToken: string, refreshToken: string, expiresAt: number) {
+  const credentials: ClaudeCredentials = {
+    claudeAiOauth: {
+      accessToken,
+      refreshToken,
+      expiresAt,
+      scopes: ["org:create_api_key", "user:profile", "user:inference"]
+    }
+  };
+
+  // Create .claude directory if it doesn't exist
+  const claudeDir = path.join(homedir(), '.claude');
+  if (!fs.existsSync(claudeDir)) {
+    fs.mkdirSync(claudeDir, { recursive: true });
+  }
+
+  // Write credentials file
+  const credentialsPath = path.join(claudeDir, '.credentials.json');
+  fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2));
+  
+  console.log(`Claude credentials written to: ${credentialsPath}`);
+  return credentialsPath;
 }
 
 const app = new Hono();
@@ -156,6 +191,28 @@ ttyRoutes.get(
 );
 
 app.route("/tty", ttyRoutes);
+
+// Claude credentials route
+app.post("/claude/credentials", async (c) => {
+  try {
+    const { accessToken, refreshToken, expiresAt } = await c.req.json();
+    
+    if (!accessToken || !refreshToken || !expiresAt) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+    
+    const credentialsPath = createClaudeCredentials(accessToken, refreshToken, expiresAt);
+    
+    return c.json({ 
+      success: true, 
+      credentialsPath,
+      message: "Claude credentials created successfully" 
+    });
+  } catch (error) {
+    console.error("Error creating Claude credentials:", error);
+    return c.json({ error: "Failed to create credentials" }, 500);
+  }
+});
 
 // Error handling
 app.notFound((c) => {

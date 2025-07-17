@@ -1,28 +1,10 @@
 import { useState, useEffect, useRef } from "react";
+import { FormattedMessage, MessageFormatter } from "../utils/messageFormatting";
+import type { ClaudeMessage, ExitMessage } from "../utils/messageFormatting";
 
 interface AuthStatus {
   authenticated: boolean;
   expires_at?: number;
-}
-
-interface ClaudeMessage {
-  type: string;
-  session_id?: string;
-  message?: {
-    content?: any;
-  };
-  subtype?: string;
-  result?: string;
-  is_error?: boolean;
-  total_cost_usd?: number;
-  duration_ms?: number;
-  num_turns?: number;
-}
-
-interface ExitMessage {
-  type: "exit";
-  exitCode: number | { exitCode: number };
-  message: string;
 }
 
 const WS_CONFIG = {
@@ -32,13 +14,14 @@ const WS_CONFIG = {
 } as const;
 
 export function useClaudeWebSocket() {
-  const [output, setOutput] = useState<string[]>([]);
+  const [messages, setMessages] = useState<FormattedMessage[]>([]);
   const [conversationMode, setConversationMode] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const wsRef = useRef<WebSocket | null>(null);
+  const messageFormatterRef = useRef<MessageFormatter>(new MessageFormatter());
 
   useEffect(() => {
     checkAuthStatus();
@@ -64,13 +47,14 @@ export function useClaudeWebSocket() {
     }
   };
 
-  const appendOutput = (text: string) => {
-    setOutput((prev) => [...prev, text]);
+  const addMessage = (message: FormattedMessage) => {
+    setMessages((prev) => [...prev, message]);
   };
 
-  const clearOutput = () => {
-    setOutput([]);
+  const clearMessages = () => {
+    setMessages([]);
     setError("");
+    messageFormatterRef.current = new MessageFormatter();
   };
 
   const executeClaudeQuery = async (query: string) => {
@@ -84,10 +68,17 @@ export function useClaudeWebSocket() {
         ? `claude --continue --output-format stream-json --verbose --print "${query.replace(/"/g, '\\"')}"`
         : `claude --output-format stream-json --verbose --print "${query.replace(/"/g, '\\"')}"`;
 
-      // Clear previous output for new queries
-      setOutput([
-        `> ${command.replace(" --output-format stream-json --verbose", "")}`,
-      ]); // Hide the JSON flags from display
+      // Clear previous messages for new queries and add user message
+      setMessages([]);
+      messageFormatterRef.current = new MessageFormatter();
+      
+      // Add user message
+      addMessage({
+        id: `user-${Date.now()}`,
+        type: "user",
+        content: query,
+        timestamp: new Date().toISOString(),
+      });
 
       // Execute command via new TTY exec endpoint
       const response = await fetch("/sandbox/tty/exec", {
@@ -134,7 +125,7 @@ export function useClaudeWebSocket() {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      appendOutput("\n🔌 Connected to Claude stream...");
+      addMessage(messageFormatterRef.current.createConnectionMessage("connected"));
     };
 
     const handleExitMessage = (message: ExitMessage) => {
@@ -142,7 +133,7 @@ export function useClaudeWebSocket() {
         typeof message.exitCode === "object"
           ? message.exitCode?.exitCode || 0
           : message.exitCode || 0;
-      appendOutput(`\n[Process completed with code ${exitCode}]`);
+      addMessage(messageFormatterRef.current.createSystemMessage(`[Process completed with code ${exitCode}]`));
       setLoading(false);
       // Don't trigger reconnection for normal exit
       wsRef.current = null;
@@ -183,104 +174,14 @@ export function useClaudeWebSocket() {
           }
           seenMessages.add(messageId);
 
-          if (
-            jsonMessage.type === "system" &&
-            jsonMessage.subtype === "init" &&
-            !hasInit
-          ) {
-            appendOutput("\n🤖 Starting Claude...");
-            hasInit = true;
-          } else if (jsonMessage.type === "user") {
-            // User message - handle both regular messages and tool results
-            if (jsonMessage.message?.content) {
-              let processed = false;
+          // Use MessageFormatter to convert to structured message
+          const formattedMessage = messageFormatterRef.current.formatMessage(jsonMessage);
+          if (formattedMessage) {
+            addMessage(formattedMessage);
+          }
 
-              if (Array.isArray(jsonMessage.message.content)) {
-                for (const contentItem of jsonMessage.message.content) {
-                  if (contentItem.type === "tool_result") {
-                    // This is a tool result being sent back to Claude
-                    if (contentItem.is_error) {
-                      appendOutput(`\n❌ Error: ${contentItem.content}`);
-                    } else if (
-                      contentItem.content &&
-                      contentItem.content.includes("→")
-                    ) {
-                      // File content with line numbers - show preview
-                      const lines = contentItem.content.split("\n").slice(0, 5);
-                      appendOutput(
-                        `\n📄 File content preview:\n${lines.join("\n")}${contentItem.content.split("\n").length > 5 ? "\n   ..." : ""}`,
-                      );
-                    } else if (
-                      contentItem.content &&
-                      contentItem.content.includes("has been updated")
-                    ) {
-                      // Edit success message
-                      appendOutput(`\n✅ File updated successfully`);
-                    } else {
-                      // Other tool results - show abbreviated
-                      const preview =
-                        contentItem.content?.substring(0, 100) || "";
-                      appendOutput(
-                        `\n📤 ${preview}${contentItem.content?.length > 100 ? "..." : ""}`,
-                      );
-                    }
-                    processed = true;
-                  } else if (contentItem.text) {
-                    appendOutput(`\n👤 ${contentItem.text}`);
-                    processed = true;
-                  }
-                }
-              }
-
-              // Fallback for other content types
-              if (
-                !processed &&
-                typeof jsonMessage.message.content === "string"
-              ) {
-                appendOutput(`\n👤 ${jsonMessage.message.content}`);
-              }
-            }
-          } else if (jsonMessage.type === "assistant") {
-            // Assistant message - this contains the actual tool calls and responses
-            const msg = jsonMessage.message;
-
-            if (msg?.content && Array.isArray(msg.content)) {
-              // Handle content array (text and tool calls)
-              for (const contentItem of msg.content) {
-                if (contentItem.type === "text" && contentItem.text) {
-                  appendOutput(`\n💭 ${contentItem.text}`);
-                } else if (contentItem.type === "tool_use") {
-                  appendOutput(`\n🔧 ${contentItem.name}`);
-
-                  // Show key arguments only
-                  if (contentItem.input) {
-                    if (contentItem.input.file_path) {
-                      appendOutput(` → ${contentItem.input.file_path}`);
-                    }
-                    if (contentItem.input.command) {
-                      appendOutput(
-                        ` → ${contentItem.input.command.substring(0, 50)}${contentItem.input.command.length > 50 ? "..." : ""}`,
-                      );
-                    }
-                    if (
-                      contentItem.input.old_string &&
-                      contentItem.input.new_string
-                    ) {
-                      // For edits, just show we're making changes
-                      appendOutput(` → Making edits...`);
-                    }
-                  }
-                }
-              }
-            }
-          } else if (jsonMessage.type === "result") {
-            // Final result with stats
-            appendOutput(`\n\n✅ ${jsonMessage.result}`);
-            if (!jsonMessage.is_error) {
-              appendOutput(
-                `\n💰 $${jsonMessage.total_cost_usd || 0} • ⏱️ ${Math.round((jsonMessage.duration_ms || 0) / 1000)}s • 🔄 ${jsonMessage.num_turns || 0} turns`,
-              );
-            }
+          // Handle special cases
+          if (jsonMessage.type === "result") {
             setLoading(false);
             // Mark as completed to prevent error on close
             wsRef.current = null;
@@ -290,7 +191,7 @@ export function useClaudeWebSocket() {
           // Not JSON, might be raw output - add directly
           if (!seenMessages.has(line)) {
             seenMessages.add(line);
-            appendOutput("\n" + line);
+            addMessage(messageFormatterRef.current.createSystemMessage(line));
           }
         }
       }
@@ -319,8 +220,11 @@ export function useClaudeWebSocket() {
         setLoading(false);
       } else if (retryCount < WS_CONFIG.MAX_RETRIES) {
         // Unexpected close - retry
-        appendOutput(
-          `\n🔄 Connection lost, retrying... (${retryCount + 1}/${WS_CONFIG.MAX_RETRIES + 1})`,
+        addMessage(
+          messageFormatterRef.current.createConnectionMessage(
+            "connecting",
+            `Connection lost, retrying... (${retryCount + 1}/${WS_CONFIG.MAX_RETRIES + 1})`
+          )
         );
         setTimeout(() => {
           connectToWebSocket(processId, retryCount + 1);
@@ -338,14 +242,14 @@ export function useClaudeWebSocket() {
   };
 
   return {
-    output,
+    messages,
     conversationMode,
     setConversationMode,
     authenticated,
     loading,
     error,
     executeClaudeQuery,
-    clearOutput,
+    clearMessages,
     checkAuthStatus,
   };
 }

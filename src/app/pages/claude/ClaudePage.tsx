@@ -1,19 +1,37 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { useClaudeWebSocket } from "./hooks/useClaudeWebSocket";
 import { ClaudeLayout } from "./components/ClaudeLayout";
 
 export function ClaudePage() {
   const {
-    output,
+    messages,
     conversationMode,
     setConversationMode,
     authenticated,
     loading,
     error,
     executeClaudeQuery,
-    clearOutput,
+    clearMessages,
   } = useClaudeWebSocket();
+  
+  // Settings for tool display - initialize safely for SSR
+  const [autoExpandTools, setAutoExpandTools] = useState(false);
+  const [showRawParameters, setShowRawParameters] = useState(false);
+  
+  // Load settings from localStorage on client side only
+  useEffect(() => {
+    const savedAutoExpand = localStorage.getItem('autoExpandTools');
+    if (savedAutoExpand !== null) {
+      setAutoExpandTools(JSON.parse(savedAutoExpand));
+    }
+    
+    const savedShowRaw = localStorage.getItem('showRawParameters');
+    if (savedShowRaw !== null) {
+      setShowRawParameters(JSON.parse(savedShowRaw));
+    }
+  }, []);
 
   if (!authenticated) {
     return (
@@ -38,13 +56,15 @@ export function ClaudePage() {
 
   return (
     <ClaudeLayout
-      output={output}
+      messages={messages}
       loading={loading}
       error={error}
       conversationMode={conversationMode}
       setConversationMode={setConversationMode}
       onExecuteQuery={executeClaudeQuery}
-      onClearOutput={clearOutput}
+      onClearMessages={clearMessages}
+      autoExpandTools={autoExpandTools}
+      showRawParameters={showRawParameters}
     />
   );
 }

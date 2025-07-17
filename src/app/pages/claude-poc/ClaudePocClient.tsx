@@ -239,6 +239,9 @@ export function ClaudePocClient() {
         <div className="mt-12 pt-8 border-t">
           <h3 className="text-lg font-semibold mb-4">Continue to Tools</h3>
           <div className="space-x-4">
+            <a href="/claude" className="text-blue-500 underline">
+              Go to Claude Interface
+            </a>
             <a href="/editor" className="text-blue-500 underline">
               Go to Editor
             </a>

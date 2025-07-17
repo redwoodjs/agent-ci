@@ -4,7 +4,6 @@ import { Editor } from "./Editor";
 import { FileBrowser } from "./FileBrowser";
 import { fileType, getFile, getSiblingFiles } from "./functions";
 import { Preview } from "./Preview";
-import { ClaudePanel } from "./ClaudePanel";
 
 import { LazyTerm } from "@/app/components/Term/";
 
@@ -56,7 +55,7 @@ export const EditorPage = async ({
         />
       </div>
       
-      {/* Right Side - Split between Preview/Terminal and Claude */}
+      {/* Right Side - Preview and Terminal */}
       <div className="w-96 flex flex-col border-l border-gray-700">
         {/* Top Right - Preview */}
         <div className="flex-1 border-b border-gray-700">
@@ -65,20 +64,10 @@ export const EditorPage = async ({
           </div>
         </div>
 
-        {/* Bottom Right - Split between Terminal and Claude */}
-        <div className="h-96 flex">
-          {/* Terminal Panel */}
-          <div className="flex-1 border-r border-gray-700">
-            <div className="h-full m-2 p-2 bg-black rounded">
-              <LazyTerm containerId={containerId} />
-            </div>
-          </div>
-          
-          {/* Claude Panel */}
-          <div className="flex-1">
-            <div className="h-full m-2 rounded overflow-hidden">
-              <ClaudePanel />
-            </div>
+        {/* Bottom Right - Terminal */}
+        <div className="h-96">
+          <div className="h-full m-2 p-2 bg-black rounded">
+            <LazyTerm containerId={containerId} />
           </div>
         </div>
       </div>

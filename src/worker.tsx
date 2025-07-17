@@ -5,6 +5,7 @@ import { Document } from "@/app/Document";
 import { EditorPage } from "@/app/pages/editor/EditorPage";
 import { TermPage } from "@/app/pages/TermPage";
 import { ClaudePocPage } from "@/app/pages/claude-poc/ClaudePocPage";
+import { ClaudePage } from "@/app/pages/claude/ClaudePage";
 import { fetchContainer } from "./container";
 import { SessionPage } from "./app/pages/session/SessionPage";
 import { 
@@ -22,6 +23,8 @@ export default defineApp([
       return <SessionPage />;
     }),
     route("/claude-poc", ClaudePocPage),
+    route("/claude", ClaudePage),
+    route("/claude/:sessionId", ClaudePage),
     // this will be the container id.
     route("/editor/:containerId", EditorPage),
     route("/editor/:containerId/*", EditorPage),

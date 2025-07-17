@@ -219,20 +219,32 @@ ttyRoutes.post("/exec", async (c) => {
     processOutputs.set(processId, '');
     processStatuses.set(processId, false);
 
-    // Capture output
+    // Capture output with error handling
     claudeShell.onData((data) => {
-      const currentOutput = processOutputs.get(processId) || '';
-      processOutputs.set(processId, currentOutput + data);
+      try {
+        const currentOutput = processOutputs.get(processId) || '';
+        processOutputs.set(processId, currentOutput + data);
+      } catch (error) {
+        // Silently handle data capture errors
+      }
     });
 
-    // Clean up process when it exits
+    // Clean up process when it exits with error handling
     claudeShell.onExit(() => {
-      processStatuses.set(processId, true);
-      setTimeout(() => {
-        activeProcesses.delete(processId);
-        processOutputs.delete(processId);
-        processStatuses.delete(processId);
-      }, 30000); // Keep output available for 30 seconds after exit
+      try {
+        processStatuses.set(processId, true);
+        setTimeout(() => {
+          try {
+            activeProcesses.delete(processId);
+            processOutputs.delete(processId);
+            processStatuses.delete(processId);
+          } catch (error) {
+            // Silently handle cleanup errors
+          }
+        }, 30000); // Keep output available for 30 seconds after exit
+      } catch (error) {
+        // Silently handle exit handling errors
+      }
     });
 
     return c.json({ 
@@ -245,24 +257,6 @@ ttyRoutes.post("/exec", async (c) => {
   }
 });
 
-// Claude status endpoint for polling
-ttyRoutes.get("/status", async (c) => {
-  const processId = c.req.query("processId");
-  
-  if (!processId) {
-    return c.json({ error: "processId is required" }, 400);
-  }
-  
-  const output = processOutputs.get(processId) || '';
-  const finished = processStatuses.get(processId) || false;
-  
-  return c.json({
-    processId,
-    output,
-    finished,
-    exists: activeProcesses.has(processId) || processOutputs.has(processId)
-  });
-});
 
 // Claude output streaming endpoint
 ttyRoutes.get(
@@ -271,33 +265,102 @@ ttyRoutes.get(
     const processId = c.req.query("processId");
     
     return {
-      onOpen: (e, ws) => {
+      onOpen: async (e, ws) => {
         console.log(`WebSocket opened for process ${processId}`);
         
-        if (!processId || !activeProcesses.has(processId)) {
-          console.log(`Process ${processId} not found in active processes`);
-          ws.send(JSON.stringify({ error: "Process not found" }));
+        if (!processId) {
+          console.log(`No processId provided`);
+          ws.send(JSON.stringify({ error: "Process ID is required" }));
           ws.close();
           return;
         }
 
-        const process = activeProcesses.get(processId)!;
-        console.log(`Found process ${processId}, setting up listeners`);
-        
-        process.onData((data) => {
-          console.log(`Process ${processId} data:`, data);
-          ws.send(data);
-        });
+        // Wait for process to be available with retry logic
+        const waitForProcess = async (retries = 20, delay = 100): Promise<pty.IPty | null> => {
+          for (let i = 0; i < retries; i++) {
+            if (activeProcesses.has(processId)) {
+              return activeProcesses.get(processId)!;
+            }
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          return null;
+        };
 
-        process.onExit((exitCode) => {
-          console.log(`Process ${processId} exited with code:`, exitCode);
+        const process = await waitForProcess();
+        if (!process) {
+          ws.send(JSON.stringify({ error: "Process not found or timed out" }));
+          ws.close();
+          return;
+        }
+        
+        // Send any existing output first
+        const existingOutput = processOutputs.get(processId) || '';
+        if (existingOutput) {
+          ws.send(existingOutput);
+        }
+
+        // Set up real-time data streaming with error handling
+        const dataHandler = (data: string) => {
+          try {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(data);
+            }
+          } catch (error) {
+            // Silently handle WebSocket send errors
+          }
+        };
+
+        const exitHandler = (exitCode: any) => {
+          try {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ 
+                type: "exit", 
+                exitCode,
+                message: `Process exited with code ${exitCode?.exitCode || 0}` 
+              }));
+            }
+          } catch (error) {
+            // Silently handle WebSocket send errors
+          }
+          
+          // Clean up listeners safely
+          try {
+            process.off('data', dataHandler);
+            process.off('exit', exitHandler);
+          } catch (error) {
+            // Silently handle cleanup errors
+          }
+          
+          // Close WebSocket safely
+          try {
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.close();
+            }
+          } catch (error) {
+            // Silently handle close errors
+          }
+        };
+
+        // Set up listeners with error handling
+        try {
+          process.onData(dataHandler);
+          process.onExit(exitHandler);
+        } catch (error) {
+          // Handle PTY listener setup errors
+          ws.send(JSON.stringify({ error: "Failed to set up process listeners" }));
+          ws.close();
+          return;
+        }
+
+        // Check if process already finished
+        if (processStatuses.get(processId) === true) {
           ws.send(JSON.stringify({ 
             type: "exit", 
-            exitCode,
-            message: `Process exited with code ${exitCode?.exitCode || 0}` 
+            exitCode: 0,
+            message: "Process already completed" 
           }));
           ws.close();
-        });
+        }
       },
       onMessage: (e, ws) => {
         // Allow sending input to the process if needed
@@ -306,11 +369,11 @@ ttyRoutes.get(
           process.write(e.data.toString());
         }
       },
-      onError: (error) => {
-        console.error("WebSocket error:", error);
+      onError: () => {
+        // WebSocket error handling is done on the client side
       },
-      onClose: (_e, ws) => {
-        console.log(`Claude process output connection closed for ${processId}`);
+      onClose: () => {
+        // Connection closed - cleanup is handled by exit handler
       },
     };
   })
@@ -358,7 +421,7 @@ app.onError((err, c) => {
       error: "Internal Server Error",
       message: "Something went wrong on the server",
     },
-    500
+    500,
   );
 });
 

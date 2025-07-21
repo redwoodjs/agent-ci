@@ -6,19 +6,10 @@ import { ClaudeMessage } from "./ClaudeMessage";
 import { MessageCircle, Loader2, ChevronDown, ImagePlus, Mic, Send, Square } from "lucide-react";
 import { flattenFileTree, FlatFileItem } from "../../editor/functions";
 
-const QUICK_ACTIONS = [
-  { label: "Explain this file", action: "Explain this file" },
-  { label: "Review code", action: "Review this code for potential issues" },
-  { label: "Add tests", action: "Add unit tests for this code" },
-  { label: "Refactor", action: "Suggest refactoring improvements" },
-] as const;
-
 interface ClaudeLayoutProps {
   messages: FormattedMessage[];
   loading: boolean;
   error: string;
-  conversationMode: boolean;
-  setConversationMode: (mode: boolean) => void;
   onExecuteQuery: (query: string) => void;
   onClearMessages: () => void;
   autoExpandTools?: boolean;
@@ -29,8 +20,6 @@ export function ClaudeLayout({
   messages,
   loading,
   error,
-  conversationMode,
-  setConversationMode,
   onExecuteQuery,
   onClearMessages,
   autoExpandTools = false,
@@ -204,39 +193,15 @@ export function ClaudeLayout({
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <div className="p-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
-          <div className="flex items-center justify-between mb-2">
+        <div className="px-6 py-3 border-b border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+          <div className="flex items-center justify-between">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Claude Code</h3>
-            <div className="flex items-center gap-2">
-              <label className="flex items-center gap-1 text-sm text-gray-700 dark:text-gray-300">
-                <input
-                  type="checkbox"
-                  checked={conversationMode}
-                  onChange={(e) => setConversationMode(e.target.checked)}
-                  className="w-4 h-4"
-                />
-                Continue conversation
-              </label>
-              <button
-                onClick={onClearMessages}
-                className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-300"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-
-          {/* Quick Actions */}
-          <div className="flex flex-wrap gap-1 mb-2">
-            {QUICK_ACTIONS.map((action, index) => (
-              <button
-                key={index}
-                onClick={() => setQuery(action.action)}
-                className="px-2 py-1 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-300"
-              >
-                {action.label}
-              </button>
-            ))}
+            <button
+              onClick={onClearMessages}
+              className="px-3 py-1.5 text-sm bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded text-gray-700 dark:text-gray-300"
+            >
+              Clear
+            </button>
           </div>
         </div>
 
@@ -375,7 +340,7 @@ export function ClaudeLayout({
             {/* Model Selector - TODO: Implement functionality */}
             <div className="mt-3 flex justify-start">
               <button className="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200 px-3 py-1 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
-                <span>Claude 3.5 Sonnet</span>
+                <span>Claude 4.0 Sonnet</span>
                 <ChevronDown size={14} />
               </button>
             </div>

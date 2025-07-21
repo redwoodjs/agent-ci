@@ -7,8 +7,6 @@ import { ClaudeLayout } from "./components/ClaudeLayout";
 export function ClaudePage() {
   const {
     messages,
-    conversationMode,
-    setConversationMode,
     authenticated,
     loading,
     error,
@@ -59,8 +57,6 @@ export function ClaudePage() {
       messages={messages}
       loading={loading}
       error={error}
-      conversationMode={conversationMode}
-      setConversationMode={setConversationMode}
       onExecuteQuery={executeClaudeQuery}
       onClearMessages={clearMessages}
       autoExpandTools={autoExpandTools}

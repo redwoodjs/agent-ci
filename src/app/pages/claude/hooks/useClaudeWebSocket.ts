@@ -15,7 +15,6 @@ const WS_CONFIG = {
 
 export function useClaudeWebSocket() {
   const [messages, setMessages] = useState<FormattedMessage[]>([]);
-  const [conversationMode, setConversationMode] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -64,15 +63,9 @@ export function useClaudeWebSocket() {
     setError("");
 
     try {
-      const command = conversationMode
-        ? `claude --continue --output-format stream-json --verbose --print "${query.replace(/"/g, '\\"')}"`
-        : `claude --output-format stream-json --verbose --print "${query.replace(/"/g, '\\"')}"`;
+      const command = `claude --continue --output-format stream-json --verbose --print "${query.replace(/"/g, '\\"')}"`;
 
-      // Only clear messages for new conversations
-      if (!conversationMode) {
-        setMessages([]);
-        messageFormatterRef.current = new MessageFormatter();
-      }
+      // Messages are never cleared automatically - user must click Clear button
       
       // Add user message
       addMessage({
@@ -245,8 +238,6 @@ export function useClaudeWebSocket() {
 
   return {
     messages,
-    conversationMode,
-    setConversationMode,
     authenticated,
     loading,
     error,

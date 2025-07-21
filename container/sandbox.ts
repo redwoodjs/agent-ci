@@ -63,9 +63,9 @@ fsRoutes.get("/list", (c) => {
 
   const fileList: FileInfo[] = files.map((file: fs.Dirent): FileInfo => {
     return {
-      path:
-        "/editor" +
-        path.join(file.parentPath || "", file.name).slice(PROJECT_PATH.length),
+      path: path
+        .join(file.parentPath || "", file.name)
+        .slice(PROJECT_PATH.length),
       name: file.name,
       type: file.isDirectory() ? "directory" : "file",
     };

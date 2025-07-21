@@ -5,7 +5,7 @@ import { Button } from "@/app/components/ui/button";
 
 import { RefreshCcw } from "lucide-react";
 
-export const Preview = () => {
+export const Preview = ({ port }: { port: string }) => {
   const [input, setInput] = useState("/");
   const [src, setSrc] = useState("/");
 
@@ -38,7 +38,7 @@ export const Preview = () => {
         </Button>
       </form>
 
-      <iframe src={`/preview${src}`} className="flex-1" />
+      <iframe src={`/preview/${port}${src}`} className="flex-1" />
     </div>
   );
 };

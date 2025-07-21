@@ -1,12 +1,7 @@
 import { Container } from "@cloudflare/containers";
 import { env } from "cloudflare:workers";
 
-const DEFAULT_PORT = 8910;
-export class RuntimeContainer extends Container {
-  defaultPort = DEFAULT_PORT;
-}
-
-export function fetchContainer(request: Request) {
+export function fetchContainer(request: Request, port: string) {
   let url = new URL(request.url);
 
   const headers = new Headers(request.headers);
@@ -34,7 +29,7 @@ export function fetchContainer(request: Request) {
 
   if (process.env.NODE_ENV === "development") {
     if (url.pathname.startsWith("/preview")) {
-      url.port = DEFAULT_PORT.toString();
+      url.port = port;
       return fetch(url, requestInit);
     } else {
       return fetch(request);

@@ -5,34 +5,36 @@ import { Document } from "@/app/Document";
 import { EditorPage } from "@/app/pages/editor/EditorPage";
 import { TermPage } from "@/app/pages/TermPage";
 import { fetchContainer } from "./container";
-export { RuntimeContainer as Container } from "./container";
-
-import { TestPage } from "@/app/pages/TestPage";
+import { SessionPage } from "./app/pages/session/SessionPage";
 
 export default defineApp([
   render(Document, [
     route("/", () => {
-      return (
-        <div>
-          <h1>Machinen</h1>
-          <p>
-            This is a preview of Machinen, a web-based text editor for
-            RedwoodSDK. Check out the{" "}
-            <a href="/editor" className="text-blue-500 underline">
-              editor!
-            </a>
-          </p>
-        </div>
-      );
+      return <SessionPage />;
     }),
-    route("/editor", EditorPage),
-    route("/editor*", EditorPage),
-    route("/ping", () => new Response("pong")),
+    route("/editor/:port", EditorPage),
+    route("/editor/:port/*", EditorPage),
     route("/term", TermPage),
-    route("/resize", TestPage),
   ]),
 
-  route("/preview*", async ({ request }) => {
-    return fetchContainer(request);
+  route("/preview/:port*", async ({ request, params }) => {
+    // Create a new URL with the modified pathname
+    const url = new URL(request.url);
+    url.pathname = url.pathname.replace(`/preview/${params.port}`, "");
+    url.port = params.port;
+
+    // Create a new Request object with the modified URL
+    const modifiedRequest = new Request(url.toString(), {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      redirect: request.redirect,
+      signal: request.signal,
+    });
+
+    console.log(modifiedRequest.url);
+
+    // Pass the modified request to fetchContainer
+    return fetchContainer(modifiedRequest, params.port);
   }),
 ]);

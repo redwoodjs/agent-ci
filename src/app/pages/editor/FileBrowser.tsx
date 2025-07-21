@@ -17,8 +17,14 @@ import {
 
 // TODO: Add back button
 
-export async function FileBrowser({ pathname }: { pathname: string }) {
-  const files = await getSiblingFiles(pathname);
+export async function FileBrowser({
+  pathname,
+  port,
+}: {
+  pathname: string;
+  port: string;
+}) {
+  const files = await getSiblingFiles({ pathname, port });
   return (
     <SidebarProvider>
       <Sidebar>
@@ -31,7 +37,10 @@ export async function FileBrowser({ pathname }: { pathname: string }) {
                   files.map((file) => (
                     <SidebarMenuItem key={file.path}>
                       <SidebarMenuButton asChild>
-                        <a href={file.path} className="font-weight-bold">
+                        <a
+                          href={`/editor/${port}${file.path}`}
+                          className="font-weight-bold"
+                        >
                           {file.type === "directory" ? (
                             <Folder className="text-blue-500" />
                           ) : (

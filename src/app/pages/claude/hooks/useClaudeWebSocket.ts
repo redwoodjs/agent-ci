@@ -68,9 +68,11 @@ export function useClaudeWebSocket() {
         ? `claude --continue --output-format stream-json --verbose --print "${query.replace(/"/g, '\\"')}"`
         : `claude --output-format stream-json --verbose --print "${query.replace(/"/g, '\\"')}"`;
 
-      // Clear previous messages for new queries and add user message
-      setMessages([]);
-      messageFormatterRef.current = new MessageFormatter();
+      // Only clear messages for new conversations
+      if (!conversationMode) {
+        setMessages([]);
+        messageFormatterRef.current = new MessageFormatter();
+      }
       
       // Add user message
       addMessage({

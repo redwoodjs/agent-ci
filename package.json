@@ -23,7 +23,7 @@
     "prepare": "vibe-rules install cursor"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.0.18",
+    "@cloudflare/containers": "^0.0.24",
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-separator": "^1.1.7",
@@ -37,14 +37,14 @@
     "react-hotkeys-hook": "^5.1.0",
     "react-resizable-panels": "^3.0.3",
     "react-xtermjs": "^1.0.10",
-    "rwsdk": "^0.1.14",
+    "rwsdk": "^0.1.22",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.8",
     "xterm": "^5.3.0",
     "xterm-addon-fit": "^0.8.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "1.9.0",
+    "@cloudflare/vite-plugin": "https://pkg.pr.new/@cloudflare/vite-plugin@9819",
     "@cloudflare/workers-types": "^4.20250407.0",
     "@types/node": "^22.14.0",
     "@types/react": "^19.1.2",
@@ -53,7 +53,7 @@
     "typescript": "^5.8.3",
     "vibe-rules": "^0.2.31",
     "vite": "^6.3.5",
-    "wrangler": "^4.23.0",
+    "wrangler": "https://pkg.pr.new/wrangler@9819",
     "ws": "^8.18.2"
   },
   "pnpm": {

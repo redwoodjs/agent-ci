@@ -4,10 +4,10 @@ import { lazy, Suspense } from "react";
 
 const Term = lazy(() => import("./Term"));
 
-export function LazyTerm({ port }: { port: string }) {
+export function LazyTerm({ containerId }: { containerId: string }) {
   return (
     <Suspense fallback={<div>Loading...</div>}>
-      {/* <Term port={port} /> */}
+      <Term containerId={containerId} />
     </Suspense>
   );
 }

@@ -7,34 +7,39 @@ import { TermPage } from "@/app/pages/TermPage";
 import { fetchContainer } from "./container";
 import { SessionPage } from "./app/pages/session/SessionPage";
 
+export { MachinenContainer } from "./container";
+
 export default defineApp([
   render(Document, [
     route("/", () => {
       return <SessionPage />;
     }),
-    route("/editor/:port", EditorPage),
-    route("/editor/:port/*", EditorPage),
-    route("/term", TermPage),
+    // this will be the container id.
+    route("/editor/:containerId", EditorPage),
+    route("/editor/:containerId/*", EditorPage),
+    route("/term/:containerId", TermPage),
   ]),
 
-  route("/preview/:port*", async ({ request, params }) => {
-    // Create a new URL with the modified pathname
+  route("/preview/:containerId*", async ({ request, params }) => {
+    // remove "preview/:containerId" from the URL
+
     const url = new URL(request.url);
-    url.pathname = url.pathname.replace(`/preview/${params.port}`, "");
-    url.port = params.port;
+    url.pathname = url.pathname.replace(`/preview/${params.containerId}`, "");
 
-    // Create a new Request object with the modified URL
-    const modifiedRequest = new Request(url.toString(), {
-      method: request.method,
-      headers: request.headers,
-      body: request.body,
-      redirect: request.redirect,
-      signal: request.signal,
+    return fetchContainer({
+      id: params.containerId,
+      request: new Request(url, request),
     });
+  }),
 
-    console.log(modifiedRequest.url);
+  route("/tty/:containerId*", async ({ request, params }) => {
+    // Proxy WebSocket requests to the container's TTY endpoint
+    const url = new URL(request.url);
+    url.pathname = url.pathname.replace(`/tty/${params.containerId}`, "/sandbox/tty");
 
-    // Pass the modified request to fetchContainer
-    return fetchContainer(modifiedRequest, params.port);
+    return fetchContainer({
+      id: params.containerId,
+      request: new Request(url, request),
+    });
   }),
 ]);

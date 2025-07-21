@@ -1,4 +1,4 @@
-import { getSiblingFiles } from "./functions";
+import { FileItem, getSiblingFiles } from "./functions";
 
 import { Folder, File } from "lucide-react";
 
@@ -18,13 +18,14 @@ import {
 // TODO: Add back button
 
 export async function FileBrowser({
+  files,
   pathname,
-  port,
+  containerId,
 }: {
+  files: FileItem[];
   pathname: string;
-  port: string;
+  containerId: string;
 }) {
-  const files = await getSiblingFiles({ pathname, port });
   return (
     <SidebarProvider>
       <Sidebar>
@@ -38,7 +39,7 @@ export async function FileBrowser({
                     <SidebarMenuItem key={file.path}>
                       <SidebarMenuButton asChild>
                         <a
-                          href={`/editor/${port}${file.path}`}
+                          href={`/editor/${containerId}${file.path}`}
                           className="font-weight-bold"
                         >
                           {file.type === "directory" ? (

@@ -10,45 +10,50 @@ export interface FileItem {
 
 async function containerFilesFetch(
   pathname: string,
-  port: string,
+  containerId: string,
   action: "/fs/list" | "/fs/read" | "/fs/stat" | "/fs/delete" | "/fs/write",
   fetchOptions: RequestInit = {}
 ) {
-  const url = new URL(`http://localhost:${port}/sandbox` + action);
+  // NOTE: This will become a vite pluging, with __machinen/sandbox
+  const url = new URL(`http://localhost:8910/sandbox` + action);
   url.searchParams.set("pathname", pathname);
 
-  console.log(url);
-
-  const response = await fetchContainer(
-    new Request(url, {
+  const response = await fetchContainer({
+    id: containerId,
+    request: new Request(url, {
       headers: {
         "Content-Type": "application/json",
       },
       ...fetchOptions,
-    })
-  );
+    }),
+  });
+
   return response.json();
 }
 
 export async function getSiblingFiles({
   pathname,
-  port,
+  containerId,
 }: {
   pathname: string;
-  port: string;
+  containerId: string;
 }) {
-  const files = await containerFilesFetch(pathname, port, "/fs/list");
+  const files = await containerFilesFetch(pathname, containerId, "/fs/list");
   return files as FileItem[];
 }
 
 export async function getFile({
   pathname,
-  port,
+  containerId,
 }: {
   pathname: string;
-  port: string;
+  containerId: string;
 }) {
-  const file = (await containerFilesFetch(pathname, port, "/fs/read")) as {
+  const file = (await containerFilesFetch(
+    pathname,
+    containerId,
+    "/fs/read"
+  )) as {
     content: string;
   };
   return file;
@@ -56,12 +61,16 @@ export async function getFile({
 
 export async function fileType({
   pathname,
-  port,
+  containerId,
 }: {
   pathname: string;
-  port: string;
+  containerId: string;
 }) {
-  const { type } = (await containerFilesFetch(pathname, port, "/fs/stat")) as {
+  const { type } = (await containerFilesFetch(
+    pathname,
+    containerId,
+    "/fs/stat"
+  )) as {
     type: "file" | "directory";
   };
   return type;
@@ -70,13 +79,13 @@ export async function fileType({
 export async function saveFile({
   pathname,
   content,
-  port,
+  containerId,
 }: {
   pathname: string;
   content: string;
-  port: string;
+  containerId: string;
 }) {
-  return await containerFilesFetch(pathname, port, "/fs/write", {
+  return await containerFilesFetch(pathname, containerId, "/fs/write", {
     method: "POST",
     body: JSON.stringify({ content }),
   });

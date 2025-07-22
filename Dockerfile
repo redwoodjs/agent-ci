@@ -1,6 +1,7 @@
 FROM node:22-slim
 
-EXPOSE 8910
+EXPOSE 8910/tcp
+EXPOSE 8911/tcp
 
 RUN corepack enable 
 WORKDIR /app

@@ -54,13 +54,13 @@ export const EditorPage = async ({
       <div className="w-full flex flex-col bg-gray-400">
         <div className="flex flex-1">
           <div className="m-2 p-2 w-full rounded bg-white">
-            <Preview containerId={containerId} />
+            {/* <Preview containerId={containerId} /> */}
           </div>
         </div>
 
         <div className="flex h-[400px] overflow-hidden">
           <div className="rounded w-full  m-2 p-2 bg-black">
-            <LazyTerm containerId={containerId} />
+            {/* <LazyTerm containerId={containerId} /> */}
           </div>
         </div>
       </div>

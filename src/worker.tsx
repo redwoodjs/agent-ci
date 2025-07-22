@@ -21,8 +21,6 @@ export default defineApp([
   ]),
 
   route("/preview/:containerId*", async ({ request, params }) => {
-    // remove "preview/:containerId" from the URL
-
     const url = new URL(request.url);
     url.pathname = url.pathname.replace(`/preview/${params.containerId}`, "");
 
@@ -32,14 +30,14 @@ export default defineApp([
     });
   }),
 
-  route("/tty/:containerId*", async ({ request, params }) => {
-    // Proxy WebSocket requests to the container's TTY endpoint
+  route("/tty/:containerId/attach", async ({ request, params }) => {
     const url = new URL(request.url);
-    url.pathname = url.pathname.replace(`/tty/${params.containerId}`, "/sandbox/tty");
+    url.pathname = url.pathname.replace(`/tty/${params.containerId}`, "/tty");
 
-    return fetchContainer({
+    const response = await fetchContainer({
       id: params.containerId,
       request: new Request(url, request),
     });
+    return response;
   }),
 ]);

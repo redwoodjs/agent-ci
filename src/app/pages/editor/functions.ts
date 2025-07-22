@@ -15,7 +15,7 @@ async function containerFilesFetch(
   fetchOptions: RequestInit = {}
 ) {
   // NOTE: This will become a vite pluging, with __machinen/sandbox
-  const url = new URL(`http://localhost:8910/sandbox` + action);
+  const url = new URL(`http://localhost:8911` + action);
   url.searchParams.set("pathname", pathname);
 
   const response = await fetchContainer({

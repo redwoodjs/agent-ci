@@ -21,8 +21,12 @@ export default function Term({ containerId }: { containerId: string }) {
       term.focus();
 
       // Connect to the TTY endpoint through the worker
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const socket = new WebSocket(`${protocol}//${window.location.host}/tty/${containerId}/attach`);
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const url = `/tty/${containerId}/attach`;
+
+      console.log("opening socket");
+      const socket = new WebSocket("ws://localhost:5173" + url);
+
       socket.onerror = (event) => {
         console.log("socket error", event);
       };

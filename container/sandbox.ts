@@ -6,6 +6,7 @@ import { createNodeWebSocket } from "@hono/node-ws";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
+import { secureHeaders } from "hono/secure-headers";
 import * as pty from "@homebridge/node-pty-prebuilt-multiarch";
 
 const PROJECT_PATH: string = process.cwd();
@@ -23,9 +24,22 @@ const { injectWebSocket, upgradeWebSocket } = createNodeWebSocket({ app });
 
 // Middleware
 app.use("*", logger());
-app.use("*", cors());
+app.use("*", cors({ origin: "*" }));
+app.use(
+  "*",
+  secureHeaders({
+    contentSecurityPolicy: {
+      defaultSrc: ["'self'", "ws:", "wss:"],
+      connectSrc: ["'self'", "ws:", "wss:"],
+    },
+  })
+);
 
 // Routes
+
+app.get("/", (c) => {
+  return c.html("<h1>Hello World</h1>");
+});
 
 app.get("/health", (c) => {
   return c.json({
@@ -113,25 +127,36 @@ console.log("shell launched:", shell.pid);
 
 ttyRoutes.get(
   "/attach",
-  upgradeWebSocket((c) => {
-    return {
-      onOpen: (e, ws) => {
-        shell.onData((data) => {
-          ws.send(data);
-        });
-      },
-      onMessage: (e, ws) => {
-        shell.write(e.data.toString());
-      },
+  upgradeWebSocket(
+    () => {
+      console.log("WebSocket upgrade request received");
+
+      return {
+        onOpen: (e, ws) => {
+          console.log("WebSocket opened");
+          shell.onData((data) => {
+            ws.send(data);
+          });
+        },
+        onMessage: (e, ws) => {
+          console.log("WebSocket message received");
+          shell.write(e.data.toString());
+        },
+        onError: (error) => {
+          console.error("WebSocket error:", error);
+        },
+        onClose: (_e, ws) => {
+          console.log("Connection closed");
+          ws.close();
+        },
+      };
+    },
+    {
       onError: (error) => {
         console.error("WebSocket error:", error);
       },
-      onClose: (_e, ws) => {
-        console.log("Connection closed");
-        ws.close();
-      },
-    };
-  })
+    }
+  )
 );
 
 app.route("/tty", ttyRoutes);

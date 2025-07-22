@@ -8,7 +8,7 @@ export default defineConfig({
     ssr: {},
   },
   plugins: [
-    proxyWebSocketPlugin(),
+    // proxyWebSocketPlugin(),
     cloudflare({
       viteEnvironment: { name: "worker" },
     }),

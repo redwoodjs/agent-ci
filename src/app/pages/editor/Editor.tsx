@@ -10,9 +10,11 @@ import { Button } from "@/app/components/ui/button";
 export function Editor({
   pathname,
   initialContent,
+  containerId,
 }: {
   pathname: string;
   initialContent: string;
+  containerId: string;
 }) {
   const [modified, setModified] = useState(false);
   const [content, setContent] = useState(initialContent);
@@ -31,7 +33,7 @@ export function Editor({
 
     setSaving(true);
     try {
-      await saveFile(pathname, contentToSave);
+      await saveFile({ pathname, containerId, content: contentToSave });
       setContent(contentToSave);
 
       // Only update Monaco's ref if this came from button (not from Monaco's own Cmd+S)

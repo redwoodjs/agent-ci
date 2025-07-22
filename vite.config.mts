@@ -2,7 +2,6 @@ import { defineConfig, Plugin, ViteDevServer } from "vite";
 import tailwindcss from "@tailwindcss/vite";
 import { redwood } from "rwsdk/vite";
 import { cloudflare } from "@cloudflare/vite-plugin";
-import { spawn, ChildProcess } from "node:child_process";
 
 export default defineConfig({
   environments: {
@@ -10,7 +9,6 @@ export default defineConfig({
   },
   plugins: [
     proxyWebSocketPlugin(),
-    externalProcessPlugin(),
     cloudflare({
       viteEnvironment: { name: "worker" },
     }),
@@ -54,66 +52,6 @@ function proxyWebSocketPlugin(): Plugin {
             return;
           }
         });
-      }
-    },
-  };
-}
-
-function externalProcessPlugin(): Plugin {
-  let childProcess: ChildProcess | null = null;
-
-  return {
-    name: "external-process",
-    enforce: "pre",
-    configureServer(server: ViteDevServer) {
-      server.middlewares.use("/__machinen/", (req, res, next) => {
-        // I don't want these to be post requests;
-
-        console.log("req.url", req.url);
-
-        if (req.url?.startsWith("/process/start")) {
-          // grab the query params
-          const queryParams = new URLSearchParams(req.url.split("?")[1]);
-          const command = queryParams.get("command");
-
-          console.log("[machinen] running command", command);
-
-          if (!command) {
-            return res.end(
-              JSON.stringify({
-                success: false,
-                error: "query param `command` is required",
-              })
-            );
-          }
-
-          if (childProcess) {
-            childProcess.kill();
-          }
-
-          childProcess = spawn(command, {
-            stdio: "pipe",
-            shell: true,
-          });
-
-          childProcess.on("error", (error) => {
-            console.error("error", error);
-          });
-
-          return res.end(
-            JSON.stringify({ success: true, pid: childProcess.pid })
-          );
-        }
-        next();
-      });
-    },
-    buildStart() {
-      console.log("External process plugin loaded");
-    },
-    buildEnd() {
-      if (childProcess) {
-        childProcess.kill();
-        childProcess = null;
       }
     },
   };

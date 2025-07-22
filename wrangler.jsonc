@@ -14,24 +14,20 @@
     {
       "name": "rwsdk",
       "image": "./Dockerfile",
-      "class_name": "Container",
-      "max_instances": 2,
-      "configuration": {
-        "memory": "4GB",
-        "vcpu": 2
-      }
+      "class_name": "MachinenContainer",
+      "max_instances": 5
     }
   ],
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Container"]
+      "new_sqlite_classes": ["MachinenContainer"]
     }
   ],
   "durable_objects": {
     "bindings": [
       {
-        "class_name": "Container",
+        "class_name": "MachinenContainer",
         "name": "CONTAINER"
       }
     ]

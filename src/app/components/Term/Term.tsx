@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 
 import "xterm/css/xterm.css";
 
-export default function Term() {
+export default function Term({ containerId }: { containerId: string }) {
   const terminalRef = useRef(null);
 
   useEffect(() => {
@@ -20,10 +20,13 @@ export default function Term() {
       fitAddon.fit();
       term.focus();
 
-      // NOTE: (peterp): This is a direct connection to the sandbox, not via the vite proxy.
-      // This is fine because we'll likely be using a different port once containers are supported
-      // in cloudflare-vite plugin.
-      const socket = new WebSocket("ws://localhost:8911/tty/attach");
+      // Connect to the TTY endpoint through the worker
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const url = `/tty/${containerId}/attach`;
+
+      console.log("opening socket");
+      const socket = new WebSocket("ws://localhost:5173" + url);
+
       socket.onerror = (event) => {
         console.log("socket error", event);
       };

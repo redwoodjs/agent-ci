@@ -37,10 +37,6 @@ app.use(
 
 // Routes
 
-app.get("/", (c) => {
-  return c.html("<h1>Hello World</h1>");
-});
-
 app.get("/health", (c) => {
   return c.json({
     status: "ok",

@@ -24,9 +24,34 @@ export default defineApp([
     const url = new URL(request.url);
     url.pathname = url.pathname.replace(`/preview/${params.containerId}`, "");
 
+    const headers = new Headers(request.headers);
+    const internalQuery = url.searchParams.get("__x_internal_query");
+    if (internalQuery) {
+      const originalQuery = decodeURIComponent(internalQuery);
+      url.search = originalQuery ? "?" + originalQuery : "";
+      url.searchParams.delete("__x_internal_query");
+    }
+
+    if (headers.has("x-websocket-protocol")) {
+      console.log(
+        `Renaming 'x-websocket-protocol' to 'sec-websocket-protocol' for ${request.url}`
+      );
+      headers.set(
+        "sec-websocket-protocol",
+        headers.get("x-websocket-protocol")!
+      );
+      headers.delete("x-websocket-protocol");
+    }
+    const requestInit: RequestInit = {
+      method: request.method,
+      body: request.body ? request.body : undefined,
+      redirect: request.redirect,
+    };
+
     return fetchContainer({
       id: params.containerId,
-      request: new Request(url, request),
+      request: new Request(url, requestInit),
+      port: "8910",
     });
   }),
 

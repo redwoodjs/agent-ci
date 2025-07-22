@@ -7,6 +7,7 @@ import { RefreshCcw } from "lucide-react";
 
 export const Preview = ({ containerId }: { containerId: string }) => {
   const [input, setInput] = useState("/");
+  const [refreshing, setRefreshing] = useState(false);
   const [src, setSrc] = useState("/");
 
   const handleGo = (e: React.FormEvent) => {
@@ -21,7 +22,7 @@ export const Preview = ({ containerId }: { containerId: string }) => {
           variant="outline"
           onClick={() => {
             console.log("Refreshing");
-            setSrc(input);
+            setRefreshing(!refreshing);
           }}
         >
           <RefreshCcw />

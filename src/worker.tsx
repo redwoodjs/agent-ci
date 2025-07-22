@@ -90,48 +90,6 @@ export default defineApp([
     return response;
   }),
 
-  route("/api/containers/:containerId/debug", async ({ request, params }) => {
-    const containerId = params.containerId;
-    
-    try {
-      // Test command to see container info
-      const debugCommand = "pwd && ls -la && echo 'CONTAINER_DEBUG_ID:' && hostname";
-      
-      const debugRequest = new Request(`http://localhost:8911/tty/exec`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ command: debugCommand }),
-      });
-
-      const response = await fetchContainer({
-        id: containerId,
-        request: debugRequest,
-      });
-
-      if (!response.ok) {
-        throw new Error(`Debug failed: ${response.status}`);
-      }
-
-      const result = await response.text();
-      console.log(`🔍 CONTAINER DEBUG for ${containerId}:`, result);
-      
-      return new Response(JSON.stringify({ 
-        containerId,
-        debugOutput: result 
-      }), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-    } catch (error) {
-      console.error(`❌ DEBUG FAILED for container ${containerId}:`, error);
-      return new Response(JSON.stringify({ 
-        error: "Debug failed",
-        details: error instanceof Error ? error.message : "Unknown error"
-      }), {
-        status: 500,
-        headers: { 'Content-Type': 'application/json' }
-      });
-    }
-  }),
 
   // OAuth routes
   route("/api/auth/claude/login", async ({ request }) => {
@@ -316,9 +274,6 @@ export default defineApp([
     try {
       // Forward the TTY exec request to the specific container
       const body = await request.text();
-      const command = JSON.parse(body).command;
-      
-      console.log(`🚀 CLAUDE EXEC DEBUG: Container ${containerId}, Command: ${command}`);
       
       const ttyRequest = new Request(`http://localhost:8911/tty/exec`, {
         method: 'POST',
@@ -337,12 +292,11 @@ export default defineApp([
       }
 
       const result = await response.text();
-      console.log(`✅ CLAUDE EXEC SUCCESS: Container ${containerId}`);
       return new Response(result, {
         headers: { 'Content-Type': 'application/json' }
       });
     } catch (error) {
-      console.error(`❌ CLAUDE EXEC FAILED: Container ${containerId}:`, error);
+      console.error('Failed to execute TTY command in container:', error);
       return new Response(JSON.stringify({ 
         error: "Failed to execute command in container",
         details: error instanceof Error ? error.message : "Unknown error"

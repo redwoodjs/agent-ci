@@ -208,9 +208,6 @@ ttyRoutes.post("/exec", async (c) => {
     // Create a new PTY process for this command
     const processId = `process_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    console.log(`🔧 SANDBOX DEBUG: Executing command in CWD: ${PROJECT_PATH}`);
-    console.log(`🔧 SANDBOX DEBUG: Command: ${command}`);
-    
     const claudeShell = pty.spawn("bash", ["-c", command], {
       name: "xterm-color",
       cols: 80,

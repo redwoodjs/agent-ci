@@ -4,9 +4,8 @@ import { Document } from "@/app/Document";
 
 import { EditorPage } from "@/app/pages/editor/EditorPage";
 import { TermPage } from "@/app/pages/TermPage";
-import { ClaudePocPage } from "@/app/pages/claude-poc/ClaudePocPage";
 import { ClaudePage } from "@/app/pages/claude/ClaudePage";
-import { fetchContainer } from "./container";
+import { fetchContainer, listContainers, startNewContainer } from "./container";
 import { SessionPage } from "./app/pages/session/SessionPage";
 import { 
   generateOAuthURL, 
@@ -22,7 +21,6 @@ export default defineApp([
     route("/", () => {
       return <SessionPage />;
     }),
-    route("/claude-poc", ClaudePocPage),
     route("/claude", ClaudePage),
     route("/claude/:containerId", ClaudePage),
     // this will be the container id.
@@ -305,5 +303,38 @@ export default defineApp([
         headers: { 'Content-Type': 'application/json' }
       });
     }
+  }),
+
+  // Container management routes
+  route("/api/containers", async ({ request }) => {
+    if (request.method === 'GET') {
+      const containers = listContainers();
+      return new Response(JSON.stringify({ containers }), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
+    if (request.method === 'POST') {
+      try {
+        const container = startNewContainer();
+        const containerId = container.id;
+        return new Response(JSON.stringify({ 
+          success: true, 
+          containerId: containerId 
+        }), {
+          headers: { 'Content-Type': 'application/json' }
+        });
+      } catch (error) {
+        return new Response(JSON.stringify({ 
+          error: "Failed to create container",
+          details: error instanceof Error ? error.message : "Unknown error"
+        }), {
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+    
+    return new Response('Method not allowed', { status: 405 });
   }),
 ]);

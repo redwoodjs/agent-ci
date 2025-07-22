@@ -3,8 +3,9 @@
 import { useState, useEffect, useRef } from "react";
 import { FormattedMessage } from "../utils/messageFormatting";
 import { ClaudeMessage } from "./ClaudeMessage";
-import { MessageCircle, Loader2, ChevronDown, ImagePlus, Mic, Send, Square } from "lucide-react";
+import { MessageCircle, Loader2, ChevronDown, ImagePlus, Mic, Send, Square, Plus, Users } from "lucide-react";
 import { flattenFileTree, FlatFileItem } from "../../editor/functions";
+import { useContainers } from "../hooks/useContainers";
 
 interface ClaudeLayoutProps {
   containerId: string;
@@ -39,6 +40,10 @@ export function ClaudeLayout({
   const [selectedFileIndex, setSelectedFileIndex] = useState(-1);
   const [cursorPosition, setCursorPosition] = useState(0);
   const [atSymbolPosition, setAtSymbolPosition] = useState(-1);
+  
+  // Container management
+  const { containers, loading: containersLoading, refetch: refetchContainers } = useContainers();
+  const [creatingContainer, setCreatingContainer] = useState(false);
 
   useEffect(() => {
     // Auto-scroll to bottom when messages change
@@ -124,6 +129,31 @@ export function ClaudeLayout({
     }
   };
 
+  const createNewContainer = async () => {
+    setCreatingContainer(true);
+    try {
+      const response = await fetch("/api/containers", {
+        method: "POST",
+      });
+      const data = await response.json();
+      
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to create container");
+      }
+      
+      // Refresh container list
+      await refetchContainers();
+      
+      // Navigate to the new container
+      window.location.href = `/claude/${data.containerId}`;
+    } catch (error) {
+      console.error("Failed to create container:", error);
+      alert("Failed to create new container");
+    } finally {
+      setCreatingContainer(false);
+    }
+  };
+
   const handleSubmit = () => {
     if (query.trim()) {
       onExecuteQuery(query);
@@ -183,12 +213,68 @@ export function ClaudeLayout({
         </div>
         
         <div className="flex-1 p-4">
-          <button className="w-full px-4 py-2 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded font-medium text-gray-900 dark:text-white">
-            New Session
+          {/* New Container Button */}
+          <button 
+            onClick={createNewContainer}
+            disabled={creatingContainer}
+            className="w-full px-4 py-2 mb-4 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-400 text-white rounded font-medium flex items-center justify-center gap-2"
+          >
+            {creatingContainer ? (
+              <Loader2 size={16} className="animate-spin" />
+            ) : (
+              <Plus size={16} />
+            )}
+            {creatingContainer ? "Creating..." : "New Container"}
           </button>
           
-          <div className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-            <p>Session history will be available in Phase 4</p>
+          {/* Containers List */}
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <Users size={16} />
+              Containers
+            </div>
+            
+            {containersLoading ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 size={16} className="animate-spin text-gray-400" />
+                <span className="ml-2 text-sm text-gray-500">Loading containers...</span>
+              </div>
+            ) : containers.length === 0 ? (
+              <div className="text-sm text-gray-500 dark:text-gray-400 py-2 text-center">
+                No containers found
+              </div>
+            ) : (
+              containers.map((containerName) => (
+                <div 
+                  key={containerName}
+                  className={`p-3 rounded-lg border transition-colors cursor-pointer ${
+                    containerName === containerId 
+                      ? "bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700 text-blue-700 dark:text-blue-300" 
+                      : "bg-gray-50 dark:bg-gray-700 border-gray-200 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300"
+                  }`}
+                  onClick={() => {
+                    if (containerName !== containerId) {
+                      window.location.href = `/claude/${containerName}`;
+                    }
+                  }}
+                >
+                  <div className="font-mono text-xs truncate">
+                    {containerName}
+                  </div>
+                  {containerName === containerId && (
+                    <div className="text-xs mt-1 opacity-75">
+                      Current session
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+          </div>
+          
+          <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <div className="text-sm text-gray-500 dark:text-gray-400">
+              <p>Session history will be available in Phase 4</p>
+            </div>
           </div>
         </div>
       </div>

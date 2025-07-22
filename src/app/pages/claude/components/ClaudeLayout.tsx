@@ -7,6 +7,7 @@ import { MessageCircle, Loader2, ChevronDown, ImagePlus, Mic, Send, Square } fro
 import { flattenFileTree, FlatFileItem } from "../../editor/functions";
 
 interface ClaudeLayoutProps {
+  containerId: string;
   messages: FormattedMessage[];
   loading: boolean;
   error: string;
@@ -17,6 +18,7 @@ interface ClaudeLayoutProps {
 }
 
 export function ClaudeLayout({
+  containerId,
   messages,
   loading,
   error,
@@ -45,18 +47,19 @@ export function ClaudeLayout({
     }
   }, [messages]);
 
-  // Load file list on mount
+  // Load file list on mount - now with container ID
   useEffect(() => {
     const loadFiles = async () => {
       try {
-        const files = await flattenFileTree("/");
+        const files = await flattenFileTree("/", containerId);
         setFileList(files);
       } catch (error) {
         console.warn("Could not load file list:", error);
+        setFileList([]); // Clear files on error
       }
     };
     loadFiles();
-  }, []);
+  }, [containerId]);
 
   // @ mention detection and file filtering
   useEffect(() => {

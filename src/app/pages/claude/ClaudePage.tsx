@@ -4,7 +4,9 @@ import { useState, useEffect } from "react";
 import { useClaudeWebSocket } from "./hooks/useClaudeWebSocket";
 import { ClaudeLayout } from "./components/ClaudeLayout";
 
-export function ClaudePage() {
+export function ClaudePage({ params }: { params: { containerId: string } }) {
+  const containerId = params.containerId;
+  
   const {
     messages,
     authenticated,
@@ -12,7 +14,7 @@ export function ClaudePage() {
     error,
     executeClaudeQuery,
     clearMessages,
-  } = useClaudeWebSocket();
+  } = useClaudeWebSocket(containerId);
   
   // Settings for tool display - initialize safely for SSR
   const [autoExpandTools, setAutoExpandTools] = useState(false);
@@ -54,6 +56,7 @@ export function ClaudePage() {
 
   return (
     <ClaudeLayout
+      containerId={containerId}
       messages={messages}
       loading={loading}
       error={error}

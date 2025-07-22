@@ -13,7 +13,7 @@ const WS_CONFIG = {
   RETRY_DELAY_BASE_MS: 1000,
 } as const;
 
-export function useClaudeWebSocket() {
+export function useClaudeWebSocket(containerId: string) {
   const [messages, setMessages] = useState<FormattedMessage[]>([]);
   const [authenticated, setAuthenticated] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -41,8 +41,34 @@ export function useClaudeWebSocket() {
       const response = await fetch("/api/auth/status");
       const status: AuthStatus = await response.json();
       setAuthenticated(status.authenticated);
+      
+      // If authenticated, ensure credentials are set up in container
+      if (status.authenticated && status.expires_at) {
+        await setupContainerCredentials(status.expires_at);
+      }
     } catch (err) {
       setError("Failed to check authentication status");
+    }
+  };
+
+  const setupContainerCredentials = async (expiresAt: number) => {
+    try {
+      // Send credentials to the specific container using the new endpoint
+      const credentialsResponse = await fetch(`/api/containers/${containerId}/setup-credentials`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      if (!credentialsResponse.ok) {
+        const error = await credentialsResponse.json();
+        throw new Error(error.details || "Failed to set up container credentials");
+      }
+      
+      const result = await credentialsResponse.json();
+      console.log("Container credentials set up successfully:", result);
+    } catch (err) {
+      console.warn("Failed to set up container credentials:", err);
+      // Don't set error state as this might not be critical for all operations
     }
   };
 
@@ -75,8 +101,8 @@ export function useClaudeWebSocket() {
         timestamp: new Date().toISOString(),
       });
 
-      // Execute command via new TTY exec endpoint
-      const response = await fetch("/sandbox/tty/exec", {
+      // Execute command via container-specific TTY exec endpoint
+      const response = await fetch(`/api/containers/${containerId}/tty/exec`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ command }),
@@ -112,9 +138,9 @@ export function useClaudeWebSocket() {
     let hasInit = false;
     let buffer = "";
 
-    // Determine WebSocket URL - connect directly to container port for WebSocket
+    // Determine WebSocket URL - use container-specific routing
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//localhost:${WS_CONFIG.CONTAINER_PORT}/tty/output?processId=${processId}`;
+    const wsUrl = `${protocol}//${window.location.host}/api/containers/${containerId}/tty/output?processId=${processId}`;
 
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;

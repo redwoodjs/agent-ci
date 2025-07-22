@@ -97,12 +97,12 @@ export interface FlatFileItem {
   relativePath: string;
 }
 
-async function getAllFiles(basePath: string, currentPath: string = ""): Promise<FlatFileItem[]> {
+async function getAllFiles(basePath: string, containerId: string, currentPath: string = ""): Promise<FlatFileItem[]> {
   const files: FlatFileItem[] = [];
   const fullPath = basePath + currentPath;
   
   try {
-    const items = await getSiblingFiles(fullPath);
+    const items = await getSiblingFiles({ pathname: fullPath, containerId });
     
     for (const item of items) {
       const itemPath = currentPath + "/" + item.name;
@@ -118,7 +118,7 @@ async function getAllFiles(basePath: string, currentPath: string = ""): Promise<
         // Recursively get files from subdirectories (limit depth for performance)
         const depth = itemPath.split("/").length;
         if (depth < 5) { // Limit to 5 levels deep
-          const subFiles = await getAllFiles(basePath, itemPath);
+          const subFiles = await getAllFiles(basePath, containerId, itemPath);
           files.push(...subFiles);
         }
       }
@@ -131,8 +131,8 @@ async function getAllFiles(basePath: string, currentPath: string = ""): Promise<
   return files;
 }
 
-export async function flattenFileTree(basePath: string = "/"): Promise<FlatFileItem[]> {
-  const files = await getAllFiles(basePath);
+export async function flattenFileTree(basePath: string = "/", containerId: string): Promise<FlatFileItem[]> {
+  const files = await getAllFiles(basePath, containerId);
   
   // Filter out common directories to ignore
   const filtered = files.filter(file => {

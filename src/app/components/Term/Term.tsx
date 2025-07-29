@@ -26,7 +26,6 @@ export default function Term({ containerId }: { containerId: string }) {
 
       console.log("opening socket");
       const socket = new WebSocket("ws://localhost:5173" + url);
-
       socket.onerror = (event) => {
         console.log("socket error", event);
       };

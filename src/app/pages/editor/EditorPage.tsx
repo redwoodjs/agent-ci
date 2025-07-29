@@ -35,7 +35,9 @@ export const EditorPage = async ({
   return (
     <div className="h-screen flex bg-gray-800">
       <title>{pathname}</title>
-      <div>
+      
+      {/* File Browser - Left Panel */}
+      <div className="w-64 border-r border-gray-700">
         <FileBrowser
           files={files}
           pathname={pathname}
@@ -43,7 +45,8 @@ export const EditorPage = async ({
         />
       </div>
 
-      <div className="h-screen min-w-[800px]">
+      {/* Code Editor - Center Panel */}
+      <div className="flex-1 min-w-[400px]">
         <Editor
           pathname={pathname}
           containerId={containerId}
@@ -51,15 +54,19 @@ export const EditorPage = async ({
           key={pathname}
         />
       </div>
-      <div className="w-full flex flex-col bg-gray-400">
-        <div className="flex flex-1">
-          <div className="m-2 p-2 w-full rounded bg-white">
+      
+      {/* Right Side - Preview and Terminal */}
+      <div className="w-96 flex flex-col border-l border-gray-700">
+        {/* Top Right - Preview */}
+        <div className="flex-1 border-b border-gray-700">
+          <div className="h-full m-2 p-2 bg-white rounded">
             <Preview containerId={containerId} />
           </div>
         </div>
 
-        <div className="flex h-[400px] overflow-hidden">
-          <div className="rounded w-full  m-2 p-2 bg-black">
+        {/* Bottom Right - Terminal */}
+        <div className="h-96">
+          <div className="h-full m-2 p-2 bg-black rounded">
             <LazyTerm containerId={containerId} />
           </div>
         </div>

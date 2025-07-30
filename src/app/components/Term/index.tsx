@@ -7,7 +7,7 @@ const Term = lazy(() => import("./Term"));
 export function LazyTerm({ containerId }: { containerId: string }) {
   return (
     <Suspense fallback={<div>Loading...</div>}>
-      <Term containerId={containerId} />
+      {/* <Term containerId={containerId} /> */}
     </Suspense>
   );
 }

@@ -4,8 +4,6 @@
 
 _Note: This is a preview, it does not ship to production yet. (But should by 01-August-2025.)_
 
-We're waiting for this issue to land: https://github.com/cloudflare/workers-sdk/issues/9793
-
 ## What is Machinen?
 
 ![Machinen Application](./machinen-screenshot.png)
@@ -22,29 +20,16 @@ pnpm install
 pnpm dev
 ```
 
-Then in another terminal, you can "emulate the Docker instance:"
-
-(Whilst we wait for Container support in Cloudflare's Vite Plugin.)
-
-```bash
-cd container
-pnpm install
-pnpm dev:all
-```
-
 ## TODO
 
-- [ ] Integrate Claude Code, later Cloudflare agents.
-- [ ] Persist changes outside of Container: Sync to GitHub or Cloudflare R2.
 - [ ] RAG the code.
 - [ ] Reduce container size: Currently 1GB.
-- [ ] When building the container use the latest RWSDK.
+- [ ] Queue of tasks to complete to boot the container.
 
 ## Shortcomings
 
 - Our editor is complete trash. We will improve it.
   - We want you to be able to directly communicate with the container via VSCode Dev Containers.
-- Changes are not yet persisted. They will either save to GitHub or R2 or both.
 
 ## Licensing
 

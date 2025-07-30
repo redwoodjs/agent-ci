@@ -23,7 +23,7 @@
     "prepare": "vibe-rules install cursor"
   },
   "dependencies": {
-    "@cloudflare/containers": "^0.0.24",
+    "@cloudflare/containers": "^0.0.25",
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-separator": "^1.1.7",
@@ -45,7 +45,7 @@
     "xterm-addon-fit": "^0.8.0"
   },
   "devDependencies": {
-    "@cloudflare/vite-plugin": "https://pkg.pr.new/@cloudflare/vite-plugin@9819",
+    "@cloudflare/vite-plugin": "^1.10.2",
     "@cloudflare/workers-types": "^4.20250407.0",
     "@types/node": "^22.14.0",
     "@types/react": "^19.1.2",

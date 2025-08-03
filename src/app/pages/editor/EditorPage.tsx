@@ -60,7 +60,7 @@ export const EditorPage = async ({
         {/* Top Right - Preview */}
         <div className="flex-1 border-b border-gray-700">
           <div className="h-full m-2 p-2 bg-white rounded">
-            {/* <Preview containerId={containerId} /> */}
+            <Preview containerId={containerId} />
           </div>
         </div>
 

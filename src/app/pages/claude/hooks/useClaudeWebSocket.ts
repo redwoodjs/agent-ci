@@ -41,7 +41,7 @@ export function useClaudeWebSocket(containerId: string) {
       const response = await fetch("/api/auth/status");
       const status: AuthStatus = await response.json();
       setAuthenticated(status.authenticated);
-      
+
       // If authenticated, ensure credentials are set up in container
       if (status.authenticated && status.expires_at) {
         await setupContainerCredentials(status.expires_at);
@@ -54,16 +54,21 @@ export function useClaudeWebSocket(containerId: string) {
   const setupContainerCredentials = async (expiresAt: number) => {
     try {
       // Send credentials to the specific container using the new endpoint
-      const credentialsResponse = await fetch(`/api/containers/${containerId}/setup-credentials`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-      
+      const credentialsResponse = await fetch(
+        `/api/containers/${containerId}/setup-credentials`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        }
+      );
+
       if (!credentialsResponse.ok) {
         const error = await credentialsResponse.json();
-        throw new Error(error.details || "Failed to set up container credentials");
+        throw new Error(
+          error.details || "Failed to set up container credentials"
+        );
       }
-      
+
       const result = await credentialsResponse.json();
       console.log("Container credentials set up successfully:", result);
     } catch (err) {
@@ -89,10 +94,13 @@ export function useClaudeWebSocket(containerId: string) {
     setError("");
 
     try {
-      const command = `claude --continue --output-format stream-json --verbose --print "${query.replace(/"/g, '\\"')}"`;
+      const command = `claude --continue --model sonnet --output-format stream-json --verbose --print "${query.replace(
+        /"/g,
+        '\\"'
+      )}"`;
 
       // Messages are never cleared automatically - user must click Clear button
-      
+
       // Add user message
       addMessage({
         id: `user-${Date.now()}`,
@@ -119,7 +127,9 @@ export function useClaudeWebSocket(containerId: string) {
       connectToWebSocket(processId);
     } catch (err) {
       setError(
-        `Failed to execute Claude query: ${err instanceof Error ? err.message : "Unknown error"}`,
+        `Failed to execute Claude query: ${
+          err instanceof Error ? err.message : "Unknown error"
+        }`
       );
       setLoading(false);
     }
@@ -146,7 +156,9 @@ export function useClaudeWebSocket(containerId: string) {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      addMessage(messageFormatterRef.current.createConnectionMessage("connected"));
+      addMessage(
+        messageFormatterRef.current.createConnectionMessage("connected")
+      );
     };
 
     const handleExitMessage = (message: ExitMessage) => {
@@ -154,7 +166,11 @@ export function useClaudeWebSocket(containerId: string) {
         typeof message.exitCode === "object"
           ? message.exitCode?.exitCode || 0
           : message.exitCode || 0;
-      addMessage(messageFormatterRef.current.createSystemMessage(`[Process completed with code ${exitCode}]`));
+      addMessage(
+        messageFormatterRef.current.createSystemMessage(
+          `[Process completed with code ${exitCode}]`
+        )
+      );
       setLoading(false);
       // Don't trigger reconnection for normal exit
       wsRef.current = null;
@@ -188,7 +204,11 @@ export function useClaudeWebSocket(containerId: string) {
           const jsonMessage = JSON.parse(line) as ClaudeMessage;
 
           // Create unique identifier for this message to avoid duplicates
-          const messageId = `${jsonMessage.type}-${jsonMessage.session_id}-${JSON.stringify(jsonMessage.message?.content || "")}-${jsonMessage.subtype || ""}`;
+          const messageId = `${jsonMessage.type}-${
+            jsonMessage.session_id
+          }-${JSON.stringify(jsonMessage.message?.content || "")}-${
+            jsonMessage.subtype || ""
+          }`;
 
           if (seenMessages.has(messageId)) {
             continue; // Skip duplicates
@@ -196,7 +216,8 @@ export function useClaudeWebSocket(containerId: string) {
           seenMessages.add(messageId);
 
           // Use MessageFormatter to convert to structured message
-          const formattedMessage = messageFormatterRef.current.formatMessage(jsonMessage);
+          const formattedMessage =
+            messageFormatterRef.current.formatMessage(jsonMessage);
           if (formattedMessage) {
             addMessage(formattedMessage);
           }
@@ -244,7 +265,9 @@ export function useClaudeWebSocket(containerId: string) {
         addMessage(
           messageFormatterRef.current.createConnectionMessage(
             "connecting",
-            `Connection lost, retrying... (${retryCount + 1}/${WS_CONFIG.MAX_RETRIES + 1})`
+            `Connection lost, retrying... (${retryCount + 1}/${
+              WS_CONFIG.MAX_RETRIES + 1
+            })`
           )
         );
         setTimeout(() => {
@@ -253,7 +276,9 @@ export function useClaudeWebSocket(containerId: string) {
       } else {
         // Max retries exceeded
         setError(
-          `WebSocket connection failed after ${WS_CONFIG.MAX_RETRIES + 1} attempts (final code: ${event.code})`,
+          `WebSocket connection failed after ${
+            WS_CONFIG.MAX_RETRIES + 1
+          } attempts (final code: ${event.code})`
         );
         setLoading(false);
       }

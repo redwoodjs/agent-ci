@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "machinen",
   "main": "src/worker.tsx",
-  "compatibility_date": "2025-06-18",
+  "compatibility_date": "2025-07-29",
   "compatibility_flags": ["nodejs_compat"],
   "assets": {
     "binding": "ASSETS"

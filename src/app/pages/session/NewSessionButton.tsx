@@ -1,14 +1,13 @@
 "use client";
 
-import { startNewSession } from "./functions";
+import { newInstance } from "./functions";
 
-export function NewSessionButton() {
+export function NewInstanceButton() {
   return (
     <button
       className="bg-blue-500 text-white p-2 rounded-md"
       onClick={async () => {
-        // this will create a new container.
-        await startNewSession();
+        await newInstance();
       }}
     >
       Start a new session

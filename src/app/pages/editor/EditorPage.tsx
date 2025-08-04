@@ -35,7 +35,7 @@ export const EditorPage = async ({
   return (
     <div className="h-screen flex bg-gray-800">
       <title>{pathname}</title>
-      
+
       {/* File Browser - Left Panel */}
       <div className="w-64 border-r border-gray-700">
         <FileBrowser
@@ -54,7 +54,7 @@ export const EditorPage = async ({
           key={pathname}
         />
       </div>
-      
+
       {/* Right Side - Preview and Terminal */}
       <div className="w-96 flex flex-col border-l border-gray-700">
         {/* Top Right - Preview */}

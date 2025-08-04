@@ -29,26 +29,30 @@ interface ClaudeCredentials {
   };
 }
 
-function createClaudeCredentials(accessToken: string, refreshToken: string, expiresAt: number) {
+function createClaudeCredentials(
+  accessToken: string,
+  refreshToken: string,
+  expiresAt: number
+) {
   const credentials: ClaudeCredentials = {
     claudeAiOauth: {
       accessToken,
       refreshToken,
       expiresAt,
-      scopes: ["org:create_api_key", "user:profile", "user:inference"]
-    }
+      scopes: ["org:create_api_key", "user:profile", "user:inference"],
+    },
   };
 
   // Create .claude directory if it doesn't exist
-  const claudeDir = path.join(homedir(), '.claude');
+  const claudeDir = path.join(homedir(), ".claude");
   if (!fs.existsSync(claudeDir)) {
     fs.mkdirSync(claudeDir, { recursive: true });
   }
 
   // Write credentials file
-  const credentialsPath = path.join(claudeDir, '.credentials.json');
+  const credentialsPath = path.join(claudeDir, ".credentials.json");
   fs.writeFileSync(credentialsPath, JSON.stringify(credentials, null, 2));
-  
+
   console.log(`Claude credentials written to: ${credentialsPath}`);
   return credentialsPath;
 }
@@ -72,7 +76,7 @@ app.use(
 
 // Routes
 
-app.get("/health", (c) => {
+app.get("/", (c) => {
   return c.json({
     status: "ok",
     uptime: process.uptime(),
@@ -156,7 +160,6 @@ const shell = pty.spawn("bash", [], {
 
 console.log("shell launched:", shell.pid);
 
-
 ttyRoutes.get(
   "/attach",
   upgradeWebSocket(
@@ -200,14 +203,16 @@ const processStatuses = new Map<string, boolean>();
 ttyRoutes.post("/exec", async (c) => {
   try {
     const { command } = await c.req.json();
-    
+
     if (!command) {
       return c.json({ error: "Command is required" }, 400);
     }
 
     // Create a new PTY process for this command
-    const processId = `process_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+    const processId = `process_${Date.now()}_${Math.random()
+      .toString(36)
+      .substr(2, 9)}`;
+
     const claudeShell = pty.spawn("bash", ["-c", command], {
       name: "xterm-color",
       cols: 80,
@@ -217,13 +222,13 @@ ttyRoutes.post("/exec", async (c) => {
     });
 
     activeProcesses.set(processId, claudeShell);
-    processOutputs.set(processId, '');
+    processOutputs.set(processId, "");
     processStatuses.set(processId, false);
 
     // Capture output with error handling
     claudeShell.onData((data) => {
       try {
-        const currentOutput = processOutputs.get(processId) || '';
+        const currentOutput = processOutputs.get(processId) || "";
         processOutputs.set(processId, currentOutput + data);
       } catch (error) {
         // Silently handle data capture errors
@@ -248,9 +253,9 @@ ttyRoutes.post("/exec", async (c) => {
       }
     });
 
-    return c.json({ 
+    return c.json({
       processId,
-      message: "Command execution started" 
+      message: "Command execution started",
     });
   } catch (error) {
     console.error("Error executing command:", error);
@@ -258,17 +263,16 @@ ttyRoutes.post("/exec", async (c) => {
   }
 });
 
-
 // Claude output streaming endpoint
 ttyRoutes.get(
   "/output",
   upgradeWebSocket((c) => {
     const processId = c.req.query("processId");
-    
+
     return {
       onOpen: async (e, ws) => {
         console.log(`WebSocket opened for process ${processId}`);
-        
+
         if (!processId) {
           console.log(`No processId provided`);
           ws.send(JSON.stringify({ error: "Process ID is required" }));
@@ -277,12 +281,15 @@ ttyRoutes.get(
         }
 
         // Wait for process to be available with retry logic
-        const waitForProcess = async (retries = 20, delay = 100): Promise<pty.IPty | null> => {
+        const waitForProcess = async (
+          retries = 20,
+          delay = 100
+        ): Promise<pty.IPty | null> => {
           for (let i = 0; i < retries; i++) {
             if (activeProcesses.has(processId)) {
               return activeProcesses.get(processId)!;
             }
-            await new Promise(resolve => setTimeout(resolve, delay));
+            await new Promise((resolve) => setTimeout(resolve, delay));
           }
           return null;
         };
@@ -293,9 +300,9 @@ ttyRoutes.get(
           ws.close();
           return;
         }
-        
+
         // Send any existing output first
-        const existingOutput = processOutputs.get(processId) || '';
+        const existingOutput = processOutputs.get(processId) || "";
         if (existingOutput) {
           ws.send(existingOutput);
         }
@@ -314,24 +321,28 @@ ttyRoutes.get(
         const exitHandler = (exitCode: any) => {
           try {
             if (ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ 
-                type: "exit", 
-                exitCode,
-                message: `Process exited with code ${exitCode?.exitCode || 0}` 
-              }));
+              ws.send(
+                JSON.stringify({
+                  type: "exit",
+                  exitCode,
+                  message: `Process exited with code ${
+                    exitCode?.exitCode || 0
+                  }`,
+                })
+              );
             }
           } catch (error) {
             // Silently handle WebSocket send errors
           }
-          
+
           // Clean up listeners safely
           try {
-            process.off('data', dataHandler);
-            process.off('exit', exitHandler);
+            process.off("data", dataHandler);
+            process.off("exit", exitHandler);
           } catch (error) {
             // Silently handle cleanup errors
           }
-          
+
           // Close WebSocket safely
           try {
             if (ws.readyState === WebSocket.OPEN) {
@@ -348,18 +359,22 @@ ttyRoutes.get(
           process.onExit(exitHandler);
         } catch (error) {
           // Handle PTY listener setup errors
-          ws.send(JSON.stringify({ error: "Failed to set up process listeners" }));
+          ws.send(
+            JSON.stringify({ error: "Failed to set up process listeners" })
+          );
           ws.close();
           return;
         }
 
         // Check if process already finished
         if (processStatuses.get(processId) === true) {
-          ws.send(JSON.stringify({ 
-            type: "exit", 
-            exitCode: 0,
-            message: "Process already completed" 
-          }));
+          ws.send(
+            JSON.stringify({
+              type: "exit",
+              exitCode: 0,
+              message: "Process already completed",
+            })
+          );
           ws.close();
         }
       },
@@ -386,17 +401,21 @@ app.route("/tty", ttyRoutes);
 app.post("/claude/credentials", async (c) => {
   try {
     const { accessToken, refreshToken, expiresAt } = await c.req.json();
-    
+
     if (!accessToken || !refreshToken || !expiresAt) {
       return c.json({ error: "Missing required fields" }, 400);
     }
-    
-    const credentialsPath = createClaudeCredentials(accessToken, refreshToken, expiresAt);
-    
-    return c.json({ 
-      success: true, 
+
+    const credentialsPath = createClaudeCredentials(
+      accessToken,
+      refreshToken,
+      expiresAt
+    );
+
+    return c.json({
+      success: true,
       credentialsPath,
-      message: "Claude credentials created successfully" 
+      message: "Claude credentials created successfully",
     });
   } catch (error) {
     console.error("Error creating Claude credentials:", error);
@@ -422,7 +441,7 @@ app.onError((err, c) => {
       error: "Internal Server Error",
       message: "Something went wrong on the server",
     },
-    500,
+    500
   );
 });
 

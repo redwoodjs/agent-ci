@@ -19,7 +19,7 @@ async function containerFilesFetch(
   url.searchParams.set("pathname", pathname);
 
   const response = await fetchContainer({
-    id: containerId,
+    containerId,
     request: new Request(url, {
       headers: {
         "Content-Type": "application/json",
@@ -97,17 +97,21 @@ export interface FlatFileItem {
   relativePath: string;
 }
 
-async function getAllFiles(basePath: string, containerId: string, currentPath: string = ""): Promise<FlatFileItem[]> {
+async function getAllFiles(
+  basePath: string,
+  containerId: string,
+  currentPath: string = ""
+): Promise<FlatFileItem[]> {
   const files: FlatFileItem[] = [];
   const fullPath = basePath + currentPath;
-  
+
   try {
     const items = await getSiblingFiles({ pathname: fullPath, containerId });
-    
+
     for (const item of items) {
       const itemPath = currentPath + "/" + item.name;
       const fullItemPath = fullPath + "/" + item.name;
-      
+
       if (item.type === "file") {
         files.push({
           name: item.name,
@@ -117,7 +121,8 @@ async function getAllFiles(basePath: string, containerId: string, currentPath: s
       } else if (item.type === "directory") {
         // Recursively get files from subdirectories (limit depth for performance)
         const depth = itemPath.split("/").length;
-        if (depth < 5) { // Limit to 5 levels deep
+        if (depth < 5) {
+          // Limit to 5 levels deep
           const subFiles = await getAllFiles(basePath, containerId, itemPath);
           files.push(...subFiles);
         }
@@ -127,25 +132,30 @@ async function getAllFiles(basePath: string, containerId: string, currentPath: s
     // Skip directories that can't be read
     console.warn(`Could not read directory: ${fullPath}`, error);
   }
-  
+
   return files;
 }
 
-export async function flattenFileTree(basePath: string = "/", containerId: string): Promise<FlatFileItem[]> {
+export async function flattenFileTree(
+  basePath: string = "/",
+  containerId: string
+): Promise<FlatFileItem[]> {
   const files = await getAllFiles(basePath, containerId);
-  
+
   // Filter out common directories to ignore
-  const filtered = files.filter(file => {
+  const filtered = files.filter((file) => {
     const path = file.relativePath.toLowerCase();
-    return !path.includes("node_modules/") &&
-           !path.includes(".git/") &&
-           !path.includes("dist/") &&
-           !path.includes("build/") &&
-           !path.includes(".next/") &&
-           !path.includes("coverage/") &&
-           !path.endsWith(".DS_Store");
+    return (
+      !path.includes("node_modules/") &&
+      !path.includes(".git/") &&
+      !path.includes("dist/") &&
+      !path.includes("build/") &&
+      !path.includes(".next/") &&
+      !path.includes("coverage/") &&
+      !path.endsWith(".DS_Store")
+    );
   });
-  
+
   // Sort by name for better user experience
   return filtered.sort((a, b) => a.name.localeCompare(b.name));
 }

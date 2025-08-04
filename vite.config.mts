@@ -15,16 +15,6 @@ export default defineConfig({
     redwood(),
     tailwindcss(),
   ],
-  server: {
-    proxy: {
-      "/sandbox": {
-        target: "http://localhost:8911/",
-        rewrite: (path) => path.replace(/^\/sandbox/, ""),
-        changeOrigin: true,
-        ws: true,
-      },
-    },
-  },
 });
 
 function proxyWebSocketPlugin(): Plugin {

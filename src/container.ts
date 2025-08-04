@@ -1,5 +1,5 @@
-import { Container, getContainer } from "@cloudflare/containers";
 import { env } from "cloudflare:workers";
+import { Container, getContainer } from "@cloudflare/containers";
 
 export class MachinenContainer extends Container {
   enableInternet = true;
@@ -8,12 +8,14 @@ export class MachinenContainer extends Container {
   sleepAfter = "60m";
 }
 
+const ACTIVE_CONTAINERS = new Set<string>();
+
 export function fetchContainer({
-  id,
+  containerId,
   request,
   port = "8911",
 }: {
-  id: string;
+  containerId: string;
   request: Request;
   port?: string;
 }) {
@@ -27,23 +29,22 @@ export function fetchContainer({
 
   request = new Request(url, request);
 
-  const containerInstance = getContainer(env.CONTAINER, id);
+  const containerInstance = getContainer(env.CONTAINER, containerId);
   return containerInstance.fetch(request);
 }
 
-const activeContainers = new Set<string>();
-
-export function startNewContainer() {
-  const id = env.CONTAINER.newUniqueId();
-  activeContainers.add(id.toString());
-
-  return getContainer(env.CONTAINER, id.toString());
+export async function newInstance(
+  containerId: string = env.CONTAINER.newUniqueId().toString()
+) {
+  const instance = getContainer(env.CONTAINER, containerId);
+  ACTIVE_CONTAINERS.add(containerId);
+  return instance;
 }
 
-export function listContainers(): string[] {
-  return Array.from(activeContainers);
+export function listInstances(): string[] {
+  return Array.from(ACTIVE_CONTAINERS);
 }
 
-export function removeContainer(containerId: string): boolean {
-  return activeContainers.delete(containerId);
+export function getInstance(containerId: string) {
+  return getContainer(env.CONTAINER, containerId);
 }

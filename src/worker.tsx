@@ -5,7 +5,7 @@ import { Document } from "@/app/Document";
 import { EditorPage } from "@/app/pages/editor/EditorPage";
 import { TermPage } from "@/app/pages/TermPage";
 import { ClaudePage } from "@/app/pages/claude/ClaudePage";
-import { fetchContainer, listContainers, startNewContainer } from "./container";
+import { fetchContainer, listInstances, newInstance } from "./container";
 import { SessionPage } from "./app/pages/session/SessionPage";
 import {
   generateOAuthURL,
@@ -61,7 +61,7 @@ export default defineApp([
     };
 
     return fetchContainer({
-      id: params.containerId,
+      containerId: params.containerId,
       request: new Request(url, requestInit),
       port: "8910",
     });
@@ -72,7 +72,7 @@ export default defineApp([
     url.pathname = url.pathname.replace(`/tty/${params.containerId}`, "/tty");
 
     const response = await fetchContainer({
-      id: params.containerId,
+      containerId: params.containerId,
       request: new Request(url, request),
     });
     return response;
@@ -87,7 +87,7 @@ export default defineApp([
       url.search = new URL(request.url).search;
 
       const response = await fetchContainer({
-        id: params.containerId,
+        containerId: params.containerId,
         request: new Request(url, request),
       });
       return response;
@@ -118,7 +118,7 @@ export default defineApp([
     const baseURL = `${url.protocol}//${url.host}`;
 
     try {
-      const { code } = await request.json();
+      const { code } = await request.json<{ code: string }>();
 
       if (!code) {
         return new Response(JSON.stringify({ error: "Missing code" }), {
@@ -143,10 +143,15 @@ export default defineApp([
       });
     } catch (error) {
       console.error("OAuth exchange error:", error);
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: error instanceof Error ? error.message : "Unknown error",
+        }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
     }
   }),
 
@@ -167,7 +172,7 @@ export default defineApp([
     }
 
     try {
-      const { message } = await request.json();
+      const { message } = await request.json<{ message: string }>();
       const response = await makeClaudeRequest(sessionId, [
         { role: "user", content: message },
       ]);
@@ -177,10 +182,15 @@ export default defineApp([
       });
     } catch (error) {
       console.error("Claude query error:", error);
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({
+          error: error instanceof Error ? error.message : "Unknown error",
+        }),
+        {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        }
+      );
     }
   }),
 
@@ -250,7 +260,7 @@ export default defineApp([
         );
 
         const response = await fetchContainer({
-          id: containerId,
+          containerId,
           request: credentialsRequest,
         });
 
@@ -301,7 +311,7 @@ export default defineApp([
         });
 
         const response = await fetchContainer({
-          id: containerId,
+          containerId,
           request: ttyRequest,
         });
 
@@ -331,43 +341,4 @@ export default defineApp([
       }
     }
   ),
-
-  // Container management routes
-  route("/api/containers", async ({ request }) => {
-    if (request.method === "GET") {
-      const containers = listContainers();
-      return new Response(JSON.stringify({ containers }), {
-        headers: { "Content-Type": "application/json" },
-      });
-    }
-
-    if (request.method === "POST") {
-      try {
-        const container = startNewContainer();
-        const containerId = container.id;
-        return new Response(
-          JSON.stringify({
-            success: true,
-            containerId: containerId,
-          }),
-          {
-            headers: { "Content-Type": "application/json" },
-          }
-        );
-      } catch (error) {
-        return new Response(
-          JSON.stringify({
-            error: "Failed to create container",
-            details: error instanceof Error ? error.message : "Unknown error",
-          }),
-          {
-            status: 500,
-            headers: { "Content-Type": "application/json" },
-          }
-        );
-      }
-    }
-
-    return new Response("Method not allowed", { status: 405 });
-  }),
 ]);

@@ -31,5 +31,21 @@
         "name": "CONTAINER"
       }
     ]
+  },
+  "queues": {
+    "producers": [
+      {
+        "queue": "container-boot-queue",
+        "binding": "QUEUE_CONTAINER_BOOT"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "container-boot-queue",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3
+      }
+    ]
   }
 }

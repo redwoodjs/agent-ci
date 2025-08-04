@@ -17,7 +17,12 @@ export class MachinenContainer extends Container {
   ports = [8910, 8911];
 }
 
-const ACTIVE_CONTAINERS = new Set<string>();
+interface InstanceMetadata {
+  id: string;
+  firstBoot: boolean;
+}
+
+const ACTIVE_CONTAINERS: Record<string, InstanceMetadata> = {};
 // TODO: Do this properly.
 const INSTANCE_NAMES = ["one", "two", "three", "four", "five"];
 
@@ -51,16 +56,32 @@ export function fetchContainer({
 export async function newInstance(
   containerId: string = env.CONTAINER.newUniqueId().toString()
 ) {
-  const instanceName = INSTANCE_NAMES[ACTIVE_CONTAINERS.size];
+  const instanceName = INSTANCE_NAMES[Object.keys(ACTIVE_CONTAINERS).length];
   const instance = getContainer(env.CONTAINER, instanceName);
-  ACTIVE_CONTAINERS.add(instanceName);
+  ACTIVE_CONTAINERS[instanceName] = { id: instanceName, firstBoot: true };
   return instance;
 }
 
-export function listInstances(): string[] {
-  return Array.from(ACTIVE_CONTAINERS);
+export function listInstances() {
+  return Object.values(ACTIVE_CONTAINERS);
 }
 
 export function getInstance(containerId: string) {
   return getContainer(env.CONTAINER, containerId);
+}
+
+export function getInstanceMetadata(containerId: string): InstanceMetadata {
+  const instance = ACTIVE_CONTAINERS[containerId];
+
+  if (!instance) {
+    throw new Error(`Instance ${containerId} not found`);
+  }
+  return instance;
+}
+
+export function updateInstanceMetadata(
+  containerId: string,
+  metadata: InstanceMetadata
+) {
+  ACTIVE_CONTAINERS[containerId] = metadata;
 }

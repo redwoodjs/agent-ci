@@ -3,12 +3,23 @@ import { Container, getContainer } from "@cloudflare/containers";
 
 export class MachinenContainer extends Container {
   enableInternet = true;
-  defaultPort = 8910;
-
   sleepAfter = "60m";
+  defaultPort = 8910;
+  onError(error: unknown) {
+    console.error("container error", error);
+  }
+  onStart() {
+    console.log("container started", this.ctx.id);
+  }
+  onStop() {
+    console.log("container stopped", this.ctx.id);
+  }
+  ports = [8910, 8911];
 }
 
 const ACTIVE_CONTAINERS = new Set<string>();
+// TODO: Do this properly.
+const INSTANCE_NAMES = ["one", "two", "three", "four", "five"];
 
 export function fetchContainer({
   containerId,
@@ -19,13 +30,17 @@ export function fetchContainer({
   request: Request;
   port?: string;
 }) {
+  if (!containerId) {
+    throw new Error("containerId is required");
+  }
+
   let url = new URL(request.url);
   url.port = port;
   url.hostname = "localhost";
 
-  console.log("----------------------------------");
-  console.log(url.toString());
-  console.log("----------------------------------");
+  console.log("-".repeat(80));
+  console.log(`[machine:${containerId}]`, url.toString());
+  console.log("-".repeat(80));
 
   request = new Request(url, request);
 
@@ -36,8 +51,9 @@ export function fetchContainer({
 export async function newInstance(
   containerId: string = env.CONTAINER.newUniqueId().toString()
 ) {
-  const instance = getContainer(env.CONTAINER, containerId);
-  ACTIVE_CONTAINERS.add(containerId);
+  const instanceName = INSTANCE_NAMES[ACTIVE_CONTAINERS.size];
+  const instance = getContainer(env.CONTAINER, instanceName);
+  ACTIVE_CONTAINERS.add(instanceName);
   return instance;
 }
 

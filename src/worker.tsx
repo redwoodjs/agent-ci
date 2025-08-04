@@ -16,7 +16,7 @@ import {
 
 export { MachinenContainer } from "./container";
 
-export default defineApp([
+const app = defineApp([
   render(Document, [
     route("/", () => {
       return <SessionPage />;
@@ -342,3 +342,26 @@ export default defineApp([
     }
   ),
 ]);
+
+export default {
+  fetch: app.fetch,
+  queue: async function queue(batch: MessageBatch) {
+    if (batch.queue === "container-boot-queue") {
+      for (const message of batch.messages) {
+        const body = message.body as { containerId: string; command: string };
+
+        // NOTE (2025-08-04, peterp): At this point the container is booted.
+        // We then run the commands in the container.
+        const response = await fetchContainer({
+          containerId: body.containerId,
+          request: new Request(`http://localhost:8911/tty/exec`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ command: body.command }),
+          }),
+        });
+        console.log("response", response);
+      }
+    }
+  },
+};

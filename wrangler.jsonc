@@ -7,40 +7,23 @@
 
   "containers": [
     {
-      "name": "rwsdk",
+      "name": "Sandbox",
       "image": "./Dockerfile",
-      "class_name": "MachinenContainer",
-      "max_instances": 5
+      "class_name": "Sandbox",
+      "max_instances": 1
     }
   ],
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["MachinenContainer"]
+      "new_sqlite_classes": ["Sandbox"]
     }
   ],
   "durable_objects": {
     "bindings": [
       {
-        "class_name": "MachinenContainer",
-        "name": "CONTAINER"
-      }
-    ]
-  },
-  "queues": {
-    "producers": [
-      {
-        "queue": "container-boot-queue",
-        "binding": "QUEUE_CONTAINER_BOOT"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "container-boot-queue",
-        "max_batch_size": 10,
-        "max_batch_timeout": 5,
-        "max_concurrency": 1,
-        "max_retries": 3
+        "class_name": "Sandbox",
+        "name": "SANDBOX"
       }
     ]
   }

@@ -2,7 +2,7 @@ import { NewInstanceButton } from "./NewSessionButton";
 // import { ClaudeAuth } from "./ClaudeAuth";
 import { SessionControls } from "@/app/components/SessionControls";
 
-import { listInstances } from "@/container";
+// import { listInstances } from "@/container";
 
 export async function SessionPage() {
   const instances = await listInstances();
@@ -27,12 +27,12 @@ export async function SessionPage() {
                 className="flex items-center justify-between p-4 border border-gray-200 rounded-lg bg-gray-50"
               >
                 <div className="font-mono text-sm text-gray-700">{i.id}</div>
-                <SessionControls containerId={i.id} />
+                {/* <SessionControls containerId={i.id} /> */}
               </div>
             ))}
           </div>
         )}
-        <NewInstanceButton />
+        {/* <NewInstanceButton /> */}
       </div>
     </div>
   );

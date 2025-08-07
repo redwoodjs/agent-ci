@@ -10,14 +10,26 @@ import { SessionPage } from "./app/pages/session/SessionPage";
 import { apiRoutes } from "./app/pages/api/routes";
 import { logsRoutes } from "./app/pages/logs/routes";
 
-export { MachinenContainer } from "./container";
+// export { MachinenContainer } from "./container";
 export { DatabaseDurableObject } from "@/db/durableObject";
+
+export type AppContext = {
+  sandbox: DurableObjectStub<Sandbox<unknown>>;
+};
 
 const app = defineApp([
   render(Document, [
     route("/", () => {
       return <SessionPage />;
     }),
+
+    // context
+    // claude
+    // terminal
+    // logs
+    // preview
+    // editor
+
     // route("/claude", ClaudePage),
     // route("/claude/:containerId", ClaudePage),
     // this will be the container id.
@@ -79,23 +91,26 @@ const app = defineApp([
   }),
 ]);
 
+import { getSandbox, Sandbox } from "@cloudflare/sandbox";
+export { Sandbox } from "@cloudflare/sandbox";
+
 export default {
   fetch: app.fetch,
-  queue: async function queue(batch: MessageBatch) {
-    if (batch.queue === "container-boot-queue") {
-      for (const message of batch.messages) {
-        const body = message.body as { containerId: string; command: string };
+  // queue: async function queue(batch: MessageBatch) {
+  //   if (batch.queue === "container-boot-queue") {
+  //     for (const message of batch.messages) {
+  //       const body = message.body as { containerId: string; command: string };
 
-        console.log("running command", body.command);
-        const response = await fetchContainer({
-          containerId: body.containerId,
-          request: new Request(`http://localhost:8911/tty/exec`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ command: body.command }),
-          }),
-        });
-      }
-    }
-  },
+  //       console.log("running command", body.command);
+  //       const response = await fetchContainer({
+  //         containerId: body.containerId,
+  //         request: new Request(`http://localhost:8911/tty/exec`, {
+  //           method: "POST",
+  //           headers: { "Content-Type": "application/json" },
+  //           body: JSON.stringify({ command: body.command }),
+  //         }),
+  //       });
+  //     }
+  //   }
+  // },
 };

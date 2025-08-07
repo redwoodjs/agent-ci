@@ -10,7 +10,7 @@ import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
 import * as pty from "@homebridge/node-pty-prebuilt-multiarch";
 
-const PROJECT_PATH: string = process.cwd();
+const PROJECT_PATH: string = path.resolve(process.cwd(), "../app/");
 
 // Define the FileInfo interface
 interface FileInfo {
@@ -152,6 +152,7 @@ app.route("/fs", fsRoutes);
 const ttyRoutes = new Hono();
 
 const shell = pty.spawn("bash", [], {
+  cwd: PROJECT_PATH,
   name: "xterm-color",
   cols: 80,
   rows: 24,

@@ -31,6 +31,18 @@ async function InstanceStatus({ containerId }: { containerId: string }) {
       >
         Claude
       </a>
+      <a
+        href={`/term/${containerId}`}
+        className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-500 hover:bg-gray-600 text-white cursor-pointer"
+      >
+        Terminal
+      </a>
+      <a
+        href={`/logs/${containerId}`}
+        className="px-4 py-2 rounded-lg text-sm font-medium bg-gray-500 hover:bg-gray-600 text-white cursor-pointer"
+      >
+        Logs
+      </a>
     </div>
   );
 }

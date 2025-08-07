@@ -1,47 +1,22 @@
 {
-  "name": "rwsdk-host",
+  "name": "machinen-sandbox",
   "version": "1.0.0",
-  "description": "Build fast, server-driven webapps on Cloudflare with SSR, RSC, and realtime. ",
-  "main": "index.js",
+  "description": "",
   "type": "module",
   "keywords": [],
   "author": "",
   "license": "MIT",
   "private": true,
-  "scripts": {
-    "build": "vite build",
-    "dev": "NODE_ENV=${NODE_ENV:-development} vite dev",
-    "dev:sandbox": "node --experimental-strip-types --watch sandbox.ts",
-    "dev:all": "concurrently \"pnpm run dev:sandbox\" \"npm run dev -- --host 0.0.0.0 --port 8910\"",
-    "dev:init": "rw-scripts dev-init",
-    "preview": "vite preview",
-    "worker:run": "rw-scripts worker-run",
-    "clean": "npm run clean:vite",
-    "clean:vite": "rm -rf ./node_modules/.vite",
-    "release": "rw-scripts ensure-deploy-env && npm run clean && RWSDK_DEPLOY=1 npm run build && wrangler deploy",
-    "migrate:new": "rw-scripts migrate-new",
-    "generate": "rw-scripts ensure-env && wrangler types",
-    "check": "npm run generate && npm run types",
-    "types": "tsc",
-    "prepare": "vibe-rules install cursor"
-  },
   "dependencies": {
+    "@types/node": "^22.14.0",
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
     "@hono/node-server": "^1.8.2",
     "@hono/node-ws": "^1.2.0",
     "execa": "^8.0.1",
-    "hono": "^4.1.0",
-    "rwsdk": "0.1.23"
+    "hono": "^4.1.0"
   },
   "devDependencies": {
-    "@types/node": "^22.14.0",
-    "@types/react": "^19.1.2",
-    "@types/react-dom": "^19.1.2",
-    "concurrently": "^9.1.2",
-    "typescript": "^5.8.3",
-    "vibe-rules": "^0.2.31",
-    "vite": "^6.2.6",
-    "wrangler": "^4.16.0"
+    "@types/node": "^22.14.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
@@ -50,5 +25,8 @@
       "sharp",
       "workerd"
     ]
+  },
+  "scripts": {
+    "dev": "node --experimental-strip-types --watch sandbox.ts"
   }
 }

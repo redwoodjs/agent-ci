@@ -1,5 +1,5 @@
 import { NewInstanceButton } from "./NewSessionButton";
-import { ClaudeAuth } from "./ClaudeAuth";
+// import { ClaudeAuth } from "./ClaudeAuth";
 import { SessionControls } from "@/app/components/SessionControls";
 
 import { listInstances } from "@/container";
@@ -12,9 +12,7 @@ export async function SessionPage() {
       <h1 className="text-3xl font-bold mb-8">Machinen</h1>
 
       {/* Claude Authentication Section */}
-      <div className="mb-8">
-        <ClaudeAuth />
-      </div>
+      <div className="mb-8">{/* <ClaudeAuth /> */}</div>
 
       {/* Container Sessions */}
       <div className="mb-8">

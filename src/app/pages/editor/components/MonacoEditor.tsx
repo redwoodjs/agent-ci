@@ -36,7 +36,7 @@ interface MonacoEditorProps {
   }>;
 }
 
-export function MonacoEditor({
+export function MonacoEditorContainer({
   content,
   pathname,
   onChange,

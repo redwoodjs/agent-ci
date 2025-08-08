@@ -1,8 +1,7 @@
-import { requestInfo } from "rwsdk/worker";
-
-import { Editor } from "./Editor";
-import { FileBrowser } from "./FileBrowser";
 import { getFileType, getFileContent, getFiles } from "./functions";
+
+import { Editor } from "./components/MonacoEditorContainer";
+import { FileBrowser } from "./components/FileBrowser";
 import { Preview } from "@/app/components/Preview";
 
 import { LazyTerm } from "@/app/components/Term/";

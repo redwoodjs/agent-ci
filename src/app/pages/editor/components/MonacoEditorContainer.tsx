@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useRef } from "react";
-import { saveFile } from "./functions";
+import { saveFile } from "../functions";
 import { useIsClient } from "@/hooks/useIsClient";
-import { MonacoEditor } from "./components/MonacoEditor";
+import { MonacoEditorContainer } from "./MonacoEditor";
 
 import { Button } from "@/app/components/ui/button";
 
@@ -87,7 +87,7 @@ export function Editor({
       {/* Editor area */}
       <div className="flex-1">
         {isClient ? (
-          <MonacoEditor
+          <MonacoEditorContainer
             ref={monacoRef}
             content={content}
             pathname={pathname}

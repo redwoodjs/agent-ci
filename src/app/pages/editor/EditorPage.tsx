@@ -2,35 +2,30 @@ import { requestInfo } from "rwsdk/worker";
 
 import { Editor } from "./Editor";
 import { FileBrowser } from "./FileBrowser";
-import { fileType, getFile, getSiblingFiles } from "./functions";
-import { Preview } from "./Preview";
+import { getFileType, getFileContent, getFiles } from "./functions";
+import { Preview } from "@/app/components/Preview";
 
 import { LazyTerm } from "@/app/components/Term/";
 
 export const EditorPage = async ({
   params,
 }: {
-  params: { containerId: string };
+  params: { containerId: string; $0: string };
 }) => {
-  const containerId = params.containerId;
+  const { containerId, $0: pathname } = params;
 
-  const url = new URL(requestInfo.request.url);
-  let pathname = url.pathname;
-  if (url.pathname.startsWith("/editor")) {
-    pathname = pathname.split(`/editor/${containerId}`)[1];
-    if (pathname.length === 0) {
-      pathname = "/";
-    }
-  }
+  const type = await getFileType(containerId, pathname);
 
-  const type = await fileType({ pathname, containerId });
   let content = "";
-  if (type == "file") {
-    const file = await getFile({ pathname, containerId });
-    content = file.content;
+  if (type === "file") {
+    content = await getFileContent(containerId, pathname);
   }
 
-  const files = await getSiblingFiles({ pathname, containerId });
+  let listPathname = pathname;
+  if (type === "file") {
+    listPathname = pathname.split("/").slice(0, -1).join("/");
+  }
+  const files = await getFiles(containerId, listPathname);
 
   return (
     <div className="h-screen flex bg-gray-800">
@@ -67,7 +62,7 @@ export const EditorPage = async ({
         {/* Bottom Right - Terminal */}
         <div className="h-96">
           <div className="h-full m-2 p-2 bg-black rounded">
-            <LazyTerm containerId={containerId} />
+            {/* <LazyTerm containerId={containerId} /> */}
           </div>
         </div>
       </div>

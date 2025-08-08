@@ -33,7 +33,7 @@ export function Editor({
 
     setSaving(true);
     try {
-      await saveFile({ pathname, containerId, content: contentToSave });
+      await saveFile(containerId, pathname, contentToSave);
       setContent(contentToSave);
 
       // Only update Monaco's ref if this came from button (not from Monaco's own Cmd+S)

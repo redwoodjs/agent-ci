@@ -5,7 +5,7 @@ import { Button } from "@/app/components/ui/button";
 
 import { RefreshCcw } from "lucide-react";
 
-export const Preview = ({ containerId }: { containerId: string }) => {
+export const X = ({ containerId }: { containerId: string }) => {
   const [input, setInput] = useState("/");
   const [refreshing, setRefreshing] = useState(false);
   const [refreshCount, setRefreshCount] = useState(1);

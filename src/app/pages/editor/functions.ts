@@ -1,11 +1,76 @@
 "use server";
 
+import { env } from "cloudflare:workers";
+import { getSandbox } from "@cloudflare/sandbox";
+
 import { fetchContainer } from "@/container";
 
-export interface FileItem {
-  path: string;
-  name: string;
-  type: "file" | "directory";
+export type FileItem = Awaited<ReturnType<typeof getFiles>>[number];
+
+export async function getFiles(
+  containerId: string,
+  pathname: string,
+  basePath: string = "/workspace"
+) {
+  const sandbox = getSandbox(env.SANDBOX, containerId);
+  const result = await sandbox.exec("ls -la " + basePath + pathname);
+
+  // Parse the ls -la output to extract file information
+  const lines = result.stdout
+    .split("\n")
+    .filter((line) => line.trim() && !line.startsWith("total"));
+  const files = [];
+
+  for (const line of lines) {
+    // Skip current and parent directory entries
+    if (line.endsWith(".") || line.endsWith(" ..")) {
+      continue;
+    }
+
+    // Parse ls -la format: permissions user group size date time name
+    const parts = line.trim().split(/\s+/);
+    if (parts.length < 9) continue;
+
+    const permissions = parts[0];
+    const name = parts.slice(8).join(" "); // Handle filenames with spaces
+
+    // Determine type based on first character of permissions
+    let type: "file" | "directory" | "symlink" | "other";
+    switch (permissions[0]) {
+      case "d":
+        type = "directory";
+        break;
+      case "l":
+        type = "symlink";
+        break;
+      case "-":
+        type = "file";
+        break;
+      default:
+        type = "other";
+    }
+
+    files.push({
+      name,
+      path: pathname + "/" + name,
+      type,
+      permissions: permissions.slice(1),
+      size: parts[4],
+      modified: `${parts[5]} ${parts[6]} ${parts[7]}`,
+    });
+  }
+
+  return files;
+}
+
+export async function getFileContent(
+  containerId: string,
+  pathname: string,
+  basePath: string = "/workspace"
+) {
+  const sandbox = getSandbox(env.SANDBOX, containerId);
+  const result = await sandbox.readFile(basePath + pathname);
+  return result.content;
 }
 
 async function containerFilesFetch(
@@ -42,53 +107,30 @@ export async function getSiblingFiles({
   return files as FileItem[];
 }
 
-export async function getFile({
-  pathname,
-  containerId,
-}: {
-  pathname: string;
-  containerId: string;
-}) {
-  const file = (await containerFilesFetch(
-    pathname,
-    containerId,
-    "/fs/read"
-  )) as {
-    content: string;
-  };
-  return file;
+export async function getFileType(
+  containerId: string,
+  pathname: string,
+  basePath: string = "/workspace"
+) {
+  const sandbox = getSandbox(env.SANDBOX, containerId);
+  const result = await sandbox.exec("stat -c %F " + basePath + pathname);
+  // determine if file or directory
+
+  if (result.stdout.includes("directory")) {
+    return "directory";
+  } else {
+    return "file";
+  }
 }
 
-export async function fileType({
-  pathname,
-  containerId,
-}: {
-  pathname: string;
-  containerId: string;
-}) {
-  const { type } = (await containerFilesFetch(
-    pathname,
-    containerId,
-    "/fs/stat"
-  )) as {
-    type: "file" | "directory";
-  };
-  return type;
-}
-
-export async function saveFile({
-  pathname,
-  content,
-  containerId,
-}: {
-  pathname: string;
-  content: string;
-  containerId: string;
-}) {
-  return await containerFilesFetch(pathname, containerId, "/fs/write", {
-    method: "POST",
-    body: JSON.stringify({ content }),
-  });
+export async function saveFile(
+  containerId: string,
+  pathname: string,
+  content: string,
+  basePath: string = "/workspace"
+) {
+  const sandbox = getSandbox(env.SANDBOX, containerId);
+  await sandbox.writeFile(basePath + pathname, content);
 }
 
 export interface FlatFileItem {

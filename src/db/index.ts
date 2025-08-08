@@ -6,10 +6,7 @@ import { type migrations } from "@/db/migrations";
 
 export type AppDatabase = Database<typeof migrations>;
 
-export type User = AppDatabase["secrets"];
-export type Post = AppDatabase["projects"];
-
 export const db = createDb<AppDatabase>(
-  env.APP_DURABLE_OBJECT,
+  env.DATABASE,
   "main-database" // unique key for this database instance
 );

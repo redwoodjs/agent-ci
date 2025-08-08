@@ -16,7 +16,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Sandbox"]
+      "new_sqlite_classes": ["Sandbox", "Database"]
     }
   ],
   "durable_objects": {
@@ -24,6 +24,10 @@
       {
         "class_name": "Sandbox",
         "name": "SANDBOX"
+      },
+      {
+        "class_name": "Database",
+        "name": "DATABASE"
       }
     ]
   }

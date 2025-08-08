@@ -2,16 +2,14 @@ import { defineApp } from "rwsdk/worker";
 import { route, render, prefix } from "rwsdk/router";
 import { Document } from "@/app/Document";
 
-// import { EditorPage } from "@/app/pages/editor/EditorPage";
-import { TermPage } from "@/app/pages/TermPage";
-import { ClaudePage } from "@/app/pages/claude/ClaudePage";
+import type { Sandbox } from "@cloudflare/sandbox";
+
 import { fetchContainer, listInstances, newInstance } from "./container";
-import { SessionPage } from "./app/pages/session/SessionPage";
+
 import { apiRoutes } from "./app/pages/api/routes";
 import { logsRoutes } from "./app/pages/logs/routes";
-
-// export { MachinenContainer } from "./container";
-export { DatabaseDurableObject } from "@/db/durableObject";
+import { projectRoutes } from "./app/pages/project/routes";
+import { editorRoutes } from "./app/pages/editor/routes";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -19,27 +17,26 @@ export type AppContext = {
 
 const app = defineApp([
   render(Document, [
-    route("/", () => {
-      return <SessionPage />;
-    }),
+    prefix("/projects", projectRoutes),
+    prefix("/logs", logsRoutes),
+    prefix("/editor", editorRoutes),
 
     // context
     // claude
     // terminal
-    // logs
+
     // preview
-    // editor
+    // files/
 
     // route("/claude", ClaudePage),
     // route("/claude/:containerId", ClaudePage),
     // this will be the container id.
     // route("/editor/:containerId", EditorPage),
     // route("/editor/:containerId/*", EditorPage),
-    route("/term/:containerId", TermPage),
+    // route("/term/:containerId", TermPage),
   ]),
 
   prefix("/api", apiRoutes),
-  prefix("/logs", logsRoutes),
 
   // route("/preview/:containerId*", async ({ request, params }) => {
   //   const url = new URL(request.url);
@@ -91,8 +88,8 @@ const app = defineApp([
   }),
 ]);
 
-import { getSandbox, Sandbox } from "@cloudflare/sandbox";
 export { Sandbox } from "@cloudflare/sandbox";
+export { Database } from "@/db/durableObject";
 
 export default {
   fetch: app.fetch,

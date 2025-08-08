@@ -2,11 +2,7 @@ import { requestInfo } from "rwsdk/worker";
 
 import { isContainerReady, startContainer } from "./functions";
 
-export async function WaitForContainer({
-  containerId,
-}: {
-  containerId: string;
-}) {
+export async function WaitingPage({ containerId }: { containerId: string }) {
   const ready = await isContainerReady(containerId);
 
   if (!ready) {

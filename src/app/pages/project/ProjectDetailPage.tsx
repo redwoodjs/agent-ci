@@ -1,5 +1,6 @@
 import { db } from "@/db";
 import { TaskList } from "./TaskList";
+import { ProjectEdit } from "./ProjectEdit";
 
 export async function ProjectDetailPage({
   params,
@@ -14,15 +15,7 @@ export async function ProjectDetailPage({
 
   return (
     <div className="p-6">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold mb-4">Project: {project.name}</h1>
-        <div className="space-y-2">
-          <p><strong>Description:</strong> {project.description}</p>
-          <p><strong>Run on Boot:</strong> {project.runOnBoot}</p>
-          {project.repository && <p><strong>Repository:</strong> {project.repository}</p>}
-        </div>
-      </div>
-      
+      <ProjectEdit project={project} />
       <TaskList projectId={params.projectId} />
     </div>
   );

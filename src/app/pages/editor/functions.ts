@@ -12,7 +12,7 @@ export async function getFiles(
   pathname: string,
   basePath: string = "/workspace"
 ) {
-  const sandbox = getSandbox(env.SANDBOX, containerId);
+  const sandbox = getSandbox(env.Sandbox, containerId);
   const result = await sandbox.exec("ls -la " + basePath + pathname);
 
   // Parse the ls -la output to extract file information
@@ -68,7 +68,7 @@ export async function getFileContent(
   pathname: string,
   basePath: string = "/workspace"
 ) {
-  const sandbox = getSandbox(env.SANDBOX, containerId);
+  const sandbox = getSandbox(env.Sandbox, containerId);
   const result = await sandbox.readFile(basePath + pathname);
   return result.content;
 }
@@ -112,7 +112,7 @@ export async function getFileType(
   pathname: string,
   basePath: string = "/workspace"
 ) {
-  const sandbox = getSandbox(env.SANDBOX, containerId);
+  const sandbox = getSandbox(env.Sandbox, containerId);
   const result = await sandbox.exec("stat -c %F " + basePath + pathname);
   // determine if file or directory
 
@@ -129,7 +129,7 @@ export async function saveFile(
   content: string,
   basePath: string = "/workspace"
 ) {
-  const sandbox = getSandbox(env.SANDBOX, containerId);
+  const sandbox = getSandbox(env.Sandbox, containerId);
   await sandbox.writeFile(basePath + pathname, content);
 }
 

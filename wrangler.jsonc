@@ -23,7 +23,7 @@
     "bindings": [
       {
         "class_name": "Sandbox",
-        "name": "SANDBOX"
+        "name": "Sandbox"
       },
       {
         "class_name": "Database",

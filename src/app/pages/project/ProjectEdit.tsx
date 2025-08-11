@@ -7,7 +7,8 @@ interface Project {
   id: string;
   name: string;
   description: string;
-  runOnBoot: string;
+  runOnBoot: string[];
+  processCommand: string | null;
   repository: string | null;
   createdAt: string;
   updatedAt: string;
@@ -19,6 +20,8 @@ export function ProjectEdit({ project }: { project: Project }) {
     editProjectAction,
     {}
   );
+
+  const runOnBoot = project.runOnBoot.join("\n");
 
   if (isEditing) {
     return (
@@ -66,8 +69,21 @@ export function ProjectEdit({ project }: { project: Project }) {
             </label>
             <textarea
               name="runOnBoot"
-              defaultValue={project.runOnBoot}
+              defaultValue={runOnBoot}
               rows={4}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Process Command
+            </label>
+            <input
+              type="text"
+              name="processCommand"
+              defaultValue={project.processCommand || ""}
+              placeholder="e.g., pnpm run dev --port 8910"
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -130,8 +146,21 @@ export function ProjectEdit({ project }: { project: Project }) {
         </p>
         <p>
           <strong>Run on Boot:</strong>
-          <code>{project.runOnBoot}</code>
+          <textarea
+            readOnly={true}
+            disabled={true}
+            name="runOnBoot"
+            defaultValue={runOnBoot}
+            rows={4}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </p>
+        {project.processCommand && (
+          <p>
+            <strong>Process Command:</strong>
+            <code>{project.processCommand}</code>
+          </p>
+        )}
         {project.repository && (
           <p>
             <strong>Repository:</strong> {project.repository}

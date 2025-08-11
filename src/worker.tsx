@@ -2,7 +2,11 @@ import { defineApp } from "rwsdk/worker";
 import { route, render, prefix } from "rwsdk/router";
 import { Document } from "@/app/Document";
 
-import type { Sandbox } from "@cloudflare/sandbox";
+import {
+  type Sandbox,
+  type SandboxEnv,
+  proxyToSandbox,
+} from "@cloudflare/sandbox";
 
 import { fetchContainer, listInstances, newInstance } from "./container";
 
@@ -20,6 +24,8 @@ const app = defineApp([
     prefix("/projects", projectRoutes),
     prefix("/logs", logsRoutes),
     prefix("/editor", editorRoutes),
+    prefix("/terminal", editorRoutes),
+    prefix("/preview", editorRoutes),
 
     // context
     // claude
@@ -92,7 +98,15 @@ export { Sandbox } from "@cloudflare/sandbox";
 export { Database } from "@/db/durableObject";
 
 export default {
-  fetch: app.fetch,
+  fetch: async function (request, env: Env, cf) {
+    const proxyResponse = await proxyToSandbox(request, env);
+    if (proxyResponse) {
+      console.log("proxyResponse", proxyResponse);
+      return proxyResponse;
+    }
+
+    return await app.fetch(request, env, cf);
+  },
   // queue: async function queue(batch: MessageBatch) {
   //   if (batch.queue === "container-boot-queue") {
   //     for (const message of batch.messages) {
@@ -110,4 +124,4 @@ export default {
   //     }
   //   }
   // },
-};
+} as ExportedHandler;

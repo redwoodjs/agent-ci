@@ -41,8 +41,41 @@ export const migrations = {
     },
 
     async down(db) {
-      await db.schema.dropTable("projects").execute();
       await db.schema.dropTable("tasks").execute();
+    },
+  },
+
+  "003_add_process_command_and_update_boot_commands": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("projects")
+          .addColumn("processCommand", "text")
+          .execute(),
+        await db.schema
+          .alterTable("projects")
+          .dropColumn("runOnBoot")
+          .execute(),
+        await db.schema
+          .alterTable("projects")
+          .addColumn("runOnBoot", "text", (col) => col.notNull().defaultTo("[]"))
+          .execute(),
+      ];
+    },
+
+    async down(db) {
+      await db.schema
+        .alterTable("projects")
+        .dropColumn("processCommand")
+        .execute();
+      await db.schema
+        .alterTable("projects")
+        .dropColumn("runOnBoot")
+        .execute();
+      await db.schema
+        .alterTable("projects")
+        .addColumn("runOnBoot", "text", (col) => col.notNull())
+        .execute();
     },
   },
 } satisfies Migrations;

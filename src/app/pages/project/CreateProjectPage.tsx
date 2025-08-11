@@ -22,9 +22,11 @@ export function CreateProjectPage() {
         <label>Description</label>
         <textarea name="description" required />
 
-        <label className="flex items-center gap-2">
-          <textarea name="runOnBoot" />
-        </label>
+        <label>Run on Boot Commands (one per line)</label>
+        <textarea name="runOnBoot" rows={4} placeholder="cd /workspace&#10;pnpm install&#10;pnpm run dev" />
+
+        <label>Process Command</label>
+        <input type="text" name="processCommand" placeholder="pnpm run dev --port 8910" />
 
         <label>Repository</label>
         <input type="text" name="repository" />

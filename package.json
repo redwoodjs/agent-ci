@@ -24,7 +24,7 @@
   },
   "dependencies": {
     "@cloudflare/containers": "^0.0.25",
-    "@cloudflare/sandbox": "^0.2.3",
+    "@cloudflare/sandbox": "^0.2.4",
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-separator": "^1.1.7",

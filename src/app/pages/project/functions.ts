@@ -2,10 +2,21 @@
 "use server";
 import { db } from "@/db";
 
+function sanitizeRunOnBoot(runOnBoot: string) {
+  return JSON.stringify(
+    runOnBoot
+      .split("\n")
+      .map((cmd) => cmd.trim())
+      .filter((cmd) => cmd.trim().length > 0)
+  );
+}
+
 export async function createProjectAction(prevState: any, formData: FormData) {
   const name = String(formData.get("name") || "");
   const description = String(formData.get("description") || "");
-  const runOnBoot = formData.get("runOnBoot") ? "true" : "false"; // checkbox -> "true"/"false"
+  const runOnBootRaw = String(formData.get("runOnBoot") || "");
+  const runOnBoot = sanitizeRunOnBoot(runOnBootRaw);
+  const processCommand = String(formData.get("processCommand") || "");
   const repository = String(formData.get("repository") || "");
 
   const now = new Date().toISOString();
@@ -18,6 +29,7 @@ export async function createProjectAction(prevState: any, formData: FormData) {
       name,
       description,
       runOnBoot,
+      processCommand,
       repository,
       createdAt: now,
       updatedAt: now,
@@ -30,6 +42,7 @@ export async function createProjectAction(prevState: any, formData: FormData) {
     name: result.name,
     description: result.description,
     runOnBoot: result.runOnBoot,
+    processCommand: result.processCommand,
     repository: result.repository,
   };
 }
@@ -38,7 +51,9 @@ export async function editProjectAction(prevState: any, formData: FormData) {
   const id = String(formData.get("id") || "");
   const name = String(formData.get("name") || "");
   const description = String(formData.get("description") || "");
-  const runOnBoot = String(formData.get("runOnBoot") || "");
+  const runOnBootRaw = String(formData.get("runOnBoot") || "");
+  const runOnBoot = sanitizeRunOnBoot(runOnBootRaw);
+  const processCommand = String(formData.get("processCommand") || "");
   const repository = String(formData.get("repository") || "");
 
   if (!id || !name || !description) {
@@ -53,6 +68,7 @@ export async function editProjectAction(prevState: any, formData: FormData) {
       name,
       description,
       runOnBoot,
+      processCommand,
       repository,
       updatedAt: now,
     })
@@ -67,6 +83,7 @@ export async function editProjectAction(prevState: any, formData: FormData) {
       name: result.name,
       description: result.description,
       runOnBoot: result.runOnBoot,
+      processCommand: result.processCommand,
       repository: result.repository,
     },
   };

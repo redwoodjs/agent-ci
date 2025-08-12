@@ -1,14 +1,8 @@
 import { route } from "rwsdk/router";
 
 import { EditorPage } from "./EditorPage";
-import { waitForContainer } from "@/app/components/WaitForContainer/interruptor";
+import { waitForContainer } from "@/app/components/WaitForContainer";
 
 export const editorRoutes = [
-  route("/:containerId*", async function (opts) {
-    const r = await waitForContainer(opts);
-    if (r) {
-      return r;
-    }
-    return <EditorPage params={opts.params} />;
-  }),
+  route("/:containerId*", [waitForContainer, EditorPage]),
 ];

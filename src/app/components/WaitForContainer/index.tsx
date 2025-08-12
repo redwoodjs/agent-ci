@@ -6,6 +6,7 @@ import { isContainerReady } from "./actions";
 import { WaitingPage } from "./WaitingPage";
 
 export async function waitForContainer({ params, ctx }: RequestInfo) {
+  console.log("waitForContainer", params);
   const { containerId } = params;
   const sandbox = getSandbox(env.Sandbox, containerId);
   const ready = await isContainerReady(containerId);
@@ -13,4 +14,5 @@ export async function waitForContainer({ params, ctx }: RequestInfo) {
     return <WaitingPage containerId={containerId} />;
   }
   ctx.sandbox = sandbox;
+  console.log("waitForContainer end", ctx);
 }

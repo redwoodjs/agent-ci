@@ -1,4 +1,4 @@
-import { isContainerReady, startContainer } from "./actions";
+import { isContainerReady } from "./actions";
 import { InitSandboxLogs } from "./InitSandboxLogs";
 
 export async function WaitingPage({ containerId }: { containerId: string }) {

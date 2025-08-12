@@ -4,6 +4,32 @@ import { getSandbox } from "@cloudflare/sandbox";
 import { env } from "cloudflare:workers";
 import { getProjectInfo } from "@/app/services/project";
 
+async function streamToString(
+  stream: ReadableStream<Uint8Array>
+): Promise<string> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  // Combine all chunks and decode to string
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const combined = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return new TextDecoder().decode(combined);
+}
+
 export async function isContainerReady(containerId: string) {
   const sandbox = getSandbox(env.Sandbox, containerId);
   const p = await sandbox.getExposedPorts("localhost");
@@ -21,6 +47,7 @@ export async function startContainer({ containerId }: { containerId: string }) {
   });
 
   let { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
+  const [clientReadable, logReadable] = readable.tee();
   let writer = writable.getWriter();
 
   // Run all operations asynchronously and properly close the stream
@@ -95,8 +122,12 @@ export async function startContainer({ containerId }: { containerId: string }) {
     } finally {
       console.log("closing writer");
       await writer.close();
+
+      // Convert the log stream to a string
+      const contents = await streamToString(logReadable);
+      await sandbox.writeFile("/tmp/boot.log", contents);
     }
   })();
 
-  return readable;
+  return clientReadable;
 }

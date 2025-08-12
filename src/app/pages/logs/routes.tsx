@@ -1,16 +1,13 @@
 import { route } from "rwsdk/router";
 
+import { waitForContainer } from "@/app/components/WaitForContainer";
+
 import { ProcessListPage } from "./ProcessListPage";
 import { LogsPage } from "./LogsPage";
-import { waitForContainer } from "@/app/components/WaitForContainer/interruptor";
+import { BootLogPage } from "./BootLogPage";
 
 export const logsRoutes = [
-  route("/:containerId/", async function (opts) {
-    const r = await waitForContainer(opts);
-    if (r) {
-      return r;
-    }
-    return <ProcessListPage params={opts.params} />;
-  }),
-  route("/:containerId/:processId", [LogsPage]),
+  route("/:containerId/", [waitForContainer, ProcessListPage]),
+  route("/:containerId/boot.log", [waitForContainer, BootLogPage]),
+  route("/:containerId/:processId", [waitForContainer, LogsPage]),
 ];

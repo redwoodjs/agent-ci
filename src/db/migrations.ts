@@ -58,7 +58,9 @@ export const migrations = {
           .execute(),
         await db.schema
           .alterTable("projects")
-          .addColumn("runOnBoot", "text", (col) => col.notNull().defaultTo("[]"))
+          .addColumn("runOnBoot", "text", (col) =>
+            col.notNull().defaultTo("[]")
+          )
           .execute(),
       ];
     },
@@ -68,13 +70,30 @@ export const migrations = {
         .alterTable("projects")
         .dropColumn("processCommand")
         .execute();
-      await db.schema
-        .alterTable("projects")
-        .dropColumn("runOnBoot")
-        .execute();
+      await db.schema.alterTable("projects").dropColumn("runOnBoot").execute();
       await db.schema
         .alterTable("projects")
         .addColumn("runOnBoot", "text", (col) => col.notNull())
+        .execute();
+    },
+  },
+
+  "004_add_exposed_ports": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("projects")
+          .addColumn("exposePorts", "text", (col) =>
+            col.notNull().defaultTo("[]")
+          )
+          .execute(),
+      ];
+    },
+
+    async down(db) {
+      await db.schema
+        .alterTable("projects")
+        .dropColumn("exposePorts")
         .execute();
     },
   },

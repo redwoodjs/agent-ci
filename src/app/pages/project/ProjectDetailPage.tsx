@@ -1,6 +1,6 @@
 import { db } from "@/db";
-import { TaskList } from "./TaskList";
-import { ProjectEdit } from "./ProjectEdit";
+import { TaskList } from "./components/TaskList";
+import { ProjectEdit } from "./components/ProjectEdit";
 
 export async function ProjectDetailPage({
   params,

@@ -1,4 +1,4 @@
-import { getFileType, getFileContent, getFiles } from "./functions";
+import { getFileType, getFileContent, getFiles } from "./actions";
 
 import { Editor } from "./components/MonacoEditorContainer";
 import { FileBrowser } from "./components/FileBrowser";

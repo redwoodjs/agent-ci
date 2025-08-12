@@ -1,6 +1,5 @@
 import { getSandbox } from "@cloudflare/sandbox";
 import { env } from "cloudflare:workers";
-import { getProjectInfo } from "@/app/services/project";
 
 export async function ProcessListPage({
   params,

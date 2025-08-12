@@ -6,6 +6,6 @@ import { CreateProjectPage } from "./CreateProjectPage";
 
 export const projectRoutes = [
   route("/", ProjectListPage),
-  route("/:projectId", ProjectDetailPage),
   route("/create", CreateProjectPage),
+  route("/:projectId", ProjectDetailPage),
 ];

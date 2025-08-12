@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { RequestInfo } from "rwsdk/worker";
 import { consumeEventStream } from "rwsdk/client";
-import { streamLogs } from "./functions";
+import { streamLogs } from "./actions";
 
 interface Log {
   data: string;

@@ -13,7 +13,7 @@ export async function isContainerReady(containerId: string) {
 
   const sandbox = getSandbox(env.Sandbox, containerId);
   try {
-    const pid = await sandbox.readFile("/tmp/bootstrap.pid");
+    await sandbox.readFile("/tmp/bootstrap.pid");
     bootstrap = true;
   } catch {
     bootstrap = false;
@@ -96,6 +96,11 @@ export async function bootstrapContainer(containerId: string) {
     }
   }
 
+  await sandbox.exposePort(8910, {
+    hostname: "localhost:5173", // todo figure out how to get the port here? is it possible to get this from vite?
+  });
+  await sandbox.startProcess("cd /machinen && pnpm dev");
+
   // Execute bootstrap script
   const result = await sandbox.startProcess("bash /tmp/bootstrap.sh", {
     cwd: "/",
@@ -118,6 +123,7 @@ export async function exposePorts(containerId: string) {
   const { exposePorts } = await getProjectInfo(containerId);
 
   const sandbox = getSandbox(env.Sandbox, containerId);
+
   for (const port of exposePorts) {
     await sandbox.exposePort(port, {
       hostname: "localhost:5173", // todo figure out how to get the port here? is it possible to get this from vite?

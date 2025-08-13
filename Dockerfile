@@ -1,5 +1,6 @@
 FROM --platform=linux/arm64 docker.io/cloudflare/sandbox:0.2.4
 
+
 RUN npm install --global corepack@latest && \
     corepack enable && \
     mkdir /redwoodsdk && \
@@ -8,5 +9,9 @@ RUN npm install --global corepack@latest && \
     cd minimal && \
     pnpm install
 
-EXPOSE 5173
+
+COPY ./container/ /machinen
+RUN cd /machinen && pnpm install && pnpm esbuild sandbox.ts > sandbox.js
+
 EXPOSE 8910
+EXPOSE 5173

@@ -22,10 +22,10 @@ export default function Term({ containerId }: { containerId: string }) {
 
       // Connect to the TTY endpoint through the worker
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const url = `/tty/${containerId}/attach`;
+      const url = `/term/${containerId}/attach`;
 
       console.log("opening socket");
-      const socket = new WebSocket("ws://localhost:5173" + url);
+      const socket = new WebSocket("ws://8910-blog.localhost:5173/tty/attach");
       socket.onerror = (event) => {
         console.log("socket error", event);
       };

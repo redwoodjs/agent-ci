@@ -1,14 +1,8 @@
 import { defineApp } from "rwsdk/worker";
-import { route, render, prefix } from "rwsdk/router";
+import { render, prefix } from "rwsdk/router";
 import { Document } from "@/app/Document";
 
-import {
-  type Sandbox,
-  type SandboxEnv,
-  proxyToSandbox,
-} from "@cloudflare/sandbox";
-
-import { fetchContainer } from "./container";
+import { type Sandbox, proxyToSandbox } from "@cloudflare/sandbox";
 
 import { apiRoutes } from "./app/pages/api/routes";
 import { logsRoutes } from "./app/pages/logs/routes";
@@ -28,14 +22,11 @@ const app = defineApp([
     prefix("/logs", logsRoutes),
     prefix("/editor", editorRoutes),
     prefix("/claude", editorRoutes),
-    prefix("/term/", termRoutes),
+    prefix("/term", termRoutes),
     prefix("/preview", previewRoutes),
-
-    // prefix("/preview", editorRoutes),
 
     // route("/claude", ClaudePage),
     // route("/claude/:containerId", ClaudePage),
-    // this will be the container id.
   ]),
 
   prefix("/api", apiRoutes),
@@ -48,10 +39,8 @@ export default {
   fetch: async function (request, env: Env, cf) {
     const proxyResponse = await proxyToSandbox(request, env);
     if (proxyResponse) {
-      console.log("proxyResponse", proxyResponse);
       return proxyResponse;
     }
-
     return await app.fetch(request, env, cf);
   },
 } as ExportedHandler;

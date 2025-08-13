@@ -21,7 +21,9 @@ export async function waitForContainer({ params }: RequestInfo) {
   const { containerId } = params;
   const status = await isContainerReady(containerId);
 
+  console.log("=".repeat(80));
   console.log(status);
+  console.log("=".repeat(80));
 
   if (!status.ready) {
     // deterine which part of the app to start...

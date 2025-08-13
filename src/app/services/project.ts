@@ -17,10 +17,14 @@ export async function getProjectInfo(containerId: string) {
         .map((cmd) => cmd.trim()) as string[])
     : [];
 
+  const exposePortsClean = Array.isArray(exposePorts)
+    ? (exposePorts.map((port) => parseInt(port, 10)) as number[])
+    : [5173];
+
   return {
     repository,
     runOnBoot: runOnBootClean,
     processCommand,
-    exposePorts,
+    exposePorts: exposePortsClean,
   };
 }

@@ -4,130 +4,123 @@ import { getSandbox } from "@cloudflare/sandbox";
 import { env } from "cloudflare:workers";
 import { getProjectInfo } from "@/app/services/project";
 
-async function streamToString(
-  stream: ReadableStream<Uint8Array>
-): Promise<string> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-
-  // Combine all chunks and decode to string
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const combined = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    combined.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return new TextDecoder().decode(combined);
-}
-
 export async function isContainerReady(containerId: string) {
+  let bootstrap = false;
+  let longRunningProcess = false;
+  let portsExposed = false;
+
+  const project = await getProjectInfo(containerId);
+
   const sandbox = getSandbox(env.Sandbox, containerId);
-  const p = await sandbox.getExposedPorts("localhost");
-  return p.length > 0;
+  try {
+    const pid = await sandbox.readFile("/tmp/bootstrap.pid");
+    bootstrap = true;
+  } catch {
+    bootstrap = false;
+  }
+
+  const processes = await sandbox.listProcesses();
+  if (processes.findIndex((p) => p.command === project.processCommand) !== -1) {
+    longRunningProcess = true;
+  }
+
+  // There should be a better way to check if the container is ready?
+  // What do I mean by ready exactly?
+  // There are different kinds of ready based on the software
+  // that is running on it.
+  // const sandbox = getSandbox(env.Sandbox, containerId);
+  const ports = await sandbox.getExposedPorts("localhost");
+  for (const p of ports) {
+    if (project.exposePorts.includes(p.port)) {
+      portsExposed = true;
+    }
+  }
+
+  return {
+    bootstrap,
+    longRunningProcess,
+    portsExposed,
+    ready: bootstrap && longRunningProcess && portsExposed,
+  };
 }
 
-export async function startContainer({ containerId }: { containerId: string }) {
-  const { repository, runOnBoot, processCommand } = await getProjectInfo(
-    containerId
-  );
+export async function bootstrapContainer(containerId: string) {
+  const { repository, runOnBoot } = await getProjectInfo(containerId);
 
   const sandbox = getSandbox(env.Sandbox, containerId);
   await sandbox.start({
     enableInternet: true,
   });
 
-  let { readable, writable } = new TransformStream<Uint8Array, Uint8Array>();
-  const [clientReadable, logReadable] = readable.tee();
-  let writer = writable.getWriter();
+  // Generate bootstrap script
+  const scriptLines = ["#!/bin/bash", "set -e", ""];
 
-  // Run all operations asynchronously and properly close the stream
-  (async () => {
-    try {
-      if (repository) {
-        const result = await sandbox.gitCheckout(repository, {
-          targetDir: "/workspace",
-        });
+  // Setup workspace
+  if (repository) {
+    scriptLines.push(`echo "Checking out repository: ${repository}"`);
+    // Git checkout will be handled by sandbox.gitCheckout
+  } else {
+    scriptLines.push(
+      "echo 'Setting up minimal workspace'",
+      "cd /",
+      "mkdir -p /workspace",
+      "cp -R /redwoodsdk/minimal/* /workspace"
+    );
+  }
 
-        await writer.write(new TextEncoder().encode(result.stdout));
-        await writer.write(new TextEncoder().encode(result.stderr));
-        await writer.write(
-          new TextEncoder().encode(`Exit code: ${result.exitCode.toString()}`)
-        );
-      } else {
-        const stream = await sandbox.execStream(
-          "cd / && mkdir -p /workspace && cp -R /redwoodsdk/minimal/* /workspace",
-          {
-            cwd: "/",
-            sessionId: "runOnBoot",
-          }
-        );
-        const reader = stream.getReader();
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            await writer.write(value);
-          }
-        } finally {
-          reader.releaseLock();
-        }
-      }
+  // Add boot commands
+  scriptLines.push("cd /workspace");
+  for (const command of runOnBoot) {
+    scriptLines.push(`echo "Running: ${command}"`);
+    scriptLines.push(command);
+  }
+  // This is a hack to check if the bootstrap process has run.
+  // We should have a better way to do this.
+  // Can we grab the process id from the bash script?
 
-      if (runOnBoot.length) {
-        for (const command of runOnBoot) {
-          const stream = await sandbox.execStream(command.trim(), {
-            cwd: "/workspace",
-            sessionId: "runOnBoot",
-          });
-          const reader = stream.getReader();
-          try {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              await writer.write(value);
-            }
-          } finally {
-            reader.releaseLock();
-          }
-        }
-      }
+  scriptLines.push("echo $$ > /tmp/bootstrap.pid");
+  scriptLines.push("echo '[machinen-bootstrap-complete]'");
 
-      if (processCommand) {
-        await sandbox.startProcess(processCommand, {
-          cwd: "/workspace",
-        });
-      }
+  const scriptContent = scriptLines.join("\n");
 
-      // TODO: This is supplied by the user.
-      await sandbox.exposePort(5173, { hostname: "localhost:5173" });
-      console.log("writing container initialization complete"),
-        await writer.write(
-          new TextEncoder().encode("Container initialization complete")
-        );
-    } catch (error) {
-      console.log("error", error);
-      await writer.write(
-        new TextEncoder().encode(`Error: ${(error as Error)?.message || error}`)
-      );
-    } finally {
-      console.log("closing writer");
-      await writer.close();
+  // Write and execute the script
+  await sandbox.writeFile("/tmp/bootstrap.sh", scriptContent);
 
-      // Convert the log stream to a string
-      const contents = await streamToString(logReadable);
-      await sandbox.writeFile("/tmp/boot.log", contents);
+  // Handle repository checkout if needed
+  if (repository) {
+    const result = await sandbox.gitCheckout(repository, {
+      targetDir: "/workspace",
+    });
+    if (result.exitCode !== 0) {
+      throw new Error(`Git checkout failed: ${result.stderr}`);
     }
-  })();
+  }
 
-  return clientReadable;
+  // Execute bootstrap script
+  const result = await sandbox.startProcess("bash /tmp/bootstrap.sh", {
+    cwd: "/",
+  });
+
+  return { success: true, processId: result.id };
+}
+
+export async function startLongRunningProcess(containerId: string) {
+  const { processCommand } = await getProjectInfo(containerId);
+
+  const sandbox = getSandbox(env.Sandbox, containerId);
+  const result = await sandbox.startProcess(processCommand, {
+    cwd: "/workspace",
+  });
+  return { success: true, processId: result.id };
+}
+
+export async function exposePorts(containerId: string) {
+  const { exposePorts } = await getProjectInfo(containerId);
+
+  const sandbox = getSandbox(env.Sandbox, containerId);
+  for (const port of exposePorts) {
+    await sandbox.exposePort(port, {
+      hostname: "localhost:5173", // todo figure out how to get the port here? is it possible to get this from vite?
+    });
+  }
 }

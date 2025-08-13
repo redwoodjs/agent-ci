@@ -16,9 +16,6 @@ export async function ProcessListPage({
       <h1>Process</h1>
 
       <ol>
-        <li>
-          <a href={`/logs/${containerId}/boot.log`}>Boot log</a>
-        </li>
         {processes.map((process) => (
           <li key={process.pid}>
             <a href={`/logs/${containerId}/${process.id}`}>{process.command}</a>

@@ -39,6 +39,9 @@ export function CreateProjectPage() {
         <label>Repository</label>
         <input type="text" name="repository" />
 
+        <label>Expose Ports</label>
+        <input type="text" name="exposePorts" />
+
         <button type="submit" disabled={isPending}>
           {isPending ? "Creating..." : "Create"}
         </button>

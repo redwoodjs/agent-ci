@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { Container, getContainer } from "@cloudflare/containers";
 import { getSandbox } from "@cloudflare/sandbox";
-import { isContainerReady } from "./app/components/WaitForContainer/actions";
+import { isSandboxReady } from "./app/components/WaitForContainer/actions";
 
 export class MachinenContainer extends Container {
   enableInternet = true;

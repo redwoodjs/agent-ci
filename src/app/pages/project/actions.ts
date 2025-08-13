@@ -1,4 +1,3 @@
-// src/app/pages/project/functions.ts
 "use server";
 import { db } from "@/db";
 
@@ -18,7 +17,7 @@ export async function createProjectAction(prevState: any, formData: FormData) {
   const runOnBoot = sanitizeRunOnBoot(runOnBootRaw);
   const processCommand = String(formData.get("processCommand") || "");
   const repository = String(formData.get("repository") || "");
-
+  const exposePorts = String(formData.get("exposePorts") || "");
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
@@ -31,6 +30,7 @@ export async function createProjectAction(prevState: any, formData: FormData) {
       runOnBoot,
       processCommand,
       repository,
+      exposePorts,
       createdAt: now,
       updatedAt: now,
     })
@@ -44,6 +44,7 @@ export async function createProjectAction(prevState: any, formData: FormData) {
     runOnBoot: result.runOnBoot,
     processCommand: result.processCommand,
     repository: result.repository,
+    exposePorts: result.exposePorts,
   };
 }
 
@@ -55,6 +56,7 @@ export async function editProjectAction(prevState: any, formData: FormData) {
   const runOnBoot = sanitizeRunOnBoot(runOnBootRaw);
   const processCommand = String(formData.get("processCommand") || "");
   const repository = String(formData.get("repository") || "");
+  const exposePorts = String(formData.get("exposePorts") || "");
 
   if (!id || !name || !description) {
     return { error: "Missing required fields" };
@@ -70,6 +72,7 @@ export async function editProjectAction(prevState: any, formData: FormData) {
       runOnBoot,
       processCommand,
       repository,
+      exposePorts,
       updatedAt: now,
     })
     .where("id", "=", id)
@@ -85,6 +88,7 @@ export async function editProjectAction(prevState: any, formData: FormData) {
       runOnBoot: result.runOnBoot,
       processCommand: result.processCommand,
       repository: result.repository,
+      exposePorts: result.exposePorts,
     },
   };
 }

@@ -2,17 +2,53 @@ import { getSandbox } from "@cloudflare/sandbox";
 import { env } from "cloudflare:workers";
 import { RequestInfo } from "rwsdk/worker";
 
-import { isContainerReady } from "./actions";
-import { WaitingPage } from "./WaitingPage";
+import {
+  isContainerReady,
+  bootstrapContainer,
+  startLongRunningProcess,
+  exposePorts,
+} from "./actions";
 
-export async function waitForContainer({ params, ctx }: RequestInfo) {
-  console.log("waitForContainer", params);
+import { BootstrapLogs } from "./BootstrapLogs";
+import { LongRunningProcessLogs } from "./LongRunningProcessLogs";
+
+// This is an interruptor.
+
+// we are making an assumption that the person will run a vite process
+// that the vite process will wait for a port...
+// how do I tell if the vite process has started...
+export async function waitForContainer({ params }: RequestInfo) {
   const { containerId } = params;
-  const sandbox = getSandbox(env.Sandbox, containerId);
-  const ready = await isContainerReady(containerId);
-  if (!ready) {
-    return <WaitingPage containerId={containerId} />;
+  const status = await isContainerReady(containerId);
+
+  console.log(status);
+
+  if (!status.ready) {
+    // deterine which part of the app to start...
+    // and pass that along to this client componet
+    // which then loads the correct logs.
+    if (!status.bootstrap) {
+      const { processId } = await bootstrapContainer(containerId);
+      return <BootstrapLogs containerId={containerId} processId={processId} />;
+    }
+
+    if (!status.longRunningProcess) {
+      const { processId } = await startLongRunningProcess(containerId);
+      return (
+        <LongRunningProcessLogs
+          containerId={containerId}
+          processId={processId}
+        />
+      );
+    }
+
+    if (!status.portsExposed) {
+      await exposePorts(containerId);
+      return (
+        <div>
+          Ports exposed <meta http-equiv="refresh" content="1" />
+        </div>
+      );
+    }
   }
-  ctx.sandbox = sandbox;
-  console.log("waitForContainer end", ctx);
 }

@@ -7,9 +7,10 @@ interface Project {
   id: string;
   name: string;
   description: string;
-  runOnBoot: string[];
+  runOnBoot: string;
   processCommand: string | null;
   repository: string | null;
+  exposePorts: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -94,6 +95,18 @@ export function ProjectEdit({ project }: { project: Project }) {
               type="text"
               name="repository"
               defaultValue={project.repository || ""}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Expose Ports
+            </label>
+            <input
+              type="text"
+              name="exposePorts"
+              defaultValue={project.exposePorts || ""}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>

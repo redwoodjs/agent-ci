@@ -39,7 +39,6 @@ export const migrations = {
           .execute(),
       ];
     },
-
     async down(db) {
       await db.schema.dropTable("tasks").execute();
     },
@@ -64,7 +63,6 @@ export const migrations = {
           .execute(),
       ];
     },
-
     async down(db) {
       await db.schema
         .alterTable("projects")
@@ -89,7 +87,6 @@ export const migrations = {
           .execute(),
       ];
     },
-
     async down(db) {
       await db.schema
         .alterTable("projects")

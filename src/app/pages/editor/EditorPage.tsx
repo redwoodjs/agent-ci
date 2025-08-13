@@ -4,7 +4,7 @@ import { Editor } from "./components/MonacoEditorContainer";
 import { FileBrowser } from "./components/FileBrowser";
 import { Preview } from "@/app/components/Preview";
 
-import { LazyTerm } from "@/app/components/Term/";
+import { LazyTerm } from "@/app/components/LazyTerm";
 
 export const EditorPage = async ({
   params,

@@ -53,7 +53,12 @@ export async function bootstrapContainer(containerId: string) {
   });
 
   // Generate bootstrap script
-  const scriptLines = ["#!/bin/bash", "set -e", ""];
+  const scriptLines = [
+    "#!/bin/bash",
+    "set -e",
+    "",
+    "echo $$ > /tmp/bootstrap.pid",
+  ];
 
   // Setup workspace
   if (repository) {
@@ -78,7 +83,6 @@ export async function bootstrapContainer(containerId: string) {
   // We should have a better way to do this.
   // Can we grab the process id from the bash script?
 
-  scriptLines.push("echo $$ > /tmp/bootstrap.pid");
   scriptLines.push("echo '[machinen-bootstrap-complete]'");
 
   const scriptContent = scriptLines.join("\n");

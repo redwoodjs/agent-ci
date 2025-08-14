@@ -15,7 +15,7 @@ export function BootstrapLogs({
       processId={processId}
       completeMessage="[machinen-bootstrap-complete]"
       onComplete={() => {
-        window.location.reload();
+        // window.location.reload();
       }}
     />
   );

@@ -15,7 +15,7 @@ export function LongRunningProcessLogs({
       processId={processId}
       completeMessage="VITE v"
       onComplete={() => {
-        window.location.reload();
+        // window.location.reload();
       }}
     />
   );

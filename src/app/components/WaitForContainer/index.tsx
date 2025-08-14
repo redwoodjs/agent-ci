@@ -29,6 +29,11 @@ export async function waitForContainer({ params }: RequestInfo) {
     // deterine which part of the app to start...
     // and pass that along to this client componet
     // which then loads the correct logs.
+    // NOTE: There is a race condition with this approach. We write a log file
+    // and then read it later, if it's too fast then we don't
+    // get the correct response, which causes the process to run multiple times.
+    // I think we should also check to see which process are running
+    // in the container, and then wait till it's done or something?
     if (!status.bootstrap) {
       const { processId } = await bootstrapContainer(containerId);
       return <BootstrapLogs containerId={containerId} processId={processId} />;
@@ -46,11 +51,11 @@ export async function waitForContainer({ params }: RequestInfo) {
 
     if (!status.portsExposed) {
       await exposePorts(containerId);
-      return (
-        <div>
-          Ports exposed <meta http-equiv="refresh" content="1" />
-        </div>
-      );
+      // return (
+      //   <div>
+      //     Ports exposed <meta http-equiv="refresh" content="1" />
+      //   </div>
+      // );
     }
   }
 }

@@ -1,20 +1,16 @@
 import { env } from "cloudflare:workers";
 import { Container, getContainer } from "@cloudflare/containers";
+import { getSandbox } from "@cloudflare/sandbox";
+import { isSandboxReady } from "./app/components/WaitForContainer/actions";
 
 export class MachinenContainer extends Container {
   enableInternet = true;
   sleepAfter = "60m";
   defaultPort = 8910;
-  onError(error: unknown) {
-    console.error("container error", error);
-  }
-  onStart() {
-    console.log("container started", this.ctx.id);
-  }
-  onStop() {
-    console.log("container stopped", this.ctx.id);
-  }
   ports = [8910, 8911];
+  envVars = {
+    GITHUB_TOKEN: process.env.GITHUB_TOKEN as string,
+  };
 }
 
 interface InstanceMetadata {

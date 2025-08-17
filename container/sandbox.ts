@@ -446,7 +446,7 @@ app.onError((err, c) => {
 });
 
 // Start the server
-const port = 8911;
+const port = 8910;
 console.log(`🚀 Hono server starting on port ${port}`);
 
 const server = serve({

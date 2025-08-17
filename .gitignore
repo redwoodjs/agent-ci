@@ -2,7 +2,6 @@
 node_modules
 
 # Logs
-logs
 *.log
 npm-debug.log*
 pnpm-debug.log*

@@ -7,6 +7,7 @@ export default defineConfig({
   environments: {
     ssr: {},
   },
+
   plugins: [
     // proxyWebSocketPlugin(),
     cloudflare({
@@ -15,6 +16,7 @@ export default defineConfig({
     redwood(),
     tailwindcss(),
   ],
+  logLevel: "info",
 });
 
 function proxyWebSocketPlugin(): Plugin {

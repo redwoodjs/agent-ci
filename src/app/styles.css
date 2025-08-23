@@ -3,6 +3,11 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+  --font-advercase: "Advercase", sans-serif;
+  --border-muted: #fbe5c8;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -24,6 +29,7 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-border: var(--border);
+  --color-border-muted: var(--border-muted);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-chart-1: var(--chart-1);
@@ -43,8 +49,8 @@
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
+  --background: #fff3df;
+  --foreground: #802c43;
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -58,7 +64,8 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
+  --border: #d54b40;
+  --border-muted: #fbe5c8;
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.646 0.222 41.116);
@@ -117,4 +124,15 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+@font-face {
+  font-family: Advercase;
+  src: url("/fonts/AdvercaseFont-Demo-Regular.otf") format("opentype");
+}
+
+@font-face {
+  font-family: Advercase;
+  font-weight: bold;
+  src: url("/fonts/AdvercaseFont-Demo-Bold.otf") format("opentype");
 }

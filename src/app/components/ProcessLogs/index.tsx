@@ -1,18 +1,18 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { consumeEventStream } from "rwsdk/client";
 import { streamLogs } from "./actions";
 
 interface Log {
   data: string;
-  timestamp: string;
+  type?: string;
+  exitCode?: number;
 }
 
 export function ProcessLogs({
   containerId,
   processId,
-  completeMessage,
   onComplete,
 }: {
   containerId: string;
@@ -24,31 +24,65 @@ export function ProcessLogs({
 
   useEffect(() => {
     async function fetchLogs() {
-      const eventStream = await streamLogs(containerId, processId);
-      eventStream.pipeTo(
-        consumeEventStream({
-          onChunk: (event) => {
-            const data: Log = JSON.parse(event.data);
-            // TOODO: Make this agnostic.
-            if (completeMessage && data.data.includes(completeMessage)) {
-              onComplete?.();
-            } else {
-              setLogs((prevLogs) => [...prevLogs, data]);
-            }
-          },
-        })
-      );
+      try {
+        const eventStream = await streamLogs(containerId, processId);
+        eventStream.pipeTo(
+          consumeEventStream({
+            onChunk: (event) => {
+              console.log(event);
+              console.log("event", event);
+              if (event.data) {
+                const data: Log = JSON.parse(event.data);
+                switch (data.type) {
+                  case "complete":
+                    {
+                      setLogs((prevLogs) => [
+                        ...prevLogs,
+                        {
+                          data: "Exited with code " + data.exitCode,
+                        },
+                      ]);
+                      // Process completed naturally, call onComplete callback
+                      onComplete?.();
+                    }
+                    break;
+                  case "stdout":
+                    {
+                      setLogs((prevLogs) => [...prevLogs, data]);
+                    }
+                    break;
+                  case "stderr":
+                    {
+                      setLogs((prevLogs) => [...prevLogs, data]);
+                    }
+                    break;
+                }
+              }
+            },
+          })
+        );
+      } catch (error) {
+        // Handle abort or other errors
+        if (error instanceof Error && error.name === "AbortError") {
+          console.log("Log streaming was cancelled");
+        } else {
+          console.error("Error streaming logs:", error);
+        }
+      }
     }
+
     fetchLogs();
-  }, []);
+  }, [containerId, processId, onComplete]);
 
   return (
     <div>
-      <h1>Logs {processId}</h1>
+      <h1>Logs: {processId}</h1>
       <code>
         <ol>
-          {logs.map((log) => (
-            <li key={log.timestamp}>{log.data}</li>
+          {logs.map((log, i) => (
+            <li key={log + "-" + i}>
+              <pre>{log.data}</pre>
+            </li>
           ))}
         </ol>
       </code>

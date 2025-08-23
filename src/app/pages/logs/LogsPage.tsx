@@ -8,7 +8,7 @@ export const LogsPage = ({ params }: RequestInfo) => {
   return (
     <>
       <h1>Logs</h1>
-      <ProcessLogs containerId={containerId} processId={processId} />;
+      <ProcessLogs containerId={containerId} processId={processId} />
     </>
   );
 };

@@ -1,5 +1,5 @@
 import { defineApp } from "rwsdk/worker";
-import { render, prefix } from "rwsdk/router";
+import { render, prefix, route } from "rwsdk/router";
 import { Document } from "@/app/Document";
 
 import { type Sandbox, proxyToSandbox } from "@cloudflare/sandbox";
@@ -17,6 +17,12 @@ export type AppContext = {
 
 const app = defineApp([
   render(Document, [
+    route("/", () => {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "/projects" },
+      });
+    }),
     prefix("/projects", projectRoutes),
 
     prefix("/logs", logsRoutes),

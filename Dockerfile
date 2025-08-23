@@ -1,4 +1,4 @@
-FROM --platform=linux/arm64 docker.io/cloudflare/sandbox:0.2.4
+FROM --platform=linux/arm64 docker.io/cloudflare/sandbox:0.3.0
 
 
 RUN npm install --global corepack@latest && \

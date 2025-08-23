@@ -1,4 +1,5 @@
 import { getSandbox } from "@cloudflare/sandbox";
+import { getContainer, switchPort } from "@cloudflare/containers";
 import { getContainer } from "@cloudflare/containers";
 
 import { env } from "cloudflare:workers";
@@ -13,27 +14,17 @@ export const termRoutes = [
     waitForContainer,
     async ({ request, params }) => {
       const url = new URL(request.url);
-      url.port = "5173";
-      url.hostname = "8910-blog.localhost";
-      url.pathname = url.pathname.replace(
-        `/term/${params.containerId}`,
-        "/tty"
-      );
+      url.port = "8910";
 
-      // const container = getContainer(env.Sandbox, params.containerId);
+      console.log("constructed a url", url.toString());
 
-      // const newRequest = new Request(url, request);
-      // const response = await container.fetch(url, request);
-      console.log("*".repeat(80));
-      console.log(url);
-      console.log("*".repeat(80));
+      const newRequest = new Request(url, request);
+      // This appears to send all requests to the bun server.
+      const container = await getContainer(env.Sandbox, params.containerId);
+      console.log("got container");
 
-      const response = await fetch(url, request);
-
-      console.log("*".repeat(80));
-      console.log(url);
-      console.log(response);
-      console.log("*".repeat(80));
+      const response = await container.fetch(switchPort(newRequest, 8910));
+      console.log("got a response", response.status);
 
       return response;
     },

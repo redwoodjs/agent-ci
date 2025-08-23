@@ -9,14 +9,5 @@ export function LongRunningProcessLogs({
   containerId: string;
   processId: string;
 }) {
-  return (
-    <ProcessLogs
-      containerId={containerId}
-      processId={processId}
-      completeMessage="VITE v"
-      onComplete={() => {
-        // window.location.reload();
-      }}
-    />
-  );
+  return <ProcessLogs containerId={containerId} processId={processId} />;
 }

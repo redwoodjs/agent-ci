@@ -161,7 +161,7 @@ const shell = pty.spawn("bash", [], {
 console.log("shell launched:", shell.pid);
 
 ttyRoutes.get(
-  "/attach",
+  "/:containerId/attach",
   upgradeWebSocket(
     () => {
       console.log("WebSocket upgrade request received");
@@ -395,7 +395,7 @@ ttyRoutes.get(
   })
 );
 
-app.route("/tty", ttyRoutes);
+app.route("/term", ttyRoutes);
 
 // Claude credentials route
 app.post("/claude/credentials", async (c) => {
@@ -453,4 +453,5 @@ const server = serve({
   fetch: app.fetch,
   port,
 });
+
 injectWebSocket(server);

@@ -27,6 +27,7 @@ export async function bootstrapContainer(containerId: string) {
       "cp -R /redwoodsdk/minimal/* /workspace"
     );
   }
+  // need to figure out a way to log in...
 
   // Add boot commands
   scriptLines.push("cd /workspace");
@@ -55,6 +56,19 @@ export async function bootstrapContainer(containerId: string) {
   await sandbox.exec("cd /machinen");
   await sandbox.exec("chmod +x bootstrap.sh");
   const result = await sandbox.startProcess("./bootstrap.sh");
+
+  await sandbox.writeFile(
+    "/root/.claude/.credentials.json",
+    JSON.stringify({
+      claudeAiOauth: {
+        accessToken: env.CLAUDE_CODE_ACCESS_TOKEN,
+        refreshToken: env.CLAUDE_CODE_REFRESH_TOKEN,
+        expiresAt: env.CLAUDE_CODE_EXPIRES_AT,
+        scopes: ["user:inference", "user:profile"],
+        subscriptionType: "pro",
+      },
+    })
+  );
 
   return { success: true, processId: result.id };
 }

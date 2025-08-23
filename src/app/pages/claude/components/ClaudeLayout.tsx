@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { FormattedMessage } from "../utils/messageFormatting";
-import { ClaudeMessage } from "./ClaudeMessage";
+import { FormattedMessage } from "../../chat/components/messageFormatting";
+import { ClaudeMessage } from "../../chat/components/ClaudeMessage";
 import {
   MessageCircle,
   Loader2,

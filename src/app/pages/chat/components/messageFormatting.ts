@@ -40,12 +40,12 @@ export interface ExitMessage {
 export class MessageFormatter {
   private messageCounter = 0;
   private activeToolCalls = new Map<string, ToolCall>();
-  
+
   formatMessage(rawMessage: ClaudeMessage): FormattedMessage | null {
     const timestamp = new Date().toISOString();
     const messageId = `msg-${++this.messageCounter}`;
-    
-    switch (rawMessage.type) {
+
+    switch (rawMessage?.type) {
       case "system":
         if (rawMessage.subtype === "init") {
           return {
@@ -56,34 +56,40 @@ export class MessageFormatter {
           };
         }
         break;
-        
+
       case "user":
         return this.formatUserMessage(rawMessage, messageId, timestamp);
-        
+
       case "assistant":
         return this.formatAssistantMessage(rawMessage, messageId, timestamp);
-        
+
       case "result":
         return {
           id: messageId,
           type: "system",
-          content: `$${rawMessage.total_cost_usd || 0} • ${Math.round((rawMessage.duration_ms || 0) / 1000)}s • ${rawMessage.num_turns || 0} turns`,
+          content: `$${rawMessage.total_cost_usd || 0} • ${Math.round(
+            (rawMessage.duration_ms || 0) / 1000
+          )}s • ${rawMessage.num_turns || 0} turns`,
           timestamp,
         };
-        
+
       default:
         return null;
     }
-    
+
     return null;
   }
-  
-  private formatUserMessage(rawMessage: ClaudeMessage, messageId: string, timestamp: string): FormattedMessage | null {
+
+  private formatUserMessage(
+    rawMessage: ClaudeMessage,
+    messageId: string,
+    timestamp: string
+  ): FormattedMessage | null {
     if (!rawMessage.message?.content) return null;
-    
+
     let content = "";
     const toolResults: ToolCall[] = [];
-    
+
     if (Array.isArray(rawMessage.message.content)) {
       for (const contentItem of rawMessage.message.content) {
         if (contentItem.type === "tool_result") {
@@ -103,12 +109,12 @@ export class MessageFormatter {
     } else if (typeof rawMessage.message.content === "string") {
       content = rawMessage.message.content;
     }
-    
+
     // If this is just tool results, don't create a separate message
     if (!content && toolResults.length > 0) {
       return null;
     }
-    
+
     return {
       id: messageId,
       type: "user",
@@ -116,14 +122,18 @@ export class MessageFormatter {
       timestamp,
     };
   }
-  
-  private formatAssistantMessage(rawMessage: ClaudeMessage, messageId: string, timestamp: string): FormattedMessage | null {
+
+  private formatAssistantMessage(
+    rawMessage: ClaudeMessage,
+    messageId: string,
+    timestamp: string
+  ): FormattedMessage | null {
     const msg = rawMessage.message;
     if (!msg?.content || !Array.isArray(msg.content)) return null;
-    
+
     let textContent = "";
     const toolCalls: ToolCall[] = [];
-    
+
     for (const contentItem of msg.content) {
       if (contentItem.type === "text" && contentItem.text) {
         textContent += contentItem.text;
@@ -138,7 +148,7 @@ export class MessageFormatter {
         this.activeToolCalls.set(contentItem.id, toolCall);
       }
     }
-    
+
     // If there's only tool calls and no text, mark as tool use message
     if (toolCalls.length > 0 && !textContent) {
       return {
@@ -150,7 +160,7 @@ export class MessageFormatter {
         toolCalls,
       };
     }
-    
+
     // If there's text content, create a message with optional tool calls
     if (textContent) {
       return {
@@ -161,10 +171,10 @@ export class MessageFormatter {
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       };
     }
-    
+
     return null;
   }
-  
+
   // Helper method to create a formatted message from raw text (for WebSocket errors, etc.)
   createSystemMessage(content: string): FormattedMessage {
     return {
@@ -174,9 +184,12 @@ export class MessageFormatter {
       timestamp: new Date().toISOString(),
     };
   }
-  
+
   // Helper method to create connection status messages
-  createConnectionMessage(status: "connected" | "connecting" | "error", details?: string): FormattedMessage {
+  createConnectionMessage(
+    status: "connected" | "connecting" | "error",
+    details?: string
+  ): FormattedMessage {
     let content = "";
     switch (status) {
       case "connected":
@@ -189,7 +202,7 @@ export class MessageFormatter {
         content = details || "Connection error";
         break;
     }
-    
+
     return this.createSystemMessage(content);
   }
 }

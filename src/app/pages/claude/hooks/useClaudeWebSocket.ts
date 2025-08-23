@@ -1,6 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { FormattedMessage, MessageFormatter } from "../utils/messageFormatting";
-import type { ClaudeMessage, ExitMessage } from "../utils/messageFormatting";
+import {
+  FormattedMessage,
+  MessageFormatter,
+} from "../../chat/components/messageFormatting";
+import type {
+  ClaudeMessage,
+  ExitMessage,
+} from "../../chat/components/messageFormatting";
 
 interface AuthStatus {
   authenticated: boolean;

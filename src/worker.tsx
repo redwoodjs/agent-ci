@@ -10,6 +10,7 @@ import { projectRoutes } from "./app/pages/project/routes";
 import { editorRoutes } from "./app/pages/editor/routes";
 import { termRoutes } from "./app/pages/term/routes";
 import { previewRoutes } from "./app/pages/preview/routes";
+import { chatRoutes } from "./app/pages/chat/routes";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -24,18 +25,13 @@ const app = defineApp([
       });
     }),
     prefix("/projects", projectRoutes),
-
+    prefix("/chat", chatRoutes),
     prefix("/logs", logsRoutes),
     prefix("/editor", editorRoutes),
     prefix("/claude", editorRoutes),
     prefix("/term", termRoutes),
     prefix("/preview", previewRoutes),
-
-    // route("/claude", ClaudePage),
-    // route("/claude/:containerId", ClaudePage),
   ]),
-
-  prefix("/api", apiRoutes),
 ]);
 
 export { Sandbox } from "@cloudflare/sandbox";

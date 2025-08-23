@@ -46,6 +46,8 @@ export async function TaskList({ projectId }: { projectId: string }) {
                   {task.status}
                 </span>
                 <div>
+                  <a href={`/chat/${task.containerId}`}>Chat</a>{" "}
+                  <a href={`/preview/${task.containerId}`}>Preview</a>{" "}
                   <a href={`/logs/${task.containerId}`}>Logs</a>{" "}
                   <a href={`/editor/${task.containerId}`}>Editor</a>
                 </div>

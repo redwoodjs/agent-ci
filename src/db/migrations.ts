@@ -94,4 +94,33 @@ export const migrations = {
         .execute();
     },
   },
+
+  "005_add_oauth_tables": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("oauth_tokens")
+          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("user_id", "text", (col) => col.notNull().unique())
+          .addColumn("access_token", "text", (col) => col.notNull())
+          .addColumn("refresh_token", "text", (col) => col.notNull())
+          .addColumn("expires_at", "text", (col) => col.notNull())
+          .addColumn("scope", "text", (col) => col.notNull())
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .execute(),
+        
+        await db.schema
+          .createTable("oauth_state")
+          .addColumn("state", "text", (col) => col.primaryKey())
+          .addColumn("code_verifier", "text", (col) => col.notNull())
+          .addColumn("expires_at", "text", (col) => col.notNull())
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("oauth_tokens").execute();
+      await db.schema.dropTable("oauth_state").execute();
+    },
+  },
 } satisfies Migrations;

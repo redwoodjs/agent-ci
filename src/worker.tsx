@@ -11,6 +11,7 @@ import { editorRoutes } from "./app/pages/editor/routes";
 import { termRoutes } from "./app/pages/term/routes";
 import { previewRoutes } from "./app/pages/preview/routes";
 import { chatRoutes } from "./app/pages/chat/routes";
+import { authRoutes } from "./app/pages/auth/routes";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -31,6 +32,7 @@ const app = defineApp([
     prefix("/claude", editorRoutes),
     prefix("/term", termRoutes),
     prefix("/preview", previewRoutes),
+    prefix("/api/auth/claude", authRoutes),
   ]),
 ]);
 

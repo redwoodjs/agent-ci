@@ -1,14 +1,6 @@
 import { createHash, randomBytes } from "crypto";
+import { db } from "@/db";
 
-// In-memory token storage (simple POC)
-const tokenStore = new Map<
-  string,
-  {
-    access_token: string;
-    refresh_token: string;
-    expires_at: number;
-  }
->();
 
 // Generate PKCE code verifier and challenge
 function generatePKCE() {
@@ -20,17 +12,34 @@ function generatePKCE() {
   return { codeVerifier, codeChallenge };
 }
 
-// Store PKCE verifier temporarily (in production, use session storage)
-const pkceStore = new Map<string, string>();
+// Clean up expired PKCE states
+async function cleanupExpiredStates(): Promise<void> {
+  const now = new Date().toISOString();
+  await db
+    .deleteFrom("oauth_state")
+    .where("expires_at", "<", now)
+    .execute();
+}
 
-export function generateOAuthURL() {
+export async function generateOAuthURL() {
   const { codeVerifier, codeChallenge } = generatePKCE();
 
   // Use the verifier as the state (like opencode does)
   const state = codeVerifier;
 
-  // Store verifier for later use with state as key
-  pkceStore.set(state, codeVerifier);
+  // Clean up expired states first
+  await cleanupExpiredStates();
+
+  // Store verifier in database with 10-minute expiry
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+  await db
+    .insertInto("oauth_state")
+    .values({
+      state,
+      code_verifier: codeVerifier,
+      expires_at: expiresAt,
+    })
+    .execute();
 
   const params = new URLSearchParams({
     code: "true",
@@ -51,39 +60,25 @@ export function generateOAuthURL() {
 
 export async function exchangeCodeForTokens(
   code: string,
-  sessionId: string,
-  baseURL: string,
+  userId: string,
 ) {
   // Split the code - opencode expects format: code#state
   const splits = code.includes("#") ? code.split("#") : [code, ""];
   const actualCode = splits[0];
   const state = splits[1] || "";
 
-  // Get the PKCE verifier using the state
-  const codeVerifier = pkceStore.get(state);
-  if (!codeVerifier) {
+  // Get the PKCE verifier from database
+  const stateRecord = await db
+    .selectFrom("oauth_state")
+    .select(["code_verifier"])
+    .where("state", "=", state)
+    .executeTakeFirst();
+
+  if (!stateRecord) {
     throw new Error(`No PKCE verifier found for state: ${state}`);
   }
 
-  console.log("Full code received:", code);
-  console.log(
-    "Split result - actualCode:",
-    actualCode.substring(0, 20) + "...",
-    "state:",
-    state,
-  );
-  console.log("Looking for verifier with state:", state);
-  console.log("Available states in pkceStore:", Array.from(pkceStore.keys()));
-
-  console.log("Exchanging tokens with:", {
-    actualCode: actualCode.substring(0, 10) + "...",
-    state: state,
-    sessionId,
-    baseURL,
-    codeVerifier: codeVerifier
-      ? codeVerifier.substring(0, 10) + "..."
-      : "NOT_FOUND",
-  });
+  const codeVerifier = stateRecord.code_verifier;
 
   const requestBody = {
     code: actualCode,
@@ -93,8 +88,6 @@ export async function exchangeCodeForTokens(
     redirect_uri: "https://console.anthropic.com/oauth/code/callback",
     code_verifier: codeVerifier,
   };
-
-  console.log("Token exchange request body:", requestBody);
 
   const response = await fetch("https://console.anthropic.com/v1/oauth/token", {
     method: "POST",
@@ -107,49 +100,81 @@ export async function exchangeCodeForTokens(
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("Token exchange failed:");
-    console.error("Status:", response.status);
-    console.error("Response:", errorText);
-    console.error("Request was:", requestBody);
     throw new Error(`Token exchange failed: ${response.status} - ${errorText}`);
   }
 
   const tokens = await response.json();
 
-  console.log("Received tokens:", {
-    access_token: tokens.access_token
-      ? tokens.access_token.substring(0, 20) + "..."
-      : "MISSING",
-    refresh_token: tokens.refresh_token
-      ? tokens.refresh_token.substring(0, 20) + "..."
-      : "MISSING",
-    expires_in: tokens.expires_in,
-    token_type: tokens.token_type,
-    scope: tokens.scope,
-  });
+  // Store tokens directly (no encryption implemented yet)
+  
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
-  // Store tokens in memory
-  tokenStore.set(sessionId, {
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token,
-    expires_at: Date.now() + tokens.expires_in * 1000,
-  });
+  // Store tokens in database (upsert)
+  await db
+    .insertInto("oauth_tokens")
+    .values({
+      id: crypto.randomUUID(),
+      user_id: userId,
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token,
+      expires_at: expiresAt,
+      scope: tokens.scope || "org:create_api_key user:profile user:inference",
+      created_at: now,
+      updated_at: now,
+    })
+    .onConflict((oc) => oc
+      .column("user_id")
+      .doUpdateSet({
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_at: expiresAt,
+        scope: tokens.scope || "org:create_api_key user:profile user:inference",
+        updated_at: now,
+      })
+    )
+    .execute();
 
   // Clean up PKCE verifier
-  pkceStore.delete(state);
+  await db
+    .deleteFrom("oauth_state")
+    .where("state", "=", state)
+    .execute();
 
   return tokens;
 }
 
-export function getStoredTokens(sessionId: string) {
-  return tokenStore.get(sessionId);
+export async function getStoredTokens(userId: string) {
+  const tokenRecord = await db
+    .selectFrom("oauth_tokens")
+    .selectAll()
+    .where("user_id", "=", userId)
+    .executeTakeFirst();
+
+  if (!tokenRecord) {
+    return null;
+  }
+
+  return {
+    access_token: tokenRecord.access_token,
+    refresh_token: tokenRecord.refresh_token,
+    expires_at: new Date(tokenRecord.expires_at).getTime(),
+    scope: tokenRecord.scope,
+  };
 }
 
-export async function refreshAccessToken(sessionId: string) {
-  const stored = tokenStore.get(sessionId);
-  if (!stored || !stored.refresh_token) {
-    throw new Error("No refresh token available");
+export async function refreshAccessToken(userId: string) {
+  const tokenRecord = await db
+    .selectFrom("oauth_tokens")
+    .selectAll()
+    .where("user_id", "=", userId)
+    .executeTakeFirst();
+
+  if (!tokenRecord) {
+    throw new Error("No tokens found for user");
   }
+
+  const refreshToken = tokenRecord.refresh_token;
 
   const response = await fetch("https://console.anthropic.com/v1/oauth/token", {
     method: "POST",
@@ -159,7 +184,7 @@ export async function refreshAccessToken(sessionId: string) {
     body: JSON.stringify({
       client_id: "9d1c250a-e61b-44d9-88ed-5944d1962f5e",
       grant_type: "refresh_token",
-      refresh_token: stored.refresh_token,
+      refresh_token: refreshToken,
     }),
   });
 
@@ -170,17 +195,26 @@ export async function refreshAccessToken(sessionId: string) {
   const tokens = await response.json();
 
   // Update stored tokens
-  tokenStore.set(sessionId, {
-    access_token: tokens.access_token,
-    refresh_token: tokens.refresh_token || stored.refresh_token,
-    expires_at: Date.now() + tokens.expires_in * 1000,
-  });
+  
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
+
+  await db
+    .updateTable("oauth_tokens")
+    .set({
+      access_token: tokens.access_token,
+      refresh_token: tokens.refresh_token || refreshToken,
+      expires_at: expiresAt,
+      updated_at: now,
+    })
+    .where("user_id", "=", userId)
+    .execute();
 
   return tokens;
 }
 
-export async function getValidAccessToken(sessionId: string) {
-  const stored = tokenStore.get(sessionId);
+export async function getValidAccessToken(userId: string) {
+  const stored = await getStoredTokens(userId);
   if (!stored) {
     return null;
   }
@@ -188,8 +222,9 @@ export async function getValidAccessToken(sessionId: string) {
   // Check if token is expired (with 5 minute buffer)
   if (Date.now() > stored.expires_at - 300000) {
     try {
-      await refreshAccessToken(sessionId);
-      return tokenStore.get(sessionId)?.access_token || null;
+      await refreshAccessToken(userId);
+      const refreshedStored = await getStoredTokens(userId);
+      return refreshedStored?.access_token || null;
     } catch (error) {
       console.error("Failed to refresh token:", error);
       return null;
@@ -199,52 +234,10 @@ export async function getValidAccessToken(sessionId: string) {
   return stored.access_token;
 }
 
-export async function makeClaudeRequest(sessionId: string, messages: any[]) {
-  const accessToken = await getValidAccessToken(sessionId);
-  if (!accessToken) {
-    throw new Error("No valid access token available");
-  }
 
-  console.log(
-    "Using OAuth token for Claude Code API:",
-    accessToken.substring(0, 20) + "...",
-  );
-
-  // Match exactly what Claude Code sends with OAuth (no x-api-key involved)
-  const headers = {
-    accept: "application/json",
-    "content-type": "application/json",
-    "anthropic-version": "2023-06-01",
-    "user-agent": "@ai-sdk/anthropic:1.2.12",
-    authorization: `Bearer ${accessToken}`,
-    "anthropic-beta": "oauth-2025-04-20",
-  };
-
-  console.log("Claude Code API headers:", headers);
-
-  const body = {
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1000,
-    messages,
-  };
-
-  // Use the standard Anthropic Messages API endpoint
-  const response = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-
-  console.log("Claude Code API response status:", response.status);
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("Claude Code API error:", errorText);
-    throw new Error(`API call failed: ${response.status} - ${errorText}`);
-  }
-
-  const result = await response.json();
-  console.log("Claude Code API success:", result);
-
-  return result;
+export async function deleteUserTokens(userId: string): Promise<void> {
+  await db
+    .deleteFrom("oauth_tokens")
+    .where("user_id", "=", userId)
+    .execute();
 }

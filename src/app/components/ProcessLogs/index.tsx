@@ -74,8 +74,8 @@ export function ProcessLogs({
 
   return (
     <div>
-      <h1>Logs: {processId}</h1>
-      <code>
+      <h3>Logs: {processId}</h3>
+      <code class="text-sm">
         <ol>
           {logs.map((log, i) => (
             <li key={log + "-" + i}>

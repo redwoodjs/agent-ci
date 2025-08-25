@@ -4,6 +4,28 @@ import { env } from "cloudflare:workers";
 import { getSandbox } from "@cloudflare/sandbox";
 import { getValidAccessToken } from "@/claude-oauth";
 
+export async function sendAuthenticatedMessage(containerId: string, userId: string, message: string) {
+  const sandbox = await getSandbox(env.Sandbox, containerId);
+  
+  // First, ensure OAuth credentials are set up in the container
+  await setupContainerCredentials(containerId, userId);
+  
+  // Escape quotes in the message for shell execution
+  const escapedMessage = message.replace(/"/g, '\\"');
+  
+  // Execute Claude CLI command with streaming output
+  const process = await sandbox.startProcess(
+    `claude --continue --model sonnet --output-format stream-json --verbose --print "${escapedMessage}"`
+  );
+
+  return { id: process.id };
+}
+
+export async function streamProcess(containerId: string, processId: string) {
+  const sandbox = await getSandbox(env.Sandbox, containerId);
+  return await sandbox.streamProcessLogs(processId);
+}
+
 
 // Function to setup OAuth credentials in a container
 export async function setupContainerCredentials(containerId: string, userId: string) {

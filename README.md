@@ -12,6 +12,10 @@ Machinen is a web based Claude Code programming & collaborative environment for 
 
 It gives developers a development environment in the cloud, designed for agentic workflows: Each workflow runs in its own isolated container, making it easy to edit, review, and merge changes independently of each other.
 
+▶️ [A Short YouTube Video](https://www.youtube.com/watch?v=xQdeIzqV9mg)
+
+
+
 ## Quickstart
 
 First start up Machinen:

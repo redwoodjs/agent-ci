@@ -23,14 +23,13 @@ export function ProcessLogs({
   const [logs, setLogs] = useState<Log[]>([]);
 
   useEffect(() => {
+    // I'm wondering if this shouldn't start the process?
     async function fetchLogs() {
       try {
         const eventStream = await streamLogs(containerId, processId);
         eventStream.pipeTo(
           consumeEventStream({
             onChunk: (event) => {
-              console.log(event);
-              console.log("event", event);
               if (event.data) {
                 const data: Log = JSON.parse(event.data);
                 switch (data.type) {
@@ -42,9 +41,8 @@ export function ProcessLogs({
                           data: "Exited with code " + data.exitCode,
                         },
                       ]);
-                      // Process completed naturally, call onComplete callback
-                      onComplete?.();
                     }
+                    onComplete?.();
                     break;
                   case "stdout":
                     {
@@ -72,12 +70,12 @@ export function ProcessLogs({
     }
 
     fetchLogs();
-  }, [containerId, processId, onComplete]);
+  }, []);
 
   return (
     <div>
-      <h1>Logs: {processId}</h1>
-      <code>
+      <h3>Logs: {processId}</h3>
+      <code class="text-sm">
         <ol>
           {logs.map((log, i) => (
             <li key={log + "-" + i}>

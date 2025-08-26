@@ -17,7 +17,8 @@
     "@hono/node-ws": "^1.2.0",
     "execa": "^8.0.1",
     "hono": "^4.1.0",
-    "esbuild": "^0.24.0"
+    "esbuild": "^0.24.0",
+    "wait-port": "^1.1.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

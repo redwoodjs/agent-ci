@@ -123,6 +123,11 @@
   }
   body {
     @apply bg-background text-foreground;
+    background-image: radial-gradient(
+      rgb(243, 177, 92) 0.5px,
+      rgb(255, 243, 223) 0.5px
+    );
+    background-size: 8px 8px;
   }
 }
 

@@ -1,10 +1,11 @@
 import { defineApp } from "rwsdk/worker";
-import { render, prefix, route } from "rwsdk/router";
-import { Document } from "@/app/Document";
+import { render, prefix, route, layout } from "rwsdk/router";
 
 import { type Sandbox, proxyToSandbox } from "@cloudflare/sandbox";
 
-import { apiRoutes } from "./app/pages/api/routes";
+import { Document } from "@/app/Document";
+import { ProjectLayout } from "./app/components/ProjectLayout";
+
 import { logsRoutes } from "./app/pages/logs/routes";
 import { projectRoutes } from "./app/pages/project/routes";
 import { editorRoutes } from "./app/pages/editor/routes";
@@ -25,13 +26,17 @@ const app = defineApp([
         headers: { Location: "/projects" },
       });
     }),
+
     prefix("/projects", projectRoutes),
-    prefix("/chat", chatRoutes),
-    prefix("/logs", logsRoutes),
-    prefix("/editor", editorRoutes),
-    prefix("/claude", editorRoutes),
-    prefix("/term", termRoutes),
-    prefix("/preview", previewRoutes),
+
+    layout(ProjectLayout, [
+      prefix("/chat", chatRoutes),
+      prefix("/logs", logsRoutes),
+      prefix("/editor", editorRoutes),
+      prefix("/term", termRoutes),
+      prefix("/preview", previewRoutes),
+    ]),
+
     prefix("/api/auth/claude", authRoutes),
   ]),
 ]);

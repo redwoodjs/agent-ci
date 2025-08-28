@@ -3,7 +3,6 @@
 import { env } from "cloudflare:workers";
 import { getSandbox } from "@cloudflare/sandbox";
 
-import { fetchContainer } from "@/container";
 
 export type FileItem = Awaited<ReturnType<typeof getFiles>>[number];
 
@@ -73,29 +72,6 @@ export async function getFileContent(
   return result.content;
 }
 
-async function containerFilesFetch(
-  pathname: string,
-  containerId: string,
-  action: "/fs/list" | "/fs/read" | "/fs/stat" | "/fs/delete" | "/fs/write",
-  fetchOptions: RequestInit = {}
-) {
-  // NOTE: This will become a vite pluging, with __machinen/sandbox
-  const url = new URL(`http://localhost:8911` + action);
-  url.searchParams.set("pathname", pathname);
-
-  const response = await fetchContainer({
-    containerId,
-    request: new Request(url, {
-      headers: {
-        "Content-Type": "application/json",
-      },
-      ...fetchOptions,
-    }),
-  });
-
-  return response.json();
-}
-
 export async function getSiblingFiles({
   pathname,
   containerId,
@@ -103,8 +79,8 @@ export async function getSiblingFiles({
   pathname: string;
   containerId: string;
 }) {
-  const files = await containerFilesFetch(pathname, containerId, "/fs/list");
-  return files as FileItem[];
+  // Use the same logic as getFiles but for a specific path
+  return await getFiles(containerId, pathname);
 }
 
 export async function getFileType(

@@ -1,6 +1,8 @@
 import { db } from "@/db";
-import { TaskList } from "./components/TaskList";
+
 import { ProjectEdit } from "./components/ProjectEdit";
+
+import { Board } from "./components/Board";
 
 export async function ProjectDetailPage({
   params,
@@ -16,7 +18,7 @@ export async function ProjectDetailPage({
   return (
     <div className="p-6">
       <ProjectEdit project={project} />
-      <TaskList projectId={params.projectId} />
+      <Board projectId={params.projectId} />
     </div>
   );
 }

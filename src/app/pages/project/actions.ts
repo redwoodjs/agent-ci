@@ -105,6 +105,36 @@ export async function createTaskAction(prevState: any, formData: FormData) {
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
+  // Find the default lane for this project, or the first available lane
+  const defaultLane = await db
+    .selectFrom("lanes")
+    .where("projectId", "=", projectId)
+    .where("isDefault", "=", true)
+    .selectAll()
+    .executeTakeFirst();
+
+  const fallbackLane = !defaultLane
+    ? await db
+        .selectFrom("lanes")
+        .where("projectId", "=", projectId)
+        .selectAll()
+        .orderBy("position", "asc")
+        .executeTakeFirst()
+    : null;
+
+  const targetLane = defaultLane || fallbackLane;
+
+  // Get the next position in the target lane
+  const maxPosition = targetLane
+    ? await db
+        .selectFrom("tasks")
+        .where("laneId", "=", targetLane.id)
+        .select(db.fn.max("position").as("maxPosition"))
+        .executeTakeFirst()
+    : null;
+
+  const position = (maxPosition?.maxPosition || 0) + 1;
+
   const result = await db
     .insertInto("tasks")
     .values({
@@ -113,6 +143,8 @@ export async function createTaskAction(prevState: any, formData: FormData) {
       containerId,
       name,
       status: "pending",
+      laneId: targetLane?.id || null,
+      position,
       createdAt: now,
       updatedAt: now,
     })

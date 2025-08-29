@@ -20,6 +20,12 @@ importers:
       '@monaco-editor/react':
         specifier: ^4.7.0
         version: 4.7.0(monaco-editor@0.52.2)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
+      '@platejs/basic-nodes':
+        specifier: ^49.0.0
+        version: 49.0.0(platejs@49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411)))(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
+      '@platejs/markdown':
+        specifier: ^49.2.15
+        version: 49.2.15(platejs@49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411)))(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(typescript@5.9.2)
       '@radix-ui/react-dialog':
         specifier: ^1.1.14
         version: 1.1.14(@types/react-dom@19.1.7(@types/react@19.1.10))(@types/react@19.1.10)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
@@ -53,6 +59,9 @@ importers:
       monaco-editor:
         specifier: ^0.52.2
         version: 0.52.2
+      platejs:
+        specifier: ^49.2.12
+        version: 49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))
       react-hotkeys-hook:
         specifier: ^5.1.0
         version: 5.1.0(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
@@ -841,6 +850,9 @@ packages:
   '@jridgewell/trace-mapping@0.3.9':
     resolution: {integrity: sha512-3Belt6tdc8bPgAtbcmdtNJlirVoTmEb5e2gC94PnkwEW9jI6CAHUeoG85tjWP5WquqfavoMtMwiG4P926ZKKuQ==}
 
+  '@juggle/resize-observer@3.4.0':
+    resolution: {integrity: sha512-dfLbk+PwWvFzSxwk3n5ySL0hfBog779o8h68wK/7/APo/7cgyWp5jcXockbxdk5kFRkbeXWm4Fbi9FrdN381sA==}
+
   '@mjackson/node-fetch-server@0.6.1':
     resolution: {integrity: sha512-9ZJnk/DJjt805uv5PPv11haJIW+HHf3YEEyVXv+8iLQxLD/iXA68FH220XoiTPBC4gCg5q+IMadDw8qPqlA5wg==}
 
@@ -865,6 +877,35 @@ packages:
   '@nodelib/fs.walk@1.2.8':
     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
     engines: {node: '>= 8'}
+
+  '@platejs/basic-nodes@49.0.0':
+    resolution: {integrity: sha512-l7MbW1Oy2uyRRYOiWVGxTNs8nIvBM/EWjZZFEmtOZcpzXrSY6c3cZd0KAA6u0Z+NLLbLABLJNxuYFBZ5ARvBsg==}
+    peerDependencies:
+      platejs: '>=49.0.0'
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
+
+  '@platejs/core@49.2.12':
+    resolution: {integrity: sha512-dtNyRWnYSAqHiZB3BrFcGC7r1ILSmbaIaDbomZzJ9egZ4P/6gf1cxxiizO40fMca7+xuCgLTaLeS5uOsgWagTA==}
+    peerDependencies:
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
+
+  '@platejs/markdown@49.2.15':
+    resolution: {integrity: sha512-zPxNwd4sJXoMWbp+FuTmpTmnaiR7o+MGh3MOuEN5r0JBheFxxQ3EDhTRce72oJfmCCk5TS0rlAejZKS3BSuwRQ==}
+    peerDependencies:
+      platejs: '>=49.2.12'
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
+
+  '@platejs/slate@49.2.4':
+    resolution: {integrity: sha512-eFPcs50p+TWoGyzQZhFqt8Fhxfi9lLKb5gqLaULhCSx5p5t4nM2zWPxhdGroB07ZXY9fuW13OtO2mRZokvjgVA==}
+
+  '@platejs/utils@49.2.12':
+    resolution: {integrity: sha512-8ISyYlhx8hbzO9DlDVLRU2gbSRzGZlCdUgEqPKs3LuDsU+tVOPksIvA32tjuJHNa9lQlKduY4JJUuco10JUTZA==}
+    peerDependencies:
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
 
   '@poppinss/colors@4.1.5':
     resolution: {integrity: sha512-FvdDqtcRCtz6hThExcFOgW0cWX+xwSMWcRuQe5ZEb2m7cVQOAVZOIMt+/v9RxGiD9/OY16qJBXK4CVKWAPalBw==}
@@ -1441,6 +1482,21 @@ packages:
   '@types/yauzl@2.10.3':
     resolution: {integrity: sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q==}
 
+  '@udecode/react-hotkeys@37.0.0':
+    resolution: {integrity: sha512-3ZV5LiaTnKyhXwN6U0NE2cofNsNN2IPMkNCDntbSIIRLYmI+o6LRkDwAucSNh/BIdNXfvxscsR04RYyIwjGbJw==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+
+  '@udecode/react-utils@49.0.15':
+    resolution: {integrity: sha512-ra9e0WyECZEnOLyW1nf4pqGBBTLcktHfFhL+qlr7woMAwmNHs7HLbw/khoKfpSFt2RgjieE+QhawT6haFQAuhA==}
+    peerDependencies:
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
+
+  '@udecode/utils@47.2.7':
+    resolution: {integrity: sha512-tQ8tIcdW+ZqWWrDgyf/moTLWtcErcHxaOfuCD/6qIL5hCq+jZm67nGHQToOT4Czti5Jr7CDPMgr8lYpdTEZcew==}
+
   '@ungap/structured-clone@1.3.0':
     resolution: {integrity: sha512-WmoN8qaIAo7WTYWbAZuG8PYEhn5fkz7dZrqTBZ7dtt//lL2Gwms1IcnQ5yHqjDfX8Ft5j4YzDM23f87zBfDe9g==}
 
@@ -1508,6 +1564,11 @@ packages:
 
   '@xtuc/long@4.2.2':
     resolution: {integrity: sha512-NuHqBY1PB/D8xU6s/thBgOAiAP7HOYDQ32+BFZILJ8ivkUkAHQnWfn6WhL79Owj1qmUnoN/YPhktdIoucipkAQ==}
+
+  acorn-jsx@5.3.2:
+    resolution: {integrity: sha512-rq9s+JNhf0IChjtDXxllJ7g41oZk5SlXtp0LHwyA5cejwn7vKmKp4pPri6YEePv2PU65sAsegbXtIinmDFDXgQ==}
+    peerDependencies:
+      acorn: ^6.0.0 || ^7.0.0 || ^8.0.0
 
   acorn-loose@8.5.2:
     resolution: {integrity: sha512-PPvV6g8UGMGgjrMu+n/f9E/tCSkNQ2Y97eFvuVdJfG11+xdIeDcLyNdC8SHcrHbRqkfwLASdplyR6B6sKM1U4A==}
@@ -1732,6 +1793,9 @@ packages:
   commander@2.20.3:
     resolution: {integrity: sha512-GpVkmM8vF2vQUkj2LvZmD35JxeJOLCwJ9cUkugyk2nuhbv3+mJvpLYYt+0+USMxE+oj+ey/lJEnhZw75x/OMcQ==}
 
+  compute-scroll-into-view@3.1.1:
+    resolution: {integrity: sha512-VRhuHOLoKYOy4UbilLbUzbYg93XLjv2PncJC50EuTWPA3gaja1UjBsUP/D/9/juV3vQFr6XBEzn9KCAHdUvOHw==}
+
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
 
@@ -1792,6 +1856,10 @@ packages:
 
   devtools-protocol@0.0.1312386:
     resolution: {integrity: sha512-DPnhUXvmvKT2dFA/j7B+riVLUt9Q6RKJlcppojL5CoRywJJKLDYnRlw0gTFKfgDPHP5E04UoB71SxoJlVZy8FA==}
+
+  direction@1.0.4:
+    resolution: {integrity: sha512-GYqKi1aH7PJXxdhTeZBFrg8vUBeKXi+cNprXsC1kpJcbcVnV9wBsrOu1cQEdG0WeQwlfHiy3XvnKfIrJ2R0NzQ==}
+    hasBin: true
 
   eastasianwidth@0.2.0:
     resolution: {integrity: sha512-I88TYZWc9XiYHRQ4/3c5rjjfgkjhLyW2luGIheGERbNQ6OY7yTybanSpDXZa8y7VUP9YmDcYa+eyq4ca7iLqWA==}
@@ -1860,6 +1928,9 @@ packages:
 
   estree-util-is-identifier-name@3.0.0:
     resolution: {integrity: sha512-hFtqIDZTIUZ9BXLb8y4pYGyk6+wekIivNVTcmvk8NoOh+VeRn5y6cEHzbURrWbfp1fIqdVipilzj+lfaadNZmg==}
+
+  estree-util-visit@2.0.0:
+    resolution: {integrity: sha512-m5KgiH85xAhhW8Wta0vShLcUvOsh3LLPI2YVwcbio1l7E09NTLL1EyMZFM1OyWowoH0skScNbhOPl4kcBgzTww==}
 
   estree-walker@2.0.2:
     resolution: {integrity: sha512-Rfkk/Mp/DL7JVje3u18FxFujQlTNR2q6QfMSMB7AvCBx91NGj/ba3kCfza0f6dVDbw7YlRf/nDrn7pQrCCyQ/w==}
@@ -2002,6 +2073,9 @@ packages:
   hast-util-whitespace@3.0.0:
     resolution: {integrity: sha512-88JUN06ipLwsnv+dVn+OIYOvAuvBMy/Qoi6O7mQHxdPXpjy+Cd6xRkWwux7DKO+4sYILtLBRIKgsdpS2gQc7qw==}
 
+  html-entities@2.6.0:
+    resolution: {integrity: sha512-kig+rMn/QOVRvr7c86gQ8lWXq+Hkv6CbAH1hLu+RG338StTpE8Z0b44SDVaqVu7HGKf27frdmUYEs9hTUX/cLQ==}
+
   html-url-attributes@3.0.1:
     resolution: {integrity: sha512-ol6UPyBWqsrO6EJySPz2O7ZSr856WDrEzM5zMqp+FJJLGMW35cLYmmZnl0vztAZxRUoNZJFTCohfjuIJ8I4QBQ==}
 
@@ -2023,6 +2097,9 @@ packages:
   ignore@7.0.5:
     resolution: {integrity: sha512-Hs59xBNfUIunMFgWAbGX5cq6893IbWg4KnrjbYwX3tx0ztorVgTDA6B2sxf8ejHJ4wz8BqGUMYlnzNBer5NvGg==}
     engines: {node: '>= 4'}
+
+  immer@10.1.1:
+    resolution: {integrity: sha512-s2MPrmjovJcoMaHtx6K11Ra7oD05NT97w1IC5zpMkT6Atjr7H8LjaDd81iIxUYpMKSRRNMJE703M1Fhr/TctHw==}
 
   import-meta-resolve@4.1.0:
     resolution: {integrity: sha512-I6fiaX09Xivtk+THaMfAwnA3MVA5Big1WHF1Dfx9hFuvNIWpXnorlkzhcQf6ehrqQiiZECRt1poOAkPmer3ruw==}
@@ -2065,6 +2142,9 @@ packages:
   is-hexadecimal@2.0.1:
     resolution: {integrity: sha512-DgZQp241c8oO6cA1SbTEWiXeoxV42vlcJxgH+B3hi1AiqqKruZR3ZGF8In3fj4+/y/7rHvlOZLZtgJ/4ttYGZg==}
 
+  is-hotkey@0.2.0:
+    resolution: {integrity: sha512-UknnZK4RakDmTgz4PI1wIph5yxSs/mvChWs9ifnlXsKuXgWmOkY/hAE0H/k2MIqH0RlRye0i1oC07MCRSD28Mw==}
+
   is-number@7.0.0:
     resolution: {integrity: sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==}
     engines: {node: '>=0.12.0'}
@@ -2072,6 +2152,10 @@ packages:
   is-plain-obj@4.1.0:
     resolution: {integrity: sha512-+Pgi+vMuUNkJyExiMBt5IlFoMyKnr5zhJ4Uspz58WOhBF5QoIZkFyNHIbBAtHwzVAgk5RtndVNsDRN61/mmDqg==}
     engines: {node: '>=12'}
+
+  is-plain-object@5.0.0:
+    resolution: {integrity: sha512-VRSzKkbMm5jMDoKLbltAkFQ5Qr7VDiTFGXxYFXXowVj387GeGNOCsOH6Msy00SGZ3Fp84b1Naa1psqgcCIEP5Q==}
+    engines: {node: '>=0.10.0'}
 
   is-stream@4.0.1:
     resolution: {integrity: sha512-Dnz92NInDqYckGEUJv689RbRiTSEHCQ7wOVeALbkOz999YpqT46yMRIGtSNl2iCL1waAZSx40+h59NV/EwzV/A==}
@@ -2095,6 +2179,36 @@ packages:
   jiti@2.5.1:
     resolution: {integrity: sha512-twQoecYPiVA5K/h6SxtORw/Bs3ar+mLUtoPSc7iMXzQzK8d7eJ/R09wmTwAjiamETn1cXYPGfNnu7DMoHgu12w==}
     hasBin: true
+
+  jotai-optics@0.4.0:
+    resolution: {integrity: sha512-osbEt9AgS55hC4YTZDew2urXKZkaiLmLqkTS/wfW5/l0ib8bmmQ7kBXSFaosV6jDDWSp00IipITcJARFHdp42g==}
+    peerDependencies:
+      jotai: '>=2.0.0'
+      optics-ts: '>=2.0.0'
+
+  jotai-x@2.3.3:
+    resolution: {integrity: sha512-ZeSPjf77VINlJ0HyMfYcPv/9psjB0CtJIZP6S+s/eefaO/9+U37M9Jx5dWmILgTe8hAol99EbAv6DDrHobOucA==}
+    peerDependencies:
+      '@types/react': '>=17.0.0'
+      jotai: '>=2.0.0'
+      react: '>=17.0.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      react:
+        optional: true
+
+  jotai@2.8.4:
+    resolution: {integrity: sha512-f6jwjhBJcDtpeauT2xH01gnqadKEySwwt1qNBLvAXcnojkmb76EdqRt05Ym8IamfHGAQz2qMKAwftnyjeSoHAA==}
+    engines: {node: '>=12.20.0'}
+    peerDependencies:
+      '@types/react': '>=17.0.0'
+      react: '>=17.0.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      react:
+        optional: true
 
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
@@ -2202,6 +2316,9 @@ packages:
     resolution: {integrity: sha512-3R/1M+yS3j5ou80Me59j7F9IMs4PXs3VqRrm0TU3AbKPxlmpoY1TNscJV/oGJXo8qCatFGTfDbY6W6ipGOYXfg==}
     engines: {node: '>=6.11.5'}
 
+  lodash.mapvalues@4.6.0:
+    resolution: {integrity: sha512-JPFqXFeZQ7BfS00H58kClY7SPVeHertPE0lNuCyZ26/XlN8TvakYD7b9bGyNmXbT/D3BbtPAAmq90gPWqLkxlQ==}
+
   lodash@4.17.21:
     resolution: {integrity: sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==}
 
@@ -2227,14 +2344,25 @@ packages:
   magic-string@0.30.17:
     resolution: {integrity: sha512-sNPKHvyjVf7gyjwS4xGTaW/mCnF8wnjtifKBEhxfZ7E/S8tQ0rssrwGNn6q8JH/ohItJfSQp9mBtQYuTlH5QnA==}
 
+  marked@15.0.12:
+    resolution: {integrity: sha512-8dD6FusOQSrpv9Z1rdNMdlSgQOIP880DHqnohobOmYLElGEqAL/JvxvuxZO16r4HtjTlfPRDC1hbvxC9dPN2nA==}
+    engines: {node: '>= 18'}
+    hasBin: true
+
   mdast-util-from-markdown@2.0.2:
     resolution: {integrity: sha512-uZhTV/8NBuw0WHkPTrCqDOl0zVe1BIng5ZtHoDk49ME1qqcjYmmLmOf0gELgcRMxN4w2iuIeVso5/6QymSrgmA==}
+
+  mdast-util-math@3.0.0:
+    resolution: {integrity: sha512-Tl9GBNeG/AhJnQM221bJR2HPvLOSnLE/T9cJI9tlc6zwQk2nPk/4f0cHkOdEixQPC/j8UtKDdITswvLAy1OZ1w==}
 
   mdast-util-mdx-expression@2.0.1:
     resolution: {integrity: sha512-J6f+9hUp+ldTZqKRSg7Vw5V6MqjATc+3E4gf3CFNcuZNWD8XdyI6zQ8GqH7f8169MM6P7hMBRDVGnn7oHB9kXQ==}
 
   mdast-util-mdx-jsx@3.2.0:
     resolution: {integrity: sha512-lj/z8v0r6ZtsN/cGNNtemmmfoLAFZnjMbNyLzBafjzikOM+glrjNHPlf6lQDOTccj9n5b0PPihEBbhneMyGs1Q==}
+
+  mdast-util-mdx@3.0.0:
+    resolution: {integrity: sha512-JfbYLAW7XnYTTbUsmpu0kdBUVe+yKVJZBItEjwyYJiDJuZ9w4eeaqks4HQO+R7objWgS2ymV60GYpI14Ug554w==}
 
   mdast-util-mdxjs-esm@2.0.1:
     resolution: {integrity: sha512-EcmOpxsZ96CvlP03NghtH1EsLtr0n9Tm4lPUJUBccV9RwUOneqSycg19n5HGzCf+10LozMRSObtVr3ee1WoHtg==}
@@ -2261,11 +2389,29 @@ packages:
   micromark-core-commonmark@2.0.3:
     resolution: {integrity: sha512-RDBrHEMSxVFLg6xvnXmb1Ayr2WzLAWjeSATAoxwKYJV94TeNavgoIdA0a9ytzDSVzBy2YKFK+emCPOEibLeCrg==}
 
+  micromark-extension-mdx-expression@3.0.1:
+    resolution: {integrity: sha512-dD/ADLJ1AeMvSAKBwO22zG22N4ybhe7kFIZ3LsDI0GlsNr2A3KYxb0LdC1u5rj4Nw+CHKY0RVdnHX8vj8ejm4Q==}
+
+  micromark-extension-mdx-jsx@3.0.2:
+    resolution: {integrity: sha512-e5+q1DjMh62LZAJOnDraSSbDMvGJ8x3cbjygy2qFEi7HCeUT4BDKCvMozPozcD6WmOt6sVvYDNBKhFSz3kjOVQ==}
+
+  micromark-extension-mdx-md@2.0.0:
+    resolution: {integrity: sha512-EpAiszsB3blw4Rpba7xTOUptcFeBFi+6PY8VnJ2hhimH+vCQDirWgsMpz7w1XcZE7LVrSAUGb9VJpG9ghlYvYQ==}
+
+  micromark-extension-mdxjs-esm@3.0.0:
+    resolution: {integrity: sha512-DJFl4ZqkErRpq/dAPyeWp15tGrcrrJho1hKK5uBS70BCtfrIFg81sqcTVu3Ta+KD1Tk5vAtBNElWxtAa+m8K9A==}
+
+  micromark-extension-mdxjs@3.0.0:
+    resolution: {integrity: sha512-A873fJfhnJ2siZyUrJ31l34Uqwy4xIFmvPY1oj+Ean5PHcPBYzEsvqvWGaWcfEIr11O5Dlw3p2y0tZWpKHDejQ==}
+
   micromark-factory-destination@2.0.1:
     resolution: {integrity: sha512-Xe6rDdJlkmbFRExpTOmRj9N3MaWmbAgdpSrBQvCFqhezUn4AHqJHbaEnfbVYYiexVSs//tqOdY/DxhjdCiJnIA==}
 
   micromark-factory-label@2.0.1:
     resolution: {integrity: sha512-VFMekyQExqIW7xIChcXn4ok29YE3rnuyveW3wZQWWqF4Nv9Wk5rgJ99KzPvHjkmPXF93FXIbBp6YdW3t71/7Vg==}
+
+  micromark-factory-mdx-expression@2.0.3:
+    resolution: {integrity: sha512-kQnEtA3vzucU2BkrIa8/VaSAsP+EJ3CKOvhMuJgOEGg9KDC6OAY6nSnNDVRiVNRqj7Y4SlSzcStaH/5jge8JdQ==}
 
   micromark-factory-space@2.0.1:
     resolution: {integrity: sha512-zRkxjtBxxLd2Sc0d+fbnEunsTj46SWXgXciZmHq0kDYGnck/ZSGj9/wULTV95uoeYiK5hRXP2mJ98Uo4cq/LQg==}
@@ -2296,6 +2442,9 @@ packages:
 
   micromark-util-encode@2.0.1:
     resolution: {integrity: sha512-c3cVx2y4KqUnwopcO9b/SCdo2O67LwJJ/UyqGfbigahfegL9myoEFoDYZgkT7f36T0bLrM9hZTAaAyH+PCAXjw==}
+
+  micromark-util-events-to-acorn@2.0.3:
+    resolution: {integrity: sha512-jmsiEIiZ1n7X1Rr5k8wVExBQCg5jy4UXVADItHmNk1zkwEVhBuIUKRu3fqv+hs4nxLISi2DQGlqIOGiFxgbfHg==}
 
   micromark-util-html-tag-name@2.0.1:
     resolution: {integrity: sha512-2cNEiYDhCWKI+Gs9T0Tiysk136SnR13hhO8yW6BGNyhOC4qYFnwF1nKfD3HFAIXA5c45RrIG1ub11GiXeYd1xA==}
@@ -2382,9 +2531,18 @@ packages:
     resolution: {integrity: sha512-71ippSywq5Yb7/tVYyGbkBggbU8H3u5Rz56fH60jGFgr8uHwxs+aSKeqmluIVzM0m0kB7xQjKS6qPfd0b2ZoqQ==}
     hasBin: true
 
+  mutative@1.1.0:
+    resolution: {integrity: sha512-2PJADREjOusk3iJkD3rXV2YjAxTuaLxdfqtqTEt6vcY07LtEBR1seHuBHXWEIuscqRDGvbauYPs+A4Rj/KTczQ==}
+    engines: {node: '>=14.0'}
+
   nanoid@3.3.11:
     resolution: {integrity: sha512-N8SpfPUnUp1bK+PMYW8qSWdl9U+wwNWI4QKxOYDy9JAro3WMX7p2OeVRF9v+347pnakNevPmiHhNmZ2HbFA76w==}
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
+    hasBin: true
+
+  nanoid@5.1.5:
+    resolution: {integrity: sha512-Ir/+ZpE9fDsNH0hQ3C68uyThDXzYcim2EqcZ8zn8Chtt1iylPT9xXJB0kPCnqzgcEGikO9RxSrh63MsmVCU7Fw==}
+    engines: {node: ^18 || >=20}
     hasBin: true
 
   neo-async@2.6.2:
@@ -2410,6 +2568,9 @@ packages:
 
   once@1.4.0:
     resolution: {integrity: sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w==}
+
+  optics-ts@2.4.1:
+    resolution: {integrity: sha512-HaYzMHvC80r7U/LqAd4hQyopDezC60PO2qF5GuIwALut2cl5rK1VWHsqTp0oqoJJWjiv6uXKqsO+Q2OO0C3MmQ==}
 
   pac-proxy-agent@7.2.0:
     resolution: {integrity: sha512-TEB8ESquiLMc0lV8vcd5Ql/JAKAoyzHFXaStwjkzpOpC5Yv+pIzLfHvjTSdf3vpa2bMiUQrg9i6276yn8666aA==}
@@ -2464,6 +2625,12 @@ packages:
     resolution: {integrity: sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q==}
     engines: {node: '>=12'}
 
+  platejs@49.2.12:
+    resolution: {integrity: sha512-qLskXutKxU5HhwI2UQ2BiLpqVkrgMhovAz5cZ7U1ZnnMWJSBy/Dd6aGTdrw7t1D5OS/P+9ikCyATCFI9jqIPKw==}
+    peerDependencies:
+      react: '>=18.0.0'
+      react-dom: '>=18.0.0'
+
   postcss@8.5.6:
     resolution: {integrity: sha512-3Ybi1tAuwAP9s0r1UQ2J4n5Y0G05bJkpUIO0/bI9MhwmD70S5aTWbXGBwxHrelT+XM1k6dM0pk+SwNkpTRN7Pg==}
     engines: {node: ^10 || ^12 || >=14}
@@ -2488,6 +2655,9 @@ packages:
   proxy-agent@6.5.0:
     resolution: {integrity: sha512-TmatMXdr2KlRiA2CyDu8GqR8EjahTG3aY3nXjdzFyoZbmB8hrBsTyMezhULIXKnC0jpfjlmiZ3+EaCzoInSu/A==}
     engines: {node: '>= 14'}
+
+  proxy-compare@2.6.0:
+    resolution: {integrity: sha512-8xuCeM3l8yqdmbPoYeLbrAXCBWu19XEYc5/F28f5qOaoAIMyfmBUkl5axiK+x9olUvRlcekvnm98AP9RDngOIw==}
 
   proxy-from-env@1.1.0:
     resolution: {integrity: sha512-D+zkORCbA9f1tdWRK0RaCR3GPv50cMxcrz4X8k5LTSUD1Dkw47mKJEZQNunItRTkWwgtaUSo1RVFRIG9ZXiFYg==}
@@ -2576,6 +2746,19 @@ packages:
       '@types/react':
         optional: true
 
+  react-tracked@1.7.14:
+    resolution: {integrity: sha512-6UMlgQeRAGA+uyYzuQGm7kZB6ZQYFhc7sntgP7Oxwwd6M0Ud/POyb4K3QWT1eXvoifSa80nrAWnXWFGpOvbwkw==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '*'
+      react-native: '*'
+      scheduler: '>=0.19.0'
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+      react-native:
+        optional: true
+
   react-xtermjs@1.0.10:
     resolution: {integrity: sha512-+xpKEKbmsypWzRKE0FR1LNIGcI8gx+R6VMHe8IQW7iTbgeqp3Qg7SbiVNOzR+Ovb1QK4DPA3KqsIQV+XP0iRUA==}
     peerDependencies:
@@ -2589,11 +2772,17 @@ packages:
     resolution: {integrity: sha512-hOS089on8RduqdbhvQ5Z37A0ESjsqz6qnRcffsMU3495FuTdqSm+7bhJ29JvIOsBDEEnan5DPu9t3To9VRlMzA==}
     engines: {node: '>=8.10.0'}
 
+  remark-mdx@3.1.0:
+    resolution: {integrity: sha512-Ngl/H3YXyBV9RcRNdlYsZujAmhsxwzxpDzpDEhFBVAGthS4GDgnctpDjgFl/ULx5UEDzqtW1cyBSNKqYYrqLBA==}
+
   remark-parse@11.0.0:
     resolution: {integrity: sha512-FCxlKLNGknS5ba/1lmpYijMUzX2esxW5xQqjWxw2eHFfS2MSdaHVINFmhjo+qN1WhZhNimq0dZATN9pH0IDrpA==}
 
   remark-rehype@11.1.2:
     resolution: {integrity: sha512-Dh7l57ianaEoIpzbp0PC9UKAdCSVklD8E5Rpw7ETfbTl3FqcOOgq5q2LVDhgGCkaBv7p24JXikPdvhhmHvKMsw==}
+
+  remark-stringify@11.0.0:
+    resolution: {integrity: sha512-1OSmLd3awB/t8qdoEOMazZkNsfVTeY4fTsgzcQFdXNq8ToTN4ZGwrMnlda4K6smTFKD+GRV6O48i6Z4iKgPPpw==}
 
   require-directory@2.1.1:
     resolution: {integrity: sha512-fGxEI7+wsG9xrvdjsrlmL22OMTTiHRwAMroiEeMgq8gzoLC/PQr7RsRDSTLUg/bZAZtF+TVIkHc6/4RIKrui+Q==}
@@ -2638,6 +2827,9 @@ packages:
     resolution: {integrity: sha512-Gn/JaSk/Mt9gYubxTtSn/QCV4em9mpAPiR1rqy/Ocu19u/G9J5WWdNoUT4SiV6mFC3y6cxyFcFwdzPM3FgxGAQ==}
     engines: {node: '>= 10.13.0'}
 
+  scroll-into-view-if-needed@3.1.0:
+    resolution: {integrity: sha512-49oNpRjWRvnU8NyGVmUaYG4jtTkNonFZI86MmGRDqBphEK2EXT9gdEUoQPZhuBM8yWHxCWbobltqYO5M4XrUvQ==}
+
   semver@6.3.1:
     resolution: {integrity: sha512-BR7VvDCVHO+q2xBEWskxS6DJE1qRnb7DxzUrogb71CWoSficBxYsiAGd+Kl0mmq/MprG9yArRkyrQxTO6XjMzA==}
     hasBin: true
@@ -2671,6 +2863,27 @@ packages:
 
   simple-swizzle@0.2.2:
     resolution: {integrity: sha512-JA//kQgZtbuY83m+xT+tXJkmJncGMTFT+C+g2h2R9uxkYIrE2yy9sgmcLhCnw57/WSD+Eh3J97FPEDFnbXnDUg==}
+
+  slate-dom@0.116.0:
+    resolution: {integrity: sha512-ZyyPdT4zY4d/P/gfqMWBaAWWqV3N2BbAiDqEfOtZwPLcy7vvC02PsVvSZLaGun7DvaM2EIqdN7tTq3REbQkYgA==}
+    peerDependencies:
+      slate: '>=0.99.0'
+
+  slate-hyperscript@0.100.0:
+    resolution: {integrity: sha512-fb2KdAYg6RkrQGlqaIi4wdqz3oa0S4zKNBJlbnJbNOwa23+9FLD6oPVx9zUGqCSIpy+HIpOeqXrg0Kzwh/Ii4A==}
+    peerDependencies:
+      slate: '>=0.65.3'
+
+  slate-react@0.117.1:
+    resolution: {integrity: sha512-zwcuXRzSTMk6L1ILUC6PhEqwSIHKUq9ry13oL2ul2zKsCr6J+aVDoyU2K+IW+hk+c/8VW6U0/jUSl8mZgBc9kA==}
+    peerDependencies:
+      react: '>=18.2.0'
+      react-dom: '>=18.2.0'
+      slate: '>=0.114.0'
+      slate-dom: '>=0.116.0'
+
+  slate@0.117.0:
+    resolution: {integrity: sha512-qPReb7Z7OQ5ryoStjlnC9tQd3294SdV5Y1aLjstAK/zckfvVYApI3GVdOawFdPgI+++KpZYiz6EHjwJGFVdbmA==}
 
   smart-buffer@4.2.0:
     resolution: {integrity: sha512-94hK0Hh8rPqQl2xXc3HsaBoOXKV20MToPkcXvwbISWLEs+64sBq5kFgn2kJDHb1Pry9yrP0dxrCI9RRci7RXKg==}
@@ -2799,6 +3012,12 @@ packages:
   through@2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
 
+  tiny-invariant@1.3.1:
+    resolution: {integrity: sha512-AD5ih2NlSssTCwsMznbvwMZpJ1cbhkGd2uueNxzv2jDlEeZdU04JQfRnggJQ8DrcVBGjAsCKwFBbDlVNtEMlzw==}
+
+  tiny-warning@1.0.3:
+    resolution: {integrity: sha512-lBN9zLN/oAf68o3zNXYrdCt1kP8WsiGW8Oo2ka41b2IM5JL/S1CTyX1rW0mb/zSuJun0ZUrDxx4sqvYS2FWzPA==}
+
   tinyglobby@0.2.14:
     resolution: {integrity: sha512-tX5e7OM1HnYr2+a2C/4V0htOcSQcoSTH9KgJnVvNm5zm/cyEWKJ7j7YutsH9CxMdtOkkLFy2AHrMci9IM8IPZQ==}
     engines: {node: '>=12.0.0'}
@@ -2819,6 +3038,14 @@ packages:
 
   trough@2.2.0:
     resolution: {integrity: sha512-tmMpK00BjZiUyVyvrBK7knerNgmgvcV/KLVyuma/SC+TQN167GrMRciANTz09+k3zW8L8t60jWO1GpfkZdjTaw==}
+
+  ts-essentials@10.1.0:
+    resolution: {integrity: sha512-LirrVzbhIpFQ9BdGfqLnM9r7aP9rnyfeoxbP5ZEkdr531IaY21+KdebRSsbvqu28VDJtcDDn+AlGn95t0c52zQ==}
+    peerDependencies:
+      typescript: '>=4.5.0'
+    peerDependenciesMeta:
+      typescript:
+        optional: true
 
   ts-morph@25.0.1:
     resolution: {integrity: sha512-QJEiTdnz1YjrB3JFhd626gX4rKHDLSjSVMvGGG4v7ONc3RBwa0Eei98G9AT9uNFDMtV54JyuXsFeC+OH0n6bXQ==}
@@ -2881,8 +3108,14 @@ packages:
   unist-util-is@6.0.0:
     resolution: {integrity: sha512-2qCTHimwdxLfz+YzdGfkqNlH0tLi9xjTnHddPmJwtIG9MGsdbutfTc4P+haPD7l7Cjxf/WZj+we5qfVPvvxfYw==}
 
+  unist-util-position-from-estree@2.0.0:
+    resolution: {integrity: sha512-KaFVRjoqLyF6YXCbVLNad/eS4+OfPQQn2yOd7zF/h5T/CSL2v8NpN6a5TPvtbXthAGw5nG+PuTtq+DdIZr+cRQ==}
+
   unist-util-position@5.0.0:
     resolution: {integrity: sha512-fucsC7HjXvkB5R3kTCO7kUjRdrS0BJt3M/FPxmHMBOm8JQi2BsHAHFsy27E0EolP8rp0NzXsJ+jNPyDWvOJZPA==}
+
+  unist-util-remove-position@5.0.0:
+    resolution: {integrity: sha512-Hp5Kh3wLxv0PHj9m2yZhhLt58KzPtEYKQQ4yxfYFEO7EvHwzyDYnduhHnY1mDxoqr7VUwVuHXk9RXKIiYS1N8Q==}
 
   unist-util-stringify-position@4.0.0:
     resolution: {integrity: sha512-0ASV06AAoKCDkS2+xw5RXJywruurpbC4JZSm7nr7MOt1ojAzvyyaO+UxZf18j8FCF6kmzCZKcAgN/yu2gm2XgQ==}
@@ -2916,6 +3149,24 @@ packages:
       '@types/react':
         optional: true
 
+  use-context-selector@1.4.4:
+    resolution: {integrity: sha512-pS790zwGxxe59GoBha3QYOwk8AFGp4DN6DOtH+eoqVmgBBRXVx4IlPDhJmmMiNQAgUaLlP+58aqRC3A4rdaSjg==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '*'
+      react-native: '*'
+      scheduler: '>=0.19.0'
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+      react-native:
+        optional: true
+
+  use-deep-compare@1.3.0:
+    resolution: {integrity: sha512-94iG+dEdEP/Sl3WWde+w9StIunlV8Dgj+vkt5wTwMoFQLaijiEZSXXy8KtcStpmEDtIptRJiNeD4ACTtVvnIKA==}
+    peerDependencies:
+      react: '>=16.8.0'
+
   use-sidecar@1.1.3:
     resolution: {integrity: sha512-Fedw0aZvkhynoPYlA5WXrMCAMm+nSWdZt6lzJQ7Ok8S6Q+VsHmHpRWndVRJ8Be0ZbkfPc5LRYH+5XrzXcEeLRQ==}
     engines: {node: '>=10'}
@@ -2925,6 +3176,11 @@ packages:
     peerDependenciesMeta:
       '@types/react':
         optional: true
+
+  use-sync-external-store@1.4.0:
+    resolution: {integrity: sha512-9WXSPC5fMv61vaupRkCKCxsPxBocVnwakBEkMIHHpkTTg6icbJtg6jzgtLDm4bl3cSHAca52rYWih0k4K3PfHw==}
+    peerDependencies:
+      react: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
 
   vfile-message@4.0.3:
     resolution: {integrity: sha512-QTHzsGd1EhbZs4AsQ20JX1rC3cOlt/IWJruk893DfLRr57lcnOeMaWG4K0JrRta4mIJZKth2Au3mM3u03/JWKw==}
@@ -3105,6 +3361,29 @@ packages:
 
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
+  zustand-x@6.1.0:
+    resolution: {integrity: sha512-lW1Fs29bLCrerWDa3lZLPuEn+ZkbSGzXdwdImKLJUtI2OqlDjpcFac5WTzCPs2ul/igwXFnGiKH1mdn+1Pl2mw==}
+    peerDependencies:
+      zustand: '>=5.0.2'
+
+  zustand@5.0.8:
+    resolution: {integrity: sha512-gyPKpIaxY9XcO2vSMrLbiER7QMAMGOQZVRdJ6Zi782jkbzZygq5GI9nG8g+sMgitRtndwaBSl7uiqC49o1SSiw==}
+    engines: {node: '>=12.20.0'}
+    peerDependencies:
+      '@types/react': '>=18.0.0'
+      immer: '>=9.0.6'
+      react: '>=18.0.0'
+      use-sync-external-store: '>=1.2.0'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
+      immer:
+        optional: true
+      react:
+        optional: true
+      use-sync-external-store:
+        optional: true
 
   zwitch@2.0.4:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
@@ -3669,6 +3948,8 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  '@juggle/resize-observer@3.4.0': {}
+
   '@mjackson/node-fetch-server@0.6.1': {}
 
   '@monaco-editor/loader@1.5.0':
@@ -3693,6 +3974,87 @@ snapshots:
     dependencies:
       '@nodelib/fs.scandir': 2.1.5
       fastq: 1.19.1
+
+  '@platejs/basic-nodes@49.0.0(platejs@49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411)))(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)':
+    dependencies:
+      platejs: 49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))
+      react: 19.2.0-canary-39cad7af-20250411
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+
+  '@platejs/core@49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))':
+    dependencies:
+      '@platejs/slate': 49.2.4
+      '@udecode/react-hotkeys': 37.0.0(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
+      '@udecode/react-utils': 49.0.15(@types/react@19.1.10)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
+      '@udecode/utils': 47.2.7
+      clsx: 2.1.1
+      html-entities: 2.6.0
+      is-hotkey: 0.2.0
+      jotai: 2.8.4(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411)
+      jotai-optics: 0.4.0(jotai@2.8.4(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411))(optics-ts@2.4.1)
+      jotai-x: 2.3.3(@types/react@19.1.10)(jotai@2.8.4(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
+      lodash: 4.17.21
+      nanoid: 5.1.5
+      optics-ts: 2.4.1
+      react: 19.2.0-canary-39cad7af-20250411
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+      slate-hyperscript: 0.100.0(slate@0.117.0)
+      slate-react: 0.117.1(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)
+      use-deep-compare: 1.3.0(react@19.2.0-canary-39cad7af-20250411)
+      zustand: 5.0.8(@types/react@19.1.10)(immer@10.1.1)(react@19.2.0-canary-39cad7af-20250411)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))
+      zustand-x: 6.1.0(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(zustand@5.0.8(@types/react@19.1.10)(immer@10.1.1)(react@19.2.0-canary-39cad7af-20250411)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411)))
+    transitivePeerDependencies:
+      - '@types/react'
+      - immer
+      - react-native
+      - scheduler
+      - slate
+      - slate-dom
+      - use-sync-external-store
+
+  '@platejs/markdown@49.2.15(platejs@49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411)))(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(typescript@5.9.2)':
+    dependencies:
+      marked: 15.0.12
+      mdast-util-math: 3.0.0
+      mdast-util-mdx: 3.0.0
+      platejs: 49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))
+      react: 19.2.0-canary-39cad7af-20250411
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+      remark-mdx: 3.1.0
+      remark-parse: 11.0.0
+      remark-stringify: 11.0.0
+      ts-essentials: 10.1.0(typescript@5.9.2)
+      unified: 11.0.5
+    transitivePeerDependencies:
+      - supports-color
+      - typescript
+
+  '@platejs/slate@49.2.4':
+    dependencies:
+      '@udecode/utils': 47.2.7
+      is-plain-object: 5.0.0
+      lodash: 4.17.21
+      slate: 0.117.0
+      slate-dom: 0.116.0(slate@0.117.0)
+
+  '@platejs/utils@49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))':
+    dependencies:
+      '@platejs/core': 49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))
+      '@platejs/slate': 49.2.4
+      '@udecode/react-utils': 49.0.15(@types/react@19.1.10)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
+      '@udecode/utils': 47.2.7
+      clsx: 2.1.1
+      lodash: 4.17.21
+      react: 19.2.0-canary-39cad7af-20250411
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+    transitivePeerDependencies:
+      - '@types/react'
+      - immer
+      - react-native
+      - scheduler
+      - slate
+      - slate-dom
+      - use-sync-external-store
 
   '@poppinss/colors@4.1.5':
     dependencies:
@@ -4211,6 +4573,23 @@ snapshots:
       '@types/node': 22.17.1
     optional: true
 
+  '@udecode/react-hotkeys@37.0.0(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)':
+    dependencies:
+      react: 19.2.0-canary-39cad7af-20250411
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+
+  '@udecode/react-utils@49.0.15(@types/react@19.1.10)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)':
+    dependencies:
+      '@radix-ui/react-slot': 1.2.3(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411)
+      '@udecode/utils': 47.2.7
+      clsx: 2.1.1
+      react: 19.2.0-canary-39cad7af-20250411
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+    transitivePeerDependencies:
+      - '@types/react'
+
+  '@udecode/utils@47.2.7': {}
+
   '@ungap/structured-clone@1.3.0': {}
 
   '@vitejs/plugin-react@4.7.0(vite@6.3.5(@types/node@22.17.1)(jiti@2.5.1)(lightningcss@1.30.1)(terser@5.43.1))':
@@ -4328,6 +4707,10 @@ snapshots:
   '@xtuc/long@4.2.2':
     optional: true
 
+  acorn-jsx@5.3.2(acorn@8.15.0):
+    dependencies:
+      acorn: 8.15.0
+
   acorn-loose@8.5.2:
     dependencies:
       acorn: 8.15.0
@@ -4337,8 +4720,7 @@ snapshots:
 
   acorn@8.14.0: {}
 
-  acorn@8.15.0:
-    optional: true
+  acorn@8.15.0: {}
 
   agent-base@7.1.4: {}
 
@@ -4532,6 +4914,8 @@ snapshots:
   commander@2.20.3:
     optional: true
 
+  compute-scroll-into-view@3.1.1: {}
+
   convert-source-map@2.0.0: {}
 
   cookie@0.7.2: {}
@@ -4577,6 +4961,8 @@ snapshots:
       dequal: 2.0.3
 
   devtools-protocol@0.0.1312386: {}
+
+  direction@1.0.4: {}
 
   eastasianwidth@0.2.0: {}
 
@@ -4686,6 +5072,11 @@ snapshots:
   estraverse@5.3.0: {}
 
   estree-util-is-identifier-name@3.0.0: {}
+
+  estree-util-visit@2.0.0:
+    dependencies:
+      '@types/estree-jsx': 1.0.5
+      '@types/unist': 3.0.3
 
   estree-walker@2.0.2: {}
 
@@ -4852,6 +5243,8 @@ snapshots:
     dependencies:
       '@types/hast': 3.0.4
 
+  html-entities@2.6.0: {}
+
   html-url-attributes@3.0.1: {}
 
   http-proxy-agent@7.0.2:
@@ -4873,6 +5266,8 @@ snapshots:
   ieee754@1.2.1: {}
 
   ignore@7.0.5: {}
+
+  immer@10.1.1: {}
 
   import-meta-resolve@4.1.0: {}
 
@@ -4905,9 +5300,13 @@ snapshots:
 
   is-hexadecimal@2.0.1: {}
 
+  is-hotkey@0.2.0: {}
+
   is-number@7.0.0: {}
 
   is-plain-obj@4.1.0: {}
+
+  is-plain-object@5.0.0: {}
 
   is-stream@4.0.1: {}
 
@@ -4927,6 +5326,23 @@ snapshots:
     optional: true
 
   jiti@2.5.1: {}
+
+  jotai-optics@0.4.0(jotai@2.8.4(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411))(optics-ts@2.4.1):
+    dependencies:
+      jotai: 2.8.4(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411)
+      optics-ts: 2.4.1
+
+  jotai-x@2.3.3(@types/react@19.1.10)(jotai@2.8.4(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411):
+    dependencies:
+      jotai: 2.8.4(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411)
+    optionalDependencies:
+      '@types/react': 19.1.10
+      react: 19.2.0-canary-39cad7af-20250411
+
+  jotai@2.8.4(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411):
+    optionalDependencies:
+      '@types/react': 19.1.10
+      react: 19.2.0-canary-39cad7af-20250411
 
   js-tokens@4.0.0: {}
 
@@ -5004,6 +5420,8 @@ snapshots:
   loader-runner@4.3.0:
     optional: true
 
+  lodash.mapvalues@4.6.0: {}
+
   lodash@4.17.21: {}
 
   longest-streak@3.1.0: {}
@@ -5024,6 +5442,8 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
+  marked@15.0.12: {}
+
   mdast-util-from-markdown@2.0.2:
     dependencies:
       '@types/mdast': 4.0.4
@@ -5038,6 +5458,18 @@ snapshots:
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.2
       unist-util-stringify-position: 4.0.0
+    transitivePeerDependencies:
+      - supports-color
+
+  mdast-util-math@3.0.0:
+    dependencies:
+      '@types/hast': 3.0.4
+      '@types/mdast': 4.0.4
+      devlop: 1.1.0
+      longest-streak: 3.1.0
+      mdast-util-from-markdown: 2.0.2
+      mdast-util-to-markdown: 2.1.2
+      unist-util-remove-position: 5.0.0
     transitivePeerDependencies:
       - supports-color
 
@@ -5066,6 +5498,16 @@ snapshots:
       stringify-entities: 4.0.4
       unist-util-stringify-position: 4.0.0
       vfile-message: 4.0.3
+    transitivePeerDependencies:
+      - supports-color
+
+  mdast-util-mdx@3.0.0:
+    dependencies:
+      mdast-util-from-markdown: 2.0.2
+      mdast-util-mdx-expression: 2.0.1
+      mdast-util-mdx-jsx: 3.2.0
+      mdast-util-mdxjs-esm: 2.0.1
+      mdast-util-to-markdown: 2.1.2
     transitivePeerDependencies:
       - supports-color
 
@@ -5137,6 +5579,57 @@ snapshots:
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.2
 
+  micromark-extension-mdx-expression@3.0.1:
+    dependencies:
+      '@types/estree': 1.0.8
+      devlop: 1.1.0
+      micromark-factory-mdx-expression: 2.0.3
+      micromark-factory-space: 2.0.1
+      micromark-util-character: 2.1.1
+      micromark-util-events-to-acorn: 2.0.3
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.2
+
+  micromark-extension-mdx-jsx@3.0.2:
+    dependencies:
+      '@types/estree': 1.0.8
+      devlop: 1.1.0
+      estree-util-is-identifier-name: 3.0.0
+      micromark-factory-mdx-expression: 2.0.3
+      micromark-factory-space: 2.0.1
+      micromark-util-character: 2.1.1
+      micromark-util-events-to-acorn: 2.0.3
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.2
+      vfile-message: 4.0.3
+
+  micromark-extension-mdx-md@2.0.0:
+    dependencies:
+      micromark-util-types: 2.0.2
+
+  micromark-extension-mdxjs-esm@3.0.0:
+    dependencies:
+      '@types/estree': 1.0.8
+      devlop: 1.1.0
+      micromark-core-commonmark: 2.0.3
+      micromark-util-character: 2.1.1
+      micromark-util-events-to-acorn: 2.0.3
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.2
+      unist-util-position-from-estree: 2.0.0
+      vfile-message: 4.0.3
+
+  micromark-extension-mdxjs@3.0.0:
+    dependencies:
+      acorn: 8.15.0
+      acorn-jsx: 5.3.2(acorn@8.15.0)
+      micromark-extension-mdx-expression: 3.0.1
+      micromark-extension-mdx-jsx: 3.0.2
+      micromark-extension-mdx-md: 2.0.0
+      micromark-extension-mdxjs-esm: 3.0.0
+      micromark-util-combine-extensions: 2.0.1
+      micromark-util-types: 2.0.2
+
   micromark-factory-destination@2.0.1:
     dependencies:
       micromark-util-character: 2.1.1
@@ -5149,6 +5642,18 @@ snapshots:
       micromark-util-character: 2.1.1
       micromark-util-symbol: 2.0.1
       micromark-util-types: 2.0.2
+
+  micromark-factory-mdx-expression@2.0.3:
+    dependencies:
+      '@types/estree': 1.0.8
+      devlop: 1.1.0
+      micromark-factory-space: 2.0.1
+      micromark-util-character: 2.1.1
+      micromark-util-events-to-acorn: 2.0.3
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.2
+      unist-util-position-from-estree: 2.0.0
+      vfile-message: 4.0.3
 
   micromark-factory-space@2.0.1:
     dependencies:
@@ -5201,6 +5706,16 @@ snapshots:
       micromark-util-symbol: 2.0.1
 
   micromark-util-encode@2.0.1: {}
+
+  micromark-util-events-to-acorn@2.0.3:
+    dependencies:
+      '@types/estree': 1.0.8
+      '@types/unist': 3.0.3
+      devlop: 1.1.0
+      estree-util-visit: 2.0.0
+      micromark-util-symbol: 2.0.1
+      micromark-util-types: 2.0.2
+      vfile-message: 4.0.3
 
   micromark-util-html-tag-name@2.0.1: {}
 
@@ -5326,7 +5841,11 @@ snapshots:
 
   mustache@4.2.0: {}
 
+  mutative@1.1.0: {}
+
   nanoid@3.3.11: {}
+
+  nanoid@5.1.5: {}
 
   neo-async@2.6.2:
     optional: true
@@ -5347,6 +5866,8 @@ snapshots:
   once@1.4.0:
     dependencies:
       wrappy: 1.0.2
+
+  optics-ts@2.4.1: {}
 
   pac-proxy-agent@7.2.0:
     dependencies:
@@ -5403,6 +5924,25 @@ snapshots:
 
   picomatch@4.0.3: {}
 
+  platejs@49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411)):
+    dependencies:
+      '@platejs/core': 49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))
+      '@platejs/slate': 49.2.4
+      '@platejs/utils': 49.2.12(@types/react@19.1.10)(immer@10.1.1)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))
+      '@udecode/react-hotkeys': 37.0.0(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
+      '@udecode/react-utils': 49.0.15(@types/react@19.1.10)(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)
+      '@udecode/utils': 47.2.7
+      react: 19.2.0-canary-39cad7af-20250411
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+    transitivePeerDependencies:
+      - '@types/react'
+      - immer
+      - react-native
+      - scheduler
+      - slate
+      - slate-dom
+      - use-sync-external-store
+
   postcss@8.5.6:
     dependencies:
       nanoid: 3.3.11
@@ -5437,6 +5977,8 @@ snapshots:
       socks-proxy-agent: 8.0.5
     transitivePeerDependencies:
       - supports-color
+
+  proxy-compare@2.6.0: {}
 
   proxy-from-env@1.1.0: {}
 
@@ -5541,6 +6083,15 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.1.10
 
+  react-tracked@1.7.14(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411):
+    dependencies:
+      proxy-compare: 2.6.0
+      react: 19.2.0-canary-39cad7af-20250411
+      scheduler: 0.27.0-canary-39cad7af-20250411
+      use-context-selector: 1.4.4(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)
+    optionalDependencies:
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+
   react-xtermjs@1.0.10(@xterm/xterm@5.5.0):
     dependencies:
       '@xterm/xterm': 5.5.0
@@ -5550,6 +6101,13 @@ snapshots:
   readdirp@3.6.0:
     dependencies:
       picomatch: 2.3.1
+
+  remark-mdx@3.1.0:
+    dependencies:
+      mdast-util-mdx: 3.0.0
+      micromark-extension-mdxjs: 3.0.0
+    transitivePeerDependencies:
+      - supports-color
 
   remark-parse@11.0.0:
     dependencies:
@@ -5567,6 +6125,12 @@ snapshots:
       mdast-util-to-hast: 13.2.0
       unified: 11.0.5
       vfile: 6.0.3
+
+  remark-stringify@11.0.0:
+    dependencies:
+      '@types/mdast': 4.0.4
+      mdast-util-to-markdown: 2.1.2
+      unified: 11.0.5
 
   require-directory@2.1.1: {}
 
@@ -5673,6 +6237,10 @@ snapshots:
       ajv-keywords: 5.1.0(ajv@8.17.1)
     optional: true
 
+  scroll-into-view-if-needed@3.1.0:
+    dependencies:
+      compute-scroll-into-view: 3.1.1
+
   semver@6.3.1: {}
 
   semver@7.7.2: {}
@@ -5721,6 +6289,40 @@ snapshots:
   simple-swizzle@0.2.2:
     dependencies:
       is-arrayish: 0.3.2
+
+  slate-dom@0.116.0(slate@0.117.0):
+    dependencies:
+      '@juggle/resize-observer': 3.4.0
+      direction: 1.0.4
+      is-hotkey: 0.2.0
+      is-plain-object: 5.0.0
+      lodash: 4.17.21
+      scroll-into-view-if-needed: 3.1.0
+      slate: 0.117.0
+      tiny-invariant: 1.3.1
+
+  slate-hyperscript@0.100.0(slate@0.117.0):
+    dependencies:
+      is-plain-object: 5.0.0
+      slate: 0.117.0
+
+  slate-react@0.117.1(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(slate-dom@0.116.0(slate@0.117.0))(slate@0.117.0):
+    dependencies:
+      '@juggle/resize-observer': 3.4.0
+      direction: 1.0.4
+      is-hotkey: 0.2.0
+      lodash: 4.17.21
+      react: 19.2.0-canary-39cad7af-20250411
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+      scroll-into-view-if-needed: 3.1.0
+      slate: 0.117.0
+      slate-dom: 0.116.0(slate@0.117.0)
+      tiny-invariant: 1.3.1
+
+  slate@0.117.0:
+    dependencies:
+      immer: 10.1.1
+      tiny-warning: 1.0.3
 
   smart-buffer@4.2.0: {}
 
@@ -5866,6 +6468,10 @@ snapshots:
 
   through@2.3.8: {}
 
+  tiny-invariant@1.3.1: {}
+
+  tiny-warning@1.0.3: {}
+
   tinyglobby@0.2.14:
     dependencies:
       fdir: 6.4.6(picomatch@4.0.3)
@@ -5884,6 +6490,10 @@ snapshots:
   trim-lines@3.0.1: {}
 
   trough@2.2.0: {}
+
+  ts-essentials@10.1.0(typescript@5.9.2):
+    optionalDependencies:
+      typescript: 5.9.2
 
   ts-morph@25.0.1:
     dependencies:
@@ -5949,9 +6559,18 @@ snapshots:
     dependencies:
       '@types/unist': 3.0.3
 
+  unist-util-position-from-estree@2.0.0:
+    dependencies:
+      '@types/unist': 3.0.3
+
   unist-util-position@5.0.0:
     dependencies:
       '@types/unist': 3.0.3
+
+  unist-util-remove-position@5.0.0:
+    dependencies:
+      '@types/unist': 3.0.3
+      unist-util-visit: 5.0.0
 
   unist-util-stringify-position@4.0.0:
     dependencies:
@@ -5985,6 +6604,18 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.1.10
 
+  use-context-selector@1.4.4(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411):
+    dependencies:
+      react: 19.2.0-canary-39cad7af-20250411
+      scheduler: 0.27.0-canary-39cad7af-20250411
+    optionalDependencies:
+      react-dom: 19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411)
+
+  use-deep-compare@1.3.0(react@19.2.0-canary-39cad7af-20250411):
+    dependencies:
+      dequal: 2.0.3
+      react: 19.2.0-canary-39cad7af-20250411
+
   use-sidecar@1.1.3(@types/react@19.1.10)(react@19.2.0-canary-39cad7af-20250411):
     dependencies:
       detect-node-es: 1.1.0
@@ -5992,6 +6623,10 @@ snapshots:
       tslib: 2.8.1
     optionalDependencies:
       '@types/react': 19.1.10
+
+  use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411):
+    dependencies:
+      react: 19.2.0-canary-39cad7af-20250411
 
   vfile-message@4.0.3:
     dependencies:
@@ -6182,5 +6817,26 @@ snapshots:
   zod@3.23.8: {}
 
   zod@3.25.76: {}
+
+  zustand-x@6.1.0(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)(zustand@5.0.8(@types/react@19.1.10)(immer@10.1.1)(react@19.2.0-canary-39cad7af-20250411)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))):
+    dependencies:
+      immer: 10.1.1
+      lodash.mapvalues: 4.6.0
+      mutative: 1.1.0
+      react-tracked: 1.7.14(react-dom@19.2.0-canary-39cad7af-20250411(react@19.2.0-canary-39cad7af-20250411))(react@19.2.0-canary-39cad7af-20250411)(scheduler@0.27.0-canary-39cad7af-20250411)
+      use-sync-external-store: 1.4.0(react@19.2.0-canary-39cad7af-20250411)
+      zustand: 5.0.8(@types/react@19.1.10)(immer@10.1.1)(react@19.2.0-canary-39cad7af-20250411)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411))
+    transitivePeerDependencies:
+      - react
+      - react-dom
+      - react-native
+      - scheduler
+
+  zustand@5.0.8(@types/react@19.1.10)(immer@10.1.1)(react@19.2.0-canary-39cad7af-20250411)(use-sync-external-store@1.4.0(react@19.2.0-canary-39cad7af-20250411)):
+    optionalDependencies:
+      '@types/react': 19.1.10
+      immer: 10.1.1
+      react: 19.2.0-canary-39cad7af-20250411
+      use-sync-external-store: 1.4.0(react@19.2.0-canary-39cad7af-20250411)
 
   zwitch@2.0.4: {}

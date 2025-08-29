@@ -6,7 +6,7 @@ export function Card({ task }: { task: AppDatabase["tasks"] }) {
       <div className="p-1 text-background bg-orange-500 text-xs font-mono">
         {task.containerId}
       </div>
-      {task.name}
+      <a href={`/task/${task.containerId}`}>{task.name}</a>
     </div>
   );
 }

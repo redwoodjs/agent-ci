@@ -1,3 +1,4 @@
+import { link } from "@/app/shared/links";
 import type { AppDatabase } from "@/db";
 
 export function Card({ task }: { task: AppDatabase["tasks"] }) {
@@ -6,7 +7,9 @@ export function Card({ task }: { task: AppDatabase["tasks"] }) {
       <div className="p-1 text-background bg-orange-500 text-xs font-mono">
         {task.containerId}
       </div>
-      <a href={`/task/${task.containerId}`}>{task.name}</a>
+      <a href={link("/tasks/:containerId", { containerId: task.containerId })}>
+        {task.name}
+      </a>
     </div>
   );
 }

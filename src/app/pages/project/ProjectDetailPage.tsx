@@ -2,6 +2,7 @@ import { db } from "@/db";
 
 import { Board } from "./components/Board";
 import { Heading } from "@/app/components/ui/Heading";
+import { link } from "@/app/shared/links";
 
 export async function ProjectDetailPage({
   params,
@@ -18,7 +19,13 @@ export async function ProjectDetailPage({
     <div className="p-6">
       <div className="flex justify-between items-center mb-4">
         <Heading>{project.name}</Heading>
-        <a href={`/projects/${project.id}/edit`}>Edit</a>
+        <a
+          href={link("/projects/:projectId/edit", {
+            projectId: params.projectId,
+          })}
+        >
+          Edit
+        </a>
       </div>
       <Board projectId={params.projectId} />
     </div>

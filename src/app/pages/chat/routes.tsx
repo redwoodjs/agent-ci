@@ -3,6 +3,4 @@ import { route } from "rwsdk/router";
 
 import { ChatPage } from "./ChatPage";
 
-export const chatRoutes = [
-  route("/:containerId", [waitForContainer, ChatPage]),
-];
+export const chatRoutes = [route("/", [waitForContainer, ChatPage])];

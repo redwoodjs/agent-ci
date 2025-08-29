@@ -7,8 +7,8 @@ import { waitForContainer } from "@/app/components/WaitForContainer";
 import { TermPage } from "./TermPage";
 
 export const termRoutes = [
-  route("/:containerId", [waitForContainer, TermPage]),
-  route("/:containerId/attach", [
+  route("/", [waitForContainer, TermPage]),
+  route("/attach", [
     waitForContainer,
     async ({ request, params }) => {
       const url = new URL(request.url);

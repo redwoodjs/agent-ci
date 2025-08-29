@@ -18,7 +18,14 @@ export async function ProcessListPage({
       <ol className="m-4">
         {processes.map((process) => (
           <li key={process.pid}>
-            <a href={`/logs/${containerId}/${process.id}`}>{process.command}</a>
+            <a
+              href={link("/tasks/:containerId/logs/:processId", {
+                containerId,
+                processId: process.id,
+              })}
+            >
+              {process.command}
+            </a>
           </li>
         ))}
       </ol>

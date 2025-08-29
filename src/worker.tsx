@@ -31,12 +31,14 @@ const app = defineApp([
     prefix("/projects", projectRoutes),
 
     layout(TaskLayout, [
-      prefix("/task", taskRoutes),
-      prefix("/chat", chatRoutes),
-      prefix("/logs", logsRoutes),
-      prefix("/editor", editorRoutes),
-      prefix("/term", termRoutes),
-      prefix("/preview", previewRoutes),
+      prefix("/tasks/:containerId", [
+        prefix("/", taskRoutes),
+        prefix("/chat", chatRoutes),
+        prefix("/logs", logsRoutes),
+        prefix("/editor", editorRoutes),
+        prefix("/term", termRoutes),
+        prefix("/preview", previewRoutes),
+      ]),
     ]),
 
     prefix("/api/auth/claude", authRoutes),

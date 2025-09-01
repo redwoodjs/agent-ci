@@ -6,7 +6,7 @@ import { AuthGuard } from "@/app/components/AuthGuard";
 
 export const ChatPage = ({ params }: { params: { containerId: string } }) => {
   return (
-    <div className="h-full">
+    <div style={{ height: 'calc(100vh - 3rem)' }}>
       <AuthGuard>
         <Prompt containerId={params.containerId} />
       </AuthGuard>

@@ -29,10 +29,9 @@ const app = defineApp([
     }),
 
     prefix("/projects", projectRoutes),
-
     layout(TaskLayout, [
       prefix("/tasks/:containerId", [
-        prefix("/", taskRoutes),
+        ...taskRoutes,
         prefix("/chat", chatRoutes),
         prefix("/logs", logsRoutes),
         prefix("/editor", editorRoutes),
@@ -40,9 +39,9 @@ const app = defineApp([
         prefix("/preview", previewRoutes),
       ]),
     ]),
-
-    prefix("/api/auth/claude", authRoutes),
   ]),
+
+  prefix("/api/auth/claude", authRoutes),
 ]);
 
 export { Sandbox } from "@cloudflare/sandbox";

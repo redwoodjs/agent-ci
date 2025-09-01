@@ -1,10 +1,18 @@
 import { createPlateEditor } from "platejs/react";
 import { MarkdownPlugin, remarkMention, remarkMdx } from "@platejs/markdown";
-// import remarkGfm from 'remark-gfm';
-// import remarkMath from 'remark-math';
+import {
+  HeadingPlugin,
+  BoldPlugin,
+  ItalicPlugin,
+  UnderlinePlugin,
+} from "@platejs/basic-nodes/react";
 
-const editor = createPlateEditor({
+export const editor = createPlateEditor({
   plugins: [
+    HeadingPlugin,
+    BoldPlugin,
+    ItalicPlugin,
+    UnderlinePlugin,
     // ...other Plate plugins
     MarkdownPlugin.configure({
       options: {

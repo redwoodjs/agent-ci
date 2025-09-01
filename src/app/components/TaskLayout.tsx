@@ -17,9 +17,13 @@ export const TaskLayout = ({ children, requestInfo }: LayoutProps) => {
             <a href={link("/tasks/:containerId", { containerId })}>Overview</a>
             <a href={link("/tasks/:containerId/chat", { containerId })}>Chat</a>
             <a href={link("/tasks/:containerId/logs", { containerId })}>Logs</a>
-            <a href={link("/tasks/:containerId/preview")}>Preview</a>
-            <a href={link("/tasks/:containerId/editor")}>Editor</a>
-            <a href={link("/tasks/:containerId/term")}>Term</a>
+            <a href={link("/tasks/:containerId/preview", { containerId })}>
+              Preview
+            </a>
+            <a href={link("/tasks/:containerId/editor", { containerId })}>
+              Editor
+            </a>
+            <a href={link("/tasks/:containerId/term", { containerId })}>Term</a>
           </div>
         </div>
       </div>

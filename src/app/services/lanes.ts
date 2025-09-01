@@ -24,7 +24,7 @@ export async function getTasksByLane(projectId: string) {
       "tasks.updatedAt",
       "tasks.laneId",
       "tasks.position",
-      "lanes.name as laneName"
+      "lanes.name as laneName",
     ])
     .orderBy("tasks.position", "asc")
     .orderBy("tasks.createdAt", "desc")
@@ -35,11 +35,11 @@ export async function getTasksByLane(projectId: string) {
 
 export async function createDefaultLanesForProject(projectId: string) {
   const now = new Date().toISOString();
-  
+
   const defaultLanes = [
     { name: "To Do", position: 0, isDefault: true },
     { name: "In Progress", position: 1, isDefault: false },
-    { name: "Done", position: 2, isDefault: false }
+    { name: "Done", position: 2, isDefault: false },
   ];
 
   const createdLanes = [];
@@ -57,16 +57,21 @@ export async function createDefaultLanesForProject(projectId: string) {
       })
       .returningAll()
       .executeTakeFirstOrThrow();
-    
+
     createdLanes.push(result);
   }
 
   return createdLanes;
 }
 
-export async function createLane(projectId: string, name: string, position?: number) {
+export async function createLane(
+  projectId: string,
+  name: string,
+  position?: number,
+  systemPrompt?: string
+) {
   const now = new Date().toISOString();
-  
+
   // If no position specified, put it at the end
   if (position === undefined) {
     const maxPosition = await db
@@ -74,7 +79,7 @@ export async function createLane(projectId: string, name: string, position?: num
       .where("projectId", "=", projectId)
       .select(db.fn.max("position").as("maxPosition"))
       .executeTakeFirst();
-    
+
     position = (maxPosition?.maxPosition || 0) + 1;
   }
 
@@ -86,6 +91,7 @@ export async function createLane(projectId: string, name: string, position?: num
       name,
       position,
       isDefault: false,
+      systemPrompt,
       createdAt: now,
       updatedAt: now,
     })
@@ -93,13 +99,18 @@ export async function createLane(projectId: string, name: string, position?: num
     .executeTakeFirstOrThrow();
 }
 
-export async function updateLane(laneId: string, name: string) {
+export async function updateLane(
+  laneId: string,
+  name: string,
+  systemPrompt?: string
+) {
   const now = new Date().toISOString();
-  
+
   return await db
     .updateTable("lanes")
     .set({
       name,
+      systemPrompt,
       updatedAt: now,
     })
     .where("id", "=", laneId)
@@ -137,23 +148,5 @@ export async function deleteLane(laneId: string) {
       .execute();
   }
 
-  return await db
-    .deleteFrom("lanes")
-    .where("id", "=", laneId)
-    .execute();
-}
-
-export async function moveTask(taskId: string, newLaneId: string | null, newPosition: number) {
-  const now = new Date().toISOString();
-  
-  return await db
-    .updateTable("tasks")
-    .set({
-      laneId: newLaneId,
-      position: newPosition,
-      updatedAt: now,
-    })
-    .where("id", "=", taskId)
-    .returningAll()
-    .executeTakeFirstOrThrow();
+  return await db.deleteFrom("lanes").where("id", "=", laneId).execute();
 }

@@ -168,4 +168,18 @@ export const migrations = {
       await db.schema.alterTable("tasks").dropColumn("position").execute();
     },
   },
+
+  "008_add_system_prompt_to_lanes": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("lanes")
+          .addColumn("systemPrompt", "text")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.alterTable("lanes").dropColumn("systemPrompt").execute();
+    },
+  },
 } satisfies Migrations;

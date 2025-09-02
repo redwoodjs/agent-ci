@@ -1,8 +1,15 @@
-import { getLanesForProject, getTasksByLane } from "@/app/services/lanes";
+import {
+  createDefaultLanesForProject,
+  getLanesForProject,
+  getTasksByLane,
+} from "@/app/services/lanes";
 import { Column } from "./Column";
 
 export async function Board({ projectId }: { projectId: string }) {
   const lanes = await getLanesForProject(projectId);
+  if (lanes.length === 0) {
+    await createDefaultLanesForProject(projectId);
+  }
   const tasks = await getTasksByLane(projectId);
 
   return (

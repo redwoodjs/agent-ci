@@ -17,10 +17,9 @@ export async function sendAuthenticatedMessage(
   // Escape quotes in the message for shell execution
   const escapedMessage = message.replace(/"/g, '\\"');
 
-  // Execute Claude CLI command with streaming output
-  await sandbox.exec("cd /workspace");
+  // Execute Claude CLI command with streaming output from workspace directory
   const process = await sandbox.startProcess(
-    `claude --continue --model sonnet --output-format stream-json --verbose --print "${escapedMessage}"`
+    `bash -c "cd /workspace && claude --continue --model sonnet --output-format stream-json --verbose --print \\"${escapedMessage}\\""`
   );
 
   return { id: process.id };

@@ -1,3 +1,4 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300&family=Roboto+Mono:ital,wght@0,100..700;1,100..700&display=swap");
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -5,6 +6,8 @@
 
 @theme {
   --font-advercase: "Advercase", sans-serif;
+  --font-inter: "Inter", sans-serif;
+  --font-mono: "Roboto Mono", monospace;
   --border-muted: #fbe5c8;
 }
 
@@ -128,6 +131,8 @@
       rgb(255, 243, 223) 0.5px
     );
     background-size: 8px 8px;
+    font-family: var(--font-inter);
+    font-size: 14px;
   }
 }
 

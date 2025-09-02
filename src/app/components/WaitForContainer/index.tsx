@@ -15,8 +15,6 @@ export async function waitForContainer({ params }: RequestInfo) {
     process = await bootstrapContainer(containerId);
   }
 
-  console.log(process);
-
   if (process.status !== "completed" || process.exitCode !== 0) {
     return <BootstrapLogs containerId={containerId} processId={process.id} />;
   }

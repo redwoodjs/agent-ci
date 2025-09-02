@@ -1,6 +1,8 @@
 import { db } from "@/db";
-import { TaskList } from "./components/TaskList";
-import { ProjectEdit } from "./components/ProjectEdit";
+
+import { Board } from "./components/Board";
+import { Heading } from "@/app/components/ui/Heading";
+import { link } from "@/app/shared/links";
 
 export async function ProjectDetailPage({
   params,
@@ -15,8 +17,17 @@ export async function ProjectDetailPage({
 
   return (
     <div className="p-6">
-      <ProjectEdit project={project} />
-      <TaskList projectId={params.projectId} />
+      <div className="flex justify-between items-center mb-4">
+        <Heading>{project.name}</Heading>
+        <a
+          href={link("/projects/:projectId/edit", {
+            projectId: params.projectId,
+          })}
+        >
+          Edit
+        </a>
+      </div>
+      <Board projectId={params.projectId} />
     </div>
   );
 }

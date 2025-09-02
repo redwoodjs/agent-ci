@@ -1,6 +1,8 @@
 import { db } from "@/db";
 import { AuthButton } from "@/app/components/AuthButton";
 
+import { link } from "@/app/shared/links";
+
 export async function ProjectListPage() {
   const projects = await db.selectFrom("projects").selectAll().execute();
 
@@ -14,7 +16,7 @@ export async function ProjectListPage() {
         <ul className="flex flex-row gap-2">
           {projects.map((result) => (
             <li key={result.id} className="border flex-1">
-              <a href={`/projects/${result.id}`}>
+              <a href={link("/projects/:projectId", { projectId: result.id })}>
                 <h2>{result.name}</h2>
                 <p className="text-sm text-muted-foreground">
                   {result.description}

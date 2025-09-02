@@ -5,10 +5,16 @@ import { useAuthStatus } from "@/app/components/AuthButton";
 import { FormattedMessage, MessageFormatter } from "../utils/messageFormatting";
 import { MessageItem } from "./MessageItem";
 
-export const Prompt = ({ containerId }: { containerId: string }) => {
+export const Prompt = ({
+  containerId,
+  seedUserMessage,
+}: {
+  containerId: string;
+  seedUserMessage?: string;
+}) => {
   const [messages, setMessages] = useState<FormattedMessage[]>([]);
   const [prompt, setPrompt] = useState(
-    "Can you help me with a coding question?",
+    "Can you help me with a coding question?"
   );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -33,7 +39,10 @@ export const Prompt = ({ containerId }: { containerId: string }) => {
       setMessages((prev) => [...prev, userMessage]);
 
       // Clear prompt
-      const currentPrompt = prompt.trim();
+      let currentPrompt = prompt.trim();
+      if (seedUserMessage) {
+        currentPrompt = seedUserMessage + "\n" + currentPrompt;
+      }
       setPrompt("");
 
       // Call the container-based Claude CLI endpoint
@@ -108,7 +117,7 @@ export const Prompt = ({ containerId }: { containerId: string }) => {
   const streamClaudeResponse = async (processId: string) => {
     try {
       const response = await fetch(
-        `/api/auth/claude/stream/${containerId}/${processId}`,
+        `/api/auth/claude/stream/${containerId}/${processId}`
       );
 
       if (!response.ok) {

@@ -109,7 +109,7 @@ export const migrations = {
           .addColumn("created_at", "text", (col) => col.notNull())
           .addColumn("updated_at", "text", (col) => col.notNull())
           .execute(),
-        
+
         await db.schema
           .createTable("oauth_state")
           .addColumn("state", "text", (col) => col.primaryKey())
@@ -121,6 +121,65 @@ export const migrations = {
     async down(db) {
       await db.schema.dropTable("oauth_tokens").execute();
       await db.schema.dropTable("oauth_state").execute();
+    },
+  },
+
+  "006_add_lanes_table": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("lanes")
+          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("projectId", "text", (col) =>
+            col.notNull().references("projects.id").onDelete("cascade")
+          )
+          .addColumn("name", "text", (col) => col.notNull())
+          .addColumn("position", "integer", (col) => col.notNull())
+          .addColumn("isDefault", "boolean", (col) =>
+            col.notNull().defaultTo(false)
+          )
+          .addColumn("createdAt", "text", (col) => col.notNull())
+          .addColumn("updatedAt", "text", (col) => col.notNull())
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("lanes").execute();
+    },
+  },
+
+  "007_add_lane_and_position_to_tasks": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("tasks")
+          .addColumn("laneId", "text", (col) =>
+            col.references("lanes.id").onDelete("restrict")
+          )
+          .execute(),
+        await db.schema
+          .alterTable("tasks")
+          .addColumn("position", "integer", (col) => col.defaultTo(0))
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.alterTable("tasks").dropColumn("laneId").execute();
+      await db.schema.alterTable("tasks").dropColumn("position").execute();
+    },
+  },
+
+  "008_add_system_prompt_to_lanes": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("lanes")
+          .addColumn("systemPrompt", "text")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.alterTable("lanes").dropColumn("systemPrompt").execute();
     },
   },
 } satisfies Migrations;

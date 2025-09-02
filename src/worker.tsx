@@ -4,8 +4,9 @@ import { render, prefix, route, layout } from "rwsdk/router";
 import { type Sandbox, proxyToSandbox } from "@cloudflare/sandbox";
 
 import { Document } from "@/app/Document";
-import { ProjectLayout } from "./app/components/ProjectLayout";
+import { TaskLayout } from "./app/components/TaskLayout";
 
+import { taskRoutes } from "./app/pages/task/routes";
 import { logsRoutes } from "./app/pages/logs/routes";
 import { projectRoutes } from "./app/pages/project/routes";
 import { editorRoutes } from "./app/pages/editor/routes";
@@ -28,17 +29,19 @@ const app = defineApp([
     }),
 
     prefix("/projects", projectRoutes),
-
-    layout(ProjectLayout, [
-      prefix("/chat", chatRoutes),
-      prefix("/logs", logsRoutes),
-      prefix("/editor", editorRoutes),
-      prefix("/term", termRoutes),
-      prefix("/preview", previewRoutes),
+    layout(TaskLayout, [
+      prefix("/tasks/:containerId", [
+        ...taskRoutes,
+        prefix("/chat", chatRoutes),
+        prefix("/logs", logsRoutes),
+        prefix("/editor", editorRoutes),
+        prefix("/term", termRoutes),
+        prefix("/preview", previewRoutes),
+      ]),
     ]),
-
-    prefix("/api/auth/claude", authRoutes),
   ]),
+
+  prefix("/api/auth/claude", authRoutes),
 ]);
 
 export { Sandbox } from "@cloudflare/sandbox";

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/app/components/ui/button";
 import { getTaskByContainerId } from "@/app/pages/task/actions";
-import { resetSessionWithSystemPrompt } from "@/app/components/SystemPrompt/actions";
+import { resetClaudeSession } from "@/app/components/SystemPrompt/actions";
 
 interface SystemPromptProps {
   containerId: string;
@@ -45,32 +45,29 @@ export function SystemPrompt({ containerId }: SystemPromptProps) {
   }, [containerId]);
 
   const handleResetSession = async () => {
-    if (!task?.laneId) {
-      return;
-    }
-
-    try {
-      setResetting(true);
-      setError(null);
-
-      // For now using a placeholder userId - in production this would come from authentication
-      const placeholderUserId = "user-1";
-
-      const result = await resetSessionWithSystemPrompt(
-        containerId,
-        placeholderUserId
-      );
-
-      console.log("Session reset result:", result);
-    } catch (err) {
-      console.error("Failed to reset session:", err);
-      setError(
-        "Failed to reset Claude session: " +
-          (err instanceof Error ? err.message : "Unknown error")
-      );
-    } finally {
-      setResetting(false);
-    }
+    await resetClaudeSession(containerId);
+    // if (!task?.laneId) {
+    //   return;
+    // }
+    // try {
+    //   setResetting(true);
+    //   setError(null);
+    //   // For now using a placeholder userId - in production this would come from authentication
+    //   const placeholderUserId = "user-1";
+    //   const result = await resetSessionWithSystemPrompt(
+    //     containerId,
+    //     placeholderUserId
+    //   );
+    //   console.log("Session reset result:", result);
+    // } catch (err) {
+    //   console.error("Failed to reset session:", err);
+    //   setError(
+    //     "Failed to reset Claude session: " +
+    //       (err instanceof Error ? err.message : "Unknown error")
+    //   );
+    // } finally {
+    //   setResetting(false);
+    // }
   };
 
   if (loading) {

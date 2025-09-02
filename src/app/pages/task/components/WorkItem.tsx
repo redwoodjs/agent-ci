@@ -9,11 +9,6 @@ import { saveIssue } from "../actions";
 
 export function WorkItem({ containerId }: { containerId: string }) {
   const [systemPrompt, setSystemPrompt] = useState(`\
-You are a deeply technical product owner with decades of experience in software development and user experience.
-You've worked closely with developers, and empathise with them.
-You must help them formulate an implementation plan.
-Read the code and the issue to understand the problem.
-
 We want to add a new route called "ping" that returns "pong" as a response.
     `);
 

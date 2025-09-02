@@ -5,10 +5,13 @@ import {
   getStoredTokens,
   deleteUserTokens,
 } from "@/claude-oauth";
-import { sendAuthenticatedMessage, streamProcess } from "@/app/pages/chat/action";
+import {
+  sendAuthenticatedMessage,
+  streamProcess,
+} from "@/app/pages/chat/action";
 
 // Helper function to extract user ID from session cookie
-function getUserIdFromCookie(request: Request): string | null {
+export function getUserIdFromCookie(request: Request): string | null {
   const cookies = request.headers.get("Cookie") || "";
   const sessionMatch = cookies.match(/claude_session=([^;]+)/);
   return sessionMatch?.[1] || null;
@@ -98,7 +101,7 @@ export const authRoutes = [
         }),
         {
           headers: { "Content-Type": "application/json" },
-        },
+        }
       );
     } catch (error) {
       console.error("Auth status check error:", error);
@@ -134,7 +137,11 @@ export const authRoutes = [
       }
 
       // Start the Claude CLI process in the container
-      const result = await sendAuthenticatedMessage(containerId, userId, message);
+      const result = await sendAuthenticatedMessage(
+        containerId,
+        userId,
+        message
+      );
 
       return new Response(
         JSON.stringify({
@@ -144,7 +151,7 @@ export const authRoutes = [
         }),
         {
           headers: { "Content-Type": "application/json" },
-        },
+        }
       );
     } catch (error) {
       console.error("Chat error:", error);
@@ -197,4 +204,3 @@ export const authRoutes = [
     });
   }),
 ];
-

@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useAuthStatus } from "@/app/components/AuthButton";
+import { useState } from "react";
 
 interface FormattedMessage {
   id: string;
@@ -15,7 +14,7 @@ export const Prompt = ({
   seedUserMessage,
 }: {
   containerId: string;
-  seedUserMessage: string;
+  seedUserMessage?: string;
 }) => {
   const [messages, setMessages] = useState<FormattedMessage[]>([]);
   const [prompt, setPrompt] = useState(

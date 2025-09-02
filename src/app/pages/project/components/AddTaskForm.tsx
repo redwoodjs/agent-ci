@@ -3,12 +3,27 @@
 import { useActionState, useState } from "react";
 import { createTaskAction } from "../actions";
 
-export function AddTaskForm({ projectId }: { projectId: string }) {
+export function AddTaskForm({ 
+  projectId, 
+  isOpen = false, 
+  onClose 
+}: { 
+  projectId: string;
+  isOpen?: boolean;
+  onClose?: () => void;
+}) {
   const [state, formAction] = useActionState(createTaskAction, null);
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalIsOpen, setInternalIsOpen] = useState(false);
+  
+  const actualIsOpen = onClose ? isOpen : internalIsOpen;
+  const actualSetIsOpen = onClose ? onClose : setInternalIsOpen;
 
   const handleSuccess = () => {
-    setIsOpen(false);
+    if (onClose) {
+      onClose();
+    } else {
+      setInternalIsOpen(false);
+    }
     window.location.reload();
   };
 
@@ -16,10 +31,16 @@ export function AddTaskForm({ projectId }: { projectId: string }) {
     handleSuccess();
   }
 
-  if (!isOpen) {
+  if (!actualIsOpen) {
     return (
       <button
-        onClick={() => setIsOpen(true)}
+        onClick={() => {
+          if (onClose) {
+            // This shouldn't happen when controlled externally
+          } else {
+            setInternalIsOpen(true);
+          }
+        }}
         className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
       >
         Add Task
@@ -76,7 +97,13 @@ export function AddTaskForm({ projectId }: { projectId: string }) {
           <div className="flex justify-end space-x-3">
             <button
               type="button"
-              onClick={() => setIsOpen(false)}
+              onClick={() => {
+                if (onClose) {
+                  onClose();
+                } else {
+                  setInternalIsOpen(false);
+                }
+              }}
               className="px-4 py-2 text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
             >
               Cancel

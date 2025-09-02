@@ -4,17 +4,21 @@ import { useState } from "react";
 import { Button } from "@/app/components/ui/button";
 import { Card } from "./Card";
 import { LaneSettings } from "./LaneSettings";
+import { AddTaskForm } from "./AddTaskForm";
 
 export function Column({
   lane,
   tasks,
   className,
+  projectId,
 }: {
   lane: any;
   tasks: any;
   className: string;
+  projectId: string;
 }) {
   const [showSettings, setShowSettings] = useState(false);
+  const [showAddTaskForm, setShowAddTaskForm] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
 
   return (
@@ -34,9 +38,7 @@ export function Column({
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => {
-            console.log("clicked");
-          }}
+          onClick={() => setShowAddTaskForm(true)}
         >
           +
         </Button>
@@ -55,6 +57,14 @@ export function Column({
             setRefreshKey(prev => prev + 1);
             // This will trigger a re-render, though in a real app you'd want to update the parent state
           }}
+        />
+      )}
+      
+      {showAddTaskForm && (
+        <AddTaskForm 
+          projectId={projectId} 
+          isOpen={true}
+          onClose={() => setShowAddTaskForm(false)}
         />
       )}
     </div>

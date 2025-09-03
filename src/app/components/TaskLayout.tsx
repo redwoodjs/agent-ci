@@ -1,5 +1,6 @@
 import type { LayoutProps } from "rwsdk/router";
 import { link } from "../shared/links";
+import { AudioConversation } from "./AudioConversation";
 
 export const TaskLayout = ({ children, requestInfo }: LayoutProps) => {
   if (!requestInfo) {
@@ -10,6 +11,7 @@ export const TaskLayout = ({ children, requestInfo }: LayoutProps) => {
 
   return (
     <div>
+      <AudioConversation />
       <div className="flex">
         <div className="w-4 h-4 line-height-4 border-b border-dashed">M</div>
         <div className="border-l border-dashed">

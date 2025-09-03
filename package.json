@@ -25,6 +25,8 @@
   "dependencies": {
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.4",
     "@cloudflare/containers": "^0.0.26",
+    "@cloudflare/realtimekit-react": "^1.1.7",
+    "@cloudflare/realtimekit-react-ui": "^1.0.5",
     "@cloudflare/sandbox": "^0.3.0",
     "@monaco-editor/react": "^4.7.0",
     "@platejs/basic-nodes": "^49.0.0",

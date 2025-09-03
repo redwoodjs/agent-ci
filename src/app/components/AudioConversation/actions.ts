@@ -2,6 +2,9 @@
 
 import { env } from "cloudflare:workers";
 
+// We need to have a way to store multiple meetings.
+// I would love to re-use the same meeting over and over and over again.
+// but I do not know if this is possible.
 export let MEETING_ID: string | null = "bbbc2e77-82d4-460f-b461-998f587c6024";
 
 export async function createMeeting() {
@@ -34,7 +37,13 @@ export async function createMeeting() {
   }
 }
 
-export async function getParticipantToken() {
+export async function getParticipantToken({
+  name,
+  userId,
+}: {
+  name: string;
+  userId: string;
+}) {
   if (!MEETING_ID) {
     throw new Error("Meeting ID not found");
   }

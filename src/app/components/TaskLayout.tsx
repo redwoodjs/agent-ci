@@ -1,6 +1,6 @@
 import type { LayoutProps } from "rwsdk/router";
+import { AudioMeeting } from "./AudioMeeting";
 import { link } from "../shared/links";
-import { AudioConversation } from "./AudioConversation";
 
 export const TaskLayout = ({ children, requestInfo }: LayoutProps) => {
   if (!requestInfo) {
@@ -11,10 +11,11 @@ export const TaskLayout = ({ children, requestInfo }: LayoutProps) => {
 
   return (
     <div>
-      <AudioConversation />
       <div className="flex">
-        <div className="w-4 h-4 line-height-4 border-b border-dashed">M</div>
-        <div className="border-l border-dashed">
+        <div className="w-8 h-8 line-height-4 border-b border-dashed">M</div>
+
+        <div className="border-l border-dashed flex gap-2">
+          <AudioMeeting containerId={containerId} />
           <div className="flex gap-2 px-4">
             <a href={link("/tasks/:containerId", { containerId })}>Overview</a>
             <a href={link("/tasks/:containerId/chat", { containerId })}>Chat</a>

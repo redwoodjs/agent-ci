@@ -1,11 +1,11 @@
 {
   "name": "machinen",
   "version": "1.0.0",
-  "description": "Machinen is a web-based text editor for RedwoodSDK",
+  "description": "",
   "main": "index.js",
   "type": "module",
   "keywords": [],
-  "author": "",
+  "author": "RedwoodJS Inc",
   "license": "FSL-1.1-MIT",
   "private": true,
   "scripts": {
@@ -24,10 +24,10 @@
   },
   "dependencies": {
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.4",
-    "@cloudflare/containers": "^0.0.26",
+    "@cloudflare/containers": "^0.0.28",
     "@cloudflare/realtimekit-react": "^1.1.7",
     "@cloudflare/realtimekit-react-ui": "^1.0.5",
-    "@cloudflare/sandbox": "^0.3.0",
+    "@cloudflare/sandbox": "^0.3.1",
     "@monaco-editor/react": "^4.7.0",
     "@platejs/basic-nodes": "^49.0.0",
     "@platejs/markdown": "^49.2.15",

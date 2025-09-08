@@ -5,6 +5,7 @@ import { type Sandbox, proxyToSandbox } from "@cloudflare/sandbox";
 
 import { Document } from "@/app/Document";
 import { TaskLayout } from "./app/components/TaskLayout";
+import { Home } from "@/app/pages/Home";
 
 import { taskRoutes } from "./app/pages/task/routes";
 import { logsRoutes } from "./app/pages/logs/routes";
@@ -14,19 +15,31 @@ import { termRoutes } from "./app/pages/term/routes";
 import { previewRoutes } from "./app/pages/preview/routes";
 import { chatRoutes } from "./app/pages/chat/routes";
 import { authRoutes } from "./app/pages/auth/routes";
+import { authRoutes as passkeyAuthRoutes } from "@/passkey/routes";
+import { setupPasskeyAuth } from "@/passkey/setup";
+import { Session } from "@/session/durableObject";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
+  session: Session | null;
 };
 
 const app = defineApp([
+  setupPasskeyAuth(),
   render(Document, [
-    route("/", () => {
+    route("/", ({ ctx }) => {
+      if (!ctx.session?.userId) {
+        return new Response(null, {
+          status: 302,
+          headers: { Location: "/home" },
+        });
+      }
       return new Response(null, {
         status: 302,
         headers: { Location: "/projects" },
       });
     }),
+    route("/home", Home),
 
     prefix("/projects", projectRoutes),
     layout(TaskLayout, [
@@ -39,6 +52,7 @@ const app = defineApp([
         prefix("/preview", previewRoutes),
       ]),
     ]),
+    prefix("/auth", passkeyAuthRoutes()),
   ]),
 
   prefix("/api/auth/claude", authRoutes),
@@ -46,6 +60,8 @@ const app = defineApp([
 
 export { Sandbox } from "@cloudflare/sandbox";
 export { Database } from "@/db/durableObject";
+export { SessionDurableObject } from "@/session/durableObject";
+export { PasskeyDurableObject } from "@/passkey/durableObject";
 
 export default {
   fetch: async function (request, env: Env, cf) {

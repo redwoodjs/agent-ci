@@ -42,6 +42,11 @@
         "name": "PASSKEY_DURABLE_OBJECT",
         "class_name": "PasskeyDurableObject"
       }
+      ,
+      {
+        "name": "REALTIME_DURABLE_OBJECT",
+        "class_name": "RealtimeDurableObject"
+      }
     ]
   },
   "vars": {

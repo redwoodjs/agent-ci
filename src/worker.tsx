@@ -1,4 +1,6 @@
 import { defineApp } from "rwsdk/worker";
+import { env } from "cloudflare:workers";
+import { realtimeRoute } from "rwsdk/realtime/worker";
 import { render, prefix, route, layout } from "rwsdk/router";
 
 import { type Sandbox, proxyToSandbox } from "@cloudflare/sandbox";
@@ -25,6 +27,7 @@ export type AppContext = {
 };
 
 const app = defineApp([
+  realtimeRoute(() => env.REALTIME_DURABLE_OBJECT),
   setupPasskeyAuth(),
   render(Document, [
     route("/", ({ ctx }) => {
@@ -59,6 +62,7 @@ const app = defineApp([
 ]);
 
 export { Sandbox } from "@cloudflare/sandbox";
+export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";
 export { Database } from "@/db/durableObject";
 export { SessionDurableObject } from "@/session/durableObject";
 export { PasskeyDurableObject } from "@/passkey/durableObject";

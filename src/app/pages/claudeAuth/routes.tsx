@@ -4,7 +4,7 @@ import {
   exchangeCodeForTokens,
   getStoredTokens,
   deleteUserTokens,
-} from "@/claude-oauth";
+} from "@/app/pages/claudeAuth/claude-oauth";
 import {
   sendAuthenticatedMessage,
   streamProcess,
@@ -22,7 +22,7 @@ function generateSessionId(): string {
   return Math.random().toString(36).substring(7);
 }
 
-export const authRoutes = [
+export const claudeAuthRoutes = [
   // Start OAuth login flow
   route("/login", async ({ request }) => {
     try {

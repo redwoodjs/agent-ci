@@ -2,7 +2,7 @@
 
 import { env } from "cloudflare:workers";
 import { getSandbox } from "@cloudflare/sandbox";
-import { getValidAccessToken } from "@/claude-oauth";
+import { getValidAccessToken } from "@/app/pages/claudeAuth/claude-oauth";
 
 export async function sendAuthenticatedMessage(
   containerId: string,

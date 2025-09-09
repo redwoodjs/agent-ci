@@ -16,7 +16,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Sandbox", "Database"]
+      "new_sqlite_classes": ["Sandbox", "Database", "PasskeyDurableObject"]
     }
   ],
   "durable_objects": {
@@ -28,6 +28,10 @@
       {
         "class_name": "Database",
         "name": "DATABASE"
+      },
+      {
+        "name": "REALTIME_DURABLE_OBJECT",
+        "class_name": "RealtimeDurableObject"
       }
     ]
   }

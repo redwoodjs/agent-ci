@@ -14,6 +14,7 @@ import { termRoutes } from "./app/pages/term/routes";
 import { previewRoutes } from "./app/pages/preview/routes";
 import { chatRoutes } from "./app/pages/chat/routes";
 import { authRoutes } from "./app/pages/auth/routes";
+import { doExploreRoutes } from "./app/plugins/do-explore/routes";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -27,6 +28,8 @@ const app = defineApp([
         headers: { Location: "/projects" },
       });
     }),
+
+    prefix("/explore", doExploreRoutes), // DO DB Explorer.
 
     prefix("/projects", projectRoutes),
     layout(TaskLayout, [

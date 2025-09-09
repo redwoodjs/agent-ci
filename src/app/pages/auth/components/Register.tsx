@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { signUp } from "../auth-client";
-import { Button } from "../../app/components/ui/button";
-import { Input } from "../../app/components/ui/input";
+import { Button } from "@/app/components/ui/button";
+import { Input } from "@/app/components/ui/input";
 
 interface RegisterFormData {
   email: string;

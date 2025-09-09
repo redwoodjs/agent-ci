@@ -32,6 +32,10 @@ export const TaskLayout = ({ children, requestInfo }: LayoutProps) => {
             <a href={link("/tasks/:containerId/term", { containerId })}>Term</a>
           </div>
         </div>
+        <div>
+          {requestInfo.ctx.user?.email}
+          <a href="/auth/logout">Logout</a>
+        </div>
       </div>
       <div className="bg-background border mx-4">{children}</div>
     </div>

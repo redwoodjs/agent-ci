@@ -2,7 +2,7 @@
 
 import { requestInfo } from "rwsdk/worker";
 
-import { PRESENCE } from "./action";
+import { PRESENCE } from "./actions";
 import { Me } from "./Me";
 
 const COLORS = [
@@ -27,7 +27,7 @@ export function Presence({ containerId }: { containerId: string }) {
   }
 
   return (
-    <ol>
+    <ol className="flex gap-1">
       <Me
         userId={me}
         containerId={containerId}

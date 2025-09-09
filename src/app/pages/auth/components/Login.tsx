@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { signIn } from "../auth-client";
-import { Button } from "../../app/components/ui/button";
-import { Input } from "../../app/components/ui/input";
+
+import { Button } from "@/app/components/ui/button";
+import { Input } from "@/app/components/ui/input";
 
 interface LoginFormData {
   email: string;
@@ -42,7 +43,7 @@ export function Login({ onSuccess, onError }: LoginProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) {
       return;
     }
@@ -64,7 +65,8 @@ export function Login({ onSuccess, onError }: LoginProps) {
         onSuccess?.();
       }
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Login failed";
+      const errorMessage =
+        error instanceof Error ? error.message : "Login failed";
       setErrors({ email: errorMessage });
       onError?.(errorMessage);
     } finally {
@@ -72,21 +74,24 @@ export function Login({ onSuccess, onError }: LoginProps) {
     }
   };
 
-  const handleInputChange = (field: keyof LoginFormData) => (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
-    setFormData(prev => ({ ...prev, [field]: e.target.value }));
-    // Clear error for this field when user starts typing
-    if (errors[field]) {
-      setErrors(prev => ({ ...prev, [field]: undefined }));
-    }
-  };
+  const handleInputChange =
+    (field: keyof LoginFormData) =>
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      setFormData((prev) => ({ ...prev, [field]: e.target.value }));
+      // Clear error for this field when user starts typing
+      if (errors[field]) {
+        setErrors((prev) => ({ ...prev, [field]: undefined }));
+      }
+    };
 
   return (
     <div className="w-full max-w-md mx-auto">
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-2">
-          <label htmlFor="email" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="email"
+            className="text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Email Address
           </label>
           <Input
@@ -99,12 +104,17 @@ export function Login({ onSuccess, onError }: LoginProps) {
             disabled={loading}
           />
           {errors.email && (
-            <p className="text-sm text-red-600 dark:text-red-400">{errors.email}</p>
+            <p className="text-sm text-red-600 dark:text-red-400">
+              {errors.email}
+            </p>
           )}
         </div>
 
         <div className="space-y-2">
-          <label htmlFor="password" className="text-sm font-medium text-gray-700 dark:text-gray-300">
+          <label
+            htmlFor="password"
+            className="text-sm font-medium text-gray-700 dark:text-gray-300"
+          >
             Password
           </label>
           <Input
@@ -117,15 +127,13 @@ export function Login({ onSuccess, onError }: LoginProps) {
             disabled={loading}
           />
           {errors.password && (
-            <p className="text-sm text-red-600 dark:text-red-400">{errors.password}</p>
+            <p className="text-sm text-red-600 dark:text-red-400">
+              {errors.password}
+            </p>
           )}
         </div>
 
-        <Button
-          type="submit"
-          disabled={loading}
-          className="w-full"
-        >
+        <Button type="submit" disabled={loading} className="w-full">
           {loading ? "Signing In..." : "Sign In"}
         </Button>
       </form>

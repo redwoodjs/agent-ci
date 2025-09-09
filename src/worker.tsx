@@ -1,14 +1,16 @@
-import { defineApp, requestInfo } from "rwsdk/worker";
+import { defineApp } from "rwsdk/worker";
 import { env } from "cloudflare:workers";
-import { realtimeRoute, renderRealtimeClients } from "rwsdk/realtime/worker";
+import { realtimeRoute } from "rwsdk/realtime/worker";
 import { render, prefix, route, layout } from "rwsdk/router";
 
 import { type Sandbox, proxyToSandbox } from "@cloudflare/sandbox";
 
 import { Document } from "@/app/Document";
-import { TaskLayout } from "./app/components/TaskLayout";
-import { Home } from "@/app/pages/Home";
 
+import { auth } from "@/app/pages/auth/auth";
+import { requireAuth } from "./app/pages/auth/interruptors";
+
+import { TaskLayout } from "./app/components/TaskLayout";
 import { taskRoutes } from "./app/pages/task/routes";
 import { logsRoutes } from "./app/pages/logs/routes";
 import { projectRoutes } from "./app/pages/project/routes";
@@ -17,14 +19,12 @@ import { termRoutes } from "./app/pages/term/routes";
 import { previewRoutes } from "./app/pages/preview/routes";
 import { chatRoutes } from "./app/pages/chat/routes";
 import { authRoutes } from "./app/pages/auth/routes";
-import { betterAuthRoutes } from "./better-auth/routes";
+import { claudeAuthRoutes } from "./app/pages/claudeAuth/routes";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
   user: any;
 };
-
-import { auth } from "./better-auth/auth";
 
 const app = defineApp([
   realtimeRoute(() => env.REALTIME_DURABLE_OBJECT),
@@ -43,24 +43,20 @@ const app = defineApp([
   },
 
   render(Document, [
-    route("/", ({ ctx }) => {
-      // if (!ctx.session?.userId) {
-      //   return new Response(null, {
-      //     status: 302,
-      //     headers: { Location: "/home" },
-      //   });
-      // }
-      return new Response(null, {
-        status: 302,
-        headers: { Location: "/projects" },
-      });
-    }),
-    route("/home", Home),
-    prefix("/auth", betterAuthRoutes),
-
+    route("/", [
+      requireAuth,
+      () =>
+        new Response(null, {
+          status: 302,
+          headers: { Location: "/projects" },
+        }),
+    ]),
+    prefix("/auth", authRoutes),
     prefix("/projects", projectRoutes),
+
     layout(TaskLayout, [
       prefix("/tasks/:containerId", [
+        requireAuth,
         ...taskRoutes,
         prefix("/chat", chatRoutes),
         prefix("/logs", logsRoutes),
@@ -71,7 +67,7 @@ const app = defineApp([
     ]),
   ]),
 
-  prefix("/api/auth/claude", authRoutes),
+  prefix("/api/auth/claude", claudeAuthRoutes),
 ]);
 
 export { Sandbox } from "@cloudflare/sandbox";

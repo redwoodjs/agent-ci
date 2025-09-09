@@ -48,23 +48,6 @@ export const EditorPage = async ({
           key={pathname}
         />
       </div>
-
-      {/* Right Side - Preview and Terminal */}
-      <div className="w-96 flex flex-col border-l border-gray-700">
-        {/* Top Right - Preview */}
-        <div className="flex-1 border-b border-gray-700">
-          <div className="h-full m-2 p-2 bg-white rounded">
-            <Preview containerId={containerId} />
-          </div>
-        </div>
-
-        {/* Bottom Right - Terminal */}
-        <div className="h-96">
-          <div className="h-full m-2 p-2 bg-black rounded">
-            {/* <LazyTerm containerId={containerId} /> */}
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

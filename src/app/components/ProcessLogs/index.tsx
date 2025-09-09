@@ -23,7 +23,6 @@ export function ProcessLogs({
   const [logs, setLogs] = useState<Log[]>([]);
 
   useEffect(() => {
-    // I'm wondering if this shouldn't start the process?
     async function fetchLogs() {
       try {
         const eventStream = await streamLogs(containerId, processId);
@@ -45,10 +44,6 @@ export function ProcessLogs({
                     onComplete?.();
                     break;
                   case "stdout":
-                    {
-                      setLogs((prevLogs) => [...prevLogs, data]);
-                    }
-                    break;
                   case "stderr":
                     {
                       setLogs((prevLogs) => [...prevLogs, data]);
@@ -75,7 +70,7 @@ export function ProcessLogs({
   return (
     <div>
       <h3>Logs: {processId}</h3>
-      <code class="text-sm">
+      <code className="text-sm">
         <ol>
           {logs.map((log, i) => (
             <li key={log + "-" + i}>

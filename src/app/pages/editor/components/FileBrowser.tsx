@@ -37,7 +37,7 @@ export async function FileBrowser({
                   <SidebarMenuItem>
                     <SidebarMenuButton asChild>
                       <a
-                        href={`/editor/${containerId}${pathname
+                        href={`/tasks/${containerId}/editor/${pathname
                           .split("/")
                           .slice(0, -2)
                           .join("/")}`}
@@ -54,9 +54,10 @@ export async function FileBrowser({
                     <SidebarMenuItem key={file.name}>
                       <SidebarMenuButton asChild>
                         <a
-                          href={`/editor/${containerId}${file.path}`}
+                          href={`/tasks/${containerId}/editor${file.path}`}
                           className="font-weight-bold"
                         >
+                          {/* {file.path.split("/").pop()} */}
                           {file.type === "directory" ? (
                             <Folder className="text-blue-500" />
                           ) : (

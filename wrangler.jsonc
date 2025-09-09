@@ -16,12 +16,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": [
-        "Sandbox",
-        "Database",
-        "PasskeyDurableObject",
-        "SessionDurableObject"
-      ]
+      "new_sqlite_classes": ["Sandbox", "Database", "PasskeyDurableObject"]
     }
   ],
   "durable_objects": {
@@ -35,21 +30,9 @@
         "name": "DATABASE"
       },
       {
-        "name": "SESSION_DURABLE_OBJECT",
-        "class_name": "SessionDurableObject"
-      },
-      {
-        "name": "PASSKEY_DURABLE_OBJECT",
-        "class_name": "PasskeyDurableObject"
-      }
-      ,
-      {
         "name": "REALTIME_DURABLE_OBJECT",
         "class_name": "RealtimeDurableObject"
       }
     ]
-  },
-  "vars": {
-    "WEBAUTHN_APP_NAME": "Machinen"
   }
 }

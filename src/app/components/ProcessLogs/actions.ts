@@ -8,6 +8,6 @@ export async function streamLogs(containerId: string, processId: string) {
   const sandbox = getSandbox(env.Sandbox, containerId);
   console.log("getting logs for ", processId);
   const stream = await sandbox.streamProcessLogs(processId);
-  console.log("stream", stream);
+  // note: this can be null, and it shouldn't be... super weird.
   return stream;
 }

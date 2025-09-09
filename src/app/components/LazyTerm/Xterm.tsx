@@ -22,7 +22,7 @@ export default function Term({ containerId }: { containerId: string }) {
 
       // Connect to the TTY endpoint through the worker
       const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const url = `${protocol}//localhost:5173/term/${containerId}/attach`;
+      const url = `${protocol}//localhost:5173/tasks/${containerId}/term/attach`;
 
       console.log("url", url);
       console.log("protocol", protocol);

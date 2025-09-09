@@ -1,6 +1,5 @@
-import { getContainer, switchPort } from "@cloudflare/containers";
-
 import { env } from "cloudflare:workers";
+import { getSandbox } from "@cloudflare/sandbox";
 
 import { route } from "rwsdk/router";
 import { waitForContainer } from "@/app/components/WaitForContainer";
@@ -14,8 +13,8 @@ export const termRoutes = [
       const url = new URL(request.url);
       url.port = "8910";
       const newRequest = new Request(url, request);
-      const container = await getContainer(env.Sandbox, params.containerId);
-      return await container.fetch(switchPort(newRequest, 8910));
+      const container = await getSandbox(env.Sandbox, params.containerId);
+      return await container.fetch(newRequest);
     },
   ]),
 ];

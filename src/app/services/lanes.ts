@@ -1,5 +1,6 @@
 "use server";
 import { db } from "@/db";
+import { TaskItem } from "../pages/project/components/Board";
 
 export async function getLanesForProject(projectId: string) {
   return await db
@@ -33,6 +34,15 @@ export async function getTasksByLane(projectId: string) {
   return tasks;
 }
 
+export async function updateTasksByLane(projectId: string, laneId: string, tasks: TaskItem[]) {
+  return await db
+    .updateTable("tasks")
+    .set({ laneId })
+    .where("projectId", "=", projectId)
+    .where("laneId", "=", laneId)
+    .execute();
+}
+
 export async function createDefaultLanesForProject(projectId: string) {
   const now = new Date().toISOString();
 
@@ -52,6 +62,7 @@ export async function createDefaultLanesForProject(projectId: string) {
         name: lane.name,
         position: lane.position,
         isDefault: lane.isDefault,
+        systemPrompt: "",
         createdAt: now,
         updatedAt: now,
       })
@@ -91,7 +102,7 @@ export async function createLane(
       name,
       position,
       isDefault: false,
-      systemPrompt,
+      systemPrompt: systemPrompt ?? "",
       createdAt: now,
       updatedAt: now,
     })
@@ -106,16 +117,9 @@ export async function updateLane(
 ) {
   const now = new Date().toISOString();
 
-  return await db
-    .updateTable("lanes")
-    .set({
-      name,
-      systemPrompt,
-      updatedAt: now,
-    })
-    .where("id", "=", laneId)
-    .returningAll()
-    .executeTakeFirstOrThrow();
+  const base = db.updateTable("lanes").set({ name, updatedAt: now }).where("id", "=", laneId);
+  const query = systemPrompt !== undefined ? base.set({ systemPrompt }) : base;
+  return await query.returningAll().executeTakeFirstOrThrow();
 }
 
 export async function deleteLane(laneId: string) {
@@ -139,14 +143,25 @@ export async function deleteLane(laneId: string) {
       .set({ laneId: defaultLane.id })
       .where("laneId", "=", laneId)
       .execute();
-  } else {
-    // If no default lane exists, set tasks to null
-    await db
-      .updateTable("tasks")
-      .set({ laneId: null })
-      .where("laneId", "=", laneId)
-      .execute();
   }
 
   return await db.deleteFrom("lanes").where("id", "=", laneId).execute();
+}
+
+export async function persistLaneOrders(
+  projectId: string,
+  updates: { laneId: string; orderedTaskIds: string[] }[]
+) {
+  const now = new Date().toISOString();
+  for (const { laneId, orderedTaskIds } of updates) {
+    for (let index = 0; index < orderedTaskIds.length; index++) {
+      const taskId = orderedTaskIds[index];
+      await db
+        .updateTable("tasks")
+        .set({ laneId, position: index, updatedAt: now })
+        .where("id", "=", taskId)
+        .where("projectId", "=", projectId)
+        .execute();
+    }
+  }
 }

@@ -18,7 +18,7 @@ export const TaskLayout = ({ children, requestInfo }: LayoutProps) => {
 
         <div className="border-l border-dashed flex gap-2">
           <Presence containerId={containerId} />
-          <AudioMeeting containerId={containerId} />
+          {/* <AudioMeeting containerId={containerId} /> */}
           <div className="flex gap-2 px-4">
             <a href={link("/tasks/:containerId", { containerId })}>Overview</a>
             <a href={link("/tasks/:containerId/chat", { containerId })}>Chat</a>

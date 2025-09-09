@@ -16,7 +16,7 @@ const COLORS = [
 ];
 
 export function Presence({ containerId }: { containerId: string }) {
-  const me = requestInfo.ctx.session?.userId;
+  const me = requestInfo.ctx?.user?.id;
   if (!me) {
     return null;
   }

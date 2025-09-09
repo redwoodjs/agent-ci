@@ -21,10 +21,26 @@ import { betterAuthRoutes } from "./better-auth/routes";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
+  user: any;
 };
+
+import { auth } from "./better-auth/auth";
 
 const app = defineApp([
   realtimeRoute(() => env.REALTIME_DURABLE_OBJECT),
+  async function authMiddleware({ ctx, request }) {
+    try {
+      const session = await auth.api.getSession({
+        headers: request.headers,
+      });
+
+      if (session?.user) {
+        ctx.user = session.user;
+      }
+    } catch (error) {
+      console.error("Session error:", error);
+    }
+  },
 
   render(Document, [
     route("/", ({ ctx }) => {

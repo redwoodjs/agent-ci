@@ -6,7 +6,7 @@ export const auth = betterAuth({
   baseURL: "http://localhost:5173/auth/functions/",
 
   database: rwsdkAdapter({
-    debugLogs: process.env.NODE_ENV === "development",
+    debugLogs: false,
     usePlural: false,
   }),
 

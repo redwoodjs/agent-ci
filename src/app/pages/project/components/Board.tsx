@@ -3,7 +3,26 @@ import {
   getLanesForProject,
   getTasksByLane,
 } from "@/app/services/lanes";
-import { Column } from "./Column";
+
+import ColumnWrapper from "./ColumnWrapper";
+
+// Types
+export interface TaskItem {
+  id: string;
+  name: string;
+}
+
+export interface Lane {
+  id: string,
+    projectId: string,
+    name: string,
+    position: number,
+    isDefault: boolean,
+    createdAt: string,
+    updatedAt: string,
+    systemPrompt: string | null
+  tasks: TaskItem[];
+}
 
 export async function Board({ projectId }: { projectId: string }) {
   const lanes = await getLanesForProject(projectId);
@@ -11,18 +30,13 @@ export async function Board({ projectId }: { projectId: string }) {
     await createDefaultLanesForProject(projectId);
   }
   const tasks = await getTasksByLane(projectId);
+  // console.log("tasks", tasks);
+  const pragmaticLanes = lanes.map((lane) => ({
+    ...lane,
+    tasks: tasks.filter((task) => task.laneId === lane.id),
+  }));
 
   return (
-    <div className="flex flex-row overflow-x-auto">
-      {lanes.map((lane) => (
-        <Column
-          key={"lane-" + lane.id}
-          lane={lane}
-          tasks={tasks.filter((task) => task.laneId === lane.id)}
-          className="flex-1 border-r-2 px-2 bg-background"
-          projectId={projectId}
-        />
-      ))}
-    </div>
+    <ColumnWrapper lanes={pragmaticLanes as unknown as Lane[]} projectId={projectId} />
   );
 }

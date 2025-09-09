@@ -60,9 +60,6 @@ export async function bootstrapContainer(containerId: string) {
   }
   scriptLines.push(processCommand + " &");
   scriptLines.push(`npx wait-port ${exposePorts[0]}`);
-
-  console.log(scriptLines.join("\n"));
-
   // Handle repository checkout if needed
   if (repository) {
     const result = await sandbox.gitCheckout(repository, {

@@ -22,20 +22,6 @@ export async function bootstrapContainer(containerId: string) {
       hostname: "localhost:5173",
     });
   }
-
-  await sandbox.writeFile(
-    "/root/.claude/.credentials.json",
-    JSON.stringify({
-      claudeAiOauth: {
-        accessToken: env.CLAUDE_CODE_ACCESS_TOKEN,
-        refreshToken: env.CLAUDE_CODE_REFRESH_TOKEN,
-        expiresAt: env.CLAUDE_CODE_EXPIRES_AT,
-        scopes: ["user:inference", "user:profile"],
-        subscriptionType: "pro",
-      },
-    })
-  );
-
   // Generate bootstrap script
   const scriptLines = ["#!/bin/bash", "set -e", ""];
 

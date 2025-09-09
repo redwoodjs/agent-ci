@@ -1,14 +1,19 @@
 import { db } from "@/db";
 
 export async function getProjectInfo(containerId: string) {
-  let { repository, runOnBoot, processCommand, exposePorts } = await db
+  const task = await db
     .selectFrom("tasks")
     .where("containerId", "=", containerId)
-    .innerJoin("projects", "tasks.projectId", "projects.id")
-    .select("projects.repository")
-    .select("projects.runOnBoot")
-    .select("projects.processCommand")
-    .select("projects.exposePorts")
+    .select("projectId")
+    .executeTakeFirstOrThrow();
+
+  let { repository, runOnBoot, processCommand, exposePorts } = await db
+    .selectFrom("projects")
+    .where("id", "=", task.projectId)
+    .select("repository")
+    .select("runOnBoot")
+    .select("processCommand")
+    .select("exposePorts")
     .executeTakeFirstOrThrow();
 
   const runOnBootClean = Array.isArray(runOnBoot)

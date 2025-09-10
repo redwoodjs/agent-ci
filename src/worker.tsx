@@ -22,6 +22,8 @@ import { authRoutes } from "./app/pages/auth/routes";
 
 import { claudeAuthRoutes } from "./app/pages/claudeAuth/routes";
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
+import { Presence } from "./app/components/Presence";
+import { AudioMeeting } from "./app/components/AudioMeeting";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -56,6 +58,15 @@ const app = defineApp([
     prefix("/auth", authRoutes),
     prefix("/explore", doExploreRoutes), // DO DB Explorer.
     prefix("/projects", projectRoutes),
+
+    route("/test-audio", function () {
+      return (
+        <div>
+          <AudioMeeting containerId="test-audio" />
+          <Presence containerId="test-audio" />
+        </div>
+      );
+    }),
 
     layout(TaskLayout, [
       prefix("/tasks/:containerId", [

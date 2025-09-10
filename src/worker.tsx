@@ -9,6 +9,7 @@ import { Document } from "@/app/Document";
 
 import { auth } from "@/app/pages/auth/auth";
 import { requireAuth } from "./app/pages/auth/interruptors";
+import { setCommonHeaders } from "./app/headers";
 
 import { TaskLayout } from "./app/components/TaskLayout";
 import { taskRoutes } from "./app/pages/task/routes";
@@ -31,13 +32,13 @@ export type AppContext = {
 };
 
 const app = defineApp([
+  setCommonHeaders(),
   realtimeRoute(() => env.REALTIME_DURABLE_OBJECT),
   async function authMiddleware({ ctx, request }) {
     try {
       const session = await auth.api.getSession({
         headers: request.headers,
       });
-
       if (session?.user) {
         ctx.user = session.user;
       }
@@ -70,7 +71,6 @@ const app = defineApp([
 
     layout(TaskLayout, [
       prefix("/tasks/:containerId", [
-        requireAuth,
         ...taskRoutes,
         prefix("/chat", chatRoutes),
         prefix("/logs", logsRoutes),

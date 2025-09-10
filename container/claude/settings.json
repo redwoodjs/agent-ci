@@ -1,22 +1,6 @@
 {
   "permissions": {
     "defaultMode": "acceptEdits",
-    "allow": [
-      "Agent(*)",
-      "Bash(*)",
-      "Edit(*)",
-      "Glob(*)",
-      "Grep(*)",
-      "LS(*)",
-      "MultiEdit(*)",
-      "NotebookEdit(*)",
-      "NotebookRead(*)",
-      "Read(*)",
-      "TodoRead(*)",
-      "TodoWrite(*)",
-      "WebFetch(*)",
-      "WebSearch",
-      "Write(*)"
-    ]
+    "allow": ["full"]
   }
 }

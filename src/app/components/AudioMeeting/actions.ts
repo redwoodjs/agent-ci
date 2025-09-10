@@ -1,6 +1,7 @@
 "use server";
 
 import { env } from "cloudflare:workers";
+import { requestInfo } from "rwsdk/worker";
 
 // Store meeting IDs per container
 const MEETING_IDS = new Map<string, string>();
@@ -87,19 +88,15 @@ async function createMeeting({ containerId }: { containerId: string }) {
 
 export async function getParticipantToken({
   containerId,
-  name,
-  userId,
 }: {
   containerId: string;
-  name: string;
-  userId: string;
 }) {
   const meetingId = await GetActiveMeetingId({ containerId });
 
   const body = JSON.stringify({
-    name: "p4p8",
+    name: requestInfo.ctx?.user?.email,
     preset_name: "group_call_host",
-    custom_participant_id: "p4p8",
+    custom_participant_id: requestInfo.ctx?.user?.id,
   });
 
   const url = `https://api.realtime.cloudflare.com/v2/meetings/${meetingId}/participants`;

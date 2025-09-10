@@ -39,11 +39,7 @@ export function AudioMeeting({ containerId }: { containerId: string }) {
           disabled={joining}
           onClick={async () => {
             setJoining(true);
-            const t = await getParticipantToken({
-              containerId,
-              name: "user",
-              userId: "user",
-            });
+            const t = await getParticipantToken({ containerId });
             setAuthToken(t);
             setJoining(false);
           }}

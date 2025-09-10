@@ -8,7 +8,7 @@ RUN npm install --global corepack@latest && \
     cd minimal && \
     pnpm install
 
-RUN mkdir ~/.claude && npm install -g @anthropic-ai/claude-code
+RUN mkdir /root/.claude && npm install -g @anthropic-ai/claude-code
 COPY ./container/claude/claude.json /root/.claude.json
 COPY ./container/claude/settings.json /root/.claude/settings.json
 

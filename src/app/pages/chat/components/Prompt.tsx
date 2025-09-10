@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { useAuthStatus } from "@/app/components/AuthButton";
 import { FormattedMessage, MessageFormatter } from "../utils/messageFormatting";
 import { MessageItem } from "./MessageItem";
 
@@ -13,9 +12,7 @@ export const Prompt = ({
   seedUserMessage?: string;
 }) => {
   const [messages, setMessages] = useState<FormattedMessage[]>([]);
-  const [prompt, setPrompt] = useState(
-    "Can you help me with a coding question?"
-  );
+  const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);

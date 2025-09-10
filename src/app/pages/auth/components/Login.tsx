@@ -18,8 +18,8 @@ interface LoginProps {
 
 export function Login({ onSuccess, onError }: LoginProps) {
   const [formData, setFormData] = useState<LoginFormData>({
-    email: "",
-    password: "",
+    email: "peter.pistorius@gmail.com",
+    password: "12345678",
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<LoginFormData>>({});

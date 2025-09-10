@@ -19,7 +19,7 @@ export async function sendAuthenticatedMessage(
 
   // Execute Claude CLI command with streaming output from workspace directory
   const process = await sandbox.startProcess(
-    `bash -c "cd /workspace && claude --continue --model sonnet --output-format stream-json --verbose --print \\"${escapedMessage}\\""`
+    `bash -c "cd /workspace && IS_SANDBOX=1 claude --continue --dangerously-skip-permissions --model sonnet --output-format stream-json --verbose --print \\"${escapedMessage}\\""`
   );
 
   return { id: process.id };

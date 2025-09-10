@@ -1,61 +1,16 @@
 {
-  "numStartups": 0,
-  "installMethod": "unknown",
+  "numStartups": 1,
+  "installMethod": "oauth",
   "autoUpdates": true,
-  "firstStartTime": "2025-08-23T17:47:51.179Z",
-  "userID": "59b7fba2b28001fb6869d8e2ccf18d4e524cc5896240e6472ae17c0004e3f405",
+  "firstStartTime": "2025-09-10T21:37:13.682Z",
+  "hasCompletedOnboarding": true,
   "projects": {
     "/workspace": {
-      "allowedTools": [
-        "Agent(*)",
-        "Bash(*)",
-        "Edit(*)",
-        "Glob(*)",
-        "Grep(*)",
-        "LS(*)",
-        "MultiEdit(*)",
-        "NotebookEdit(*)",
-        "NotebookRead(*)",
-        "Read(*)",
-        "TodoRead(*)",
-        "TodoWrite(*)",
-        "WebFetch(*)",
-        "WebSearch(*)",
-        "Write(*)"
-      ],
+      "allowedTools": ["*"],
       "history": [],
-      "mcpContextUris": [],
-      "mcpServers": {},
-      "enabledMcpjsonServers": [],
-      "disabledMcpjsonServers": [],
-      "hasTrustDialogAccepted": true,
-      "projectOnboardingSeenCount": 1,
-      "hasClaudeMdExternalIncludesApproved": false,
-      "hasClaudeMdExternalIncludesWarningShown": false,
-      "lastCost": 0,
-      "lastAPIDuration": 0,
-      "lastToolDuration": 0,
-      "lastDuration": 13530,
-      "lastLinesAdded": 0,
-      "lastLinesRemoved": 0,
-      "lastTotalInputTokens": 0,
-      "lastTotalOutputTokens": 0,
-      "lastTotalCacheCreationInputTokens": 0,
-      "lastTotalCacheReadInputTokens": 0,
-      "lastTotalWebSearchRequests": 0
+      "hasTrustDialogAccepted": true
     }
   },
-  "claudeCodeFirstTokenDate": "2025-07-03T09:01:48.183606Z",
-  "hasCompletedOnboarding": true,
-  "lastOnboardingVersion": "1.0.89",
-  "hasOpusPlanDefault": false,
-  "subscriptionNoticeCount": 0,
-  "hasAvailableSubscription": false,
-  "s1mAccessCache": {
-    "af52c39f-1832-4485-8f9f-e701bd638e00": {
-      "hasAccess": false,
-      "timestamp": 1755971379542
-    }
-  },
-  "isQualifiedForDataSharing": false
+  "oauthAccessToken": "",
+  "apiKeySource": "oauth"
 }

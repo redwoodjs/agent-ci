@@ -55,4 +55,4 @@ Peter: Trust me.
   await sandbox.writeFile("/workspace/.claude/ISSUE/CONTENT.md", content);
   await sandbox.writeFile("/workspace/.claude/ISSUE/TRANSCRIPT.md", transcript);
   await sandbox.writeFile("/workspace/.claude/ISSUE/TODO.md", todo);
-}
+}~

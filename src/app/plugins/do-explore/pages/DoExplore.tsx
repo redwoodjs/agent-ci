@@ -118,7 +118,7 @@ export async function DoExplore({ params }: { params: { table: string } }) {
               return (
                 <a
                   key={name}
-                  href={`/explore/${name}`}
+                  href={`/dox/${name}`}
                   className={
                     "flex items-center justify-between rounded px-3 py-2 text-sm " +
                     (isActive ? "nav-active font-medium" : "hover:bg-black/5")
@@ -176,7 +176,11 @@ export async function DoExplore({ params }: { params: { table: string } }) {
                   </tr>
                 </thead>
                 <tbody>
-                  <TableRows tableName={activeTable} rows={rows} columns={columns} />
+                  <TableRows
+                    tableName={activeTable}
+                    rows={rows}
+                    columns={columns}
+                  />
                   <InsertRow
                     options={options}
                     schema={schema}

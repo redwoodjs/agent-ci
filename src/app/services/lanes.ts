@@ -57,7 +57,7 @@ export async function createDefaultLanesForProject(projectId: string) {
     const result = await db
       .insertInto("lanes")
       .values({
-        id: crypto.randomUUID(),
+        id: crypto.randomUUID().toLowerCase(),
         projectId,
         name: lane.name,
         position: lane.position,
@@ -97,7 +97,7 @@ export async function createLane(
   return await db
     .insertInto("lanes")
     .values({
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID().toLowerCase(),
       projectId,
       name,
       position,

@@ -16,7 +16,7 @@ export async function ProcessListPage({
     <div>
       <Heading>Logs</Heading>
 
-      <ol className="m-4">
+      <ol className="m-4 list-decimal">
         {processes.map((process) => (
           <li key={process.pid}>
             <a

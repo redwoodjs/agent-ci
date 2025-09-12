@@ -57,7 +57,7 @@ const app = defineApp([
         }),
     ]),
     prefix("/auth", authRoutes),
-    prefix("/explore", doExploreRoutes), // DO DB Explorer.
+    prefix("/dox", doExploreRoutes),
     prefix("/projects", projectRoutes),
 
     route("/test-audio", function () {

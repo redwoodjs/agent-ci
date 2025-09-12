@@ -3,6 +3,7 @@
 import { env } from "cloudflare:workers";
 import { getSandbox } from "@cloudflare/sandbox";
 import { getValidAccessToken } from "@/app/pages/claudeAuth/claude-oauth";
+import { getTaskByContainerId } from "@/app/pages/task/actions";
 
 export async function sendAuthenticatedMessage(
   containerId: string,
@@ -14,12 +15,29 @@ export async function sendAuthenticatedMessage(
   // First, ensure OAuth credentials are set up in the container
   await setupContainerCredentials(containerId, userId);
 
+  // Get the task's lane-id to use as session-id
+  const task = await getTaskByContainerId(containerId);
+
+  let sessionFlag = `--session-id \\"${task.laneId}\\"`;
+  const { files } = await sandbox.listFiles(
+    "/root/.claude/projects/-workspace/"
+  );
+  if (files.filter((file) => file.name.startsWith(task.laneId)).length > 0) {
+    // Here we might want to use "--continue" instead of "--resume"
+    sessionFlag = `--resume \\"${task.laneId}\\"`;
+  }
+
   // Escape quotes in the message for shell execution
   const escapedMessage = message.replace(/"/g, '\\"');
 
-  // Execute Claude CLI command with streaming output from workspace directory
+  if (!task?.laneId) {
+    console.log(task);
+    throw new Error("Task does not have a lane id");
+  }
+
+  // Execute Claude CLI command with streaming output from workspace directory, using lane-id as session-id
   const process = await sandbox.startProcess(
-    `bash -c "cd /workspace && IS_SANDBOX=1 claude --continue --dangerously-skip-permissions --model sonnet --output-format stream-json --verbose --print \\"${escapedMessage}\\""`
+    `bash -c "cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions --model sonnet --output-format stream-json --verbose ${sessionFlag} --print \\"${escapedMessage}\\""`
   );
 
   return { id: process.id };

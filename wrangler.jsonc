@@ -4,6 +4,12 @@
   "main": "src/worker.tsx",
   "compatibility_date": "2025-07-29",
   "compatibility_flags": ["nodejs_compat"],
+  "r2_buckets": [
+    {
+      "binding": "CHAT_LOGS_BUCKET",
+      "bucket_name": "machinen-chat-logs"
+    }
+  ],
 
   "containers": [
     {

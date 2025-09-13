@@ -5,11 +5,13 @@ import { getSandbox } from "@cloudflare/sandbox";
 import { getValidAccessToken } from "@/app/pages/claudeAuth/claude-oauth";
 import { getTaskByContainerId } from "@/app/pages/task/actions";
 import { db } from "@/db";
+import { ClaudeModel, isClaudeModel } from "@/types/claude";
 
 export async function sendAuthenticatedMessage(
   containerId: string,
   userId: string,
-  message: string
+  message: string,
+  model: ClaudeModel = "default"
 ) {
   const sandbox = await getSandbox(env.Sandbox, containerId);
 
@@ -36,9 +38,11 @@ export async function sendAuthenticatedMessage(
     throw new Error("Task does not have a lane id");
   }
 
+  const effectiveModel: ClaudeModel = isClaudeModel(model) ? model : "default";
+
   // Execute Claude CLI command with streaming output from workspace directory, using lane-id as session-id
   const process = await sandbox.startProcess(
-    `bash -c "cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions --model sonnet --output-format stream-json --verbose ${sessionFlag} --print \\\"${escapedMessage}\\\""`
+    `bash -c "cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions --model ${effectiveModel} --output-format stream-json --verbose ${sessionFlag} --print \\\"${escapedMessage}\\\""`
   );
 
   // Record chat session in database (best-effort)

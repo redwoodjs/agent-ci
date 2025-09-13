@@ -5,6 +5,7 @@ import { FormattedMessage, MessageFormatter } from "../utils/messageFormatting";
 import { MessageItem } from "./MessageItem";
 import { consumeEventStream } from "rwsdk/client";
 import { streamProcess } from "../actions";
+import { ClaudeModel } from "@/types/claude";
 
 export const Prompt = ({
   containerId,
@@ -21,6 +22,7 @@ export const Prompt = ({
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
   const messageFormatter = useRef(new MessageFormatter()).current;
   const streamedProcessIdsRef = useRef<Set<string>>(new Set());
+  const [model, setModel] = useState<ClaudeModel>("default");
 
   const onSubmit = async () => {
     if (!prompt.trim() || isLoading) return;
@@ -54,6 +56,7 @@ export const Prompt = ({
         body: JSON.stringify({
           message: currentPrompt,
           containerId,
+          model,
         }),
       });
 
@@ -286,16 +289,32 @@ export const Prompt = ({
               placeholder="Ask Claude a question... (Ctrl+Enter to send)"
               rows={2}
             />
-            <button
-              onClick={onSubmit}
-              disabled={isLoading || !prompt.trim()}
-              className="px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-md font-medium transition-colors"
-            >
-              {isLoading ? "Sending..." : "Send"}
-            </button>
+            <div className="flex flex-col gap-2">
+              <select
+                className="px-2 py-2 border border-gray-300 rounded-md bg-white"
+                value={model}
+                onChange={(e) => setModel(e.target.value as ClaudeModel)}
+                title="Choose Claude model"
+              >
+                <option value="default">default</option>
+                <option value="sonnet">sonnet</option>
+                <option value="opus">opus</option>
+                <option value="haiku">haiku</option>
+                <option value="sonnet[1m]">sonnet[1m]</option>
+                <option value="opusplan">opusplan</option>
+              </select>
+              <button
+                onClick={onSubmit}
+                disabled={isLoading || !prompt.trim()}
+                className="px-6 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-md font-medium transition-colors"
+              >
+                {isLoading ? "Sending..." : "Send"}
+              </button>
+            </div>
           </div>
           <p className="text-xs text-gray-500 mt-2">
-            Container: {containerId} • Press Ctrl+Enter or Cmd+Enter to send
+            Container: {containerId} • Model: {model} • Press Ctrl+Enter or
+            Cmd+Enter to send
           </p>
         </div>
       </div>

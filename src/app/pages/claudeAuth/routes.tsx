@@ -10,6 +10,7 @@ import {
   streamProcess,
 } from "@/app/pages/chat/actions";
 import { listChatProcessIds } from "@/app/pages/chat/actions";
+import { ClaudeModel, isClaudeModel } from "@/types/claude";
 
 // Helper function to extract user ID from session cookie
 export function getUserIdFromCookie(request: Request): string | null {
@@ -135,8 +136,10 @@ export const claudeAuthRoutes = [
       const body = (await request.json()) as {
         message?: string;
         containerId?: string;
+        model?: unknown;
       };
       const { message, containerId } = body || {};
+      const requestedModel = body?.model;
 
       if (!containerId) {
         return new Response(JSON.stringify({ error: "Missing containerId" }), {
@@ -145,11 +148,23 @@ export const claudeAuthRoutes = [
         });
       }
 
+      let model: ClaudeModel = "default";
+      if (requestedModel !== undefined) {
+        if (!isClaudeModel(requestedModel)) {
+          return new Response(JSON.stringify({ error: "Invalid model" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        model = requestedModel;
+      }
+
       // Start the Claude CLI process in the container
       const result = await sendAuthenticatedMessage(
         containerId,
         userId,
-        message || ""
+        message || "",
+        model
       );
 
       return new Response(

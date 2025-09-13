@@ -8,7 +8,8 @@ import {
 import {
   sendAuthenticatedMessage,
   streamProcess,
-} from "@/app/pages/chat/action";
+} from "@/app/pages/chat/actions";
+import { listChatProcessIds } from "@/app/pages/chat/actions";
 
 // Helper function to extract user ID from session cookie
 export function getUserIdFromCookie(request: Request): string | null {
@@ -37,7 +38,8 @@ export const claudeAuthRoutes = [
           Location: url,
         },
       });
-    } catch (error) {
+    } catch (err) {
+      const error = err as Error;
       console.error("OAuth URL generation error:", error);
       return new Response(JSON.stringify({ error: error.message }), {
         status: 500,
@@ -53,7 +55,8 @@ export const claudeAuthRoutes = [
     }
 
     try {
-      const { code } = await request.json();
+      const body = (await request.json()) as { code?: string };
+      const { code } = body || {};
 
       if (!code) {
         return new Response(JSON.stringify({ error: "Missing code" }), {
@@ -73,7 +76,8 @@ export const claudeAuthRoutes = [
           "Set-Cookie": `claude_session=${userId}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800`, // 1 week
         },
       });
-    } catch (error) {
+    } catch (err) {
+      const error = err as Error;
       console.error("OAuth exchange error:", error);
       return new Response(JSON.stringify({ error: error.message }), {
         status: 500,
@@ -103,7 +107,8 @@ export const claudeAuthRoutes = [
           headers: { "Content-Type": "application/json" },
         }
       );
-    } catch (error) {
+    } catch (err) {
+      const error = err as Error;
       console.error("Auth status check error:", error);
       return new Response(JSON.stringify({ authenticated: false }), {
         headers: { "Content-Type": "application/json" },
@@ -127,7 +132,11 @@ export const claudeAuthRoutes = [
     }
 
     try {
-      const { message, containerId } = await request.json();
+      const body = (await request.json()) as {
+        message?: string;
+        containerId?: string;
+      };
+      const { message, containerId } = body || {};
 
       if (!containerId) {
         return new Response(JSON.stringify({ error: "Missing containerId" }), {
@@ -140,7 +149,7 @@ export const claudeAuthRoutes = [
       const result = await sendAuthenticatedMessage(
         containerId,
         userId,
-        message
+        message || ""
       );
 
       return new Response(
@@ -153,8 +162,27 @@ export const claudeAuthRoutes = [
           headers: { "Content-Type": "application/json" },
         }
       );
-    } catch (error) {
+    } catch (err) {
+      const error = err as Error;
       console.error("Chat error:", error);
+      return new Response(JSON.stringify({ error: error.message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+  }),
+
+  // List prior chat processIds for a container
+  route("/chats/:containerId", async ({ params, request }) => {
+    try {
+      const { containerId } = params;
+      const ids = await listChatProcessIds(containerId, 50);
+      return new Response(JSON.stringify({ processIds: ids }), {
+        headers: { "Content-Type": "application/json" },
+      });
+    } catch (err) {
+      const error = err as Error;
+      console.error("List chats error:", error);
       return new Response(JSON.stringify({ error: error.message }), {
         status: 500,
         headers: { "Content-Type": "application/json" },
@@ -175,7 +203,8 @@ export const claudeAuthRoutes = [
           Connection: "keep-alive",
         },
       });
-    } catch (error) {
+    } catch (err) {
+      const error = err as Error;
       console.error("Stream error:", error);
       return new Response(JSON.stringify({ error: error.message }), {
         status: 500,
@@ -191,7 +220,8 @@ export const claudeAuthRoutes = [
     if (userId) {
       try {
         await deleteUserTokens(userId);
-      } catch (error) {
+      } catch (err) {
+        const error = err as Error;
         console.error("Logout error:", error);
       }
     }

@@ -7,7 +7,7 @@ import { env } from "cloudflare:workers";
 import { getTaskByContainerId } from "@/app/pages/task/actions";
 import { db } from "@/db";
 import { getUserIdFromCookie } from "@/app/pages/claudeAuth/routes";
-import { sendAuthenticatedMessage } from "@/app/pages/chat/action";
+import { sendAuthenticatedMessage } from "@/app/pages/chat/actions";
 
 export async function resetClaudeSession(containerId: string) {
   // TODO: Implement

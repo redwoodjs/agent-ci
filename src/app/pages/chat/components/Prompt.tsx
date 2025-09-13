@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef } from "react";
 import { FormattedMessage, MessageFormatter } from "../utils/messageFormatting";
 import { MessageItem } from "./MessageItem";
+import { consumeEventStream } from "rwsdk/client";
+import { streamProcess } from "../actions";
 
 export const Prompt = ({
   containerId,
@@ -18,6 +20,7 @@ export const Prompt = ({
   const messagesRef = useRef<HTMLDivElement>(null);
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
   const messageFormatter = useRef(new MessageFormatter()).current;
+  const streamedProcessIdsRef = useRef<Set<string>>(new Set());
 
   const onSubmit = async () => {
     if (!prompt.trim() || isLoading) return;
@@ -54,7 +57,12 @@ export const Prompt = ({
         }),
       });
 
-      const data = await response.json();
+      const data = (await response.json()) as {
+        success?: boolean;
+        processId?: string;
+        containerId?: string;
+        error?: string;
+      };
 
       if (!response.ok) {
         throw new Error(data.error || `HTTP ${response.status}`);
@@ -62,7 +70,10 @@ export const Prompt = ({
 
       // Now we need to stream the process output
       const { processId } = data;
-      await streamClaudeResponse(processId);
+      if (!processId) {
+        throw new Error("Missing processId in response");
+      }
+      await streamClaudeResponse(processId, { affectsLoading: true });
     } catch (err) {
       const errorMessage =
         err instanceof Error ? err.message : "Unknown error occurred";
@@ -111,84 +122,77 @@ export const Prompt = ({
     }
   };
 
-  const streamClaudeResponse = async (processId: string) => {
+  // Stream Claude response using the same approach as ProcessLogs
+  const streamClaudeResponse = async (
+    processId: string,
+    opts?: { affectsLoading?: boolean }
+  ) => {
+    if (streamedProcessIdsRef.current.has(processId)) {
+      return;
+    }
+    streamedProcessIdsRef.current.add(processId);
+    const affectsLoading = opts?.affectsLoading ?? true;
     try {
-      const response = await fetch(
-        `/api/auth/claude/stream/${containerId}/${processId}`
-      );
-
-      if (!response.ok) {
-        throw new Error(`Stream failed: ${response.status}`);
-      }
-
-      const reader = response.body?.getReader();
-      if (!reader) {
-        throw new Error("No response stream available");
-      }
-
-      let buffer = "";
-      let currentMessage: FormattedMessage | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        // Convert bytes to text
-        const chunk = new TextDecoder().decode(value);
-        buffer += chunk;
-
-        // Process complete lines
-        const lines = buffer.split("\n");
-        buffer = lines.pop() || "";
-
-        for (const line of lines) {
-          if (!line.trim()) continue;
-
-          // Remove 'data: ' prefix from Server-Sent Events format
-          const jsonLine = line.startsWith("data: ") ? line.substring(6) : line;
-
-          try {
-            const event = JSON.parse(jsonLine);
-
-            if (event.data) {
-              const eventData = event;
-
-              // Process different types of Claude CLI output
+      const eventStream = await streamProcess(containerId, processId);
+      await eventStream.pipeTo(
+        consumeEventStream({
+          onChunk: (event) => {
+            if (!event.data) return;
+            try {
+              const eventData = JSON.parse(event.data);
               if (eventData.type === "stdout") {
-                // Split by newlines and process each JSON object
-                const stdoutLines = eventData.data
+                const stdoutLines = String(eventData.data)
                   .split("\n")
                   .filter((l: string) => l.trim());
-
                 for (const stdoutLine of stdoutLines) {
                   try {
                     const claudeMessage = JSON.parse(stdoutLine);
                     const formattedMessage =
                       messageFormatter.formatMessage(claudeMessage);
-
                     if (formattedMessage) {
                       setMessages((prev) => [...prev, formattedMessage]);
                     }
-                  } catch (parseError) {
-                    // Skip invalid JSON lines
+                  } catch (_) {
+                    // Ignore lines that are not valid JSON messages
                   }
                 }
               } else if (eventData.type === "complete") {
-                setIsLoading(false);
-                break;
+                if (affectsLoading) setIsLoading(false);
               }
+            } catch (_) {
+              // Ignore malformed chunks
             }
-          } catch (e) {
-            // Skip malformed JSON - this is expected for some stream data
-          }
-        }
-      }
+          },
+        })
+      );
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Stream error";
       setError(errorMessage);
-      setIsLoading(false);
+      if (affectsLoading) setIsLoading(false);
     }
   };
+
+  // Load previously saved process logs on mount from server
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`/api/auth/claude/chats/${containerId}`);
+        if (!res.ok) return;
+        const body = (await res.json()) as { processIds?: string[] };
+        const ids = body.processIds || [];
+        if (ids.length === 0) return;
+        for (const pid of ids) {
+          try {
+            await streamClaudeResponse(pid, { affectsLoading: false });
+          } catch {
+            // ignore failures for individual histories
+          }
+        }
+      } catch {
+        // ignore
+      }
+    })();
+  }, [containerId]);
 
   return (
     <div className="h-full flex flex-col relative">

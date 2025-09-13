@@ -192,7 +192,9 @@ export const migrations = {
           .addColumn("id", "text", (col) => col.primaryKey())
           .addColumn("name", "text", (col) => col.notNull())
           .addColumn("email", "text", (col) => col.notNull().unique())
-          .addColumn("emailVerified", "boolean", (col) => col.notNull().defaultTo(false))
+          .addColumn("emailVerified", "boolean", (col) =>
+            col.notNull().defaultTo(false)
+          )
           .addColumn("image", "text")
           .addColumn("createdAt", "text", (col) => col.notNull())
           .addColumn("updatedAt", "text", (col) => col.notNull())
@@ -202,7 +204,7 @@ export const migrations = {
         await db.schema
           .createTable("session")
           .addColumn("id", "text", (col) => col.primaryKey())
-          .addColumn("userId", "text", (col) => 
+          .addColumn("userId", "text", (col) =>
             col.notNull().references("user.id").onDelete("cascade")
           )
           .addColumn("expiresAt", "text", (col) => col.notNull())
@@ -217,7 +219,7 @@ export const migrations = {
         await db.schema
           .createTable("account")
           .addColumn("id", "text", (col) => col.primaryKey())
-          .addColumn("userId", "text", (col) => 
+          .addColumn("userId", "text", (col) =>
             col.notNull().references("user.id").onDelete("cascade")
           )
           .addColumn("accountId", "text", (col) => col.notNull())
@@ -248,6 +250,27 @@ export const migrations = {
       await db.schema.dropTable("account").execute();
       await db.schema.dropTable("session").execute();
       await db.schema.dropTable("user").execute();
+    },
+  },
+
+  "010_add_task_chat_sessions": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("task_chat_sessions")
+          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("taskId", "text", (col) =>
+            col.notNull().references("tasks.id").onDelete("cascade")
+          )
+          .addColumn("containerId", "text", (col) => col.notNull())
+          .addColumn("processId", "text", (col) => col.notNull())
+          .addColumn("createdAt", "text", (col) => col.notNull())
+          .addColumn("updatedAt", "text", (col) => col.notNull())
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("task_chat_sessions").execute();
     },
   },
 } satisfies Migrations;

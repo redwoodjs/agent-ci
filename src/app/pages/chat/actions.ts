@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 import { getSandbox } from "@cloudflare/sandbox";
 import { getValidAccessToken } from "@/app/pages/claudeAuth/claude-oauth";
 import { getTaskByContainerId } from "@/app/pages/task/actions";
+import { db } from "@/db";
 
 export async function sendAuthenticatedMessage(
   containerId: string,
@@ -18,13 +19,13 @@ export async function sendAuthenticatedMessage(
   // Get the task's lane-id to use as session-id
   const task = await getTaskByContainerId(containerId);
 
-  let sessionFlag = `--session-id \\"${task.laneId}\\"`;
+  let sessionFlag = `--session-id \"${task.laneId}\"`;
   const { files } = await sandbox.listFiles(
     "/root/.claude/projects/-workspace/"
   );
   if (files.filter((file) => file.name.startsWith(task.laneId)).length > 0) {
     // Here we might want to use "--continue" instead of "--resume"
-    sessionFlag = `--resume \\"${task.laneId}\\"`;
+    sessionFlag = `--resume \"${task.laneId}\"`;
   }
 
   // Escape quotes in the message for shell execution
@@ -37,8 +38,26 @@ export async function sendAuthenticatedMessage(
 
   // Execute Claude CLI command with streaming output from workspace directory, using lane-id as session-id
   const process = await sandbox.startProcess(
-    `bash -c "cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions --model sonnet --output-format stream-json --verbose ${sessionFlag} --print \\"${escapedMessage}\\""`
+    `bash -c "cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions --model sonnet --output-format stream-json --verbose ${sessionFlag} --print \\\"${escapedMessage}\\\""`
   );
+
+  // Record chat session in database (best-effort)
+  try {
+    const now = new Date().toISOString();
+    await db
+      .insertInto("task_chat_sessions")
+      .values({
+        id: crypto.randomUUID().toLowerCase(),
+        taskId: task.id,
+        containerId,
+        processId: process.id,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .execute();
+  } catch (e) {
+    console.error("Failed to record chat session:", e);
+  }
 
   return { id: process.id };
 }
@@ -48,7 +67,6 @@ export async function streamProcess(containerId: string, processId: string) {
   return await sandbox.streamProcessLogs(processId);
 }
 
-// Function to setup OAuth credentials in a container
 export async function setupContainerCredentials(
   containerId: string,
   userId: string
@@ -69,31 +87,22 @@ export async function setupContainerCredentials(
     await sandbox.exec(`mkdir -p ${claudeDir}`);
 
     // Read the current claude.json configuration and update it
-    let claudeConfig;
-    try {
-      const existingConfig = await sandbox.readFile(claudeConfigPath);
-      claudeConfig = JSON.parse(existingConfig);
-    } catch {
-      // If file doesn't exist, start with a basic config
-      claudeConfig = {
-        numStartups: 0,
-        installMethod: "oauth",
-        autoUpdates: true,
-        firstStartTime: new Date().toISOString(),
-        hasCompletedOnboarding: true,
-        projects: {
-          "/workspace": {
-            allowedTools: ["*"],
-            history: [],
-            hasTrustDialogAccepted: true,
-          },
+    let claudeConfig = {
+      oauthAccessToken: accessToken,
+      apiKeySource: "oauth",
+      numStartups: 0,
+      installMethod: "oauth",
+      autoUpdates: true,
+      firstStartTime: new Date().toISOString(),
+      hasCompletedOnboarding: true,
+      projects: {
+        "/workspace": {
+          allowedTools: ["*"],
+          history: [],
+          hasTrustDialogAccepted: true,
         },
-      };
-    }
-
-    // Add OAuth credentials to the configuration
-    claudeConfig.oauthAccessToken = accessToken;
-    claudeConfig.apiKeySource = "oauth";
+      },
+    };
 
     // Write the updated configuration back
     await sandbox.writeFile(
@@ -154,4 +163,18 @@ export async function setupContainerCredentials(
     );
     throw error;
   }
+}
+
+export async function listChatProcessIds(
+  containerId: string,
+  limit: number = 20
+) {
+  const rows = await db
+    .selectFrom("task_chat_sessions")
+    .where("containerId", "=", containerId)
+    .select(["processId", "createdAt"])
+    .orderBy("createdAt", "asc")
+    .limit(limit)
+    .execute();
+  return rows.map((r) => r.processId);
 }

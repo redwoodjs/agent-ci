@@ -10,9 +10,13 @@ import { ClaudeModel } from "@/types/claude";
 export const Prompt = ({
   containerId,
   seedUserMessage,
+  externalProcessId,
+  onExternalProcessComplete,
 }: {
   containerId: string;
   seedUserMessage?: string;
+  externalProcessId?: string;
+  onExternalProcessComplete?: () => void;
 }) => {
   const [messages, setMessages] = useState<FormattedMessage[]>([]);
   const [prompt, setPrompt] = useState("");
@@ -174,6 +178,21 @@ export const Prompt = ({
       if (affectsLoading) setIsLoading(false);
     }
   };
+
+  // Stream an externally provided process (e.g., Enhance Issue)
+  useEffect(() => {
+    if (!externalProcessId) return;
+    (async () => {
+      try {
+        await streamClaudeResponse(externalProcessId, {
+          affectsLoading: false,
+        });
+      } finally {
+        onExternalProcessComplete?.();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalProcessId]);
 
   // Load previously saved process logs on mount from server
   useEffect(() => {

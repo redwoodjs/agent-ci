@@ -27,6 +27,7 @@ export async function ProcessListPage({
             >
               {process.command}
             </a>
+            <input type="text" value={process.command} />
           </li>
         ))}
       </ol>

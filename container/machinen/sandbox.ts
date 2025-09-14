@@ -85,69 +85,87 @@ app.get("/", (c) => {
 });
 
 // File system routes group
-const fsRoutes = new Hono();
 
-fsRoutes.get("/list", (c) => {
-  // Get query parameters
-  const pathname = c.req.query("pathname");
-  if (!pathname) {
+// We are going to do two things here... The first is that we figure out if the process is still running?
+// And if it is still running then we continue to read the log file?
+//
+
+function isProcessRunning(pid: string) {
+  try {
+    console.log("process running", pid);
+    process.kill(parseInt(pid), 0);
+    return true;
+  } catch (error) {
+    console.log("process not running", pid);
+    return false;
+  }
+}
+
+app.get("/process/:pid/:processId", (c) => {
+  const pid = c.req.param("pid");
+  const processId = c.req.param("processId");
+  if (!pid || !processId) {
     return c.json(
-      {
-        error: "Bad Request",
-        message: "pathname is required",
-      },
+      { error: "Bad Request", message: "processId is required" },
       400
     );
   }
 
-  let absPath = path.join(PROJECT_PATH, pathname);
-  if (!fs.statSync(absPath).isDirectory()) {
-    // pop off the filename part of the absPath
-    absPath = path.dirname(absPath);
+  const stdout = `/tmp/proc_${processId}.stdout`;
+  const stderr = `/tmp/proc_${processId}.stderr`;
+  if (!fs.existsSync(stdout) || !fs.existsSync(stderr)) {
+    return c.json(
+      { error: "Not Found", message: "Process log files not found" },
+      404
+    );
   }
 
-  const files = fs.readdirSync(absPath, {
-    withFileTypes: true,
+  const stream = new ReadableStream({
+    start(controller) {
+      let lastSize = 0;
+
+      // Read initial content
+      const initialStream = fs.createReadStream(stdout);
+      initialStream.on("data", (chunk) => {
+        controller.enqueue(chunk);
+        lastSize += chunk.length;
+      });
+
+      initialStream.on("end", () => {
+        // Watch for file changes
+        console.log("initialStream end", pid);
+        if (isProcessRunning(pid)) {
+          fs.watchFile(stdout, (curr) => {
+            if (curr.size > lastSize) {
+              const newStream = fs.createReadStream(stdout, {
+                start: lastSize,
+              });
+              newStream.on("data", (chunk) => {
+                controller.enqueue(chunk);
+              });
+              lastSize = curr.size;
+
+              if (!isProcessRunning(pid)) {
+                fs.unwatchFile(stdout);
+                controller.close();
+              }
+            }
+          });
+        } else {
+          controller.close();
+        }
+      });
+
+      initialStream.on("error", (err) => {
+        fs.unwatchFile(stdout);
+        controller.error(err);
+      });
+    },
   });
 
-  const fileList: FileInfo[] = files.map((file: fs.Dirent): FileInfo => {
-    return {
-      path: path
-        .join(file.parentPath || "", file.name)
-        .slice(PROJECT_PATH.length),
-      name: file.name,
-      type: file.isDirectory() ? "directory" : "file",
-    };
-  });
-  return c.json(fileList);
+  // stream the log file via the response
+  return new Response(stream);
 });
-
-fsRoutes.get("/stat", (c) => {
-  const pathname = c.req.query("pathname") as string;
-  const stat = fs.statSync(path.join(PROJECT_PATH, pathname));
-  return c.json({ type: stat.isDirectory() ? "directory" : "file" });
-});
-
-fsRoutes.get("/read", (c) => {
-  const pathname = c.req.query("pathname") as string;
-  const content = fs.readFileSync(path.join(PROJECT_PATH, pathname), "utf8");
-  return c.json({ content });
-});
-
-// write
-fsRoutes.post("/write", async (c) => {
-  const pathname = c.req.query("pathname") as string;
-  const body = await c.req.json();
-  fs.writeFileSync(path.join(PROJECT_PATH, pathname), body.content);
-  return c.json({ message: "File written successfully" });
-});
-
-// delete
-// fsRoutes.delete("/delete", (c) => {
-//   // TODO.
-// });
-
-app.route("/fs", fsRoutes);
 
 const ttyRoutes = new Hono();
 

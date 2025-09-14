@@ -70,6 +70,7 @@ export function ProcessLogs({
   return (
     <div>
       <h3>Logs: {processId}</h3>
+
       <code className="text-sm">
         <ol>
           {logs.map((log, i) => (

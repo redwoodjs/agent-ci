@@ -45,6 +45,8 @@ export async function sendAuthenticatedMessage(
     `bash -c "cd /workspace && IS_SANDBOX=1 claude --dangerously-skip-permissions --model ${effectiveModel} --output-format stream-json --verbose ${sessionFlag} --print \\\"${escapedMessage}\\\""`
   );
 
+  // here we create the DO (with retries that stores this in a R2)
+
   // Record chat session in database (best-effort)
   try {
     const now = new Date().toISOString();

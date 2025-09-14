@@ -6,8 +6,8 @@
   "compatibility_flags": ["nodejs_compat"],
   "r2_buckets": [
     {
-      "binding": "CHAT_LOGS_BUCKET",
-      "bucket_name": "machinen-chat-logs"
+      "binding": "CONTEXT_STREAM",
+      "bucket_name": "context-stream"
     }
   ],
 
@@ -22,7 +22,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Sandbox", "Database", "PasskeyDurableObject"]
+      "new_sqlite_classes": ["Sandbox", "Database", "ProcessLog"]
     }
   ],
   "durable_objects": {

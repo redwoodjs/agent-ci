@@ -3,13 +3,21 @@ import type { LayoutProps } from "rwsdk/router";
 import { AudioMeeting } from "./AudioMeeting";
 import { link } from "../shared/links";
 import { Presence } from "./Presence";
+import { db } from "@/db";
 
-export const TaskLayout = ({ children, requestInfo }: LayoutProps) => {
+export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
   if (!requestInfo) {
     throw new Error("requestInfo is required");
   }
 
   const { containerId } = requestInfo.params;
+
+  const { exposePorts } = await db
+    .selectFrom("tasks")
+    .where("containerId", "=", containerId)
+    .innerJoin("projects", "tasks.projectId", "projects.id")
+    .select("projects.exposePorts")
+    .executeTakeFirstOrThrow();
 
   return (
     <div>
@@ -31,7 +39,11 @@ export const TaskLayout = ({ children, requestInfo }: LayoutProps) => {
               <a href={link("/tasks/:containerId/logs", { containerId })}>
                 Logs
               </a>
-              <a href={link("/tasks/:containerId/preview", { containerId })}>
+
+              <a
+                href={`http://${exposePorts}-${containerId}.localhost:5173`}
+                target="_blank"
+              >
                 Preview
               </a>
               <a href={link("/tasks/:containerId/editor", { containerId })}>

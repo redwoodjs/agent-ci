@@ -179,42 +179,42 @@ export const Prompt = ({
     }
   };
 
-  // Stream an externally provided process (e.g., Enhance Issue)
-  useEffect(() => {
-    if (!externalProcessId) return;
-    (async () => {
-      try {
-        await streamClaudeResponse(externalProcessId, {
-          affectsLoading: false,
-        });
-      } finally {
-        onExternalProcessComplete?.();
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalProcessId]);
+  // // Stream an externally provided process (e.g., Enhance Issue)
+  // useEffect(() => {
+  //   if (!externalProcessId) return;
+  //   (async () => {
+  //     try {
+  //       await streamClaudeResponse(externalProcessId, {
+  //         affectsLoading: false,
+  //       });
+  //     } finally {
+  //       onExternalProcessComplete?.();
+  //     }
+  //   })();
+  //   // eslint-disable-next-line react-hooks/exhaustive-deps
+  // }, [externalProcessId]);
 
   // Load previously saved process logs on mount from server
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(`/api/auth/claude/chats/${containerId}`);
-        if (!res.ok) return;
-        const body = (await res.json()) as { processIds?: string[] };
-        const ids = body.processIds || [];
-        if (ids.length === 0) return;
-        for (const pid of ids) {
-          try {
-            await streamClaudeResponse(pid, { affectsLoading: false });
-          } catch {
-            // ignore failures for individual histories
-          }
-        }
-      } catch {
-        // ignore
-      }
-    })();
-  }, [containerId]);
+  // useEffect(() => {
+  //   (async () => {
+  //     try {
+  //       const res = await fetch(`/api/auth/claude/chats/${containerId}`);
+  //       if (!res.ok) return;
+  //       const body = (await res.json()) as { processIds?: string[] };
+  //       const ids = body.processIds || [];
+  //       if (ids.length === 0) return;
+  //       for (const pid of ids) {
+  //         try {
+  //           await streamClaudeResponse(pid, { affectsLoading: false });
+  //         } catch {
+  //           // ignore failures for individual histories
+  //         }
+  //       }
+  //     } catch {
+  //       // ignore
+  //     }
+  //   })();
+  // }, [containerId]);
 
   return (
     <div className="h-full flex flex-col relative">

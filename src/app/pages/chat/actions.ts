@@ -69,116 +69,110 @@ export async function sendAuthenticatedMessage(
 }
 
 export async function streamProcess(containerId: string, processId: string) {
-  const objectKey = `conversations/${containerId}/${processId}.event-stream`;
-  const completeKey = `${objectKey}.complete`;
-  // If a completion marker exists, serve from R2 immediately
-  try {
-    const completeHead = await env.CHAT_LOGS_BUCKET.head(completeKey);
-    if (completeHead) {
-      const obj = await env.CHAT_LOGS_BUCKET.get(objectKey);
-      if (obj?.body) {
-        return obj.body;
-      }
-    }
-  } catch {
-    // ignore and fall through to sandbox stream attempt
-  }
-
-  // No completed object found => attempt live sandbox stream and persist if missing
+  console.log("streamProcess", containerId, processId);
+  // const objectKey = `conversations/${containerId}/${processId}.event-stream`;
+  // const completeKey = `${objectKey}.complete`;
+  // // If a completion marker exists, serve from R2 immediately
+  // try {
+  //   const completeHead = await env.CHAT_LOGS_BUCKET.head(completeKey);
+  //   if (completeHead) {
+  //     const obj = await env.CHAT_LOGS_BUCKET.get(objectKey);
+  //     if (obj?.body) {
+  //       return obj.body;
+  //     }
+  //   }
+  // } catch {
+  //   // ignore and fall through to sandbox stream attempt
+  // }
+  // // No completed object found => attempt live sandbox stream and persist if missing
   let stream: ReadableStream<any>;
-  try {
-    const sandbox = await getSandbox(env.Sandbox, containerId);
-    stream = await sandbox.streamProcessLogs(processId);
-  } catch (err) {
-    // Live stream unavailable; as a fallback, try to serve any existing R2 object
-    try {
-      const obj = await env.CHAT_LOGS_BUCKET.get(objectKey);
+  // try {
+  const sandbox = await getSandbox(env.Sandbox, containerId);
 
-      console.log("obj", obj);
-      if (obj?.body) {
-        return obj.body;
-      }
-    } catch {
-      // ignore
-    }
-    // As a last resort, return a small SSE stream indicating the error
-    const encoder = new TextEncoder();
-    const sse = (payload: unknown) =>
-      encoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
-    return new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(
-          sse({
-            type: "stderr",
-            data: "Process not found. No persisted logs available.",
-          })
-        );
-        controller.enqueue(sse({ type: "complete", exitCode: 1 }));
-        controller.close();
-      },
-    });
-  }
-
-  // Decide whether to persist: only if the completion marker is absent
-  let shouldPersist = false;
-  try {
-    const completeHead = await env.CHAT_LOGS_BUCKET.head(completeKey);
-    shouldPersist = !completeHead;
-  } catch {
-    shouldPersist = true;
-  }
-
-  if (!shouldPersist) {
-    return stream;
-  }
-
-  try {
-    const [toClient, toR2] = stream.tee();
-
-    const putPromise = env.CHAT_LOGS_BUCKET.put(objectKey, toR2, {
-      httpMetadata: { contentType: "text/event-stream; charset=utf-8" },
-      customMetadata: {
-        containerId,
-        processId,
-        createdAt: new Date().toISOString(),
-        source: "sandbox.streamProcessLogs",
-      },
-    } as any);
-
-    void putPromise
-      .then(async () => {
-        try {
-          await env.CHAT_LOGS_BUCKET.put(
-            completeKey,
-            JSON.stringify({
-              containerId,
-              processId,
-              objectKey,
-              completedAt: new Date().toISOString(),
-              version: 1,
-            }),
-            { httpMetadata: { contentType: "application/json" } } as any
-          );
-        } catch (markerError) {
-          console.error("R2 complete marker write failed", {
-            containerId,
-            processId,
-            error: markerError,
-          });
-        }
-      })
-      .catch((error) => {
-        console.error("R2 put failed for chat stream", {
-          containerId,
-          processId,
-          error,
-        });
-      });
-
-    return toClient;
-  } catch (_err) {
-    return stream;
-  }
+  stream = await sandbox.streamProcessLogs(processId);
+  // } catch (err) {
+  //   // Live stream unavailable; as a fallback, try to serve any existing R2 object
+  //   try {
+  //     const obj = await env.CHAT_LOGS_BUCKET.get(objectKey);
+  //     console.log("obj", obj);
+  //     if (obj?.body) {
+  //       return obj.body;
+  //     }
+  //   } catch {
+  //     // ignore
+  //   }
+  //   // As a last resort, return a small SSE stream indicating the error
+  //   const encoder = new TextEncoder();
+  //   const sse = (payload: unknown) =>
+  //     encoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
+  //   return new ReadableStream<Uint8Array>({
+  //     start(controller) {
+  //       controller.enqueue(
+  //         sse({
+  //           type: "stderr",
+  //           data: "Process not found. No persisted logs available.",
+  //         })
+  //       );
+  //       controller.enqueue(sse({ type: "complete", exitCode: 1 }));
+  //       controller.close();
+  //     },
+  //   });
+  // }
+  // // Decide whether to persist: only if the completion marker is absent
+  // let shouldPersist = false;
+  // try {
+  //   const completeHead = await env.CHAT_LOGS_BUCKET.head(completeKey);
+  //   shouldPersist = !completeHead;
+  // } catch {
+  //   shouldPersist = true;
+  // }
+  // if (!shouldPersist) {
+  //   return stream;
+  // }
+  // try {
+  //   const [toClient, toR2] = stream.tee();
+  //   const putPromise = env.CHAT_LOGS_BUCKET.put(objectKey, toR2, {
+  //     httpMetadata: { contentType: "text/event-stream; charset=utf-8" },
+  //     customMetadata: {
+  //       containerId,
+  //       processId,
+  //       createdAt: new Date().toISOString(),
+  //       source: "sandbox.streamProcessLogs",
+  //     },
+  //   } as any);
+  //   void putPromise
+  //     .then(async () => {
+  //       try {
+  //         await env.CHAT_LOGS_BUCKET.put(
+  //           completeKey,
+  //           JSON.stringify({
+  //             containerId,
+  //             processId,
+  //             objectKey,
+  //             completedAt: new Date().toISOString(),
+  //             version: 1,
+  //           }),
+  //           { httpMetadata: { contentType: "application/json" } } as any
+  //         );
+  //       } catch (markerError) {
+  //         console.error("R2 complete marker write failed", {
+  //           containerId,
+  //           processId,
+  //           error: markerError,
+  //         });
+  //       }
+  //     })
+  //     .catch((error) => {
+  //       console.error("R2 put failed for chat stream", {
+  //         containerId,
+  //         processId,
+  //         error,
+  //       });
+  //     });
+  //   return toClient;
+  // } catch (_err) {
+  return stream;
+  // }
 }
 
 export async function setupContainerCredentials(

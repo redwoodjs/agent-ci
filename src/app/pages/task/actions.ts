@@ -7,6 +7,7 @@ import { setupContainerCredentials } from "@/app/pages/chat/actions";
 import { getSandbox } from "@cloudflare/sandbox";
 import { env } from "cloudflare:workers";
 import { db } from "@/db";
+import { sendClaudeMessage } from "@/lib/claude";
 
 export async function getTaskByContainerId(containerId: string) {
   const result = await db
@@ -94,10 +95,6 @@ export async function enhanceTask(
     throw new Error("No user session found for Claude");
   }
   await setupContainerCredentials(containerId, userId);
-
-  // Use task lane as session id to keep continuity
-  const task = await getTaskByContainerId(containerId);
-
   const sandbox = await getSandbox(env.Sandbox, containerId);
 
   const transcript = `\
@@ -140,15 +137,7 @@ Write the subtasks in markdown format over here: @/machinen/SUBTASKS.md
 Be concise and to the point. Do not add things that are not actionable such as "the code should be clean and concise."
 `;
 
-  await sandbox.writeFile("/machinen/PROMPT.md", prompt);
-  const process = await sandbox.startProcess(
-    `\
-bash -c "\
-  cd /workspace && \
-  cat /machinen/PROMPT.md | \
-  IS_SANDBOX=1 claude --dangerously-skip-permissions --model haiku --output-format stream-json --verbose --print\
-"`
-  );
+  const process = await sendClaudeMessage(containerId, prompt, "haiku");
 
   const x = await sandbox.streamProcessLogs(process.id);
   const reader = x.getReader();
@@ -161,20 +150,4 @@ bash -c "\
   } finally {
     reader.releaseLock();
   }
-
-  // // read and write the files to storage.
-  // const newOverview = await sandbox.readFile("/machinen/OVERVIEW.md");
-  // const newSubtasks = await sandbox.readFile("/machinen/SUBTASKS.md");
-
-  // // await writeTaskToBucket(
-  // //   containerId,
-  // //   task.id,
-  // //   newOverview.content,
-  // //   newSubtasks.content
-  // // );
-
-  // return {
-  //   overview: newOverview.content,
-  //   subtasks: newSubtasks.content,
-  // };
 }

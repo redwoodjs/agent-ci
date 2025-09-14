@@ -27,8 +27,6 @@ export function TaskEditor({
   const [overview, setOverview] = useState(initialData.overview ?? "");
   const [subtasks, setSubtasks] = useState(initialData.subtasks ?? "");
 
-  const [processId, setProcessId] = useState<string | null>(null);
-
   return (
     <div className="flex flex-row">
       <div className="flex-1">
@@ -89,14 +87,12 @@ export function TaskEditor({
       <div className="flex flex-1 overflow-y-auto">
         <Prompt
           containerId={containerId}
-          externalProcessId={processId || undefined}
           seedUserMessage={`\
-            Reference @/workspace/.claude/ISSUE/CONTENT.md, 
-            @/workspace/.claude/ISSUE/TRANSCRIPT.md, 
-            and @/workspace/.claude/ISSUE/TODO.md to know what we want to achieve.
+            Reference:
+            - @/machinen/OVERVIEW.md
+            - @/machinen/SUBTASKS.md
 
-            You may read the code in @/workspace, but do not modify any files, other than
-            @/workspace/.claude/ISSUE/CONTENT.md, @/workspace/.claude/ISSUE/TRANSCRIPT.md, and @/workspace/.claude/ISSUE/TODO.md.
+            Code is in: @/workspace/
           `}
         />
       </div>

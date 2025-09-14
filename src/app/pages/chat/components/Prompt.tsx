@@ -10,13 +10,9 @@ import { ClaudeModel } from "@/types/claude";
 export const Prompt = ({
   containerId,
   seedUserMessage,
-  externalProcessId,
-  onExternalProcessComplete,
 }: {
   containerId: string;
   seedUserMessage?: string;
-  externalProcessId?: string;
-  onExternalProcessComplete?: () => void;
 }) => {
   const [messages, setMessages] = useState<FormattedMessage[]>([]);
   const [prompt, setPrompt] = useState("");

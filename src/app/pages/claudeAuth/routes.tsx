@@ -5,12 +5,10 @@ import {
   getStoredTokens,
   deleteUserTokens,
 } from "@/app/pages/claudeAuth/claude-oauth";
-import {
-  sendAuthenticatedMessage,
-  streamProcess,
-} from "@/app/pages/chat/actions";
+import { streamProcess } from "@/app/pages/chat/actions";
 import { listChatProcessIds } from "@/app/pages/chat/actions";
 import { ClaudeModel, isClaudeModel } from "@/types/claude";
+import { sendClaudeMessage } from "@/lib/claude";
 
 // Helper function to extract user ID from session cookie
 export function getUserIdFromCookie(request: Request): string | null {
@@ -160,12 +158,8 @@ export const claudeAuthRoutes = [
       }
 
       // Start the Claude CLI process in the container
-      const result = await sendAuthenticatedMessage(
-        containerId,
-        userId,
-        message || "",
-        model
-      );
+
+      const result = await sendClaudeMessage(containerId, message || "", model);
 
       return new Response(
         JSON.stringify({

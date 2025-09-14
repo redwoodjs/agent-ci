@@ -5,7 +5,7 @@ import { getUserIdFromCookie } from "@/app/pages/claudeAuth/routes";
 import { setupContainerCredentials } from "@/app/pages/chat/actions";
 
 import { getSandbox } from "@cloudflare/sandbox";
-import { env, waitUntil } from "cloudflare:workers";
+import { env } from "cloudflare:workers";
 import { db } from "@/db";
 
 export async function getTaskByContainerId(containerId: string) {
@@ -29,7 +29,36 @@ export async function getTaskByContainerId(containerId: string) {
   return result;
 }
 
-export async function writeTaskToSandbox(
+export async function saveTask(
+  containerId: string,
+  overview: string,
+  subtasks: string
+) {
+  const task = await getTaskByContainerId(containerId);
+  await writeTaskToBucket(containerId, task.id, overview, subtasks);
+  await writeTaskToSandbox(containerId, overview, subtasks);
+}
+
+async function writeTaskToBucket(
+  containerId: string,
+  taskId: string,
+  overview: string,
+  subtasks: string
+) {
+  const bucketPrefix = `${containerId}/${taskId}`;
+  const r = await env.CONTEXT_STREAM.put(
+    `${bucketPrefix}/OVERVIEW.md`,
+    overview
+  );
+  console.log("wrote task to bucket", r);
+  const r2 = await env.CONTEXT_STREAM.put(
+    `${bucketPrefix}/SUBTASKS.md`,
+    subtasks
+  );
+  console.log("wrote task to bucket", r2);
+}
+
+async function writeTaskToSandbox(
   containerId: string,
   overview: string,
   subtasks: string
@@ -70,11 +99,48 @@ export async function enhanceTask(
   const task = await getTaskByContainerId(containerId);
 
   const sandbox = await getSandbox(env.Sandbox, containerId);
-  await sandbox.writeFile(
-    "/machinen/PROMPT.md",
-    "Refine @/machinen/OVERVIEW.md and @/machinen/SUBTASKS.md.  Use @/machinen/TRANSCRIPT.md and the relevant files in the codebase (@/workspace/*) as context.  Ensure issue and sub-issue descriptions match the current implementation and dependencies.  Keep wording concise, accurate, and consistent across both files.  Highlight relationships between tasks so the workflow is clear.  Fix discrepancies and improve readability for the dev team."
-  );
 
+  const transcript = `\
+  Peter (Product Manager): I want to add a new route called 'ping' that returns 'pong' as a response.
+  Herman (Developer): I don't know why you want to do that?
+  Peter (Product Manager): Because I want to demo this thing to people, don't you understand what we're trying to build man?
+  Herman (Developer): I do kinda get it, but is this a good demo?
+  Peter (Product Manager): I think it is. It shows off the simplicity of RedwoodSDK.
+  Herman (Developer): Ok, can we make it a bit more interesting?
+  Peter (Product Manager): In what way?
+  Herman (Developer): Why don't we ask a param as input and we reverse it? Kinda like an echo.
+  Peter (Product Manager): Yes, that's a good idea, since it'll also show off how to get the params from the request's URL.
+  Herman (Developer): Ok, let's do that!
+  `;
+
+  const prompt = `\
+You are a product manager for a software development team.
+You are given a task's overview, subtasks and a transcript of a conversation between team members.
+You are to refine the task and the subtasks.
+
+# Overview:
+${overview}
+
+# Subtasks:
+${subtasks}
+
+# Transcript:
+${transcript}
+
+# Codebase:
+@/workspace/*
+
+First, assist in developing a PRD using a structured format that includes:
+Problem Statement, Goals, Objectives and Summary (TL;DR).
+Write the PRD in markdown format over here: @/machinen/OVERVIEW.md
+
+Then, assist in creating an actionable plan, base this off the new PRD in @/machinen/OVERVIEW.md, the subtasks, and then transcript.
+Write the subtasks in markdown format over here: @/machinen/SUBTASKS.md
+
+Be concise and to the point. Do not add things that are not actionable such as "the code should be clean and concise."
+`;
+
+  await sandbox.writeFile("/machinen/PROMPT.md", prompt);
   const process = await sandbox.startProcess(
     `\
 bash -c "\
@@ -96,28 +162,19 @@ bash -c "\
     reader.releaseLock();
   }
 
-  // read and write the files to storage.
-  const newOverview = await sandbox.readFile("/machinen/OVERVIEW.md");
-  const newSubtasks = await sandbox.readFile("/machinen/SUBTASKS.md");
+  // // read and write the files to storage.
+  // const newOverview = await sandbox.readFile("/machinen/OVERVIEW.md");
+  // const newSubtasks = await sandbox.readFile("/machinen/SUBTASKS.md");
 
-  console.log("--------------------------------");
-  console.log("newOverview", newOverview.content);
-  console.log("newSubtasks", newSubtasks.content);
-  console.log("--------------------------------");
+  // // await writeTaskToBucket(
+  // //   containerId,
+  // //   task.id,
+  // //   newOverview.content,
+  // //   newSubtasks.content
+  // // );
 
-  const bucketPrefix = `${containerId}/${task.laneId}`;
-
-  await env.CONTEXT_STREAM.put(
-    `${bucketPrefix}/OVERVIEW.md`,
-    newOverview.content
-  );
-  await env.CONTEXT_STREAM.put(
-    `${bucketPrefix}/SUBTASKS.md`,
-    newSubtasks.content
-  );
-
-  return {
-    overview: newOverview.content,
-    subtasks: newSubtasks.content,
-  };
+  // return {
+  //   overview: newOverview.content,
+  //   subtasks: newSubtasks.content,
+  // };
 }

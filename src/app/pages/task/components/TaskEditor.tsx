@@ -5,15 +5,20 @@ import { useState } from "react";
 import { Prompt } from "@/app/pages/chat/components/Prompt";
 import { Button } from "@/app/components/ui/button";
 
-import { enhanceTask } from "../actions";
+import { enhanceTask, saveTask } from "../actions";
 
 export function TaskEditor({
   containerId,
   initialData,
+  enhancedData,
 }: {
   containerId: string;
   initialData: {
     title?: string;
+    overview?: string;
+    subtasks?: string;
+  };
+  enhancedData: {
     overview?: string;
     subtasks?: string;
   };
@@ -46,22 +51,37 @@ export function TaskEditor({
           </Button>
         </div>
 
-        <textarea
-          className="flex-1 w-full"
-          rows={10}
-          value={overview}
-          onChange={(e) => setOverview(e.target.value)}
-        ></textarea>
+        <div className="flex flex-row gap-2">
+          <textarea
+            className="flex-1"
+            rows={10}
+            value={overview}
+            onChange={(e) => setOverview(e.target.value)}
+          ></textarea>
+          <div className="flex-1 border border-red-500">
+            {enhancedData?.overview ?? "none"}
+          </div>
+        </div>
 
         <h2 className="text-lg font-bold">Subtasks</h2>
-        <textarea
-          className="flex-1 w-full"
-          rows={10}
-          value={subtasks}
-          onChange={(e) => setSubtasks(e.target.value)}
-        ></textarea>
+        <div className="flex flex-row gap-2">
+          <textarea
+            className="flex-1 w-full"
+            rows={10}
+            value={subtasks}
+            onChange={(e) => setSubtasks(e.target.value)}
+          ></textarea>
+          <div className="flex-1 border border-red-500">
+            {enhancedData?.subtasks ?? "none"}
+          </div>
+        </div>
 
-        <Button onClick={() => console.log("do so magic")} variant="outline">
+        <Button
+          onClick={async () => {
+            await saveTask(containerId, overview, subtasks);
+          }}
+          variant="outline"
+        >
           Save
         </Button>
       </div>
@@ -70,18 +90,6 @@ export function TaskEditor({
         <Prompt
           containerId={containerId}
           externalProcessId={processId || undefined}
-          onExternalProcessComplete={async () => {
-            // try {
-            //   const [newContent, newTodo] = await Promise.all([
-            //     getFileContent(containerId, "/.claude/ISSUE/CONTENT.md"),
-            //     getFileContent(containerId, "/.claude/ISSUE/TODO.md"),
-            //   ]);
-            //   if (typeof newContent === "string") setOverview(newContent);
-            //   if (typeof newTodo === "string") setSubtasks(newTodo);
-            // } catch (err) {
-            //   console.error("Failed to refresh issue files", err);
-            // }
-          }}
           seedUserMessage={`\
             Reference @/workspace/.claude/ISSUE/CONTENT.md, 
             @/workspace/.claude/ISSUE/TRANSCRIPT.md, 

@@ -10,6 +10,7 @@ export const link = defineLinks([
   //
   "/tasks/:containerId",
   "/tasks/:containerId/chat",
+  "/tasks/:containerId/transcript",
   "/tasks/:containerId/logs",
   "/tasks/:containerId/logs/:processId",
   "/tasks/:containerId/editor",

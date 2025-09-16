@@ -30,7 +30,7 @@ export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
             {/* <AudioMeeting containerId={containerId} /> */}
             <div className="flex flex-1 gap-2 px-4">
               <a href={link("/tasks/:containerId", { containerId })}>Issue</a>
-              <a href={link("/tasks/:containerId/chat", { containerId })}>
+              <a href={link("/tasks/:containerId/transcript", { containerId })}>
                 Transcript
               </a>
               <a href={link("/tasks/:containerId/chat", { containerId })}>

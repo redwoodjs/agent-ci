@@ -273,4 +273,112 @@ export const migrations = {
       await db.schema.dropTable("task_chat_sessions").execute();
     },
   },
+
+  "011_add_visit_analytics": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("visit_analytics")
+          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("userId", "text", (col) =>
+            col.references("user.id").onDelete("set null")
+          )
+          .addColumn("url", "text", (col) => col.notNull())
+          .addColumn("hostname", "text", (col) => col.notNull())
+          .addColumn("userAgent", "text")
+          .addColumn("ipAddress", "text")
+          .addColumn("referer", "text")
+          .addColumn("timestamp", "text", (col) => col.notNull())
+          .addColumn("sessionId", "text")
+          .execute(),
+
+        // Create indexes for common queries
+        await db.schema
+          .createIndex("visit_analytics_user_timestamp")
+          .on("visit_analytics")
+          .columns(["userId", "timestamp"])
+          .execute(),
+
+        await db.schema
+          .createIndex("visit_analytics_hostname_timestamp")
+          .on("visit_analytics")
+          .columns(["hostname", "timestamp"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropIndex("visit_analytics_hostname_timestamp").execute();
+      await db.schema.dropIndex("visit_analytics_user_timestamp").execute();
+      await db.schema.dropTable("visit_analytics").execute();
+    },
+  },
+
+  "012_rename_to_pageloads": {
+    async up(db) {
+      return [
+        // Drop the existing table and recreate with simplified schema
+        await db.schema
+          .dropIndex("visit_analytics_hostname_timestamp")
+          .execute(),
+        await db.schema.dropIndex("visit_analytics_user_timestamp").execute(),
+        await db.schema.dropTable("visit_analytics").execute(),
+
+        // Create simplified table with new name and only the required fields
+        await db.schema
+          .createTable("pageloads")
+          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("url", "text", (col) => col.notNull())
+          .addColumn("containerId", "text", (col) => col.notNull())
+          .addColumn("timestamp", "text", (col) => col.notNull())
+          .addColumn("laneId", "text", (col) =>
+            col.references("lanes.id").onDelete("set null")
+          )
+          .execute(),
+
+        // Create indexes for common queries
+        await db.schema
+          .createIndex("pageloads_container_timestamp")
+          .on("pageloads")
+          .columns(["containerId", "timestamp"])
+          .execute(),
+
+        await db.schema
+          .createIndex("pageloads_lane_timestamp")
+          .on("pageloads")
+          .columns(["laneId", "timestamp"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropIndex("pageloads_lane_timestamp").execute();
+      await db.schema.dropIndex("pageloads_container_timestamp").execute();
+      await db.schema.dropTable("pageloads").execute();
+
+      // Restore the original table structure
+      await db.schema
+        .createTable("visit_analytics")
+        .addColumn("id", "text", (col) => col.primaryKey())
+        .addColumn("userId", "text", (col) =>
+          col.references("user.id").onDelete("set null")
+        )
+        .addColumn("url", "text", (col) => col.notNull())
+        .addColumn("hostname", "text", (col) => col.notNull())
+        .addColumn("userAgent", "text")
+        .addColumn("ipAddress", "text")
+        .addColumn("referer", "text")
+        .addColumn("timestamp", "text", (col) => col.notNull())
+        .addColumn("sessionId", "text")
+        .execute(),
+        await db.schema
+          .createIndex("visit_analytics_user_timestamp")
+          .on("visit_analytics")
+          .columns(["userId", "timestamp"])
+          .execute(),
+        await db.schema
+          .createIndex("visit_analytics_hostname_timestamp")
+          .on("visit_analytics")
+          .columns(["hostname", "timestamp"])
+          .execute();
+    },
+  },
 } satisfies Migrations;

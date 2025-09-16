@@ -10,6 +10,8 @@ import { Document } from "@/app/Document";
 import { auth } from "@/app/pages/auth/auth";
 import { requireAuth } from "./app/pages/auth/interruptors";
 import { setCommonHeaders } from "./app/headers";
+import { recordPageview } from "@/app/services/pageviews";
+import { db } from "@/db";
 
 import { TaskLayout } from "./app/components/TaskLayout";
 import { taskRoutes } from "./app/pages/task/routes";
@@ -19,6 +21,7 @@ import { editorRoutes } from "./app/pages/editor/routes";
 import { termRoutes } from "./app/pages/term/routes";
 import { previewRoutes } from "./app/pages/preview/routes";
 import { chatRoutes } from "./app/pages/chat/routes";
+import { transcriptRoutes } from "./app/pages/transcript/routes";
 import { authRoutes } from "./app/pages/auth/routes";
 
 import { claudeAuthRoutes } from "./app/pages/claudeAuth/routes";
@@ -72,6 +75,7 @@ const app = defineApp([
     layout(TaskLayout, [
       prefix("/tasks/:containerId", [
         ...taskRoutes,
+        prefix("/transcript", transcriptRoutes),
         prefix("/chat", chatRoutes),
         prefix("/logs", logsRoutes),
         prefix("/editor", editorRoutes),
@@ -90,10 +94,29 @@ export { Database } from "@/db/durableObject";
 
 export default {
   fetch: async function (request, env: Env, cf) {
-    const proxyResponse = await proxyToSandbox(request, env);
-    if (proxyResponse) {
-      return proxyResponse;
+    const url = new URL(request.url);
+    if (url.hostname.includes("5173")) {
+      // Record that the user visited this sandbox.
+      try {
+        const containerId = url.hostname
+          .replace("5173-", "")
+          .replace(".localhost", "");
+
+        // Get laneId from database asynchronously (don't await to avoid blocking the request)
+        const { laneId } = await db
+          .selectFrom("tasks")
+          .select("laneId")
+          .where("containerId", "=", containerId)
+          .executeTakeFirstOrThrow();
+
+        recordPageview(request, containerId, laneId);
+      } catch (error) {
+        console.error("Error in visit recording setup:", error);
+      }
+
+      return proxyToSandbox(request, env);
     }
+
     return await app.fetch(request, env, cf);
   },
 } as ExportedHandler;

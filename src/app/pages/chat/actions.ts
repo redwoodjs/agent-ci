@@ -89,7 +89,6 @@ export async function streamProcess(containerId: string, processId: string) {
   // try {
   const sandbox = await getSandbox(env.Sandbox, containerId);
 
-  stream = await sandbox.streamProcessLogs(processId);
   // } catch (err) {
   //   // Live stream unavailable; as a fallback, try to serve any existing R2 object
   //   try {

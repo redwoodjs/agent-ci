@@ -51,14 +51,8 @@ export async function sendClaudeMessage(
 
   const sandbox = getSandbox(env.Sandbox, containerId);
   if (!hasSystemPrompt({ sandbox, laneId })) {
-    await resetSystemPrompt({ sandbox, laneId, clear: true });
+    await updateSystemPrompt({ sandbox, laneId, clear: false });
   }
-
-  /*
-    NOTE(2025-09-17, peterp):
-    * `--append-system-prompt` modifies the system prompt, which sets the agent's core personality and rules.
-    * `CLAUDE.md` provides instructions as the first user message, which sets the context for the immediate conversation.
-  */
 
   await sandbox.writeFile(`/machinen/INPUT.md`, message);
   return await sandbox.startProcess(`\
@@ -87,7 +81,7 @@ async function hasSystemPrompt({
   return systemPromptFile.success;
 }
 
-async function resetSystemPrompt({
+export async function updateSystemPrompt({
   sandbox,
   laneId,
   clear,
@@ -108,4 +102,33 @@ async function resetSystemPrompt({
       `claude --model sonnet --output-format stream-json --print "/clear"`
     );
   }
+}
+
+export async function updateUserPrompt(
+  containerId: string,
+  contents: {
+    title: string;
+    overview: string;
+    subtasks: string;
+    transcript: string;
+  }
+) {
+  const prompt = `\
+  # Title:
+  ${contents.title}
+  
+  # Overview:
+  ${contents.overview}
+  
+  # Subtasks:
+  ${contents.subtasks}
+  
+  # Transcript:
+  ${contents.transcript}
+  
+  # Codebase: @/workspace/*
+`;
+
+  const sandbox = getSandbox(env.Sandbox, containerId);
+  await sandbox.writeFile(`/root/.claude/CLAUDE.md`, prompt);
 }

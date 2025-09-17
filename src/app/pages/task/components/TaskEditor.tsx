@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 
-import { Prompt } from "@/app/pages/chat/components/Prompt";
 import { Button } from "@/app/components/ui/button";
 
-import { enhanceTask, saveTask } from "../actions";
+import { enhanceTask, saveTask, updateSystemPromptForTask } from "../actions";
 
 export function TaskEditor({
   containerId,
@@ -54,6 +53,15 @@ export function TaskEditor({
             className="justify-end flex-shrink-0"
           >
             Enhance Issue
+          </Button>
+          <Button
+            onClick={async () => {
+              await updateSystemPromptForTask(containerId);
+            }}
+            variant="outline"
+            className="justify-end flex-shrink-0"
+          >
+            Update System Prompt
           </Button>
         </div>
 
@@ -152,13 +160,6 @@ export function TaskEditor({
             </div>
           </div>
         )}
-      </div>
-
-      <div className="flex flex-1 overflow-y-auto">
-        <Prompt
-          containerId={containerId}
-          seedUserMessage={`Reference the context in the @/machinen/task/* directory. Code is in: @/workspace/*`}
-        />
       </div>
     </div>
   );

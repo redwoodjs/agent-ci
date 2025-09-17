@@ -7,7 +7,11 @@ import { setupContainerCredentials } from "@/app/pages/chat/actions";
 import { getSandbox } from "@cloudflare/sandbox";
 import { env } from "cloudflare:workers";
 import { db } from "@/db";
-import { sendClaudeMessage } from "@/lib/claude";
+import {
+  sendClaudeMessage,
+  updateUserPrompt,
+  updateSystemPrompt,
+} from "@/lib/claude";
 import { getContextFile, setContextFile } from "@/lib/storage";
 
 export async function getTaskByContainerId(containerId: string) {
@@ -54,6 +58,14 @@ export async function saveTask({
     setContextFile(containerId, "overview.md", overview),
     setContextFile(containerId, "subtasks.md", subtasks),
   ]);
+
+  const transcript = await getContextFile(containerId, "transcript.json");
+  await updateUserPrompt(containerId, {
+    title,
+    overview,
+    subtasks,
+    transcript: transcript,
+  });
 }
 
 export async function enhanceTask({
@@ -78,35 +90,21 @@ export async function enhanceTask({
   }
   await setupContainerCredentials(containerId, userId);
 
+  await updateUserPrompt(containerId, {
+    title,
+    overview,
+    subtasks,
+    transcript,
+  });
+
   const prompt = `\
-You are a product manager for a software development team.
-You are given a task's overview, subtasks and a transcript of a conversation between team members.
-You are to refine the task and the subtasks.
-
-# Title:
-${title}
-
-# Overview:
-${overview}
-
-# Subtasks:
-${subtasks}
-
-# Transcript:
-${transcript}
-
-# Codebase: /workspace/*
-
-First, assist in developing a PRD using a structured format that includes:
-Problem Statement, Goals, Objectives and Summary (TL;DR).
-Write the PRD in markdown format over here:
-/machinen/task/enhanced_overview.md
-
-Then, create an actionable plan from the new PRD, the original subtasks, the transcripts, and the code.
-Write the subtasks in markdown format over here:
-/machinen/task/enhanced_subtasks.md
-
-Be concise and to the point. Do not add things that are not actionable such as "the code should be clean and concise."
+  Reference the overview, subtasks, trascript, and code in @/workspace/* 
+  Create a GitHub Issue, write it in markdown format over here:
+  @/machinen/task/enhanced_issue.md
+  
+  Be concise. 
+  Do not add things that are not actionable.
+  Only focus on the task at hand.
 `;
 
   const process = await sendClaudeMessage(containerId, prompt, "haiku");
@@ -142,4 +140,15 @@ Be concise and to the point. Do not add things that are not actionable such as "
     "enhanced_subtasks.md",
     newSubtasks.content
   );
+}
+
+export async function updateSystemPromptForTask(containerId: string) {
+  const { laneId } = await db
+    .selectFrom("tasks")
+    .where("containerId", "=", containerId)
+    .select("laneId")
+    .executeTakeFirstOrThrow();
+
+  const sandbox = await getSandbox(env.Sandbox, containerId);
+  await updateSystemPrompt({ sandbox, laneId, clear: false });
 }

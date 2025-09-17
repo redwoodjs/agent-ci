@@ -63,15 +63,6 @@ const app = defineApp([
     prefix("/dox", doExploreRoutes),
     prefix("/projects", projectRoutes),
 
-    route("/test-audio", function () {
-      return (
-        <div>
-          <AudioMeeting containerId="test-audio" />
-          <Presence containerId="test-audio" />
-        </div>
-      );
-    }),
-
     layout(TaskLayout, [
       prefix("/tasks/:containerId", [
         ...taskRoutes,

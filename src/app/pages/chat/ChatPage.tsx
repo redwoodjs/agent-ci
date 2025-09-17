@@ -5,10 +5,7 @@ export const ChatPage = ({ params }: { params: { containerId: string } }) => {
   return (
     <div style={{ height: "calc(100vh - 3rem)" }}>
       <AuthGuard>
-        <Prompt
-          containerId={params.containerId}
-          seedUserMessage={`Reference the context in the @/machinen/task/* directory. Code is in: @/workspace/*`}
-        />
+        <Prompt containerId={params.containerId} />
       </AuthGuard>
     </div>
   );

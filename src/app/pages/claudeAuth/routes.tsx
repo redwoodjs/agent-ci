@@ -8,7 +8,8 @@ import {
 import { streamProcess } from "@/app/pages/chat/actions";
 import { listChatProcessIds } from "@/app/pages/chat/actions";
 import { ClaudeModel, isClaudeModel } from "@/types/claude";
-import { sendClaudeMessage } from "@/lib/claude";
+
+import { sendAndStreamClaudeMessage } from "@/app/pages/chat/components/action";
 
 // Helper function to extract user ID from session cookie
 export function getUserIdFromCookie(request: Request): string | null {
@@ -159,7 +160,11 @@ export const claudeAuthRoutes = [
 
       // Start the Claude CLI process in the container
 
-      const result = await sendClaudeMessage(containerId, message || "", model);
+      const result = await sendAndStreamClaudeMessage(
+        containerId,
+        message || "",
+        model
+      );
 
       return new Response(
         JSON.stringify({

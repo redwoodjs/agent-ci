@@ -7,19 +7,19 @@ export const PromptToggle = ({ containerId }: { containerId: string }) => {
   const [isPromptVisible, setIsPromptVisible] = useState(false);
 
   const togglePrompt = () => {
-    setIsPromptVisible(prev => !prev);
+    setIsPromptVisible((prev) => !prev);
   };
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'k' && (event.metaKey || event.ctrlKey)) {
+      if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         togglePrompt();
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
   }, []);
 
   return (
@@ -35,10 +35,12 @@ export const PromptToggle = ({ containerId }: { containerId: string }) => {
       >
         Prompt
       </button>
-      
-      <div className={`fixed top-0 right-0 w-96 h-screen bg-white border-l border-gray-300 shadow-lg z-50 transition-transform duration-200 ${
-        isPromptVisible ? 'translate-x-0' : 'translate-x-full'
-      }`}>
+
+      <div
+        className={`fixed top-0 right-0 w-96 h-screen bg-white border-l border-gray-300 shadow-lg z-50 transition-transform duration-200 ${
+          isPromptVisible ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
         <Prompt containerId={containerId} autoFocus={isPromptVisible} />
       </div>
     </div>

@@ -4,6 +4,7 @@ import { AudioMeeting } from "./AudioMeeting";
 import { link } from "../shared/links";
 import { Presence } from "./Presence";
 import { db } from "@/db";
+import { PromptToggle } from "./PromptToggle";
 
 export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
   if (!requestInfo) {
@@ -52,6 +53,7 @@ export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
               <a href={link("/tasks/:containerId/term", { containerId })}>
                 Terminal
               </a>
+              <PromptToggle containerId={containerId} />
             </div>
           </div>
           <div className="flex flex-1 justify-end">

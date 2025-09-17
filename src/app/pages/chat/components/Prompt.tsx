@@ -10,15 +10,18 @@ import { ClaudeModel } from "@/types/claude";
 export const Prompt = ({
   containerId,
   seedUserMessage,
+  autoFocus = false,
 }: {
   containerId: string;
   seedUserMessage?: string;
+  autoFocus?: boolean;
 }) => {
   const [messages, setMessages] = useState<FormattedMessage[]>([]);
   const [prompt, setPrompt] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(true);
   const messageFormatter = useRef(new MessageFormatter()).current;
   const streamedProcessIdsRef = useRef<Set<string>>(new Set());
@@ -212,6 +215,13 @@ export const Prompt = ({
   //   })();
   // }, [containerId]);
 
+  // Auto-focus textarea when autoFocus prop is true
+  useEffect(() => {
+    if (autoFocus && textareaRef.current) {
+      textareaRef.current.focus();
+    }
+  }, [autoFocus]);
+
   return (
     <div className="h-full flex flex-col relative">
       {/* Messages area - flexible, scrollable */}
@@ -297,6 +307,7 @@ export const Prompt = ({
           )}
           <div className="flex gap-3">
             <textarea
+              ref={textareaRef}
               className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}

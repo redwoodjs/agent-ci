@@ -14,6 +14,21 @@ import {
 } from "@/lib/claude";
 import { getContextFile, setContextFile } from "@/lib/storage";
 
+async function getSystemPrompt(containerId: string) {
+  const { laneId } = await db
+    .selectFrom("tasks")
+    .where("containerId", "=", containerId)
+    .select("laneId")
+    .executeTakeFirstOrThrow();
+
+  const { systemPrompt } = await db
+    .selectFrom("lanes")
+    .where("id", "=", laneId)
+    .select("systemPrompt")
+    .executeTakeFirstOrThrow();
+  return systemPrompt;
+}
+
 export async function getTaskByContainerId(containerId: string) {
   const result = await db
     .selectFrom("tasks")
@@ -54,6 +69,8 @@ export async function saveTask({
     .where("containerId", "=", containerId)
     .execute();
 
+  const systemPrompt = await getSystemPrompt(containerId);
+
   await Promise.all([
     setContextFile(containerId, "overview.md", overview),
     setContextFile(containerId, "subtasks.md", subtasks),
@@ -64,7 +81,8 @@ export async function saveTask({
     title,
     overview,
     subtasks,
-    transcript: transcript,
+    transcript,
+    systemPrompt,
   });
 }
 
@@ -82,12 +100,14 @@ export async function enhanceTask({
   await saveTask({ containerId, title, overview, subtasks });
 
   const transcript = await getContextFile(containerId, "transcript.json");
+  const systemPrompt = await getSystemPrompt(containerId);
 
   await updateUserPrompt(containerId, {
     title,
     overview,
     subtasks,
     transcript,
+    systemPrompt,
   });
 
   const prompt = `\

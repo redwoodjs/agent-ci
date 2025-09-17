@@ -76,6 +76,7 @@ export async function updateUserPrompt(
     overview: string;
     subtasks: string;
     transcript: string;
+    systemPrompt: string;
   }
 ) {
   const prompt = `\
@@ -94,10 +95,8 @@ export async function updateUserPrompt(
   # Codebase: @/workspace/*
 
   # System Prompt:
-  @/machinen/system-prompt.md
+  ${contents.systemPrompt}
 `;
-
-  // TODO: Include a reference to the system prompt here.
 
   const sandbox = getSandbox(env.Sandbox, containerId);
   await sandbox.writeFile(`/root/.claude/CLAUDE.md`, prompt);

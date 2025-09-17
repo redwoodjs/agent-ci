@@ -5,6 +5,7 @@ import { TaskEditor } from "./components/TaskEditor";
 
 import { db } from "@/db";
 import { getSandbox } from "@cloudflare/sandbox";
+import { getContextFile } from "@/lib/storage";
 
 export async function TaskDetailPage({
   params,
@@ -13,22 +14,26 @@ export async function TaskDetailPage({
 }) {
   const { containerId } = params;
 
-  // we have to fetch the task from the database.
-  const { name: title, id } = await db
+  const { name: title } = await db
     .selectFrom("tasks")
     .where("containerId", "=", params.containerId)
     .select("name")
-    .select("id")
     .executeTakeFirstOrThrow();
 
-  const bucketPrefix = `${containerId}/${id}`;
-  const overview = await env.CONTEXT_STREAM.get(`${bucketPrefix}/OVERVIEW.md`);
-  const subtasks = await env.CONTEXT_STREAM.get(`${bucketPrefix}/SUBTASKS.md`);
+  const overview = await getContextFile(containerId, "overview.md");
+  const subtasks = await getContextFile(containerId, "subtasks.md");
+  const transcript = await getContextFile(containerId, "transcript.json");
+  const eOverview = await getContextFile(containerId, "enhanced_overview.md");
+  const eSubtasks = await getContextFile(containerId, "enhanced_subtasks.md");
 
-  // get the enhanced notes from the sandbox
   const sandbox = await getSandbox(env.Sandbox, containerId);
-  const enhancedOverview = await sandbox.readFile(`/machinen/OVERVIEW.md`);
-  const enhancedSubtasks = await sandbox.readFile(`/machinen/SUBTASKS.md`);
+  await Promise.all([
+    sandbox.writeFile("/machinen/task/overview.md", overview),
+    sandbox.writeFile("/machinen/task/subtasks.md", subtasks),
+    sandbox.writeFile("/machinen/task/transcript.json", transcript),
+    sandbox.writeFile("/machinen/task/enhanced_overview.md", eOverview),
+    sandbox.writeFile("/machinen/task/enhanced_subtasks.md", eSubtasks),
+  ]);
 
   return (
     <div>
@@ -36,12 +41,12 @@ export async function TaskDetailPage({
         containerId={containerId}
         initialData={{
           title,
-          overview: await overview?.text(),
-          subtasks: await subtasks?.text(),
+          overview: overview,
+          subtasks: subtasks,
         }}
         enhancedData={{
-          overview: enhancedOverview.content,
-          subtasks: enhancedSubtasks.content,
+          overview: eOverview,
+          subtasks: eSubtasks,
         }}
       />
     </div>

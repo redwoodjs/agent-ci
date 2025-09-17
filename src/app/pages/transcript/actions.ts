@@ -25,8 +25,7 @@ export async function saveTranscriptToR2(
   transcript: Transcript
 ) {
   try {
-    const bucketPrefix = `${containerId}/transcripts`;
-    const objectKey = `${bucketPrefix}/${transcript.id}.json`;
+    const objectKey = `${containerId}/${transcript.id}.json`;
 
     // Add metadata to the transcript
     const transcriptWithMetadata = {
@@ -77,11 +76,9 @@ export async function saveTranscriptToR2(
 
 export async function getTranscriptsFromR2(containerId: string) {
   try {
-    const bucketPrefix = `${containerId}/transcripts`;
-
-    // List objects with the transcript prefix
+    // List objects with the container prefix
     const listResult = await env.CONTEXT_STREAM.list({
-      prefix: bucketPrefix,
+      prefix: `${containerId}/`,
     });
 
     const transcripts: Transcript[] = [];
@@ -125,8 +122,7 @@ export async function deleteTranscriptFromR2(
   transcriptId: string
 ) {
   try {
-    const bucketPrefix = `${containerId}/transcripts`;
-    const objectKey = `${bucketPrefix}/${transcriptId}.json`;
+    const objectKey = `${containerId}/${transcriptId}.json`;
 
     const result = await env.CONTEXT_STREAM.delete(objectKey);
 

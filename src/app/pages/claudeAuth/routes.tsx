@@ -5,7 +5,7 @@ import {
   getStoredTokens,
   deleteUserTokens,
 } from "@/app/pages/claudeAuth/claude-oauth";
-import { streamProcess } from "@/app/pages/chat/actions";
+
 import { listChatProcessIds } from "@/app/pages/chat/actions";
 import { ClaudeModel, isClaudeModel } from "@/types/claude";
 
@@ -206,25 +206,25 @@ export const claudeAuthRoutes = [
 
   // Stream process output from container
   route("/stream/:containerId/:processId", async ({ params }) => {
-    try {
-      const { containerId, processId } = params;
-      const stream = await streamProcess(containerId, processId);
+    // try {
+    //   const { containerId, processId } = params;
+    //   const stream = await streamProcess(containerId, processId);
 
-      return new Response(stream, {
-        headers: {
-          "Content-Type": "text/plain; charset=utf-8",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-        },
-      });
-    } catch (err) {
-      const error = err as Error;
-      console.error("Stream error:", error);
-      return new Response(JSON.stringify({ error: error.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    //   return new Response(stream, {
+    //     headers: {
+    //       "Content-Type": "text/plain; charset=utf-8",
+    //       "Cache-Control": "no-cache",
+    //       Connection: "keep-alive",
+    //     },
+    //   });
+    // } catch (err) {
+    // const error = err as Error;
+    // console.error("Stream error:", error);
+    return new Response(JSON.stringify({ error: "cry" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
+    // }
   }),
 
   // Logout and clear tokens

@@ -37,10 +37,11 @@ export async function sendClaudeMessage(
   message: string,
   model: ClaudeModel = "default"
 ) {
-  const { laneId } = await db
+  let { systemPrompt } = await db
     .selectFrom("tasks")
     .where("containerId", "=", containerId)
-    .select("laneId")
+    .innerJoin("lanes", "tasks.laneId", "lanes.id")
+    .select("lanes.systemPrompt")
     .executeTakeFirstOrThrow();
 
   const userId = getUserIdFromCookie(requestInfo.request);
@@ -50,58 +51,22 @@ export async function sendClaudeMessage(
   await setupContainerCredentials(containerId, userId);
 
   const sandbox = getSandbox(env.Sandbox, containerId);
-  if (!hasSystemPrompt({ sandbox, laneId })) {
-    await updateSystemPrompt({ sandbox, laneId, clear: false });
-  }
+  await sandbox.writeFile("/machinen/system-prompt.md", systemPrompt);
 
-  await sandbox.writeFile(`/machinen/INPUT.md`, message);
+  const messageFile = `/tmp/message_${Date.now()}.txt`;
+  await sandbox.writeFile(messageFile, systemPrompt + message);
+
   return await sandbox.startProcess(`\
 bash -c "\
   cd /workspace && \
-  cat /machinen/INPUT.md | \
+  cat ${messageFile} | \
   IS_SANDBOX=1 claude \
-    --append-system-prompt \"$(cat /machinen/${laneId}-system-prompt.md)\" \
     --dangerously-skip-permissions \
     --model ${model} \
     --output-format stream-json \
     --verbose \
-    --print"`);
-}
-
-async function hasSystemPrompt({
-  sandbox,
-  laneId,
-}: {
-  sandbox: DurableObjectStub<Sandbox>;
-  laneId: string;
-}) {
-  const systemPromptFile = await sandbox.readFile(
-    `/machinen/${laneId}-system-prompt.md`
-  );
-  return systemPromptFile.success;
-}
-
-export async function updateSystemPrompt({
-  sandbox,
-  laneId,
-  clear,
-}: {
-  sandbox: DurableObjectStub<Sandbox>;
-  laneId: string;
-  clear: boolean;
-}) {
-  const { systemPrompt } = await db
-    .selectFrom("lanes")
-    .where("id", "=", laneId)
-    .select("systemPrompt")
-    .executeTakeFirstOrThrow();
-
-  await sandbox.writeFile(`/machinen/${laneId}-system-prompt.md`, systemPrompt);
-  if (clear) {
-    await sandbox.exec(
-      `claude --model sonnet --output-format stream-json --print "/clear"`
-    );
-  }
+    --print \
+    "`);
 }
 
 export async function updateUserPrompt(
@@ -127,7 +92,12 @@ export async function updateUserPrompt(
   ${contents.transcript}
   
   # Codebase: @/workspace/*
+
+  # System Prompt:
+  @/machinen/system-prompt.md
 `;
+
+  // TODO: Include a reference to the system prompt here.
 
   const sandbox = getSandbox(env.Sandbox, containerId);
   await sandbox.writeFile(`/root/.claude/CLAUDE.md`, prompt);

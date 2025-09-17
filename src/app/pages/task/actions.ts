@@ -83,13 +83,6 @@ export async function enhanceTask({
 
   const transcript = await getContextFile(containerId, "transcript.json");
 
-  // Setup Claude credentials for this container (OAuth)
-  const userId = getUserIdFromCookie(requestInfo.request);
-  if (!userId) {
-    throw new Error("No user session found for Claude");
-  }
-  await setupContainerCredentials(containerId, userId);
-
   await updateUserPrompt(containerId, {
     title,
     overview,

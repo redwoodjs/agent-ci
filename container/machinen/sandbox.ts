@@ -13,7 +13,6 @@ import { createOpencodeServer } from "@opencode-ai/sdk";
 const opencode = await createOpencodeServer({
   hostname: "127.0.0.1",
   port: 4096,
-  config: {},
 });
 
 console.log("Opencode server started on port 4096");

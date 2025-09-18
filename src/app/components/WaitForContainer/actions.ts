@@ -67,6 +67,10 @@ export async function bootstrapContainer(containerId: string) {
       hostname: "localhost:5173",
     });
 
+    await sandbox.exposePort(4096, {
+      hostname: "localhost:5173",
+    });
+
     for (const port of exposePorts) {
       await sandbox.exposePort(port, {
         hostname: "localhost:5173",

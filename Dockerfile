@@ -13,7 +13,8 @@ COPY ./container/claude/claude.json /root/.claude.json
 COPY ./container/claude/settings.json /root/.claude/settings.json
 
 COPY ./container/machinen/ /machinen
-# RUN cd /machinen && pnpm install && pnpm esbuild sandbox.ts > sandbox.js
+RUN cd /machinen && pnpm install && pnpm esbuild sandbox.ts > sandbox.js
 
 EXPOSE 8910
+EXPOSE 4096
 EXPOSE 5173

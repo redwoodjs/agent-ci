@@ -13,7 +13,7 @@ import { setCommonHeaders } from "./app/headers";
 import { recordPageview } from "@/app/services/pageviews";
 import { db } from "@/db";
 
-import { createOpencodeClient as createOpencodeClientClient } from "@opencode-ai/sdk/client";
+import { Prompt } from "./app/components/AI/Prompt";
 
 import { TaskLayout } from "./app/components/TaskLayout";
 import { taskRoutes } from "./app/pages/task/routes";
@@ -75,16 +75,6 @@ const app = defineApp([
       ]),
     ]),
   ]),
-
-  route("/oc", async function () {
-    // createOpencodeClient;
-    createOpencodeClientClient;
-    // const client = createOpencodeClient({
-    //   baseUrl: "http://localhost:4096",
-    //   responseStyle: "data",
-    // });
-    return new Response("hey!");
-  }),
 
   prefix("/api/auth/claude", claudeAuthRoutes),
 ]);

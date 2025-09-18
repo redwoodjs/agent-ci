@@ -37,13 +37,6 @@ export async function sendClaudeMessage(
   message: string,
   model: ClaudeModel = "default"
 ) {
-  let { systemPrompt } = await db
-    .selectFrom("tasks")
-    .where("containerId", "=", containerId)
-    .innerJoin("lanes", "tasks.laneId", "lanes.id")
-    .select("lanes.systemPrompt")
-    .executeTakeFirstOrThrow();
-
   const userId = getUserIdFromCookie(requestInfo.request);
   if (!userId) {
     throw new Error("No user session found for Claude");
@@ -51,10 +44,8 @@ export async function sendClaudeMessage(
   await setupContainerCredentials(containerId, userId);
 
   const sandbox = getSandbox(env.Sandbox, containerId);
-  await sandbox.writeFile("/machinen/system-prompt.md", systemPrompt);
-
   const messageFile = `/tmp/message_${Date.now()}.txt`;
-  await sandbox.writeFile(messageFile, systemPrompt + message);
+  await sandbox.writeFile(messageFile, message);
 
   return await sandbox.startProcess(`\
 bash -c "\

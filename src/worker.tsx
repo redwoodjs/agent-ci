@@ -13,6 +13,9 @@ import { setCommonHeaders } from "./app/headers";
 import { recordPageview } from "@/app/services/pageviews";
 import { db } from "@/db";
 
+import { createOpencodeClient } from "@opencode-ai/sdk";
+import { createOpencodeClient as createOpencodeClientClient } from "@opencode-ai/sdk/client";
+
 import { TaskLayout } from "./app/components/TaskLayout";
 import { taskRoutes } from "./app/pages/task/routes";
 import { logsRoutes } from "./app/pages/logs/routes";
@@ -26,8 +29,6 @@ import { authRoutes } from "./app/pages/auth/routes";
 
 import { claudeAuthRoutes } from "./app/pages/claudeAuth/routes";
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
-import { Presence } from "./app/components/Presence";
-import { AudioMeeting } from "./app/components/AudioMeeting";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -75,6 +76,16 @@ const app = defineApp([
       ]),
     ]),
   ]),
+
+  route("/oc", async function () {
+    // createOpencodeClient;
+    createOpencodeClientClient;
+    // const client = createOpencodeClient({
+    //   baseUrl: "http://localhost:4096",
+    //   responseStyle: "data",
+    // });
+    return new Response("hey!");
+  }),
 
   prefix("/api/auth/claude", claudeAuthRoutes),
 ]);

@@ -23,6 +23,7 @@
     "prepare": "vibe-rules install cursor"
   },
   "dependencies": {
+    "@opencode-ai/sdk": "0.9.11",
     "@atlaskit/pragmatic-drag-and-drop": "^1.7.4",
     "@atlaskit/pragmatic-drag-and-drop-hitbox": "^1.1.0",
     "@cloudflare/containers": "^0.0.28",

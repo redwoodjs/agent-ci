@@ -4,7 +4,7 @@ import { useState } from "react";
 
 import { Button } from "@/app/components/ui/button";
 
-import { enhanceTask, saveTask, updateSystemPromptForTask } from "../actions";
+import { enhanceTask, saveTask } from "../actions";
 
 export function TaskEditor({
   containerId,
@@ -53,15 +53,6 @@ export function TaskEditor({
             className="justify-end flex-shrink-0"
           >
             Enhance Issue
-          </Button>
-          <Button
-            onClick={async () => {
-              await updateSystemPromptForTask(containerId);
-            }}
-            variant="outline"
-            className="justify-end flex-shrink-0"
-          >
-            Update System Prompt
           </Button>
         </div>
 

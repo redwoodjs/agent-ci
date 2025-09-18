@@ -13,7 +13,6 @@ import { setCommonHeaders } from "./app/headers";
 import { recordPageview } from "@/app/services/pageviews";
 import { db } from "@/db";
 
-import { createOpencodeClient } from "@opencode-ai/sdk";
 import { createOpencodeClient as createOpencodeClientClient } from "@opencode-ai/sdk/client";
 
 import { TaskLayout } from "./app/components/TaskLayout";

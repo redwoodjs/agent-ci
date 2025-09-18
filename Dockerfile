@@ -6,7 +6,8 @@ RUN npm install --global corepack@latest && \
     cd /redwoodsdk && \
     npx create-rwsdk --template=minimal minimal && \
     cd minimal && \
-    pnpm install
+    pnpm install && \
+    npm install -g opencode-ai
 
 RUN mkdir /root/.claude && npm install -g @anthropic-ai/claude-code
 COPY ./container/claude/claude.json /root/.claude.json

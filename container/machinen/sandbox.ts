@@ -8,14 +8,6 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
-import { createOpencodeServer } from "@opencode-ai/sdk";
-
-const opencode = await createOpencodeServer({
-  hostname: "127.0.0.1",
-  port: 4096,
-});
-
-console.log("Opencode server started on port 4096");
 
 import * as pty from "@homebridge/node-pty-prebuilt-multiarch";
 

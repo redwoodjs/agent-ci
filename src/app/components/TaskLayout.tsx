@@ -1,8 +1,7 @@
 import type { LayoutProps } from "rwsdk/router";
 
-import { AudioMeeting } from "./AudioMeeting";
 import { link } from "../shared/links";
-import { Presence } from "./Presence";
+
 import { db } from "@/db";
 import { PromptToggle } from "./PromptToggle";
 
@@ -27,8 +26,6 @@ export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
 
         <div className="flex-1 bg-red-100 flex">
           <div className="border-l border-dashed flex gap-2">
-            {/* <Presence containerId={containerId} /> */}
-            {/* <AudioMeeting containerId={containerId} /> */}
             <div className="flex flex-1 gap-2 px-4">
               <a href={link("/tasks/:containerId", { containerId })}>Issue</a>
               <a href={link("/tasks/:containerId/transcript", { containerId })}>

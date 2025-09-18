@@ -22,6 +22,7 @@ export async function streamSessionMessages(sessionID: string) {
       const encoder = new TextEncoder();
       try {
         for await (const event of events.stream) {
+          // TODO(peterp, 2025-09-18): Filter by `sessionID`
           if (event.type === "message.part.updated") {
             controller.enqueue(
               encoder.encode(

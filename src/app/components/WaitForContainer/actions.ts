@@ -93,6 +93,8 @@ export async function bootstrapContainer(containerId: string) {
     scriptLines.push("cd /machinen");
     scriptLines.push("pnpm dev --name=machinen &");
     scriptLines.push("npx wait-port 8910");
+    scriptLines.push("opencode serve --port 4096 &");
+    scriptLines.push("npx wait-port 4096");
 
     scriptLines.push("cd /workspace");
     for (const command of runOnBoot) {
@@ -100,7 +102,7 @@ export async function bootstrapContainer(containerId: string) {
       scriptLines.push(command);
     }
     scriptLines.push(processCommand + " &");
-    scriptLines.push(`npx wait-port ${exposePorts[0]}`);
+    // scriptLines.push(`npx wait-port ${exposePorts[0]}`);
     // Handle repository checkout if needed
     if (repository) {
       const result = await sandbox.gitCheckout(repository, {

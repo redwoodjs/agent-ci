@@ -7,6 +7,11 @@ import cloudflareTunnel from "vite-plugin-cloudflare-tunnel";
 export default defineConfig({
   environments: {
     ssr: {},
+    worker: {
+      resolve: {
+        conditions: ["import"],
+      },
+    },
   },
 
   server: {

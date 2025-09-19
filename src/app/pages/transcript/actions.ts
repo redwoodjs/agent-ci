@@ -146,3 +146,164 @@ export async function deleteTranscriptFromR2(
     };
   }
 }
+
+export async function generateTranscriptsFromGitHistory(containerId: string) {
+  try {
+    const { execSync } = require("child_process");
+    
+    // Get commit history
+    const commitData = execSync(
+      'git log --pretty=format:"%H|%an|%ae|%ad|%s|%b" --date=iso -30',
+      { encoding: 'utf-8' }
+    );
+
+    // Import the generator functions
+    const { parseCommitHistory, generateTranscriptFromCommits } = await import("./generate-transcripts");
+    
+    const commits = parseCommitHistory(commitData);
+    const transcripts = generateTranscriptFromCommits(commits, containerId);
+    
+    // Save each transcript to R2
+    const savedTranscripts = [];
+    for (const transcript of transcripts) {
+      const saveResult = await saveTranscriptToR2(containerId, transcript);
+      if (saveResult.success) {
+        savedTranscripts.push(transcript);
+      }
+    }
+
+    console.log("Generated transcripts from git history:", {
+      containerId,
+      transcriptCount: savedTranscripts.length,
+    });
+
+    return {
+      success: true,
+      transcripts: savedTranscripts,
+      message: `Generated ${savedTranscripts.length} transcripts from git history`,
+    };
+  } catch (error) {
+    console.error("Failed to generate transcripts from git history:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+      transcripts: [],
+    };
+  }
+}
+
+export async function initializeTranscriptRAG(containerId: string) {
+  try {
+    const { transcriptRAG } = await import("@/app/services/transcriptRAG");
+    
+    // Test connection to AutoRAG instance
+    const connectionResult = await transcriptRAG.testConnection();
+    
+    if (!connectionResult.success) {
+      return {
+        success: false,
+        error: `AutoRAG connection failed: ${connectionResult.error}`,
+        message: "Make sure your AutoRAG instance 'machinen-transcripts' exists in Cloudflare dashboard"
+      };
+    }
+
+    return {
+      success: true,
+      message: "AutoRAG connection verified - ready for search!",
+    };
+  } catch (error) {
+    console.error("Failed to initialize transcript RAG:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+export async function searchTranscripts(query: string, containerId: string) {
+  try {
+    const { transcriptRAG } = await import("@/app/services/transcriptRAG");
+    
+    const result = await transcriptRAG.searchTranscripts(query, containerId, {
+      maxResults: 10,
+      scoreThreshold: 0.3
+    });
+    
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error,
+        results: [],
+      };
+    }
+
+    // Transform the results to match our interface
+    const transformedResults = result.results?.map(item => ({
+      id: item.file_id,
+      score: item.score,
+      content: item.content.map(c => c.text).join(' '),
+      metadata: item.attributes
+    })) || [];
+
+    return {
+      success: true,
+      results: transformedResults,
+      message: `Found ${transformedResults.length} relevant transcript segments`,
+    };
+  } catch (error) {
+    console.error("Failed to search transcripts:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+      results: [],
+    };
+  }
+}
+
+export async function askTranscriptQuestion(question: string, containerId: string) {
+  try {
+    const { transcriptRAG } = await import("@/app/services/transcriptRAG");
+    
+    const result = await transcriptRAG.askQuestion(question, containerId);
+    
+    if (!result.success) {
+      return {
+        success: false,
+        error: result.error,
+      };
+    }
+
+    return {
+      success: true,
+      answer: result.answer,
+      sources: result.sources,
+      message: "Generated answer from transcript knowledge base",
+    };
+  } catch (error) {
+    console.error("Failed to ask transcript question:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+export async function getRAGStatus(containerId: string) {
+  try {
+    const { transcriptRAG } = await import("@/app/services/transcriptRAG");
+    
+    const result = await transcriptRAG.getInstanceStatus();
+    
+    return {
+      success: true,
+      status: result.status,
+      error: result.error,
+    };
+  } catch (error) {
+    console.error("Failed to get RAG status:", error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}

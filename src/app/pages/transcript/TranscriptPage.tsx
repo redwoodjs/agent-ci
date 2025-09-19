@@ -1,6 +1,7 @@
-import { type RequestInfo } from "rwsdk/worker";
 import { getTranscriptsFromR2 } from "./actions";
 import { CreateSampleTranscriptButton } from "./components/CreateSampleTranscriptButton";
+import { GenerateTranscriptsButton } from "./components/GenerateTranscriptsButton";
+import { TranscriptSearchInterface } from "./components/TranscriptSearchInterface";
 import { DeleteTranscriptButton } from "./components/DeleteTranscriptButton";
 
 interface TranscriptEntry {
@@ -21,54 +22,7 @@ interface MockTranscript {
   entries: TranscriptEntry[];
 }
 
-// Helper function to create sample transcript data
-function createSampleTranscript(): MockTranscript {
-  return {
-    id: `transcript-${Date.now()}`,
-    meetingId: `meeting-${Date.now()}`,
-    title: "Sample Meeting Transcript",
-    createdAt: new Date().toISOString(),
-    duration: 1800, // 30 minutes
-    participants: ["Peter", "Herman", "Alice"],
-    entries: [
-      {
-        id: "entry-1",
-        timestamp: new Date().toISOString(),
-        speaker: "Peter",
-        text: "I want to add a new route called 'ping' that returns 'pong' as a response.",
-        confidence: 0.95,
-      },
-      {
-        id: "entry-2",
-        timestamp: new Date(Date.now() + 7000).toISOString(),
-        speaker: "Herman",
-        text: "I don't know why you want to do that?",
-        confidence: 0.92,
-      },
-      {
-        id: "entry-3",
-        timestamp: new Date(Date.now() + 13000).toISOString(),
-        speaker: "Peter",
-        text: "Because I want to demo this thing to people, don't you understand what we're trying to build man?",
-        confidence: 0.88,
-      },
-      {
-        id: "entry-4",
-        timestamp: new Date(Date.now() + 20000).toISOString(),
-        speaker: "Herman",
-        text: "I do kinda get it, but is this a good demo?",
-        confidence: 0.94,
-      },
-      {
-        id: "entry-5",
-        timestamp: new Date(Date.now() + 26000).toISOString(),
-        speaker: "Peter",
-        text: "Trust me.",
-        confidence: 0.98,
-      },
-    ],
-  };
-}
+
 
 export async function TranscriptPage({
   params,
@@ -93,13 +47,21 @@ export async function TranscriptPage({
         </p>
       </div>
 
+      {/* AI Search Interface - Always visible */}
+      <div className="mb-8">
+        <TranscriptSearchInterface containerId={containerId} />
+      </div>
+
       {transcripts.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-gray-500 mb-4">No transcripts available yet.</p>
           <p className="text-sm text-gray-400 mb-6">
             Transcripts will appear here once they are saved to R2 storage.
           </p>
-          <CreateSampleTranscriptButton containerId={containerId} />
+          <div className="space-y-3">
+            <CreateSampleTranscriptButton containerId={containerId} />
+            <GenerateTranscriptsButton containerId={containerId} />
+          </div>
         </div>
       ) : (
         <div className="space-y-6">

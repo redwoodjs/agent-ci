@@ -11,6 +11,10 @@
     }
   ],
 
+  "ai": {
+    "binding": "AI"
+  },
+
   "containers": [
     {
       "name": "Sandbox",

@@ -2,7 +2,7 @@ import { env } from "cloudflare:workers";
 import { getSandbox } from "@cloudflare/sandbox";
 
 import { route } from "rwsdk/router";
-import { waitForContainer } from "@/app/components/WaitForContainer";
+import { waitForContainer } from "@/app/components/wait-for-container";
 import { TermPage } from "./TermPage";
 
 export const termRoutes = [

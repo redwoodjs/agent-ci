@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { RequestInfo } from "rwsdk/worker";
 
 import { bootstrapContainer } from "./actions";
-import { BootstrapLogs } from "./BootstrapLogs";
+import { BootstrapLogs } from "./boot-logs";
 
 export async function waitForContainer({ params }: RequestInfo) {
   const { containerId } = params;

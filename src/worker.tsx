@@ -13,9 +13,7 @@ import { setCommonHeaders } from "./app/headers";
 import { recordPageview } from "@/app/services/pageviews";
 import { db } from "@/db";
 
-import { Prompt } from "./app/components/AI/Prompt";
-
-import { TaskLayout } from "./app/components/TaskLayout";
+import { TaskLayout } from "./app/components/task-layout";
 import { taskRoutes } from "./app/pages/task/routes";
 import { logsRoutes } from "./app/pages/logs/routes";
 import { projectRoutes } from "./app/pages/project/routes";
@@ -26,7 +24,6 @@ import { chatRoutes } from "./app/pages/chat/routes";
 import { transcriptRoutes } from "./app/pages/transcript/routes";
 import { authRoutes } from "./app/pages/auth/routes";
 
-import { claudeAuthRoutes } from "./app/pages/claudeAuth/routes";
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
 
 export type AppContext = {
@@ -75,8 +72,6 @@ const app = defineApp([
       ]),
     ]),
   ]),
-
-  prefix("/api/auth/claude", claudeAuthRoutes),
 ]);
 
 export { Sandbox } from "@cloudflare/sandbox";
@@ -85,25 +80,39 @@ export { Database } from "@/db/durableObject";
 
 export default {
   fetch: async function (request, env: Env, cf) {
+    // TODO(peterp, 2025-09-18): This is a hack to get the chat working.
+    // Get the proper ports from the database.
+
+    const ports = ["4096", "8910", "5173"];
+
+    // for (const port of ports) {
+    //   if (request.url.includes(port)) {
+    //     return proxyToSandbox(request, env);
+    //   }
+    // }
+
     const url = new URL(request.url);
-    if (url.hostname.includes("5173")) {
+    const port = url.hostname.split("-")[0];
+    if (ports.includes(port)) {
+      // we only record visits to the users tools.
+
       // Record that the user visited this sandbox.
-      try {
-        const containerId = url.hostname
-          .replace("5173-", "")
-          .replace(".localhost", "");
+      // try {
+      //   const containerId = url.hostname
+      //     .replace("5173-", "")
+      //     .replace(".localhost", "");
 
-        // Get laneId from database asynchronously (don't await to avoid blocking the request)
-        const { laneId } = await db
-          .selectFrom("tasks")
-          .select("laneId")
-          .where("containerId", "=", containerId)
-          .executeTakeFirstOrThrow();
+      //   // Get laneId from database asynchronously (don't await to avoid blocking the request)
+      //   const { laneId } = await db
+      //     .selectFrom("tasks")
+      //     .select("laneId")
+      //     .where("containerId", "=", containerId)
+      //     .executeTakeFirstOrThrow();
 
-        recordPageview(request, containerId, laneId);
-      } catch (error) {
-        console.error("Error in visit recording setup:", error);
-      }
+      //   recordPageview(request, containerId, laneId);
+      // } catch (error) {
+      //   console.error("Error in visit recording setup:", error);
+      // }
 
       return proxyToSandbox(request, env);
     }

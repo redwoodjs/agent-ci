@@ -9,11 +9,7 @@ interface Messages {
   [messageID: string]: { text?: string };
 }
 
-export function Prompt({
-  sessionID = "ses_6a3800b68ffe03im0PKtKtjKRt",
-}: {
-  sessionID: string;
-}) {
+export function ChatSessionMessages({ containerId }: { containerId: string }) {
   // NOTE(peterp, 2025-09-18): this stores the `messageId` in an array.
   // We use this to determine the position of the message that needs updating.
   const [chatLog, setChatLog] = useState<string[]>([]);
@@ -29,7 +25,7 @@ export function Prompt({
   // TODO(peterp, 2025-09-18): Do we need to handle disconnects and retries?
   useEffect(() => {
     const fetchStream = async () => {
-      const stream = await streamSessionMessages(sessionID);
+      const stream = await streamSessionMessages({ containerId });
       stream.pipeTo(
         consumeEventStream({
           onChunk: (event) => {
@@ -56,11 +52,11 @@ export function Prompt({
     };
 
     fetchStream();
-  }, [sessionID]);
+  }, [containerId]);
 
   return (
     <div>
-      Prompt {sessionID}
+      Prompt
       <ol>
         {chatLog.map((messageID) => (
           <li key={messageID}>
@@ -75,13 +71,24 @@ export function Prompt({
           let x = promptText;
           setIsLoading(true);
           setPromptText("");
-          await prompt(sessionID, x);
+          await prompt({ containerId, text: x });
           setIsLoading(false);
         }}
       >
         <textarea
           value={promptText}
           onChange={(e) => setPromptText(e.target.value)}
+          onKeyDown={(e) => {
+            if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+              e.preventDefault();
+              if (promptText.length && !isLoading) {
+                const form = e.currentTarget.closest("form");
+                if (form) {
+                  form.requestSubmit();
+                }
+              }
+            }
+          }}
         />
         <Button disabled={!promptText.length || isLoading} type="submit">
           {isLoading ? "Sending..." : "Send"}

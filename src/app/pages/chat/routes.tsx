@@ -1,4 +1,4 @@
-import { waitForContainer } from "@/app/components/WaitForContainer";
+import { waitForContainer } from "@/app/components/wait-for-container";
 import { route } from "rwsdk/router";
 
 import { ChatPage } from "./ChatPage";

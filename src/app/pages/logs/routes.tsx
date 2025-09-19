@@ -1,6 +1,6 @@
 import { route } from "rwsdk/router";
 
-import { waitForContainer } from "@/app/components/WaitForContainer";
+import { waitForContainer } from "@/app/components/wait-for-container";
 
 import { ProcessListPage } from "./ProcessListPage";
 import { LogsPage } from "./LogsPage";

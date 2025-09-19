@@ -1,10 +1,15 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Prompt } from "../pages/chat/components/Prompt";
 
-export const PromptToggle = ({ containerId }: { containerId: string }) => {
-  const [isPromptVisible, setIsPromptVisible] = useState(false);
+export const SidebarToggle = ({
+  children,
+  label,
+}: {
+  children: React.ReactNode;
+  label: string;
+}) => {
+  const [isPromptVisible, setIsPromptVisible] = useState(true);
 
   const togglePrompt = () => {
     setIsPromptVisible((prev) => !prev);
@@ -33,7 +38,7 @@ export const PromptToggle = ({ containerId }: { containerId: string }) => {
         }`}
         title={`${isPromptVisible ? "Hide" : "Show"} Prompt (⌘K / Ctrl+K)`}
       >
-        Prompt
+        {label}
       </button>
 
       <div
@@ -41,7 +46,7 @@ export const PromptToggle = ({ containerId }: { containerId: string }) => {
           isPromptVisible ? "translate-x-0" : "translate-x-full"
         }`}
       >
-        <Prompt containerId={containerId} autoFocus={isPromptVisible} />
+        {children}
       </div>
     </div>
   );

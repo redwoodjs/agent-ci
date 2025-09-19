@@ -93,10 +93,10 @@ export async function bootstrapContainer(containerId: string) {
     scriptLines.push("cd /machinen");
     scriptLines.push("pnpm dev --name=machinen &");
     scriptLines.push("npx wait-port 8910");
-    scriptLines.push("opencode serve --port 4096 &");
-    scriptLines.push("npx wait-port 4096");
 
     scriptLines.push("cd /workspace");
+    scriptLines.push("opencode serve --port 4096 --hostname 0.0.0.0 &");
+    scriptLines.push("npx wait-port 4096");
     for (const command of runOnBoot) {
       scriptLines.push(`echo \"Running: ${command}\"`);
       scriptLines.push(command);
@@ -113,6 +113,20 @@ export async function bootstrapContainer(containerId: string) {
       }
     }
 
+    // Login to opencode
+    await sandbox.writeFile(
+      "/root/.local/share/opencode/auth.json",
+      JSON.stringify(
+        {
+          opencode: {
+            type: "api",
+            key: env.OPENCODE_API_KEY,
+          },
+        },
+        null,
+        2
+      )
+    );
     await sandbox.writeFile("/machinen/bootstrap.sh", scriptLines.join("\n"));
     await sandbox.exec("cd /machinen");
     await sandbox.exec("chmod +x bootstrap.sh");

@@ -3,7 +3,9 @@ import type { LayoutProps } from "rwsdk/router";
 import { link } from "../shared/links";
 
 import { db } from "@/db";
-import { PromptToggle } from "./PromptToggle";
+
+import { SidebarToggle } from "@/app/components/sidebar-toggle";
+import { ChatSessionMessages } from "./chat/chat-session-messages";
 
 export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
   if (!requestInfo) {
@@ -50,7 +52,9 @@ export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
               <a href={link("/tasks/:containerId/term", { containerId })}>
                 Terminal
               </a>
-              <PromptToggle containerId={containerId} />
+              <SidebarToggle label="Chat">
+                <ChatSessionMessages containerId={containerId} />
+              </SidebarToggle>
             </div>
           </div>
           <div className="flex flex-1 justify-end">

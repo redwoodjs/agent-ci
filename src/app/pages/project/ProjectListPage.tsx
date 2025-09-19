@@ -1,5 +1,4 @@
 import { db } from "@/db";
-import { AuthButton } from "@/app/components/AuthButton";
 
 import { link } from "@/app/shared/links";
 
@@ -11,7 +10,6 @@ export async function ProjectListPage() {
       <div className="p-4 border mb-6">
         <div className="flex justify-between items-start mb-4">
           <h1 className="font-advercase font-bold text-3xl">Projects</h1>
-          <AuthButton />
         </div>
         <ul className="flex flex-row gap-2">
           {projects.map((result) => (

@@ -2,7 +2,7 @@
 
 import { ProcessLogs } from "../ProcessLogs";
 
-export function BootstrapLogs({
+export function BootLogs({
   containerId,
   processId,
 }: {
@@ -10,12 +10,15 @@ export function BootstrapLogs({
   processId: string;
 }) {
   return (
-    <ProcessLogs
-      containerId={containerId}
-      processId={processId}
-      onComplete={() => {
-        window.location.reload();
-      }}
-    />
+    <div>
+      <h1>Boot Logs</h1>
+      <ProcessLogs
+        containerId={containerId}
+        processId={processId}
+        onComplete={() => {
+          window.location.reload();
+        }}
+      />
+    </div>
   );
 }

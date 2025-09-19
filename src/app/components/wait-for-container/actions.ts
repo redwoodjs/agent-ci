@@ -94,8 +94,9 @@ export async function bootstrapContainer(containerId: string) {
     scriptLines.push("pnpm dev --name=machinen &");
     scriptLines.push("npx wait-port 8910");
 
-    scriptLines.push("cd /workspace");
-    scriptLines.push("opencode serve --port 4096 --hostname 0.0.0.0 &");
+    scriptLines.push(
+      "cd /workspace && opencode serve --port 4096 --hostname 0.0.0.0 &"
+    );
     scriptLines.push("npx wait-port 4096");
     for (const command of runOnBoot) {
       scriptLines.push(`echo \"Running: ${command}\"`);

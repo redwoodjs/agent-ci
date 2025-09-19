@@ -33,9 +33,9 @@ export async function streamSessionMessages({
       const encoder = new TextEncoder();
       try {
         for await (const event of events.stream) {
-          console.log("-".repeat(80));
-          console.log(event);
-          console.log("-".repeat(80));
+          // console.log("-".repeat(80));
+          // console.log(event);
+          // console.log("-".repeat(80));
 
           // TODO(peterp, 2025-09-18): Filter by `sessionID`
           if (event.type === "message.part.updated") {
@@ -63,10 +63,14 @@ export async function prompt({
   containerId: string;
   text: string;
 }) {
-  const { id: sessionId } = await getSession({ containerId });
+  const session = await getOrCreateSession({ containerId });
+  if (!session) {
+    throw new Error("Session not found");
+  }
+
   const client = getClient({ containerId });
   return await client.session.prompt({
-    path: { id: sessionId },
+    path: { id: session.id },
     body: {
       parts: [
         {
@@ -94,12 +98,12 @@ export async function getOrCreateSession({
   if (session) {
     return session;
   } else {
-    // do I also need to create a project?
     const client = getClient({ containerId });
-    await client.session.create({
+    const response = await client.session.create({
       body: {
         title: containerId,
       },
     });
+    return response.data;
   }
 }

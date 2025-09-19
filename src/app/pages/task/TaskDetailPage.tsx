@@ -27,13 +27,13 @@ export async function TaskDetailPage({
   const eSubtasks = await getContextFile(containerId, "enhanced_subtasks.md");
 
   const sandbox = await getSandbox(env.Sandbox, containerId);
-  await Promise.all([
-    sandbox.writeFile("/machinen/task/overview.md", overview),
-    sandbox.writeFile("/machinen/task/subtasks.md", subtasks),
-    sandbox.writeFile("/machinen/task/transcript.json", transcript),
-    sandbox.writeFile("/machinen/task/enhanced_overview.md", eOverview),
-    sandbox.writeFile("/machinen/task/enhanced_subtasks.md", eSubtasks),
-  ]);
+  // await Promise.all([
+  //   sandbox.writeFile("/machinen/task/overview.md", overview),
+  //   sandbox.writeFile("/machinen/task/subtasks.md", subtasks),
+  //   sandbox.writeFile("/machinen/task/transcript.json", transcript),
+  //   sandbox.writeFile("/machinen/task/enhanced_overview.md", eOverview),
+  //   sandbox.writeFile("/machinen/task/enhanced_subtasks.md", eSubtasks),
+  // ]);
 
   return (
     <div>

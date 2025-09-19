@@ -67,6 +67,10 @@ export async function bootstrapContainer(containerId: string) {
       hostname: "localhost:5173",
     });
 
+    await sandbox.exposePort(4096, {
+      hostname: "localhost:5173",
+    });
+
     for (const port of exposePorts) {
       await sandbox.exposePort(port, {
         hostname: "localhost:5173",
@@ -90,13 +94,16 @@ export async function bootstrapContainer(containerId: string) {
     scriptLines.push("pnpm dev --name=machinen &");
     scriptLines.push("npx wait-port 8910");
 
-    scriptLines.push("cd /workspace");
+    scriptLines.push(
+      "cd /workspace && opencode serve --port 4096 --hostname 0.0.0.0 &"
+    );
+    scriptLines.push("npx wait-port 4096");
     for (const command of runOnBoot) {
       scriptLines.push(`echo \"Running: ${command}\"`);
       scriptLines.push(command);
     }
     scriptLines.push(processCommand + " &");
-    scriptLines.push(`npx wait-port ${exposePorts[0]}`);
+    // scriptLines.push(`npx wait-port ${exposePorts[0]}`);
     // Handle repository checkout if needed
     if (repository) {
       const result = await sandbox.gitCheckout(repository, {
@@ -107,6 +114,20 @@ export async function bootstrapContainer(containerId: string) {
       }
     }
 
+    // Login to opencode
+    await sandbox.writeFile(
+      "/root/.local/share/opencode/auth.json",
+      JSON.stringify(
+        {
+          opencode: {
+            type: "api",
+            key: env.OPENCODE_API_KEY,
+          },
+        },
+        null,
+        2
+      )
+    );
     await sandbox.writeFile("/machinen/bootstrap.sh", scriptLines.join("\n"));
     await sandbox.exec("cd /machinen");
     await sandbox.exec("chmod +x bootstrap.sh");

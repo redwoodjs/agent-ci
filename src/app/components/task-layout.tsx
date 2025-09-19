@@ -1,10 +1,11 @@
 import type { LayoutProps } from "rwsdk/router";
 
-import { AudioMeeting } from "./AudioMeeting";
 import { link } from "../shared/links";
-import { Presence } from "./Presence";
+
 import { db } from "@/db";
-import { PromptToggle } from "./PromptToggle";
+
+import { SidebarToggle } from "@/app/components/sidebar-toggle";
+import { ChatSessionMessages } from "./chat/chat-session-messages";
 
 export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
   if (!requestInfo) {
@@ -27,8 +28,6 @@ export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
 
         <div className="flex-1 bg-red-100 flex">
           <div className="border-l border-dashed flex gap-2">
-            {/* <Presence containerId={containerId} /> */}
-            {/* <AudioMeeting containerId={containerId} /> */}
             <div className="flex flex-1 gap-2 px-4">
               <a href={link("/tasks/:containerId", { containerId })}>Issue</a>
               <a href={link("/tasks/:containerId/transcript", { containerId })}>
@@ -53,7 +52,9 @@ export const TaskLayout = async ({ children, requestInfo }: LayoutProps) => {
               <a href={link("/tasks/:containerId/term", { containerId })}>
                 Terminal
               </a>
-              <PromptToggle containerId={containerId} />
+              <SidebarToggle label="Chat">
+                <ChatSessionMessages containerId={containerId} />
+              </SidebarToggle>
             </div>
           </div>
           <div className="flex flex-1 justify-end">

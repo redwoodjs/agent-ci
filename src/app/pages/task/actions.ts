@@ -1,17 +1,9 @@
 "use server";
 
-import { requestInfo } from "rwsdk/worker";
-import { getUserIdFromCookie } from "@/app/pages/claudeAuth/routes";
-import { setupContainerCredentials } from "@/app/pages/chat/actions";
-
 import { getSandbox } from "@cloudflare/sandbox";
 import { env } from "cloudflare:workers";
 import { db } from "@/db";
-import {
-  sendClaudeMessage,
-  updateUserPrompt,
-  updateSystemPrompt,
-} from "@/lib/claude";
+import { sendClaudeMessage, updateUserPrompt } from "@/lib/claude";
 import { getContextFile, setContextFile } from "@/lib/storage";
 
 async function getSystemPrompt(containerId: string) {
@@ -153,15 +145,4 @@ export async function enhanceTask({
     "enhanced_subtasks.md",
     newSubtasks.content
   );
-}
-
-export async function updateSystemPromptForTask(containerId: string) {
-  const { laneId } = await db
-    .selectFrom("tasks")
-    .where("containerId", "=", containerId)
-    .select("laneId")
-    .executeTakeFirstOrThrow();
-
-  const sandbox = await getSandbox(env.Sandbox, containerId);
-  await updateSystemPrompt({ sandbox, laneId, clear: false });
 }

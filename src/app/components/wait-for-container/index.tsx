@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { RequestInfo } from "rwsdk/worker";
 
 import { bootstrapContainer } from "./actions";
-import { BootstrapLogs } from "./BootstrapLogs";
+import { BootLogs } from "./boot-logs";
 
 export async function waitForContainer({ params }: RequestInfo) {
   const { containerId } = params;
@@ -16,6 +16,6 @@ export async function waitForContainer({ params }: RequestInfo) {
     process = await bootstrapContainer(containerId);
   }
   if (process?.status !== "completed" || process?.exitCode !== 0) {
-    return <BootstrapLogs containerId={containerId} processId={process.id!} />;
+    return <BootLogs containerId={containerId} processId={process.id!} />;
   }
 }

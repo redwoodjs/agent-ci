@@ -8,6 +8,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { secureHeaders } from "hono/secure-headers";
+
 import * as pty from "@homebridge/node-pty-prebuilt-multiarch";
 
 const PROJECT_PATH: string = process.cwd();

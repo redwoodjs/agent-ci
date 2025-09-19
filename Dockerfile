@@ -6,7 +6,8 @@ RUN npm install --global corepack@latest && \
     cd /redwoodsdk && \
     npx create-rwsdk --template=minimal minimal && \
     cd minimal && \
-    pnpm install
+    pnpm install && \
+    npm install -g opencode-ai
 
 RUN mkdir /root/.claude && npm install -g @anthropic-ai/claude-code
 COPY ./container/claude/claude.json /root/.claude.json
@@ -16,4 +17,5 @@ COPY ./container/machinen/ /machinen
 RUN cd /machinen && pnpm install && pnpm esbuild sandbox.ts > sandbox.js
 
 EXPOSE 8910
+EXPOSE 4096
 EXPOSE 5173

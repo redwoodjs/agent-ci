@@ -1,9 +1,7 @@
 "use server";
 
-import { getSandbox } from "@cloudflare/sandbox";
-import { env } from "cloudflare:workers";
 import { db } from "@/db";
-import { sendClaudeMessage, updateUserPrompt } from "@/lib/claude";
+
 import { getContextFile, setContextFile } from "@/lib/storage";
 
 async function getSystemPrompt(containerId: string) {
@@ -69,13 +67,13 @@ export async function saveTask({
   ]);
 
   const transcript = await getContextFile(containerId, "transcript.json");
-  await updateUserPrompt(containerId, {
-    title,
-    overview,
-    subtasks,
-    transcript,
-    systemPrompt,
-  });
+  // await updateUserPrompt(containerId, {
+  //   title,
+  //   overview,
+  //   subtasks,
+  //   transcript,
+  //   systemPrompt,
+  // });
 }
 
 export async function enhanceTask({
@@ -94,13 +92,13 @@ export async function enhanceTask({
   const transcript = await getContextFile(containerId, "transcript.json");
   const systemPrompt = await getSystemPrompt(containerId);
 
-  await updateUserPrompt(containerId, {
-    title,
-    overview,
-    subtasks,
-    transcript,
-    systemPrompt,
-  });
+  // await updateUserPrompt(containerId, {
+  //   title,
+  //   overview,
+  //   subtasks,
+  //   transcript,
+  //   systemPrompt,
+  // });
 
   const prompt = `\
   Reference the overview, subtasks, trascript, and code in @/workspace/* 
@@ -112,37 +110,37 @@ export async function enhanceTask({
   Only focus on the task at hand.
 `;
 
-  const process = await sendClaudeMessage(containerId, prompt, "haiku");
-  const sandbox = await getSandbox(env.Sandbox, containerId);
-  const x = await sandbox.streamProcessLogs(process.id);
-  const reader = x.getReader();
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      // console.log(new TextDecoder().decode(value));
-    }
-  } finally {
-    reader.releaseLock();
-  }
+  // const process = await sendClaudeMessage(containerId, prompt, "haiku");
+  // const sandbox = await getSandbox(env.Sandbox, containerId);
+  // const x = await sandbox.streamProcessLogs(process.id);
+  // const reader = x.getReader();
+  // try {
+  //   while (true) {
+  //     const { done, value } = await reader.read();
+  //     if (done) break;
+  //     // console.log(new TextDecoder().decode(value));
+  //   }
+  // } finally {
+  //   reader.releaseLock();
+  // }
 
-  const newOverview = await sandbox.readFile(
-    "/machinen/task/enhanced_overview.md"
-  );
-  const newSubtasks = await sandbox.readFile(
-    "/machinen/task/enhanced_subtasks.md"
-  );
+  // const newOverview = await sandbox.readFile(
+  //   "/machinen/task/enhanced_overview.md"
+  // );
+  // const newSubtasks = await sandbox.readFile(
+  //   "/machinen/task/enhanced_subtasks.md"
+  // );
 
-  // Update the context files/files in the sandbox
-  await setContextFile(
-    containerId,
-    "enhanced_overview.md",
-    newOverview.content
-  );
+  // // Update the context files/files in the sandbox
+  // await setContextFile(
+  //   containerId,
+  //   "enhanced_overview.md",
+  //   newOverview.content
+  // );
 
-  await setContextFile(
-    containerId,
-    "enhanced_subtasks.md",
-    newSubtasks.content
-  );
+  // await setContextFile(
+  //   containerId,
+  //   "enhanced_subtasks.md",
+  //   newSubtasks.content
+  // );
 }

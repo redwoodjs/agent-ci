@@ -40,6 +40,12 @@ Code is the thing that we value, but it's the result of a process, and a context
 
 ## What's stored in the context stream
 
+I don't know enough right now about the organization of things.
+So I think I should just go for "store them in a unique fashion."
+
+I would love to categorize them according to "issue/ taskID" but it's difficult to determine (from a transcript) or a
+chat conversation how those would appropriately connect to an issue.
+
 The context stream always includes:
 
 - A time

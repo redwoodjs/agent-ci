@@ -13,16 +13,19 @@ import { setCommonHeaders } from "./app/headers";
 import { recordPageview } from "@/app/services/pageviews";
 import { db } from "@/db";
 
+import { authRoutes } from "./app/pages/auth/routes";
+
+// TASKS
 import { TaskLayout } from "./app/components/task-layout";
 import { taskRoutes } from "./app/pages/task/routes";
+// TASK SUBPAGES
+import { chatRoutes } from "./app/pages/chat/routes";
+import { transcriptRoutes } from "./app/pages/task/subpages/transcripts/routes";
 import { logsRoutes } from "./app/pages/logs/routes";
 import { projectRoutes } from "./app/pages/project/routes";
 import { editorRoutes } from "./app/pages/editor/routes";
 import { termRoutes } from "./app/pages/term/routes";
 import { previewRoutes } from "./app/pages/preview/routes";
-import { chatRoutes } from "./app/pages/chat/routes";
-import { transcriptRoutes } from "./app/pages/transcript/routes";
-import { authRoutes } from "./app/pages/auth/routes";
 
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
 

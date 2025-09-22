@@ -1,0 +1,127 @@
+{
+  "session_id": "sess-2025-09-17-morning",
+  "started_at": "2025-09-17T09:10:00+02:00",
+  "ended_at": "2025-09-17T10:20:00+02:00",
+  "project_id": "rw-sdk#4f12a7",
+  "repo_root": "/Users/peter/dev/redwood-sdk",
+  "events": [
+    {
+      "ts": "2025-09-17T09:10:05+02:00",
+      "user": "peter",
+      "type": "vcs.current_branch",
+      "data": {
+        "branch": "radix-ui"
+      }
+    },
+    {
+      "ts": "2025-09-17T09:12:41+02:00",
+      "user": "peter",
+      "type": "shell.command",
+      "data": {
+        "cmd": "pnpm",
+        "args": [
+          "install"
+        ],
+        "exit_code": 0,
+        "ms": 8423
+      }
+    },
+    {
+      "ts": "2025-09-17T09:20:12+02:00",
+      "user": "justin",
+      "type": "shell.command",
+      "data": {
+        "cmd": "pnpm",
+        "args": [
+          "dev"
+        ],
+        "exit_code": 0,
+        "ms": 1834
+      }
+    },
+    {
+      "ts": "2025-09-17T09:22:09+02:00",
+      "user": "justin",
+      "type": "file.read",
+      "data": {
+        "path": "packages/web/src/useIdDeterministic.ts",
+        "bytes": 2140
+      }
+    },
+    {
+      "ts": "2025-09-17T09:27:45+02:00",
+      "user": "justin",
+      "type": "file.write",
+      "data": {
+        "path": "packages/web/src/useIdDeterministic.ts",
+        "bytes_after": 2312
+      }
+    },
+    {
+      "ts": "2025-09-17T09:29:03+02:00",
+      "user": "peter",
+      "type": "browser.reload",
+      "data": {
+        "route": "/examples/radix/dialog",
+        "referrer": "/examples"
+      }
+    },
+    {
+      "ts": "2025-09-17T09:35:58+02:00",
+      "user": "justin",
+      "type": "file.read",
+      "data": {
+        "path": "examples/radix-hydration-repro/README.md",
+        "bytes": 602
+      }
+    },
+    {
+      "ts": "2025-09-17T09:37:21+02:00",
+      "user": "justin",
+      "type": "file.write",
+      "data": {
+        "path": "examples/radix-hydration-repro/README.md",
+        "bytes_after": 744
+      }
+    },
+    {
+      "ts": "2025-09-17T09:40:12+02:00",
+      "user": "peter",
+      "type": "browser.reload",
+      "data": {
+        "route": "/examples/radix/popover",
+        "referrer": "/examples"
+      }
+    },
+    {
+      "ts": "2025-09-17T10:02:49+02:00",
+      "user": "justin",
+      "type": "shell.command",
+      "data": {
+        "cmd": "pnpm",
+        "args": [
+          "test",
+          "--",
+          "-u"
+        ],
+        "exit_code": 0,
+        "ms": 6212
+      }
+    },
+    {
+      "ts": "2025-09-17T10:15:31+02:00",
+      "user": "peter",
+      "type": "shell.command",
+      "data": {
+        "cmd": "git",
+        "args": [
+          "commit",
+          "-m",
+          "docs(repro): add steps for Radix hydration mismatch"
+        ],
+        "exit_code": 0,
+        "ms": 412
+      }
+    }
+  ]
+}

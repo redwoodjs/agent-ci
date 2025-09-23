@@ -1,0 +1,37 @@
+{
+  "segments": [
+    {
+      "title": "Fix useId() mismatch between SSR and client-side rendering",
+      "start_line": 6,
+      "end_line": 268,
+      "evidence_turns": [6, 7],
+      "files": [],
+      "commits": [
+        "bb06dfc",
+        "e7ee85c",
+        "0f2abd4",
+        "eb6cfb1",
+        "9b42274",
+        "9cfca60",
+        "20cb8d0",
+        "f39970d"
+      ],
+      "participants": ["justinvdm"],
+      "thread_keys": [],
+      "time_start": "2025-09-20T00:00:00Z",
+      "time_end": "2025-09-21T02:29:00Z"
+    },
+    {
+      "title": "Potential for useId collision in concurrent renders",
+      "start_line": 272,
+      "end_line": 288,
+      "evidence_turns": [276, 284],
+      "files": [],
+      "commits": [],
+      "participants": ["Tobbe", "justinvdm"],
+      "thread_keys": ["general"],
+      "time_start": "2025-09-20T00:00:00Z",
+      "time_end": "2025-09-20T00:00:00Z"
+    }
+  ]
+}

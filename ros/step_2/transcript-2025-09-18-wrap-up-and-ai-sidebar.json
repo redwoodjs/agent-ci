@@ -1,0 +1,63 @@
+{
+  "segments": [
+    {
+      "title": "Recap and Feature Flag for Radix `useId` Wrapper",
+      "summary": "Justin provides a recap, confirming that the Radix `useId` wrapper is implemented, notes are written, and the isolation/stream stitch approach is documented. Peter requests placing the fix behind a feature flag named `deterministicUseId` for opt-out capability, which Justin confirms is already done and enabled by default.",
+      "entities": ["Radix", "useId", "Peter", "Justin"],
+      "actions": [],
+      "decisions": [
+        "The Radix `useId` wrapper will be controlled by a feature flag named `deterministicUseId`, which is on by default."
+      ],
+      "tags": ["radix", "useid", "feature-flag", "recap", "documentation"],
+      "evidence_turns": [4, 5, 6],
+      "start_line": 4,
+      "end_line": 6,
+      "retrieval_summary": "Implement `useId` wrapper for radix behind `deterministicUseId` feature flag, enabled by default, to fix hydration issue."
+    },
+    {
+      "title": "AI Sidebar Duplicate Prompts Bug",
+      "summary": "Peter reports a bug in Machinen's AI sidebar where hitting enter twice queues duplicate prompts. Justin identifies the cause as a debounce in the input handler firing on both keyup and submit. He suggests consolidating to a single dispatch. Peter also proposes logging a prompt UUID at the edge for deduplication, leading to a plan for both a client-side guard and a server-side idempotency check.",
+      "entities": ["Machinen", "AI sidebar", "Peter", "Justin"],
+      "actions": [
+        "Justin: Consolidate the input handler to a single dispatch to prevent duplicate prompts.",
+        "Peter: Log prompt UUID at the edge for deduplication.",
+        "Justin: Implement a short-term client-side guard and a server-side idempotency check."
+      ],
+      "decisions": [],
+      "tags": [
+        "bug",
+        "machinen",
+        "ai",
+        "debounce",
+        "deduplication",
+        "idempotency"
+      ],
+      "evidence_turns": [7, 8, 9, 10],
+      "start_line": 7,
+      "end_line": 10,
+      "retrieval_summary": "Fix machinen AI sidebar duplicate prompts bug with client-side guard and server-side idempotency check using a prompt UUID."
+    },
+    {
+      "title": "Future Plans for Hydration Fix and React 19",
+      "summary": "Peter asks for any other important information regarding the hydration fix. Justin mentions that React 19 will provide a cleaner solution, and the temporary wrapper will be removed after the upgrade. He plans to open a tracking issue for this.",
+      "entities": ["React 19", "Peter", "Justin"],
+      "actions": [
+        "Justin: Open a tracking issue for removing the `useId` wrapper after upgrading to React 19."
+      ],
+      "decisions": [
+        "The `useId` wrapper is a temporary solution until the React 19 upgrade."
+      ],
+      "tags": [
+        "hydration",
+        "react",
+        "roadmap",
+        "technical-debt",
+        "tracking-issue"
+      ],
+      "evidence_turns": [11, 12, 13],
+      "start_line": 11,
+      "end_line": 13,
+      "retrieval_summary": "Plan to remove temporary `useId` wrapper after react_19 upgrade; Justin to open a tracking issue for technical debt."
+    }
+  ]
+}

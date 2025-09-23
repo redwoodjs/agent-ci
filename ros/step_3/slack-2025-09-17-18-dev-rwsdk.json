@@ -1,0 +1,151 @@
+{
+  "segments": [
+    {
+      "title": "Initial report of Radix component hydration mismatch",
+      "summary": "Peter reports a persistent Radix hydration mismatch warning. Justin confirms the issue with Dialog and Popover components and mentions having a `useId` wrapper as a potential fix. Amy asks for a minimal reproduction case, which Justin agrees to provide.",
+      "entities": [
+        "Radix",
+        "Warning: Prop id did not match",
+        "Dialog",
+        "Popover",
+        "useId"
+      ],
+      "actions": ["Justin: Push a tiny example after lunch."],
+      "decisions": [],
+      "tags": [
+        "radix",
+        "hydration-mismatch",
+        "bug-report",
+        "repro-request",
+        "useid"
+      ],
+      "evidence_turns": [6, 7],
+      "start_line": 6,
+      "end_line": 9,
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Peter", "Justin", "Amy"],
+      "time_start": "2025-09-17T10:29:11",
+      "time_end": "2025-09-17T10:32:12",
+      "retrieval_summary": "Report and investigate Radix hydration mismatch in Dialog and Popover components; plan to create a minimal reproduction and explore `useId` wrapper as a fix; bug-report, radix, hydration-mismatch."
+    },
+    {
+      "title": "Hydration warning in Link component",
+      "summary": "Peter notes a separate hydration warning in the `<Link>` component. Justin acknowledges it and suggests a fix by guarding the prefetch attribute to run only on the client-side.",
+      "entities": ["<Link>", "prefetch"],
+      "actions": [],
+      "decisions": [
+        "Guard `<Link>` prefetch attribute to be client-side only."
+      ],
+      "tags": ["link-component", "hydration-warning", "prefetch", "bug-report"],
+      "evidence_turns": [10, 11],
+      "start_line": 10,
+      "end_line": 11,
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Peter", "Justin"],
+      "time_start": "2025-09-17T10:33:20",
+      "time_end": "2025-09-17T10:34:02",
+      "retrieval_summary": "Fix Link component hydration warning by guarding the prefetch attribute to be client-side only; bug-report, link-component, prefetch."
+    },
+    {
+      "title": "Decision to implement useId wrapper for Radix fix",
+      "summary": "A decision is made to ship the `useId` wrapper for the Radix hydration issue as a short-term fix. Justin confirms the file path for the wrapper, and Amy requests a unit test to ensure its correctness.",
+      "entities": ["Radix", "React 19", "packages/web/useIdDeterministic.ts"],
+      "actions": [
+        "Amy: Please add a unit test that asserts stable IDs across SSR/CSR for two components rendered in different trees."
+      ],
+      "decisions": [
+        "Ship the `useId` wrapper for Radix hydration issue.",
+        "Document the React 19 path for the permanent fix."
+      ],
+      "tags": ["radix", "useid", "ssr", "csr", "testing", "decision"],
+      "evidence_turns": [12, 13, 14],
+      "start_line": 12,
+      "end_line": 14,
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Peter", "Justin", "Amy"],
+      "time_start": "2025-09-17T10:38:15",
+      "time_end": "2025-09-17T11:05:44",
+      "retrieval_summary": "Implement `useId` wrapper as a short-term fix for Radix hydration issue, with a new unit test to ensure stable IDs across SSR/CSR; decision, radix, useid."
+    },
+    {
+      "title": "Fix for duplicate symbols on prod builds (PR #752)",
+      "summary": "Justin confirms he will add the test. He also mentions that PR #752 fixed an issue with duplicate symbols in production builds. Peter will include both fixes in the release notes for Alpha 4.",
+      "entities": ["pr#752", "Alpha 4"],
+      "actions": ["Peter: Tag both fixes for Alpha 4 notes."],
+      "decisions": [],
+      "tags": ["pr-752", "duplicate-symbols", "release-notes", "alpha-4"],
+      "evidence_turns": [15, 16],
+      "start_line": 15,
+      "end_line": 16,
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Justin", "Peter"],
+      "time_start": "2025-09-17T11:09:31",
+      "time_end": "2025-09-17T11:10:02",
+      "retrieval_summary": "Acknowledge fix for duplicate symbols in production builds (pr#752) and plan to include in Alpha 4 release notes; duplicate-symbols, release-notes."
+    },
+    {
+      "title": "Reproduction steps for Radix hydration mismatch",
+      "summary": "In a thread, Amy provides specific steps to reproduce the Popover hydration mismatch, involving multiple reloads and keyboard interaction. Justin agrees to add these details to the reproduction steps.",
+      "entities": ["Popover"],
+      "actions": ["Justin: Include Amy's steps in the repro."],
+      "decisions": [],
+      "tags": ["radix", "hydration-mismatch", "repro-steps", "popover"],
+      "evidence_turns": [19, 20],
+      "start_line": 18,
+      "end_line": 21,
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": ["10:29:11"],
+      "participants": ["Amy", "Justin"],
+      "time_start": "2025-09-17T11:17:52",
+      "time_end": "2025-09-17T11:19:08",
+      "retrieval_summary": "Update Radix hydration mismatch reproduction steps to include detailed instructions from Amy involving reloads and keyboard interaction; repro-steps, popover."
+    },
+    {
+      "title": "Logistics and availability of Radix hydration repro app",
+      "summary": "Peter gives his availability. Justin later announces that the reproduction case for the Radix hydration issue has been pushed to `examples/radix-hydration-repro`.",
+      "entities": ["examples/radix-hydration-repro"],
+      "actions": [],
+      "decisions": [],
+      "tags": ["radix", "hydration-mismatch", "repro-app", "status-update"],
+      "evidence_turns": [22, 24],
+      "start_line": 22,
+      "end_line": 24,
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Peter", "Justin"],
+      "time_start": "2025-09-17T15:42:28",
+      "time_end": "2025-09-17T16:07:14",
+      "retrieval_summary": "Radix hydration issue reproduction case is available at `examples/radix-hydration-repro`; status-update, repro-app."
+    },
+    {
+      "title": "Follow-up on useId wrapper: feature flag and documentation",
+      "summary": "Justin provides an update on the `useId` wrapper: it is behind a feature flag `deterministicUseId` and documented. Peter requests a console warning for developers, which Justin agrees to add. Amy asks about regressions, and Justin reports none. Finally, Peter asks for a changelog explanation, and Justin provides the technical reason for the original issue.",
+      "entities": ["deterministicUseId", "useId"],
+      "actions": [
+        "Justin: Add a warning guard around typical Radix components.",
+        "Peter: Add a 'Why this happened' section to the changelog."
+      ],
+      "decisions": [],
+      "tags": [
+        "useid-wrapper",
+        "feature-flag",
+        "developer-experience",
+        "changelog",
+        "ssr"
+      ],
+      "evidence_turns": [27, 28, 32],
+      "start_line": 27,
+      "end_line": 34,
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Justin", "Peter", "Amy"],
+      "time_start": "2025-09-18T08:55:03",
+      "time_end": "2025-09-18T11:05:50",
+      "retrieval_summary": "Implement `useId` wrapper behind `deterministicUseId` feature flag with documentation and developer warnings; add changelog explanation for SSR issue; useid-wrapper, feature-flag."
+    }
+  ]
+}

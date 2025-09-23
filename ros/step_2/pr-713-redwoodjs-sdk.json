@@ -1,0 +1,21 @@
+{
+  "segments": [
+    {
+      "title": "Set redirect to manual",
+      "summary": "The PR changes the default redirect behavior to manual. The author notes this should have always been the default setting but is unsure what caused it to change.",
+      "entities": ["peterp", "65c65d6"],
+      "actions": [],
+      "decisions": ["Set default redirect behavior to 'manual'."],
+      "tags": ["bugfix", "redirect", "http", "default-setting"],
+      "evidence_turns": [6, 7],
+      "start_line": 6,
+      "end_line": 24,
+      "files": [],
+      "commits": ["65c65d6"],
+      "participants": ["peterp"],
+      "review_state": null,
+      "labels": [],
+      "state": "merged"
+    }
+  ]
+}

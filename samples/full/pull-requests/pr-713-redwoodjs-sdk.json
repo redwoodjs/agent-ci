@@ -1,0 +1,27 @@
+{
+  "repo": "redwoodjs/sdk",
+  "pr_number": 713,
+  "url": "https://github.com/redwoodjs/sdk/pull/713",
+  "state": "merged",
+  "title": "Set redirect to manual.",
+  "body": "I don't know what changed, but this should always have been the default.",
+  "author": "peterp",
+  "assignees": [],
+  "labels": [],
+  "milestone": null,
+  "created_at": "2025-09-10T00:00:00Z",
+  "updated_at": "2025-09-10T08:45:00Z",
+  "merged_at": "2025-09-10T00:00:00Z",
+  "commits": [
+    {
+      "sha": "65c65d6",
+      "title": "Set redirect to manual.",
+      "message": "Set redirect to manual.",
+      "author": "peterp",
+      "authored_at": "2025-09-10T00:00:00Z"
+    }
+  ],
+  "files_changed": [],
+  "reviews": [],
+  "comments": []
+}

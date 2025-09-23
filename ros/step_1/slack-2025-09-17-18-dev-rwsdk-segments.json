@@ -1,0 +1,81 @@
+{
+  "segments": [
+    {
+      "title": "Initial report of Radix component hydration mismatch",
+      "start_line": 6,
+      "end_line": 9,
+      "evidence_turns": [6, 7],
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Peter", "Justin", "Amy"],
+      "time_start": "2025-09-17T10:29:11",
+      "time_end": "2025-09-17T10:32:12"
+    },
+    {
+      "title": "Hydration warning in Link component",
+      "start_line": 10,
+      "end_line": 11,
+      "evidence_turns": [10, 11],
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Peter", "Justin"],
+      "time_start": "2025-09-17T10:33:20",
+      "time_end": "2025-09-17T10:34:02"
+    },
+    {
+      "title": "Decision to implement useId wrapper for Radix fix",
+      "start_line": 12,
+      "end_line": 14,
+      "evidence_turns": [12, 13, 14],
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Peter", "Justin", "Amy"],
+      "time_start": "2025-09-17T10:38:15",
+      "time_end": "2025-09-17T11:05:44"
+    },
+    {
+      "title": "Fix for duplicate symbols on prod builds (PR #752)",
+      "start_line": 15,
+      "end_line": 16,
+      "evidence_turns": [15, 16],
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Justin", "Peter"],
+      "time_start": "2025-09-17T11:09:31",
+      "time_end": "2025-09-17T11:10:02"
+    },
+    {
+      "title": "Reproduction steps for Radix hydration mismatch",
+      "start_line": 18,
+      "end_line": 21,
+      "evidence_turns": [19, 20],
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": ["10:29:11"],
+      "participants": ["Amy", "Justin"],
+      "time_start": "2025-09-17T11:17:52",
+      "time_end": "2025-09-17T11:19:08"
+    },
+    {
+      "title": "Logistics and availability of Radix hydration repro app",
+      "start_line": 22,
+      "end_line": 24,
+      "evidence_turns": [22, 24],
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Peter", "Justin"],
+      "time_start": "2025-09-17T15:42:28",
+      "time_end": "2025-09-17T16:07:14"
+    },
+    {
+      "title": "Follow-up on useId wrapper: feature flag and documentation",
+      "start_line": 27,
+      "end_line": 34,
+      "evidence_turns": [27, 28, 32],
+      "channels": ["#dev-rwsdk"],
+      "thread_ids": [],
+      "participants": ["Justin", "Peter", "Amy"],
+      "time_start": "2025-09-18T08:55:03",
+      "time_end": "2025-09-18T11:05:50"
+    }
+  ]
+}

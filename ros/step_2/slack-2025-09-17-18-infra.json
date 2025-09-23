@@ -1,0 +1,90 @@
+{
+  "segments": [
+    {
+      "title": "Cloudflare KV write spikes during CI",
+      "summary": "Amy reports write spikes in Cloudflare KV during CI runs. Justin suggests queuing non-critical writes to smooth them out, but Peter advises against changes before the 30th to maintain stability.",
+      "entities": ["Cloudflare KV", "CI"],
+      "actions": [],
+      "decisions": ["Avoid changes to the KV write process before the 30th."],
+      "tags": ["cloudflare-kv", "ci", "performance", "stability"],
+      "evidence_turns": [6, 7, 8],
+      "start_line": 6,
+      "end_line": 8,
+      "channels": ["#infra"],
+      "thread_ids": [],
+      "participants": ["Amy", "Justin", "Peter"],
+      "time_start": "2025-09-17T08:22:01",
+      "time_end": "2025-09-17T08:25:33"
+    },
+    {
+      "title": "Staging deployment status and verbose logging",
+      "summary": "Justin reports a successful staging deployment and a paused production deployment pending a patch. Peter notices verbose logs on staging, and Justin confirms it's from hydration debugging and will reduce the log level to 'warn'.",
+      "entities": ["Staging", "Prod"],
+      "actions": ["Justin: Reduce staging log level to 'warn'."],
+      "decisions": [],
+      "tags": ["deployment", "staging", "production", "logging", "debugging"],
+      "evidence_turns": [9, 10, 11],
+      "start_line": 9,
+      "end_line": 11,
+      "channels": ["#infra"],
+      "thread_ids": [],
+      "participants": ["Justin", "Peter"],
+      "time_start": "2025-09-17T12:12:07",
+      "time_end": "2025-09-17T12:14:02"
+    },
+    {
+      "title": "Brief office internet outage",
+      "summary": "Amy reports a brief internet outage at the office. Peter acknowledges the update.",
+      "entities": [],
+      "actions": [],
+      "decisions": [],
+      "tags": ["outage", "internet", "comms"],
+      "evidence_turns": [13, 14],
+      "start_line": 13,
+      "end_line": 14,
+      "channels": ["#infra"],
+      "thread_ids": [],
+      "participants": ["Amy", "Peter"],
+      "time_start": "2025-09-17T16:55:31",
+      "time_end": "2025-09-17T16:56:10"
+    },
+    {
+      "title": "Pinning Node.js and Miniflare versions in CI",
+      "summary": "Justin pins the Node.js version in CI to 20.15. At Amy's request, he also pins the Miniflare version to resolve a local mismatch and documents the change in CONTRIBUTING.",
+      "entities": ["Node.js", "Miniflare", "CI", "CONTRIBUTING"],
+      "actions": [
+        "Justin: Pin Miniflare version.",
+        "Justin: Add note to CONTRIBUTING."
+      ],
+      "decisions": [
+        "Pin Node.js version in CI to 20.15.",
+        "Pin Miniflare version in CI."
+      ],
+      "tags": ["ci", "dependencies", "node", "miniflare", "version-pinning"],
+      "evidence_turns": [18, 19, 20],
+      "start_line": 18,
+      "end_line": 20,
+      "channels": ["#infra"],
+      "thread_ids": [],
+      "participants": ["Justin", "Amy"],
+      "time_start": "2025-09-18T07:48:19",
+      "time_end": "2025-09-18T07:50:11"
+    },
+    {
+      "title": "KV TTL settings for transient AI prompts",
+      "summary": "Peter inquires about the TTL for AI prompts in KV storage. Justin confirms it has been set to 10 minutes.",
+      "entities": ["KV TTL", "AI"],
+      "actions": [],
+      "decisions": ["Set KV TTL for transient AI prompts to 10 minutes."],
+      "tags": ["cloudflare-kv", "ttl", "ai-prompts", "configuration"],
+      "evidence_turns": [21, 22],
+      "start_line": 21,
+      "end_line": 22,
+      "channels": ["#infra"],
+      "thread_ids": [],
+      "participants": ["Peter", "Justin"],
+      "time_start": "2025-09-18T10:41:26",
+      "time_end": "2025-09-18T10:42:08"
+    }
+  ]
+}

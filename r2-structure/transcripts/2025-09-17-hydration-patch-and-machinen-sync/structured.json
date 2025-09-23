@@ -1,0 +1,75 @@
+{
+  "segments": [
+    {
+      "title": "Radix useId Wrapper Implementation Status",
+      "summary": "Deterministic `useId` wrapper successfully implemented and working to resolve hydration mismatches. The wrapper stops mismatch issues on Popover, Dialog, and Tooltip components. While not aesthetically pleasing, the solution provides stability and will be kept in a small utility for easy removal later when migrating to React 19.",
+      "entities": [
+        "useId wrapper",
+        "Popover",
+        "Dialog",
+        "Tooltip",
+        "React 19",
+        "utility"
+      ],
+      "actions": [
+        "Justin: Implement deterministic useId wrapper",
+        "Justin: Keep wrapper in small utility"
+      ],
+      "decisions": [
+        "Ship the ugly fix for stability",
+        "Write migration note for React 19",
+        "Keep wrapper in utility for easy removal"
+      ],
+      "tags": ["radix", "useid", "wrapper", "hydration", "react-19", "utility"],
+      "evidence_turns": [4, 5, 6, 7],
+      "start_line": 4,
+      "end_line": 7
+    },
+    {
+      "title": "Machinen Transcript Segmentation Issue",
+      "summary": "Machinen experienced a transcript segmentation failure where diarization did not activate properly. Potential causes include KV lag, webhook retry ordering issues, or session boundary detection problems. A fallback mechanism exists to merge segments arriving within five minutes, and additional logging will be added around the lane join step.",
+      "entities": [
+        "Machinen",
+        "transcript segmentation",
+        "diarization",
+        "KV",
+        "webhook",
+        "session boundary"
+      ],
+      "actions": [
+        "Justin: Add logging around lane join step",
+        "Justin: Check segmentation pipeline after lunch",
+        "Peter: Investigate fallback mechanism"
+      ],
+      "decisions": [
+        "Add logging for KV lag detection",
+        "Cache in memory before commit if KV is laggy"
+      ],
+      "tags": [
+        "machinen",
+        "segmentation",
+        "diarization",
+        "kv",
+        "webhook",
+        "logging"
+      ],
+      "evidence_turns": [8, 9, 10, 11, 12, 13],
+      "start_line": 8,
+      "end_line": 13
+    },
+    {
+      "title": "Reproduction Steps Documentation",
+      "summary": "Documentation of reproduction steps for the Radix hydration issue: reload twice, open Dialog, observe mismatch warning. Console output will be captured and pasted into the worklog for reference.",
+      "entities": ["reproduction steps", "Dialog", "console output", "worklog"],
+      "actions": [
+        "Justin: Capture console output",
+        "Justin: Paste into worklog"
+      ],
+      "decisions": ["Document reproduction steps"],
+      "tags": ["reproduction", "dialog", "console", "worklog", "documentation"],
+      "evidence_turns": [14, 15],
+      "start_line": 14,
+      "end_line": 15
+    }
+  ]
+}

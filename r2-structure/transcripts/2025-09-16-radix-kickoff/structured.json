@@ -1,0 +1,74 @@
+{
+  "segments": [
+    {
+      "title": "Radix Hydration useId Mismatch",
+      "summary": "Radix hydration issue affecting Alpha 3 users due to `useId` counter divergence between server and client rendering. The problem occurs when Radix calls `useId` in SSR and the counter diverges on the client, causing hydration failures. React 19 would solve this automatically but the project is currently on React 18.",
+      "entities": [
+        "Radix",
+        "useId",
+        "SSR",
+        "React 18",
+        "React 19",
+        "Alpha 3",
+        "hydration"
+      ],
+      "actions": [
+        "Justin: Investigate useId path issue",
+        "Justin: Prototype deterministic wrapper"
+      ],
+      "decisions": [],
+      "tags": ["radix", "hydration", "useid", "react-18", "react-19", "ssr"],
+      "evidence_turns": [5, 6, 7, 9],
+      "start_line": 4,
+      "end_line": 11
+    },
+    {
+      "title": "Old vs. New Rendering Model Explanation",
+      "summary": "Explanation of rendering model changes from single pass to isolated app and document rendering with streaming and stitching. The new model keeps `useId` counters aligned by isolating app render and document render, streaming both, then stitching them together.",
+      "entities": [
+        "rendering model",
+        "streaming",
+        "stitching",
+        "useId counters"
+      ],
+      "actions": ["Justin: Write up the flow documentation"],
+      "decisions": [],
+      "tags": ["rendering", "streaming", "stitching", "model", "documentation"],
+      "evidence_turns": [12, 14],
+      "start_line": 12,
+      "end_line": 14
+    },
+    {
+      "title": "Action Plan for Radix Hydration Fix",
+      "summary": "Implementation plan for shipping the Radix hydration fix using a deterministic wrapper approach. The plan includes documenting the solution, implementing the patch, testing, and keeping the wrapper behind a feature flag if needed. Specific Radix components affected include Dialog, Popover, and form controls.",
+      "entities": [
+        "Dialog",
+        "Popover",
+        "form controls",
+        "feature flag",
+        "wrapper"
+      ],
+      "actions": [
+        "Justin: List affected Radix components",
+        "Justin: Push branch and draft notes",
+        "Peter: Document exact Radix components that throw"
+      ],
+      "decisions": [
+        "Ship the wrapper approach",
+        "Keep wrapper behind feature flag if needed",
+        "Document affected components"
+      ],
+      "tags": [
+        "radix",
+        "wrapper",
+        "feature-flag",
+        "dialog",
+        "popover",
+        "action-plan"
+      ],
+      "evidence_turns": [15, 17, 18],
+      "start_line": 15,
+      "end_line": 18
+    }
+  ]
+}

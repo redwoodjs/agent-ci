@@ -1,0 +1,101 @@
+{
+  "segments": [
+    {
+      "title": "Context: previous server rendering model",
+      "start_line": 1,
+      "end_line": 5,
+      "evidence_turns": [1],
+      "files": [],
+      "commits": [],
+      "participants": ["justinvdm"],
+      "thread_keys": ["general"],
+      "time_start": "2025-09-20T00:00:00Z",
+      "time_end": "2025-09-20T00:00:00Z"
+    },
+    {
+      "title": "Problem: useId hydration mismatch",
+      "start_line": 6,
+      "end_line": 12,
+      "evidence_turns": [6],
+      "files": [],
+      "commits": [],
+      "participants": ["justinvdm"],
+      "thread_keys": ["general"],
+      "time_start": "2025-09-20T00:00:00Z",
+      "time_end": "2025-09-20T00:00:00Z"
+    },
+    {
+      "title": "Solution: isolate renders and stitch streams",
+      "start_line": 13,
+      "end_line": 25,
+      "evidence_turns": [13, 20],
+      "files": [],
+      "commits": [],
+      "participants": ["justinvdm"],
+      "thread_keys": ["general"],
+      "time_start": "2025-09-20T00:00:00Z",
+      "time_end": "2025-09-20T00:00:00Z"
+    },
+    {
+      "title": "Benefit: Document becomes a Server Component",
+      "start_line": 26,
+      "end_line": 28,
+      "evidence_turns": [26],
+      "files": [],
+      "commits": [],
+      "participants": ["justinvdm"],
+      "thread_keys": ["general"],
+      "time_start": "2025-09-20T00:00:00Z",
+      "time_end": "2025-09-20T00:00:00Z"
+    },
+    {
+      "title": "Implementation commits for stream stitching",
+      "start_line": 29,
+      "end_line": 148,
+      "evidence_turns": [29],
+      "files": [],
+      "commits": [
+        "bb06dfc",
+        "e7ee85c",
+        "0f2abd4",
+        "3ffaf4b",
+        "eb6cfb1",
+        "b7baf81",
+        "32762c1",
+        "9b42274",
+        "c72d3f0",
+        "9cfca60",
+        "727f916"
+      ],
+      "participants": ["justinvdm"],
+      "thread_keys": ["general"],
+      "time_start": "2025-09-16T13:16:00Z",
+      "time_end": "2025-09-16T13:16:00Z"
+    },
+    {
+      "title": "ID collision risk across concurrent renders",
+      "start_line": 149,
+      "end_line": 152,
+      "evidence_turns": [149, 151],
+      "files": [],
+      "commits": [],
+      "participants": ["Tobbe", "justinvdm"],
+      "thread_keys": ["general"],
+      "time_start": "2025-09-20T00:00:00Z",
+      "time_end": "2025-09-20T00:00:00Z"
+    },
+    {
+      "title": "(revisit) Add identifier prefixes and update tests",
+      "start_line": 153,
+      "end_line": 205,
+      "evidence_turns": [153],
+      "files": [],
+      "commits": ["25ba65a", "0d4b8c3", "57b2c15"],
+      "participants": ["justinvdm"],
+      "thread_keys": ["general"],
+      "time_start": "2025-09-20T15:48:00Z",
+      "time_end": "2025-09-20T15:48:00Z"
+    }
+  ]
+}
+

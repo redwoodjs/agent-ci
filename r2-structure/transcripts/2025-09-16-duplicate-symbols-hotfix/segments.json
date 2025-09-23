@@ -1,0 +1,22 @@
+{
+  "segments": [
+    {
+      "title": "Duplicate Symbol Error Investigation",
+      "start_line": 4,
+      "end_line": 6,
+      "evidence_turns": [4, 5, 6]
+    },
+    {
+      "title": "Vite Configuration Fix Planning",
+      "start_line": 7,
+      "end_line": 11,
+      "evidence_turns": [7, 8, 9, 10, 11]
+    },
+    {
+      "title": "Hotfix Deployment Confirmation",
+      "start_line": 12,
+      "end_line": 13,
+      "evidence_turns": [12, 13]
+    }
+  ]
+}

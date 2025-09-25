@@ -2,19 +2,30 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "machinen",
   "main": "src/worker.tsx",
-  "compatibility_date": "2025-07-29",
+  "compatibility_date": "2025-09-24",
   "compatibility_flags": ["nodejs_compat"],
   "r2_buckets": [
+    // {
+    //   "binding": "CONTEXT_STREAM",
+    //   "bucket_name": "context-stream"
+    // },
     {
-      "binding": "CONTEXT_STREAM",
-      "bucket_name": "context-stream"
+      "binding": "MACHINEN_BUCKET",
+      "bucket_name": "machinen",
+      "remote": true
     }
   ],
-
   "ai": {
-    "binding": "AI"
+    "binding": "AI",
+    "remote": true
   },
-
+  "vectorize": [
+    {
+      "binding": "VECTORIZE",
+      "index_name": "machinen-segments",
+      "remote": true
+    }
+  ],
   "containers": [
     {
       "name": "Sandbox",

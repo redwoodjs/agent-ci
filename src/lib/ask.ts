@@ -88,7 +88,8 @@ function compactHit(h: any) {
 }
 
 export async function handleAsk(request: Request, env: Env) {
-  const { q, k = 40 } = await request.json();
+  const q = "radix";
+  const k = 40;
 
   // 1) Parse intent with LLM
   const intentJson = await callLLM(

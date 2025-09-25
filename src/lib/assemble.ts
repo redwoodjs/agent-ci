@@ -1,5 +1,15 @@
 export type SourceType = "meeting" | "chat" | "pr" | "issue";
 
+export async function embedWithWorkersAI(
+  AI: Ai,
+  text: string
+): Promise<number[]> {
+  // Model outputs 384-d vectors
+  const model = "@cf/baai/bge-base-en-v1.5";
+  const { data } = await AI.run(model as any, { text });
+  return data[0];
+}
+
 export interface StructuredSeg {
   title: string;
   summary: string;

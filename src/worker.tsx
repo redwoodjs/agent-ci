@@ -36,7 +36,8 @@ import {
   sanitizeMeetingMetadata,
 } from "./lib/assemble";
 
-import { sanitizeMetadata } from "./lib/assemble";
+import { sanitizeMetadata, embedWithWorkersAI } from "./lib/assemble";
+import { handleAsk } from "./lib/ask";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -84,6 +85,10 @@ const app = defineApp([
       ]),
     ]),
   ]),
+
+  route("/ask", function handler({ request }) {
+    return handleAsk(request, env);
+  }),
 
   route("/ingest/search", async ({ request }) => {
     // get string
@@ -242,16 +247,6 @@ const app = defineApp([
     // return Response.json({ text });
   }),
 ]);
-
-export async function embedWithWorkersAI(
-  AI: Ai,
-  text: string
-): Promise<number[]> {
-  // Model outputs 384-d vectors
-  const model = "@cf/baai/bge-base-en-v1.5";
-  const { data } = await AI.run(model as any, { text });
-  return data[0];
-}
 
 export { Sandbox } from "@cloudflare/sandbox";
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";

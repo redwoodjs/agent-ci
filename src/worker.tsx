@@ -27,6 +27,7 @@ import { previewRoutes } from "./app/pages/preview/routes";
 
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
 import { contextStreamRoutes } from "./app/pages/context-stream/routes";
+import { streamRoutes } from "./app/pages/streams/routes";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -58,21 +59,22 @@ const app = defineApp([
           headers: { Location: "/projects" },
         }),
     ]),
-    prefix("/auth", authRoutes),
-    prefix("/dox", doExploreRoutes),
-    prefix("/projects", projectRoutes),
+    // prefix("/auth", authRoutes),
+    // prefix("/dox", doExploreRoutes),
+    // prefix("/projects", projectRoutes),
+    prefix("/streams", streamRoutes),
 
-    layout(TaskLayout, [
-      prefix("/tasks/:containerId", [
-        ...taskRoutes,
-        prefix("/transcript", transcriptRoutes),
-        prefix("/chat", chatRoutes),
-        prefix("/logs", logsRoutes),
-        prefix("/editor", editorRoutes),
-        prefix("/term", termRoutes),
-        prefix("/preview", previewRoutes),
-      ]),
-    ]),
+    // layout(TaskLayout, [
+    //   prefix("/tasks/:containerId", [
+    //     ...taskRoutes,
+    //     prefix("/transcript", transcriptRoutes),
+    //     prefix("/chat", chatRoutes),
+    //     prefix("/logs", logsRoutes),
+    //     prefix("/editor", editorRoutes),
+    //     prefix("/term", termRoutes),
+    //     prefix("/preview", previewRoutes),
+    //   ]),
+    // ]),
   ]),
 
   prefix("/cs", contextStreamRoutes),

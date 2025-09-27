@@ -10,70 +10,28 @@ import {
 } from "@/app/components/ui/table";
 import { Stream } from "../../../types";
 import { MoreHorizontal, ExternalLink, RefreshCw } from "lucide-react";
+import { db } from "@/db";
 
 interface SourcesViewProps {
   stream: Stream;
 }
 
-const mockSources = [
-  {
-    id: 1,
-    type: "Tickets",
-    name: "redwoodjs/sdk",
-    url: "https://github.com/redwoodjs/sdk",
-    description: "redwoodjs/sdk",
-    lastSync: "2h ago",
-    status: "Active",
-    items: 3,
-    size: "2.3MB",
-  },
-  {
-    id: 1,
-    type: "Pull Requests",
-    name: "redwoodjs/sdk",
-    url: "https://github.com/redwoodjs/sdk",
-    description: "redwoodjs/sdk",
-    lastSync: "2h ago",
-    status: "Active",
-    items: 3,
-    size: "2.3MB",
-  },
-  {
-    id: 2,
-    type: "Transcripts",
-    name: "Technical discussions",
-    url: "",
-    description: "Discord",
-    lastSync: "1d ago",
-    status: "Active",
-    items: 3,
-    size: "2.3MB",
-  },
-  {
-    id: 3,
-    type: "Chat",
-    name: "RedwoodSDK Discord",
-    url: "https://discord.gg/redwoodjs",
-    description: "#sdk, #general",
-    lastSync: "15m ago",
-    status: "Syncing",
-    items: 324,
-    size: "1.1MB",
-  },
-  {
-    id: 3,
-    type: "Machine",
-    name: "Devcontainers",
-    url: "https://discord.gg/redwoodjs",
-    description: "Peter, Justin, & Herman",
-    lastSync: "6h ago",
-    status: "Active",
-    items: 324,
-    size: "1.1MB",
-  },
-];
+function formatRelativeTime(isoString: string) {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
 
-export function SourcesView({ stream }: SourcesViewProps) {
+  const minutes = Math.floor(diffMs / (1000 * 60));
+  const hours = Math.floor(diffMs / (1000 * 60 * 60));
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (minutes < 60) return `${minutes}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+export async function SourcesView({ stream }: SourcesViewProps) {
+  const sources = await db.selectFrom("sources").selectAll().execute();
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "Active":
@@ -112,27 +70,26 @@ export function SourcesView({ stream }: SourcesViewProps) {
                 <TableHead className="w-[300px]">Source</TableHead>
                 <TableHead>Type</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Items</TableHead>
-                <TableHead className="text-right">Size</TableHead>
-                <TableHead>Last Sync</TableHead>
+                <TableHead>Bucket</TableHead>
                 <TableHead className="w-[70px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {mockSources.map((source) => (
+              {sources.map((source) => (
                 <TableRow key={source.id} className="group">
                   <TableCell>
                     <div className="flex flex-col">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{source.name}</span>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                          onClick={() => window.open(source.url, "_blank")}
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                        </Button>
+                        {source.url && (
+                          <a
+                            href={source.url}
+                            target="_blank"
+                            className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </a>
+                        )}
                       </div>
                       <span className="text-sm text-muted-foreground">
                         {source.description}
@@ -143,14 +100,8 @@ export function SourcesView({ stream }: SourcesViewProps) {
                     <Badge variant="outline">{source.type}</Badge>
                   </TableCell>
                   <TableCell>{getStatusBadge(source.status)}</TableCell>
-                  <TableCell className="text-right font-mono text-sm">
-                    {source.items.toLocaleString()}
-                  </TableCell>
-                  <TableCell className="text-right font-mono text-sm">
-                    {source.size}
-                  </TableCell>
                   <TableCell className="text-sm text-muted-foreground">
-                    {source.lastSync}
+                    {source.bucket}
                   </TableCell>
                   <TableCell>
                     <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
@@ -164,7 +115,7 @@ export function SourcesView({ stream }: SourcesViewProps) {
         </div>
 
         <div className="mt-4 text-sm text-muted-foreground">
-          Showing {mockSources.length} of {mockSources.length} sources
+          Showing {sources.length} of {sources.length} sources
         </div>
       </div>
     </div>

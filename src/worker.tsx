@@ -60,7 +60,7 @@ const app = defineApp([
         }),
     ]),
     // prefix("/auth", authRoutes),
-    // prefix("/dox", doExploreRoutes),
+    prefix("/dox", doExploreRoutes),
     // prefix("/projects", projectRoutes),
     prefix("/streams", streamRoutes),
 

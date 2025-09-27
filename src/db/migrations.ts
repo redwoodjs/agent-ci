@@ -381,4 +381,28 @@ export const migrations = {
           .execute();
     },
   },
+
+  "013_add_sources_table": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("sources")
+          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("type", "text", (col) => col.notNull())
+          .addColumn("name", "text", (col) => col.notNull())
+          .addColumn("url", "text")
+          .addColumn("description", "text", (col) => col.notNull())
+          .addColumn("status", "text", (col) => col.notNull())
+          .addColumn("bucket", "text", (col) =>
+            col.notNull().defaultTo("default")
+          )
+          .addColumn("createdAt", "text", (col) => col.notNull())
+          .addColumn("updatedAt", "text", (col) => col.notNull())
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("sources").execute();
+    },
+  },
 } satisfies Migrations;

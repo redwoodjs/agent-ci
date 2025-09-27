@@ -4,8 +4,6 @@
 
 - `pnpm run build` - Build the project with Vite
 - `pnpm run dev` - Start development server with hot reload
-- `pnpm run types` - Run TypeScript type checking
-- `pnpm run check` - Generate types and run type checking
 - `pnpm run generate` - Generate Wrangler types
 - No test scripts defined - check for testing setup before assuming test frameworks
 
@@ -26,6 +24,7 @@
 - **ID Variables**: Use "ID" suffix for identifier variables (e.g., `streamID`, `sectionID`, `userID`)
 - **File organization**: Co-locate related routes in `src/app/pages/<section>/routes.tsx`. All files must be lowercase and snake-case.
 - **Comments**: Do not add comments unless explicitly requested
+- **Type checking** Do not check types
 
 ## RedwoodSDK Patterns
 

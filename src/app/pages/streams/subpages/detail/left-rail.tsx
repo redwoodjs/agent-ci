@@ -20,9 +20,11 @@ const sections = [
 
 export function LeftRail({
   activeSection,
-  onSectionChange,
   stream,
-}: LeftRailProps) {
+}: {
+  activeSection: string;
+  stream: Stream;
+}) {
   const handleSectionClick = (sectionID: string) => {
     window.location.href = `/streams/${stream.id}/${sectionID}`;
   };

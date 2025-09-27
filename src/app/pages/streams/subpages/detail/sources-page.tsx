@@ -20,7 +20,7 @@ export function SourcesPage({ params }: SourcesPageProps) {
 
   if (!stream) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-white flex items-center justify-center">
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-2">Stream not found</h1>
           <p className="text-muted-foreground">The stream you're looking for doesn't exist.</p>
@@ -33,7 +33,7 @@ export function SourcesPage({ params }: SourcesPageProps) {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-white">
       <StreamHeader stream={stream} onBack={handleBack} />
       
       <div className="flex h-[calc(100vh-80px)]">

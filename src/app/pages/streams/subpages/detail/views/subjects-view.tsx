@@ -50,7 +50,7 @@ export function SubjectsView({ stream }: SubjectsViewProps) {
   };
 
   return (
-    <div className="flex-1 p-6">
+    <div className="flex-1 p-6 bg-white">
       <div className="max-w-4xl mx-auto">
         <div className="mb-6">
           <h2 className="text-xl font-semibold mb-2">Subjects</h2>
@@ -61,7 +61,7 @@ export function SubjectsView({ stream }: SubjectsViewProps) {
 
         <div className="grid gap-4">
           {mockSubjects.map((subject) => (
-            <Card key={subject.id} className="p-6">
+            <Card key={subject.id} className="p-6 bg-white border border-gray-200">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">

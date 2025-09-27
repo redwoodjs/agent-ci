@@ -9,7 +9,7 @@ import { Stream } from "../types";
 export function StreamCard({ stream }: { stream: Stream }) {
   return (
     <Card
-      className="p-6 hover:bg-accent/50 cursor-pointer transition-colors"
+      className="p-6 hover:bg-gray-50 cursor-pointer transition-colors border border-gray-200"
       style={{ pointerEvents: "auto" }}
     >
       <div className="flex items-start justify-between">

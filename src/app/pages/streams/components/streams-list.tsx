@@ -6,11 +6,11 @@ import { Stream } from "../types";
 
 export function StreamsList({ streams }: { streams: Stream[] }) {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-white">
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="mb-2">Streams</h1>
+            <h1 className="mb-2 text-2xl text-black font-bold">Streams</h1>
             <p className="text-muted-foreground">
               Streams are knowledge containers that group related subjects.
             </p>

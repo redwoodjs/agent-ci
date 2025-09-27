@@ -1,22 +1,16 @@
-"use client";
-
 import { StreamHeader } from "./components/stream-header";
 import { LeftRail } from "./components/left-rail";
-import { SubjectsView } from "./views/subjects-view";
+import { EntriesView } from "./views/entries-view";
 import { mockStreams } from "../../mock-data";
 
-interface SubjectsPageProps {
+interface SourcesPageProps {
   params: {
     streamID: string;
   };
 }
 
-export function SubjectsPage({ params }: SubjectsPageProps) {
+export function EntriesPage({ params }: SourcesPageProps) {
   const stream = mockStreams.find((s) => s.id === params.streamID);
-
-  const handleBack = () => {
-    window.location.href = "/streams";
-  };
 
   if (!stream) {
     return (
@@ -39,16 +33,12 @@ export function SubjectsPage({ params }: SubjectsPageProps) {
 
   return (
     <div className="min-h-screen bg-white">
-      <StreamHeader stream={stream} onBack={handleBack} />
+      <StreamHeader stream={stream} />
 
       <div className="flex h-[calc(100vh-80px)]">
-        <LeftRail
-          activeSection="subjects"
-          onSectionChange={() => {}}
-          stream={stream}
-        />
+        <LeftRail activeSection="entries" stream={stream} />
 
-        <SubjectsView stream={stream} />
+        <EntriesView stream={stream} />
       </div>
     </div>
   );

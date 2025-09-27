@@ -1,7 +1,7 @@
 "use client";
 
-import { StreamHeader } from "./stream-header";
-import { LeftRail } from "./left-rail";
+import { StreamHeader } from "./components/stream-header";
+import { LeftRail } from "./components/left-rail";
 import { TimelineView } from "./views/timeline-view";
 import { mockStreams } from "../../mock-data";
 

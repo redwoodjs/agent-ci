@@ -3,7 +3,7 @@
 import { ArrowLeft, Download } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import { Badge } from "@/app/components/ui/badge";
-import { Stream } from "../../types";
+import { Stream } from "../../../types";
 
 interface StreamHeaderProps {
   stream: Stream;

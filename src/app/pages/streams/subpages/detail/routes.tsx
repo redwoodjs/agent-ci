@@ -3,9 +3,11 @@ import { AskPage } from "./ask-page";
 import { SourcesPage } from "./sources-page";
 import { TimelinePage } from "./timeline-page";
 import { SubjectsPage } from "./subjects-page";
+import { EntriesPage } from "./entries-page";
 
 export const detailRoutes = [
   route("/ask", AskPage),
+  route("/entries", EntriesPage),
   route("/sources", SourcesPage),
   route("/timeline", TimelinePage),
   route("/subjects", SubjectsPage),

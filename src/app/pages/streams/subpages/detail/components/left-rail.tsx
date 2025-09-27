@@ -1,9 +1,8 @@
-"use client";
+import { MessageSquare, Clock, Tag, Bot, FileText } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-import { MessageSquare, Clock, Tag, Bot } from "lucide-react";
-import { Button } from "@/app/components/ui/button";
 import { Badge } from "@/app/components/ui/badge";
-import { Stream } from "../../types";
+import { Stream } from "../../../types";
 
 interface LeftRailProps {
   activeSection: string;
@@ -13,6 +12,7 @@ interface LeftRailProps {
 
 const sections = [
   { id: "ask", label: "Ask", icon: MessageSquare, count: null },
+  { id: "entries", label: "Entries", icon: FileText, count: null },
   { id: "timeline", label: "Timeline", icon: Clock, count: null },
   { id: "subjects", label: "Subjects", icon: Tag, count: null },
   { id: "sources", label: "Sources", icon: Bot, count: null },
@@ -25,10 +25,6 @@ export function LeftRail({
   activeSection: string;
   stream: Stream;
 }) {
-  const handleSectionClick = (sectionID: string) => {
-    window.location.href = `/streams/${stream.id}/${sectionID}`;
-  };
-
   return (
     <div className="w-64 border-r bg-white border-gray-200 p-4">
       <nav className="space-y-1">
@@ -38,11 +34,12 @@ export function LeftRail({
           const count = section.count;
 
           return (
-            <Button
-              key={section.id}
-              variant={isActive ? "secondary" : "ghost"}
-              className="w-full justify-start"
-              onClick={() => handleSectionClick(section.id)}
+            <a
+              href={`/streams/${stream.id}/${section.id}`}
+              className={cn(
+                "w-full justify-start p-2 rounded-md flex items-center",
+                isActive && "bg-gray-100"
+              )}
             >
               <Icon className="w-4 h-4 mr-3" />
               {section.label}
@@ -51,7 +48,7 @@ export function LeftRail({
                   {count}
                 </Badge>
               )}
-            </Button>
+            </a>
           );
         })}
       </nav>

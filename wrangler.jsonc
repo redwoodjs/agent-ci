@@ -2,7 +2,7 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "machinen",
   "main": "src/worker.tsx",
-  "compatibility_date": "2025-09-24",
+  "compatibility_date": "2025-09-25",
   "compatibility_flags": ["nodejs_compat"],
   "r2_buckets": [
     // {
@@ -19,13 +19,6 @@
     "binding": "AI",
     "remote": true
   },
-  "vectorize": [
-    {
-      "binding": "VECTORIZE",
-      "index_name": "machinen-segments",
-      "remote": true
-    }
-  ],
   "containers": [
     {
       "name": "Sandbox",

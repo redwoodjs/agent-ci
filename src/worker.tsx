@@ -10,8 +10,6 @@ import { Document } from "@/app/Document";
 import { auth } from "@/app/pages/auth/auth";
 import { requireAuth } from "./app/pages/auth/interruptors";
 import { setCommonHeaders } from "./app/headers";
-import { recordPageview } from "@/app/services/pageviews";
-import { db } from "@/db";
 
 import { authRoutes } from "./app/pages/auth/routes";
 
@@ -28,16 +26,7 @@ import { termRoutes } from "./app/pages/term/routes";
 import { previewRoutes } from "./app/pages/preview/routes";
 
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
-import {
-  assemblePRSegmentsFromObjects,
-  type StructuredSeg,
-  type RetrievalSeg,
-  assembleMeetingSegmentsFromObjects,
-  sanitizeMeetingMetadata,
-} from "./lib/assemble";
-
-import { sanitizeMetadata, embedWithWorkersAI } from "./lib/assemble";
-import { handleAsk } from "./lib/ask";
+import { contextStreamRoutes } from "./app/pages/context-stream/routes";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -56,7 +45,7 @@ const app = defineApp([
         ctx.user = session.user;
       }
     } catch (error) {
-      console.error("Session error:", error);
+      // console.error("Session error:", error);
     }
   },
 
@@ -86,166 +75,7 @@ const app = defineApp([
     ]),
   ]),
 
-  route("/ask", function handler({ request }) {
-    return handleAsk(request, env);
-  }),
-
-  route("/ingest/search", async ({ request }) => {
-    // get string
-    const q = "radix";
-    const k = 5;
-    const queryVec = await embedWithWorkersAI(env.AI!, q);
-    // @ts-ignore
-    const results = await env.VECTORIZE.query(queryVec, { topK: k });
-    return new Response(JSON.stringify(results, null, 2), {
-      headers: { "content-type": "application/json" },
-    });
-  }),
-
-  route("/ingest/meetings", async ({ request }) => {
-    // grab all the meetings.
-    const meetings = await env.MACHINEN_BUCKET.list({
-      prefix: "meetings/",
-      delimiter: "/",
-    });
-
-    for (const meeting of meetings.delimitedPrefixes) {
-      const [_, meetingId] = meeting.split("/");
-      const structured = await env.MACHINEN_BUCKET.get(
-        `meetings/${meetingId}/structured.json`
-      );
-      const retrieval = await env.MACHINEN_BUCKET.get(
-        `meetings/${meetingId}/retrieval.json`
-      );
-
-      const structuredText = await structured?.text();
-      const retrievalText = await retrieval?.text();
-
-      if (!structuredText || !retrievalText) {
-        console.log(`No structured or retrieval text for ${meeting}`);
-        continue;
-      }
-
-      const structuredJson = JSON.parse(structuredText) as {
-        segments: StructuredSeg[];
-      };
-      const retrievalJson = JSON.parse(retrievalText) as {
-        segments: RetrievalSeg[];
-      };
-
-      const docs = await assembleMeetingSegmentsFromObjects({
-        meetingId,
-        structuredSegments: structuredJson.segments,
-        retrievalSegments: retrievalJson.segments,
-        // participants: ["Peter","Justin","Amy"],   // optional meeting-level context
-        // time_start: "2025-09-21T12:34:00Z",
-        // time_end: "2025-09-21T12:42:00Z"
-      });
-
-      for (const seg of docs) {
-        const metadata = sanitizeMeetingMetadata(seg);
-        // console.log(metadata);
-
-        const values = await embedWithWorkersAI(env.AI, seg.retrieval_summary);
-        const x = await env.VECTORIZE.upsert([
-          { id: seg.id, values, metadata },
-        ]);
-        console.log(x);
-      }
-    }
-
-    return new Response("1", {});
-
-    // fetch the raw files from machinen bucket.
-    // const { text } = await request.json();
-    // return Response.json({ text });
-  }),
-
-  route("/ingest/pr/:prID", async ({ request }) => {
-    const prID = "redwoodjs-sdk-pr-752";
-
-    const segments = await env.MACHINEN_BUCKET.get(`prs/${prID}/segments.json`);
-    const structured = await env.MACHINEN_BUCKET.get(
-      `prs/${prID}/structured.json`
-    );
-    const retrieval = await env.MACHINEN_BUCKET.get(
-      `prs/${prID}/retrieval.json`
-    );
-
-    // const segmentsText = await segments?.text();
-    const structuredText = await structured?.text();
-    const retrievalText = await retrieval?.text();
-
-    if (!structuredText || !retrievalText) {
-      return new Response("No segments or structured text found", {
-        status: 404,
-      });
-    }
-
-    // const segmentsJson = JSON.parse(segmentsText);
-    const structuredJson = JSON.parse(structuredText) as {
-      segments: StructuredSeg[];
-    };
-    const retrievalJson = JSON.parse(retrievalText) as {
-      segments: RetrievalSeg[];
-    };
-
-    const docs = await assemblePRSegmentsFromObjects({
-      retrievalSegments: retrievalJson.segments,
-      structuredSegments: structuredJson.segments,
-      repo: "redwoodjs/sdk",
-      pr_number: 752,
-      // state: "open",
-      // merged_at: "2025-09-24",
-      // labels: ["feature", "bug"],
-    });
-
-    for (const seg of docs) {
-      const values = await embedWithWorkersAI(env.AI, seg.retrieval_summary);
-      // const body = JSON.stringify({
-      //   id: d.id,
-      //   text: d.retrieval_summary, // <-- embedding text
-      //   metadata: {
-      //     ...d, // includes all structured fields in d.metadata
-      //     text_for_embedding: undefined, // keep payload lean
-      //   },
-      // });
-
-      const metadata = {
-        source_type: seg.source_type,
-        source_id: seg.source_id,
-        segment_index: seg.segment_index,
-        title: seg.title,
-        summary: seg.metadata?.summary,
-        entities: seg.metadata?.entities,
-        files: seg.metadata?.files,
-        commits: seg.metadata?.commits,
-        decisions: seg.metadata?.decisions,
-        tags: seg.metadata?.tags,
-        review_state: seg.metadata?.review_state,
-        state: seg.metadata?.state,
-        time_start: seg.metadata?.time_start,
-        time_end: seg.metadata?.time_end,
-      };
-
-      await env.VECTORIZE.upsert([{ id: seg.id, values, metadata }]);
-    }
-
-    return new Response(
-      JSON.stringify({
-        docs,
-      }),
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    // fetch the raw files from machinen bucket.
-    // const { text } = await request.json();
-    // return Response.json({ text });
-  }),
+  prefix("/cs", contextStreamRoutes),
 ]);
 
 export { Sandbox } from "@cloudflare/sandbox";

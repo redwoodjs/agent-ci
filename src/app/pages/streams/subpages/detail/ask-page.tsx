@@ -4,8 +4,8 @@ import { useState } from "react";
 import { Send, Paperclip } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
-import { StreamHeader } from "./components/stream-header";
-import { LeftRail } from "./components/left-rail";
+// import { StreamHeader } from "./components/stream-header";
+// import { LeftRail } from "./components/left-rail";
 import { ConversationView } from "./views/conversation-view";
 import { mockStreams } from "../../mock-data";
 
@@ -50,14 +50,14 @@ export function AskPage({ params }: AskPageProps) {
 
   return (
     <div className="min-h-screen bg-white">
-      <StreamHeader stream={stream} onBack={handleBack} />
+      {/* <StreamHeader stream={stream} onBack={handleBack} /> */}
 
       <div className="flex h-[calc(100vh-80px)]">
-        <LeftRail
+        {/* <LeftRail
           activeSection="ask"
           onSectionChange={() => {}} // Navigation handled by URL changes
           stream={stream}
-        />
+        /> */}
 
         <div className="flex-1 flex flex-col">
           <div className="p-6 border-b bg-white border-gray-200">

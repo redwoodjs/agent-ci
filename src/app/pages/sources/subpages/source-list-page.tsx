@@ -1,22 +1,32 @@
 import { Search } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
-import { StreamCard } from "./stream-card";
-import { Stream } from "../types";
 
-export function StreamsList({ streams }: { streams: Stream[] }) {
+import { db } from "@/db";
+import { SourcesView } from "@/app/components/views/sources-view";
+
+export async function SourceListPage() {
+  const sources = await db
+    .selectFrom("sources")
+    .leftJoin("artifacts", "artifacts.sourceID", "sources.id")
+
+    .selectAll("sources")
+    .select((eb) => eb.fn.count<number>("artifacts.id").as("artifactCount"))
+    .groupBy("sources.id")
+    .execute();
+
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-6xl mx-auto px-6 py-8">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="mb-2 text-2xl text-black font-bold">Streams</h1>
+            <h1 className="mb-2 text-2xl text-black font-bold">Sources</h1>
             <p className="text-muted-foreground">
-              Streams are knowledge containers that group related subjects.
+              Sources produce artifacts that are parsed into subjects
             </p>
           </div>
           <Button className="bg-green-600 hover:bg-green-700">
-            Create stream
+            Create source
           </Button>
         </div>
 
@@ -25,19 +35,7 @@ export function StreamsList({ streams }: { streams: Stream[] }) {
           <Input placeholder="Search..." className="pl-10" />
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-8">
-          <div>
-            <div className="space-y-4">
-              {streams.map((stream) => (
-                <StreamCard key={stream.id} stream={stream} />
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-8">
-            {/* Placeholder for discovered subjects section */}
-          </div>
-        </div>
+        <SourcesView sources={sources} />
       </div>
     </div>
   );

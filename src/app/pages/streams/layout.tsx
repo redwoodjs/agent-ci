@@ -1,20 +1,14 @@
-import { StreamHeader } from "./components/stream-header";
+import { db } from "@/db";
+import { PageHeader } from "@/app/components/page-header";
 import { LeftRail } from "./components/left-rail";
-import { SourcesView } from "./views/sources-view";
-import { mockStreams } from "../../mock-data";
+import { LayoutProps } from "rwsdk/router";
 
-interface SourcesPageProps {
-  params: {
-    streamID: string;
-  };
-}
-
-export function SourcesPage({ params }: SourcesPageProps) {
-  const stream = mockStreams.find((s) => s.id === params.streamID);
-
-  const handleBack = () => {
-    window.location.href = "/streams";
-  };
+export async function StreamLayout({ requestInfo, children }: LayoutProps) {
+  const stream = await db
+    .selectFrom("streams")
+    .selectAll()
+    .where("id", "=", requestInfo?.params?.streamID)
+    .executeTakeFirstOrThrow();
 
   if (!stream) {
     return (
@@ -37,12 +31,12 @@ export function SourcesPage({ params }: SourcesPageProps) {
 
   return (
     <div className="min-h-screen bg-white">
-      <StreamHeader stream={stream} />
+      <PageHeader title={stream.name} />
 
       <div className="flex h-[calc(100vh-80px)]">
-        <LeftRail activeSection="sources" stream={stream} />
+        <LeftRail />
 
-        <SourcesView stream={stream} />
+        {children}
       </div>
     </div>
   );

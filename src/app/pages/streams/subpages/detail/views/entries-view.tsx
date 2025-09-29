@@ -1,6 +1,7 @@
 import { Badge } from "@/app/components/ui/badge";
 import { Stream } from "../../../types";
 import { ExternalLink } from "lucide-react";
+import { db } from "@/db";
 
 interface EntriesViewProps {
   stream: Stream;
@@ -19,40 +20,20 @@ interface FileItem {
   entries: FileEntry[];
 }
 
-const mockFiles: FileItem[] = [
-  {
-    filePath: "src/app/pages/streams/subpages/detail/views/entries-view.tsx",
-    repoUrl:
-      "https://github.com/redwoodjs/machinen/blob/main/src/app/pages/streams/subpages/detail/views/entries-view.tsx",
-    entries: [
-      {
-        lineStart: 33,
-        lineEnd: 45,
-        subjects: ["Entries UI", "Server Components"],
-        excerptText:
-          'export async function EntriesView({ stream }: EntriesViewProps) {\n  // server-rendered list using mock data\n  return (\n    <div className="flex-1 p-6 bg-white">\n      <div className="max-w-7xl mx-auto">',
-      },
-    ],
-  },
-  {
-    filePath: "src/lib/assemble.ts",
-    repoUrl:
-      "https://github.com/redwoodjs/machinen/blob/main/src/lib/assemble.ts",
-    entries: [
-      {
-        lineStart: 13,
-        lineEnd: 24,
-        subjects: ["Segments", "Evidence Lines"],
-        excerptText:
-          "export interface StructuredSeg {\n  title: string;\n  summary: string;\n  entities: string[];\n  actions: string[];\n  decisions: string[];\n  tags: string[];\n  evidence_turns: number[];",
-      },
-    ],
-  },
-];
+type DbEntryRow = {
+  id: string;
+  source_id: string;
+  bucket_path: string;
+  subject_id: string;
+  ranges: string;
+  created_at: string;
+  updated_at: string;
+};
 
 function CodeExcerpt({ entry }: { entry: FileEntry }) {
-  const lines = entry.excerptText.split("\n");
   const total = entry.lineEnd - entry.lineStart + 1;
+  const baseLines = entry.excerptText ? entry.excerptText.split("\n") : [];
+  const lines = baseLines.length > 0 ? baseLines : Array(total).fill("");
   const numbers = Array.from({ length: total }, (_, i) => entry.lineStart + i);
 
   return (
@@ -74,7 +55,61 @@ function CodeExcerpt({ entry }: { entry: FileEntry }) {
 }
 
 export async function EntriesView({ stream }: EntriesViewProps) {
-  const files = mockFiles;
+  const rows = (await db
+    .selectFrom("entries")
+    .selectAll()
+    .execute()) as DbEntryRow[];
+
+  const byPath = new Map<string, FileItem>();
+  for (const row of rows) {
+    let parsed: any = [];
+    try {
+      parsed = JSON.parse(row.ranges);
+    } catch {}
+
+    const normalized: FileEntry[] = Array.isArray(parsed)
+      ? parsed.map((r: any) => ({
+          lineStart:
+            typeof r?.lineStart === "number"
+              ? r.lineStart
+              : Array.isArray(r)
+              ? r[0] ?? 0
+              : 0,
+          lineEnd:
+            typeof r?.lineEnd === "number"
+              ? r.lineEnd
+              : Array.isArray(r)
+              ? r[1] ?? 0
+              : 0,
+          subjects: [row.subject_id],
+          excerptText: typeof r?.excerptText === "string" ? r.excerptText : "",
+        }))
+      : [];
+
+    if (!byPath.has(row.bucket_path)) {
+      byPath.set(row.bucket_path, {
+        filePath: row.bucket_path,
+        entries: [],
+      });
+    }
+
+    const item = byPath.get(row.bucket_path)!;
+    for (const entry of normalized) {
+      const existing = item.entries.find(
+        (e) => e.lineStart === entry.lineStart && e.lineEnd === entry.lineEnd
+      );
+      if (existing) {
+        const set = new Set([...existing.subjects, ...entry.subjects]);
+        existing.subjects = Array.from(set);
+        if (!existing.excerptText && entry.excerptText)
+          existing.excerptText = entry.excerptText;
+      } else {
+        item.entries.push(entry);
+      }
+    }
+  }
+
+  const files = Array.from(byPath.values());
 
   return (
     <div className="flex-1 p-6 bg-white">

@@ -1,4 +1,5 @@
 import { type Migrations } from "rwsdk/db";
+import { sql } from "kysely";
 
 export const migrations = {
   "001_initial_schema": {
@@ -387,22 +388,81 @@ export const migrations = {
       return [
         await db.schema
           .createTable("sources")
-          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
           .addColumn("type", "text", (col) => col.notNull())
           .addColumn("name", "text", (col) => col.notNull())
           .addColumn("url", "text")
           .addColumn("description", "text", (col) => col.notNull())
-          .addColumn("status", "text", (col) => col.notNull())
           .addColumn("bucket", "text", (col) =>
             col.notNull().defaultTo("default")
           )
-          .addColumn("createdAt", "text", (col) => col.notNull())
-          .addColumn("updatedAt", "text", (col) => col.notNull())
+          .addColumn("createdAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
+          .addColumn("updatedAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
+          .execute(),
+        await db.schema
+          .createTable("artifacts")
+          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
+          .addColumn("sourceID", "integer", (col) =>
+            col.notNull().references("sources.id").onDelete("cascade")
+          )
+          .addColumn("bucketPath", "text", (col) => col.notNull())
+          .addColumn("createdAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
+          .addColumn("updatedAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
+          .execute(),
+        await db.schema
+          .createTable("subjects")
+          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
+          .addColumn("name", "text", (col) => col.notNull())
+          .addColumn("artifactID", "integer", (col) =>
+            col.notNull().references("artifacts.id").onDelete("cascade")
+          )
+          .addColumn("bucketPath", "text", (col) => col.notNull())
+          .addColumn("createdAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
+          .addColumn("updatedAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
           .execute(),
       ];
     },
     async down(db) {
       await db.schema.dropTable("sources").execute();
+      await db.schema.dropTable("artifacts").execute();
+      await db.schema.dropTable("subjects").execute();
+    },
+  },
+
+  "016_create_streams_table": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("streams")
+          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
+          .addColumn("name", "text", (col) => col.notNull())
+
+          .addColumn("sources", "text", (col) => col.notNull().defaultTo("[]"))
+          .addColumn("subjects", "text", (col) => col.notNull().defaultTo("[]"))
+          .addColumn("events", "text", (col) => col.notNull().defaultTo("[]"))
+          .addColumn("createdAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
+          .addColumn("updatedAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("streams").execute();
     },
   },
 } satisfies Migrations;

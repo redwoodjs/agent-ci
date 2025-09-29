@@ -4,9 +4,9 @@ import { MoreHorizontal, Clock, Github } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import { Card } from "@/app/components/ui/card";
 import { ActivityGraph } from "./activity-graph";
-import { Stream } from "../types";
+import { AppDatabase } from "@/db";
 
-export function StreamCard({ stream }: { stream: Stream }) {
+export function StreamCard({ stream }: { stream: AppDatabase["streams"] }) {
   return (
     <Card
       className="p-6 hover:bg-gray-50 cursor-pointer transition-colors border border-gray-200"
@@ -18,36 +18,25 @@ export function StreamCard({ stream }: { stream: Stream }) {
             <h3>
               <a href={`/streams/${stream.id}/ask`}>{stream.name}</a>
             </h3>
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Github className="w-4 h-4" />
-                {stream.owner}/repo
-              </div>
-            </div>
           </div>
-          {stream.description && (
-            <p className="text-muted-foreground text-sm mb-4">
-              {stream.description}
-            </p>
-          )}
 
           <div className="space-y-3">
             <div className="flex items-center gap-6 text-xs text-muted-foreground">
               <div className="flex items-center gap-1">
-                <span>{Math.min(stream.sourceCount, 5)} sources</span>
+                <span>{Math.min(stream.sources.length, 5)} sources</span>
               </div>
               <div className="flex items-center gap-1">
-                <span>{stream.subjects} subjects</span>
+                <span>{stream.subjects.length} subject(s)</span>
               </div>
               <div className="flex items-center gap-1">
                 <Clock className="w-3 h-3" />
-                <span>Updated {stream.lastUpdated}</span>
+                <span>Updated {stream.updatedAt}</span>
               </div>
             </div>
 
             <ActivityGraph
-              activity={stream.weeklyActivity}
-              eventsCount={stream.eventsThisWeek}
+              activity={[0.5, 0, 0, 0.5, 0, 0, 0]}
+              eventsCount={2}
             />
           </div>
         </div>

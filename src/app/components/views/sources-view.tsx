@@ -8,13 +8,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/app/components/ui/table";
-import { Stream } from "../../../types";
-import { MoreHorizontal, ExternalLink, RefreshCw } from "lucide-react";
-import { db } from "@/db";
-
-interface SourcesViewProps {
-  stream: Stream;
-}
+import { ExternalLink, RefreshCw } from "lucide-react";
+import { AppDatabase } from "@/db";
 
 function formatRelativeTime(isoString: string) {
   const date = new Date(isoString);
@@ -30,48 +25,21 @@ function formatRelativeTime(isoString: string) {
   return `${days}d ago`;
 }
 
-export async function SourcesView({ stream }: SourcesViewProps) {
-  const sources = await db.selectFrom("sources").selectAll().execute();
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "Active":
-        return <Badge className="bg-green-100 text-green-800">Active</Badge>;
-      case "Syncing":
-        return <Badge className="bg-blue-100 text-blue-800">Syncing</Badge>;
-      case "Error":
-        return <Badge className="bg-red-100 text-red-800">Error</Badge>;
-      default:
-        return <Badge variant="secondary">{status}</Badge>;
-    }
-  };
+export type SourceProp = AppDatabase["sources"] & { artifactCount: number };
 
+export async function SourcesView({ sources }: { sources: SourceProp[] }) {
   return (
     <div className="flex-1 p-6 bg-white">
       <div className="max-w-7xl mx-auto">
-        <div className="mb-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-xl font-semibold mb-2">Sources</h2>
-              <p className="text-muted-foreground">
-                Data sources that power this stream's knowledge base.
-              </p>
-            </div>
-            <Button size="sm" className="gap-2">
-              <RefreshCw className="w-4 h-4" />
-              Sync All
-            </Button>
-          </div>
-        </div>
-
         <div className="border rounded-lg bg-white">
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
                 <TableHead className="w-[300px]">Source</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead>Status</TableHead>
                 <TableHead>Bucket</TableHead>
-                <TableHead className="w-[70px]"></TableHead>
+                <TableHead>Artifacts</TableHead>
+                <TableHead>Last Update</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -99,15 +67,14 @@ export async function SourcesView({ stream }: SourcesViewProps) {
                   <TableCell>
                     <Badge variant="outline">{source.type}</Badge>
                   </TableCell>
-                  <TableCell>{getStatusBadge(source.status)}</TableCell>
+
                   <TableCell className="text-sm text-muted-foreground">
                     {source.bucket}
                   </TableCell>
-                  <TableCell>
-                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                      <MoreHorizontal className="w-4 h-4" />
-                    </Button>
+                  <TableCell className="text-sm text-muted-foreground">
+                    <a href={`/sources/${source.id}`}>{source.artifactCount}</a>
                   </TableCell>
+                  <TableCell>{source.updatedAt}</TableCell>
                 </TableRow>
               ))}
             </TableBody>

@@ -1,7 +1,7 @@
 "use client";
 
-import { StreamHeader } from "./components/stream-header";
-import { LeftRail } from "./components/left-rail";
+// import { StreamHeader } from "./components/stream-header";
+// import { LeftRail } from "./components/left-rail";
 import { SubjectsView } from "./views/subjects-view";
 import { mockStreams } from "../../mock-data";
 
@@ -39,14 +39,14 @@ export function SubjectsPage({ params }: SubjectsPageProps) {
 
   return (
     <div className="min-h-screen bg-white">
-      <StreamHeader stream={stream} onBack={handleBack} />
+      {/* <StreamHeader stream={stream} onBack={handleBack} /> */}
 
       <div className="flex h-[calc(100vh-80px)]">
-        <LeftRail
+        {/* <LeftRail
           activeSection="subjects"
           onSectionChange={() => {}}
           stream={stream}
-        />
+        /> */}
 
         <SubjectsView stream={stream} />
       </div>

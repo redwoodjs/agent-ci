@@ -27,7 +27,10 @@ import { previewRoutes } from "./app/pages/preview/routes";
 
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
 import { contextStreamRoutes } from "./app/pages/context-stream/routes";
+
 import { streamRoutes } from "./app/pages/streams/routes";
+import { sourceRoutes } from "./app/pages/sources/routes";
+import { db } from "./db";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -59,10 +62,106 @@ const app = defineApp([
           headers: { Location: "/projects" },
         }),
     ]),
+
+    route("/seed", async () => {
+      await db
+        .insertInto("sources")
+        .values([
+          {
+            id: 1,
+            name: "Technical discussions",
+            description: "Technical team: Peter, Justin & Herman",
+            bucket: "meetings/",
+            url: "https://discord.gg/redwoodjs",
+            type: "transcripts",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: 2,
+            name: "GitHub PRs",
+            description: "redwoodjs/sdk",
+            bucket: "prs/",
+            url: "https://github.com/redwoodjs/sdk/pulls",
+            type: "pull-requests",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ])
+        .execute();
+
+      await db
+        .insertInto("artifacts")
+        .values([
+          // Meetings
+          {
+            id: 1,
+            sourceID: 1,
+            bucketPath: "meetings/2025-07-29-1/",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: 2,
+            sourceID: 1,
+            bucketPath: "meetings/2025-09-10-1/",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: 3,
+            sourceID: 1,
+            bucketPath: "meetings/2025-09-18-1/",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          // Pull Requests
+          {
+            id: 4,
+            sourceID: 2,
+            bucketPath: "prs/redwoodjs-sdk-pr-663/",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: 5,
+            sourceID: 2,
+            bucketPath: "prs/redwoodjs-sdk-pr-713/",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+          {
+            id: 6,
+            sourceID: 2,
+            bucketPath: "prs/redwoodjs-sdk-pr-752/",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          },
+        ])
+        .execute();
+
+      //
+      await db
+        .insertInto("streams")
+        .values([
+          {
+            id: 1,
+            name: "Radix UI",
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            sources: "[]",
+            subjects: "[]",
+            events: "[]",
+          },
+        ])
+        .execute();
+    }),
+
     // prefix("/auth", authRoutes),
     prefix("/dox", doExploreRoutes),
     // prefix("/projects", projectRoutes),
     prefix("/streams", streamRoutes),
+    prefix("/sources", sourceRoutes),
 
     // layout(TaskLayout, [
     //   prefix("/tasks/:containerId", [

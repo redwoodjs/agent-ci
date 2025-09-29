@@ -1,7 +1,7 @@
 "use client";
 
-import { StreamHeader } from "./components/stream-header";
-import { LeftRail } from "./components/left-rail";
+// import { StreamHeader } from "./components/stream-header";
+// import { LeftRail } from "./components/left-rail";
 import { TimelineView } from "./views/timeline-view";
 import { mockStreams } from "../../mock-data";
 
@@ -39,14 +39,14 @@ export function TimelinePage({ params }: TimelinePageProps) {
 
   return (
     <div className="min-h-screen bg-white">
-      <StreamHeader stream={stream} onBack={handleBack} />
+      {/* <StreamHeader stream={stream} onBack={handleBack} /> */}
 
       <div className="flex h-[calc(100vh-80px)]">
-        <LeftRail
+        {/* <LeftRail
           activeSection="timeline"
           onSectionChange={() => {}}
           stream={stream}
-        />
+        /> */}
 
         <TimelineView stream={stream} />
       </div>

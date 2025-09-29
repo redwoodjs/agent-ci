@@ -5,10 +5,11 @@
   "compatibility_date": "2025-09-25",
   "compatibility_flags": ["nodejs_compat"],
   "r2_buckets": [
-    // {
-    //   "binding": "CONTEXT_STREAM",
-    //   "bucket_name": "context-stream"
-    // },
+    {
+      "binding": "MACHINEN_CONTEXT_STREAM_BUCKET",
+      "bucket_name": "machinen-context-stream",
+      "remote": true
+    },
     {
       "binding": "MACHINEN_BUCKET",
       "bucket_name": "machinen",

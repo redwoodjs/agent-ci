@@ -1,9 +1,17 @@
-import { route, prefix } from "rwsdk/router";
+import { route, prefix, layout } from "rwsdk/router";
 
 import { StreamsListPage } from "./streams-list-page";
-import { detailRoutes } from "./subpages/detail/routes";
+
+import { StreamLayout } from "./layout";
+import { SourcesPage } from "./subpages/sources-page";
 
 export const streamRoutes = [
   route("/", StreamsListPage),
-  prefix("/:streamID", detailRoutes),
+
+  prefix("/:streamID", [
+    layout(StreamLayout, [
+      // route("/ask", AskPage),
+      route("/sources", SourcesPage),
+    ]),
+  ]),
 ];

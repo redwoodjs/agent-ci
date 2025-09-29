@@ -1,5 +1,5 @@
-import { StreamHeader } from "./components/stream-header";
-import { LeftRail } from "./components/left-rail";
+// import { StreamHeader } from "./components/stream-header";
+// import { LeftRail } from "./components/left-rail";
 import { EntriesView } from "./views/entries-view";
 import { mockStreams } from "../../mock-data";
 
@@ -33,10 +33,10 @@ export function EntriesPage({ params }: SourcesPageProps) {
 
   return (
     <div className="min-h-screen bg-white">
-      <StreamHeader stream={stream} />
+      {/* <StreamHeader stream={stream} /> */}
 
       <div className="flex h-[calc(100vh-80px)]">
-        <LeftRail activeSection="entries" stream={stream} />
+        {/* <LeftRail activeSection="entries" stream={stream} /> */}
 
         <EntriesView stream={stream} />
       </div>

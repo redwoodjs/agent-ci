@@ -129,45 +129,76 @@ _Expected JSON (abbrev):_
 `;
 
 const PR_PROMPT = `\
-You extract canonical technical subjects from a pull request (title, body, comments, commits).
-Return ONLY valid JSON that matches this schema:
+# PR Subject Extraction Prompt — Single-Subject Only (No Preferred Title)
+
+You are given a GitHub Pull Request log in JSON. It contains the PR title, body, commits, comments, reviews, and metadata.
+
+---
+
+## Task (Single-Subject Only)
+
+Collapse the entire PR into **one dominant technical subject** and keep it traceable to the fields in which it appears.
+
+### 1) Subject Synthesis
+
+- Always emit **exactly one** subject.
+- **Title**: Synthesize using the pattern **Gerund + object + context**, e.g., “Allowing response status and headers modification”.
+  - If no clear context, omit it.
+- The title should be compact, specific, and technically accurate.
+
+### 2) Facets & Aliases
+
+- Preserve detail via a \`facets\` array capturing the main sub-topics you collapsed (APIs, error behaviors, types, config knobs, architectural components).
+- Build an \`aliases\` array of observed surface forms and close variants (synonyms, code identifiers, paraphrases). Normalize by:
+  - Case-insensitive matching
+  - Singularize nouns
+  - Strip punctuation and code syntax that doesn’t change meaning (backticks, (), []).
+- Examples of collapsing under one subject:
+  - \`response.status\`, \`response.headers\`, \`headers.set\`, \`options.headers\`, \`Response object\` → **Modifying HTTP response** (depending on context).
+  - Keep **distinct subsystems** as facets rather than separate subjects (e.g., “renderToString” vs “renderToStream” as facets if they are both part of the same implementation topic).
+
+### 3) Field Mapping (strict)
+
+- Use a \`fields\` array instead of \`lines\`.
+- A field “mentions” the subject if it includes the synthesized subject, any alias, a clear paraphrase, or an **unambiguous facet**.
+- Report fields using the path syntax:
+  - \`"title"\`
+  - \`"body"\`
+  - \`"commits[0].message"\`
+  - \`"comments[1].text"\`
+  - \`"reviews[0].state"\`
+
+### 4) Scoring
+
+- Set \`score\` to \`1.0\` (the PR is treated as one dominant theme).
+
+### 5) Output (JSON only)
+
+Return **only** valid JSON in this schema (no markdown, no commentary):
+
+\`\`\`json
 {
-  "core": string[5..7],
-  "extended": string[0..12]
+  "subject": {
+    "name": "<synthesized title>",
+    "facets": ["<facet 1>", "<facet 2>", "..."],
+    "aliases": ["<variant1>", "<variant2>", "..."],
+    "fields": ["body", "title", "comments[0].text"],
+    "score": 1.0
+  },
+  "alias_map": {
+    "<variant>": "<synthesized title>"
+  },
+  "meta": {
+    "total_fields": 0,
+    "notes": "Single-subject extraction with synthesized title; all technical mentions collapsed."
+  }
 }
-
-Prioritization:
-- Primary sources: PR title + body
-- Include comments/reviews only if they introduce an important concept
-- Ignore commit messages unless they introduce a *new* concept not present elsewhere
-
-Canonicalization:
-- 2-5 word noun phrases
-- Normalize synonyms (e.g., "useId mismatch", "useId desync" → "useId hydration mismatch")
-- Collapse variants; de-duplicate case-insensitively
-- Prefer domain terms (APIs, components, configs)
-
-Ranking to "core":
-1) Problem
-2) Root cause
-3) Solution approach
-4) Key mechanisms enabling solution
-All else → "extended"
-
-Validation:
-- Each item matches: ^(\\b\\w[\\w\\-\\.]+(?:\\s+\\w[\\w\\-\\.]+){0,4})$
-- No verbs/imperatives, no punctuation tails, no quotes, no code fences
-- No overlap between "core" and "extended"
+\`\`\`
 `;
 
 export const contextStreamRoutes = [
   // We will rename this to artifact, we will then dynamically determine how to parse a new artifact type.
   route("/meetings/:artifactID", async function ({ params }) {
-    const sourceType = "meeting";
-
-    // 2025-09-18-1
-    // 2025-09-10-1
-    // 2025-07-29-1
     const artifactID = params.artifactID;
 
     const artifact = await db
@@ -232,17 +263,25 @@ export const contextStreamRoutes = [
       },
     });
   }),
-  route("/prs/:prID", async function ({ params }) {
+  route("/prs/:artifactID", async function ({ params }) {
     // redwoodjs-sdk-pr-663
     // redwoodjs-sdk-pr-713
     // redwoodjs-sdk-pr-752
-    const prID = params.prID;
-    const key = `prs/${prID}/raw.json`;
+    const artifactID = params.artifactID;
 
-    const file = await env.MACHINEN_BUCKET.get(key);
+    const artifact = await db
+      .selectFrom("artifacts")
+      .selectAll()
+      .where("id", "=", artifactID)
+      .executeTakeFirstOrThrow();
+
+    const rawKey = artifact.bucketPath + "raw.json";
+    const subjectKey = artifact.bucketPath + "subject.json";
+
+    const file = await env.MACHINEN_BUCKET.get(rawKey);
     const content = await file?.text();
     if (!content) {
-      return new Response("File not found", { status: 404 });
+      return new Response(`File "${rawKey}" not found`, { status: 404 });
     }
 
     const response = await generateText({
@@ -256,13 +295,35 @@ export const contextStreamRoutes = [
     console.log(response.text);
     console.log("-".repeat(80));
 
-    await env.MACHINEN_BUCKET.put(key, content, {
+    const subject = JSON.parse(response.text);
+
+    await db
+      .insertInto("subjects")
+      .values({
+        // @ts-ignore
+        id: null,
+        name: subject.subject.name,
+        artifactID,
+        bucketPath: artifact.bucketPath,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      })
+      .execute();
+
+    await env.MACHINEN_BUCKET.put(subjectKey, response.text, {
+      httpMetadata: {
+        contentType: "application/json",
+      },
       customMetadata: {
-        context: response.text,
+        context: rawKey,
       },
     });
 
-    return new Response("ok");
+    return new Response(response.text, {
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
   }),
   route("/search", async function ({ request }) {
     const url = new URL(request.url);

@@ -18,7 +18,7 @@ export async function ArtifactsPage({
     .innerJoin("artifacts", "artifacts.id", "stream_artifacts.artifactID")
     .innerJoin("sources", "sources.id", "artifacts.sourceID")
     .selectAll("artifacts")
-    .select(["sources.type as sourceType"])
+    .select(["sources.type as sourceType", "stream_artifacts.score"])
     .execute();
 
   return (
@@ -52,8 +52,13 @@ export async function ArtifactsPage({
                 </div>
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
-                    <h3 className="font-medium">{artifact.bucketPath}</h3>
+                    <h3 className="font-medium">
+                      <a href={`/streams/${streamID}/artifacts/${artifact.id}`}>
+                        {artifact.bucketPath}
+                      </a>
+                    </h3>
                     <Badge variant="secondary">{artifact.sourceType}</Badge>
+                    {Math.floor(artifact.score * 100)}%
                   </div>
                   <p className="text-sm text-muted-foreground mb-2">
                     {/* {artifact.summary} */}

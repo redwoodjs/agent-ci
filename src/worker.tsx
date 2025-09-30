@@ -55,11 +55,10 @@ const app = defineApp([
 
   render(Document, [
     route("/", [
-      requireAuth,
       () =>
         new Response(null, {
           status: 302,
-          headers: { Location: "/projects" },
+          headers: { Location: "/streams" },
         }),
     ]),
 

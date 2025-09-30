@@ -30,6 +30,9 @@ export async function discoverNewArtifacts({ streamID }: { streamID: number }) {
         },
       ],
     },
+    ranking_options: {
+      score_threshold: 0.6,
+    },
   });
 
   console.log(result.data);

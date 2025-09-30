@@ -37,7 +37,6 @@ export async function SourceDetailPage({
                 <TableRow key={index} className="group">
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      Subject found in transcript:{" "}
                       <span className="font-medium">
                         {artifact.subjectName}
                       </span>

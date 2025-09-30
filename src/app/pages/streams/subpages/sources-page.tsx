@@ -1,4 +1,4 @@
-import { AppDatabase, db } from "@/db";
+import { db } from "@/db";
 import {
   SourcesView,
   type SourceProp,
@@ -12,14 +12,14 @@ export async function SourcesPage({
   const stream = await db
     .selectFrom("streams")
     .selectAll()
-    .where("id", "=", params.streamID)
+    .where("id", "=", parseInt(params.streamID))
     .executeTakeFirstOrThrow();
 
   let sources: SourceProp[] = [];
   if (Array.isArray(stream.sources)) {
     sources = await db
       .selectFrom("sources")
-      .leftJoin("artifacts", "artifacts.source_id", "sources.id")
+      .leftJoin("artifacts", "artifacts.sourceID", "sources.id")
       .where("sources.id", "in", stream.sources)
       .selectAll("sources")
       .select((eb) => eb.fn.count<number>("artifacts.id").as("artifactCount"))

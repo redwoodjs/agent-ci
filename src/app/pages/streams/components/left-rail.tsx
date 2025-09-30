@@ -4,8 +4,7 @@ import { requestInfo } from "rwsdk/worker";
 
 const sections = [
   { id: "ask", label: "Ask", icon: MessageSquare, count: null },
-  { id: "entries", label: "Entries", icon: FileText, count: null },
-  { id: "timeline", label: "Timeline", icon: Clock, count: null },
+  { id: "artifacts", label: "Artifacts", icon: FileText, count: null },
   { id: "subjects", label: "Subjects", icon: Tag, count: null },
   { id: "sources", label: "Sources", icon: Bot, count: null },
 ];
@@ -25,6 +24,7 @@ export function LeftRail() {
           return (
             <a
               href={`/streams/${params.streamID}/${section.id}`}
+              key={section.id}
               className={cn(
                 "w-full justify-start p-2 rounded-md flex items-center",
                 isActive && "bg-gray-100"

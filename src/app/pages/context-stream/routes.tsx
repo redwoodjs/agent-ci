@@ -178,8 +178,8 @@ export const contextStreamRoutes = [
 
     // grab bucket from artifact.
 
-    const rawKey = artifact.bucketPath + "/raw.md";
-    const subjectKey = artifact.bucketPath + "/subject.json";
+    const rawKey = artifact.bucketPath + "raw.md";
+    const subjectKey = artifact.bucketPath + "subject.json";
 
     console.log("rawKey", rawKey);
 

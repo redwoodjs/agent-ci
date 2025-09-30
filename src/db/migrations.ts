@@ -465,4 +465,30 @@ export const migrations = {
       await db.schema.dropTable("streams").execute();
     },
   },
+  "017_create_stream_artifacts_table": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("stream_artifacts")
+          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
+          .addColumn("streamID", "integer", (col) =>
+            col.notNull().references("streams.id").onDelete("cascade")
+          )
+          .addColumn("artifactID", "integer", (col) =>
+            col.notNull().references("artifacts.id").onDelete("cascade")
+          )
+          .addColumn("score", "integer", (col) => col.notNull())
+          .addColumn("createdAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
+          .addColumn("updatedAt", "text", (col) =>
+            col.notNull().defaultTo(sql`current_timestamp`)
+          )
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("stream_artifacts").execute();
+    },
+  },
 } satisfies Migrations;

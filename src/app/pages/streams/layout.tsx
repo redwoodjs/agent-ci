@@ -31,7 +31,7 @@ export async function StreamLayout({ requestInfo, children }: LayoutProps) {
 
   return (
     <div className="min-h-screen bg-white">
-      <PageHeader title={stream.name} />
+      <PageHeader title={stream.name} backUrl={`/streams`} />
 
       <div className="flex h-[calc(100vh-80px)]">
         <LeftRail />

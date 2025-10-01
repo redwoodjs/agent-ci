@@ -31,6 +31,7 @@ import { contextStreamRoutes } from "./app/pages/context-stream/routes";
 import { streamRoutes } from "./app/pages/streams/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
 import { db } from "./db";
+import { ingestDiscordMessages } from "./app/services/discord";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -176,6 +177,10 @@ const app = defineApp([
   ]),
 
   prefix("/cs", contextStreamRoutes),
+  route("/ingest/discord", async () => {
+    const results = await ingestDiscordMessages();
+    return Response.json({ results });
+  }),
 ]);
 
 export { Sandbox } from "@cloudflare/sandbox";
@@ -184,40 +189,11 @@ export { Database } from "@/db/durableObject";
 
 export default {
   fetch: async function (request, env: Env, cf) {
-    // TODO(peterp, 2025-09-18): This is a hack to get the chat working.
-    // Get the proper ports from the database.
-
-    const ports = ["4096", "8910", "5173"];
-
-    // for (const port of ports) {
-    //   if (request.url.includes(port)) {
-    //     return proxyToSandbox(request, env);
-    //   }
-    // }
-
     const url = new URL(request.url);
     const port = url.hostname.split("-")[0];
+    const ports = ["4096", "8910", "5173"];
+
     if (ports.includes(port)) {
-      // we only record visits to the users tools.
-
-      // Record that the user visited this sandbox.
-      // try {
-      //   const containerId = url.hostname
-      //     .replace("5173-", "")
-      //     .replace(".localhost", "");
-
-      //   // Get laneId from database asynchronously (don't await to avoid blocking the request)
-      //   const { laneId } = await db
-      //     .selectFrom("tasks")
-      //     .select("laneId")
-      //     .where("containerId", "=", containerId)
-      //     .executeTakeFirstOrThrow();
-
-      //   recordPageview(request, containerId, laneId);
-      // } catch (error) {
-      //   console.error("Error in visit recording setup:", error);
-      // }
-
       return proxyToSandbox(request, env);
     }
 

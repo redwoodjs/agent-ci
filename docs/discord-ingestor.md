@@ -148,9 +148,9 @@ INSERT INTO sources (name, type, description, bucket, url, createdAt, updatedAt)
 VALUES (
   'RedwoodJS #core-team',
   'discord',
-  '{"guildID": "123456789", "channelID": "987654321"}',
+  '{"guildID": "679514959968993311", "channelID": "1307974274145062912"}',
   'discord/',
-  'https://discord.com/channels/123456789/987654321',
+  'https://discord.com/channels/679514959968993311/1307974274145062912',
   datetime('now'),
   datetime('now')
 );
@@ -171,3 +171,6 @@ VALUES (
 - [Discord API Documentation](https://discord.com/developers/docs/intro)
 - [Discord Bot Setup Guide](./discord-ingestor-setup.md)
 - [Machinen Architecture: Sources-Artifacts-Subjects](./architecture/sources-artifacts-subjects.md)
+
+Guild ID: 679514959968993311
+#SDK Channel ID: 1307974274145062912

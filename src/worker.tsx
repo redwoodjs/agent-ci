@@ -178,8 +178,12 @@ const app = defineApp([
 
   prefix("/cs", contextStreamRoutes),
   route("/ingest/discord", async () => {
+    console.log("Ingesting Discord messages");
     const results = await ingestDiscordMessages();
-    return Response.json({ results });
+    console.log("Discord messages ingested");
+    // console.log(results);
+    return Response.json({ message: "Discord messages ingested" });
+    // return Response.json({ results });
   }),
 ]);
 

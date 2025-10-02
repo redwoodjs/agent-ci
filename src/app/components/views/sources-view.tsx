@@ -60,7 +60,7 @@ export async function SourcesView({ sources }: { sources: SourceProp[] }) {
                         )}
                       </div>
                       <span className="text-sm text-muted-foreground">
-                        {source.description}
+                        {/* {source.description} */}
                       </span>
                     </div>
                   </TableCell>

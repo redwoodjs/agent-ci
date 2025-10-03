@@ -1,6 +1,6 @@
 import { route } from "rwsdk/router";
-import { discordJsonToMarkdown } from "../../../services/discord-to-markdown";
-import { splitDiscordConversations } from "../../../services/conversation-splitter";
+import { discordJsonToMarkdown } from "./services/discord-to-markdown";
+import { splitDiscordConversations } from "./services/conversation-splitter";
 import {
   validateDiscordConvert,
   validateDiscordBatch,
@@ -67,7 +67,7 @@ export const convert = route("/ingest/discord/convert", [
   logDiscordRequest,
   rateLimitDiscord,
   validateDiscordConvert,
-  async ({ ctx }) => {
+  async ({ ctx }: { ctx: any }) => {
     try {
       const {
         messages,
@@ -135,7 +135,7 @@ export const batchConvert = route("/ingest/discord/batch", [
   logDiscordRequest,
   rateLimitDiscord,
   validateDiscordBatch,
-  async ({ ctx }) => {
+  async ({ ctx }: { ctx: any }) => {
     try {
       const { files } = ctx.validatedData;
 
@@ -233,7 +233,7 @@ export const batchConvert = route("/ingest/discord/batch", [
 export const upload = route("/ingest/discord/upload", [
   logDiscordRequest,
   rateLimitDiscord,
-  async ({ request, ctx }) => {
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
     try {
       const body: {
         rawMarkdown: string;

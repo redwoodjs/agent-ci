@@ -67,7 +67,13 @@ const discordBatchRequestSchema = z.object({
 });
 
 // Validation interruptor for Discord convert requests
-export async function validateDiscordConvert({ request, ctx }) {
+export async function validateDiscordConvert({
+  request,
+  ctx,
+}: {
+  request: Request;
+  ctx: any;
+}) {
   try {
     const data = await request.json();
     const validated = discordConvertRequestSchema.parse(data);
@@ -79,7 +85,7 @@ export async function validateDiscordConvert({ request, ctx }) {
         {
           success: false,
           error: "Validation failed",
-          details: error.errors,
+          details: error.issues,
         },
         { status: 400 }
       );
@@ -92,7 +98,13 @@ export async function validateDiscordConvert({ request, ctx }) {
 }
 
 // Validation interruptor for Discord batch requests
-export async function validateDiscordBatch({ request, ctx }) {
+export async function validateDiscordBatch({
+  request,
+  ctx,
+}: {
+  request: Request;
+  ctx: any;
+}) {
   try {
     const data = await request.json();
     const validated = discordBatchRequestSchema.parse(data);
@@ -104,7 +116,7 @@ export async function validateDiscordBatch({ request, ctx }) {
         {
           success: false,
           error: "Validation failed",
-          details: error.errors,
+          details: error.issues,
         },
         { status: 400 }
       );
@@ -117,13 +129,19 @@ export async function validateDiscordBatch({ request, ctx }) {
 }
 
 // Logging interruptor for Discord API calls
-export async function logDiscordRequest({ request, ctx }) {
+export async function logDiscordRequest({
+  request,
+  ctx,
+}: {
+  request: Request;
+  ctx: any;
+}) {
   const start = Date.now();
   const url = new URL(request.url);
 
   console.log(`Discord API: ${request.method} ${url.pathname}`);
 
-  ctx.logCompletion = (response) => {
+  ctx.logCompletion = (response: Response) => {
     const duration = Date.now() - start;
     console.log(
       `Discord API: ${request.method} ${url.pathname} - ${response.status} (${duration}ms)`
@@ -136,7 +154,13 @@ export async function logDiscordRequest({ request, ctx }) {
 // Rate limiting interruptor (basic implementation)
 const requestCounts = new Map<string, { count: number; resetTime: number }>();
 
-export async function rateLimitDiscord({ request, ctx }) {
+export async function rateLimitDiscord({
+  request,
+  ctx,
+}: {
+  request: Request;
+  ctx: any;
+}) {
   const clientIP = request.headers.get("CF-Connecting-IP") || "unknown";
   const now = Date.now();
   const windowMs = 60 * 1000; // 1 minute

@@ -1,4 +1,4 @@
-import { db } from "@/db";
+import { rawDiscordDb } from "./db";
 import { env } from "cloudflare:workers";
 
 interface DiscordMessage {
@@ -95,43 +95,34 @@ async function fetchMessages(
 }
 
 async function getLastIngestedMessageID(
-  sourceID: number
+  channelID: string,
+  guildID: string
 ): Promise<string | null> {
-  const lastArtifact = await db
-    .selectFrom("artifacts")
+  const lastMessage = await rawDiscordDb
+    .selectFrom("raw_discord_messages")
     .selectAll()
-    .where("sourceID", "=", sourceID)
-    .orderBy("createdAt", "desc")
+    .where("channel_id", "=", channelID)
+    .where("guild_id", "=", guildID)
+    .orderBy("timestamp", "desc")
     .executeTakeFirst();
 
-  if (!lastArtifact) {
-    console.log("No last artifact found");
-    return null;
-  }
-
-  const metadataKey = `${lastArtifact.bucketPath}metadata.json`;
-  const metadataFile = await env.MACHINEN_BUCKET.get(metadataKey);
-
-  if (!metadataFile) {
-    return null;
-  }
-
-  const metadata = await metadataFile.json<{
-    lastMessageID?: string;
-  }>();
-  return metadata.lastMessageID || null;
+  return lastMessage?.message_id || null;
 }
 
 async function ingestMessagesForSource(
   config: DiscordIngestionConfig
 ): Promise<{
-  artifactID?: number;
   messageCount: number;
+  firstMessageID?: string;
+  lastMessageID?: string;
 }> {
   const numOfMessages = 10;
-  const lastMessageID = await getLastIngestedMessageID(config.sourceID);
+  const lastMessageID = await getLastIngestedMessageID(
+    config.channelID,
+    config.guildID
+  );
 
-  console.log(`Starting ingestion for sourceID ${config.sourceID}`);
+  console.log(`Starting ingestion for channel ${config.channelID}`);
   console.log(`Last ingested message ID: ${lastMessageID || "none"}`);
 
   const allMessages: DiscordMessage[] = [];
@@ -199,105 +190,71 @@ async function ingestMessagesForSource(
     return { messageCount: 0 };
   }
 
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const bucketPath = `discord/${config.guildID}/${config.channelID}/${timestamp}/`;
-
-  const messagesKey = `${bucketPath}messages.json`;
-  await env.MACHINEN_BUCKET.put(
-    messagesKey,
-    JSON.stringify(allMessages, null, 2)
-  );
-
-  const readableContent = allMessages
-    .map((msg) => {
-      const date = new Date(msg.timestamp).toISOString();
-      const username =
-        msg.author.username || msg.author.global_name || "Unknown";
-      return `[${date}] ${username}: ${msg.content}`;
-    })
-    .join("\n");
-
-  const readableKey = `${bucketPath}messages.txt`;
-  await env.MACHINEN_BUCKET.put(readableKey, readableContent);
-
-  const metadata = {
-    messageCount: allMessages.length,
-    lastMessageID: allMessages[0]?.id,
-    firstMessageID: allMessages[allMessages.length - 1]?.id,
-    channelID: config.channelID,
-    guildID: config.guildID,
-    ingestedAt: new Date().toISOString(),
-  };
-
-  const metadataKey = `${bucketPath}metadata.json`;
-  await env.MACHINEN_BUCKET.put(metadataKey, JSON.stringify(metadata, null, 2));
-
-  const result = await db
-    .insertInto("artifacts")
-    .values({
-      // @ts-ignore
-      id: null,
-      sourceID: config.sourceID,
-      bucketPath,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
+  for (const message of allMessages) {
+    await rawDiscordDb
+      .insertInto("raw_discord_messages")
+      .values({
+        message_id: message.id,
+        channel_id: message.channel_id,
+        guild_id: config.guildID,
+        author_id: message.author.id,
+        content: message.content,
+        timestamp: message.timestamp,
+        raw_data: JSON.stringify(message),
+      })
+      .execute();
+  }
 
   return {
-    artifactID: result.id,
     messageCount: allMessages.length,
+    firstMessageID: allMessages[0]?.id,
+    lastMessageID: allMessages[allMessages.length - 1]?.id,
   };
 }
 
 export async function ingestDiscordMessages(): Promise<
-  Array<{ sourceID: number; result: any }>
+  Array<{ channelID: string; guildID: string; result: any }>
 > {
-  const sources = await db
-    .selectFrom("sources")
-    .selectAll()
-    .where("type", "=", "discord")
-    .execute();
-
   const results = [];
+  const botToken = (env as any).DISCORD_BOT_TOKEN as string | undefined;
 
-  for (const source of sources) {
-    try {
-      const botToken = (env as any).DISCORD_BOT_TOKEN as string | undefined;
-      if (!botToken) {
-        throw new Error("DISCORD_BOT_TOKEN environment variable not set");
-      }
+  if (!botToken) {
+    throw new Error("DISCORD_BOT_TOKEN environment variable not set");
+  }
 
-      const metadata = source.description as unknown as {
-        guildID: string;
-        channelID: string;
-      };
-      const { guildID, channelID } = metadata;
-
-      if (!guildID || !channelID) {
-        throw new Error(
-          `Source ${source.id} missing guildID or channelID in description`
-        );
-      }
-
-      console.log("Ingesting Discord messages for source", source.id);
-
-      const result = await ingestMessagesForSource({
-        sourceID: source.id,
-        guildID,
-        channelID,
+  const results_placeholder = [
+    {
+      channelID: "123456789",
+      guildID: "987654321",
+      config: {
+        sourceID: 1,
+        guildID: "987654321",
+        channelID: "123456789",
         botToken,
-      });
-      console.log('-"'.repeat(80));
-      console.log(result);
-      console.log('-"'.repeat(80));
+      },
+    },
+  ];
 
-      results.push({ sourceID: source.id, result });
+  for (const item of results_placeholder) {
+    try {
+      console.log(
+        `Ingesting Discord messages for channel ${item.channelID} in guild ${item.guildID}`
+      );
+
+      const result = await ingestMessagesForSource(item.config);
+      console.log("-".repeat(80));
+      console.log(result);
+      console.log("-".repeat(80));
+
+      results.push({ channelID: item.channelID, guildID: item.guildID, result });
     } catch (error) {
-      console.error(`Error ingesting Discord source ${source.id}:`, error);
+      console.error(
+        `Error ingesting Discord channel ${item.channelID}:`,
+        error
+      );
       results.push({
-        sourceID: source.id,
+        channelID: item.channelID,
+        guildID: item.guildID,
         result: {
           error: error instanceof Error ? error.message : String(error),
         },

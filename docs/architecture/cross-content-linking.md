@@ -25,7 +25,7 @@ interface SemanticTopic {
   keywords: string[]; // Salient keywords
   context: string; // e.g., "technical_issue", "user_report"
   confidence: number; // The confidence score of the topic extraction
-  metadata: Record<string, any>; // Source-specific metadata
+  metadata: Record<string, any>; // Source-specific metadata, e.g., { originalConversationId: '...' }
 }
 ```
 
@@ -54,6 +54,43 @@ interface CrossSourceLink {
   evidence: string[]; // A list of justifications for the link
 }
 ```
+
+### 3.3. Intra-Source Linking for Sequential Content
+
+While `CrossSourceLink` is designed for linking between different sources, it can also be used to maintain the integrity of a single source that has been split into multiple chunks (e.g., semantic chunks of a long conversation). This is critical for features like navigating through a conversation chunk by chunk.
+
+To link sequential chunks, a `CrossSourceLink` is created where `source` and `target` point to different chunks from the same original document.
+
+**Example:**
+
+For a Discord conversation split into `SemanticChunk-A`, `SemanticChunk-B`, and `SemanticChunk-C`, two links would be created:
+
+1.  A link from `SemanticChunk-A` to `SemanticChunk-B`.
+2.  A link from `SemanticChunk-B` to `SemanticChunk-C`.
+
+This would be represented as:
+
+```typescript
+const link1: CrossSourceLink = {
+  id: "link-uuid-1",
+  source: {
+    contentId: "SemanticChunk-A-id",
+    sourceType: "discord",
+  },
+  target: {
+    contentId: "SemanticChunk-B-id",
+    sourceType: "discord",
+  },
+  relationship: "follows_up_on",
+  confidence: 1.0,
+  semanticSimilarity: 0.0, // Not applicable for purely sequential links
+  evidence: ["Directly follows in the original conversation stream."],
+};
+```
+
+The `sourceType` for both `source` and `target` is the same (`discord`), indicating an intra-source link. The `follows_up_on` relationship type is used to denote sequence. A high confidence score (1.0) is used because the sequence is deterministic.
+
+This allows the application to reconstruct the original order of chunks by querying for these links. The `metadata` field on the `SemanticTopic` should be used to store the original parent conversation's ID to ensure that when querying for links, we are only connecting chunks from the same parent document.
 
 ## 4. System Architecture
 
@@ -183,3 +220,28 @@ Post-MVP, the system can be extended to handle:
 - **Multi-Modal Content**: Analyze and link code snippets, images (via OCR), and audio transcripts.
 - **Advanced AI Integration**: Use LLMs for more nuanced topic extraction, summarization of linked content, and automated categorization.
 - **Real-Time Processing**: Transition from batch processing to a streaming architecture to create links as content is generated.
+
+## 7. AI/ML Strategy Rationale
+
+The architecture's implementation plan deliberately distinguishes between two tiers of AI/ML technology: foundational models for the Minimum Viable Product (MVP) and advanced models for subsequent phases.
+
+### 7.1. MVP: Foundational AI (Vector Embeddings)
+
+The core functionality of the system relies on vector embeddings and cosine similarity. This approach is prioritized for the initial implementation due to its operational characteristics:
+
+- **Low Cost**: Generating embeddings is computationally inexpensive compared to generative model inference.
+- **Low Latency**: Similarity calculations are performed in milliseconds, enabling efficient processing.
+- **High Scalability**: The embedding and comparison process is highly parallelizable and suitable for large-scale data processing.
+- **Determinism**: The results are repeatable, which is critical for establishing a performance baseline.
+
+This foundational AI directly addresses the primary objective: identifying and linking semantically similar content in a scalable and cost-effective manner.
+
+### 7.2. Post-MVP: Advanced AI (Large Language Models)
+
+The use of Large Language Models (LLMs) is planned for later phases, as specified in Section 6. This strategic deferment is based on the following considerations:
+
+- **High Cost**: LLM API calls are significantly more expensive, making them unsuitable for processing every content item in the initial pass.
+- **High Latency**: LLM inference takes seconds, which can create processing bottlenecks if used universally.
+- **Task-Specific Application**: LLMs are best applied to tasks requiring nuanced interpretation, such as summarization, advanced relationship classification (e.g., detecting contradiction), or extracting topics from highly unstructured text.
+
+By establishing a baseline with foundational AI, the system can later apply LLMs surgically to solve problems that the embedding-based approach cannot, ensuring that the most powerful and expensive tools are used only where they provide the most value.

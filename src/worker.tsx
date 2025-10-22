@@ -31,7 +31,7 @@ import { contextStreamRoutes } from "./app/pages/context-stream/routes";
 import { streamRoutes } from "./app/pages/streams/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
 import { db } from "./db";
-import { ingestDiscordMessages } from "./app/services/discord";
+import { discordIngestorRoutes } from "./app/ingestors/discord/routes";
 
 export type AppContext = {
   sandbox: DurableObjectStub<Sandbox<unknown>>;
@@ -176,20 +176,15 @@ const app = defineApp([
     // ]),
   ]),
 
+  prefix("/ingestors/discord", discordIngestorRoutes),
+
   prefix("/cs", contextStreamRoutes),
-  route("/ingest/discord", async () => {
-    console.log("Ingesting Discord messages");
-    const results = await ingestDiscordMessages();
-    console.log("Discord messages ingested");
-    // console.log(results);
-    return Response.json({ message: "Discord messages ingested" });
-    // return Response.json({ results });
-  }),
 ]);
 
 export { Sandbox } from "@cloudflare/sandbox";
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";
 export { Database } from "@/db/durableObject";
+export { RawDiscordDatabase } from "@/app/ingestors/discord/db";
 
 export default {
   fetch: async function (request, env: Env, cf) {

@@ -1,6 +1,6 @@
 "use server";
 
-import { db } from "../../../../db";
+import { rawDiscordDb as db } from "@/app/ingestors/discord/db";
 import { env } from "cloudflare:workers";
 
 export async function seedTable(tableName: string) {

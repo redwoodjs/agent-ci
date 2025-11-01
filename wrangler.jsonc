@@ -20,31 +20,15 @@
     "binding": "AI",
     "remote": true
   },
-  "containers": [
-    {
-      "name": "Sandbox",
-      "image": "./Dockerfile",
-      "class_name": "Sandbox",
-      "max_instances": 1
-    }
-  ],
+
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": [
-        "Sandbox",
-        "Database",
-        "ProcessLog",
-        "RawDiscordDatabase"
-      ]
+      "new_sqlite_classes": ["Database", "ProcessLog", "RawDiscordDatabase"]
     }
   ],
   "durable_objects": {
     "bindings": [
-      {
-        "class_name": "Sandbox",
-        "name": "Sandbox"
-      },
       {
         "class_name": "Database",
         "name": "DATABASE"

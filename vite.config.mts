@@ -12,11 +12,6 @@ export default defineConfig({
   environments: {
     ssr: {},
   },
-
-  server: {
-    allowedHosts: ["p4p8.machinen.dev"],
-  },
-
   resolve: {
     alias: {
       "@opencode-ai/sdk/client": opencodeSdkClientPath,

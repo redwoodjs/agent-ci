@@ -1,6 +1,4 @@
 import { defineApp } from "rwsdk/worker";
-import { env } from "cloudflare:workers";
-import { realtimeRoute } from "rwsdk/realtime/worker";
 import { render, prefix, route } from "rwsdk/router";
 
 import { Document } from "@/app/Document";
@@ -10,7 +8,6 @@ import { setCommonHeaders } from "./app/headers";
 
 import { authRoutes } from "./app/pages/auth/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
-import { db } from "./db";
 import { discordIngestorRoutes } from "./app/ingestors/discord/routes";
 
 export type AppContext = {
@@ -19,7 +16,6 @@ export type AppContext = {
 
 const app = defineApp([
   setCommonHeaders(),
-  realtimeRoute(() => env.REALTIME_DURABLE_OBJECT),
   async function authMiddleware({ ctx, request }) {
     try {
       const session = await auth.api.getSession({
@@ -46,18 +42,7 @@ const app = defineApp([
     prefix("/sources", sourceRoutes),
   ]),
 
-<<<<<<< Updated upstream
   prefix("/ingestors/discord", discordIngestorRoutes),
-
-  prefix("/cs", contextStreamRoutes),
-=======
-  route("/ingest/discord", async () => {
-    console.log("Ingesting Discord messages");
-    const results = await ingestDiscordMessages();
-    console.log("Discord messages ingested");
-    return Response.json({ message: "Discord messages ingested" });
-  }),
->>>>>>> Stashed changes
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";

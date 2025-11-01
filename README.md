@@ -2,37 +2,54 @@
 
 ![Machinen Logo](./logo.svg)
 
-_Note: This is a preview, it does not ship to production yet. (But should by 31-August-2025.)_
-
 ## What is Machinen?
 
-![Machinen Application](./machinen-screenshot.png)
+Machinen is a Discord message ingestor built with RedwoodSDK. It fetches messages from Discord channels and stores them as artifacts in Cloudflare R2 for processing and analysis.
 
-Machinen is a web based Claude Code programming & collaborative environment for teams.
+## Architecture
 
-It gives developers a development environment in the cloud, designed for agentic workflows: Each workflow runs in its own isolated container, making it easy to edit, review, and merge changes independently of each other.
+Machinen follows a Sources → Artifacts → Subjects pattern:
 
-▶️ [A Short YouTube Video](https://www.youtube.com/watch?v=xQdeIzqV9mg)
-
-
+- **Sources**: Discord channel configurations
+- **Artifacts**: Immutable captures of messages from channels
+- **Subjects**: Derived concepts extracted from messages
 
 ## Quickstart
 
-First start up Machinen:
+Install dependencies and start the development server:
 
 ```bash
 pnpm install
 pnpm dev
 ```
 
-## TODO
+## Configuration
 
-Implement designs.
+Set your Discord bot token in `.dev.vars`:
 
-## Shortcomings
+```
+DISCORD_BOT_TOKEN=your_token_here
+```
 
-- Our editor is complete trash. We will improve it.
-- We want you to be able to directly communicate with the container via VSCode Dev Containers.
+For production deployment:
+
+```bash
+wrangler secret put DISCORD_BOT_TOKEN
+```
+
+## Usage
+
+Ingestion runs automatically every 6 hours via Cloudflare Cron Triggers, or you can trigger it manually:
+
+```
+GET /ingest/discord
+```
+
+## Documentation
+
+- [Discord Ingestor Setup](./docs/discord-ingestor-setup.md)
+- [Discord Ingestor](./docs/discord-ingestor.md)
+- [Architecture: Sources-Artifacts-Subjects](./docs/architecture/sources-artifacts-subjects.md)
 
 ## Licensing
 

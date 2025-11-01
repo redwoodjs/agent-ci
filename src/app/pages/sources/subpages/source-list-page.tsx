@@ -1,15 +1,19 @@
 import { Search } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+} from "@/app/components/ui/card";
 
 import { db } from "@/db";
-import { SourcesView } from "@/app/components/views/sources-view";
 
 export async function SourceListPage() {
   const sources = await db
     .selectFrom("sources")
     .leftJoin("artifacts", "artifacts.sourceID", "sources.id")
-
     .selectAll("sources")
     .select((eb) => eb.fn.count<number>("artifacts.id").as("artifactCount"))
     .groupBy("sources.id")
@@ -35,7 +39,18 @@ export async function SourceListPage() {
           <Input placeholder="Search..." className="pl-10" />
         </div>
 
-        <SourcesView sources={sources} />
+        <div className="grid gap-4">
+          {sources.map((source) => (
+            <Card key={source.id}>
+              <CardHeader>
+                <CardTitle>{source.name}</CardTitle>
+                <CardDescription>
+                  {source.type} • {source.artifactCount} artifacts
+                </CardDescription>
+              </CardHeader>
+            </Card>
+          ))}
+        </div>
       </div>
     </div>
   );

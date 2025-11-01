@@ -4,24 +4,38 @@
 
 Converts Discord message JSON exports into structured markdown format that preserves conversation threads, metadata, and interactions while maintaining readability.
 
+**Status:** ✅ IMPLEMENTED in `src/app/ingestors/discord/split-conversations.ts`
+
+The implementation uses the `reply_to_message_id` field to reconstruct thread hierarchies and generates conversation markdown with proper indentation for threaded discussions.
+
 ## Format Structure
 
 ### Basic Message Format
 
+Current implementation uses ISO 8601 timestamps:
+
 ```
-YYYY-MM-DD HH:MM:SS | username: message content
+[YYYY-MM-DDTHH:MM:SS.sssZ] username: message content
+```
+
+Example:
+
+```
+[2024-10-23T14:30:00.000Z] alice: We should add rate limiting to the API endpoints
 ```
 
 ### Threaded Conversations
 
-Thread replies are indented with `>` prefix:
+Thread replies are indented with `>` prefix (implemented):
 
 ```
-YYYY-MM-DD HH:MM:SS | username: parent message
-  > YYYY-MM-DD HH:MM:SS | username: reply message
-  > YYYY-MM-DD HH:MM:SS | username: another reply
-    >> YYYY-MM-DD HH:MM:SS | username: nested reply
+[YYYY-MM-DDTHH:MM:SS.sssZ] username: parent message
+> [YYYY-MM-DDTHH:MM:SS.sssZ] username: reply message
+> [YYYY-MM-DDTHH:MM:SS.sssZ] username: another reply
+> > [YYYY-MM-DDTHH:MM:SS.sssZ] username: nested reply
 ```
+
+The implementation uses the `reply_to_message_id` field from Discord's `message_reference` to build the thread hierarchy recursively.
 
 ## Message Elements
 
@@ -172,23 +186,28 @@ YYYY-MM-DD HH:MM:SS | username: parent message
 
 ### Performance
 
-- Stream processing for large message sets
-- Build message ID lookup table for thread resolution
-- Single-pass processing with deferred thread nesting
+- ✅ Build message ID lookup table for thread resolution
+- ✅ Recursive thread processing with parent-child relationships
+- ✅ Single conversation split processing
 
 ### Error Handling
 
-- Skip messages with missing required fields
-- Log malformed timestamps
-- Handle circular thread references
-- Fallback for null/undefined values
+- ✅ Try-catch for raw_data JSON parsing with fallback to "unknown"
+- ✅ Graceful handling of missing reply parents
+- ✅ Null-safe access for thread_id and reply fields
 
 ### Storage
 
-- Output: Plain markdown files
-- Naming: `discord_{channel_id}_{export_timestamp}.md`
-- Organize by channel or date ranges
-- Compatible with existing artifact storage structure
+- ✅ Output: Plain markdown files stored in R2
+- ✅ Path format: `discord/{guildID}/{channelID}/{timestamp}/split-{index}/conversation.md`
+- ✅ Metadata stored alongside: `metadata.json` with split details
+- ✅ Compatible with existing artifact storage structure
+
+### Database Schema
+
+- ✅ `raw_discord_messages.reply_to_message_id` - stores message reference
+- ✅ `raw_discord_messages.reply_to_channel_id` - stores cross-channel references
+- ✅ `conversation_splits` table tracks splits with metadata
 
 ## Future Extensions
 

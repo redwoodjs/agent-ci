@@ -11,6 +11,15 @@ interface DiscordMessage {
     global_name?: string;
   };
   channel_id: string;
+  message_reference?: {
+    message_id?: string;
+    channel_id?: string;
+    guild_id?: string;
+  };
+  thread?: {
+    id: string;
+    name: string;
+  };
 }
 
 interface DiscordIngestionConfig {
@@ -200,6 +209,9 @@ async function ingestMessagesForSource(
         author_id: message.author.id,
         content: message.content,
         timestamp: message.timestamp,
+        thread_id: message.thread?.id || null,
+        reply_to_message_id: message.message_reference?.message_id || null,
+        reply_to_channel_id: message.message_reference?.channel_id || null,
         raw_data: JSON.stringify(message),
       })
       .execute();
@@ -224,12 +236,12 @@ export async function ingestDiscordMessages(): Promise<
 
   const results_placeholder = [
     {
-      channelID: "123456789",
-      guildID: "987654321",
+      channelID: "1307974274145062912",
+      guildID: "679514959968993311",
       config: {
         sourceID: 1,
-        guildID: "987654321",
-        channelID: "123456789",
+        guildID: "679514959968993311",
+        channelID: "1307974274145062912",
         botToken,
       },
     },
@@ -246,7 +258,11 @@ export async function ingestDiscordMessages(): Promise<
       console.log(result);
       console.log("-".repeat(80));
 
-      results.push({ channelID: item.channelID, guildID: item.guildID, result });
+      results.push({
+        channelID: item.channelID,
+        guildID: item.guildID,
+        result,
+      });
     } catch (error) {
       console.error(
         `Error ingesting Discord channel ${item.channelID}:`,

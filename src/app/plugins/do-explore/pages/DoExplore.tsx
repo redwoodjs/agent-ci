@@ -1,5 +1,5 @@
 "use server";
-import { db } from "../../../../db";
+import { rawDiscordDb as db } from "@/app/ingestors/discord/db";
 import { SeedButton } from "../components/SeedButton";
 import { TableRows } from "../components/TableRows";
 import { InsertRow } from "../components/InsertRow";

@@ -1,5 +1,5 @@
 import { type Migrations } from "rwsdk/db";
-import { sql } from "kysely";
+import { sql } from "rwsdk/db";
 
 export const migrations = {
   "001_initial_schema": {
@@ -397,10 +397,16 @@ export const migrations = {
             col.notNull().defaultTo("default")
           )
           .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .execute(),
         await db.schema
@@ -411,10 +417,16 @@ export const migrations = {
           )
           .addColumn("bucketPath", "text", (col) => col.notNull())
           .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .execute(),
         await db.schema
@@ -426,10 +438,16 @@ export const migrations = {
           )
           .addColumn("bucketPath", "text", (col) => col.notNull())
           .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .execute(),
       ];
@@ -453,10 +471,16 @@ export const migrations = {
           .addColumn("subjects", "text", (col) => col.notNull().defaultTo("[]"))
           .addColumn("events", "text", (col) => col.notNull().defaultTo("[]"))
           .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .execute(),
       ];
@@ -479,16 +503,58 @@ export const migrations = {
           )
           .addColumn("score", "integer", (col) => col.notNull())
           .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(sql`current_timestamp`)
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
           )
           .execute(),
       ];
     },
     async down(db) {
       await db.schema.dropTable("stream_artifacts").execute();
+    },
+  },
+
+  "018_create_conversation_splits_table": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("conversation_splits")
+          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
+          .addColumn("artifactID", "integer", (col) =>
+            col.notNull().references("artifacts.id").onDelete("cascade")
+          )
+          .addColumn("splitType", "text", (col) => col.notNull())
+          .addColumn("startTime", "text", (col) => col.notNull())
+          .addColumn("endTime", "text", (col) => col.notNull())
+          .addColumn("messageCount", "integer", (col) => col.notNull())
+          .addColumn("participantCount", "integer", (col) => col.notNull())
+          .addColumn("threadCount", "integer", (col) => col.notNull())
+          .addColumn("topics", "text")
+          .addColumn("metadata", "text")
+          .addColumn("createdAt", "text", (col) =>
+            col.notNull().defaultTo(
+              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
+              sql`current_timestamp`
+            )
+          )
+          .execute(),
+        await db.schema
+          .createIndex("conversation_splits_artifact_id_index")
+          .on("conversation_splits")
+          .column("artifactID")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("conversation_splits").execute();
     },
   },
 } satisfies Migrations;

@@ -207,26 +207,45 @@ interface DiscordArtifactProcessor {
 
 ## Implementation Plan
 
-### Phase 1: Basic Temporal Splitting
+### Phase 1: Basic Temporal Splitting ✅ IMPLEMENTED
 
-1. Implement daily conversation splitting
-2. Preserve thread relationships across splits
-3. Generate basic conversation metadata
-4. Update artifact ingestion pipeline
+1. ✅ Implement temporal gap-based conversation splitting (4-hour threshold)
+2. ✅ Preserve thread relationships using reply_to_message_id
+3. ✅ Generate conversation metadata (participants, threads, message counts)
+4. ✅ Store conversation splits to R2 with markdown format
+5. ✅ Create conversation_splits database records
 
-### Phase 2: Smart Topic Detection
+**Implementation:** `src/app/ingestors/discord/split-conversations.ts`
 
-1. Implement LLM-based topic extraction
-2. Add semantic similarity for conversation grouping
-3. Create conversation subject entities
-4. Build topic-based navigation
+API Endpoint: `POST /ingestors/discord/split-conversations`
 
-### Phase 3: Advanced Features
+- Optional query param: `?artifactID=123` to process a specific artifact
+- Without params: processes all unprocessed artifacts
 
-1. Cross-artifact linking (Discord → GitHub)
-2. Conversation summarization
-3. Participant analysis and tracking
-4. Automated subject categorization
+### Phase 2: LLM-based Subject Extraction ✅ IMPLEMENTED
+
+1. ✅ Implement LLM-based subject extraction using OpenAI GPT-4o
+2. ✅ Create Discord-specific prompt for conversation analysis
+3. ✅ Extract subjects with facets, aliases, and line mappings
+4. ✅ Store subjects in database linked to artifacts
+5. ✅ Store subject JSON to R2 for reference
+
+**Implementation:** `src/app/ingestors/discord/extract-subjects.ts`
+
+API Endpoint: `POST /ingestors/discord/extract-subjects`
+
+- Optional query param: `?conversationSplitID=123` to process a specific split
+- Optional query param: `?artifactID=123` to process all splits for an artifact
+- Without params: processes all unprocessed splits
+
+### Phase 3: Advanced Features (Future)
+
+1. Cross-artifact linking (Discord → GitHub PRs/Issues)
+2. Multi-subject detection per conversation
+3. Conversation summarization
+4. Participant analysis and tracking
+5. Automated subject categorization by type
+6. Semantic similarity-based conversation grouping
 
 ## Benefits
 

@@ -2,7 +2,7 @@ import { type Migrations } from "rwsdk/db";
 import { sql } from "rwsdk/db";
 
 export const migrations = {
-  "009_add_better_auth_tables": {
+  "001_add_better_auth_tables": {
     async up(db) {
       return [
         // Users table
@@ -72,7 +72,7 @@ export const migrations = {
     },
   },
 
-  "013_add_sources_table": {
+  "002_add_sources_table": {
     async up(db) {
       return [
         await db.schema
@@ -98,152 +98,10 @@ export const migrations = {
             )
           )
           .execute(),
-        await db.schema
-          .createTable("artifacts")
-          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
-          .addColumn("sourceID", "integer", (col) =>
-            col.notNull().references("sources.id").onDelete("cascade")
-          )
-          .addColumn("bucketPath", "text", (col) => col.notNull())
-          .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .execute(),
-        await db.schema
-          .createTable("subjects")
-          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
-          .addColumn("name", "text", (col) => col.notNull())
-          .addColumn("artifactID", "integer", (col) =>
-            col.notNull().references("artifacts.id").onDelete("cascade")
-          )
-          .addColumn("bucketPath", "text", (col) => col.notNull())
-          .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .execute(),
       ];
     },
     async down(db) {
       await db.schema.dropTable("sources").execute();
-      await db.schema.dropTable("artifacts").execute();
-      await db.schema.dropTable("subjects").execute();
-    },
-  },
-
-  "016_create_streams_table": {
-    async up(db) {
-      return [
-        await db.schema
-          .createTable("streams")
-          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
-          .addColumn("name", "text", (col) => col.notNull())
-
-          .addColumn("sources", "text", (col) => col.notNull().defaultTo("[]"))
-          .addColumn("subjects", "text", (col) => col.notNull().defaultTo("[]"))
-          .addColumn("events", "text", (col) => col.notNull().defaultTo("[]"))
-          .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .execute(),
-      ];
-    },
-    async down(db) {
-      await db.schema.dropTable("streams").execute();
-    },
-  },
-  "017_create_stream_artifacts_table": {
-    async up(db) {
-      return [
-        await db.schema
-          .createTable("stream_artifacts")
-          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
-          .addColumn("streamID", "integer", (col) =>
-            col.notNull().references("streams.id").onDelete("cascade")
-          )
-          .addColumn("artifactID", "integer", (col) =>
-            col.notNull().references("artifacts.id").onDelete("cascade")
-          )
-          .addColumn("score", "integer", (col) => col.notNull())
-          .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .execute(),
-      ];
-    },
-    async down(db) {
-      await db.schema.dropTable("stream_artifacts").execute();
-    },
-  },
-
-  "018_create_conversation_splits_table": {
-    async up(db) {
-      return [
-        await db.schema
-          .createTable("conversation_splits")
-          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
-          .addColumn("artifactID", "integer", (col) =>
-            col.notNull().references("artifacts.id").onDelete("cascade")
-          )
-          .addColumn("splitType", "text", (col) => col.notNull())
-          .addColumn("startTime", "text", (col) => col.notNull())
-          .addColumn("endTime", "text", (col) => col.notNull())
-          .addColumn("messageCount", "integer", (col) => col.notNull())
-          .addColumn("participantCount", "integer", (col) => col.notNull())
-          .addColumn("threadCount", "integer", (col) => col.notNull())
-          .addColumn("topics", "text")
-          .addColumn("metadata", "text")
-          .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .execute(),
-        await db.schema
-          .createIndex("conversation_splits_artifact_id_index")
-          .on("conversation_splits")
-          .column("artifactID")
-          .execute(),
-      ];
-    },
-    async down(db) {
-      await db.schema.dropTable("conversation_splits").execute();
     },
   },
 } satisfies Migrations;

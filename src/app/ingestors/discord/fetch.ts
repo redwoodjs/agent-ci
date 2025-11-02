@@ -224,7 +224,7 @@ async function ingestMessagesForSource(
   };
 }
 
-export async function ingestDiscordMessages(): Promise<
+export async function fetchDiscordMessages(): Promise<
   Array<{ channelID: string; guildID: string; result: any }>
 > {
   const results = [];
@@ -280,4 +280,3 @@ export async function ingestDiscordMessages(): Promise<
 
   return results;
 }
-

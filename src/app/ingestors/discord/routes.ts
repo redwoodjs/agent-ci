@@ -1,5 +1,5 @@
 import { route } from "rwsdk/router";
-import { ingestDiscordMessages } from "./fetch";
+import { fetchDiscordMessages } from "./fetch";
 import { processDiscordMessages } from "./process";
 import {
   splitDiscordMessages,
@@ -11,16 +11,16 @@ import {
 } from "./extract-subjects";
 
 export const discordIngestorRoutes = [
-  route("/ingest", async () => {
+  route("/fetch", async () => {
     try {
-      const result = await ingestDiscordMessages();
+      const result = await fetchDiscordMessages();
       return Response.json({
         success: true,
-        message: "Discord ingestion started",
+        message: "Discord fetching started",
         result,
       });
     } catch (error) {
-      console.error("Discord ingestion error:", error);
+      console.error("Discord fetching error:", error);
       return Response.json(
         {
           success: false,
@@ -36,7 +36,7 @@ export const discordIngestorRoutes = [
       const result = await processDiscordMessages();
       return Response.json({
         success: true,
-        message: "Discord processing completed",
+        message: `Discord processing completed: ${result.splitsCreated} splits created (${result.splitsByType.thread} threads, ${result.splitsByType.reply_chain} reply chains, ${result.splitsByType.orphaned} orphaned)`,
         result,
       });
     } catch (error) {

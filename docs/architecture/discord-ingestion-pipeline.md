@@ -38,25 +38,19 @@ This pipeline maintains an immutable record of Discord conversations in both raw
 ┌─────────────────────────────────────┐
 │  Process Stage (process.ts)         │
 │  ├─ Read unprocessed messages       │
-│  ├─ Store to R2 bucket              │
-│  └─ Create artifact records         │
+│  ├─ Split by threads/reply chains   │
+│  └─ Store splits to R2 bucket       │
 └────────────┬────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────┐
 │  R2 Bucket                          │
 │  discord/{guildID}/{channelID}/     │
-│    {timestamp}/                     │
-│    ├─ messages.json                 │
+│    {timestamp}/split-{N}/           │
+│    ├─ conversation.md               │
 │    └─ metadata.json                 │
-└─────────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────┐
-│  artifacts table                    │
-│  ├─ sourceID                        │
-│  ├─ bucketPath                      │
-│  └─ createdAt, updatedAt            │
+│         (splitType, timestamps,     │
+│          participants, threadID)    │
 └─────────────────────────────────────┘
 ```
 
@@ -105,67 +99,69 @@ The ingester queries for the most recent message in `raw_discord_messages` and u
 
 ## Stage 2: Store (process.ts)
 
-**Purpose**: Move raw messages to persistent storage and create artifact records.
+**Purpose**: Process raw messages and split them into logical conversation units based on threads and reply chains.
 
 ### Message Processing
 
 Processing flow:
 
-1. Query all unprocessed messages grouped by channel and guild
-2. For each group, create timestamp-based R2 bucket directory
-3. Generate output files:
-   - `messages.json`: Normalized message data
-   - `metadata.json`: Ingestion metadata
-4. Create artifact record in database
-5. Mark messages as processed in raw table
+1. Query all unprocessed messages from `raw_discord_messages`
+2. Split messages into logical groups:
+   - **Thread-based splits**: Messages with same `thread_id` are grouped together
+   - **Reply chain splits**: Messages linked via `reply_to_message_id` form conversation threads
+   - **Orphaned messages**: Individual messages without threads or replies (handled separately)
+3. For each conversation split:
+   - Generate markdown representation with proper threading structure
+   - Store to R2 bucket with split-specific path (`conversation.md` and `metadata.json`)
+4. Mark processed messages as processed in `raw_discord_messages`
 
 ### Output Files
 
-#### messages.json
+For each conversation split, two files are created in R2:
 
-Normalized message structure:
+#### conversation.md
 
-```json
-[
-  {
-    "id": "message_id",
-    "content": "message text",
-    "timestamp": "2024-10-23T14:30:00Z",
-    "author": {
-      "id": "discord_user_id",
-      "username": "discord_username"
-    },
-    "channel_id": "channel_id"
-  }
-]
+Markdown representation of the conversation with threading structure:
+
+```markdown
+[2024-10-23T14:30:00Z] alice: Here's the main message
+> [2024-10-23T14:31:00Z] bob: This is a reply to alice
+> > [2024-10-23T14:32:00Z] charlie: This is a nested reply
+[2024-10-23T14:35:00Z] dave: This is another root message
 ```
+
+Threading is indicated by:
+- No indent: Root messages (not replies)
+- `>` prefix: Direct replies to root messages
+- Multiple `>`: Nested reply chains
 
 #### metadata.json
 
-Ingestion metadata:
+Split metadata:
 
 ```json
 {
-  "messageCount": 42,
-  "lastMessageID": "newest_message_id",
-  "firstMessageID": "oldest_message_id",
+  "splitIndex": 0,
+  "splitType": "thread",
+  "startTime": "2024-10-23T14:30:00Z",
+  "endTime": "2024-10-23T14:35:00Z",
+  "messageCount": 4,
+  "participantCount": 4,
+  "threadID": "1234567890",
+  "participantIDs": ["user_id_1", "user_id_2", ...],
   "channelID": "discord_channel_id",
-  "guildID": "discord_guild_id",
-  "ingestedAt": "2024-10-23T15:00:00Z"
+  "guildID": "discord_guild_id"
 }
 ```
 
-### Source Management
+### Split Storage
 
-The processor checks if a Discord source exists, creating one if needed:
+All conversation split metadata is stored in R2 as JSON files alongside the markdown content. Each split has its own directory containing:
 
-```sql
-INSERT INTO sources (type, name, description, bucket)
-VALUES ('discord', 'Discord {channelID}',
-        '{"guildID": "...", "channelID": "..."}', 'default')
-```
+- `conversation.md`: Markdown representation with threading
+- `metadata.json`: Complete split metadata including splitType, timestamps, participant counts, and IDs
 
-This allows the system to track which Discord channels have been ingested and relate artifacts back to their source.
+This approach keeps all conversation data self-contained in R2 without requiring database records. Splits can be discovered by listing bucket contents under the channel path.
 
 ## Database Schema
 
@@ -192,22 +188,77 @@ CREATE TABLE raw_discord_messages (
 - Consumed by: Process stage
 - Lifecycle: Rows are marked as processed, but typically not deleted for audit trail
 
-### Artifact Record
+### R2 Storage Structure
 
-References in main database:
+Conversation splits are stored entirely in R2:
 
-```sql
-CREATE TABLE artifacts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  sourceID INTEGER NOT NULL REFERENCES sources(id),
-  bucketPath TEXT NOT NULL,  -- "discord/{guildID}/{channelID}/{timestamp}/"
-  createdAt TEXT,
-  updatedAt TEXT
-)
+```
+discord/{guildID}/{channelID}/{timestamp}/
+  split-0/
+    conversation.md
+    metadata.json
+  split-1/
+    conversation.md
+    metadata.json
+  ...
 ```
 
-- Created by: Process stage
-- Contains: Reference to R2 bucket path where markdown files are stored
+Each `metadata.json` contains:
+```json
+{
+  "splitIndex": 0,
+  "splitType": "thread" | "reply_chain" | "orphaned",
+  "startTime": "ISO-8601",
+  "endTime": "ISO-8601",
+  "messageCount": number,
+  "participantCount": number,
+  "threadID": "discord_thread_id" | null,
+  "participantIDs": ["user_id", ...],
+  "channelID": "discord_channel_id",
+  "guildID": "discord_guild_id"
+}
+```
+
+## Conversation Splitting Strategy
+
+The store stage implements a hierarchical splitting strategy that prioritizes explicit conversation boundaries:
+
+### 1. Thread-Based Splits (Priority 1)
+
+Messages with identical `thread_id` values are grouped together. Discord threads represent explicit conversation boundaries created by users.
+
+```
+Thread ID: "123456"
+  - Message A (thread_id: "123456")
+  - Message B (thread_id: "123456", reply_to: A)
+  - Message C (thread_id: "123456")
+```
+
+All messages share the same thread_id → Single split
+
+### 2. Reply Chain Splits (Priority 2)
+
+Messages linked via `reply_to_message_id` form conversation threads. The algorithm:
+
+1. Build a graph of message relationships using `reply_to_message_id`
+2. Find root messages (messages not replying to anything)
+3. For each root, recursively collect all replies
+4. Each root + its reply tree forms one split
+
+```
+Root Message A
+  → Reply B (reply_to: A)
+    → Reply C (reply_to: B)
+  → Reply D (reply_to: A)
+```
+
+Forms a single reply chain split
+
+### 3. Orphaned Messages (Priority 3)
+
+Messages without `thread_id` or `reply_to_message_id`. These are handled as individual conversation units.
+
+Future work will implement temporal gap detection to group orphaned messages that occur in close succession.
 
 ## API Endpoints
 
@@ -235,7 +286,7 @@ Triggers the ingest stage:
 
 ### POST /store
 
-Triggers the process stage (converts raw messages to markdown):
+Triggers the process stage (splits messages into logical conversations and stores as markdown):
 
 ```json
 {
@@ -243,7 +294,12 @@ Triggers the process stage (converts raw messages to markdown):
   "message": "Discord processing completed",
   "result": {
     "processedCount": 42,
-    "artifactsCreated": 1
+    "splitsCreated": 8,
+    "splitsByType": {
+      "thread": 5,
+      "reply_chain": 2,
+      "orphaned": 1
+    }
   }
 }
 ```
@@ -292,6 +348,16 @@ Separating ingest and process provides benefits:
 4. **Audit Trail**: Raw Discord API responses are preserved
 5. **Scheduling**: Can run stages at different intervals
 
+### Thread-Based Splitting
+
+Splitting messages by threads and reply chains provides:
+
+1. **Semantic Coherence**: Each split represents a logical conversation unit
+2. **Context Preservation**: Reply chains maintain full context even across temporal gaps
+3. **Processing Efficiency**: Smaller, focused conversation units for LLM processing
+4. **Topical Grouping**: Discord threads naturally group related discussions
+5. **Flexible Storage**: Individual conversations can be retrieved and processed independently
+
 ### Incremental Ingestion
 
 Only fetching new messages:
@@ -303,11 +369,11 @@ Only fetching new messages:
 
 ## Future Considerations
 
-1. **Markdown Format**: Convert messages to markdown (e.g., `[timestamp] username: message`) for semantic processing and LLM embeddings
-2. **Thread Handling**: Recursively ingest messages from Discord threads
-3. **Reactions**: Include emoji reactions in metadata
-4. **Attachments**: Download and store file attachments in bucket
-5. **Edits**: Track message edit history
-6. **Embeds**: Preserve rich embeds from messages
-7. **Batch Configuration**: Allow specifying multiple channels per ingest request
-8. **Retention Policy**: Implement automatic cleanup of old raw messages
+1. **Temporal Gaps**: For orphaned messages, implement temporal gap detection to group scattered messages into conversation-like units
+2. **Reactions**: Include emoji reactions in metadata
+3. **Attachments**: Download and store file attachments in bucket
+4. **Edits**: Track message edit history
+5. **Embeds**: Preserve rich embeds from messages
+6. **Batch Configuration**: Allow specifying multiple channels per ingest request
+7. **Retention Policy**: Implement automatic cleanup of old raw messages
+8. **Thread Merging**: Detect and merge related threads (cross-references, same participants, temporal proximity)

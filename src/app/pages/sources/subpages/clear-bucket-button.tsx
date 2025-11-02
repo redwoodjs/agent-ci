@@ -15,7 +15,7 @@ export function ClearBucketButton({
 }) {
   const handleClear = async () => {
     const confirmed = window.confirm(
-      `Delete all ${fileCount} files with prefix "${prefix}"?`
+      `Delete all files with prefix "${prefix}" and reset processed state?`
     );
 
     if (confirmed) {
@@ -27,7 +27,6 @@ export function ClearBucketButton({
     <Button
       onClick={handleClear}
       variant="destructive"
-      disabled={fileCount === 0}
       className="gap-2"
     >
       <Trash2 className="h-4 w-4" />

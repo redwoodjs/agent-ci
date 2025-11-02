@@ -8,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/app/components/ui/table";
+import { ClearBucketButton } from "./clear-bucket-button";
 
 interface R2FileInfo {
   key: string;
@@ -73,11 +74,20 @@ export async function SourceDetailPage({
   return (
     <div className="flex-1 p-6 bg-white w-full">
       <div className="max-w-7xl mx-auto w-full">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-black mb-2">{source.name}</h1>
-          <p className="text-muted-foreground">
-            {source.type} • {allFiles.length} files
-          </p>
+        <div className="mb-6 flex items-start justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-black mb-2">
+              {source.name}
+            </h1>
+            <p className="text-muted-foreground">
+              {source.type} • {allFiles.length} files
+            </p>
+          </div>
+          <ClearBucketButton
+            prefix={bucketPrefix}
+            sourceID={sourceID}
+            fileCount={allFiles.length}
+          />
         </div>
 
         <div className="border rounded-lg bg-white">

@@ -94,25 +94,55 @@ function preserveThreads(splits: ConversationSplit[]): ConversationSplit[] {
     }
   }
 
-  const threadRoots = new Map<string, RawDiscordMessage[]>();
-  const orphanedMessages: RawDiscordMessage[] = [];
+  const threadGroups = new Map<string, RawDiscordMessage[]>();
 
   for (const msg of allMessages) {
-    if (msg.reply_to_message_id) {
-      const parent = messagesByID.get(msg.reply_to_message_id);
-      if (parent) {
-        const rootID = findThreadRoot(parent, messagesByID);
-        if (!threadRoots.has(rootID)) {
-          threadRoots.set(rootID, []);
+    const rootID = msg.reply_to_message_id 
+      ? findThreadRoot(msg, messagesByID)
+      : msg.message_id;
+    
+    if (!threadGroups.has(rootID)) {
+      threadGroups.set(rootID, []);
+    }
+    threadGroups.get(rootID)!.push(msg);
+  }
+
+  const newSplits: ConversationSplit[] = [];
+
+  for (const split of splits) {
+    const messagesInSplit = new Set(split.messages.map(m => m.message_id));
+    const threadRootsInSplit = new Set<string>();
+
+    for (const msg of split.messages) {
+      const rootID = msg.reply_to_message_id
+        ? findThreadRoot(msg, messagesByID)
+        : msg.message_id;
+      threadRootsInSplit.add(rootID);
+    }
+
+    const expandedMessages: RawDiscordMessage[] = [];
+    const seenIDs = new Set<string>();
+
+    for (const rootID of threadRootsInSplit) {
+      const threadMessages = threadGroups.get(rootID) || [];
+      for (const msg of threadMessages) {
+        if (!seenIDs.has(msg.message_id)) {
+          expandedMessages.push(msg);
+          seenIDs.add(msg.message_id);
         }
-        threadRoots.get(rootID)!.push(msg);
-      } else {
-        orphanedMessages.push(msg);
       }
+    }
+
+    expandedMessages.sort((a, b) => 
+      new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+    );
+
+    if (expandedMessages.length > 0) {
+      newSplits.push(createSplitFromMessages(expandedMessages, "combined"));
     }
   }
 
-  return splits;
+  return newSplits;
 }
 
 function findThreadRoot(

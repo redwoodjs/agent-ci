@@ -18,7 +18,7 @@ This pipeline maintains an immutable record of Discord conversations in both raw
          │
          ▼
 ┌─────────────────────────────────────┐
-│  Ingest Stage (ingest.ts)           │
+│  Ingest Stage (fetch.ts)            │
 │  ├─ Fetch messages from API         │
 │  ├─ Handle pagination & rate limits │
 │  └─ Store in raw_discord_messages   │
@@ -60,7 +60,7 @@ This pipeline maintains an immutable record of Discord conversations in both raw
 └─────────────────────────────────────┘
 ```
 
-## Stage 1: Ingest (ingest.ts)
+## Stage 1: Ingest (fetch.ts)
 
 **Purpose**: Fetch messages from Discord and store in raw format.
 

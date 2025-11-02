@@ -1,5 +1,5 @@
 import { route } from "rwsdk/router";
-import { ingestDiscordMessages } from "./ingest";
+import { ingestDiscordMessages } from "./fetch";
 import { processDiscordMessages } from "./process";
 import {
   splitDiscordMessages,

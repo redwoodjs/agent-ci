@@ -44,16 +44,29 @@ async function processUnprocessedMessages(): Promise<{
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const bucketPath = `discord/${guildID}/${channelID}/${timestamp}/`;
 
-      const formattedMessages = messages.map((msg) => ({
-        id: msg.message_id,
-        content: msg.content,
-        timestamp: msg.timestamp,
-        author: {
-          id: msg.author_id,
-          username: "unknown",
-        },
-        channel_id: msg.channel_id,
-      }));
+      const formattedMessages = messages.map((msg) => {
+        let username = "unknown";
+        let globalName = null;
+        try {
+          const rawData = JSON.parse(msg.raw_data);
+          username = rawData.author?.username || "unknown";
+          globalName = rawData.author?.global_name || null;
+        } catch {
+          username = "unknown";
+        }
+
+        return {
+          id: msg.message_id,
+          content: msg.content,
+          timestamp: msg.timestamp,
+          author: {
+            id: msg.author_id,
+            username: username,
+            global_name: globalName,
+          },
+          channel_id: msg.channel_id,
+        };
+      });
 
       const messagesKey = `${bucketPath}messages.json`;
       await env.MACHINEN_BUCKET.put(
@@ -64,7 +77,8 @@ async function processUnprocessedMessages(): Promise<{
       const readableContent = formattedMessages
         .map((msg) => {
           const date = new Date(msg.timestamp).toISOString();
-          return `[${date}] ${msg.author.username}: ${msg.content}`;
+          const displayName = msg.author.global_name || msg.author.username;
+          return `[${date}] ${displayName}: ${msg.content}`;
         })
         .join("\n");
 
@@ -101,9 +115,7 @@ async function processUnprocessedMessages(): Promise<{
             name: `Discord ${channelID}`,
             description: JSON.stringify({ guildID, channelID }),
             bucket: "default",
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
-          })
+          } as any)
           .returningAll()
           .executeTakeFirstOrThrow();
         sourceID = newSource.id;

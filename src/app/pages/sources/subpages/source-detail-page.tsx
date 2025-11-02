@@ -1,4 +1,5 @@
 import { db } from "@/db";
+import { rawDiscordDb } from "@/app/ingestors/discord/db";
 import { env } from "cloudflare:workers";
 import {
   Table,
@@ -34,11 +35,14 @@ export async function SourceDetailPage({
   }
 
   let bucketPrefix = "";
+  let guildID = "";
+  let channelID = "";
 
   if (source.type === "discord") {
     try {
       const description = JSON.parse(source.description);
-      const { guildID, channelID } = description;
+      guildID = description.guildID || "";
+      channelID = description.channelID || "";
       if (guildID && channelID) {
         bucketPrefix = `discord/${guildID}/${channelID}/`;
       } else {
@@ -50,6 +54,19 @@ export async function SourceDetailPage({
   } else {
     bucketPrefix = source.bucket || "";
   }
+
+  const messageCountResult =
+    source.type === "discord"
+      ? await rawDiscordDb
+          .selectFrom("raw_discord_messages")
+          .select(({ fn }) => [fn.countAll().as("count")])
+          .where("channel_id", "=", channelID)
+          .executeTakeFirst()
+      : null;
+
+  const messageCount = messageCountResult
+    ? Number(messageCountResult.count ?? 0)
+    : 0;
 
   const allFiles: R2FileInfo[] = [];
   let cursor: string | undefined = undefined;
@@ -79,9 +96,20 @@ export async function SourceDetailPage({
             <h1 className="text-2xl font-bold text-black mb-2">
               {source.name}
             </h1>
-            <p className="text-muted-foreground">
-              {source.type} • {allFiles.length} files
-            </p>
+            <p className="text-muted-foreground">{source.type}</p>
+            {source.type === "discord" && guildID && channelID && (
+              <p className="text-muted-foreground font-mono text-sm mt-1">
+                Guild: {guildID} • Channel: {channelID}
+              </p>
+            )}
+            {source.type !== "discord" && (
+              <>
+                <p className="text-muted-foreground">{allFiles.length} files</p>
+                <p className="text-muted-foreground font-mono text-sm mt-1">
+                  {bucketPrefix}
+                </p>
+              </>
+            )}
           </div>
           <ClearBucketButton
             prefix={bucketPrefix}
@@ -90,7 +118,37 @@ export async function SourceDetailPage({
           />
         </div>
 
+        {source.type === "discord" && (
+          <div className="border rounded-lg bg-white p-6 mb-6">
+            <div className="space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold mb-2">
+                  Discord Messages Database
+                </h2>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {messageCount} {messageCount === 1 ? "message" : "messages"}{" "}
+                  stored in database
+                </p>
+              </div>
+
+              <a
+                href="/dox/raw_discord_messages"
+                className="inline-flex items-center justify-center rounded-md text-sm font-medium bg-black text-white hover:bg-black/90 h-10 px-4 py-2"
+              >
+                View Messages in Database Explorer
+              </a>
+            </div>
+          </div>
+        )}
+
         <div className="border rounded-lg bg-white">
+          <div className="p-4 border-b">
+            <h2 className="text-lg font-semibold">R2 Storage Files</h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {allFiles.length} {allFiles.length === 1 ? "file" : "files"} •{" "}
+              {bucketPrefix}
+            </p>
+          </div>
           <Table>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
@@ -133,10 +191,6 @@ export async function SourceDetailPage({
               )}
             </TableBody>
           </Table>
-        </div>
-
-        <div className="mt-4 text-sm text-muted-foreground">
-          Showing {allFiles.length} {allFiles.length === 1 ? "file" : "files"}
         </div>
       </div>
     </div>

@@ -9,6 +9,7 @@ import {
 } from "@/app/components/ui/card";
 
 import { db } from "@/db";
+import { FetchSourcesButton } from "./fetch-sources-button";
 
 export async function SourceListPage() {
   const sources = await db.selectFrom("sources").selectAll().execute();
@@ -21,11 +22,14 @@ export async function SourceListPage() {
             <h1 className="mb-2 text-2xl text-black font-bold">Sources</h1>
             <p className="text-muted-foreground">Data sources stored in R2</p>
           </div>
-          <a href="/sources/new">
-            <Button className="bg-green-600 hover:bg-green-700">
-              Create source
-            </Button>
-          </a>
+          <div className="flex gap-2">
+            <FetchSourcesButton />
+            <a href="/sources/new">
+              <Button className="bg-green-600 hover:bg-green-700">
+                Create source
+              </Button>
+            </a>
+          </div>
         </div>
 
         <div className="relative mb-8">

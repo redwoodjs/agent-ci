@@ -9,6 +9,7 @@ import { setCommonHeaders } from "./app/headers";
 import { authRoutes } from "./app/pages/auth/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
 import { discordIngestorRoutes } from "./app/ingestors/discord/routes";
+import { doExploreRoutes } from "./app/plugins/do-explore/routes";
 
 export type AppContext = {
   user: any;
@@ -40,6 +41,7 @@ const app = defineApp([
 
     prefix("/auth", authRoutes),
     prefix("/sources", sourceRoutes),
+    prefix("/dox", doExploreRoutes),
   ]),
 
   prefix("/ingestors/discord", discordIngestorRoutes),

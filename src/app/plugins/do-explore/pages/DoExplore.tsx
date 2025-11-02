@@ -1,10 +1,5 @@
 "use server";
 import { rawDiscordDb as db } from "@/app/ingestors/discord/db";
-import { SeedButton } from "../components/SeedButton";
-import { TableRows } from "../components/TableRows";
-import { InsertRow } from "../components/InsertRow";
-import { extractColumnsFromCreate } from "../utils/schema";
-import { listRefOptions } from "./functions";
 
 export async function DoExplore({ params }: { params: { table: string } }) {
   const table = params.table;
@@ -54,41 +49,14 @@ export async function DoExplore({ params }: { params: { table: string } }) {
 
   let rows: any[] = [];
   let columns: string[] = [];
-  let schema = [] as ReturnType<typeof extractColumnsFromCreate>;
   let total = activeTable ? tableCounts[activeTable] ?? 0 : 0;
-  if (activeTable) {
-    const table = masterRows.find((r: any) => r.name === activeTable);
-    schema = extractColumnsFromCreate(table?.sql || "");
-    columns = schema.map((c) => c.name);
-  }
-
-  const options = activeTable
-    ? await listRefOptions(
-        activeTable,
-        columns.filter(
-          (c) => schema.find((s) => s.name === c)?.references?.table
-        )[0]
-      )
-    : [];
-
+  
   if (activeTable) {
     try {
       const qb: any = (db as any).selectFrom(activeTable).selectAll();
-      rows = await qb.execute(); // Normalize all cell values to strings for consistent rendering
-      if (rows.length > 0 && columns.length > 0) {
-        rows = rows.map((row: any) => {
-          const out: Record<string, string> = {};
-          for (const key of columns) {
-            const value = row[key];
-            out[key] =
-              value === null || value === undefined
-                ? ""
-                : typeof value === "object"
-                ? JSON.stringify(value)
-                : String(value);
-          }
-          return out;
-        });
+      rows = await qb.execute();
+      if (rows.length > 0) {
+        columns = Object.keys(rows[0]);
       }
     } catch {
       rows = [];
@@ -146,51 +114,35 @@ export async function DoExplore({ params }: { params: { table: string } }) {
               </div>
             </div>
 
-            <div className="overflow-auto card-cream border-dotted">
+            <div className="overflow-auto border rounded">
               <table className="min-w-full text-sm">
-                <thead className="bg-black/5 border-b border-dotted">
+                <thead className="bg-gray-50 border-b">
                   <tr>
-                    {columns.map((c) => {
-                      const colMeta = schema.find((s) => s.name === c);
-                      const ref = colMeta?.references;
-                      return (
-                        <th
-                          key={c}
-                          className="text-left font-medium px-3 py-2 whitespace-nowrap"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>{c}</span>
-                            {ref?.table ? (
-                              <span className="text-[10px] leading-none badge">
-                                ↗ {ref.table}
-                                {ref.column ? `.${ref.column}` : ""}
-                              </span>
-                            ) : null}
-                          </div>
-                        </th>
-                      );
-                    })}
-                    <th className="text-left font-medium px-3 py-2 whitespace-nowrap">
-                      Actions
-                    </th>
+                    {columns.map((c) => (
+                      <th
+                        key={c}
+                        className="text-left font-medium px-3 py-2 whitespace-nowrap"
+                      >
+                        {c}
+                      </th>
+                    ))}
                   </tr>
                 </thead>
                 <tbody>
-                  <TableRows
-                    tableName={activeTable}
-                    rows={rows}
-                    columns={columns}
-                  />
-                  <InsertRow
-                    options={options}
-                    schema={schema}
-                    tableName={activeTable}
-                    columns={columns}
-                  />
+                  {rows.map((row, idx) => (
+                    <tr key={idx} className="border-b">
+                      {columns.map((col) => (
+                        <td key={col} className="px-3 py-2">
+                          {typeof row[col] === "object"
+                            ? JSON.stringify(row[col])
+                            : String(row[col] ?? "")}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-            <SeedButton tableName={activeTable || ""} />
           </div>
         ) : (
           <div className="text-sm text-black/60">No tables available.</div>

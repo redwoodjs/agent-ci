@@ -109,19 +109,6 @@ async function processUnprocessedMessages(): Promise<{
         sourceID = newSource.id;
       }
 
-      const artifact = await db
-        .insertInto("artifacts")
-        .values({
-          // @ts-ignore
-          id: null,
-          sourceID,
-          bucketPath,
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        })
-        .returningAll()
-        .executeTakeFirstOrThrow();
-
       await rawDiscordDb
         .updateTable("raw_discord_messages")
         .set({ processed_state: "processed" })
@@ -130,7 +117,7 @@ async function processUnprocessedMessages(): Promise<{
         .execute();
 
       console.log(
-        `Created artifact ${artifact.id} for channel ${channelID} with ${messages.length} messages`
+        `Processed channel ${channelID} with ${messages.length} messages to ${bucketPath}`
       );
       artifactsCreated++;
     } catch (error) {

@@ -11,13 +11,7 @@ import {
 import { db } from "@/db";
 
 export async function SourceListPage() {
-  const sources = await db
-    .selectFrom("sources")
-    .leftJoin("artifacts", "artifacts.sourceID", "sources.id")
-    .selectAll("sources")
-    .select((eb) => eb.fn.count<number>("artifacts.id").as("artifactCount"))
-    .groupBy("sources.id")
-    .execute();
+  const sources = await db.selectFrom("sources").selectAll().execute();
 
   return (
     <div className="min-h-screen bg-white">
@@ -25,13 +19,13 @@ export async function SourceListPage() {
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="mb-2 text-2xl text-black font-bold">Sources</h1>
-            <p className="text-muted-foreground">
-              Sources produce artifacts that are parsed into subjects
-            </p>
+            <p className="text-muted-foreground">Data sources stored in R2</p>
           </div>
-          <Button className="bg-green-600 hover:bg-green-700">
-            Create source
-          </Button>
+          <a href="/sources/new">
+            <Button className="bg-green-600 hover:bg-green-700">
+              Create source
+            </Button>
+          </a>
         </div>
 
         <div className="relative mb-8">
@@ -41,14 +35,14 @@ export async function SourceListPage() {
 
         <div className="grid gap-4">
           {sources.map((source) => (
-            <Card key={source.id}>
-              <CardHeader>
-                <CardTitle>{source.name}</CardTitle>
-                <CardDescription>
-                  {source.type} • {source.artifactCount} artifacts
-                </CardDescription>
-              </CardHeader>
-            </Card>
+            <a key={source.id} href={`/sources/${source.id}`}>
+              <Card className="cursor-pointer hover:bg-gray-50 transition-colors">
+                <CardHeader>
+                  <CardTitle>{source.name}</CardTitle>
+                  <CardDescription>{source.type}</CardDescription>
+                </CardHeader>
+              </Card>
+            </a>
           ))}
         </div>
       </div>

@@ -70,3 +70,6 @@ generated/
 worker-configuration.d.ts
 container/worker-configuration.d.ts
 plan/
+
+# Cursor User Rules
+.cursor/rules/user

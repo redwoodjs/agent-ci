@@ -1,7 +1,6 @@
 "use server";
 
 import { rawDiscordDb } from "./db";
-import { db } from "@/db";
 import { env } from "cloudflare:workers";
 
 interface RawDiscordMessage {
@@ -38,7 +37,6 @@ interface DailyStreamEntry {
   participantCount?: number;
   startTime?: string;
   endTime?: string;
-  bucketPath?: string;
 }
 
 interface ProcessingResult {
@@ -175,69 +173,19 @@ function createConversationSplits(
   return splits;
 }
 
-function generateConversationMarkdown(split: ConversationSplit): string {
-  const messagesByID = new Map<string, RawDiscordMessage>();
-  for (const msg of split.messages) {
-    messagesByID.set(msg.message_id, msg);
-  }
-
-  const lines: string[] = [];
-
-  function formatMessage(
-    msg: RawDiscordMessage,
-    indentLevel: number = 0
-  ): void {
-    const indent = "> ".repeat(indentLevel);
-    const date = new Date(msg.timestamp).toISOString();
-
-    let authorName = "unknown";
-    try {
-      const rawData = JSON.parse(msg.raw_data);
-      authorName =
-        rawData.author?.global_name || rawData.author?.username || "unknown";
-    } catch {
-      authorName = "unknown";
-    }
-
-    lines.push(`${indent}[${date}] ${authorName}: ${msg.content}`);
-
-    const replies = split.messages.filter(
-      (m) => m.reply_to_message_id === msg.message_id
-    );
-    for (const reply of replies) {
-      formatMessage(reply, indentLevel + 1);
-    }
-  }
-
-  const rootMessages = split.messages.filter((msg) => !msg.reply_to_message_id);
-
-  for (const rootMsg of rootMessages) {
-    formatMessage(rootMsg);
-  }
-
-  return lines.join("\n");
-}
-
 function createDailyStreams(
   allMessages: RawDiscordMessage[],
-  splits: ConversationSplit[],
-  splitBucketPaths: Map<ConversationSplit, string>
+  splits: ConversationSplit[]
 ): Map<string, DailyStreamEntry[]> {
   const messagesByDate = new Map<string, DailyStreamEntry[]>();
 
-  const messageToSplit = new Map<
-    string,
-    { split: ConversationSplit; path: string }
-  >();
+  const messageToSplit = new Map<string, ConversationSplit>();
   for (const split of splits) {
     if (split.splitType === "orphaned") {
       continue;
     }
-    const path = splitBucketPaths.get(split);
-    if (path) {
-      for (const msg of split.messages) {
-        messageToSplit.set(msg.message_id, { split, path });
-      }
+    for (const msg of split.messages) {
+      messageToSplit.set(msg.message_id, split);
     }
   }
 
@@ -254,25 +202,21 @@ function createDailyStreams(
       messagesByDate.set(date, []);
     }
 
-    const splitInfo = messageToSplit.get(msg.message_id);
+    const split = messageToSplit.get(msg.message_id);
 
-    if (splitInfo && !processedSplits.has(splitInfo.split)) {
-      processedSplits.add(splitInfo.split);
+    if (split && !processedSplits.has(split)) {
+      processedSplits.add(split);
 
       messagesByDate.get(date)!.push({
         timestamp: msg.timestamp,
-        type:
-          splitInfo.split.splitType === "thread"
-            ? "thread_ref"
-            : "reply_chain_ref",
-        splitType: splitInfo.split.splitType,
-        messageCount: splitInfo.split.messages.length,
-        participantCount: splitInfo.split.participantIDs.size,
-        startTime: splitInfo.split.startTime,
-        endTime: splitInfo.split.endTime,
-        bucketPath: splitInfo.path,
+        type: split.splitType === "thread" ? "thread_ref" : "reply_chain_ref",
+        splitType: split.splitType as "thread" | "reply_chain",
+        messageCount: split.messages.length,
+        participantCount: split.participantIDs.size,
+        startTime: split.startTime,
+        endTime: split.endTime,
       });
-    } else if (!splitInfo) {
+    } else if (!split) {
       let authorName = "unknown";
       try {
         const rawData = JSON.parse(msg.raw_data);
@@ -311,7 +255,6 @@ function generateDailyStreamMarkdown(
         `[${time}] → Thread`,
         `         Messages: ${entry.messageCount} | Participants: ${entry.participantCount}`,
         `         Duration: ${duration}`,
-        `         Path: ${entry.bucketPath}`,
         ""
       );
     } else if (entry.type === "reply_chain_ref") {
@@ -322,51 +265,12 @@ function generateDailyStreamMarkdown(
         `[${time}] → Reply Chain`,
         `         Messages: ${entry.messageCount} | Participants: ${entry.participantCount}`,
         `         Duration: ${duration}`,
-        `         Path: ${entry.bucketPath}`,
         ""
       );
     }
   }
 
   return lines.join("\n");
-}
-
-async function storeSplitToR2(
-  split: ConversationSplit,
-  channelID: string,
-  guildID: string
-): Promise<string> {
-  let bucketPath: string;
-
-  if (split.splitType === "thread") {
-    bucketPath = `discord/${guildID}/${channelID}/threads/${split.threadID}/`;
-  } else if (split.splitType === "reply_chain") {
-    const rootMessageID = split.messages[0].message_id;
-    bucketPath = `discord/${guildID}/${channelID}/replies/${rootMessageID}/`;
-  } else {
-    return "";
-  }
-
-  const markdown = generateConversationMarkdown(split);
-  const markdownKey = `${bucketPath}conversation.md`;
-  await env.MACHINEN_BUCKET.put(markdownKey, markdown);
-
-  const metadata = {
-    splitType: split.splitType,
-    startTime: split.startTime,
-    endTime: split.endTime,
-    messageCount: split.messages.length,
-    participantCount: split.participantIDs.size,
-    threadID: split.threadID,
-    participantIDs: Array.from(split.participantIDs),
-    channelID,
-    guildID,
-  };
-
-  const metadataKey = `${bucketPath}metadata.json`;
-  await env.MACHINEN_BUCKET.put(metadataKey, JSON.stringify(metadata, null, 2));
-
-  return bucketPath;
 }
 
 async function processUnprocessedMessages(): Promise<ProcessingResult> {
@@ -410,41 +314,11 @@ async function processUnprocessedMessages(): Promise<ProcessingResult> {
     try {
       const splits = createConversationSplits(messages);
 
-      const splitBucketPaths = new Map<ConversationSplit, string>();
-
       for (const split of splits) {
-        if (split.splitType === "orphaned") {
-          result.splitsByType[split.splitType]++;
-          continue;
-        }
-
-        const bucketPath = await storeSplitToR2(split, channelID, guildID);
-        splitBucketPaths.set(split, bucketPath);
-
-        await db
-          .insertInto("conversation_splits")
-          .values({
-            guildID,
-            channelID,
-            splitType: split.splitType,
-            threadID: split.threadID,
-            startTime: split.startTime,
-            endTime: split.endTime,
-            messageCount: split.messages.length,
-            participantCount: split.participantIDs.size,
-            bucketPath,
-          } as any)
-          .execute();
-
-        result.splitsCreated++;
         result.splitsByType[split.splitType]++;
       }
 
-      const dailyStreams = createDailyStreams(
-        messages,
-        splits,
-        splitBucketPaths
-      );
+      const dailyStreams = createDailyStreams(messages, splits);
       for (const [date, entries] of dailyStreams) {
         const markdown = generateDailyStreamMarkdown(entries, date);
         const dailyPath = `discord/${guildID}/${channelID}/daily/${date}.md`;
@@ -462,7 +336,7 @@ async function processUnprocessedMessages(): Promise<ProcessingResult> {
       result.processedCount += messages.length;
 
       console.log(
-        `Processed channel ${channelID}: ${splits.length} splits created (${result.splitsByType.thread} threads, ${result.splitsByType.reply_chain} reply chains, ${result.splitsByType.orphaned} orphaned)`
+        `Processed channel ${channelID}: created ${dailyStreams.size} daily streams with ${result.splitsByType.thread} threads, ${result.splitsByType.reply_chain} reply chains, ${result.splitsByType.orphaned} orphaned messages`
       );
     } catch (error) {
       console.error(`Error processing channel ${channelID}:`, error);

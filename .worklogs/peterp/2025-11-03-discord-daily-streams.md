@@ -2,32 +2,28 @@
 
 ## Problem
 
-The Discord ingestion pipeline was splitting messages into conversation units (threads, reply chains, orphaned), but the storage strategy had issues:
+The Discord ingestion pipeline needed a way to store messages that:
 
-1. R2 paths used processing timestamps, causing duplicates on re-processing
-2. No way to view complete chronological channel activity without reconstructing from separate artifacts
-3. Orphaned messages created individual R2 artifacts, which was inefficient
-4. No index structure for navigating channel history
+1. Provides a complete chronological view of channel activity
+2. Identifies structured conversations (threads, reply chains) without duplicating content
+3. Handles orphaned messages efficiently
+4. Avoids complex artifact management during initial development
 
 ## Goal
 
-Implement stable R2 storage paths and add daily stream files that provide chronological indexes of channel activity with references to structured conversations.
+Implement daily stream files as the primary storage mechanism, containing:
+
+- Full content for orphaned messages
+- Metadata references for threads and reply chains
+- Complete chronological timeline per channel per day
 
 ## Solution
 
-### 1. Stable R2 Paths
+### 1. Daily Stream Files (R2 Only)
 
-Changed from timestamp-based paths to identifier-based paths:
+Created daily stream generation that produces chronological indexes of channel activity.
 
-- Threads: `discord/{guildID}/{channelID}/threads/{threadID}/`
-- Reply chains: `discord/{guildID}/{channelID}/replies/{rootMessageID}/`
-- Daily streams: `discord/{guildID}/{channelID}/daily/{YYYY-MM-DD}.md`
-
-This prevents duplicate artifacts when re-processing messages and enables direct access by identifier.
-
-### 2. Daily Stream Files
-
-Added daily stream generation that creates chronological indexes of channel activity:
+**Storage path**: `discord/{guildID}/{channelID}/daily/{YYYY-MM-DD}.md`
 
 **Format**:
 
@@ -39,87 +35,83 @@ Added daily stream generation that creates chronological indexes of channel acti
 [09:05:00] → Thread
 Messages: 12 | Participants: 4
 Duration: 09:05:00 - 10:30:00
-Path: discord/guild123/channel456/threads/thread789/
 
 [10:45:00] charlie: Thanks for the help!
 ```
 
 **Content**:
 
-- Thread/reply chain references: Metadata only (message count, participants, duration, path)
+- Thread/reply chain references: Metadata only (message count, participants, duration)
 - Orphaned messages: Full content inline
 - Chronological ordering by timestamp
 
 **Benefits**:
 
-- Complete timeline of channel activity
-- No content duplication (structured conversations stored once, referenced)
-- Navigable index without reading individual artifacts
-- Supports activity pattern analysis
+- Complete timeline of channel activity per day
+- Simple storage model (single file per channel per day)
+- Identifies conversation structures without creating separate artifacts
+- All conversation content accessible in one place
 
-### 3. Orphaned Message Handling
+### 2. Conversation Identification
 
-Changed orphaned messages to appear only in daily streams:
+Messages are analyzed to identify conversation structures, but not stored as separate artifacts:
 
-- No separate R2 artifacts for orphaned messages
-- Full content included in daily stream
-- Not tracked in `conversation_splits` database table
-- Reduces storage overhead and improves clarity
+- Threads: Messages with same `thread_id`
+- Reply chains: Messages linked via `reply_to_message_id`
+- Orphaned: Individual messages without structure
 
-### 4. Implementation Details
+These identifications are used only to create references in daily streams, not to create separate R2 objects or database entries.
 
-**Updated functions**:
+### 3. Implementation Details
 
-- `storeSplitToR2()`: Changed to use stable paths based on threadID/rootMessageID
+**Functions added**:
+
 - `createDailyStreams()`: Groups messages by date, creates reference entries for structured conversations
 - `generateDailyStreamMarkdown()`: Formats daily stream with metadata-only references and orphaned content
-- `processUnprocessedMessages()`: Generates and stores daily streams after creating splits
 
-**Database impact**:
+**Functions updated**:
 
-- `conversation_splits` table now only stores threads and reply chains
-- `splitType` field excludes "orphaned" (appears only in counts)
+- `processUnprocessedMessages()`: Generates and stores daily streams after identifying conversation structures
 
-### 5. Architecture Documentation
+**Removed**:
 
-Updated `docs/architecture/discord-ingestion-pipeline.md`:
-
-- Three-layer storage architecture section (database, artifacts, daily streams)
-- New R2 storage structure with stable paths
-- Daily stream format examples
-- Updated conversation splitting strategy
-- Revised design rationale
+- `storeSplitToR2()`: No longer creating separate thread/reply artifacts
+- `generateConversationMarkdown()`: No longer needed
+- Database insertions into `conversation_splits` table
+- R2 artifact creation for threads and reply chains
 
 ## Results
 
 The Discord ingestion pipeline now:
 
-- Uses stable, deterministic R2 paths (no duplicates on re-processing)
-- Provides complete chronological channel indexes via daily streams
-- Stores structured conversations once with references
-- Includes orphaned messages inline in daily streams
-- Enables both structured conversation access and timeline navigation
-- Supports idempotent re-processing
+- Creates daily stream files with complete chronological view
+- Identifies conversation structures (threads, reply chains) with metadata references
+- Includes orphaned message content inline
+- Uses simple storage model (one file per channel per day)
+- Overwrites daily streams on re-processing (simpler than merging)
 
 ## Trade-offs
 
-**Chosen approach**: Daily streams with references to structured conversations
+**Chosen approach**: Daily streams only, no separate conversation artifacts
 
-**Alternatives considered**:
+**Why this approach**:
 
-1. Time-based windows only (would split conversations across boundaries)
-2. Full duplication (would double storage, create consistency issues)
-3. Durable Object only storage (would require dynamic view generation)
-
-**Benefits of chosen approach**:
-
-- Semantic coherence preserved (threads/replies stay intact)
-- No content duplication (structured conversations stored once)
-- Complete chronological access (daily streams)
-- Stable paths enable direct artifact access
-- Queryable metadata in database for structured conversations
+- Simplifies initial implementation
+- All content in one place per day
+- Easy to understand and debug
+- Conversation structures identified but not separately stored
+- Avoids complexity of managing multiple artifact types
 
 **Limitations**:
 
-- Daily streams overwritten completely on re-processing (future: merge new entries)
-- Thread names not currently included in references (future: extract from Discord)
+- Thread/reply content not in separate files (all inline in daily stream as references)
+- No database tracking of conversation splits
+- Re-processing overwrites entire daily stream
+- Cannot query for specific threads/replies without parsing daily streams
+
+**Future considerations**:
+
+- May add separate thread/reply artifacts later if needed
+- Could add database tracking for queryability
+- Could implement merge strategy for re-processing
+- Thread names could be extracted and included in references

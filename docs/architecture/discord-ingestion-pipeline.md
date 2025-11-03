@@ -39,19 +39,21 @@ This pipeline maintains an immutable record of Discord conversations in both raw
 │  Process Stage (process.ts)         │
 │  ├─ Read unprocessed messages       │
 │  ├─ Split by threads/reply chains   │
-│  └─ Store splits to R2 bucket       │
+│  ├─ Store markdown to R2 bucket     │
+│  └─ Store metadata to Durable Object│
 └────────────┬────────────────────────┘
              │
-             ▼
-┌─────────────────────────────────────┐
-│  R2 Bucket                          │
-│  discord/{guildID}/{channelID}/     │
-│    {timestamp}/split-{N}/           │
-│    ├─ conversation.md               │
-│    └─ metadata.json                 │
-│         (splitType, timestamps,     │
-│          participants, threadID)    │
-└─────────────────────────────────────┘
+             ├──────────────────┐
+             │                  │
+             ▼                  ▼
+┌──────────────────┐  ┌──────────────────┐
+│  R2 Bucket       │  │  Durable Object  │
+│  conversation.md │  │  Database        │
+│  metadata.json   │  │  ─────────────── │
+│                  │  │  conversation_   │
+│                  │  │    splits table  │
+│                  │  │  (queryable)     │
+└──────────────────┘  └──────────────────┘
 ```
 
 ## Stage 1: Ingest (fetch.ts)
@@ -113,6 +115,7 @@ Processing flow:
 3. For each conversation split:
    - Generate markdown representation with proper threading structure
    - Store to R2 bucket with split-specific path (`conversation.md` and `metadata.json`)
+   - Insert metadata record into `conversation_splits` table (Durable Object database)
 4. Mark processed messages as processed in `raw_discord_messages`
 
 ### Output Files
@@ -125,12 +128,15 @@ Markdown representation of the conversation with threading structure:
 
 ```markdown
 [2024-10-23T14:30:00Z] alice: Here's the main message
+
 > [2024-10-23T14:31:00Z] bob: This is a reply to alice
+>
 > > [2024-10-23T14:32:00Z] charlie: This is a nested reply
-[2024-10-23T14:35:00Z] dave: This is another root message
+> > [2024-10-23T14:35:00Z] dave: This is another root message
 ```
 
 Threading is indicated by:
+
 - No indent: Root messages (not replies)
 - `>` prefix: Direct replies to root messages
 - Multiple `>`: Nested reply chains
@@ -156,12 +162,30 @@ Split metadata:
 
 ### Split Storage
 
-All conversation split metadata is stored in R2 as JSON files alongside the markdown content. Each split has its own directory containing:
+Conversation splits are stored in two locations:
 
-- `conversation.md`: Markdown representation with threading
-- `metadata.json`: Complete split metadata including splitType, timestamps, participant counts, and IDs
+**Durable Object Database** (`conversation_splits` table):
 
-This approach keeps all conversation data self-contained in R2 without requiring database records. Splits can be discovered by listing bucket contents under the channel path.
+- Queryable metadata for threads and reply chains only
+- Fields: guildID, channelID, splitType, threadID, timestamps, counts, bucketPath
+- Enables searching and filtering conversations by type, time, or participants
+- Orphaned messages are not tracked in the database
+
+**R2 Bucket**:
+
+- Full markdown content and metadata JSON for structured conversations
+- Threads: `discord/{guildID}/{channelID}/threads/{threadID}/`
+- Reply chains: `discord/{guildID}/{channelID}/replies/{rootMessageID}/`
+- Files: `conversation.md` and `metadata.json`
+
+**Daily Streams** (R2 only):
+
+- Complete chronological index of channel activity per day
+- Path: `discord/{guildID}/{channelID}/daily/{YYYY-MM-DD}.md`
+- Contains references to threads/reply chains and full content of orphaned messages
+- Provides navigable timeline without content duplication
+
+This architecture provides queryability (database), complete conversation preservation (structured R2 artifacts), and chronological indexing (daily streams).
 
 ## Database Schema
 
@@ -188,26 +212,48 @@ CREATE TABLE raw_discord_messages (
 - Consumed by: Process stage
 - Lifecycle: Rows are marked as processed, but typically not deleted for audit trail
 
+### conversation_splits Table
+
+Records logical conversation splits in the Durable Object database:
+
+```sql
+CREATE TABLE conversation_splits (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  guildID TEXT NOT NULL,
+  channelID TEXT NOT NULL,
+  splitType TEXT NOT NULL,  -- "thread", "reply_chain" (orphaned not tracked)
+  threadID TEXT,
+  startTime TEXT NOT NULL,
+  endTime TEXT NOT NULL,
+  messageCount INTEGER NOT NULL,
+  participantCount INTEGER NOT NULL,
+  bucketPath TEXT NOT NULL,
+  createdAt TEXT DEFAULT CURRENT_TIMESTAMP
+)
+```
+
+Note: Orphaned messages are not stored in this table. They appear only in daily stream files.
+
 ### R2 Storage Structure
 
-Conversation splits are stored entirely in R2:
+Conversation content stored in R2 using stable paths:
 
 ```
-discord/{guildID}/{channelID}/{timestamp}/
-  split-0/
+discord/{guildID}/{channelID}/
+  threads/{threadID}/
     conversation.md
     metadata.json
-  split-1/
+  replies/{rootMessageID}/
     conversation.md
     metadata.json
-  ...
+  daily/{YYYY-MM-DD}.md
 ```
 
 Each `metadata.json` contains:
+
 ```json
 {
-  "splitIndex": 0,
-  "splitType": "thread" | "reply_chain" | "orphaned",
+  "splitType": "thread" | "reply_chain",
   "startTime": "ISO-8601",
   "endTime": "ISO-8601",
   "messageCount": number,
@@ -217,6 +263,21 @@ Each `metadata.json` contains:
   "channelID": "discord_channel_id",
   "guildID": "discord_guild_id"
 }
+```
+
+Daily stream format:
+
+```markdown
+# 2024-10-23
+
+[09:00:00] alice: Quick standalone question here
+
+[09:05:00] → Thread
+Messages: 12 | Participants: 4
+Duration: 09:05:00 - 10:30:00
+Path: discord/guild123/channel456/threads/thread789/
+
+[10:45:00] charlie: Thanks for the help!
 ```
 
 ## Conversation Splitting Strategy
@@ -256,9 +317,18 @@ Forms a single reply chain split
 
 ### 3. Orphaned Messages (Priority 3)
 
-Messages without `thread_id` or `reply_to_message_id`. These are handled as individual conversation units.
+Messages without `thread_id` or `reply_to_message_id`. These appear only in daily streams with full content, not as separate conversation artifacts.
 
-Future work will implement temporal gap detection to group orphaned messages that occur in close succession.
+### 4. Daily Streams
+
+All messages are also represented in daily stream files that provide a complete chronological index:
+
+- **Thread/reply chain references**: Metadata blocks showing message count, participants, duration, and path
+- **Orphaned message content**: Full message text inline in the stream
+- **Chronological ordering**: Messages ordered by timestamp
+- **No duplication**: References point to structured artifacts; only orphaned messages have full content
+
+Daily streams enable viewing channel activity patterns and timeline navigation without reading individual conversation artifacts.
 
 ## API Endpoints
 
@@ -348,15 +418,29 @@ Separating ingest and process provides benefits:
 4. **Audit Trail**: Raw Discord API responses are preserved
 5. **Scheduling**: Can run stages at different intervals
 
-### Thread-Based Splitting
+### Thread-Based Splitting with Daily Streams
 
-Splitting messages by threads and reply chains provides:
+Splitting messages by threads and reply chains with daily stream indexing provides:
 
-1. **Semantic Coherence**: Each split represents a logical conversation unit
-2. **Context Preservation**: Reply chains maintain full context even across temporal gaps
-3. **Processing Efficiency**: Smaller, focused conversation units for LLM processing
-4. **Topical Grouping**: Discord threads naturally group related discussions
-5. **Flexible Storage**: Individual conversations can be retrieved and processed independently
+1. **Semantic Coherence**: Each structured conversation is a logical unit
+2. **Context Preservation**: Reply chains maintain full context across temporal gaps
+3. **Processing Efficiency**: Focused conversation units for LLM processing
+4. **Topical Grouping**: Discord threads group related discussions
+5. **Stable Paths**: Thread and reply chain artifacts use deterministic identifiers
+6. **Chronological Access**: Daily streams provide complete timeline view
+7. **No Duplication**: Structured conversations stored once, referenced in daily streams
+
+### Three-Layer Storage Architecture
+
+Storing conversations across Durable Object database, R2 artifacts, and daily streams provides:
+
+1. **Queryability**: Database enables filtering structured conversations by type, time, channel, or thread
+2. **Completeness**: R2 artifacts preserve full conversation content with stable paths
+3. **Timeline Navigation**: Daily streams provide chronological channel activity index
+4. **Performance**: Database queries avoid R2 bucket scans; stable paths enable direct access
+5. **Durability**: Durable Object provides transactional guarantees for metadata
+6. **Archival**: R2 provides cost-effective long-term storage
+7. **Idempotency**: Stable paths prevent duplicate artifacts on re-processing
 
 ### Incremental Ingestion
 
@@ -369,11 +453,12 @@ Only fetching new messages:
 
 ## Future Considerations
 
-1. **Temporal Gaps**: For orphaned messages, implement temporal gap detection to group scattered messages into conversation-like units
-2. **Reactions**: Include emoji reactions in metadata
-3. **Attachments**: Download and store file attachments in bucket
-4. **Edits**: Track message edit history
-5. **Embeds**: Preserve rich embeds from messages
-6. **Batch Configuration**: Allow specifying multiple channels per ingest request
-7. **Retention Policy**: Implement automatic cleanup of old raw messages
-8. **Thread Merging**: Detect and merge related threads (cross-references, same participants, temporal proximity)
+1. **Reactions**: Include emoji reactions in metadata
+2. **Attachments**: Download and store file attachments in bucket
+3. **Edits**: Track message edit history
+4. **Embeds**: Preserve rich embeds from messages
+5. **Batch Configuration**: Allow specifying multiple channels per ingest request
+6. **Retention Policy**: Implement automatic cleanup of old raw messages
+7. **Thread Merging**: Detect and merge related threads (cross-references, same participants, temporal proximity)
+8. **Daily Stream Updates**: When re-processing, merge new entries into existing daily streams rather than overwriting
+9. **Thread Names**: Include Discord thread names in daily stream references when available

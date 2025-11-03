@@ -219,10 +219,18 @@ function createDailyStreams(
     } else if (!split) {
       let authorName = "unknown";
       try {
-        const rawData = JSON.parse(msg.raw_data);
+        const rawData =
+          typeof msg.raw_data === "string"
+            ? JSON.parse(msg.raw_data)
+            : msg.raw_data;
         authorName =
-          rawData.author?.global_name || rawData.author?.username || "unknown";
-      } catch {}
+          rawData.author?.username || rawData.author?.global_name || "unknown";
+      } catch (error) {
+        console.error(
+          `Failed to parse raw_data for message ${msg.message_id}:`,
+          error
+        );
+      }
 
       messagesByDate.get(date)!.push({
         timestamp: msg.timestamp,
@@ -277,7 +285,7 @@ async function processUnprocessedMessages(): Promise<ProcessingResult> {
   const unprocessedMessages = await rawDiscordDb
     .selectFrom("raw_discord_messages")
     .selectAll()
-    .where("processed_state", "=", "unprocessed")
+    // .where("processed_state", "=", "unprocessed")
     .orderBy("timestamp", "asc")
     .execute();
 

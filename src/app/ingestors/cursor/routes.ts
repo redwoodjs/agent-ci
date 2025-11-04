@@ -55,7 +55,7 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
         (row) => row.event_data as unknown as CursorEvent
       );
       const { conversation_id } = events[0];
-      const key = `cursor-conversations-v2/${conversation_id}/${generation_id}.json`;
+      const key = `cursor-conversations/${conversation_id}/${generation_id}.json`;
 
       const aggregatedData = {
         conversation_id,
@@ -63,6 +63,7 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
         events,
       };
 
+      console.log("[cursor ingest] Storing interaction to R2", aggregatedData);
       await env.MACHINEN_BUCKET.put(
         key,
         JSON.stringify(aggregatedData, null, 2)

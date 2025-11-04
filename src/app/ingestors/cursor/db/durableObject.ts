@@ -1,7 +1,7 @@
 import { SqliteDurableObject } from "rwsdk/db";
 import { migrations } from "./migrations";
 
-interface CursorEvent {
+export interface CursorEvent {
   conversation_id: string;
   generation_id: string;
   hook_event_name: string;

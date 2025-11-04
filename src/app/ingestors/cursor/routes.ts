@@ -13,10 +13,7 @@ declare module "rwsdk/worker" {
 }
 
 async function ingestHandler({ request, ctx }: RequestInfo) {
-  const data = (await request.json()) as {
-    generation_id?: string;
-    hook_event_name?: string;
-  };
+  const data = (await request.json()) as CursorEvent;
 
   const { generation_id, hook_event_name } = data;
 

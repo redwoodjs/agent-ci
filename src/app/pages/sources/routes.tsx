@@ -12,6 +12,7 @@ export const sourceRoutes = [
 
   layout(SourceLayout, [
     route("/:sourceID", SourceDetailPage),
+    route("/:sourceID/browse/*", SourceDetailPage),
     route("/:sourceID/files/*", FilePreviewPage),
   ]),
 ];

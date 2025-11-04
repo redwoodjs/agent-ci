@@ -1,6 +1,6 @@
 import { route } from "rwsdk/router";
 import { z } from "zod";
-import { ingestDiscordMessages } from "@/app/ingestors/discord/ingest";
+import { ingestDiscordMessages } from "@/app/ingestors/discord/fetch";
 
 const fetchRequestSchema = z.object({
   guildID: z.string().min(1).default("679514959968993311"),

@@ -64,27 +64,41 @@ async function fetchMessagesFromDiscord(
 
   const url = `https://discord.com/api/v10/channels/${channelID}/messages?${params}`;
 
-  const response = await fetch(url, {
-    headers: {
-      Authorization: `Bot ${botToken}`,
-    },
-  });
+  let retries = 0;
+  while (retries < 3) {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bot ${botToken}`,
+      },
+    });
 
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(
-      `Discord API error: ${response.status} ${response.statusText} - ${error}`
-    );
+    if (response.status === 429) {
+      const rateLimitData = await response.json() as { retry_after?: number };
+      const retryAfter = (rateLimitData.retry_after || 1) * 1000;
+      console.warn(`Rate limited, retrying after ${retryAfter}ms`);
+      await new Promise<void>(resolve => setTimeout(resolve, retryAfter));
+      retries++;
+      continue;
+    }
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(
+        `Discord API error: ${response.status} ${response.statusText} - ${error}`
+      );
+    }
+
+    const rateLimitRemaining = response.headers.get("X-RateLimit-Remaining");
+    if (rateLimitRemaining && parseInt(rateLimitRemaining) < 5) {
+      console.warn(
+        `Discord API rate limit low: ${rateLimitRemaining} requests remaining`
+      );
+    }
+
+    return await response.json();
   }
 
-  const rateLimitRemaining = response.headers.get("X-RateLimit-Remaining");
-  if (rateLimitRemaining && parseInt(rateLimitRemaining) < 5) {
-    console.warn(
-      `Discord API rate limit low: ${rateLimitRemaining} requests remaining`
-    );
-  }
-
-  return await response.json();
+  throw new Error("Max retries exceeded for rate limiting");
 }
 
 function isMessageInDateRange(
@@ -164,6 +178,8 @@ export async function ingestDiscordMessages(
     console.log(
       `Fetched ${messages.length} messages, total collected: ${allMessages.length}`
     );
+
+    await new Promise<void>(resolve => setTimeout(resolve, 1000));
   }
 
   console.log(`Total messages collected: ${allMessages.length}`);

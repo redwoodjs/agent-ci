@@ -47,10 +47,14 @@ The ingestion endpoint is protected by a general ingest API key (shared across a
 
 3. **Optionally configure the endpoint URL:**
 
-   By default, the hook script sends data to `http://localhost:5173/ingestors/cursor`. To change this, set the `CURSOR_INGEST_URL` environment variable:
+   By default, the hook script sends data to the production endpoint `https://machinen.workers.dev/ingestors/cursor`. To override this (e.g., for local development), set the `CURSOR_INGEST_URL` environment variable:
 
    ```bash
-   export CURSOR_INGEST_URL=https://your-production-domain.com/ingestors/cursor
+   # For local development
+   export CURSOR_INGEST_URL=http://localhost:5173/ingestors/cursor
+   
+   # Or for a custom domain
+   export CURSOR_INGEST_URL=https://your-domain.com/ingestors/cursor
    ```
 
 ## How It Works

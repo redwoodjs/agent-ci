@@ -9,6 +9,7 @@ import {
   TableRow,
 } from "@/app/components/ui/table";
 import { ClearBucketButton } from "./clear-bucket-button";
+import { FileUploadSection } from "./file-upload-section";
 
 interface R2FileInfo {
   key: string;
@@ -103,6 +104,8 @@ export async function SourceDetailPage({
             fileCount={allFiles.length}
           />
         </div>
+
+        <FileUploadSection sourceID={sourceID} />
 
         <div className="border rounded-lg bg-white">
           <div className="p-4 border-b">

@@ -6,7 +6,7 @@ export const migrations = {
       return [
         await db.schema
           .createTable("events")
-          .addColumn("id", "integer", (col) => col.primaryKey())
+          .addColumn("id", "text", (col) => col.primaryKey())
           .addColumn("event_data", "text", (col) => col.notNull())
           .addColumn("timestamp", "text", (col) => col.notNull())
           .execute(),

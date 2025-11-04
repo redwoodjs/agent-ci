@@ -5,6 +5,7 @@ import debug from "rwsdk/debug";
 import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "./db/migrations";
 import { type CursorEventsDurableObject } from "./db/durableObject";
+import { requireApiKey } from "./interruptors";
 
 const log = debug("machinen:cursor:ingest");
 
@@ -77,6 +78,6 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
 
 export const routes = [
   route("/", {
-    post: ingestHandler,
+    post: [requireApiKey, ingestHandler],
   }),
 ];

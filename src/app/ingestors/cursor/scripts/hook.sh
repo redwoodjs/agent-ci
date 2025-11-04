@@ -5,7 +5,7 @@ set -e
 INPUT=$(cat)
 
 # Define the endpoint URL
-ENDPOINT_URL="http://localhost:8788/ingestors/cursor"
+ENDPOINT_URL="http://localhost:5173/ingestors/cursor"
 
 # Send the data to the endpoint
 curl -X POST -H "Content-Type: application/json" -d "$INPUT" "$ENDPOINT_URL" > /dev/null 2>&1 &

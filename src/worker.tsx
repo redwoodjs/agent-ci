@@ -10,6 +10,7 @@ import { authRoutes } from "./app/pages/auth/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
 import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
+import { requireAuth } from "./app/pages/auth/interruptors";
 
 export type AppContext = {
   user: any;
@@ -32,6 +33,7 @@ const app = defineApp([
 
   render(Document, [
     route("/", [
+      requireAuth,
       () =>
         new Response(null, {
           status: 302,
@@ -41,7 +43,6 @@ const app = defineApp([
 
     prefix("/auth", authRoutes),
     prefix("/sources", sourceRoutes),
-    prefix("/dox", doExploreRoutes),
   ]),
 
   prefix("/ingest/discord", discordRoutes),

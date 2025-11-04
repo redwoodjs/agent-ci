@@ -1,12 +1,14 @@
-import { route, layout, prefix } from "rwsdk/router";
+import { route, layout } from "rwsdk/router";
 
 import { SourceListPage } from "./subpages/source-list-page";
 import { SourceDetailPage } from "./subpages/source-detail-page";
 import { SourceCreatePage } from "./subpages/source-create-page";
 import { FilePreviewPage } from "./subpages/file-preview-page";
 import { SourceLayout } from "./layout";
+import { requireAuth } from "../auth/interruptors";
 
 export const sourceRoutes = [
+  requireAuth,
   route("/", SourceListPage),
   route("/new", SourceCreatePage),
 

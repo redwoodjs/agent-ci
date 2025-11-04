@@ -10,6 +10,8 @@ import { authRoutes } from "./app/pages/auth/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
 import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
+import { requireAuth } from "./app/pages/auth/interruptors";
+import { HomePage } from "./app/pages/HomePage";
 
 export type AppContext = {
   user: any;
@@ -31,17 +33,10 @@ const app = defineApp([
   },
 
   render(Document, [
-    route("/", [
-      () =>
-        new Response(null, {
-          status: 302,
-          headers: { Location: "/sources" },
-        }),
-    ]),
+    route("/", [HomePage]),
 
     prefix("/auth", authRoutes),
     prefix("/sources", sourceRoutes),
-    prefix("/dox", doExploreRoutes),
   ]),
 
   prefix("/ingest/discord", discordRoutes),

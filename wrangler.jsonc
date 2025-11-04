@@ -25,16 +25,15 @@
     {
       "tag": "v1",
       "new_classes": ["RealtimeDurableObject"],
-      "new_sqlite_classes": [
-        "Database",
-        "ProcessLog",
-        "RawDiscordDatabase",
-        "CursorEventsDurableObject"
-      ]
+      "new_sqlite_classes": ["Database", "ProcessLog", "RawDiscordDatabase"]
     },
     {
       "tag": "v2",
       "deleted_classes": ["Container"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["CursorEventsDurableObject"]
     }
   ],
   "durable_objects": {

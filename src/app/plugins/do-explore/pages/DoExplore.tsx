@@ -1,5 +1,5 @@
 "use server";
-import { rawDiscordDb as db } from "@/app/ingestors/discord/db";
+import { db } from "@/db";
 
 export async function DoExplore({ params }: { params: { table: string } }) {
   const table = params.table;

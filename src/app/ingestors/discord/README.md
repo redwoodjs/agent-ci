@@ -1,34 +1,19 @@
 # Discord Ingestor
 
-Two-stage pipeline that ingests Discord messages and converts them to markdown artifacts.
+Simple single-operation pipeline that fetches Discord messages and stores them in JSONL format organized by day.
 
 ## Overview
 
-This ingestor fetches messages from Discord channels using the Discord Bot API and stores them as artifacts in the Machinen R2 bucket. Messages are converted to markdown format for semantic processing and subject extraction.
+This ingestor fetches messages from Discord channels using the Discord Bot API and stores them in R2 as JSONL files organized by date. Each file contains one JSON message object per line.
 
 ## Architecture
 
-The ingestor operates in two stages:
+The ingestor operates in a single operation:
 
-**Stage 1: Ingest** (`ingest.ts`)
-
-- Fetches messages from Discord API
-- Handles pagination and rate limiting
-- Stores raw messages in SQLite `raw_discord_messages` table
-
-**Stage 2: Store** (`process.ts`)
-
-- Reads unprocessed messages from SQLite
-- Stores message data to R2 bucket
-- Creates artifact records in main database
-
-See [discord-ingestion-pipeline.md](../../docs/architecture/discord-ingestion-pipeline.md) for detailed architecture documentation.
-`
-
-## Database Files
-
-- `migrations.ts`: Creates `raw_discord_messages` table in Durable Object SQLite
-- The main project migrations in `src/db/migrations.ts` add the related `sources` and `artifacts` tables
+1. Fetch messages from Discord API with pagination
+2. Filter messages by date (optional)
+3. Group messages by day based on timestamp
+4. Store each day's messages in R2 at `discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl`
 
 ## Quick Start
 
@@ -48,12 +33,50 @@ DISCORD_BOT_TOKEN=your_bot_token_here
 wrangler secret put DISCORD_BOT_TOKEN
 ```
 
-### 2. Start Ingest
+### 2. Fetch Messages
 
-Trigger message fetching from Discord:
+Trigger message fetching from Discord.
+
+The `guildID` and `channelID` parameters are optional and default to `679514959968993311` and `1307974274145062912` respectively for easier testing.
+
+**Fetch all messages (using defaults):**
 
 ```bash
-curl -X POST http://localhost:8787/ingestors/discord/ingest
+curl -X POST http://localhost:8787/ingest/discord/fetch \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+**Fetch all messages (explicit IDs):**
+
+```bash
+curl -X POST http://localhost:8787/ingest/discord/fetch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "guildID": "679514959968993311",
+    "channelID": "1307974274145062912"
+  }'
+```
+
+**Fetch messages from a specific date (using defaults):**
+
+```bash
+curl -X POST http://localhost:8787/ingest/discord/fetch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "date": "2024-11-04"
+  }'
+```
+
+**Fetch messages from a date range (using defaults):**
+
+```bash
+curl -X POST http://localhost:8787/ingest/discord/fetch \
+  -H "Content-Type: application/json" \
+  -d '{
+    "startDate": "2024-11-01",
+    "endDate": "2024-11-04"
+  }'
 ```
 
 Response:
@@ -61,154 +84,114 @@ Response:
 ```json
 {
   "success": true,
-  "message": "Discord ingestion started",
-  "result": [
-    {
-      "channelID": "1307974274145062912",
-      "guildID": "679514959968993311",
-      "result": {
-        "messageCount": 42,
-        "firstMessageID": "...",
-        "lastMessageID": "..."
-      }
-    }
+  "days": 3,
+  "totalMessages": 142,
+  "files": [
+    "discord/679514959968993311/1307974274145062912/2024-11-01.jsonl",
+    "discord/679514959968993311/1307974274145062912/2024-11-02.jsonl",
+    "discord/679514959968993311/1307974274145062912/2024-11-04.jsonl"
   ]
 }
 ```
 
-### 3. Process Messages
+## JSONL Format
 
-Convert raw messages to markdown and create artifacts:
+Each file contains one JSON message object per line:
 
-```bash
-curl -X POST http://localhost:8787/ingestors/discord/store
+```jsonl
+{"id":"123","timestamp":"2024-11-04T10:30:00.000Z","author":{"id":"456","username":"alice","global_name":"Alice"},"content":"Hello world","channel_id":"789","thread":null,"message_reference":null}
+{"id":"124","timestamp":"2024-11-04T10:31:15.000Z","author":{"id":"457","username":"bob"},"content":"Hi there!","channel_id":"789","thread":null,"message_reference":{"message_id":"123","channel_id":"789"}}
 ```
 
-Response:
+### Message Fields
 
-```json
+Each message includes:
+
+- `id`: Discord message ID
+- `timestamp`: ISO 8601 timestamp
+- `author`: Author object with `id`, `username`, and optional `global_name`
+- `content`: Message text content
+- `channel_id`: Discord channel ID
+- `thread`: Thread metadata (if message is in a thread)
+- `message_reference`: Reply metadata (if message is a reply)
+- `reactions`: Array of reactions (if any)
+- `attachments`: Array of attachments (if any)
+- `embeds`: Array of embeds (if any)
+
+## R2 Storage Structure
+
+Files are stored in R2 with this structure:
+
+```
+discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl
+```
+
+Example:
+
+```
+discord/679514959968993311/1307974274145062912/2024-11-01.jsonl
+discord/679514959968993311/1307974274145062912/2024-11-02.jsonl
+discord/679514959968993311/1307974274145062912/2024-11-03.jsonl
+```
+
+Messages within each file are sorted chronologically.
+
+## API Endpoint
+
+### POST /ingest/discord/fetch
+
+Fetches messages from a Discord channel and stores them in R2.
+
+**Request Body:**
+
+```typescript
 {
-  "success": true,
-  "message": "Discord processing completed",
-  "result": {
-    "processedCount": 42,
-    "artifactsCreated": 1
-  }
+  guildID: string;        // Required: Discord guild (server) ID
+  channelID: string;      // Required: Discord channel ID
+  date?: string;          // Optional: Fetch only this date (YYYY-MM-DD)
+  startDate?: string;     // Optional: Start of date range (YYYY-MM-DD)
+  endDate?: string;       // Optional: End of date range (YYYY-MM-DD)
 }
 ```
 
-## Conversation Splitting and Subject Extraction
+**Response:**
 
-After storing messages as artifacts, you can split them into conversations and extract subjects.
-
-### 4. Split Conversations
-
-Split Discord artifacts into logical conversation units based on temporal gaps and thread relationships:
-
-```bash
-curl -X POST http://localhost:8787/ingestors/discord/split-conversations
-```
-
-Or process a specific artifact:
-
-```bash
-curl -X POST "http://localhost:8787/ingestors/discord/split-conversations?artifactID=1"
-```
-
-Response:
-
-```json
+```typescript
 {
-  "success": true,
-  "message": "Conversation splitting completed",
-  "result": {
-    "processed": 5,
-    "errors": []
-  }
+  success: boolean;
+  days: number;           // Number of unique days
+  totalMessages: number;  // Total messages fetched
+  files: string[];        // R2 paths of created files
 }
 ```
 
-This creates:
+**Validation Rules:**
 
-- `conversation_splits` records in the database
-- Markdown files in R2: `discord/{guildID}/{channelID}/{timestamp}/split-{index}/conversation.md`
-- Metadata files: `metadata.json` with split details
+- Cannot specify both `date` and `startDate/endDate`
+- If using date range, both `startDate` and `endDate` are required
+- Date format must be YYYY-MM-DD
 
-### 5. Extract Subjects
+## Rate Limiting
 
-Use LLM to extract subjects from conversation splits:
+The ingester monitors Discord API rate limits:
 
-```bash
-curl -X POST http://localhost:8787/ingestors/discord/extract-subjects
-```
+- Checks `X-RateLimit-Remaining` header after each request
+- Warns when fewer than 5 requests remain
+- Fetches up to 100 messages per API call
+- Uses pagination to fetch all messages
 
-Or process a specific conversation split:
+## Error Handling
 
-```bash
-curl -X POST "http://localhost:8787/ingestors/discord/extract-subjects?conversationSplitID=1"
-```
+- Discord API errors: Returns 500 with error message
+- Validation errors: Returns 400 with validation details
+- Missing bot token: Throws error before attempting fetch
+- All errors are logged to console
 
-Or process all splits for a specific artifact:
+## Implementation
 
-```bash
-curl -X POST "http://localhost:8787/ingestors/discord/extract-subjects?artifactID=1"
-```
+**Files:**
 
-Response:
+- `ingest.ts`: Main ingestion logic with Discord API interaction
+- `routes.ts`: Route handler and validation
 
-```json
-{
-  "success": true,
-  "message": "Subject extraction completed",
-  "result": {
-    "processed": 5,
-    "created": 5,
-    "errors": []
-  }
-}
-```
-
-This creates:
-
-- `subjects` records in the database with extracted subject names
-- Subject JSON in R2: `subject.json` with facets, aliases, and line mappings
-
-## Pipeline Overview
-
-The complete Discord ingestion pipeline:
-
-1. **Ingest** (`/ingest`) - Fetch messages from Discord API → `raw_discord_messages` table
-2. **Store** (`/store`) - Create artifacts in database and store to R2 → `artifacts` table
-3. **Split** (`/split-conversations`) - Split into conversation units → `conversation_splits` table
-4. **Extract** (`/extract-subjects`) - LLM-based subject extraction → `subjects` table
-
-## Database Schema
-
-### raw_discord_messages (Durable Object SQLite)
-
-- `message_id` - Discord message ID
-- `channel_id` - Discord channel ID
-- `guild_id` - Discord guild/server ID
-- `author_id` - Discord user ID
-- `content` - Message text content
-- `timestamp` - ISO 8601 timestamp
-- `thread_id` - Discord thread ID (if in thread)
-- `reply_to_message_id` - ID of message being replied to
-- `reply_to_channel_id` - Channel ID if cross-channel reply
-- `raw_data` - Full JSON from Discord API
-- `ingested_at` - Ingestion timestamp
-- `processed_state` - 'unprocessed' | 'processed'
-
-### conversation_splits (Main database)
-
-- `id` - Primary key
-- `artifactID` - Reference to artifacts table
-- `splitType` - 'temporal' | 'thread' | 'combined'
-- `startTime` - ISO timestamp of first message
-- `endTime` - ISO timestamp of last message
-- `messageCount` - Number of messages in split
-- `participantCount` - Number of unique participants
-- `threadCount` - Number of threads in split
-- `topics` - JSON array of topics (nullable)
-- `metadata` - JSON with bucketPath and other metadata
-- `createdAt` - Creation timestamp
+See `docs/architecture/discord-ingestion-pipeline.md` for detailed architecture documentation.

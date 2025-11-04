@@ -104,33 +104,4 @@ export const migrations = {
       await db.schema.dropTable("sources").execute();
     },
   },
-
-  "003_add_conversation_splits_table": {
-    async up(db) {
-      return [
-        await db.schema
-          .createTable("conversation_splits")
-          .addColumn("id", "integer", (col) => col.primaryKey().autoIncrement())
-          .addColumn("guildID", "text", (col) => col.notNull())
-          .addColumn("channelID", "text", (col) => col.notNull())
-          .addColumn("splitType", "text", (col) => col.notNull())
-          .addColumn("threadID", "text")
-          .addColumn("startTime", "text", (col) => col.notNull())
-          .addColumn("endTime", "text", (col) => col.notNull())
-          .addColumn("messageCount", "integer", (col) => col.notNull())
-          .addColumn("participantCount", "integer", (col) => col.notNull())
-          .addColumn("bucketPath", "text", (col) => col.notNull())
-          .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
-          )
-          .execute(),
-      ];
-    },
-    async down(db) {
-      await db.schema.dropTable("conversation_splits").execute();
-    },
-  },
 } satisfies Migrations;

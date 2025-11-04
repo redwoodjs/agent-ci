@@ -1,9 +1,9 @@
 type DiscordMessage = {
   id: string;
-  type: number;
+  type?: number;
   content: string;
   timestamp: string;
-  edited_timestamp: string | null;
+  edited_timestamp?: string | null;
   channel_id: string;
   author: {
     id: string;
@@ -16,6 +16,7 @@ type DiscordMessage = {
     guild_id?: string;
   };
   thread?: {
+    id: string;
     name: string;
     message_count: number;
     member_count: number;

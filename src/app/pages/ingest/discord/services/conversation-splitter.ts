@@ -1,7 +1,10 @@
 type DiscordMessage = {
   id: string;
+  type?: number;
   content: string;
   timestamp: string;
+  edited_timestamp?: string | null;
+  channel_id: string;
   author: {
     id: string;
     username: string;
@@ -12,6 +15,7 @@ type DiscordMessage = {
     channel_id: string;
   };
   thread?: {
+    id: string;
     name: string;
     message_count: number;
     member_count: number;
@@ -19,6 +23,16 @@ type DiscordMessage = {
   reactions?: Array<{
     emoji: { name: string };
     count: number;
+  }>;
+  attachments?: Array<{
+    filename: string;
+    size: number;
+    url: string;
+  }>;
+  embeds?: Array<{
+    title?: string;
+    description?: string;
+    url?: string;
   }>;
 };
 

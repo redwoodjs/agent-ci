@@ -44,7 +44,7 @@ export async function FilePreviewPage({
         </div>
 
         <div className="border rounded-lg bg-gray-50 p-4 overflow-auto">
-          <pre className="text-sm whitespace-pre-wrap font-mono">
+          <pre className="text-sm whitespace-pre font-mono">
             {displayContent}
           </pre>
         </div>

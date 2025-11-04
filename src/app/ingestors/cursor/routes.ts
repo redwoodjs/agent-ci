@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { type RequestInfo } from "rwsdk/worker";
 import debug from "rwsdk/debug";
 
-const log = debug("cursor:ingest");
+const log = debug("machinen:cursor:ingest");
 
 async function ingestHandler({ request, ctx }: RequestInfo) {
   const bucket = env.MACHINEN_BUCKET;

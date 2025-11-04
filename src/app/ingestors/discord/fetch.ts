@@ -2,7 +2,9 @@ import { env } from "cloudflare:workers";
 
 interface DiscordMessage {
   id: string;
+  type?: number;
   timestamp: string;
+  edited_timestamp?: string | null;
   author: {
     id: string;
     username: string;
@@ -11,6 +13,7 @@ interface DiscordMessage {
   content: string;
   channel_id: string;
   thread?: {
+    id: string;
     name: string;
     message_count: number;
     member_count: number;
@@ -46,6 +49,8 @@ interface IngestOptions {
 interface IngestResult {
   days: number;
   totalMessages: number;
+  totalThreads: number;
+  totalThreadMessages: number;
   files: string[];
 }
 
@@ -73,10 +78,10 @@ async function fetchMessagesFromDiscord(
     });
 
     if (response.status === 429) {
-      const rateLimitData = await response.json() as { retry_after?: number };
+      const rateLimitData = (await response.json()) as { retry_after?: number };
       const retryAfter = (rateLimitData.retry_after || 1) * 1000;
       console.warn(`Rate limited, retrying after ${retryAfter}ms`);
-      await new Promise<void>(resolve => setTimeout(resolve, retryAfter));
+      await new Promise<void>((resolve) => setTimeout(resolve, retryAfter));
       retries++;
       continue;
     }
@@ -135,6 +140,49 @@ function shouldContinueFetching(
   return true;
 }
 
+function extractThreadInfo(messages: DiscordMessage[]): Map<string, string> {
+  const threadToDate = new Map<string, string>();
+
+  for (const message of messages) {
+    if (message.thread?.id) {
+      const date = message.timestamp.split("T")[0];
+      threadToDate.set(message.thread.id, date);
+    }
+  }
+
+  return threadToDate;
+}
+
+async function fetchThreadMessages(
+  threadID: string
+): Promise<DiscordMessage[]> {
+  const allMessages: DiscordMessage[] = [];
+  let before: string | undefined = undefined;
+
+  while (true) {
+    const messages = await fetchMessagesFromDiscord(threadID, { before });
+
+    if (messages.length === 0) {
+      break;
+    }
+
+    allMessages.push(...messages);
+    before = messages[messages.length - 1].id;
+
+    console.log(
+      `Fetched ${messages.length} thread messages, total: ${allMessages.length}`
+    );
+
+    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
+  }
+
+  allMessages.sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+
+  return allMessages;
+}
+
 export async function ingestDiscordMessages(
   options: IngestOptions
 ): Promise<IngestResult> {
@@ -179,7 +227,7 @@ export async function ingestDiscordMessages(
       `Fetched ${messages.length} messages, total collected: ${allMessages.length}`
     );
 
-    await new Promise<void>(resolve => setTimeout(resolve, 1000));
+    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
 
   console.log(`Total messages collected: ${allMessages.length}`);
@@ -213,10 +261,32 @@ export async function ingestDiscordMessages(
     console.log(`Wrote ${messages.length} messages to ${key}`);
   }
 
+  const threadToDate = extractThreadInfo(allMessages);
+  console.log(`Found ${threadToDate.size} threads`);
+
+  let totalThreadMessages = 0;
+
+  for (const [threadID, date] of threadToDate) {
+    console.log(`Fetching thread ${threadID} from ${date}`);
+    const threadMessages = await fetchThreadMessages(threadID);
+
+    if (threadMessages.length > 0) {
+      const jsonl = threadMessages.map((m) => JSON.stringify(m)).join("\n");
+      const key = `discord/${guildID}/${channelID}/${date}-thread-${threadID}.jsonl`;
+
+      await env.MACHINEN_BUCKET.put(key, jsonl);
+      files.push(key);
+
+      totalThreadMessages += threadMessages.length;
+      console.log(`Wrote ${threadMessages.length} messages to ${key}`);
+    }
+  }
+
   return {
     days: messagesByDay.size,
     totalMessages: allMessages.length,
+    totalThreads: threadToDate.size,
+    totalThreadMessages,
     files,
   };
 }
-

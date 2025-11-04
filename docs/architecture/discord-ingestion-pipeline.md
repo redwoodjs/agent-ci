@@ -100,8 +100,16 @@ Messages are grouped by date extracted from their timestamp:
 
 **Path Structure:**
 
+Channel messages:
+
 ```
 discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl
+```
+
+Thread messages:
+
+```
+discord/{guildID}/{channelID}/{YYYY-MM-DD}-thread-{threadID}.jsonl
 ```
 
 **File Format:**
@@ -151,8 +159,13 @@ Triggers message fetching from Discord.
   "success": true,
   "days": 1,
   "totalMessages": 42,
+  "totalThreads": 3,
+  "totalThreadMessages": 18,
   "files": [
-    "discord/679514959968993311/1307974274145062912/2024-11-04.jsonl"
+    "discord/679514959968993311/1307974274145062912/2024-11-04.jsonl",
+    "discord/679514959968993311/1307974274145062912/2024-11-04-thread-1234567890.jsonl",
+    "discord/679514959968993311/1307974274145062912/2024-11-04-thread-1234567891.jsonl",
+    "discord/679514959968993311/1307974274145062912/2024-11-04-thread-1234567892.jsonl"
   ]
 }
 ```
@@ -179,16 +192,18 @@ Main ingestion logic:
 
 **Functions:**
 
-- `fetchMessagesFromDiscord()`: Fetches single batch from Discord API
+- `fetchMessagesFromDiscord()`: Fetches single batch from Discord API (works for both channels and threads)
 - `isMessageInDateRange()`: Checks if message matches date filter
 - `shouldContinueFetching()`: Determines if pagination should continue
+- `extractThreadInfo()`: Extracts thread IDs and their parent message dates
+- `fetchThreadMessages()`: Fetches all messages from a specific thread
 - `ingestDiscordMessages()`: Main function orchestrating the pipeline
 
 **Types:**
 
 - `DiscordMessage`: Message structure from Discord API
 - `IngestOptions`: Parameters for ingestion
-- `IngestResult`: Return type with statistics
+- `IngestResult`: Return type with statistics (days, totalMessages, totalThreads, totalThreadMessages, files)
 
 ### routes.ts
 
@@ -276,13 +291,74 @@ Storing directly in R2 without database provides:
 4. **Flexibility**: Can change message structure without migrations
 5. **Archival**: Long-term storage without database overhead
 
+## Thread Collection
+
+The ingestion pipeline collects both channel messages and thread messages.
+
+### Thread Detection
+
+After fetching channel messages, the pipeline scans for messages that have started threads:
+
+1. Check each message for `thread` property
+2. Extract `thread.id` from messages with threads
+3. Deduplicate thread IDs
+4. Fetch messages from each discovered thread
+
+### Thread Message Fetching
+
+Thread messages are fetched using the same endpoint as channel messages:
+
+- Endpoint: `GET /channels/{threadID}/messages`
+- Parameters: Same as channel messages (`limit=100`, `before` for pagination)
+- Auth: Same bot token
+- Rate limiting: Same rate limit pool as channel messages
+
+### Thread Storage
+
+Thread messages are stored in separate JSONL files:
+
+**Path Structure:**
+
+```
+discord/{guildID}/{channelID}/{YYYY-MM-DD}-thread-{threadID}.jsonl
+```
+
+The date in the filename corresponds to the date of the parent message that started the thread.
+
+**Example:**
+
+```
+discord/679514959968993311/1307974274145062912/2024-11-29-thread-1234567890.jsonl
+```
+
+### Thread Message Structure
+
+Thread messages use the same structure as channel messages but include additional context:
+
+- `id`: Message ID within the thread
+- `timestamp`: ISO 8601 timestamp
+- `author`: Object with `id`, `username`, `global_name`
+- `content`: Message text
+- `channel_id`: Thread ID (not parent channel ID)
+- All other standard message fields
+
+### Thread Processing Order
+
+1. Fetch all channel messages for the date range
+2. Group channel messages by date
+3. Extract thread IDs from channel messages
+4. For each thread:
+   - Determine parent message date
+   - Fetch all thread messages
+   - Store in date-stamped thread file
+5. Store channel messages in date files
+
 ## Future Enhancements
 
-1. **Thread Support**: Fetch and store thread messages separately
-2. **Incremental Fetching**: Track last fetched message and only get new ones
-3. **Attachment Download**: Download and store file attachments
-4. **Rate Limit Handling**: Implement exponential backoff and retry
-5. **Batch Channels**: Support fetching multiple channels in one request
-6. **Progress Tracking**: Stream progress updates for long-running fetches
-7. **Deduplication**: Skip messages already in R2
-8. **Compression**: Compress JSONL files before storing
+1. **Incremental Fetching**: Track last fetched message and only get new ones
+2. **Attachment Download**: Download and store file attachments
+3. **Rate Limit Handling**: Implement exponential backoff and retry
+4. **Batch Channels**: Support fetching multiple channels in one request
+5. **Progress Tracking**: Stream progress updates for long-running fetches
+6. **Deduplication**: Skip messages already in R2
+7. **Compression**: Compress JSONL files before storing

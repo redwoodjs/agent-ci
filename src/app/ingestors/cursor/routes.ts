@@ -51,8 +51,8 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
       .execute();
 
     if (eventsResult.length > 0) {
-      const events: CursorEvent[] = eventsResult.map((row) =>
-        JSON.parse(row.event_data)
+      const events: CursorEvent[] = eventsResult.map(
+        (row) => row.event_data as unknown as CursorEvent
       );
       const { conversation_id } = events[0];
       const key = `cursor-conversations-v2/${conversation_id}/${generation_id}.json`;

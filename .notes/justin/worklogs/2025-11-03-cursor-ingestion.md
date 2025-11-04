@@ -37,3 +37,23 @@ The plan is to use Cursor's hooks to send conversation data to a webhook, which 
     -   Implement the endpoint and associated services.
     -   Place the hook and setup scripts within the module.
     -   Test the end-to-end flow by running the setup script, interacting with Cursor in this repository, and verifying that the data is correctly ingested and stored in R2.
+
+## 2025-11-04: Refined Storage Strategy
+
+After initial testing, it's clear that storing one JSON file per hook event is too verbose. A better approach is to aggregate the events related to a single user-agent interaction.
+
+### Revised Plan
+
+The new plan is to use a stateful mechanism, likely a Durable Object, to collect all hook events for a single "generation" (a user prompt and the subsequent agent activity) and store them as a single document in R2.
+
+1.  **Stateful Ingestion**: The ingest handler will not write to R2 directly. Instead, it will forward the event data to a Durable Object, keyed by `generation_id`.
+
+2.  **Event Aggregation**: The Durable Object will store the incoming events in memory or its own storage. It will collect all events for a given `generation_id`.
+
+3.  **Consolidation and Storage**: When the `stop` hook event is received for a `generation_id`, the Durable Object will assemble all the collected events into a single JSON document. This document will then be written to the `MACHINEN_BUCKET` in R2. The R2 key can still be based on the `conversation_id` and perhaps the `generation_id` or a timestamp.
+
+4.  **Data Structure**: The aggregated document will contain the `conversation_id`, `generation_id`, and an array of all the hook events in the order they were received. This provides a complete picture of the interaction in a single file.
+
+### Next Steps
+
+Before implementing this, I need to analyze the data from the initial verbose implementation to confirm the best way to structure the aggregated file. I will need to get the sample data from R2 to proceed.

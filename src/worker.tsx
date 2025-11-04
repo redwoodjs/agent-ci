@@ -52,6 +52,7 @@ const app = defineApp([
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";
 export { Database } from "@/db/durableObject";
 export { RawDiscordDatabase } from "@/app/ingestors/discord/db";
+export { CursorEventsDurableObject } from "@/app/ingestors/cursor/db/durableObject";
 
 export default {
   fetch: app.fetch,

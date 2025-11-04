@@ -6,7 +6,7 @@ import { RegisterPage } from "./pages/RegisterPage";
 
 export const authRoutes = [
   route("/login", LoginPage),
-  route("/register", RegisterPage),
+  // route("/register", RegisterPage),
   route("/logout", async function () {
     await authClient.signOut();
     return new Response(null, {

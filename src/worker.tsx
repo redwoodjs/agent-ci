@@ -8,9 +8,9 @@ import { setCommonHeaders } from "./app/headers";
 
 import { authRoutes } from "./app/pages/auth/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
-import { discordIngestorRoutes } from "./app/ingestors/discord/routes";
+import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
-import { doExploreRoutes } from "./app/plugins/do-explore/routes";
+import { HomePage } from "./app/pages/HomePage";
 
 export type AppContext = {
   user: any;
@@ -32,26 +32,18 @@ const app = defineApp([
   },
 
   render(Document, [
-    route("/", [
-      () =>
-        new Response(null, {
-          status: 302,
-          headers: { Location: "/sources" },
-        }),
-    ]),
+    route("/", [HomePage]),
 
     prefix("/auth", authRoutes),
     prefix("/sources", sourceRoutes),
-    prefix("/dox", doExploreRoutes),
   ]),
 
-  prefix("/ingestors/discord", discordIngestorRoutes),
+  prefix("/ingest/discord", discordRoutes),
   prefix("/ingestors/cursor", cursorIngestorRoutes),
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";
 export { Database } from "@/db/durableObject";
-export { RawDiscordDatabase } from "@/app/ingestors/discord/db";
 export { CursorEventsDurableObject } from "@/app/ingestors/cursor/db/durableObject";
 
 export default {

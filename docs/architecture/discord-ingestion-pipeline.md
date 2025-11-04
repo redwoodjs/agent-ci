@@ -2,12 +2,14 @@
 
 ## Overview
 
-The Discord ingestion pipeline stores Discord channel messages as artifacts through a two-stage process:
+The Discord ingestion pipeline fetches messages from Discord channels and stores them in R2 as JSONL files organized by date.
 
-1. **Ingest Stage**: Fetch messages from Discord API and store in raw database
-2. **Store Stage**: Move raw messages to R2 bucket and create database artifact records
+This is a single-operation pipeline that:
 
-This pipeline maintains an immutable record of Discord conversations in both raw and processed forms.
+1. Fetches messages from Discord API with pagination
+2. Filters messages by date (optional)
+3. Groups messages by day based on timestamp
+4. Stores each day's messages in R2 at `discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl`
 
 ## Architecture
 
@@ -18,291 +20,200 @@ This pipeline maintains an immutable record of Discord conversations in both raw
          │
          ▼
 ┌─────────────────────────────────────┐
-│  Ingest Stage (fetch.ts)            │
-│  ├─ Fetch messages from API         │
-│  ├─ Handle pagination & rate limits │
-│  └─ Store in raw_discord_messages   │
-└────────────┬────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────┐
-│  raw_discord_messages (SQLite)      │
-│  ├─ message_id                      │
-│  ├─ channel_id, guild_id            │
-│  ├─ author_id, content              │
-│  ├─ timestamp, raw_data             │
-│  └─ processed_state: unprocessed    │
-└────────────┬────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────────┐
-│  Process Stage (process.ts)         │
-│  ├─ Read unprocessed messages       │
-│  ├─ Split by threads/reply chains   │
-│  └─ Store splits to R2 bucket       │
+│  Ingest Operation (ingest.ts)       │
+│  ├─ Fetch messages with pagination  │
+│  ├─ Filter by date (optional)       │
+│  ├─ Group messages by day           │
+│  └─ Write JSONL files to R2         │
 └────────────┬────────────────────────┘
              │
              ▼
 ┌─────────────────────────────────────┐
 │  R2 Bucket                          │
 │  discord/{guildID}/{channelID}/     │
-│    {timestamp}/split-{N}/           │
-│    ├─ conversation.md               │
-│    └─ metadata.json                 │
-│         (splitType, timestamps,     │
-│          participants, threadID)    │
+│    {YYYY-MM-DD}.jsonl               │
 └─────────────────────────────────────┘
 ```
 
-## Stage 1: Ingest (fetch.ts)
-
-**Purpose**: Fetch messages from Discord and store in raw format.
+## Single-Operation Pipeline
 
 ### Discord API Interaction
 
+The ingester fetches messages from Discord channels:
+
+**Channel Messages Endpoint:**
+
 - Endpoint: `GET /channels/{channelID}/messages`
-- Rate limit handling: Exponential backoff with Retry-After headers
-- Pagination: Uses message ID cursors to fetch older messages
-- Configuration: Max 10 messages per request, 100 max loops
+- Parameters: `limit=100`, `before={messageID}` for pagination
+- Auth: `Authorization: Bot {DISCORD_BOT_TOKEN}`
+- Returns: Array of message objects
 
-### Rate Limiting
+**Pagination:**
 
-Discord API enforces rate limits. The ingester:
+Messages are fetched in batches of 100 using the `before` parameter:
 
-1. Checks `X-RateLimit-Remaining` header
-2. Parses `X-RateLimit-Reset-After` header for wait duration
-3. On 429 response: Applies exponential backoff (2^retryCount \* 1000ms)
-4. Maximum 3 retries before failure
+1. Fetch first batch of 100 messages
+2. Use the ID of the oldest message as `before` parameter
+3. Fetch next batch of 100 messages
+4. Repeat until no more messages or date filter boundary reached
 
-### Message Storage
+**Rate Limiting:**
 
-Messages are stored in `raw_discord_messages` table with:
+- Monitors `X-RateLimit-Remaining` header
+- Warns when fewer than 5 requests remain
+- No automatic backoff (fetches are synchronous)
 
-```sql
-{
-  message_id: string,        -- Primary key
-  channel_id: string,        -- Discord channel ID
-  guild_id: string,          -- Discord guild (server) ID
-  author_id: string,         -- Discord user ID
-  content: string,           -- Raw message text
-  timestamp: string,         -- ISO 8601 timestamp
-  thread_id: string | null,  -- Thread ID if in thread
-  raw_data: string,          -- Full JSON from Discord API
-  ingested_at: string,       -- When ingested (auto)
-  processed_state: 'unprocessed' | 'processed'
-}
+### Date Filtering
+
+Three filtering modes:
+
+**1. Fetch All Messages (no date parameters)**
+
+Fetches all messages from the channel from newest to oldest.
+
+**2. Fetch Single Day (`date` parameter)**
+
+Fetches only messages with timestamps on the specified date:
+
+- Format: `YYYY-MM-DD`
+- Example: `"date": "2024-11-04"`
+- Stops fetching when messages older than date are encountered
+
+**3. Fetch Date Range (`startDate` and `endDate` parameters)**
+
+Fetches messages within the date range (inclusive):
+
+- Format: `YYYY-MM-DD`
+- Example: `"startDate": "2024-11-01", "endDate": "2024-11-04"`
+- Stops fetching when messages older than startDate are encountered
+
+### Message Grouping
+
+Messages are grouped by date extracted from their timestamp:
+
+1. Extract date from timestamp: `timestamp.split('T')[0]`
+2. Group messages into Map by date
+3. Sort messages within each day chronologically
+4. Write each day's messages as separate JSONL file
+
+### R2 Storage
+
+**Path Structure:**
+
+Channel messages:
+
+```
+discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl
 ```
 
-### Incremental Ingestion
+Thread messages:
 
-The ingester queries for the most recent message in `raw_discord_messages` and uses it as a cursor to fetch only new messages from Discord, avoiding duplicate storage and API overhead.
-
-## Stage 2: Store (process.ts)
-
-**Purpose**: Process raw messages and split them into logical conversation units based on threads and reply chains.
-
-### Message Processing
-
-Processing flow:
-
-1. Query all unprocessed messages from `raw_discord_messages`
-2. Split messages into logical groups:
-   - **Thread-based splits**: Messages with same `thread_id` are grouped together
-   - **Reply chain splits**: Messages linked via `reply_to_message_id` form conversation threads
-   - **Orphaned messages**: Individual messages without threads or replies (handled separately)
-3. For each conversation split:
-   - Generate markdown representation with proper threading structure
-   - Store to R2 bucket with split-specific path (`conversation.md` and `metadata.json`)
-4. Mark processed messages as processed in `raw_discord_messages`
-
-### Output Files
-
-For each conversation split, two files are created in R2:
-
-#### conversation.md
-
-Markdown representation of the conversation with threading structure:
-
-```markdown
-[2024-10-23T14:30:00Z] alice: Here's the main message
-> [2024-10-23T14:31:00Z] bob: This is a reply to alice
-> > [2024-10-23T14:32:00Z] charlie: This is a nested reply
-[2024-10-23T14:35:00Z] dave: This is another root message
+```
+discord/{guildID}/{channelID}/{YYYY-MM-DD}-thread-{threadID}.jsonl
 ```
 
-Threading is indicated by:
-- No indent: Root messages (not replies)
-- `>` prefix: Direct replies to root messages
-- Multiple `>`: Nested reply chains
+**File Format:**
 
-#### metadata.json
+JSONL (JSON Lines) - one JSON object per line, newline separated:
 
-Split metadata:
+```jsonl
+{"id":"123","timestamp":"2024-11-04T10:30:00.000Z","author":{"id":"456","username":"alice"},"content":"Hello","channel_id":"789"}
+{"id":"124","timestamp":"2024-11-04T10:31:00.000Z","author":{"id":"457","username":"bob"},"content":"Hi","channel_id":"789"}
+```
+
+**Message Structure:**
+
+Each JSON object contains the full Discord message:
+
+- `id`: Message ID
+- `timestamp`: ISO 8601 timestamp
+- `author`: Object with `id`, `username`, `global_name`
+- `content`: Message text
+- `channel_id`: Channel ID
+- `thread`: Thread metadata (if in thread)
+- `message_reference`: Reply metadata (if reply)
+- `reactions`: Array of reactions (if any)
+- `attachments`: Array of attachments (if any)
+- `embeds`: Array of embeds (if any)
+
+## API Endpoint
+
+### POST /ingest/discord/fetch
+
+Triggers message fetching from Discord.
+
+**Request:**
 
 ```json
 {
-  "splitIndex": 0,
-  "splitType": "thread",
-  "startTime": "2024-10-23T14:30:00Z",
-  "endTime": "2024-10-23T14:35:00Z",
-  "messageCount": 4,
-  "participantCount": 4,
-  "threadID": "1234567890",
-  "participantIDs": ["user_id_1", "user_id_2", ...],
-  "channelID": "discord_channel_id",
-  "guildID": "discord_guild_id"
+  "guildID": "679514959968993311",
+  "channelID": "1307974274145062912",
+  "date": "2024-11-04"
 }
 ```
 
-### Split Storage
-
-All conversation split metadata is stored in R2 as JSON files alongside the markdown content. Each split has its own directory containing:
-
-- `conversation.md`: Markdown representation with threading
-- `metadata.json`: Complete split metadata including splitType, timestamps, participant counts, and IDs
-
-This approach keeps all conversation data self-contained in R2 without requiring database records. Splits can be discovered by listing bucket contents under the channel path.
-
-## Database Schema
-
-### raw_discord_messages Table
-
-Temporary storage for fetched messages during ingestion:
-
-```sql
-CREATE TABLE raw_discord_messages (
-  message_id TEXT PRIMARY KEY,
-  channel_id TEXT NOT NULL,
-  guild_id TEXT,
-  author_id TEXT NOT NULL,
-  content TEXT NOT NULL,
-  timestamp TEXT NOT NULL,
-  thread_id TEXT,
-  raw_data TEXT NOT NULL,
-  ingested_at TEXT DEFAULT CURRENT_TIMESTAMP,
-  processed_state TEXT DEFAULT 'unprocessed'
-)
-```
-
-- Populated by: Ingest stage
-- Consumed by: Process stage
-- Lifecycle: Rows are marked as processed, but typically not deleted for audit trail
-
-### R2 Storage Structure
-
-Conversation splits are stored entirely in R2:
-
-```
-discord/{guildID}/{channelID}/{timestamp}/
-  split-0/
-    conversation.md
-    metadata.json
-  split-1/
-    conversation.md
-    metadata.json
-  ...
-```
-
-Each `metadata.json` contains:
-```json
-{
-  "splitIndex": 0,
-  "splitType": "thread" | "reply_chain" | "orphaned",
-  "startTime": "ISO-8601",
-  "endTime": "ISO-8601",
-  "messageCount": number,
-  "participantCount": number,
-  "threadID": "discord_thread_id" | null,
-  "participantIDs": ["user_id", ...],
-  "channelID": "discord_channel_id",
-  "guildID": "discord_guild_id"
-}
-```
-
-## Conversation Splitting Strategy
-
-The store stage implements a hierarchical splitting strategy that prioritizes explicit conversation boundaries:
-
-### 1. Thread-Based Splits (Priority 1)
-
-Messages with identical `thread_id` values are grouped together. Discord threads represent explicit conversation boundaries created by users.
-
-```
-Thread ID: "123456"
-  - Message A (thread_id: "123456")
-  - Message B (thread_id: "123456", reply_to: A)
-  - Message C (thread_id: "123456")
-```
-
-All messages share the same thread_id → Single split
-
-### 2. Reply Chain Splits (Priority 2)
-
-Messages linked via `reply_to_message_id` form conversation threads. The algorithm:
-
-1. Build a graph of message relationships using `reply_to_message_id`
-2. Find root messages (messages not replying to anything)
-3. For each root, recursively collect all replies
-4. Each root + its reply tree forms one split
-
-```
-Root Message A
-  → Reply B (reply_to: A)
-    → Reply C (reply_to: B)
-  → Reply D (reply_to: A)
-```
-
-Forms a single reply chain split
-
-### 3. Orphaned Messages (Priority 3)
-
-Messages without `thread_id` or `reply_to_message_id`. These are handled as individual conversation units.
-
-Future work will implement temporal gap detection to group orphaned messages that occur in close succession.
-
-## API Endpoints
-
-### POST /ingest
-
-Triggers the ingest stage:
+**Response:**
 
 ```json
 {
   "success": true,
-  "message": "Discord ingestion started",
-  "result": [
-    {
-      "channelID": "1307974274145062912",
-      "guildID": "679514959968993311",
-      "result": {
-        "messageCount": 42,
-        "firstMessageID": "...",
-        "lastMessageID": "..."
-      }
-    }
+  "days": 1,
+  "totalMessages": 42,
+  "totalThreads": 3,
+  "totalThreadMessages": 18,
+  "files": [
+    "discord/679514959968993311/1307974274145062912/2024-11-04.jsonl",
+    "discord/679514959968993311/1307974274145062912/2024-11-04-thread-1234567890.jsonl",
+    "discord/679514959968993311/1307974274145062912/2024-11-04-thread-1234567891.jsonl",
+    "discord/679514959968993311/1307974274145062912/2024-11-04-thread-1234567892.jsonl"
   ]
 }
 ```
 
-### POST /store
+**Parameters:**
 
-Triggers the process stage (splits messages into logical conversations and stores as markdown):
+- `guildID` (required): Discord guild (server) ID
+- `channelID` (required): Discord channel ID
+- `date` (optional): Fetch only this date (YYYY-MM-DD)
+- `startDate` (optional): Start of date range (YYYY-MM-DD)
+- `endDate` (optional): End of date range (YYYY-MM-DD)
 
-```json
-{
-  "success": true,
-  "message": "Discord processing completed",
-  "result": {
-    "processedCount": 42,
-    "splitsCreated": 8,
-    "splitsByType": {
-      "thread": 5,
-      "reply_chain": 2,
-      "orphaned": 1
-    }
-  }
-}
-```
+**Validation:**
+
+- Cannot specify both `date` and `startDate/endDate`
+- Date range requires both `startDate` and `endDate`
+- Date format must be YYYY-MM-DD
+
+## Implementation Files
+
+### ingest.ts
+
+Main ingestion logic:
+
+**Functions:**
+
+- `fetchMessagesFromDiscord()`: Fetches single batch from Discord API (works for both channels and threads)
+- `isMessageInDateRange()`: Checks if message matches date filter
+- `shouldContinueFetching()`: Determines if pagination should continue
+- `extractThreadInfo()`: Extracts thread IDs and their parent message dates
+- `fetchThreadMessages()`: Fetches all messages from a specific thread
+- `ingestDiscordMessages()`: Main function orchestrating the pipeline
+
+**Types:**
+
+- `DiscordMessage`: Message structure from Discord API
+- `IngestOptions`: Parameters for ingestion
+- `IngestResult`: Return type with statistics (days, totalMessages, totalThreads, totalThreadMessages, files)
+
+### routes.ts
+
+Route handler and validation:
+
+**Functions:**
+
+- `validateFetchRequest()`: Validates request body with Zod schema
+- `logDiscordRequest()`: Logs request and response
+- `fetch()`: Route handler for POST /ingest/discord/fetch
 
 ## Configuration
 
@@ -312,68 +223,142 @@ Triggers the process stage (splits messages into logical conversations and store
 DISCORD_BOT_TOKEN=your_bot_token_here
 ```
 
-### Credentials Database
+Add to `.dev.vars` for local development or use `wrangler secret put DISCORD_BOT_TOKEN` for production.
 
-Stored in Durable Object with `rawDiscordDb`:
+### R2 Bucket
 
-```typescript
-const rawDiscordDb = new Sql(env.MACHINEN_DB);
-```
+Uses `MACHINEN_BUCKET` binding configured in wrangler.jsonc.
 
 ## Error Handling
 
-### Ingest Stage
+**Discord API Errors:**
 
-- Discord API errors: Logged and included in response
-- Rate limit exceeded: Retried up to 3 times
-- Database errors: Transaction rolled back
+- Returns 500 with error message
+- Logs full error to console
+- Includes Discord API status and response text
 
-### Process Stage
+**Validation Errors:**
 
-- Missing source: Created automatically
-- Bucket write failures: Logged, artifact not created
-- Database transaction failures: Caught and logged
+- Returns 400 with validation details
+- Uses Zod for schema validation
+- Provides specific error messages for date conflicts
 
-Both stages wrap operations in try-catch blocks and return detailed error information for debugging.
+**Rate Limit Warnings:**
+
+- Logs warning when fewer than 5 requests remain
+- No automatic backoff or retry
+- Continues fetching until complete
 
 ## Design Rationale
 
-### Two-Stage Pipeline
+### Single-Operation Pipeline
 
-Separating ingest and process provides benefits:
+A single-operation pipeline provides:
 
-1. **Decoupling**: Fetching and transformation are independent
-2. **Resilience**: If storing fails, raw messages are still available
-3. **Flexibility**: Can re-process with different formats or parameters
-4. **Audit Trail**: Raw Discord API responses are preserved
-5. **Scheduling**: Can run stages at different intervals
+1. **Simplicity**: One endpoint, one operation, straightforward flow
+2. **Transparency**: Easy to understand what happens when endpoint is called
+3. **Idempotency**: Re-running produces same R2 files (overwrite)
+4. **No State Management**: No database tables or processing stages
+5. **Direct Storage**: Messages go directly from Discord API to R2
 
-### Thread-Based Splitting
+### JSONL Format
 
-Splitting messages by threads and reply chains provides:
+JSONL (JSON Lines) format provides:
 
-1. **Semantic Coherence**: Each split represents a logical conversation unit
-2. **Context Preservation**: Reply chains maintain full context even across temporal gaps
-3. **Processing Efficiency**: Smaller, focused conversation units for LLM processing
-4. **Topical Grouping**: Discord threads naturally group related discussions
-5. **Flexible Storage**: Individual conversations can be retrieved and processed independently
+1. **Line-by-Line Processing**: Can process one message at a time
+2. **Streaming**: Can read/write without loading entire file
+3. **Append-Friendly**: Easy to add new messages
+4. **Standard Format**: Well-supported tooling and libraries
+5. **Complete Data**: Preserves full Discord message structure
 
-### Incremental Ingestion
+### Date-Based Organization
 
-Only fetching new messages:
+Organizing by date provides:
 
-1. **Cost**: Reduces Discord API quota usage
-2. **Speed**: Faster ingestion for large channels
-3. **Deduplication**: Prevents duplicate artifact creation
-4. **State**: Maintains continuous ingestion without manual tracking
+1. **Chronological Access**: Easy to find messages from specific day
+2. **Bounded File Sizes**: Each day is separate file
+3. **Parallel Processing**: Can process multiple days concurrently
+4. **Incremental Updates**: Can fetch only new days
+5. **Time-Series Analysis**: Natural grouping for analytics
 
-## Future Considerations
+### Direct R2 Storage
 
-1. **Temporal Gaps**: For orphaned messages, implement temporal gap detection to group scattered messages into conversation-like units
-2. **Reactions**: Include emoji reactions in metadata
-3. **Attachments**: Download and store file attachments in bucket
-4. **Edits**: Track message edit history
-5. **Embeds**: Preserve rich embeds from messages
-6. **Batch Configuration**: Allow specifying multiple channels per ingest request
-7. **Retention Policy**: Implement automatic cleanup of old raw messages
-8. **Thread Merging**: Detect and merge related threads (cross-references, same participants, temporal proximity)
+Storing directly in R2 without database provides:
+
+1. **Cost Efficiency**: R2 storage is cheaper than database
+2. **Scalability**: R2 handles arbitrary data sizes
+3. **Simplicity**: No schema migrations or table management
+4. **Flexibility**: Can change message structure without migrations
+5. **Archival**: Long-term storage without database overhead
+
+## Thread Collection
+
+The ingestion pipeline collects both channel messages and thread messages.
+
+### Thread Detection
+
+After fetching channel messages, the pipeline scans for messages that have started threads:
+
+1. Check each message for `thread` property
+2. Extract `thread.id` from messages with threads
+3. Deduplicate thread IDs
+4. Fetch messages from each discovered thread
+
+### Thread Message Fetching
+
+Thread messages are fetched using the same endpoint as channel messages:
+
+- Endpoint: `GET /channels/{threadID}/messages`
+- Parameters: Same as channel messages (`limit=100`, `before` for pagination)
+- Auth: Same bot token
+- Rate limiting: Same rate limit pool as channel messages
+
+### Thread Storage
+
+Thread messages are stored in separate JSONL files:
+
+**Path Structure:**
+
+```
+discord/{guildID}/{channelID}/{YYYY-MM-DD}-thread-{threadID}.jsonl
+```
+
+The date in the filename corresponds to the date of the parent message that started the thread.
+
+**Example:**
+
+```
+discord/679514959968993311/1307974274145062912/2024-11-29-thread-1234567890.jsonl
+```
+
+### Thread Message Structure
+
+Thread messages use the same structure as channel messages but include additional context:
+
+- `id`: Message ID within the thread
+- `timestamp`: ISO 8601 timestamp
+- `author`: Object with `id`, `username`, `global_name`
+- `content`: Message text
+- `channel_id`: Thread ID (not parent channel ID)
+- All other standard message fields
+
+### Thread Processing Order
+
+1. Fetch all channel messages for the date range
+2. Group channel messages by date
+3. Extract thread IDs from channel messages
+4. For each thread:
+   - Determine parent message date
+   - Fetch all thread messages
+   - Store in date-stamped thread file
+5. Store channel messages in date files
+
+## Future Enhancements
+
+1. **Incremental Fetching**: Track last fetched message and only get new ones
+2. **Attachment Download**: Download and store file attachments
+3. **Rate Limit Handling**: Implement exponential backoff and retry
+4. **Batch Channels**: Support fetching multiple channels in one request
+5. **Progress Tracking**: Stream progress updates for long-running fetches
+6. **Deduplication**: Skip messages already in R2
+7. **Compression**: Compress JSONL files before storing

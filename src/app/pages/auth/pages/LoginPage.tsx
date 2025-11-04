@@ -6,7 +6,7 @@ import { RequestInfo } from "rwsdk/worker";
 export function LoginPage({ ctx }: RequestInfo) {
   const handleSuccess = () => {
     // Redirect to projects page on successful login
-    window.location.href = "/projects";
+    window.location.href = "/sources";
   };
 
   const handleError = (error: string) => {

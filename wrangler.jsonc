@@ -26,9 +26,15 @@
       "tag": "v1",
       "new_classes": ["RealtimeDurableObject", "Database"],
       "new_sqlite_classes": [
+        "Database",
+        "ProcessLog",
         "RawDiscordDatabase",
         "CursorEventsDurableObject"
       ]
+    },
+    {
+      "tag": "v2",
+      "deleted_classes": ["Container"]
     }
   ],
   "durable_objects": {

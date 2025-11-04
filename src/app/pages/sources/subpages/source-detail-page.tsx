@@ -1,15 +1,8 @@
 import { db } from "@/db";
-import { rawDiscordDb } from "@/app/ingestors/discord/db";
 import { env } from "cloudflare:workers";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/app/components/ui/table";
 import { ClearBucketButton } from "./clear-bucket-button";
+import { FileUploadSection } from "./file-upload-section";
+import { FileListWithSelection } from "./file-list-with-selection";
 
 interface R2FileInfo {
   key: string;
@@ -17,12 +10,30 @@ interface R2FileInfo {
   uploaded: Date;
 }
 
+interface FolderItem {
+  name: string;
+  type: "folder";
+  path: string;
+  key?: string;
+}
+
+interface FileItem {
+  name: string;
+  type: "file";
+  key: string;
+  size: number;
+  uploaded: Date;
+}
+
+type DirectoryItem = FolderItem | FileItem;
+
 export async function SourceDetailPage({
   params,
 }: {
-  params: { sourceID: string };
+  params: { sourceID: string; $0?: string };
 }) {
   const sourceID = parseInt(params.sourceID);
+  const currentPath = params.$0 || "";
 
   const source = await db
     .selectFrom("sources")
@@ -55,25 +66,16 @@ export async function SourceDetailPage({
     bucketPrefix = source.bucket || "";
   }
 
-  const messageCountResult =
-    source.type === "discord"
-      ? await rawDiscordDb
-          .selectFrom("raw_discord_messages")
-          .select(({ fn }) => [fn.countAll().as("count")])
-          .where("channel_id", "=", channelID)
-          .executeTakeFirst()
-      : null;
-
-  const messageCount = messageCountResult
-    ? Number(messageCountResult.count ?? 0)
-    : 0;
+  const fullPrefix = currentPath
+    ? `${bucketPrefix}${currentPath}${currentPath.endsWith("/") ? "" : "/"}`
+    : bucketPrefix;
 
   const allFiles: R2FileInfo[] = [];
   let cursor: string | undefined = undefined;
 
   do {
     const listed = await env.MACHINEN_BUCKET.list({
-      prefix: bucketPrefix,
+      prefix: fullPrefix,
       cursor,
     });
 
@@ -88,27 +90,102 @@ export async function SourceDetailPage({
     cursor = listed.truncated ? listed.cursor : undefined;
   } while (cursor);
 
+  const items: DirectoryItem[] = [];
+  const seenFolders = new Set<string>();
+
+  for (const file of allFiles) {
+    const relativePath = file.key.slice(fullPrefix.length);
+    const parts = relativePath.split("/");
+
+    if (parts.length === 1) {
+      items.push({
+        name: parts[0],
+        type: "file",
+        key: file.key,
+        size: file.size,
+        uploaded: file.uploaded,
+      });
+    } else if (parts.length > 1 && parts[0]) {
+      if (!seenFolders.has(parts[0])) {
+        seenFolders.add(parts[0]);
+        const folderPath = currentPath
+          ? `${currentPath}${currentPath.endsWith("/") ? "" : "/"}${parts[0]}`
+          : parts[0];
+        items.push({
+          name: parts[0],
+          type: "folder",
+          path: folderPath,
+        });
+      }
+    }
+  }
+
+  items.sort((a, b) => {
+    if (a.type !== b.type) {
+      return a.type === "folder" ? -1 : 1;
+    }
+    if (a.type === "file" && b.type === "file") {
+      return b.uploaded.getTime() - a.uploaded.getTime();
+    }
+    return a.name.localeCompare(b.name);
+  });
+
+  for (const item of items) {
+    if (item.type === "folder") {
+      const folderPrefix = `${fullPrefix}${item.name}/`;
+      const folderFiles = allFiles.filter((f) =>
+        f.key.startsWith(folderPrefix)
+      );
+      if (folderFiles.length > 0) {
+        item.key = folderFiles[0].key.slice(0, folderPrefix.length);
+      }
+    }
+  }
+
+  const breadcrumbs: Array<{ name: string; path: string }> = [
+    { name: source.name, path: `/sources/${sourceID}` },
+  ];
+
+  if (currentPath) {
+    const pathParts = currentPath.split("/").filter(Boolean);
+    let accumulatedPath = "";
+
+    for (const part of pathParts) {
+      accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
+      breadcrumbs.push({
+        name: part,
+        path: `/sources/${sourceID}/browse/${accumulatedPath}`,
+      });
+    }
+  }
+
   return (
     <div className="flex-1 p-6 bg-white w-full">
       <div className="max-w-7xl mx-auto w-full">
         <div className="mb-6 flex items-start justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-black mb-2">
-              {source.name}
-            </h1>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground mb-2">
+              {breadcrumbs.map((crumb, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  {index > 0 && <span>/</span>}
+                  {index === breadcrumbs.length - 1 ? (
+                    <span className="font-medium text-black">{crumb.name}</span>
+                  ) : (
+                    <a
+                      href={crumb.path}
+                      className="hover:text-blue-600 hover:underline"
+                    >
+                      {crumb.name}
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
             <p className="text-muted-foreground">{source.type}</p>
             {source.type === "discord" && guildID && channelID && (
               <p className="text-muted-foreground font-mono text-sm mt-1">
                 Guild: {guildID} • Channel: {channelID}
               </p>
-            )}
-            {source.type !== "discord" && (
-              <>
-                <p className="text-muted-foreground">{allFiles.length} files</p>
-                <p className="text-muted-foreground font-mono text-sm mt-1">
-                  {bucketPrefix}
-                </p>
-              </>
             )}
           </div>
           <ClearBucketButton
@@ -118,89 +195,10 @@ export async function SourceDetailPage({
           />
         </div>
 
-        {source.type === "discord" && (
-          <div className="border rounded-lg bg-white p-6 mb-6">
-            <div className="space-y-4">
-              <div>
-                <h2 className="text-lg font-semibold mb-2">
-                  Discord Messages Database
-                </h2>
-                <p className="text-sm text-muted-foreground mb-4">
-                  {messageCount} {messageCount === 1 ? "message" : "messages"}{" "}
-                  stored in database
-                </p>
-              </div>
+        <FileUploadSection sourceID={sourceID} />
 
-              <a
-                href="/dox/raw_discord_messages"
-                className="inline-flex items-center justify-center rounded-md text-sm font-medium bg-black text-white hover:bg-black/90 h-10 px-4 py-2"
-              >
-                View Messages in Database Explorer
-              </a>
-            </div>
-          </div>
-        )}
-
-        <div className="border rounded-lg bg-white">
-          <div className="p-4 border-b">
-            <h2 className="text-lg font-semibold">R2 Storage Files</h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {allFiles.length} {allFiles.length === 1 ? "file" : "files"} •{" "}
-              {bucketPrefix}
-            </p>
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>File Path</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>Uploaded</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {allFiles.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={3}
-                    className="text-center text-muted-foreground"
-                  >
-                    No files found in R2
-                  </TableCell>
-                </TableRow>
-              ) : (
-                allFiles.map((file, index) => (
-                  <TableRow key={index} className="group">
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <a
-                          href={`/sources/${sourceID}/files/${file.key}`}
-                          className="font-mono text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                        >
-                          {file.key}
-                        </a>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {formatBytes(file.size)}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {new Date(file.uploaded).toLocaleString()}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+        <FileListWithSelection items={items} sourceID={sourceID} />
       </div>
     </div>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }

@@ -89,12 +89,12 @@ export function SourceCreatePage() {
 
               <div className="space-y-2">
                 <label htmlFor="url" className="text-sm font-medium text-black">
-                  URL
+                  URL (optional)
                 </label>
                 <Input
                   id="url"
                   name="url"
-                  type="url"
+                  type="text"
                   placeholder="https://example.com"
                   disabled={isSubmitting}
                 />

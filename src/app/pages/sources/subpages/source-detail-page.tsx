@@ -124,6 +124,9 @@ export async function SourceDetailPage({
     if (a.type !== b.type) {
       return a.type === "folder" ? -1 : 1;
     }
+    if (a.type === "file" && b.type === "file") {
+      return b.uploaded.getTime() - a.uploaded.getTime();
+    }
     return a.name.localeCompare(b.name);
   });
 

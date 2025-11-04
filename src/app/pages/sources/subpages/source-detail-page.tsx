@@ -1,15 +1,8 @@
 import { db } from "@/db";
 import { env } from "cloudflare:workers";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/app/components/ui/table";
 import { ClearBucketButton } from "./clear-bucket-button";
 import { FileUploadSection } from "./file-upload-section";
+import { FileListWithSelection } from "./file-list-with-selection";
 
 interface R2FileInfo {
   key: string;
@@ -21,6 +14,7 @@ interface FolderItem {
   name: string;
   type: "folder";
   path: string;
+  key?: string;
 }
 
 interface FileItem {
@@ -72,8 +66,8 @@ export async function SourceDetailPage({
     bucketPrefix = source.bucket || "";
   }
 
-  const fullPrefix = currentPath 
-    ? `${bucketPrefix}${currentPath}${currentPath.endsWith('/') ? '' : '/'}`
+  const fullPrefix = currentPath
+    ? `${bucketPrefix}${currentPath}${currentPath.endsWith("/") ? "" : "/"}`
     : bucketPrefix;
 
   const allFiles: R2FileInfo[] = [];
@@ -101,7 +95,7 @@ export async function SourceDetailPage({
 
   for (const file of allFiles) {
     const relativePath = file.key.slice(fullPrefix.length);
-    const parts = relativePath.split('/');
+    const parts = relativePath.split("/");
 
     if (parts.length === 1) {
       items.push({
@@ -114,8 +108,8 @@ export async function SourceDetailPage({
     } else if (parts.length > 1 && parts[0]) {
       if (!seenFolders.has(parts[0])) {
         seenFolders.add(parts[0]);
-        const folderPath = currentPath 
-          ? `${currentPath}${currentPath.endsWith('/') ? '' : '/'}${parts[0]}`
+        const folderPath = currentPath
+          ? `${currentPath}${currentPath.endsWith("/") ? "" : "/"}${parts[0]}`
           : parts[0];
         items.push({
           name: parts[0],
@@ -133,14 +127,26 @@ export async function SourceDetailPage({
     return a.name.localeCompare(b.name);
   });
 
+  for (const item of items) {
+    if (item.type === "folder") {
+      const folderPrefix = `${fullPrefix}${item.name}/`;
+      const folderFiles = allFiles.filter((f) =>
+        f.key.startsWith(folderPrefix)
+      );
+      if (folderFiles.length > 0) {
+        item.key = folderFiles[0].key.slice(0, folderPrefix.length);
+      }
+    }
+  }
+
   const breadcrumbs: Array<{ name: string; path: string }> = [
     { name: source.name, path: `/sources/${sourceID}` },
   ];
-  
+
   if (currentPath) {
-    const pathParts = currentPath.split('/').filter(Boolean);
-    let accumulatedPath = '';
-    
+    const pathParts = currentPath.split("/").filter(Boolean);
+    let accumulatedPath = "";
+
     for (const part of pathParts) {
       accumulatedPath = accumulatedPath ? `${accumulatedPath}/${part}` : part;
       breadcrumbs.push({
@@ -188,108 +194,8 @@ export async function SourceDetailPage({
 
         <FileUploadSection sourceID={sourceID} />
 
-        <div className="border rounded-lg bg-white">
-          <div className="p-4 border-b">
-            <h2 className="text-lg font-semibold">
-              {currentPath ? "Current Directory" : "R2 Storage Files"}
-            </h2>
-            <p className="text-sm text-muted-foreground mt-1">
-              {items.length} {items.length === 1 ? "item" : "items"}
-            </p>
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow className="hover:bg-transparent">
-                <TableHead>Name</TableHead>
-                <TableHead>Size</TableHead>
-                <TableHead>Uploaded</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.length === 0 ? (
-                <TableRow>
-                  <TableCell
-                    colSpan={3}
-                    className="text-center text-muted-foreground"
-                  >
-                    No items found
-                  </TableCell>
-                </TableRow>
-              ) : (
-                items.map((item, index) => (
-                  <TableRow key={index} className="group">
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        {item.type === "folder" ? (
-                          <>
-                            <svg
-                              className="w-4 h-4 text-blue-500"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
-                              />
-                            </svg>
-                            <a
-                              href={`/sources/${sourceID}/browse/${item.path}`}
-                              className="font-medium text-blue-600 hover:text-blue-800 hover:underline"
-                            >
-                              {item.name}
-                            </a>
-                          </>
-                        ) : (
-                          <>
-                            <svg
-                              className="w-4 h-4 text-gray-400"
-                              fill="none"
-                              stroke="currentColor"
-                              viewBox="0 0 24 24"
-                            >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                strokeWidth={2}
-                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                              />
-                            </svg>
-                            <a
-                              href={`/sources/${sourceID}/files/${item.key}`}
-                              className="font-mono text-sm text-blue-600 hover:text-blue-800 hover:underline"
-                            >
-                              {item.name}
-                            </a>
-                          </>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {item.type === "file" ? formatBytes(item.size) : "—"}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {item.type === "file"
-                        ? new Date(item.uploaded).toLocaleString()
-                        : "—"}
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
+        <FileListWithSelection items={items} sourceID={sourceID} />
       </div>
     </div>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
 }

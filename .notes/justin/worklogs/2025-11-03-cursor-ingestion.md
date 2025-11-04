@@ -128,19 +128,19 @@ The implementation is complete and ready for use. Users need to:
 
 ### Overview
 
-This implementation leverages Cursor's hooks feature to capture conversation events throughout the agent loop. We opted to aggregate events by generation (user prompt + agent response cycle) rather than storing individual events, because at scale, storing per-event would create an unwieldy structure—either too flattened with everything mixed together, or requiring deeply nested bucket hierarchies. The right level of granularity is per conversation interaction, where each generation represents a complete user-agent exchange.
+This implementation leverages Cursor's hooks feature to capture conversation events throughout the agent loop. I opted to aggregate events by generation (user prompt + agent response cycle) rather than storing individual events, because at scale, storing per-event would create an unwieldy structure—either too flattened with everything mixed together, or requiring deeply nested bucket hierarchies. The right level of granularity is per conversation interaction, where each generation represents a complete user-agent exchange.
 
 ### What's being added
 
-We're adding a POST endpoint at `/ingestors/cursor` that receives hook events from Cursor. To handle the multiple events fired for each interaction (e.g., `beforeSubmitPrompt`, `afterFileEdit`, `stop`), we use a SQLite Durable Object to temporarily store all events belonging to a single `generation_id`. When the final `stop` event is received, the system aggregates these events into a single JSON document and writes it to R2. This approach keeps the data for each interaction self-contained and avoids polluting the storage bucket with thousands of small files. We chose SQLite Durable Objects to align with existing patterns in the codebase (like the passkey addon), providing structured storage and ensuring the database logic resides in the route handlers via `createDb`, not within the Durable Object itself.
+A POST endpoint was added at `/ingestors/cursor` to receive hook events from Cursor. To handle the multiple events fired for each interaction (e.g., `beforeSubmitPrompt`, `afterFileEdit`, `stop`), a SQLite Durable Object is used to temporarily store all events belonging to a single `generation_id`. When the final `stop` event is received, the system aggregates these events into a single JSON document and writes it to R2. This approach keeps the data for each interaction self-contained and avoids polluting the storage bucket with thousands of small files. I chose SQLite Durable Objects to align with existing patterns in the codebase (like the passkey addon), providing structured storage and ensuring the database logic resides in the route handlers via `createDb`, not within the Durable Object itself.
 
-The endpoint is protected by a shared `INGEST_API_KEY`. We opted for a single, general-purpose key to simplify management for users and provide a consistent security model for all current and future ingestors. Authentication is handled by a reusable `requireIngestApiKey` interruptor.
+The endpoint is protected by a shared `INGEST_API_KEY`. A single, general-purpose key was chosen to simplify management for users and provide a consistent security model for all current and future ingestors. Authentication is handled by a reusable `requireIngestApiKey` interruptor.
 
-To streamline the user setup, we've included a `setup.sh` script that automatically configures Cursor's `hooks.json` and installs the necessary hook script. This script defaults to the production endpoint URL, as that is the most common use case, but can be easily overridden for local development via the `CURSOR_INGEST_URL` environment variable.
+To streamline the user setup, a `setup.sh` script is included to automatically configure Cursor's `hooks.json` and install the necessary hook script. This script defaults to the production endpoint URL, as that is the most common use case, but can be easily overridden for local development via the `CURSOR_INGEST_URL` environment variable.
 
-### Key Decisions
+### Decisions made
 
-- **Single general API key:** A shared `INGEST_API_KEY` simplifies management and provides a consistent security model for all ingestors.
+- **Single general API key:** A shared `INGEST_API_KEY` was chosen to simplify management and provide a consistent security model for all ingestors.
 - **Production-first defaults:** The hook script defaults to the production endpoint to make the most common setup easier. Local development is supported via an environment variable override.
 - **Event aggregation by `generation_id`:** Grouping all events for a single user-agent interaction into one document makes the data much easier to process and analyze later.
 - **Database logic outside Durable Object:** Following the established pattern in the codebase, business logic lives in route handlers using `createDb`, keeping the Durable Object itself minimal.
@@ -151,5 +151,5 @@ Conversations are stored in R2 at `cursor-conversations/{conversation_id}/{gener
 
 ### Testing & Setup
 
-A test route is available to simulate the ingestion flow. For detailed setup and testing instructions, please see the [README.md](https://github.com/redwoodjs/machinen/blob/c6a1b3432a2e95bfddb958c3e7699988f99a0a2d/src/app/ingestors/cursor/README.md)
+A test route is available to simulate the ingestion flow. For detailed setup and testing instructions, please see the [README.md](src/app/ingestors/cursor/README.md)
 

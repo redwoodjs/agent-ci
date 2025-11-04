@@ -24,11 +24,18 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Database", "ProcessLog", "RawDiscordDatabase"]
+      "new_classes": ["RealtimeDurableObject"],
+      "new_sqlite_classes": ["Database"]
     },
     {
       "tag": "v2",
-      "deleted_classes": ["Container"]
+      "deleted_classes": [
+        "Container",
+        "MachinenContainer",
+        "RawDiscordDatabase",
+        "CursorEventsDurableObject",
+        "Sandbox"
+      ]
     }
   ],
   "durable_objects": {
@@ -36,10 +43,6 @@
       {
         "class_name": "Database",
         "name": "DATABASE"
-      },
-      {
-        "class_name": "RawDiscordDatabase",
-        "name": "RAW_DISCORD_DATABASE"
       },
       {
         "name": "REALTIME_DURABLE_OBJECT",

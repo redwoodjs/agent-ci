@@ -9,6 +9,7 @@ import { setCommonHeaders } from "./app/headers";
 import { authRoutes } from "./app/pages/auth/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
 import { discordIngestorRoutes } from "./app/ingestors/discord/routes";
+import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
 
 export type AppContext = {
@@ -45,6 +46,7 @@ const app = defineApp([
   ]),
 
   prefix("/ingestors/discord", discordIngestorRoutes),
+  prefix("/ingestors/cursor", cursorIngestorRoutes),
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";

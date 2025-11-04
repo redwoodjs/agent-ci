@@ -8,7 +8,7 @@ import { setCommonHeaders } from "./app/headers";
 
 import { authRoutes } from "./app/pages/auth/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
-import { discordIngestorRoutes } from "./app/ingestors/discord/routes";
+import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { doExploreRoutes } from "./app/plugins/do-explore/routes";
 
 export type AppContext = {
@@ -44,12 +44,11 @@ const app = defineApp([
     prefix("/dox", doExploreRoutes),
   ]),
 
-  prefix("/ingestors/discord", discordIngestorRoutes),
+  prefix("/ingest/discord", discordRoutes),
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";
 export { Database } from "@/db/durableObject";
-export { RawDiscordDatabase } from "@/app/ingestors/discord/db";
 
 export default {
   fetch: app.fetch,

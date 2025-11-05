@@ -173,3 +173,21 @@ The root cause was an incomplete migration history inherited from the `main` bra
 ### The Solution
 The fix was to amend the historical record to make it consistent. The `v1` migration in `wrangler.jsonc` was updated to include `Container`, `MachinenContainer`, and `Sandbox` in its `new_classes` array. This creates a valid, linear history for all environments. Preview deployments can now successfully create these classes in `v1` and then delete them in `v2`, resolving the CI error. This change has no effect on the production environment, where `v1` has already been applied.
 
+## 2025-11-05: CI Deployment Failures
+
+### The Problem
+After fixing the migration history, CI runs for preview deployments began failing with a new error: `Version upload failed. You attempted to upload a version of a Worker that includes a Durable Object migration, but migrations must be fully applied by running "wrangler deploy".`
+
+### Analysis
+The root cause was in the project's CI configuration, which used different commands for production deployments vs. preview deployments (called "versions").
+
+-   **Deploy command (`pnpm run release`)**: Correctly uses `wrangler deploy`. This is a full deployment command that handles both code and infrastructure changes, like our Durable Object migrations.
+-   **Version command (`npx wrangler versions upload`)**: This is a lightweight command designed for gradual deployments. It has a critical limitation: it only uploads code and is explicitly forbidden from running migrations.
+
+Because our changes include migrations, the `versions upload` command used by the CI for PRs was guaranteed to fail.
+
+### The Solution & Production Safety
+The fix is to change the "Version command" in the CI build configuration to also use `pnpm run release`.
+
+This is safe and will **not** deploy PRs to production. The Cloudflare CI integration is context-aware. When `wrangler deploy` is run in a PR build, the CI system automatically targets a temporary, isolated preview environment. The production environment is only targeted when a build runs on the `main` branch. Using `wrangler deploy` for previews simply ensures that the preview environment is built with the same robust process as production, including all necessary migrations.
+

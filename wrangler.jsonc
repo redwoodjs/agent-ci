@@ -24,12 +24,22 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["RealtimeDurableObject"],
-      "new_sqlite_classes": ["Database", "ProcessLog"]
+      "new_classes": [
+        "RealtimeDurableObject",
+        "Container",
+        "MachinenContainer",
+        "Sandbox"
+      ],
+      "new_sqlite_classes": ["Database", "ProcessLog", "RawDiscordDatabase"]
     },
     {
       "tag": "v2",
-      "deleted_classes": []
+      "deleted_classes": [
+        "Container",
+        "MachinenContainer",
+        "Sandbox",
+        "RawDiscordDatabase"
+      ]
     },
     {
       "tag": "v3",

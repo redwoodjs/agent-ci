@@ -29,6 +29,15 @@
     },
     {
       "tag": "v2",
+      "deleted_classes": [
+        "Container",
+        "MachinenContainer",
+        "RawDiscordDatabase",
+        "Sandbox"
+      ]
+    },
+    {
+      "tag": "v3",
       "new_sqlite_classes": ["CursorEventsDurableObject"]
     }
   ],
@@ -37,10 +46,7 @@
       { "name": "REALTIME", "class_name": "RealtimeDurableObject" },
       { "name": "DB", "class_name": "Database" },
       { "name": "RAW_DISCORD_DATABASE", "class_name": "RawDiscordDatabase" },
-      {
-        "name": "CURSOR_EVENTS",
-        "class_name": "CursorEventsDurableObject"
-      }
+      { "name": "CURSOR_EVENTS", "class_name": "CursorEventsDurableObject" }
     ]
   }
 }

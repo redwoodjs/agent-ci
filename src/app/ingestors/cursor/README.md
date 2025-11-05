@@ -4,56 +4,55 @@ This ingestor captures Cursor conversation data via Cursor hooks and stores aggr
 
 ## Setup
 
-### 1. Install the Cursor Hooks
+### Quick Start
 
-Run the setup script to configure Cursor hooks:
+Add `INGEST_API_KEY` to your shell profile, then run the setup script:
 
+**zsh:**
 ```bash
-./src/app/ingestors/cursor/scripts/setup.sh
+echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.zshrc && source ~/.zshrc && ./src/app/ingestors/cursor/scripts/setup.sh
 ```
 
-This will:
-- Copy the hook script to `~/.cursor/hooks/`
-- Create/update `~/.cursor/hooks.json` to register the hooks
-- Make the hook script executable
+**bash:**
+```bash
+echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.bashrc && source ~/.bashrc && ./src/app/ingestors/cursor/scripts/setup.sh
+```
 
-**Note:** You'll need to restart Cursor after running the setup script.
+**fish:**
+```fish
+echo 'set -gx INGEST_API_KEY your-secret-api-key-here' >> ~/.config/fish/config.fish && source ~/.config/fish/config.fish && bash ./src/app/ingestors/cursor/scripts/setup.sh
+```
 
-### 2. Configure API Key Authentication
+By default, the hook sends data to `https://machinen.redwoodjs.workers.dev/ingestors/cursor`. To change this, set `CURSOR_INGEST_URL` in your shell profile (e.g., `export CURSOR_INGEST_URL=http://localhost:5173/ingestors/cursor`).
 
-The ingestion endpoint is protected by a general ingest API key (shared across all ingestion methods). You need to:
+Restart Cursor after running the setup script.
 
-1. **Set the API key as a Cloudflare Worker secret:**
+### Use Cases
 
-   For production:
-   ```bash
-   npx wrangler secret put INGEST_API_KEY
-   ```
+#### Getting it working on your machine
 
-   For local development, add it to `.dev.vars`:
+If you're using the existing production deployment, just follow the Quick Start above. The hook will send data to `https://machinen.redwoodjs.workers.dev/ingestors/cursor` by default.
+
+#### Setting up a new deployment
+
+For a new application or to change the API key:
+
+1. **Set the API key in your Cloudflare Worker:**
+
+   Add it to `.dev.vars` for local development:
    ```
    INGEST_API_KEY=your-secret-api-key-here
    ```
 
-2. **Set the API key environment variable for the hook script:**
-
-   The hook script reads the API key from the `INGEST_API_KEY` environment variable. You can set this in your shell:
-
+   Set it as a Cloudflare Worker secret for production:
    ```bash
-   export INGEST_API_KEY=your-secret-api-key-here
+   npx wrangler secret put INGEST_API_KEY
    ```
 
-   Or add it to your shell profile (e.g., `~/.zshrc` or `~/.bashrc`) to make it persistent.
+2. **Change the endpoint URL:**
 
-3. **Optionally configure the endpoint URL:**
-
-   By default, the hook script sends data to the production endpoint `https://machinen.workers.dev/ingestors/cursor`. To override this (e.g., for local development), set the `CURSOR_INGEST_URL` environment variable:
-
+   Set `CURSOR_INGEST_URL` in your shell profile to point to your deployment:
    ```bash
-   # For local development
-   export CURSOR_INGEST_URL=http://localhost:5173/ingestors/cursor
-   
-   # Or for a custom domain
    export CURSOR_INGEST_URL=https://your-domain.com/ingestors/cursor
    ```
 

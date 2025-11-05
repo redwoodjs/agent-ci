@@ -153,3 +153,34 @@ Conversations are stored in R2 at `cursor-conversations/{conversation_id}/{gener
 
 A test route is available to simulate the ingestion flow. For detailed setup and testing instructions, please see the [README.md](src/app/ingestors/cursor/README.md)
 
+### Addendum: Migration History Correction
+
+During development, a CI error was discovered related to an inconsistent Durable Object migration history (`Cannot apply deleted_classes migration to non-existent class Container`).
+
+A previous commit ([`c1fbf98`](https://github.com/redwoodjs/machinen/commit/c1fbf98)) introduced a migration to delete the `Container` class but also removed the historical record of its creation (from commit [`aa1dfbd`](https://github.com/redwoodjs/machinen/commit/aa1dfbd)). While this worked for the long-running production environment, it caused failures in fresh preview deployments, which run the full migration history and couldn't find the `Container` class to delete.
+
+The fix was to remove the now-obsolete `deleted_classes` migration for `Container` and create a clean migration history. This ensures that both production and preview deployments will run successfully.
+
+
+## 2025-11-04: Migration Issue Post-Mortem
+
+### The Problem
+During CI runs for this branch, preview deployments were failing with the error: `Cannot apply deleted_classes migration to non-existent class Container`. This error occurred because the migration history in `wrangler.jsonc` was inconsistent.
+
+### Synopsis of Events
+The root cause was an incorrect modification of the migration history. Here's the sequence of events:
+
+1.  **Addition of `Container`**: The `Container` Durable Object class was introduced in commit [`aa1dfbd`](https://github.com/redwoodjs/machinen/commit/aa1dfbd). At this point, a migration was correctly added to `wrangler.jsonc` to create the new class.
+
+2.  **Removal of `Container`**: Later, the `Container` class was removed in commit [`c1fbf98`](https://github.com/redwoodjs/machinen/commit/c1fbf98). Instead of simply adding a new migration tag to delete the class, the historical entry for its creation was also removed. This resulted in a `v2` migration that attempted to delete `Container` without any corresponding `v1` entry that created it.
+
+### Why This Caused an Error
+-   **Production Environment**: The production deployment was unaffected because it's a long-running environment. The initial migration to add `Container` had already been applied. When the `v2` migration to delete it was deployed, it found the existing class and removed it successfully.
+-   **Preview Deployments**: These are ephemeral, clean-slate environments. They run the entire migration history from scratch on every PR. The CI process would:
+    1.  Run `v1`, which (according to the broken history) never created `Container`.
+    2.  Run `v2`, which tried to delete `Container`.
+    3.  Fail, because `Container` never existed in that fresh environment.
+
+### The Solution
+Since the `v2` migration to delete `Container` had already served its purpose in production, it was safe to remove it from the migration history. The fix was to remove the `deleted_classes` entry for `Container` and use the `v2` tag for the new `CursorEventsDurableObject` migration. This creates a clean, linear, and valid migration history for all environments.
+

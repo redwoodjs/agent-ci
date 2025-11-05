@@ -29,10 +29,6 @@
     },
     {
       "tag": "v2",
-      "deleted_classes": ["Container"]
-    },
-    {
-      "tag": "v3",
       "new_sqlite_classes": ["CursorEventsDurableObject"]
     }
   ],

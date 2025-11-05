@@ -191,3 +191,24 @@ The fix is to change the "Version command" in the CI build configuration to also
 
 This is safe and will **not** deploy PRs to production. The Cloudflare CI integration is context-aware. When `wrangler deploy` is run in a PR build, the CI system automatically targets a temporary, isolated preview environment. The production environment is only targeted when a build runs on the `main` branch. Using `wrangler deploy` for previews simply ensures that the preview environment is built with the same robust process as production, including all necessary migrations.
 
+## 2025-11-05: The Migration Paradox
+
+### The Problem
+After resolving the CI command issue, the deployment failed with a new, contradictory error: `New version of script does not export class 'Container' which is depended on by existing Durable Objects.`
+
+### Analysis: A Contradiction
+This error directly contradicted previous ones. While earlier errors suggested that classes like `Container` never existed in the deployment history, this final error confirms that **live, active Durable Object instances** tied to these old classes *do* exist on Cloudflare's production environment.
+
+This created a paradox:
+1.  To satisfy preview deployments (which build from scratch), our migration history in `wrangler.jsonc` needed to be internally consistent (every deleted class must have first been created).
+2.  To satisfy production deployments, our code needed to export the old classes so that a `delete-class` migration could be safely run without orphaning the existing live objects.
+
+### The Solution: A Temporary Workaround
+The final solution was to satisfy both constraints simultaneously.
+
+1.  **Correct the Migration History**: The `wrangler.jsonc` file was configured to have a valid, linear history: `v1` creates all the old classes (`Container`, `Sandbox`, etc.), `v2` deletes them, and `v3` creates our new `CursorEventsDurableObject`.
+2.  **Create Temporary Class Definitions**: A new file, `src/db/deprecatedDurableObjects.ts`, was created. This file contains empty, exported class definitions for all the old Durable Objects (`Container`, `ProcessLog`, etc.).
+3.  **Export from Worker**: These temporary, deprecated classes were then exported from the main `src/worker.tsx` file.
+
+This workaround makes the deployment pass Cloudflare's safety checks. The migration can now run, delete the old zombie objects from the production environment, and bring the deployment state in line with our clean code. The temporary file and its exports can be safely removed in a follow-up PR after this deployment is successful.
+

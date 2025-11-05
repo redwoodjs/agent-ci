@@ -155,9 +155,13 @@ A test route is available to simulate the ingestion flow. For detailed setup and
 
 ### Addendum: Migration History Correction
 
-During development, a merge with `main` introduced an inconsistent Durable Object migration history, which caused CI failures (`Cannot apply deleted_classes migration to non-existent class Container`).
+During development, a series of contradictory deployment errors revealed a state inconsistency between the project's migration history and the live production environment. The final error confirmed that active Durable Objects for old, undeclared classes (`Container`, etc.) exist in production.
 
-The root cause was that `main` had a `v2` migration to delete several classes (`Container`, `Sandbox`, etc.), but the `v1` migration in its history was never updated to include the creation of those classes. To fix this for all environments, the `v1` migration has been amended to include the creation of these classes, creating a valid history. This ensures that preview deployments can successfully apply the full migration sequence.
+To resolve this, a two-part fix was implemented:
+1.  The migration history in `wrangler.jsonc` was corrected to explicitly create (`v1`) and then delete (`v2`) these old classes, which will clean up the live "zombie" objects.
+2.  A temporary file (`src/db/deprecatedDurableObjects.ts`) was created to export empty class definitions for these old objects. This is a necessary workaround to satisfy Cloudflare's deployment safety checks, which require the classes to be exported in the new script version before they can be deleted.
+
+This temporary file can and should be removed in a follow-up PR after this change is successfully deployed to production.
 
 ## 2025-11-04: Migration Issue Post-Mortem
 

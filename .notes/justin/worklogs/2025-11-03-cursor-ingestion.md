@@ -155,34 +155,21 @@ A test route is available to simulate the ingestion flow. For detailed setup and
 
 ### Addendum: Migration History Correction
 
-During development, a CI error was discovered related to an inconsistent Durable Object migration history (`Cannot apply deleted_classes migration to non-existent class Container`).
+During development, a merge with `main` introduced an inconsistent Durable Object migration history, which caused CI failures (`Cannot apply deleted_classes migration to non-existent class Container`).
 
-The root cause was that a `v2` migration was introduced in commit [`c1fbf98`](https://github.com/redwoodjs/machinen/commit/c1fbf98) to delete the `Container` class, but a corresponding migration to *create* the class had never been added to the history. This created an invalid sequence that failed in fresh preview deployments.
-
-The fix was to remove the now-obsolete `deleted_classes` migration for `Container`, as it was targeting a class that was never formally created via migration. This creates a clean migration history and ensures that both production and preview deployments will run successfully.
-
+The root cause was that `main` had a `v2` migration to delete several classes (`Container`, `Sandbox`, etc.), but the `v1` migration in its history was never updated to include the creation of those classes. To fix this for all environments, the `v1` migration has been amended to include the creation of these classes, creating a valid history. This ensures that preview deployments can successfully apply the full migration sequence.
 
 ## 2025-11-04: Migration Issue Post-Mortem
 
 ### The Problem
-During CI runs for this branch, preview deployments were failing with the error: `Cannot apply deleted_classes migration to non-existent class Container`. This error occurred because the migration history in `wrangler.jsonc` was inconsistent.
+During CI runs for this branch, preview deployments were failing with the error: `Cannot apply deleted_classes migration to non-existent class Container`. This error occurred because the migration history in `wrangler.jsonc` became inconsistent after merging with `main`.
 
 ### Corrected Synopsis of Events
-The root cause was an incomplete migration history. Here's the sequence of events:
+The root cause was an incomplete migration history inherited from the `main` branch.
 
-1.  **Creation of `Container`**: The `Container` class was introduced and used in the codebase (see commit [`aa1dfbd`](https://github.com/redwoodjs/machinen/commit/aa1dfbd) and others). However, a corresponding `new_classes` migration to formally create the Durable Object class in Cloudflare was **never added** to `wrangler.jsonc`. This was the original mistake.
-
-2.  **Removal of `Container`**: Later, commit [`c1fbf98`](https://github.com/redwoodjs/machinen/commit/c1fbf98) introduced a `v2` migration to delete the `Container` class.
-
-### Why This Caused an Error
-This created an invalid migration history. The history now contained an instruction to delete a class that, according to the migrations, was never created.
-
--   **Production Environment**: This environment was likely unaffected because the `Container` class never formally existed as a Durable Object, so the `deleted_classes` migration would have done nothing.
--   **Preview Deployments**: These are ephemeral, clean-slate environments that run the full migration history from scratch. The CI process would:
-    1.  Run `v1`, which did not create `Container`.
-    2.  Run `v2`, which tried to delete `Container`.
-    3.  Fail, because `Container` never existed in that fresh environment.
+1.  **Inconsistent History from `main`**: The `main` branch introduced a `v2` migration that added a `deleted_classes` entry for `Container`, `MachinenContainer`, and `Sandbox`. However, the `v1` migration in `main`'s history was never updated to include the creation of these classes.
+2.  **Merge Conflict and CI Failure**: When `main` was merged into this branch, it brought in this inconsistent history. This caused preview deployments to fail because they execute migrations from scratch and cannot delete a class that was never created in a previous step.
 
 ### The Solution
-Since the `deleted_classes` migration for `Container` was targeting a class that was never formally created, it was safe to remove it. The fix was to remove that `v2` migration and use the `v2` tag for the new `CursorEventsDurableObject`. This creates a clean, linear, and valid migration history for all environments.
+The fix was to amend the historical record to make it consistent. The `v1` migration in `wrangler.jsonc` was updated to include `Container`, `MachinenContainer`, and `Sandbox` in its `new_classes` array. This creates a valid, linear history for all environments. Preview deployments can now successfully create these classes in `v1` and then delete them in `v2`, resolving the CI error. This change has no effect on the production environment, where `v1` has already been applied.
 

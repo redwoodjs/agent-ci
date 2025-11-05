@@ -25,11 +25,11 @@
     {
       "tag": "v1",
       "new_classes": ["RealtimeDurableObject"],
-      "new_sqlite_classes": ["Database", "ProcessLog", "RawDiscordDatabase"]
+      "new_sqlite_classes": ["Database", "ProcessLog"]
     },
     {
       "tag": "v2",
-      "deleted_classes": ["RawDiscordDatabase"]
+      "deleted_classes": []
     },
     {
       "tag": "v3",

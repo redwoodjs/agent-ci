@@ -45,6 +45,13 @@ const app = defineApp([
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";
 export { Database } from "@/db/durableObject";
 export { CursorEventsDurableObject } from "@/app/ingestors/cursor/db/durableObject";
+export {
+  Container,
+  MachinenContainer,
+  Sandbox,
+  ProcessLog,
+  RawDiscordDatabase,
+} from "@/db/deprecatedDurableObjects";
 
 export default {
   fetch: app.fetch,

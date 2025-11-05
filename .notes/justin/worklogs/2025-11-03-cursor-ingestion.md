@@ -155,13 +155,11 @@ A test route is available to simulate the ingestion flow. For detailed setup and
 
 ### Addendum: Migration History Correction
 
-During development, a series of contradictory deployment errors revealed a state inconsistency between the project's migration history and the live production environment. The final error confirmed that active Durable Objects for old, undeclared classes (`Container`, etc.) exist in production.
+During development, a series of contradictory deployment errors revealed a state inconsistency between the project's migration history and the live production environment. The errors alternated between complaining that classes couldn't be deleted because they weren't exported, and complaining that classes must be exported because live objects depend on them.
 
-To resolve this, a two-part fix was implemented:
-1.  The migration history in `wrangler.jsonc` was corrected to explicitly create (`v1`) and then delete (`v2`) these old classes, which will clean up the live "zombie" objects.
-2.  A temporary file (`src/db/deprecatedDurableObjects.ts`) was created to export empty class definitions for these old objects. This is a necessary workaround to satisfy Cloudflare's deployment safety checks, which require the classes to be exported in the new script version before they can be deleted.
+We attempted a workaround by creating a temporary file (`src/db/deprecatedDurableObjects.ts`) with empty class definitions and adding them to the migration history. However, this approach continued to generate contradictory errors from Cloudflare's migration system, and we were unable to find a configuration that satisfied all of its constraints.
 
-This temporary file can and should be removed in a follow-up PR after this change is successfully deployed to production.
+Ultimately, all references to the deprecated classes were removed from both the migration history and the codebase. The migration history now only includes classes that actually exist in the codebase (`RealtimeDurableObject`, `Database`, `CursorEventsDurableObject`). The production worker will need to be deleted and recreated to resolve the state inconsistency.
 
 ## 2025-11-04: Migration Issue Post-Mortem
 
@@ -215,4 +213,14 @@ The final solution was to satisfy both constraints simultaneously.
 3.  **Export from Worker**: These temporary, deprecated classes were then exported from the main `src/worker.tsx` file.
 
 This workaround makes the deployment pass Cloudflare's safety checks. The migration can now run, delete the old zombie objects from the production environment, and bring the deployment state in line with our clean code. The temporary file and its exports can be safely removed in a follow-up PR after this deployment is successful.
+
+### Final Decision: Removing the Workaround
+After multiple attempts, the workaround approach proved unworkable. Each iteration led to new, contradictory errors from Cloudflare's migration system. The errors alternated between:
+- Complaining that classes couldn't be deleted because they weren't exported
+- Complaining that classes must be exported because live objects depend on them
+- Complaining that classes couldn't be deleted because they weren't in the previous version
+
+The migration history was cleaned up to only include classes that actually exist (`RealtimeDurableObject`, `Database`, `CursorEventsDurableObject`). All references to the deprecated classes (`Container`, `MachinenContainer`, `Sandbox`, `ProcessLog`, `RawDiscordDatabase`) were removed from both the migration history and the codebase. The deprecated classes file was deleted, and all exports were removed from `worker.tsx`.
+
+The production worker will need to be deleted and recreated to resolve the state inconsistency between the deployed environment and the codebase. This is a cleaner solution than trying to work around Cloudflare's migration system constraints.
 

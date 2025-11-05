@@ -5,7 +5,7 @@ set -e
 INPUT=$(cat)
 
 # Define the endpoint URL (defaults to production, override with CURSOR_INGEST_URL env var)
-ENDPOINT_URL="${CURSOR_INGEST_URL:-https://machinen.workers.dev/ingestors/cursor}"
+ENDPOINT_URL="${CURSOR_INGEST_URL:-https://machinen.redwoodjs.workers.dev/ingestors/cursor}"
 
 # Get API key from environment variable
 API_KEY="${INGEST_API_KEY}"

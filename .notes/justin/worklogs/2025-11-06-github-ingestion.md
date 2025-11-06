@@ -28,6 +28,23 @@ This is the most critical part of the design. We need to store Markdown files in
     `github-ingest/{owner}/{repo}/issues/{issue_number}/{version_hash}.md`
     The `version_hash` could be a timestamp or a commit SHA from the GitHub event payload.
 
+-   **Markdown Format**: Each stored Markdown file will include YAML front matter for metadata:
+    ```markdown
+    ---
+    github_id: 123456
+    number: 42
+    state: open
+    created_at: 2025-11-06T10:00:00Z
+    updated_at: 2025-11-06T11:00:00Z
+    version_hash: abc123...
+    ---
+    
+    # Issue Title
+    
+    Issue body content...
+    ```
+    This approach keeps metadata accessible without parsing the full document structure, while the body remains readable Markdown. Front matter allows us to store structured data (issue number, state, timestamps, etc.) alongside the content, making it easier to query and understand file contents without needing to parse the Markdown itself.
+
 -   **Database Schema for Versioning**: The DO's SQLite database will manage the versions. For each object type (e.g., issues), we'll have two tables:
     1.  A main table (`issues`) that stores metadata and a pointer to the *current* version.
         -   `github_id` (PK)
@@ -122,10 +139,41 @@ The main risks of keeping Bearer token auth for Cursor:
 
 This is worth upgrading eventually for defense-in-depth and consistency, but not urgent.
 
+**Markdown Format Decision:**
+
+Decided to use YAML front matter in stored Markdown files for metadata. This approach:
+- Keeps metadata accessible without parsing the full Markdown document
+- Allows structured data (github_id, number, state, timestamps, version_hash) alongside readable content
+- Makes it easier to query and understand file contents without full Markdown parsing
+- Maintains readability - the body remains standard Markdown that can be rendered directly
+
+Example format:
+```markdown
+---
+github_id: 123456
+number: 42
+state: open
+created_at: 2025-11-06T10:00:00Z
+updated_at: 2025-11-06T11:00:00Z
+version_hash: abc123...
+---
+
+# Issue Title
+
+Issue body content...
+```
+
 **Route Setup:**
 - Created webhook endpoint at `/ingestors/github/webhook` using the `route()` pattern from rwsdk/router
 - Registered routes and Durable Object in worker.tsx and wrangler.jsonc
 - Added v4 migration for GitHubRepoDurableObject
+
+**Phase 1 Testing:**
+Phase 1 implementation is complete. Before proceeding to Phase 2, need to validate:
+- Webhook endpoint responds correctly
+- Signature verification works (should reject invalid signatures, accept valid ones)
+- Endpoint can receive and parse GitHub webhook payloads
+- Durable Object migration applies successfully
 
 **Issues Fixed:**
 - Corrected Durable Object pattern: use `migrations = migrations` property instead of constructor

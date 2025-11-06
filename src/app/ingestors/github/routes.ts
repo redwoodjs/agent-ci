@@ -34,6 +34,19 @@ async function githubWebhookHandler({ request }: RequestInfo) {
   const payload = (await request.json()) as GitHubWebhookPayload;
   const event = request.headers.get("X-GitHub-Event");
 
+  console.log("[github ingest] Received webhook:", {
+    event,
+    action: payload.action,
+    payloadKeys: Object.keys(payload),
+    hasRepository: !!payload.repository,
+    hasProject: !!payload.project,
+    hasProjectsV2Item: !!payload.projects_v2_item,
+    hasIssue: !!payload.issue,
+    hasPullRequest: !!payload.pull_request,
+    hasComment: !!payload.comment,
+    hasRelease: !!payload.release,
+  });
+
   if (!event) {
     return Response.json(
       { error: "Missing X-GitHub-Event header" },
@@ -111,7 +124,9 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       }
     }
 
-    return new Response("Pull request event action not handled", { status: 202 });
+    return new Response("Pull request event action not handled", {
+      status: 202,
+    });
   }
 
   if (event === "issue_comment") {
@@ -126,7 +141,8 @@ async function githubWebhookHandler({ request }: RequestInfo) {
 
     if (action === "created" || action === "edited" || action === "deleted") {
       try {
-        const issueId = (issue as GitHubIssue)?.id || (issue as { id?: number })?.id;
+        const issueId =
+          (issue as GitHubIssue)?.id || (issue as { id?: number })?.id;
         await processCommentEvent(comment, action, repository, issueId);
         return new Response("Comment processed", { status: 202 });
       } catch (error) {
@@ -153,7 +169,9 @@ async function githubWebhookHandler({ request }: RequestInfo) {
 
     if (action === "created" || action === "edited" || action === "deleted") {
       try {
-        const pullRequestId = (pull_request as GitHubPullRequest)?.id || (pull_request as { id?: number })?.id;
+        const pullRequestId =
+          (pull_request as GitHubPullRequest)?.id ||
+          (pull_request as { id?: number })?.id;
         const reviewId = comment.pull_request_review_id;
         await processCommentEvent(
           comment,
@@ -165,7 +183,10 @@ async function githubWebhookHandler({ request }: RequestInfo) {
         );
         return new Response("Review comment processed", { status: 202 });
       } catch (error) {
-        console.error("[github ingest] Error processing review comment:", error);
+        console.error(
+          "[github ingest] Error processing review comment:",
+          error
+        );
         return Response.json(
           { error: "Failed to process review comment" },
           { status: 500 }
@@ -173,7 +194,9 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       }
     }
 
-    return new Response("Review comment event action not handled", { status: 202 });
+    return new Response("Review comment event action not handled", {
+      status: 202,
+    });
   }
 
   if (event === "release") {
@@ -209,9 +232,18 @@ async function githubWebhookHandler({ request }: RequestInfo) {
   }
 
   if (event === "projects_v2") {
+    console.log("[github ingest] Received projects_v2 event:", {
+      action: payload.action,
+      hasProject: !!payload.project,
+      hasRepository: !!payload.repository,
+    });
     const { action, project, repository } = payload;
 
     if (!project || !repository) {
+      console.error(
+        "[github ingest] Missing project or repository in projects_v2 payload:",
+        { hasProject: !!project, hasRepository: !!repository }
+      );
       return Response.json(
         { error: "Missing project or repository in payload" },
         { status: 400 }
@@ -226,7 +258,13 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       action === "deleted"
     ) {
       try {
+        console.log("[github ingest] Processing project event:", {
+          projectId: project.id,
+          action,
+          title: project.title,
+        });
         await processProjectEvent(project, action, repository);
+        console.log("[github ingest] Project processed successfully");
         return new Response("Project processed", { status: 202 });
       } catch (error) {
         console.error("[github ingest] Error processing project:", error);
@@ -237,13 +275,24 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       }
     }
 
+    console.log("[github ingest] Project event action not handled:", action);
     return new Response("Project event action not handled", { status: 202 });
   }
 
   if (event === "projects_v2_item") {
+    console.log("[github ingest] Received projects_v2_item event:", {
+      action: payload.action,
+      hasProjectItem: !!payload.projects_v2_item,
+      hasProject: !!payload.project,
+      hasRepository: !!payload.repository,
+    });
     const { action, projects_v2_item, project, repository } = payload;
 
     if (!projects_v2_item || !repository) {
+      console.error(
+        "[github ingest] Missing projects_v2_item or repository in projects_v2_item payload:",
+        { hasProjectItem: !!projects_v2_item, hasRepository: !!repository }
+      );
       return Response.json(
         { error: "Missing projects_v2_item or repository in payload" },
         { status: 400 }
@@ -251,7 +300,22 @@ async function githubWebhookHandler({ request }: RequestInfo) {
     }
 
     const projectId = project?.id || projects_v2_item.project_node_id;
+    console.log("[github ingest] Extracted project ID:", {
+      projectId,
+      fromProject: project?.id,
+      fromItem: projects_v2_item.project_node_id,
+    });
     if (!projectId) {
+      console.error(
+        "[github ingest] Missing project ID in projects_v2_item payload:",
+        {
+          project,
+          projects_v2_item: {
+            id: projects_v2_item.id,
+            project_node_id: projects_v2_item.project_node_id,
+          },
+        }
+      );
       return Response.json(
         { error: "Missing project ID in payload" },
         { status: 400 }
@@ -260,12 +324,20 @@ async function githubWebhookHandler({ request }: RequestInfo) {
 
     if (action === "created" || action === "edited" || action === "deleted") {
       try {
+        console.log("[github ingest] Processing project item event:", {
+          itemId: projects_v2_item.id,
+          projectId,
+          action,
+          contentType: projects_v2_item.content_type,
+          contentId: projects_v2_item.content_id,
+        });
         await processProjectItemEvent(
           projects_v2_item,
           action,
           repository,
           projectId
         );
+        console.log("[github ingest] Project item processed successfully");
         return new Response("Project item processed", { status: 202 });
       } catch (error) {
         console.error("[github ingest] Error processing project item:", error);
@@ -276,7 +348,13 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       }
     }
 
-    return new Response("Project item event action not handled", { status: 202 });
+    console.log(
+      "[github ingest] Project item event action not handled:",
+      action
+    );
+    return new Response("Project item event action not handled", {
+      status: 202,
+    });
   }
 
   return new Response("Event type not handled", { status: 202 });

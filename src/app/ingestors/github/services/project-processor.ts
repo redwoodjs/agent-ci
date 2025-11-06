@@ -42,9 +42,12 @@ export async function processProjectEvent(
   eventType: "created" | "edited" | "closed" | "reopened" | "deleted",
   repository: { owner: { login: string }; name: string }
 ): Promise<void> {
+  console.log("[project-processor] Starting processProjectEvent:", { projectId: project.id, eventType, repository: `${repository.owner.login}/${repository.name}` });
   const repoOwner = repository.owner.login;
   const repoName = repository.name;
   const repoKey = getRepositoryKey(repoOwner, repoName);
+  console.log("[project-processor] Repository key:", repoKey);
+  
   const db = createDb<GitHubDatabase>(
     (env as any).GITHUB_REPO as DurableObjectNamespace<GitHubRepoDurableObject>,
     repoKey
@@ -52,8 +55,10 @@ export async function processProjectEvent(
 
   const versionHash = await generateVersionHash(project);
   const r2Key = getR2Key(repoOwner, repoName, project.id, versionHash);
+  console.log("[project-processor] Generated version hash and R2 key:", { versionHash, r2Key });
 
   if (eventType === "deleted") {
+    console.log("[project-processor] Handling deleted event");
     const existingProject = await db
       .selectFrom("projects")
       .selectAll()
@@ -61,6 +66,7 @@ export async function processProjectEvent(
       .executeTakeFirst();
 
     if (existingProject) {
+      console.log("[project-processor] Updating existing project to deleted state");
       await db
         .updateTable("projects")
         .set({
@@ -69,6 +75,8 @@ export async function processProjectEvent(
         })
         .where("github_id", "=", project.id)
         .execute();
+    } else {
+      console.log("[project-processor] No existing project found to delete");
     }
     return;
   }
@@ -82,6 +90,7 @@ export async function processProjectEvent(
   } else {
     state = project.state === "closed" ? "closed" : "open";
   }
+  console.log("[project-processor] Determined state:", state);
 
   const existingProject = await db
     .selectFrom("projects")
@@ -89,7 +98,10 @@ export async function processProjectEvent(
     .where("github_id", "=", project.id)
     .executeTakeFirst();
 
+  console.log("[project-processor] Existing project check:", { exists: !!existingProject });
+
   if (existingProject) {
+    console.log("[project-processor] Updating existing project");
     const versionResult = await db
       .insertInto("project_versions")
       .values({
@@ -99,6 +111,8 @@ export async function processProjectEvent(
       } as any)
       .returningAll()
       .executeTakeFirstOrThrow();
+
+    console.log("[project-processor] Created version record:", { versionId: versionResult.id });
 
     await db
       .updateTable("projects")
@@ -111,7 +125,9 @@ export async function processProjectEvent(
       })
       .where("github_id", "=", project.id)
       .execute();
+    console.log("[project-processor] Updated project record");
   } else {
+    console.log("[project-processor] Creating new project");
     await db
       .insertInto("projects")
       .values({
@@ -134,6 +150,8 @@ export async function processProjectEvent(
       .returningAll()
       .executeTakeFirstOrThrow();
 
+    console.log("[project-processor] Created version record:", { versionId: versionResult.id });
+
     await db
       .updateTable("projects")
       .set({
@@ -141,6 +159,7 @@ export async function processProjectEvent(
       })
       .where("github_id", "=", project.id)
       .execute();
+    console.log("[project-processor] Updated project with latest_version_id");
   }
 
   const markdown = projectToMarkdown(project, {
@@ -151,6 +170,8 @@ export async function processProjectEvent(
     version_hash: versionHash,
   });
 
+  console.log("[project-processor] Storing markdown to R2:", r2Key);
   await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  console.log("[project-processor] Successfully stored to R2");
 }
 

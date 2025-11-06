@@ -53,9 +53,12 @@ export async function processProjectItemEvent(
   repository: { owner: { login: string }; name: string },
   projectId: string
 ): Promise<void> {
+  console.log("[project-item-processor] Starting processProjectItemEvent:", { itemId: projectItem.id, projectId, eventType, repository: `${repository.owner.login}/${repository.name}` });
   const repoOwner = repository.owner.login;
   const repoName = repository.name;
   const repoKey = getRepositoryKey(repoOwner, repoName);
+  console.log("[project-item-processor] Repository key:", repoKey);
+  
   const db = createDb<GitHubDatabase>(
     (env as any).GITHUB_REPO as DurableObjectNamespace<GitHubRepoDurableObject>,
     repoKey
@@ -70,8 +73,10 @@ export async function processProjectItemEvent(
     projectItem.content_id,
     versionHash
   );
+  console.log("[project-item-processor] Generated version hash and R2 key:", { versionHash, r2Key });
 
   if (eventType === "deleted") {
+    console.log("[project-item-processor] Handling deleted event");
     const existingItem = await db
       .selectFrom("project_items")
       .selectAll()
@@ -79,6 +84,7 @@ export async function processProjectItemEvent(
       .executeTakeFirst();
 
     if (existingItem) {
+      console.log("[project-item-processor] Updating existing item to deleted state");
       await db
         .updateTable("project_items")
         .set({
@@ -87,6 +93,8 @@ export async function processProjectItemEvent(
         })
         .where("github_id", "=", projectItem.id)
         .execute();
+    } else {
+      console.log("[project-item-processor] No existing item found to delete");
     }
     return;
   }
@@ -99,7 +107,10 @@ export async function processProjectItemEvent(
     .where("github_id", "=", projectItem.id)
     .executeTakeFirst();
 
+  console.log("[project-item-processor] Existing item check:", { exists: !!existingItem });
+
   if (existingItem) {
+    console.log("[project-item-processor] Updating existing item");
     const versionResult = await db
       .insertInto("project_item_versions")
       .values({
@@ -110,6 +121,8 @@ export async function processProjectItemEvent(
       .returningAll()
       .executeTakeFirstOrThrow();
 
+    console.log("[project-item-processor] Created version record:", { versionId: versionResult.id });
+
     await db
       .updateTable("project_items")
       .set({
@@ -118,7 +131,9 @@ export async function processProjectItemEvent(
       })
       .where("github_id", "=", projectItem.id)
       .execute();
+    console.log("[project-item-processor] Updated item record");
   } else {
+    console.log("[project-item-processor] Creating new item");
     await db
       .insertInto("project_items")
       .values({
@@ -142,6 +157,8 @@ export async function processProjectItemEvent(
       .returningAll()
       .executeTakeFirstOrThrow();
 
+    console.log("[project-item-processor] Created version record:", { versionId: versionResult.id });
+
     await db
       .updateTable("project_items")
       .set({
@@ -149,6 +166,7 @@ export async function processProjectItemEvent(
       })
       .where("github_id", "=", projectItem.id)
       .execute();
+    console.log("[project-item-processor] Updated item with latest_version_id");
   }
 
   const markdown = projectItemToMarkdown(projectItem, {
@@ -162,6 +180,8 @@ export async function processProjectItemEvent(
     version_hash: versionHash,
   });
 
+  console.log("[project-item-processor] Storing markdown to R2:", r2Key);
   await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  console.log("[project-item-processor] Successfully stored to R2");
 }
 

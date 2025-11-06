@@ -79,7 +79,7 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       action === "deleted"
     ) {
       try {
-        await processIssueEvent(issue, action, repository);
+        await processIssueEvent(issue as GitHubIssue, action, repository);
         return new Response("Issue processed", { status: 202 });
       } catch (error) {
         console.error("[github ingest] Error processing issue:", error);
@@ -113,7 +113,11 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       action === "deleted"
     ) {
       try {
-        await processPullRequestEvent(pull_request, action, repository);
+        await processPullRequestEvent(
+          pull_request as GitHubPullRequest,
+          action,
+          repository
+        );
         return new Response("Pull request processed", { status: 202 });
       } catch (error) {
         console.error("[github ingest] Error processing pull request:", error);

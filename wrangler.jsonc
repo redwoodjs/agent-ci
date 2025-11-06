@@ -4,6 +4,11 @@
   "main": "src/worker.tsx",
   "compatibility_date": "2025-09-25",
   "compatibility_flags": ["nodejs_compat"],
+
+  "observability": {
+    "enabled": true
+  },
+
   "r2_buckets": [
     {
       "binding": "MACHINEN_CONTEXT_STREAM_BUCKET",

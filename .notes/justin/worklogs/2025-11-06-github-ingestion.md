@@ -354,3 +354,57 @@ Before implementing support for PRs, Comments, Releases, and Projects, analyzing
 ### Recommendation
 
 Start with Issues (done), PRs, Comments, and Releases. Defer Projects if they add too much complexity. Keep the structure simple - same pattern for all entities. Focus on capturing information and maintaining links, not perfect modeling.
+
+## 2025-11-06: Phase 4 Planning - Backfill Mechanism
+
+### Problem
+
+We need a mechanism to ingest historical data from GitHub repositories and to reconcile any events that might have been missed by the real-time webhook ingestor (e.g., due to downtime or webhook delivery failures). This process needs to be triggerable, manageable, and testable.
+
+### Proposed Architecture: Endpoint + Queue
+
+A robust solution involves a combination of a trigger endpoint and a queue for processing. This avoids hitting execution limits on a single request and builds in resiliency.
+
+1.  **Trigger Endpoint**: A new endpoint, `POST /ingestors/github/backfill`, will initiate the backfill process. It will be protected by the `INGEST_API_KEY`.
+2.  **GitHub API Token**: The backfill process will require read-only access to the GitHub API, configured via a `GITHUB_TOKEN` secret in the worker.
+3.  **Cloudflare Queues for Processing**: The trigger endpoint will not process the data itself. Instead, it will query the GitHub API for a list of items to backfill (e.g., all issue numbers in a repo) and push a job for each item onto a Cloudflare Queue.
+4.  **Queue Consumer**: A queue consumer will be responsible for processing each job. The consumer will fetch the full details of a single item (e.g., a specific issue) from the GitHub API and pass it to the appropriate, existing `process...Event` service.
+5.  **Reusing Existing Logic**: By channeling backfilled data through the same `process...Event` services (`processIssueEvent`, `processPullRequestEvent`, etc.), we ensure that data is handled consistently, whether it comes from a webhook or the backfill. The processor will treat the item as an "edited" event, creating a new version if the content has changed.
+
+### Endpoint Design
+
+-   **Route**: `POST /ingestors/github/backfill`
+-   **Authentication**: `Authorization: Bearer <INGEST_API_KEY>`
+-   **Request Body**:
+    ```json
+    {
+      "owner": "string",
+      "repo": "string",
+      "entity": "issues" | "pull_requests" | "releases" | "comments" | "all",
+      "since": "YYYY-MM-DDTHH:MM:SSZ", // Optional: only fetch items updated since this date
+      "limit": "number" // Optional: limit the number of items to backfill (for testing)
+    }
+    ```
+
+### Testing Plan for a Minimal Backfill
+
+This design allows for easy, controlled testing on a test deployment.
+
+1.  **Configure Secret**: Add a `GITHUB_TOKEN` to the test worker environment. This token needs `repo` scope to read repository data.
+    ```bash
+    npx wrangler secret put GITHUB_TOKEN
+    ```
+2.  **Deploy**: Deploy the worker with the new backfill endpoint and queue consumer.
+3.  **Trigger Test**: Use a `curl` command to trigger a small, specific backfill. For example, to backfill the 5 most recently updated issues from a test repository:
+    ```bash
+    curl -X POST "https://<your-test-worker-url>/ingestors/github/backfill" \
+      -H "Authorization: Bearer <your-ingest-api-key>" \
+      -H "Content-Type: application/json" \
+      -d '{
+            "owner": "your-github-username",
+            "repo": "your-repo-name",
+            "entity": "issues",
+            "limit": 5
+          }'
+    ```
+4.  **Verify**: Check the R2 bucket for the newly created Markdown files. Check the worker logs for output from the queue consumer to confirm processing.

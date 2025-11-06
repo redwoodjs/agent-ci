@@ -75,18 +75,22 @@ I'll implement this in phases, starting with the core infrastructure for a singl
     -   Create the `GitHubRepoDurableObject` and define the SQLite schema and migrations for `issues` and `issue_versions`.
     -   Implement the webhook endpoint (`/ingestors/github/webhook`) with GitHub webhook signature validation.
 
-2.  **Phase 2: Webhook Ingestion for Issues**
-    -   Implement the logic inside the DO to handle issue-related webhook events (`opened`, `edited`, `closed`, `deleted`).
-    -   Create a utility to convert the GitHub issue JSON payload into a clean Markdown format.
-    -   Implement the logic to write the Markdown file to R2 and update the DO's database accordingly.
+2.  **Phase 2: Webhook Ingestion for Issues** ✓ COMPLETE
+    -   Implemented the logic inside the DO to handle issue-related webhook events (`opened`, `edited`, `closed`, `reopened`, `deleted`).
+    -   Created a utility to convert the GitHub issue JSON payload into a clean Markdown format with YAML front matter.
+    -   Implemented the logic to write the Markdown file to R2 and update the DO's database accordingly.
 
-3.  **Phase 3: Backfill Mechanism**
-    -   Create a new endpoint for handling backfill requests, to be triggered by a cron job.
-    -   Implement the logic to fetch issues from the GitHub API, compare them with the records in the DO, and ingest any missing or updated issues.
+3.  **Phase 3: Expansion**
+    -   Extend the system to handle other object types: Comments, PRs, Releases, and Projects, following the same versioning pattern as issues.
+    -   Create webhook handlers for each object type.
+    -   Create Markdown conversion utilities for each type.
+    -   Add database tables and migrations for version tracking.
 
-4.  **Phase 4: Expansion**
-    -   Extend the system to handle other object types: Comments, PRs, Releases, and Projects, following the same versioning pattern.
-    -   Create comprehensive documentation in `README.md` for setting up and using the ingestor.
+4.  **Phase 4: Backfill Mechanism**
+    -   Create a unified backfill endpoint that can handle all object types (Issues, PRs, Comments, Releases, Projects).
+    -   Implement logic to fetch data from the GitHub API for each type.
+    -   Compare with existing records in the DO and ingest any missing or updated objects.
+    -   Can be triggered by a cron job or manually.
 
 ## 2025-11-06: Phase 1 Implementation - Core Infrastructure
 

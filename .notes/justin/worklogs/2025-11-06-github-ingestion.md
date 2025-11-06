@@ -231,3 +231,126 @@ Fix: Reverse the insertion order for new issues - insert into `issues` first, th
 - Replaced Node.js Buffer with native Web APIs for hex encoding/decoding
 - Fixed route structure to match cursor ingestor pattern (export routes array, not Router instance)
 - Added proper TypeScript types using `RequestInfo` from rwsdk/worker
+
+## 2025-11-06: Entity Lifecycle Analysis - Planning Phase 3 Expansion
+
+Before implementing support for PRs, Comments, Releases, and Projects, analyzing the lifecycle of each entity to ensure we have the right provisions for versioning and relationships.
+
+### Principles
+
+- Keep it simple (Occam's razor) - best bang for buck, not heavy-handed
+- Focus on preserving information and links, not perfect structure
+- Capture what GitHub sends us via webhooks
+- Maintain version history for all edits
+- Preserve links between entities (comments → issues/PRs, etc.)
+- Structure is good as long as information is there and easy to process
+- Can refine structure later based on actual usage needs
+
+### Entity Lifecycle Analysis
+
+**Issues:**
+- Events: `opened`, `edited`, `closed`, `reopened`, `deleted`
+- What changes: title, body, labels, assignees, milestone
+- Comments: Separate entity (`issue_comment` events) - not part of issue itself
+- Versioning: Each `edited` event creates new version. State changes (`closed`/`reopened`) also create versions to track state transitions.
+- Links: Comments link to issues via `issue_id`
+
+**Pull Requests:**
+- Events: `opened`, `edited`, `closed`, `reopened`, `merged`, `synchronize` (new commits pushed)
+- What changes: title, body, labels, assignees, milestone, base/head branches
+- Commits: Pushing commits triggers `synchronize` event - this is a state change, not content edit
+- Comments: Separate entities - PR comments (`pull_request_review_comment`) and review comments (`issue_comment` on PR)
+- Reviews: Separate entities (`pull_request_review` events)
+- Versioning: `edited` creates new version. `synchronize` creates version to track commit updates. `merged`/`closed` create versions for state.
+- Links: Comments, reviews link to PR via `pull_request_id`
+
+**Comments (Issue Comments & PR Comments):**
+- Events: `created`, `edited`, `deleted`
+- What changes: body/content
+- Parent relationship: Links to issue or PR
+- Versioning: Each `edited` creates new version. `deleted` marks as deleted but preserves history.
+- Links: Must track `issue_id` or `pull_request_id` to maintain relationship
+
+**Releases:**
+- Events: `published`, `edited`, `deleted`, `prereleased`, `released`
+- What changes: name, body, tag, assets
+- Less frequently changed than issues/PRs
+- Versioning: `edited` creates new version. State transitions (`prereleased` → `released`) create versions.
+- Links: Links to repository, may reference issues/PRs in body
+
+**Projects:**
+- Events: `created`, `updated`, `closed`, `deleted`
+- Project items: Separate entities (`project_card`, `project_column` events)
+- More complex structure with columns, cards, items
+- Versioning: `updated` creates new version. State changes tracked.
+- Links: Cards link to issues/PRs, columns contain cards
+
+### Key Decisions
+
+1. **Separate entities for comments**: Comments are not part of issues/PRs - they're separate objects with their own lifecycle. This matches GitHub's webhook structure.
+
+2. **State changes create versions**: Not just content edits. `closed`, `reopened`, `merged`, `synchronize` all create versions to track the evolution of the entity.
+
+3. **Links via foreign keys**: Comments store `issue_id` or `pull_request_id`. PRs might reference issues. Keep these relationships in the database schema.
+
+4. **Simplified structure**: Don't try to model every nuance. If GitHub sends an event, we process it. If it's an edit, we version it. Keep the structure flat and simple - can refine later.
+
+5. **Same pattern for all**: Each entity type follows the same pattern:
+   - Main table (e.g., `pull_requests`) with metadata and `latest_version_id`
+   - Versions table (e.g., `pull_request_versions`) tracking all versions
+   - Markdown files in R2 with versioned paths
+   - Links to parent entities where applicable
+
+6. **Don't overthink commits**: `synchronize` events on PRs are just state changes - we version them but don't need to deeply model commit relationships at this stage.
+
+### Implementation Plan for Phase 3
+
+1. **Database Schema Expansion:**
+   - Add tables: `pull_requests`, `pull_request_versions`
+   - Add tables: `comments`, `comment_versions` (unified for issue and PR comments)
+   - Add tables: `releases`, `release_versions`
+   - Add tables: `projects`, `project_versions` (if needed, or defer if too complex)
+   - All follow same pattern: main table + versions table
+
+2. **Webhook Handlers:**
+   - `pull_request` events: opened, edited, closed, reopened, merged, synchronize
+   - `issue_comment` events: created, edited, deleted
+   - `pull_request_review_comment` events: created, edited, deleted
+   - `release` events: published, edited, deleted, prereleased, released
+   - `project` events: created, updated, closed, deleted (maybe defer if complex)
+
+3. **Markdown Converters:**
+   - `prToMarkdown` - similar to issue converter
+   - `commentToMarkdown` - simpler, just body + metadata
+   - `releaseToMarkdown` - includes tag, assets info
+   - `projectToMarkdown` - if implementing projects
+
+4. **Processor Services:**
+   - `processPullRequestEvent` - handles PR lifecycle
+   - `processCommentEvent` - handles comment lifecycle (unified for issue/PR comments)
+   - `processReleaseEvent` - handles release lifecycle
+   - `processProjectEvent` - if implementing projects
+
+5. **R2 Storage Paths:**
+   - PRs: `github-ingest/{owner}/{repo}/pull-requests/{number}/{version_hash}.md`
+   - Comments: `github-ingest/{owner}/{repo}/issues/{issue_number}/comments/{comment_id}/{version_hash}.md` or `pull-requests/{pr_number}/comments/{comment_id}/{version_hash}.md`
+   - Releases: `github-ingest/{owner}/{repo}/releases/{tag}/{version_hash}.md`
+   - Projects: `github-ingest/{owner}/{repo}/projects/{project_id}/{version_hash}.md` (if implementing)
+
+6. **Simplifications:**
+   - Use same Durable Object per repository (already have `GitHubRepoDurableObject`)
+   - Comments table unified - use `issue_id` or `pull_request_id` to distinguish
+   - Don't deeply model commit relationships - just version PRs when commits are pushed
+   - Don't deeply model project structure (columns/cards) - just version the project itself
+   - Keep it simple - capture what GitHub sends, preserve versions, maintain links
+
+### Decisions Made
+
+1. **Projects**: Deferred to a later phase due to complexity.
+2. **PR Reviews**: Will be treated as part of the PR's version history. Submitting a review will create a new version of the PR.
+3. **PR Review Comments**: The `comments` table will include a `review_id` to link comments to their specific review.
+4. **`synchronize` events**: Will be handled by creating a new version of the PR, without tracking individual commit diffs.
+
+### Recommendation
+
+Start with Issues (done), PRs, Comments, and Releases. Defer Projects if they add too much complexity. Keep the structure simple - same pattern for all entities. Focus on capturing information and maintaining links, not perfect modeling.

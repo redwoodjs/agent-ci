@@ -219,6 +219,12 @@ Implemented complete webhook processing for GitHub issues:
 - Other actions respect issue.state from payload
 - Deleted issues marked as "deleted" state, preserving all previous versions
 
+**Issue Fixed - Foreign Key Constraint:**
+
+During testing, encountered "FOREIGN KEY constraint failed" error when creating new issues. The problem was in the insertion order: we were inserting into `issue_versions` before inserting into `issues`. Since `issue_versions.issue_github_id` has a foreign key reference to `issues.github_id`, SQLite rejected the insert because the parent record didn't exist yet.
+
+Fix: Reverse the insertion order for new issues - insert into `issues` first, then insert into `issue_versions`. This ensures the parent record exists before the child record references it.
+
 **Issues Fixed:**
 - Corrected Durable Object pattern: use `migrations = migrations` property instead of constructor
 - Fixed migrations structure: use `db.schema` API with named migrations and `satisfies Migrations`

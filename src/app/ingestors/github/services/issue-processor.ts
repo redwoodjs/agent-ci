@@ -116,6 +116,18 @@ export async function processIssueEvent(
       .where("github_id", "=", issue.id)
       .execute();
   } else {
+    await db
+      .insertInto("issues")
+      .values({
+        github_id: issue.id,
+        number: issue.number,
+        title: issue.title,
+        state: state,
+        created_at: issue.created_at,
+        updated_at: now,
+      } as any)
+      .execute();
+
     const versionResult = await db
       .insertInto("issue_versions")
       .values({
@@ -127,16 +139,11 @@ export async function processIssueEvent(
       .executeTakeFirstOrThrow();
 
     await db
-      .insertInto("issues")
-      .values({
-        github_id: issue.id,
-        number: issue.number,
-        title: issue.title,
-        state: state,
+      .updateTable("issues")
+      .set({
         latest_version_id: versionResult.id,
-        created_at: issue.created_at,
-        updated_at: now,
       })
+      .where("github_id", "=", issue.id)
       .execute();
   }
 

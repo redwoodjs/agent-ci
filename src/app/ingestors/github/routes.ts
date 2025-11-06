@@ -5,10 +5,14 @@ import { processIssueEvent } from "./services/issue-processor";
 import { processPullRequestEvent } from "./services/pr-processor";
 import { processCommentEvent } from "./services/comment-processor";
 import { processReleaseEvent } from "./services/release-processor";
+import { processProjectEvent } from "./services/project-processor";
+import { processProjectItemEvent } from "./services/project-item-processor";
 import type { GitHubIssue } from "./utils/issue-to-markdown";
 import type { GitHubPullRequest } from "./utils/pr-to-markdown";
 import type { GitHubComment } from "./utils/comment-to-markdown";
 import type { GitHubRelease } from "./utils/release-to-markdown";
+import type { GitHubProject } from "./utils/project-to-markdown";
+import type { GitHubProjectItem } from "./utils/project-item-to-markdown";
 
 interface GitHubWebhookPayload {
   action: string;
@@ -16,6 +20,8 @@ interface GitHubWebhookPayload {
   pull_request?: GitHubPullRequest | { id?: number; number?: number };
   comment?: GitHubComment;
   release?: GitHubRelease;
+  project?: GitHubProject;
+  projects_v2_item?: GitHubProjectItem;
   repository?: {
     owner: { login: string };
     name: string;
@@ -200,6 +206,77 @@ async function githubWebhookHandler({ request }: RequestInfo) {
     }
 
     return new Response("Release event action not handled", { status: 202 });
+  }
+
+  if (event === "projects_v2") {
+    const { action, project, repository } = payload;
+
+    if (!project || !repository) {
+      return Response.json(
+        { error: "Missing project or repository in payload" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      action === "created" ||
+      action === "edited" ||
+      action === "closed" ||
+      action === "reopened" ||
+      action === "deleted"
+    ) {
+      try {
+        await processProjectEvent(project, action, repository);
+        return new Response("Project processed", { status: 202 });
+      } catch (error) {
+        console.error("[github ingest] Error processing project:", error);
+        return Response.json(
+          { error: "Failed to process project" },
+          { status: 500 }
+        );
+      }
+    }
+
+    return new Response("Project event action not handled", { status: 202 });
+  }
+
+  if (event === "projects_v2_item") {
+    const { action, projects_v2_item, project, repository } = payload;
+
+    if (!projects_v2_item || !repository) {
+      return Response.json(
+        { error: "Missing projects_v2_item or repository in payload" },
+        { status: 400 }
+      );
+    }
+
+    const projectId = project?.id || projects_v2_item.project_node_id;
+    if (!projectId) {
+      return Response.json(
+        { error: "Missing project ID in payload" },
+        { status: 400 }
+      );
+    }
+
+    if (action === "created" || action === "edited" || action === "deleted") {
+      try {
+        await processProjectItemEvent(
+          projects_v2_item,
+          action,
+          repository,
+          projectId
+        );
+        return new Response("Project item processed", { status: 202 });
+      } catch (error) {
+        console.error("[github ingest] Error processing project item:", error);
+        return Response.json(
+          { error: "Failed to process project item" },
+          { status: 500 }
+        );
+      }
+    }
+
+    return new Response("Project item event action not handled", { status: 202 });
   }
 
   return new Response("Event type not handled", { status: 202 });

@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 
 declare module "rwsdk/worker" {
   interface WorkerEnv {
-    GITHUB_WEBHOOK_SECRET?: string;
+    INGEST_API_KEY?: string;
   }
 }
 
@@ -57,11 +57,9 @@ export async function requireGitHubWebhookSignature({ request }: RequestInfo) {
     return new Response("Missing signature", { status: 401 });
   }
 
-  const webhookSecret = (env as any).GITHUB_WEBHOOK_SECRET as
-    | string
-    | undefined;
+  const webhookSecret = (env as any).INGEST_API_KEY as string | undefined;
   if (!webhookSecret) {
-    console.error("GITHUB_WEBHOOK_SECRET is not set");
+    console.error("INGEST_API_KEY is not set");
     return new Response("Server configuration error", { status: 500 });
   }
 

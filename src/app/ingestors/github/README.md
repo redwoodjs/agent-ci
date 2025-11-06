@@ -4,32 +4,30 @@ This service ingests data from GitHub repositories, including issues, pull reque
 
 ## Setup
 
-### 1. Configure GitHub Webhook Secret
+### 1. Configure Webhook Secret
 
-**Get your webhook secret from GitHub:**
-- Go to your repository settings → Webhooks
-- Create or edit a webhook
-- In the "Secret" field, GitHub generates or lets you set a secret
-- Copy this secret value
+The GitHub ingestor uses the same `INGEST_API_KEY` secret that other ingestors use. If you already have this configured for the Cursor ingestor, you can reuse the same value.
 
 **Set the environment variable:**
 
 For local development (in `.dev.vars` or similar):
 ```bash
-GITHUB_WEBHOOK_SECRET=your_secret_here
+INGEST_API_KEY=your_secret_here
 ```
 
 For production, set as a Cloudflare Worker secret:
 ```bash
-wrangler secret put GITHUB_WEBHOOK_SECRET
+wrangler secret put INGEST_API_KEY
 # Then paste your secret when prompted
 ```
 
 ### 2. Configure GitHub Webhook
 
+- Go to your repository settings → Webhooks
+- Create or edit a webhook
 - Set the webhook URL to: `https://your-domain.workers.dev/ingestors/github/webhook`
 - Set the content type to: `application/json`
 - Select the events you want to receive (issues, pull_requests, etc.)
-- Make sure the "Secret" field matches what you set in the environment variable
+- In the "Secret" field, enter the **same value** as your `INGEST_API_KEY`
 
 The endpoint will verify all incoming webhook requests using HMAC-SHA256 signature verification. Requests with missing or invalid signatures will be rejected with `401 Unauthorized`.

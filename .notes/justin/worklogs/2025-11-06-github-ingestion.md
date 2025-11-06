@@ -168,6 +168,12 @@ Issue body content...
 - Registered routes and Durable Object in worker.tsx and wrangler.jsonc
 - Added v4 migration for GitHubRepoDurableObject
 
+**Authentication Simplification:**
+Initially planned to use a separate `GITHUB_WEBHOOK_SECRET` for GitHub webhook signature verification. Changed to reuse `INGEST_API_KEY` instead, so users only need to manage one secret value. The same secret works for:
+- Cursor ingestor: Bearer token authentication (`Authorization: Bearer <key>`)
+- GitHub ingestor: HMAC-SHA256 webhook signature verification (secret value used to verify `X-Hub-Signature-256` header)
+This simplifies setup - if users already have `INGEST_API_KEY` configured, they can use the same value in GitHub's webhook secret field.
+
 **Phase 1 Testing:**
 Phase 1 implementation is complete. Before proceeding to Phase 2, need to validate:
 - Webhook endpoint responds correctly

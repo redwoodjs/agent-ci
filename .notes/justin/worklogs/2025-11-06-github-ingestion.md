@@ -175,11 +175,45 @@ Initially planned to use a separate `GITHUB_WEBHOOK_SECRET` for GitHub webhook s
 This simplifies setup - if users already have `INGEST_API_KEY` configured, they can use the same value in GitHub's webhook secret field.
 
 **Phase 1 Testing:**
-Phase 1 implementation is complete. Before proceeding to Phase 2, need to validate:
+Phase 1 implementation complete and validated:
 - Webhook endpoint responds correctly
-- Signature verification works (should reject invalid signatures, accept valid ones)
-- Endpoint can receive and parse GitHub webhook payloads
+- Signature verification working (rejects invalid signatures, accepts valid ones)
+- Endpoint receives and parses GitHub webhook payloads
 - Durable Object migration applies successfully
+
+## 2025-11-06: Phase 2 Implementation - Webhook Ingestion for Issues
+
+Implemented complete webhook processing for GitHub issues:
+
+**Webhook Handler:**
+- Updated `/ingestors/github/webhook` to handle `issues` events
+- Routes to `processIssueEvent` for supported actions: `opened`, `edited`, `closed`, `reopened`, `deleted`
+- Validates payload structure and returns appropriate error responses
+
+**Issue Processor Service:**
+- `processIssueEvent` handles all issue lifecycle events
+- Uses repository owner/name as Durable Object key (one DO per repository)
+- Creates new issue records or updates existing ones
+- Creates version records for each change (except deletions)
+- Stores Markdown files in R2 with versioned paths: `github-ingest/{owner}/{repo}/issues/{number}/{version_hash}.md`
+
+**Markdown Conversion:**
+- `issueToMarkdown` utility converts GitHub issue JSON to Markdown with YAML front matter
+- Front matter includes: github_id, number, state, created_at, updated_at, version_hash
+- Body includes issue title, author, labels, assignees, milestone, and content
+- Uses proper YAML escaping for values containing special characters
+
+**Version Management:**
+- Each update creates a new version record with unique R2 key
+- Version hash generated from issue content (SHA-256 of id, updated_at, body, title)
+- Database tracks latest_version_id in issues table for quick access
+- Deleted issues update state but preserve history (no new version created)
+
+**State Handling:**
+- `closed` action sets state to "closed"
+- `reopened` action sets state to "open" regardless of issue.state value
+- Other actions respect issue.state from payload
+- Deleted issues marked as "deleted" state, preserving all previous versions
 
 **Issues Fixed:**
 - Corrected Durable Object pattern: use `migrations = migrations` property instead of constructor

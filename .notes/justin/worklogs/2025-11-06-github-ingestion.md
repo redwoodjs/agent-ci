@@ -85,6 +85,43 @@ Implemented the foundational infrastructure for the GitHub ingestor:
 - Used native Web Crypto API (no Node.js Buffer) for HMAC signature verification
 - Implemented constant-time string comparison to prevent timing attacks
 
+**Webhook Signature Verification Details:**
+
+GitHub webhooks include a cryptographic signature in the `X-Hub-Signature-256` header that allows verification that requests actually came from GitHub. This prevents unauthorized webhook deliveries.
+
+How it works:
+1. GitHub generates an HMAC-SHA256 signature using the webhook secret (configured in GitHub's webhook settings) and the raw request body
+2. GitHub sends this signature in the `X-Hub-Signature-256` header with format: `sha256=<hex_string>`
+3. Our endpoint reads the raw request body (using `request.clone().text()` so the handler can still parse it as JSON) and independently computes the expected signature using the same secret stored in `GITHUB_WEBHOOK_SECRET`
+4. If signatures match (using constant-time comparison), request is authenticated; otherwise returns 401 Unauthorized
+
+Why constant-time comparison matters:
+The `constantTimeEqual` function ensures the comparison always takes the same amount of time regardless of where strings differ. This prevents timing attacks where an attacker could potentially infer the correct signature by measuring how long the comparison takes. Regular string comparison (`===`) can leak information through timing because it may return early when it finds the first differing character. Our implementation uses XOR operations (`^`) to compare all characters, then checks if the result is zero, ensuring uniform execution time.
+
+Implementation choices:
+- Used native Web Crypto API (`crypto.subtle`) instead of Node.js Buffer for Cloudflare Workers compatibility
+- Created helper functions `arrayBufferToHex` and `constantTimeEqual` for signature processing
+- Signature verification happens before any request body parsing to ensure security
+
+**Comparison with Cursor Ingestor Authentication:**
+
+The Cursor ingestor currently uses Bearer token authentication (API key in Authorization header), while GitHub uses HMAC-SHA256 signature verification. The GitHub approach is more secure because:
+- The secret never travels over the network (only the signature does)
+- Provides payload integrity verification (can detect tampering)
+- Even if intercepted, requests can't be forged without the secret
+
+However, upgrading Cursor to HMAC signatures is lower priority because:
+- Cursor hooks run locally on trusted user machines (different threat model than external webhooks)
+- If someone has access to a user's environment variables, they already have significant access
+- Network interception risks are lower since requests originate from the user's own machine
+
+The main risks of keeping Bearer token auth for Cursor:
+- Low-Medium: API key could be exposed if HTTPS fails, headers are logged, or through proxy/MITM attacks
+- Low: No payload integrity verification (can't detect tampering)
+- Very low: Local execution mitigates most external threats
+
+This is worth upgrading eventually for defense-in-depth and consistency, but not urgent.
+
 **Route Setup:**
 - Created webhook endpoint at `/ingestors/github/webhook` using the `route()` pattern from rwsdk/router
 - Registered routes and Durable Object in worker.tsx and wrangler.jsonc

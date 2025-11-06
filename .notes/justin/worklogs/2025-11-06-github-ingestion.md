@@ -70,3 +70,29 @@ I'll implement this in phases, starting with the core infrastructure for a singl
 4.  **Phase 4: Expansion**
     -   Extend the system to handle other object types: Comments, PRs, Releases, and Projects, following the same versioning pattern.
     -   Create comprehensive documentation in `README.md` for setting up and using the ingestor.
+
+## 2025-11-06: Phase 1 Implementation - Core Infrastructure
+
+Implemented the foundational infrastructure for the GitHub ingestor:
+
+**Database Layer:**
+- Created `GitHubRepoDurableObject` extending `SqliteDurableObject` with migrations property pattern (matching cursor ingestor)
+- Implemented migrations using `db.schema` API with named migrations (`001_initial_schema`) following the established pattern
+- Created `issues` and `issue_versions` tables to track issue state and version history
+
+**Webhook Security:**
+- Implemented `requireGitHubWebhookSignature` interruptor using GitHub's X-Hub-Signature-256 header
+- Used native Web Crypto API (no Node.js Buffer) for HMAC signature verification
+- Implemented constant-time string comparison to prevent timing attacks
+
+**Route Setup:**
+- Created webhook endpoint at `/ingestors/github/webhook` using the `route()` pattern from rwsdk/router
+- Registered routes and Durable Object in worker.tsx and wrangler.jsonc
+- Added v4 migration for GitHubRepoDurableObject
+
+**Issues Fixed:**
+- Corrected Durable Object pattern: use `migrations = migrations` property instead of constructor
+- Fixed migrations structure: use `db.schema` API with named migrations and `satisfies Migrations`
+- Replaced Node.js Buffer with native Web APIs for hex encoding/decoding
+- Fixed route structure to match cursor ingestor pattern (export routes array, not Router instance)
+- Added proper TypeScript types using `RequestInfo` from rwsdk/worker

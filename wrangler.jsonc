@@ -34,6 +34,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["CursorEventsDurableObject"]
+    },
+    {
+      "tag": "v4",
+      "new_sqlite_classes": ["GitHubRepoDurableObject"]
     }
   ],
   "durable_objects": {
@@ -41,7 +45,8 @@
       { "name": "REALTIME", "class_name": "RealtimeDurableObject" },
       { "name": "DB", "class_name": "Database" },
       { "name": "RAW_DISCORD_DATABASE", "class_name": "RawDiscordDatabase" },
-      { "name": "CURSOR_EVENTS", "class_name": "CursorEventsDurableObject" }
+      { "name": "CURSOR_EVENTS", "class_name": "CursorEventsDurableObject" },
+      { "name": "GITHUB_REPO", "class_name": "GitHubRepoDurableObject" }
     ]
   }
 }

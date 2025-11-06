@@ -10,7 +10,9 @@ import { authRoutes } from "./app/pages/auth/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
 import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
+import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
 import { HomePage } from "./app/pages/HomePage";
+import { passkeyRoutes } from "./app/pages/auth/passkey/routes.mjs";
 
 export type AppContext = {
   user: any;
@@ -40,11 +42,13 @@ const app = defineApp([
 
   prefix("/ingest/discord", discordRoutes),
   prefix("/ingestors/cursor", cursorIngestorRoutes),
+  prefix("/ingestors/github", githubIngestorRoutes),
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";
 export { Database } from "@/db/durableObject";
 export { CursorEventsDurableObject } from "@/app/ingestors/cursor/db/durableObject";
+export { GitHubRepoDurableObject } from "@/app/ingestors/github/db/durableObject";
 
 export default {
   fetch: app.fetch,

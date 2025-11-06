@@ -80,13 +80,17 @@ I'll implement this in phases, starting with the core infrastructure for a singl
     -   Created a utility to convert the GitHub issue JSON payload into a clean Markdown format with YAML front matter.
     -   Implemented the logic to write the Markdown file to R2 and update the DO's database accordingly.
 
-3.  **Phase 3: Expansion**
-    -   Extend the system to handle other object types: Comments, PRs, Releases, and Projects, following the same versioning pattern as issues.
-    -   Create webhook handlers for each object type.
-    -   Create Markdown conversion utilities for each type.
-    -   Add database tables and migrations for version tracking.
+3.  **Phase 3: Expansion (PRs, Comments, Releases)** ✓ COMPLETE
+    -   Extended the system to handle PRs, Comments, and Releases.
+    -   Added webhook handlers and Markdown converters for each type.
+    -   Added database tables and migrations for version tracking.
 
-4.  **Phase 4: Backfill Mechanism**
+4.  **Phase 4: Expansion (Projects)**
+    -   Extend the system to handle Projects and Project Items.
+    -   Add webhook handlers for `project_v2` and `projects_v2_item` events.
+    -   Add database tables and migrations for `projects` and `project_items`.
+
+5.  **Phase 5: Backfill Mechanism**
     -   Create a unified backfill endpoint that can handle all object types (Issues, PRs, Comments, Releases, Projects).
     -   Implement logic to fetch data from the GitHub API for each type.
     -   Compare with existing records in the DO and ingest any missing or updated objects.
@@ -355,7 +359,76 @@ Before implementing support for PRs, Comments, Releases, and Projects, analyzing
 
 Start with Issues (done), PRs, Comments, and Releases. Defer Projects if they add too much complexity. Keep the structure simple - same pattern for all entities. Focus on capturing information and maintaining links, not perfect modeling.
 
-## 2025-11-06: Phase 4 Planning - Backfill Mechanism
+## 2025-11-06: Phase 3 Implementation - Expansion for PRs, Comments, Releases
+
+Implemented the extension of the ingestor to handle Pull Requests, Comments, and Releases, following the same architectural pattern established for Issues.
+
+**Database Schema:**
+- Added new tables with a new migration (`002_add_prs_comments_releases`):
+  - `pull_requests` and `pull_request_versions`
+  - `comments` and `comment_versions` (unified for issue and PR comments, with `review_id` for PR review comments)
+  - `releases` and `release_versions`
+
+**Markdown Converters:**
+- Created `prToMarkdown.ts`, `commentToMarkdown.ts`, and `releaseToMarkdown.ts` utilities to convert JSON payloads to Markdown with YAML front matter.
+
+**Processor Services:**
+- Implemented `pr-processor.ts`, `comment-processor.ts`, and `release-processor.ts` to handle the lifecycle events for each entity, including creating and versioning records in the database and storing artifacts in R2.
+
+**Webhook Handler:**
+- Updated `routes.ts` to recognize and route events for `pull_request`, `issue_comment`, `pull_request_review_comment`, and `release` to their respective processors.
+
+**Type Safety:**
+- Corrected payload type definitions in `routes.ts` to account for scenarios where GitHub provides a partial object (e.g., just the `id` of an issue in a comment payload), ensuring robust parsing.
+
+## 2025-11-06: Phase 4 Planning - GitHub Projects
+
+### Acknowledging the Complexity
+
+The initial decision to defer Projects was based on their unique structure compared to other GitHub entities. The core complexity is that interactions with project items (like moving an issue between columns) do not trigger webhooks on the issue itself. Instead, GitHub uses a separate set of webhooks (`project_v2` and `projects_v2_item`) and a distinct "Project Item" entity that acts as a link between a Project and an Issue/PR.
+
+### A Simplified Approach
+
+We can ingest project data by embracing this structure and applying our existing patterns, without needing to model the entire complexity of project boards (e.g., custom fields, views).
+
+1.  **Track Two New Entities**: We will introduce two new entities to our system:
+    *   **Projects**: The project itself (title, description). This will have `projects` and `project_versions` tables.
+    *   **Project Items**: The link between a project and an issue/PR. This will have `project_items` and `project_item_versions` tables. The `project_items` table will store foreign keys (`project_github_id`, `issue_github_id`) and any relevant metadata, such as the item's status (i.e., its column).
+
+2.  **Handle Project Webhooks**:
+    *   `project_v2.edited`: A change to the project's title or description creates a new version in `project_versions`.
+    *   `projects_v2_item.created`: An issue/PR being added to a project creates a new record in `project_items`.
+    *   `projects_v2_item.edited`: An issue/PR being moved between columns creates a new version in `project_item_versions` with the updated status. The original issue is not touched.
+    *   `projects_v2_item.deleted`: An issue/PR being removed from a project updates the state of the record in `project_items`.
+
+This approach successfully captures the essential relationships and historical changes without being overly complex, aligning with our "best bang for buck" principle.
+
+## Architectural Reconsideration: Entity-based vs. Event-based Ingestion
+
+Before proceeding with the Projects implementation, it's worth pausing to validate our core architectural approach. The question arose: would a simpler, event-streaming model be more effective than the current entity-based versioning model?
+
+### The Two Models
+
+1.  **Event-based Model (The Alternative)**: In this model, we would not attempt to understand the incoming data. We would simply store every raw webhook payload as a timestamped event. The storage would be a flat log of everything that has happened.
+2.  **Entity-based Model (The Current Approach)**: In this model, we parse incoming webhooks to understand the entities they represent (Issues, PRs, Comments). We maintain a record of the current state of each entity and store historical changes as distinct, queryable versions.
+
+### Analysis of Trade-offs
+
+The primary goal is to build an AI-searchable knowledge base. The AI needs a structured, semantic understanding of the data to be effective.
+
+-   **The Backfill Problem**: This is the most significant challenge for the event-based model. The GitHub API provides the *current state* of an entity, not a historical log of the events that modified it. To backfill a repository, we would get the current state of all issues, but we would have no way to get the historical event stream. We could try to create artificial "issue created" events for the backfill, but this would make the data model inconsistent and complex.
+
+-   **Data Structure for the AI**: An AI would struggle to derive a coherent "state of the world" from a flat log of events. It would have to reconstruct the current state of an issue by replaying all historical events every time it needed to understand it. The entity-based model, by contrast, provides this immediately. It presents the data in its semantic form, which is what the AI needs to understand relationships (e.g., this comment belongs to this issue).
+
+-   **Historical Queries**: While an event log is a history in itself, finding the state of an entity at a specific point in time would require replaying events. Our versioned-entity model makes this more direct. If the AI needs to understand how an issue evolved, it can traverse its explicit `issue_versions`.
+
+### Conclusion
+
+After thinking through the options, the current **entity-based model is the correct approach**.
+
+While it requires more upfront work to model the schemas, it solves the critical backfill problem and, most importantly, provides the structured, semantic data model that is essential for the end goal of an AI-powered knowledge base. The event-streaming model, while simpler on the surface, fails to meet these core requirements. This thought process validates that we are on the right track.
+
+## 2025-11-06: Phase 5 Planning - Backfill Mechanism
 
 ### Problem
 

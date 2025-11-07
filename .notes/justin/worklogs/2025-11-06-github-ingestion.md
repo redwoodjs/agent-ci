@@ -643,3 +643,18 @@ Based on the finalized architecture, the plan of action is as follows:
 5.  **Configure Dead-Letter Queue**: Set up the dead-letter queue for the `PROCESSOR_QUEUE`. Implement the handler that catches failed jobs and updates the `GitHubBackfillStateDO` to pause the backfill.
 6.  **Update Configuration**: Add all new DO and Queue bindings to `wrangler.jsonc`.
 7.  **Documentation**: Update the `README.md` with instructions on how to use the backfill feature.
+
+### Testing and State Management Strategy
+
+To ensure the backfill mechanism can be tested effectively and managed in production, the following capabilities will be included:
+
+1.  **State Reset for Clean Runs**:
+    -   The `POST /backfill` endpoint will be designed to always initiate a *clean* backfill.
+    -   When triggered, it will first reset the state in the `GitHubBackfillStateDO` for the given repository, clearing all cursors, statuses, and error messages.
+    -   This provides a simple and predictable way to "do it for real" or start over after a partial test or a completed run. A separate `resume` capability is not included in this plan; a fresh start is the intended behavior for a manual trigger.
+
+2.  **Controlled Test Runs**:
+    -   The backfill endpoint will accept an optional boolean parameter in its JSON payload: `test_run: true`.
+    -   If this flag is present, the backfill process will be limited to a small, predictable slice of work.
+    -   The scheduler will fetch only the *first page* of the *first entity type* (issues) and enqueue those jobs. It will then stop and not proceed to the next page or the next entity type.
+    -   This allows for a quick end-to-end validation of the entire pipeline—from API fetch to queueing to processing and R2 storage—without waiting for a full repository backfill to complete.

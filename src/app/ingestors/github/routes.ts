@@ -468,11 +468,39 @@ async function backfillHandler({ request }: RequestInfo) {
   });
 }
 
+async function pauseBackfillHandler({ request }: RequestInfo) {
+  const body = (await request.json()) as {
+    owner: string;
+    repo: string;
+  };
+  const { owner, repo } = body;
+
+  if (!owner || !repo) {
+    return Response.json({ error: "Missing owner or repo" }, { status: 400 });
+  }
+
+  const repositoryKey = `${owner}/${repo}`;
+
+  await updateBackfillState(repositoryKey, {
+    status: "paused",
+    error_message: "Backfill paused manually",
+  });
+
+  return Response.json({
+    success: true,
+    repository_key: repositoryKey,
+    message: "Backfill paused",
+  });
+}
+
 export const routes = [
   route("/webhook", {
     post: [requireGitHubWebhookSignature, githubWebhookHandler],
   }),
   route("/backfill", {
     post: [requireIngestApiKey, backfillHandler],
+  }),
+  route("/backfill/pause", {
+    post: [requireIngestApiKey, pauseBackfillHandler],
   }),
 ];

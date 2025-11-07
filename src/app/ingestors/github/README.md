@@ -131,3 +131,26 @@ If a processor job fails repeatedly (after 3 retries), it is sent to a dead-lett
 3. Stop the scheduler from enqueuing more work for that repository
 
 To resume after fixing the issue, make another backfill request for the same repository.
+
+### Pausing a Backfill
+
+To manually pause a running backfill:
+
+```bash
+source .dev.vars
+curl -X POST https://your-domain.workers.dev/ingestors/github/backfill/pause \
+  -H "Authorization: Bearer $INGEST_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"owner": "redwoodjs", "repo": "machinen"}'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "repository_key": "redwoodjs/machinen",
+  "message": "Backfill paused"
+}
+```
+
+The scheduler will skip processing jobs for paused backfills. To resume, make another backfill request for the same repository (this will reset the state and start fresh).

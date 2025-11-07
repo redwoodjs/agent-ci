@@ -536,3 +536,37 @@ To keep the implementation simple and fulfill the goal of "collecting it all," I
 This approach allows us to capture all project data without needing to perform complex and potentially slow API lookups to determine the source repository for each project item. While this centralizes project data, it's a pragmatic solution that can be revisited later if more granular, repository-specific project tracking is required. This would likely involve introducing a configuration mechanism to specify which repositories' project events are of interest. For now, we will collect everything.
 
 This also means that for the system to work correctly with projects, the GitHub webhook must be configured at the **organization level**, not the repository level.
+
+## 2025-11-07: Project Item Processing - Status Update
+
+### Issues Resolved
+
+**Content ID Extraction:**
+GitHub sends GraphQL node IDs (e.g., `I_kwDOO_nuS87WfCX7`) for project items instead of simple numeric IDs. Implemented `extractContentId` function that:
+- Prioritizes `content_id` if present in payload
+- Falls back to parsing numeric ID from base64-encoded `content_node_id` using regex
+- Handles edge cases with warning logs
+
+**Foreign Key Constraint:**
+Project items can arrive before their parent project records. Added automatic project creation logic that creates a minimal project record when a `projects_v2_item` event arrives for a non-existent project. This prevents foreign key constraint errors while preserving data integrity.
+
+**TypeScript Type Safety:**
+Fixed type mismatches where `projectItem.id` could be `string | number` but database schema expects `text`. Added explicit `String()` conversions in all database operations to ensure type consistency.
+
+### Current Status
+
+Project item ingestion is working end-to-end:
+- Organization-level webhooks are processed correctly with synthetic repository handling
+- Content IDs are extracted successfully from GraphQL node IDs
+- Project auto-creation prevents foreign key errors
+- Database records are created and versioned correctly
+- Markdown files are stored in R2 with proper versioning
+
+**Test Results:**
+- `projects_v2_item` events processed successfully (202 Accepted)
+- Content ID `7` extracted from node ID `I_kwDOO_nuS87WfCX7`
+- Project `PVT_kwDOAq9qTM4BHbYx` auto-created
+- Project item record created with version tracking
+- Markdown stored at `github-ingest/redwoodjs/_projects/projects/PVT_kwDOAq9qTM4BHbYx/items/issue/7/b0ea2b5b2076b8c1.md`
+
+The GitHub ingestor is now fully operational for all entity types: Issues, PRs, Comments, Releases, Projects, and Project Items.

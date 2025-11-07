@@ -64,11 +64,12 @@ The GitHub ingestor includes a backfill mechanism to ingest historical data from
 
 ### Usage
 
-To start a backfill for a repository, make a POST request to the backfill endpoint:
+To start a backfill for a repository, make a POST request to the backfill endpoint. If you have `INGEST_API_KEY` in your `.dev.vars` file, you can source it and use it in the curl command:
 
 ```bash
+source .dev.vars
 curl -X POST https://your-domain.workers.dev/ingestors/github/backfill \
-  -H "Authorization: Bearer YOUR_INGEST_API_KEY" \
+  -H "Authorization: Bearer $INGEST_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"owner": "octocat", "repo": "Hello-World"}'
 ```
@@ -88,8 +89,9 @@ curl -X POST https://your-domain.workers.dev/ingestors/github/backfill \
 To run a limited test that processes only the first page of issues (up to 100 items), include `"test_run": true`:
 
 ```bash
+source .dev.vars
 curl -X POST https://your-domain.workers.dev/ingestors/github/backfill \
-  -H "Authorization: Bearer YOUR_INGEST_API_KEY" \
+  -H "Authorization: Bearer $INGEST_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"owner": "octocat", "repo": "Hello-World", "test_run": true}'
 ```

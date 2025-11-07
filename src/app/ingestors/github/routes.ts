@@ -425,8 +425,12 @@ async function githubWebhookHandler({ request }: RequestInfo) {
 }
 
 async function backfillHandler({ request }: RequestInfo) {
-  const body = (await request.json()) as { owner: string; repo: string };
-  const { owner, repo } = body;
+  const body = (await request.json()) as {
+    owner: string;
+    repo: string;
+    test_run?: boolean;
+  };
+  const { owner, repo, test_run } = body;
 
   if (!owner || !repo) {
     return Response.json({ error: "Missing owner or repo" }, { status: 400 });
@@ -445,6 +449,7 @@ async function backfillHandler({ request }: RequestInfo) {
     projects_cursor: null,
     error_message: null,
     error_details: null,
+    test_run: test_run ?? false,
   });
 
   await schedulerQueue.send({
@@ -458,7 +463,8 @@ async function backfillHandler({ request }: RequestInfo) {
   return Response.json({
     success: true,
     repository_key: repositoryKey,
-    message: "Backfill job started",
+    message: test_run ? "Test backfill job started" : "Backfill job started",
+    test_run: test_run ?? false,
   });
 }
 

@@ -63,6 +63,8 @@ export async function processSchedulerJob(message: SchedulerJobMessage): Promise
     return;
   }
 
+  const isTestRun = state?.test_run ?? false;
+
   await updateBackfillState(repository_key, { status: "in_progress" });
 
   try {
@@ -108,6 +110,15 @@ export async function processSchedulerJob(message: SchedulerJobMessage): Promise
         entity_data: entity,
         event_type: "backfill",
       });
+    }
+
+    if (isTestRun) {
+      console.log(`[scheduler] Test run complete for ${repository_key} - processed first page of ${entity_type}`);
+      await updateBackfillState(repository_key, {
+        status: "completed",
+        [cursorField]: null,
+      });
+      return;
     }
 
     if (nextPage) {

@@ -23,6 +23,7 @@ export async function getBackfillState(
   projects_cursor: string | null;
   error_message: string | null;
   error_details: string | null;
+  test_run: boolean;
 } | null> {
   const db = createDb<BackfillDatabase>(
     (env as any).GITHUB_BACKFILL_STATE as DurableObjectNamespace<GitHubBackfillStateDO>,
@@ -48,6 +49,7 @@ export async function getBackfillState(
     projects_cursor: state.projects_cursor,
     error_message: state.error_message,
     error_details: state.error_details,
+    test_run: (state as any).test_run === 1,
   };
 }
 
@@ -62,6 +64,7 @@ export async function updateBackfillState(
     projects_cursor?: string | null;
     error_message?: string | null;
     error_details?: string | null;
+    test_run?: boolean;
   }
 ): Promise<void> {
   const db = createDb<BackfillDatabase>(
@@ -77,13 +80,19 @@ export async function updateBackfillState(
     .where("repository_key", "=", repositoryKey)
     .executeTakeFirst();
 
+  const updateValues: any = {
+    ...updates,
+    updated_at: now,
+  };
+
+  if (updates.test_run !== undefined) {
+    updateValues.test_run = updates.test_run ? 1 : 0;
+  }
+
   if (existing) {
     await db
       .updateTable("backfill_state")
-      .set({
-        ...updates,
-        updated_at: now,
-      } as any)
+      .set(updateValues)
       .where("repository_key", "=", repositoryKey)
       .execute();
   } else {
@@ -99,6 +108,7 @@ export async function updateBackfillState(
         projects_cursor: updates.projects_cursor ?? null,
         error_message: updates.error_message ?? null,
         error_details: updates.error_details ?? null,
+        test_run: updates.test_run ? 1 : 0,
         created_at: now,
         updated_at: now,
       } as any)

@@ -24,5 +24,21 @@ export const backfillMigrations = {
       await db.schema.dropTable("backfill_state").execute();
     },
   },
+  "002_add_test_run": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("backfill_state")
+          .addColumn("test_run", "integer", (col) => col.defaultTo(0))
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema
+        .alterTable("backfill_state")
+        .dropColumn("test_run")
+        .execute();
+    },
+  },
 } satisfies Migrations;
 

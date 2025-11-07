@@ -21,6 +21,7 @@ interface GitHubWebhookPayload {
   comment?: GitHubComment;
   release?: GitHubRelease;
   project?: GitHubProject;
+  projects_v2?: GitHubProject;
   projects_v2_item?: GitHubProjectItem;
   repository?: {
     owner: { login: string };
@@ -250,19 +251,21 @@ async function githubWebhookHandler({ request }: RequestInfo) {
     console.log("[github ingest] Received projects_v2 event:", {
       action: payload.action,
       hasProject: !!payload.project,
+      hasProjectsV2: !!payload.projects_v2,
       hasRepository: !!payload.repository,
     });
-    const { action, project, repository, organization } = payload;
+    const { action, project, projects_v2, repository, organization } = payload;
 
+    const projectToUse = project || projects_v2;
     let repoToUse = repository;
     if (!repoToUse && organization) {
       repoToUse = { owner: { login: organization.login }, name: "_projects" };
     }
 
-    if (!project || !repoToUse) {
+    if (!projectToUse || !repoToUse) {
       console.error(
         "[github ingest] Missing project or repository/organization in projects_v2 payload:",
-        { hasProject: !!project, hasRepository: !!repoToUse }
+        { hasProject: !!projectToUse, hasRepository: !!repoToUse }
       );
       return Response.json(
         { error: "Missing project or repository/organization in payload" },
@@ -279,11 +282,11 @@ async function githubWebhookHandler({ request }: RequestInfo) {
     ) {
       try {
         console.log("[github ingest] Processing project event:", {
-          projectId: project.id,
+          projectId: projectToUse.id,
           action,
-          title: project.title,
+          title: projectToUse.title,
         });
-        await processProjectEvent(project, action, repoToUse);
+        await processProjectEvent(projectToUse, action, repoToUse);
         console.log("[github ingest] Project processed successfully");
         return new Response("Project processed", { status: 202 });
       } catch (error) {
@@ -324,6 +327,16 @@ async function githubWebhookHandler({ request }: RequestInfo) {
         { status: 400 }
       );
     }
+
+    console.log("[github ingest] projects_v2_item structure:", {
+      id: projects_v2_item.id,
+      content_id: projects_v2_item.content_id,
+      content_type: projects_v2_item.content_type,
+      project_node_id: projects_v2_item.project_node_id,
+      hasFieldValues: !!projects_v2_item.field_values,
+      fieldValuesCount: projects_v2_item.field_values?.length || 0,
+      keys: Object.keys(projects_v2_item),
+    });
 
     if (!repoToUse) {
       console.error(

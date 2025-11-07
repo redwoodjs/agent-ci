@@ -172,7 +172,7 @@ export async function processProjectItemEvent(
   const existingItem = await db
     .selectFrom("project_items")
     .selectAll()
-    .where("github_id", "=", projectItem.id)
+    .where("github_id", "=", String(projectItem.id))
     .executeTakeFirst();
 
   console.log("[project-item-processor] Existing item check:", {
@@ -201,7 +201,7 @@ export async function processProjectItemEvent(
         latest_version_id: versionResult.id,
         updated_at: now,
       })
-      .where("github_id", "=", projectItem.id)
+      .where("github_id", "=", String(projectItem.id))
       .execute();
     console.log("[project-item-processor] Updated item record");
   } else {
@@ -238,7 +238,7 @@ export async function processProjectItemEvent(
       .set({
         latest_version_id: versionResult.id,
       })
-      .where("github_id", "=", projectItem.id)
+      .where("github_id", "=", String(projectItem.id))
       .execute();
     console.log("[project-item-processor] Updated item with latest_version_id");
   }

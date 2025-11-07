@@ -233,7 +233,9 @@ export async function processSchedulerJob(
   console.log(formatLog("[scheduler] Current backfill state:", state));
 
   if (state?.status === "paused_on_error" || state?.status === "paused") {
-    console.log(`[scheduler] Backfill paused for ${repository_key} (status: ${state.status}), skipping`);
+    console.log(
+      `[scheduler] Backfill paused for ${repository_key} (status: ${state.status}), skipping`
+    );
     return;
   }
 

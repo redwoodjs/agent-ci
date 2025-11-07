@@ -75,9 +75,9 @@ export async function processProcessorJob(
       case "comment": {
         const comment = entity_data as GitHubComment;
         // Extract parent IDs from comment structure
-        const issueId = comment.issue?.id || comment.issue?.number;
-        const pullRequestId =
-          comment.pull_request?.id || comment.pull_request?.number;
+        // Comments from API have issue/pull_request objects with only 'number' field
+        const issueId = comment.issue?.number;
+        const pullRequestId = comment.pull_request?.number;
         const pullRequestReviewId = comment.pull_request_review_id;
         await processCommentEvent(
           comment,

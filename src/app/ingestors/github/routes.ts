@@ -27,6 +27,9 @@ interface GitHubWebhookPayload {
     name: string;
     full_name?: string;
   };
+  organization?: {
+    login: string;
+  };
   [key: string]: unknown;
 }
 
@@ -54,7 +57,15 @@ async function githubWebhookHandler({ request }: RequestInfo) {
     );
   }
 
-  if (!payload.repository) {
+  if (
+    event !== "projects_v2" &&
+    event !== "projects_v2_item" &&
+    !payload.repository
+  ) {
+    console.error(
+      "[github ingest] Missing repository in payload for event:",
+      event
+    );
     return Response.json(
       { error: "Missing repository in payload" },
       { status: 400 }
@@ -241,15 +252,20 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       hasProject: !!payload.project,
       hasRepository: !!payload.repository,
     });
-    const { action, project, repository } = payload;
+    const { action, project, repository, organization } = payload;
 
-    if (!project || !repository) {
+    let repoToUse = repository;
+    if (!repoToUse && organization) {
+      repoToUse = { owner: { login: organization.login }, name: "_projects" };
+    }
+
+    if (!project || !repoToUse) {
       console.error(
-        "[github ingest] Missing project or repository in projects_v2 payload:",
-        { hasProject: !!project, hasRepository: !!repository }
+        "[github ingest] Missing project or repository/organization in projects_v2 payload:",
+        { hasProject: !!project, hasRepository: !!repoToUse }
       );
       return Response.json(
-        { error: "Missing project or repository in payload" },
+        { error: "Missing project or repository/organization in payload" },
         { status: 400 }
       );
     }
@@ -267,7 +283,7 @@ async function githubWebhookHandler({ request }: RequestInfo) {
           action,
           title: project.title,
         });
-        await processProjectEvent(project, action, repository);
+        await processProjectEvent(project, action, repoToUse);
         console.log("[github ingest] Project processed successfully");
         return new Response("Project processed", { status: 202 });
       } catch (error) {
@@ -289,16 +305,36 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       hasProjectItem: !!payload.projects_v2_item,
       hasProject: !!payload.project,
       hasRepository: !!payload.repository,
+      payloadKeys: Object.keys(payload),
     });
-    const { action, projects_v2_item, project, repository } = payload;
+    const { action, projects_v2_item, project, repository, organization } =
+      payload;
 
-    if (!projects_v2_item || !repository) {
+    let repoToUse = repository;
+    if (!repoToUse && organization) {
+      repoToUse = { owner: { login: organization.login }, name: "_projects" };
+    }
+
+    if (!projects_v2_item) {
+      console.error("[github ingest] Missing projects_v2_item in payload:", {
+        hasProjectItem: !!projects_v2_item,
+      });
+      return Response.json(
+        { error: "Missing projects_v2_item in payload" },
+        { status: 400 }
+      );
+    }
+
+    if (!repoToUse) {
       console.error(
-        "[github ingest] Missing projects_v2_item or repository in projects_v2_item payload:",
-        { hasProjectItem: !!projects_v2_item, hasRepository: !!repository }
+        "[github ingest] Missing repository or organization in projects_v2_item payload:",
+        {
+          hasRepository: !!repository,
+          hasOrganization: !!organization,
+        }
       );
       return Response.json(
-        { error: "Missing projects_v2_item or repository in payload" },
+        { error: "Missing repository or organization in payload" },
         { status: 400 }
       );
     }
@@ -338,7 +374,7 @@ async function githubWebhookHandler({ request }: RequestInfo) {
         await processProjectItemEvent(
           projects_v2_item,
           action,
-          repository,
+          repoToUse,
           projectId
         );
         console.log("[github ingest] Project item processed successfully");

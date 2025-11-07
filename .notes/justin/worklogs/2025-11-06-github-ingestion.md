@@ -428,41 +428,6 @@ After thinking through the options, the current **entity-based model is the corr
 
 While it requires more upfront work to model the schemas, it solves the critical backfill problem and, most importantly, provides the structured, semantic data model that is essential for the end goal of an AI-powered knowledge base. The event-streaming model, while simpler on the surface, fails to meet these core requirements. This thought process validates that we are on the right track.
 
-## 2025-11-06: Phase 4 Implementation - GitHub Projects
-
-Implemented support for GitHub Projects and Project Items following the same pattern as other entities.
-
-**Database Schema:**
-- Added migration `003_add_projects` with tables:
-  - `projects` and `project_versions` - tracks project metadata and version history
-  - `project_items` and `project_item_versions` - tracks relationships between projects and issues/PRs, including status changes
-
-**Markdown Converters:**
-- Created `projectToMarkdown.ts` and `projectItemToMarkdown.ts` utilities to convert JSON payloads to Markdown with YAML front matter
-
-**Processor Services:**
-- Implemented `project-processor.ts` and `project-item-processor.ts` to handle lifecycle events for projects and project items
-
-**Webhook Handlers:**
-- Updated `routes.ts` to handle `projects_v2` and `projects_v2_item` events
-
-**Debugging:**
-- Added comprehensive logging throughout the project processing paths to trace where things might be failing
-
-**Issue Discovered - Missing Project Events:**
-
-During testing, discovered that project-related webhooks are not being received:
-- Created a new issue → no `issues.opened` event received (may be timing/webhook config)
-- Edited issue description → `issues.edited` event received ✓
-- Added comment → `issue_comment.created` event received ✓
-- Changed issue status in project (moved between columns) → no `projects_v2_item` events received ✗
-
-The absence of project events suggests one of the following:
-1. The webhook is not subscribed to `projects_v2` and `projects_v2_item` events in GitHub's webhook settings
-2. Projects v2 events may require organization-level webhooks rather than repository-level webhooks (Projects v2 can span multiple repositories)
-
-Next steps: Verify webhook configuration in GitHub settings to ensure `projects_v2` and `projects_v2_item` events are selected. If they're not available at the repository level, we may need to set up an organization-level webhook or use a different approach for project ingestion.
-
 ## 2025-11-06: Phase 5 Planning - Backfill Mechanism
 
 ### Problem
@@ -516,3 +481,58 @@ This design allows for easy, controlled testing on a test deployment.
           }'
     ```
 4.  **Verify**: Check the R2 bucket for the newly created Markdown files. Check the worker logs for output from the queue consumer to confirm processing.
+
+## 2025-11-06: Phase 4 Implementation - GitHub Projects
+
+Implemented support for GitHub Projects and Project Items following the same pattern as other entities.
+
+**Database Schema:**
+- Added migration `003_add_projects` with tables:
+  - `projects` and `project_versions` - tracks project metadata and version history
+  - `project_items` and `project_item_versions` - tracks relationships between projects and issues/PRs, including status changes
+
+**Markdown Converters:**
+- Created `projectToMarkdown.ts` and `projectItemToMarkdown.ts` utilities to convert JSON payloads to Markdown with YAML front matter
+
+**Processor Services:**
+- Implemented `project-processor.ts` and `project-item-processor.ts` to handle lifecycle events for projects and project items
+
+**Webhook Handlers:**
+- Updated `routes.ts` to handle `projects_v2` and `projects_v2_item` events
+
+**Debugging:**
+- Added comprehensive logging throughout the project processing paths to trace where things might be failing
+
+**Issue Discovered - Missing Project Events:**
+
+During testing, discovered that project-related webhooks are not being received:
+- Created a new issue → no `issues.opened` event received (may be timing/webhook config)
+- Edited issue description → `issues.edited` event received ✓
+- Added comment → `issue_comment.created` event received ✓
+- Changed issue status in project (moved between columns) → no `projects_v2_item` events received ✗
+
+The absence of project events suggests one of the following:
+1. The webhook is not subscribed to `projects_v2` and `projects_v2_item` events in GitHub's webhook settings
+2. Projects v2 events may require organization-level webhooks rather than repository-level webhooks (Projects v2 can span multiple repositories)
+
+Next steps: Verify webhook configuration in GitHub settings to ensure `projects_v2` and `projects_v2_item` events are selected. If they're not available at the repository level, we may need to set up an organization-level webhook or use a different approach for project ingestion.
+
+## 2025-11-07: Handling Organization-Level Project Webhooks
+
+### Problem
+
+After further testing, it's clear that GitHub Projects operate at the organization level, even when linked to a specific repository. This introduces a complication: webhooks for project-related events (`projects_v2` and `projects_v2_item`) configured at the organization level do not include the `repository` object in their payload.
+
+This breaks our current ingestion logic, which relies on the repository owner and name to select the correct `GitHubRepoDurableObject` for storing data. We were receiving `400 Bad Request` errors because our webhook handler was rejecting these events due to the missing repository information.
+
+### Solution
+
+To keep the implementation simple and fulfill the goal of "collecting it all," I will implement a strategy to handle these organization-level events gracefully.
+
+1.  **Synthetic Repository for Org-Level Projects**: For `projects_v2` and `projects_v2_item` events that are missing a `repository` object but contain an `organization` object, I will create a synthetic `repository` object in the webhook handler.
+2.  **Specialized Durable Object**: This synthetic object will use the organization's login as the `owner` and a special, constant name (`_projects`) as the `repo`.
+3.  **Centralized Project Storage**: This change will cause all project-related data for an entire organization to be funneled into a single Durable Object instance, keyed as `<organization_login>/_projects`.
+
+This approach allows us to capture all project data without needing to perform complex and potentially slow API lookups to determine the source repository for each project item. While this centralizes project data, it's a pragmatic solution that can be revisited later if more granular, repository-specific project tracking is required. This would likely involve introducing a configuration mechanism to specify which repositories' project events are of interest. For now, we will collect everything.
+
+This also means that for the system to work correctly with projects, the GitHub webhook must be configured at the **organization level**, not the repository level.

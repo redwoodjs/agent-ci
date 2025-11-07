@@ -428,6 +428,41 @@ After thinking through the options, the current **entity-based model is the corr
 
 While it requires more upfront work to model the schemas, it solves the critical backfill problem and, most importantly, provides the structured, semantic data model that is essential for the end goal of an AI-powered knowledge base. The event-streaming model, while simpler on the surface, fails to meet these core requirements. This thought process validates that we are on the right track.
 
+## 2025-11-06: Phase 4 Implementation - GitHub Projects
+
+Implemented support for GitHub Projects and Project Items following the same pattern as other entities.
+
+**Database Schema:**
+- Added migration `003_add_projects` with tables:
+  - `projects` and `project_versions` - tracks project metadata and version history
+  - `project_items` and `project_item_versions` - tracks relationships between projects and issues/PRs, including status changes
+
+**Markdown Converters:**
+- Created `projectToMarkdown.ts` and `projectItemToMarkdown.ts` utilities to convert JSON payloads to Markdown with YAML front matter
+
+**Processor Services:**
+- Implemented `project-processor.ts` and `project-item-processor.ts` to handle lifecycle events for projects and project items
+
+**Webhook Handlers:**
+- Updated `routes.ts` to handle `projects_v2` and `projects_v2_item` events
+
+**Debugging:**
+- Added comprehensive logging throughout the project processing paths to trace where things might be failing
+
+**Issue Discovered - Missing Project Events:**
+
+During testing, discovered that project-related webhooks are not being received:
+- Created a new issue → no `issues.opened` event received (may be timing/webhook config)
+- Edited issue description → `issues.edited` event received ✓
+- Added comment → `issue_comment.created` event received ✓
+- Changed issue status in project (moved between columns) → no `projects_v2_item` events received ✗
+
+The absence of project events suggests one of the following:
+1. The webhook is not subscribed to `projects_v2` and `projects_v2_item` events in GitHub's webhook settings
+2. Projects v2 events may require organization-level webhooks rather than repository-level webhooks (Projects v2 can span multiple repositories)
+
+Next steps: Verify webhook configuration in GitHub settings to ensure `projects_v2` and `projects_v2_item` events are selected. If they're not available at the repository level, we may need to set up an organization-level webhook or use a different approach for project ingestion.
+
 ## 2025-11-06: Phase 5 Planning - Backfill Mechanism
 
 ### Problem

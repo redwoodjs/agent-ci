@@ -23,7 +23,7 @@ wrangler secret put INGEST_API_KEY
 
 ### 2. Configure GitHub Webhook
 
-- Go to your repository settings → Webhooks
+- Go to your organization settings → Webhooks
 - Create or edit a webhook
 - Set the webhook URL to: `https://your-domain.workers.dev/ingestors/github/webhook`
 - Set the content type to: `application/json`

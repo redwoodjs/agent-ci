@@ -46,8 +46,9 @@ The GitHub ingestor includes a backfill mechanism to ingest historical data from
    ```
 
    The token needs the following permissions:
-   - `repo` (for private repositories)
-   - `read:org` (for organization projects)
+   - `repo` (for accessing repository data: issues, pull requests, comments, releases)
+   - `read:org` (for accessing organization-level data)
+   - `read:project` (for accessing Projects v2 data via GraphQL API)
 
 2. **Create Queues**: The backfill system uses Cloudflare Queues. These must be created manually before deployment:
 

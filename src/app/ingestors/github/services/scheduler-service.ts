@@ -37,12 +37,12 @@ async function fetchGitHubProjectsGraphQL(
           nodes {
             id
             title
-            body
-            state
+            shortDescription
+            public
+            closed
             createdAt
             updatedAt
             number
-            shortDescription
           }
         }
       }
@@ -128,8 +128,8 @@ async function fetchGitHubProjectsGraphQL(
   const transformedProjects = projects.map((project: any) => ({
     id: project.id,
     title: project.title,
-    body: project.body || project.shortDescription || null,
-    state: project.state?.toLowerCase() === "closed" ? "closed" : "open",
+    body: project.shortDescription || null,
+    state: project.closed === true ? "closed" : "open",
     created_at: project.createdAt,
     updated_at: project.updatedAt,
     owner: {

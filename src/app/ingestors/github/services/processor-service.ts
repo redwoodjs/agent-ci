@@ -73,11 +73,53 @@ export async function processProcessorJob(
         break;
       }
       case "comment": {
-        const comment = entity_data as GitHubComment;
+        const comment = entity_data as GitHubComment & {
+          issue_url?: string;
+          pull_request_url?: string;
+        };
         // Extract parent IDs from comment structure
-        // Comments from API have issue/pull_request objects with only 'number' field
-        const issueId = comment.issue?.number;
-        const pullRequestId = comment.pull_request?.number;
+        // Comments from webhooks have issue/pull_request objects with 'number' field
+        // Comments from API have issue_url/pull_request_url fields instead
+        let issueId = comment.issue?.number;
+        let pullRequestId = comment.pull_request?.number;
+
+        // If not found in nested objects, extract from URL fields (backfill scenario)
+        if (!issueId && !pullRequestId) {
+          if (comment.issue_url) {
+            // Extract issue number from URL like: https://api.github.com/repos/owner/repo/issues/58
+            const issueMatch = comment.issue_url.match(/\/issues\/(\d+)$/);
+            if (issueMatch) {
+              issueId = parseInt(issueMatch[1], 10);
+              console.log(
+                `[processor] Extracted issue ID ${issueId} from issue_url: ${comment.issue_url}`
+              );
+            }
+          }
+          if (comment.pull_request_url) {
+            // Extract PR number from URL like: https://api.github.com/repos/owner/repo/pulls/58
+            const prMatch = comment.pull_request_url.match(/\/pulls\/(\d+)$/);
+            if (prMatch) {
+              pullRequestId = parseInt(prMatch[1], 10);
+              console.log(
+                `[processor] Extracted PR ID ${pullRequestId} from pull_request_url: ${comment.pull_request_url}`
+              );
+            }
+          }
+
+          if (!issueId && !pullRequestId) {
+            console.error(
+              `[processor] Could not extract parent ID from comment:`,
+              {
+                commentId: comment.id,
+                hasIssueUrl: !!comment.issue_url,
+                hasPullRequestUrl: !!comment.pull_request_url,
+                issueUrl: comment.issue_url,
+                pullRequestUrl: comment.pull_request_url,
+              }
+            );
+          }
+        }
+
         const pullRequestReviewId = comment.pull_request_review_id;
         await processCommentEvent(
           comment,

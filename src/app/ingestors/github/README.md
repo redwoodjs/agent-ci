@@ -49,16 +49,18 @@ The GitHub ingestor includes a backfill mechanism to ingest historical data from
    - `repo` (for private repositories)
    - `read:org` (for organization projects)
 
-2. **Create Queues**: The backfill system uses Cloudflare Queues. These are automatically created when you deploy, but you can verify they exist:
+2. **Create Queues**: The backfill system uses Cloudflare Queues. These must be created manually before deployment:
 
+   ```bash
+   npx wrangler queues create github-scheduler-queue
+   npx wrangler queues create github-processor-queue
+   npx wrangler queues create github-processor-queue-dlq
+   ```
+
+   You can verify they exist:
    ```bash
    wrangler queues list
    ```
-
-   You should see:
-   - `github-scheduler-queue`
-   - `github-processor-queue`
-   - `github-processor-queue-dlq`
 
 ### Usage
 
@@ -76,9 +78,23 @@ curl -X POST https://your-domain.workers.dev/ingestors/github/backfill \
 {
   "success": true,
   "repository_key": "octocat/Hello-World",
-  "message": "Backfill job started"
+  "message": "Backfill job started",
+  "test_run": false
 }
 ```
+
+**Test Run:**
+
+To run a limited test that processes only the first page of issues (up to 100 items), include `"test_run": true`:
+
+```bash
+curl -X POST https://your-domain.workers.dev/ingestors/github/backfill \
+  -H "Authorization: Bearer YOUR_INGEST_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"owner": "octocat", "repo": "Hello-World", "test_run": true}'
+```
+
+This is useful for validating the pipeline end-to-end without waiting for a full repository backfill to complete. The test run will process only the first page of the first entity type (issues) and then stop, marking the backfill as `completed`.
 
 ### How It Works
 

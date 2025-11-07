@@ -45,14 +45,25 @@ export function releaseToMarkdown(
   release: GitHubRelease,
   metadata: ReleaseMetadata
 ): string {
-  const frontMatter = [
+  const frontMatterLines = [
     `github_id: ${metadata.github_id}`,
     `tag_name: ${escapeYamlValue(metadata.tag_name)}`,
+    `name: ${escapeYamlValue(release.name || metadata.tag_name)}`,
     `state: ${escapeYamlValue(metadata.state)}`,
+    `author: ${escapeYamlValue(release.author.login)}`,
     `created_at: ${escapeYamlValue(metadata.created_at)}`,
     `updated_at: ${escapeYamlValue(metadata.updated_at)}`,
     `version_hash: ${escapeYamlValue(metadata.version_hash)}`,
-  ].join("\n");
+  ];
+
+  if (release.assets && release.assets.length > 0) {
+    const assetsList = release.assets
+      .map((asset) => escapeYamlValue(asset.name))
+      .join(", ");
+    frontMatterLines.push(`assets: [${assetsList}]`);
+  }
+
+  const frontMatter = frontMatterLines.join("\n");
 
   const assets =
     release.assets && release.assets.length > 0
@@ -73,12 +84,7 @@ ${frontMatter}
 
 # ${name}
 
-**Author:** @${release.author.login}
-${assets ? `\n**Assets:**\n${assets}\n` : ""}
-
----
-
-${body}
+${assets ? `**Assets:**\n${assets}\n\n` : ""}${body}
 `;
 }
 

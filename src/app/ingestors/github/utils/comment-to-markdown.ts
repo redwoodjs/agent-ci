@@ -47,24 +47,31 @@ export function commentToMarkdown(
   comment: GitHubComment,
   metadata: CommentMetadata
 ): string {
-  const frontMatter = [
+  const frontMatterLines = [
     `github_id: ${metadata.github_id}`,
-    metadata.issue_id ? `issue_id: ${metadata.issue_id}` : null,
-    metadata.pull_request_id ? `pull_request_id: ${metadata.pull_request_id}` : null,
-    metadata.review_id ? `review_id: ${metadata.review_id}` : null,
+    `author: ${escapeYamlValue(comment.user.login)}`,
+  ];
+
+  if (metadata.issue_id) {
+    frontMatterLines.push(`issue_id: ${metadata.issue_id}`);
+  }
+  if (metadata.pull_request_id) {
+    frontMatterLines.push(`pull_request_id: ${metadata.pull_request_id}`);
+  }
+  if (metadata.review_id) {
+    frontMatterLines.push(`review_id: ${metadata.review_id}`);
+  }
+
+  frontMatterLines.push(
     `created_at: ${escapeYamlValue(metadata.created_at)}`,
     `updated_at: ${escapeYamlValue(metadata.updated_at)}`,
-    `version_hash: ${escapeYamlValue(metadata.version_hash)}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+    `version_hash: ${escapeYamlValue(metadata.version_hash)}`
+  );
+
+  const frontMatter = frontMatterLines.join("\n");
 
   return `---
 ${frontMatter}
----
-
-**Author:** @${comment.user.login}
-
 ---
 
 ${comment.body}

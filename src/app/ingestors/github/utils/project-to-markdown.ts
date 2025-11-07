@@ -38,14 +38,24 @@ export function projectToMarkdown(
   project: GitHubProject,
   metadata: ProjectMetadata
 ): string {
-  const frontMatter = [
+  const frontMatterLines = [
     `github_id: ${escapeYamlValue(metadata.github_id)}`,
+  ];
+
+  if (project.number) {
+    frontMatterLines.push(`number: ${project.number}`);
+  }
+
+  frontMatterLines.push(
     `state: ${escapeYamlValue(metadata.state)}`,
+    `owner: ${escapeYamlValue(project.owner.login)}`,
+    `owner_type: ${escapeYamlValue(project.owner.type)}`,
     `created_at: ${escapeYamlValue(metadata.created_at)}`,
     `updated_at: ${escapeYamlValue(metadata.updated_at)}`,
-    `version_hash: ${escapeYamlValue(metadata.version_hash)}`,
-  ].join("\n");
+    `version_hash: ${escapeYamlValue(metadata.version_hash)}`
+  );
 
+  const frontMatter = frontMatterLines.join("\n");
   const body = project.body || "_No description provided._";
 
   return `---
@@ -53,10 +63,6 @@ ${frontMatter}
 ---
 
 # ${project.title}
-
-**Owner:** @${project.owner.login} (${project.owner.type})
-
----
 
 ${body}
 `;

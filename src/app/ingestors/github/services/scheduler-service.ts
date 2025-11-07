@@ -21,10 +21,18 @@ async function fetchGitHubPage<T>(
 ): Promise<{ data: T[]; nextPage?: string }> {
   const token = (env as any).GITHUB_TOKEN as string | undefined;
   if (!token) {
+    console.error("[scheduler] GITHUB_TOKEN is not set");
     throw new Error("GITHUB_TOKEN is not set");
   }
 
   const fullUrl = page ? `${url}?per_page=100&page=${page}` : `${url}?per_page=100`;
+  console.log("[scheduler] Fetching GitHub API:", {
+    url: fullUrl,
+    hasToken: !!token,
+    tokenLength: token.length,
+    tokenPrefix: token.substring(0, 4),
+  });
+
   const response = await fetch(fullUrl, {
     headers: {
       Authorization: `token ${token}`,
@@ -32,7 +40,20 @@ async function fetchGitHubPage<T>(
     },
   });
 
+  console.log("[scheduler] GitHub API response:", {
+    status: response.status,
+    statusText: response.statusText,
+    ok: response.ok,
+    headers: Object.fromEntries(response.headers.entries()),
+  });
+
   if (!response.ok) {
+    const errorText = await response.text();
+    console.error("[scheduler] GitHub API error response:", {
+      status: response.status,
+      statusText: response.statusText,
+      body: errorText,
+    });
     throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
   }
 
@@ -57,13 +78,24 @@ async function fetchGitHubPage<T>(
 export async function processSchedulerJob(message: SchedulerJobMessage): Promise<void> {
   const { repository_key, owner, repo, entity_type, cursor } = message;
 
+  console.log("[scheduler] Processing scheduler job:", {
+    repository_key,
+    owner,
+    repo,
+    entity_type,
+    cursor,
+  });
+
   const state = await getBackfillState(repository_key);
+  console.log("[scheduler] Current backfill state:", state);
+
   if (state?.status === "paused_on_error") {
     console.log(`[scheduler] Backfill paused for ${repository_key}, skipping`);
     return;
   }
 
   const isTestRun = state?.test_run ?? false;
+  console.log("[scheduler] Test run mode:", isTestRun);
 
   await updateBackfillState(repository_key, { status: "in_progress" });
 
@@ -98,7 +130,19 @@ export async function processSchedulerJob(message: SchedulerJobMessage): Promise
 
     const { data, nextPage } = await fetchGitHubPage(url, cursor);
 
+    console.log("[scheduler] Fetched data:", {
+      entityType: entity_type,
+      dataCount: data.length,
+      hasNextPage: !!nextPage,
+      nextPage,
+    });
+
     const processorQueue = (env as any).PROCESSOR_QUEUE as Queue;
+
+    console.log("[scheduler] Enqueueing processor jobs:", {
+      count: data.length,
+      entityType: entity_type,
+    });
 
     for (const entity of data) {
       await processorQueue.send({
@@ -111,6 +155,8 @@ export async function processSchedulerJob(message: SchedulerJobMessage): Promise
         event_type: "backfill",
       });
     }
+
+    console.log("[scheduler] Enqueued all processor jobs");
 
     if (isTestRun) {
       console.log(`[scheduler] Test run complete for ${repository_key} - processed first page of ${entity_type}`);

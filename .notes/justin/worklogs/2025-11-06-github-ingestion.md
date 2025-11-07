@@ -658,3 +658,84 @@ To ensure the backfill mechanism can be tested effectively and managed in produc
     -   If this flag is present, the backfill process will be limited to a small, predictable slice of work.
     -   The scheduler will fetch only the *first page* of the *first entity type* (issues) and enqueue those jobs. It will then stop and not proceed to the next page or the next entity type.
     -   This allows for a quick end-to-end validation of the entire pipeline—from API fetch to queueing to processing and R2 storage—without waiting for a full repository backfill to complete.
+
+## 2025-11-07: Post-Backfill Review and Architectural Pivot
+
+### Summary of Findings
+
+After the first complete backfill and a review of the synchronized R2 data, several issues became apparent. These range from minor structural and naming inconsistencies to a significant architectural flaw in our versioning strategy. The current implementation, while correctly capturing events, results in fragmented, incomplete, and difficult-to-use data artifacts. A pivot is required to move from an event-centric versioning model to an entity-centric one that maintains a complete, up-to-date record of each object while still preserving its history.
+
+### Analysis of Issues
+
+#### 1. Structural & Naming Issues
+
+*   **Directory Naming**: The top-level directory is named `github-ingest/` instead of the cleaner `github/`. This is a simple string artifact in the R2 key generation logic.
+*   **Project Storage Confusion (`_projects` vs. repo-specific)**:
+    *   **Cause**: We are correctly routing organization-level webhook events to a synthetic `redwoodjs/_projects` directory. However, the backfill process, when triggered for the `redwoodjs/machinen` repository, fetches *all* organization-level projects and incorrectly associates them with `machinen`, creating the `machinen/projects` directory.
+    *   **Impact**: Project data is scattered and incorrectly attributed to a specific repository.
+*   **Cryptic Project IDs**: Project directories are named with their GraphQL Node ID (e.g., `PVT_kwDOAq9qTM4BHbYx`). This is the unique identifier returned by the API, but it is not human-readable. The project `number` would be a more intuitive identifier.
+*   **Generic "Project Item" Title**: The Markdown for project items has a static title, `# Project Item`, which lacks context. It should describe the item it represents (e.g., the title of the linked issue).
+
+#### 2. Data Association Bug: The `issues/0/comments/` Problem
+
+*   **Cause**: When processing backfilled comments, the logic fails to correctly extract the parent issue or pull request number from the API payload. It appears the payload structure for comments fetched via the REST API list endpoint differs from the webhook payload structure, causing our extractor to find `undefined`, which is then coerced into `0`.
+*   **Impact**: A large number of comments are orphaned in a common `.../issues/0/comments` or `.../pull-requests/0/comments` directory, losing their relationship to the parent entity.
+
+#### 3. Fundamental Flaw in Versioning: Data Fragmentation
+
+*   **Cause**: The current strategy creates a new, full Markdown file for *every* event. However, webhook payloads are often partial. An event for a label change on a pull request does not contain the PR's body. Our markdown converter takes this partial data and generates an incomplete file, resulting in many "versions" that lack essential content like a title or description.
+*   **Impact**: It is impossible to reliably find the "latest" complete state of an entity. The data is fragmented across dozens of partial files, making it practically unusable for an AI that needs a coherent document. The weird formatting you noted (e.g., duplicated author names) is also a symptom of this, as the markdown converter tries to build a full document from partial data.
+
+### Proposed Architectural Changes: The "Latest State" Model
+
+To fix these issues, I propose a fundamental shift in our strategy. The webhook or backfill event should not be the *source of content*, but merely a *trigger* to fetch the latest, complete state of the entity.
+
+1.  **Introduce `latest.md`**:
+    *   For each entity (issue, PR, etc.), we will maintain a single, canonical `latest.md` file (e.g., `github/redwoodjs/machinen/issues/57/latest.md`).
+    *   When an event arrives (e.g., `issues.edited`), we will ignore the partial payload and instead make a direct API call to GitHub to fetch the full, current state of that issue.
+    *   This complete and up-to-date data will be used to generate and overwrite the `latest.md` file.
+    *   **Outcome**: `latest.md` will always be a complete, coherent, and current representation of the entity.
+
+2.  **Move to `history/` for Diffs**:
+    *   The concept of versioning is still valuable, but we will no longer store full, fragmented files.
+    *   Instead, for each entity, we will create a `history/` subdirectory (e.g., `.../issues/57/history/`).
+    *   When an update occurs, we will compare the newly fetched full state against the last known state.
+    *   We will generate a "diff" of the changes (e.g., a JSON object showing what fields were modified) and store this diff as a timestamped file in the `history/` directory (e.g., `history/2025-11-07T15-30-00Z.json`).
+    *   **Outcome**: The history is preserved in a lightweight, machine-readable format without cluttering the main directory with incomplete files.
+
+3.  **Database Schema Simplification**:
+    *   The database will no longer need to track a complex chain of versions. The main entity table (e.g., `issues`) can be simplified to store metadata and perhaps a content hash of the `latest.md` to easily detect if an update is needed. The `issue_versions` table can be repurposed or redesigned to reference the diff files in the `history/` directory.
+
+### Plan of Action
+
+I will pause all other work and focus on implementing this architectural pivot. I will stop after outlining the plan and wait for your approval before making any code changes.
+
+**Phase 1: Analysis and Planning (This Document)**
+1.  **Acknowledge Issues**: Parse and understand all reported problems.
+2.  **Identify Root Causes**: Investigate the codebase to find the source of each bug and design flaw.
+3.  **Propose New Architecture**: Design the `latest.md` + `history/` model.
+4.  **Create Action Plan**: Formulate a step-by-step plan for implementation.
+
+**Phase 2: Implementation**
+
+1.  **Codebase Cleanup & Bug Fixes**:
+    *   **R2 Path**: In all `getR2Key` utilities, change the base path from `github-ingest` to `github`.
+    *   **Comment Processor**: Fix the logic in the backfill processor to correctly parse the parent `issue.number` or `pull_request.number` from the comment API payload.
+    *   **Project Backfill**: Modify the `scheduler-service.ts` to route project backfilling to the `_projects` synthetic repository, ensuring data is stored centrally.
+    *   **Project Naming**: Update project R2 key generation to use the project `number` instead of the GraphQL `id`.
+    *   **Project Item Markdown**: Enhance `projectItemToMarkdown` to fetch and include the title of the linked issue or PR, providing more context than just "Project Item".
+
+2.  **Architectural Refactoring (`latest.md` + `history/`)**:
+    *   **Modify Processors**: Overhaul all `process...` functions (`issue-processor`, `pr-processor`, etc.).
+        *   On receiving an event, add a step to call the GitHub API to fetch the full entity data.
+        *   Update R2 logic to write to a `.../{id}/latest.md` file.
+    *   **Implement Diffing**:
+        *   In each processor, after fetching the new state, compare it to the previously stored state (this may require reading the old `latest.md` or storing a content hash/previous state in the DO).
+        *   Generate a summary of changes (a diff).
+        *   Update R2 logic to write the diff to a `.../{id}/history/{timestamp}.json` file.
+    *   **Update Database**: Adjust the SQLite schemas to support the new model (e.g., removing the `versions` tables or repurposing them for diffs).
+
+**Phase 3: Validation**
+1.  **Full Re-Backfill**: After deployment, we will need to trigger a fresh backfill for the `redwoodjs/machinen` repository.
+2.  **Data Deletion**: The old, fragmented data in the `github-ingest` directory will need to be manually deleted from the R2 bucket.
+3.  **Verification**: Sync the new `github` directory from R2 locally and verify that the structure is correct, the `latest.md` files are complete, and the `history/` diffs are being generated as expected.

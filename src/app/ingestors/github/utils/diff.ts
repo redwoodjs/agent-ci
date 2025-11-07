@@ -1,5 +1,6 @@
 export interface EntityDiff {
   timestamp: string;
+  timestampForFilename: string;
   changes: Record<string, { from: unknown; to: unknown }>;
 }
 
@@ -29,8 +30,13 @@ export function generateDiff<T extends Record<string, unknown> | { [key: string]
     return null;
   }
 
+  const now = new Date();
+  const isoString = now.toISOString();
+  const timestampForFilename = isoString.replace(/[:.]/g, "-");
+  
   return {
-    timestamp: new Date().toISOString(),
+    timestamp: isoString,
+    timestampForFilename,
     changes,
   };
 }

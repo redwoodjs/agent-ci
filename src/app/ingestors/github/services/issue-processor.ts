@@ -32,10 +32,9 @@ function getHistoryR2Key(
   repoOwner: string,
   repoName: string,
   issueNumber: number,
-  timestamp: string
+  timestampForFilename: string
 ): string {
-  const timestampStr = timestamp.replace(/[:.]/g, "-");
-  return `github/${repoOwner}/${repoName}/issues/${issueNumber}/history/${timestampStr}.json`;
+  return `github/${repoOwner}/${repoName}/issues/${issueNumber}/history/${timestampForFilename}.json`;
 }
 
 async function parseIssueFromMarkdown(
@@ -189,7 +188,7 @@ export async function processIssueEvent(
       repoOwner,
       repoName,
       issueNumber,
-      diff.timestamp
+      diff.timestampForFilename
     );
     await env.MACHINEN_BUCKET.put(historyR2Key, JSON.stringify(diff, null, 2));
   }

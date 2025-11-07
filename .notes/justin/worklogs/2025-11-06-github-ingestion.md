@@ -735,7 +735,32 @@ I will pause all other work and focus on implementing this architectural pivot. 
         *   Update R2 logic to write the diff to a `.../{id}/history/{timestamp}.json` file.
     *   **Update Database**: Adjust the SQLite schemas to support the new model (e.g., removing the `versions` tables or repurposing them for diffs).
 
+**Phase 2: Implementation - COMPLETED**
+
+1.  **Codebase Cleanup & Bug Fixes**:
+    *   **R2 Path**: Changed all `getR2Key` functions from `github-ingest` to `github` base path.
+    *   **Comment Processor**: Fixed to use passed `issueId`/`pullRequestId` parameters instead of extracting from comment object.
+    *   **Project Backfill**: Modified `scheduler-service.ts` to route project backfilling to the `_projects` synthetic repository.
+    *   **Project Naming**: Updated project R2 key generation to use project `number` instead of GraphQL `id` (falls back to `id` if `number` unavailable).
+    *   **Project Item Markdown**: Deferred - can be enhanced later to fetch linked issue/PR titles.
+
+2.  **Architectural Refactoring (`latest.md` + `history/`)**:
+    *   **Created Utilities**:
+        *   `utils/github-api.ts`: Added `fetchGitHubEntity` for REST API calls and `fetchGitHubProject` for GraphQL project fetching.
+        *   `utils/diff.ts`: Added `generateDiff` function to compare old vs new entity state and generate JSON diffs.
+    *   **Refactored All Processors**:
+        *   `issue-processor.ts`: Now fetches full issue from GitHub API, writes to `latest.md`, generates diffs to `history/`.
+        *   `pr-processor.ts`: Same pattern - fetches full PR, writes `latest.md`, diffs to `history/`.
+        *   `comment-processor.ts`: Fetches full comment, writes `latest.md`, diffs to `history/`.
+        *   `release-processor.ts`: Fetches full release, writes `latest.md`, diffs to `history/`.
+        *   `project-processor.ts`: Fetches full project via GraphQL, writes `latest.md`, diffs to `history/`.
+        *   `project-item-processor.ts`: Uses webhook payload directly (no API endpoint), writes `latest.md`, diffs to `history/`.
+    *   **R2 Structure Changes**:
+        *   Changed from: `github/{owner}/{repo}/issues/{number}/{hash}.md`
+        *   Changed to: `github/{owner}/{repo}/issues/{number}/latest.md` and `github/{owner}/{repo}/issues/{number}/history/{timestamp}.json`
+    *   **Database**: The existing `_versions` tables are no longer used by processors, but remain in the schema. They can be cleaned up in a future migration if desired.
+
 **Phase 3: Validation**
-1.  **Full Re-Backfill**: After deployment, we will need to trigger a fresh backfill for the `redwoodjs/machinen` repository.
+1.  **Full Re-Backfill**: After deployment, trigger a fresh backfill for the `redwoodjs/machinen` repository.
 2.  **Data Deletion**: The old, fragmented data in the `github-ingest` directory will need to be manually deleted from the R2 bucket.
 3.  **Verification**: Sync the new `github` directory from R2 locally and verify that the structure is correct, the `latest.md` files are complete, and the `history/` diffs are being generated as expected.

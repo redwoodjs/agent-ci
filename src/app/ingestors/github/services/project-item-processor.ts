@@ -6,6 +6,7 @@ import {
   projectItemToMarkdown,
   type GitHubProjectItem,
 } from "../utils/project-item-to-markdown";
+import { generateDiff } from "../utils/diff";
 
 type GitHubDatabase = Database<typeof migrations>;
 
@@ -20,23 +21,27 @@ function getRepositoryKey(repoOwner: string, repoName: string): string {
   return `${repoOwner}/${repoName}`;
 }
 
-async function generateVersionHash(
-  projectItem: GitHubProjectItem
-): Promise<string> {
-  const fieldValuesStr =
-    projectItem.field_values?.map((fv) => `${fv.name}:${fv.value}`).join(",") ||
-    "";
-  const content = `${projectItem.id}-${projectItem.updated_at}-${fieldValuesStr}`;
-  const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest(
-    "SHA-256",
-    encoder.encode(content)
-  );
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")
-    .substring(0, 16);
+function getLatestR2Key(
+  repoOwner: string,
+  repoName: string,
+  projectId: string,
+  contentType: string,
+  contentId: number | string
+): string {
+  const contentTypePath = contentType.toLowerCase().replace(" ", "-");
+  return `github/${repoOwner}/${repoName}/projects/${projectId}/items/${contentTypePath}/${contentId}/latest.md`;
+}
+
+function getHistoryR2Key(
+  repoOwner: string,
+  repoName: string,
+  projectId: string,
+  contentType: string,
+  contentId: number | string,
+  timestampForFilename: string
+): string {
+  const contentTypePath = contentType.toLowerCase().replace(" ", "-");
+  return `github/${repoOwner}/${repoName}/projects/${projectId}/items/${contentTypePath}/${contentId}/history/${timestampForFilename}.json`;
 }
 
 function extractContentId(projectItem: GitHubProjectItem): number {
@@ -86,16 +91,67 @@ function extractContentId(projectItem: GitHubProjectItem): number {
   );
 }
 
-function getR2Key(
-  repoOwner: string,
-  repoName: string,
-  projectId: string,
-  contentType: string,
-  contentId: number | string,
-  versionHash: string
-): string {
-  const contentTypePath = contentType.toLowerCase().replace(" ", "-");
-  return `github/${repoOwner}/${repoName}/projects/${projectId}/items/${contentTypePath}/${contentId}/${versionHash}.md`;
+async function parseProjectItemFromMarkdown(
+  markdown: string
+): Promise<GitHubProjectItem | null> {
+  try {
+    const frontMatterMatch = markdown.match(/^---\n([\s\S]*?)\n---/);
+    if (!frontMatterMatch) {
+      return null;
+    }
+
+    const frontMatter = frontMatterMatch[1];
+    const lines = frontMatter.split("\n");
+    const metadata: Record<string, string> = {};
+
+    for (const line of lines) {
+      const match = line.match(/^(\w+):\s*(.+)$/);
+      if (match) {
+        metadata[match[1]] = match[2].replace(/^["']|["']$/g, "");
+      }
+    }
+
+    const fieldsMatch = markdown.match(/\*\*Fields:\*\*\n([\s\S]*?)(?:\n\n|$)/);
+    const fieldValues: Array<{
+      field_node_id: string;
+      name: string;
+      value: string | number | null;
+    }> = [];
+    if (fieldsMatch) {
+      const fieldLines = fieldsMatch[1].split("\n");
+      for (const line of fieldLines) {
+        const fieldMatch = line.match(/^- \*\*(\w+)\*\*:\s*(.+)$/);
+        if (fieldMatch) {
+          const value = fieldMatch[2] === "null" ? null : fieldMatch[2];
+          fieldValues.push({
+            field_node_id: "",
+            name: fieldMatch[1],
+            value: value as string | number | null,
+          });
+        }
+      }
+    }
+
+    return {
+      id: metadata.github_id || "",
+      content_id: metadata.content_id
+        ? parseInt(metadata.content_id, 10)
+        : undefined,
+      content_type:
+        (metadata.content_type as "Issue" | "PullRequest" | "DraftIssue") ||
+        "Issue",
+      project_node_id: metadata.project_github_id || "",
+      field_values: fieldValues.length > 0 ? fieldValues : undefined,
+      created_at: metadata.created_at || "",
+      updated_at: metadata.updated_at || "",
+    };
+  } catch (e) {
+    console.warn(
+      "[project-item-processor] Failed to parse project item from markdown:",
+      e
+    );
+    return null;
+  }
 }
 
 export async function processProjectItemEvent(
@@ -104,45 +160,24 @@ export async function processProjectItemEvent(
   repository: { owner: { login: string }; name: string },
   projectId: string
 ): Promise<void> {
-  console.log("[project-item-processor] Starting processProjectItemEvent:", {
-    itemId: projectItem.id,
-    projectId,
-    eventType,
-    repository: `${repository.owner.login}/${repository.name}`,
-  });
   const repoOwner = repository.owner.login;
   const repoName = repository.name;
   const repoKey = getRepositoryKey(repoOwner, repoName);
-  console.log("[project-item-processor] Repository key:", repoKey);
-
   const db = createDb<GitHubDatabase>(
     (env as any).GITHUB_REPO as DurableObjectNamespace<GitHubRepoDurableObject>,
     repoKey
   );
 
   const contentId = extractContentId(projectItem);
-  console.log("[project-item-processor] Extracted content_id:", {
-    contentId,
-    content_node_id: projectItem.content_node_id,
-    content_id: projectItem.content_id,
-  });
-
-  const versionHash = await generateVersionHash(projectItem);
-  const r2Key = getR2Key(
+  const latestR2Key = getLatestR2Key(
     repoOwner,
     repoName,
     projectId,
     projectItem.content_type,
-    contentId,
-    versionHash
+    contentId
   );
-  console.log("[project-item-processor] Generated version hash and R2 key:", {
-    versionHash,
-    r2Key,
-  });
 
   if (eventType === "deleted") {
-    console.log("[project-item-processor] Handling deleted event");
     const existingItem = await db
       .selectFrom("project_items")
       .selectAll()
@@ -150,9 +185,6 @@ export async function processProjectItemEvent(
       .executeTakeFirst();
 
     if (existingItem) {
-      console.log(
-        "[project-item-processor] Updating existing item to deleted state"
-      );
       await db
         .updateTable("project_items")
         .set({
@@ -161,8 +193,6 @@ export async function processProjectItemEvent(
         })
         .where("github_id", "=", String(projectItem.id))
         .execute();
-    } else {
-      console.log("[project-item-processor] No existing item found to delete");
     }
     return;
   }
@@ -176,9 +206,6 @@ export async function processProjectItemEvent(
     .executeTakeFirst();
 
   if (!existingProject) {
-    console.log(
-      "[project-item-processor] Project does not exist, creating minimal project record"
-    );
     await db
       .insertInto("projects")
       .values({
@@ -190,7 +217,6 @@ export async function processProjectItemEvent(
         updated_at: now,
       } as any)
       .execute();
-    console.log("[project-item-processor] Created minimal project record");
   }
 
   const existingItem = await db
@@ -199,57 +225,69 @@ export async function processProjectItemEvent(
     .where("github_id", "=", String(projectItem.id))
     .executeTakeFirst();
 
-  console.log("[project-item-processor] Existing item check:", {
-    exists: !!existingItem,
+  const existingLatestMd = await env.MACHINEN_BUCKET.get(latestR2Key);
+  let oldProjectItem: GitHubProjectItem | null = null;
+
+  if (existingLatestMd) {
+    const markdown = await existingLatestMd.text();
+    oldProjectItem = await parseProjectItemFromMarkdown(markdown);
+  }
+
+  const diff = generateDiff(
+    oldProjectItem as unknown as Record<string, unknown> | null,
+    projectItem as unknown as Record<string, unknown>
+  );
+  const hasChanges = diff !== null && Object.keys(diff.changes).length > 0;
+
+  const fieldValuesStr =
+    projectItem.field_values?.map((fv) => `${fv.name}:${fv.value}`).join(",") ||
+    "";
+  const versionHash = `${projectItem.id}-${projectItem.updated_at}-${fieldValuesStr}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(versionHash)
+  );
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const versionHashStr = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .substring(0, 16);
+
+  const markdown = projectItemToMarkdown(projectItem, {
+    github_id: String(projectItem.id),
+    project_github_id: projectId,
+    content_id: contentId,
+    content_type: projectItem.content_type,
+    state: "active",
+    created_at: projectItem.created_at,
+    updated_at: now,
+    version_hash: versionHashStr,
   });
 
-  const existingVersion = await db
-    .selectFrom("project_item_versions")
-    .selectAll()
-    .where("r2_key", "=", r2Key)
-    .executeTakeFirst();
+  await env.MACHINEN_BUCKET.put(latestR2Key, markdown);
 
-  if (existingVersion) {
-    if (existingItem) {
-      await db
-        .updateTable("project_items")
-        .set({
-          latest_version_id: existingVersion.id,
-          updated_at: now,
-        })
-        .where("github_id", "=", String(projectItem.id))
-        .execute();
-    }
-    return;
+  if (hasChanges && diff) {
+    const historyR2Key = getHistoryR2Key(
+      repoOwner,
+      repoName,
+      projectId,
+      projectItem.content_type,
+      contentId,
+      diff.timestampForFilename
+    );
+    await env.MACHINEN_BUCKET.put(historyR2Key, JSON.stringify(diff, null, 2));
   }
 
   if (existingItem) {
-    console.log("[project-item-processor] Updating existing item");
-    const versionResult = await db
-      .insertInto("project_item_versions")
-      .values({
-        project_item_github_id: String(projectItem.id),
-        r2_key: r2Key,
-        created_at: now,
-      } as any)
-      .returningAll()
-      .executeTakeFirstOrThrow();
-
-    console.log("[project-item-processor] Created version record:", {
-      versionId: versionResult.id,
-    });
-
     await db
       .updateTable("project_items")
       .set({
-        latest_version_id: versionResult.id,
         updated_at: now,
       })
       .where("github_id", "=", String(projectItem.id))
       .execute();
-    console.log("[project-item-processor] Updated item record");
   } else {
-    console.log("[project-item-processor] Creating new item");
     await db
       .insertInto("project_items")
       .values({
@@ -262,48 +300,5 @@ export async function processProjectItemEvent(
         updated_at: now,
       } as any)
       .execute();
-
-    const versionResult = await db
-      .insertInto("project_item_versions")
-      .values({
-        project_item_github_id: String(projectItem.id),
-        r2_key: r2Key,
-        created_at: now,
-      } as any)
-      .returningAll()
-      .executeTakeFirstOrThrow();
-
-    console.log("[project-item-processor] Created version record:", {
-      versionId: versionResult.id,
-    });
-
-    await db
-      .updateTable("project_items")
-      .set({
-        latest_version_id: versionResult.id,
-      })
-      .where("github_id", "=", String(projectItem.id))
-      .execute();
-    console.log("[project-item-processor] Updated item with latest_version_id");
-  }
-
-  const markdown = projectItemToMarkdown(projectItem, {
-    github_id: String(projectItem.id),
-    project_github_id: projectId,
-    content_id: contentId,
-    content_type: projectItem.content_type,
-    state: "active",
-    created_at: projectItem.created_at,
-    updated_at: now,
-    version_hash: versionHash,
-  });
-
-  console.log("[project-item-processor] Storing markdown to R2:", r2Key);
-  const existingR2Object = await env.MACHINEN_BUCKET.head(r2Key);
-  if (!existingR2Object) {
-    await env.MACHINEN_BUCKET.put(r2Key, markdown);
-    console.log("[project-item-processor] Successfully stored to R2");
-  } else {
-    console.log("[project-item-processor] R2 object already exists, skipping");
   }
 }

@@ -3,6 +3,8 @@ import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "../db/migrations";
 import { type GitHubRepoDurableObject } from "../db/durableObject";
 import { projectToMarkdown, type GitHubProject } from "../utils/project-to-markdown";
+import { fetchGitHubProject } from "../utils/github-api";
+import { generateDiff } from "../utils/diff";
 
 type GitHubDatabase = Database<typeof migrations>;
 
@@ -10,6 +12,7 @@ declare module "rwsdk/worker" {
   interface WorkerEnv {
     GITHUB_REPO: DurableObjectNamespace<GitHubRepoDurableObject>;
     MACHINEN_BUCKET: R2Bucket;
+    GITHUB_TOKEN?: string;
   }
 }
 
@@ -17,70 +20,129 @@ function getRepositoryKey(repoOwner: string, repoName: string): string {
   return `${repoOwner}/${repoName}`;
 }
 
-async function generateVersionHash(project: GitHubProject): Promise<string> {
-  const content = `${project.id}-${project.updated_at}-${project.body || ""}-${project.title}`;
-  const encoder = new TextEncoder();
-  const hashBuffer = await crypto.subtle.digest(
-    "SHA-256",
-    encoder.encode(content)
-  );
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("").substring(0, 16);
+function getLatestR2Key(
+  repoOwner: string,
+  repoName: string,
+  projectIdentifier: string | number
+): string {
+  return `github/${repoOwner}/${repoName}/projects/${projectIdentifier}/latest.md`;
 }
 
-function getR2Key(
+function getHistoryR2Key(
   repoOwner: string,
   repoName: string,
   projectIdentifier: string | number,
-  versionHash: string
+  timestampForFilename: string
 ): string {
-  return `github/${repoOwner}/${repoName}/projects/${projectIdentifier}/${versionHash}.md`;
+  return `github/${repoOwner}/${repoName}/projects/${projectIdentifier}/history/${timestampForFilename}.json`;
+}
+
+async function parseProjectFromMarkdown(
+  markdown: string
+): Promise<GitHubProject | null> {
+  try {
+    const frontMatterMatch = markdown.match(/^---\n([\s\S]*?)\n---/);
+    if (!frontMatterMatch) {
+      return null;
+    }
+
+    const frontMatter = frontMatterMatch[1];
+    const lines = frontMatter.split("\n");
+    const metadata: Record<string, string> = {};
+
+    for (const line of lines) {
+      const match = line.match(/^(\w+):\s*(.+)$/);
+      if (match) {
+        metadata[match[1]] = match[2].replace(/^["']|["']$/g, "");
+      }
+    }
+
+    const bodyMatch = markdown.match(/^---\n[\s\S]*?\n---\n\n[\s\S]*?\n---\n\n([\s\S]*)$/);
+    const body = bodyMatch ? bodyMatch[1].trim() : null;
+
+    const titleMatch = markdown.match(/^#\s+(.+)$/m);
+    const title = titleMatch ? titleMatch[1] : "";
+
+    const ownerMatch = markdown.match(/\*\*Owner:\*\*\s+@(\w+)\s+\((\w+)\)/);
+    const ownerLogin = ownerMatch ? ownerMatch[1] : "";
+    const ownerType = ownerMatch ? ownerMatch[2] : "";
+
+    return {
+      id: metadata.github_id || "",
+      number: metadata.number ? parseInt(metadata.number, 10) : undefined,
+      title,
+      body,
+      state: (metadata.state as "open" | "closed") || "open",
+      created_at: metadata.created_at || "",
+      updated_at: metadata.updated_at || "",
+      owner: {
+        login: ownerLogin,
+        type: ownerType,
+      },
+    };
+  } catch (e) {
+    console.warn("[project-processor] Failed to parse project from markdown:", e);
+    return null;
+  }
 }
 
 export async function processProjectEvent(
-  project: GitHubProject,
+  partialProject: GitHubProject,
   eventType: "created" | "edited" | "closed" | "reopened" | "deleted",
   repository: { owner: { login: string }; name: string }
 ): Promise<void> {
-  console.log("[project-processor] Starting processProjectEvent:", { projectId: project.id, eventType, repository: `${repository.owner.login}/${repository.name}` });
   const repoOwner = repository.owner.login;
   const repoName = repository.name;
   const repoKey = getRepositoryKey(repoOwner, repoName);
-  console.log("[project-processor] Repository key:", repoKey);
-  
   const db = createDb<GitHubDatabase>(
     (env as any).GITHUB_REPO as DurableObjectNamespace<GitHubRepoDurableObject>,
     repoKey
   );
 
-  const versionHash = await generateVersionHash(project);
-  const projectIdentifier = project.number || project.id;
-  const r2Key = getR2Key(repoOwner, repoName, projectIdentifier, versionHash);
-  console.log("[project-processor] Generated version hash and R2 key:", { versionHash, r2Key, projectIdentifier });
-
   if (eventType === "deleted") {
-    console.log("[project-processor] Handling deleted event");
     const existingProject = await db
       .selectFrom("projects")
       .selectAll()
-      .where("github_id", "=", project.id)
+      .where("github_id", "=", partialProject.id)
       .executeTakeFirst();
 
     if (existingProject) {
-      console.log("[project-processor] Updating existing project to deleted state");
       await db
         .updateTable("projects")
         .set({
           state: "deleted",
           updated_at: new Date().toISOString(),
         })
-        .where("github_id", "=", project.id)
+        .where("github_id", "=", partialProject.id)
         .execute();
-    } else {
-      console.log("[project-processor] No existing project found to delete");
     }
     return;
   }
+
+  let graphQLProject;
+  try {
+    graphQLProject = await fetchGitHubProject(partialProject.id);
+  } catch (error) {
+    console.error(
+      `[project-processor] Failed to fetch full project ${partialProject.id}:`,
+      error
+    );
+    throw error;
+  }
+
+  const fullProject: GitHubProject = {
+    id: graphQLProject.id,
+    number: graphQLProject.number,
+    title: graphQLProject.title,
+    body: graphQLProject.shortDescription,
+    state: graphQLProject.closed ? "closed" : "open",
+    created_at: graphQLProject.createdAt,
+    updated_at: graphQLProject.updatedAt,
+    owner: graphQLProject.owner,
+  };
+
+  const projectIdentifier = fullProject.number || fullProject.id;
+  const latestR2Key = getLatestR2Key(repoOwner, repoName, projectIdentifier);
 
   const now = new Date().toISOString();
   let state: "open" | "closed";
@@ -89,118 +151,86 @@ export async function processProjectEvent(
   } else if (eventType === "reopened") {
     state = "open";
   } else {
-    state = project.state === "closed" ? "closed" : "open";
+    state = fullProject.state === "closed" ? "closed" : "open";
   }
-  console.log("[project-processor] Determined state:", state);
 
   const existingProject = await db
     .selectFrom("projects")
     .selectAll()
-    .where("github_id", "=", project.id)
+    .where("github_id", "=", fullProject.id)
     .executeTakeFirst();
 
-  console.log("[project-processor] Existing project check:", { exists: !!existingProject });
+  const existingLatestMd = await env.MACHINEN_BUCKET.get(latestR2Key);
+  let oldProject: GitHubProject | null = null;
 
-  const existingVersion = await db
-    .selectFrom("project_versions")
-    .selectAll()
-    .where("r2_key", "=", r2Key)
-    .executeTakeFirst();
+  if (existingLatestMd) {
+    const markdown = await existingLatestMd.text();
+    oldProject = await parseProjectFromMarkdown(markdown);
+  }
 
-  if (existingVersion) {
-    if (existingProject) {
-      await db
-        .updateTable("projects")
-        .set({
-          title: project.title,
-          body: project.body,
-          state: state,
-          latest_version_id: existingVersion.id,
-          updated_at: now,
-        })
-        .where("github_id", "=", project.id)
-        .execute();
-    }
-    return;
+  const diff = generateDiff(
+    oldProject as unknown as Record<string, unknown> | null,
+    fullProject as unknown as Record<string, unknown>
+  );
+  const hasChanges = diff !== null && Object.keys(diff.changes).length > 0;
+
+  const versionHash = `${fullProject.id}-${fullProject.updated_at}-${
+    fullProject.body || ""
+  }-${fullProject.title}`;
+  const encoder = new TextEncoder();
+  const hashBuffer = await crypto.subtle.digest(
+    "SHA-256",
+    encoder.encode(versionHash)
+  );
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const versionHashStr = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .substring(0, 16);
+
+  const markdown = projectToMarkdown(fullProject, {
+    github_id: fullProject.id,
+    state: state,
+    created_at: fullProject.created_at,
+    updated_at: now,
+    version_hash: versionHashStr,
+  });
+
+  await env.MACHINEN_BUCKET.put(latestR2Key, markdown);
+
+  if (hasChanges && diff) {
+    const historyR2Key = getHistoryR2Key(
+      repoOwner,
+      repoName,
+      projectIdentifier,
+      diff.timestampForFilename
+    );
+    await env.MACHINEN_BUCKET.put(historyR2Key, JSON.stringify(diff, null, 2));
   }
 
   if (existingProject) {
-    console.log("[project-processor] Updating existing project");
-    const versionResult = await db
-      .insertInto("project_versions")
-      .values({
-        project_github_id: project.id,
-        r2_key: r2Key,
-        created_at: now,
-      } as any)
-      .returningAll()
-      .executeTakeFirstOrThrow();
-
-    console.log("[project-processor] Created version record:", { versionId: versionResult.id });
-
     await db
       .updateTable("projects")
       .set({
-        title: project.title,
-        body: project.body,
+        title: fullProject.title,
+        body: fullProject.body,
         state: state,
-        latest_version_id: versionResult.id,
         updated_at: now,
       })
-      .where("github_id", "=", project.id)
+      .where("github_id", "=", fullProject.id)
       .execute();
-    console.log("[project-processor] Updated project record");
   } else {
-    console.log("[project-processor] Creating new project");
     await db
       .insertInto("projects")
       .values({
-        github_id: project.id,
-        title: project.title,
-        body: project.body,
+        github_id: fullProject.id,
+        title: fullProject.title,
+        body: fullProject.body,
         state: state,
-        created_at: project.created_at,
+        created_at: fullProject.created_at,
         updated_at: now,
       } as any)
       .execute();
-
-    const versionResult = await db
-      .insertInto("project_versions")
-      .values({
-        project_github_id: project.id,
-        r2_key: r2Key,
-        created_at: now,
-      } as any)
-      .returningAll()
-      .executeTakeFirstOrThrow();
-
-    console.log("[project-processor] Created version record:", { versionId: versionResult.id });
-
-    await db
-      .updateTable("projects")
-      .set({
-        latest_version_id: versionResult.id,
-      })
-      .where("github_id", "=", project.id)
-      .execute();
-    console.log("[project-processor] Updated project with latest_version_id");
-  }
-
-  const markdown = projectToMarkdown(project, {
-    github_id: project.id,
-    state: state,
-    created_at: project.created_at,
-    updated_at: now,
-    version_hash: versionHash,
-  });
-
-  console.log("[project-processor] Storing markdown to R2:", r2Key);
-  const existingR2Object = await env.MACHINEN_BUCKET.head(r2Key);
-  if (!existingR2Object) {
-    await env.MACHINEN_BUCKET.put(r2Key, markdown);
-    console.log("[project-processor] Successfully stored to R2");
-  } else {
-    console.log("[project-processor] R2 object already exists, skipping");
   }
 }
 

@@ -12,7 +12,6 @@ import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
 import { HomePage } from "./app/pages/HomePage";
-import { passkeyRoutes } from "./app/pages/auth/passkey/routes.mjs";
 
 export type AppContext = {
   user: any;
@@ -54,41 +53,61 @@ export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durabl
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";
 import { handleDeadLetterMessage } from "@/app/ingestors/github/services/dlq-handler";
-import type { QueueMessage, ProcessorJobMessage } from "@/app/ingestors/github/services/backfill-types";
+import type {
+  QueueMessage,
+  ProcessorJobMessage,
+} from "@/app/ingestors/github/services/backfill-types";
+import { formatLog } from "@/app/ingestors/github/utils/inspect";
 
 export default {
   fetch: app.fetch,
   async queue(batch, env) {
     const queueName = batch.queue;
-    
-    for (const message of batch.messages) {
-      try {
-        const queueMessage = message.body as QueueMessage;
 
+    for (const message of batch.messages) {
+      const queueMessage = message.body as QueueMessage;
+      try {
         if (
-          (queueName === "github-scheduler-queue" || queueName === "SCHEDULER_QUEUE") &&
+          (queueName === "github-scheduler-queue" ||
+            queueName === "SCHEDULER_QUEUE") &&
           queueMessage.type === "scheduler"
         ) {
           await processSchedulerJob(queueMessage);
           message.ack();
         } else if (
-          (queueName === "github-processor-queue" || queueName === "PROCESSOR_QUEUE") &&
+          (queueName === "github-processor-queue" ||
+            queueName === "PROCESSOR_QUEUE") &&
           queueMessage.type === "processor"
         ) {
           await processProcessorJob(queueMessage);
           message.ack();
         } else if (
-          (queueName === "github-processor-queue-dlq" || queueName === "PROCESSOR_QUEUE_DLQ") &&
+          (queueName === "github-processor-queue-dlq" ||
+            queueName === "PROCESSOR_QUEUE_DLQ") &&
           queueMessage.type === "processor"
         ) {
           await handleDeadLetterMessage(queueMessage);
           message.ack();
         } else {
-          console.error(`[queue] Unknown queue or message type: ${queueName}`, queueMessage);
+          console.error(
+            formatLog("[queue] Unknown queue or message type:", {
+              queueName,
+              message: queueMessage,
+            })
+          );
           message.ack();
         }
       } catch (error) {
-        console.error(`[queue] Error processing message from ${queueName}:`, error);
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        console.error(
+          formatLog("[queue] Error processing message:", {
+            queueName,
+            message: queueMessage,
+            error: errorMsg,
+            stack: errorStack,
+          })
+        );
         message.retry();
       }
     }

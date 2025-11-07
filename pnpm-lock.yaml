@@ -35,6 +35,9 @@ importers:
       better-auth:
         specifier: ^1.3.9
         version: 1.3.9(react-dom@19.2.0(react@19.2.0))(react@19.2.0)
+      browser-util-inspect:
+        specifier: ^0.2.0
+        version: 0.2.0
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1675,6 +1678,9 @@ packages:
 
   blake3-wasm@2.1.5:
     resolution: {integrity: sha512-F1+K8EbfOZE49dtoPtmxUQrpXaBIl3ICvasLh+nJta0xkz+9kF/7uet9fLnwKqhDrmj6g+6K3Tw9yQPUg2ka5g==}
+
+  browser-util-inspect@0.2.0:
+    resolution: {integrity: sha512-R7WvAj0p9FtwS2Jbtc1HUd1+YZdeb5EEqjBSbbOK3owJtW1viWyJDeTPy43QZ7bZ8POtb1yMv++h844486jMsQ==}
 
   browserslist@4.25.2:
     resolution: {integrity: sha512-0si2SJK3ooGzIawRu61ZdPCO1IncZwS8IzuX73sPZsXW6EQ/w/DAfPyKI8l1ETTCr2MnvqWitmlCUxgdul45jA==}
@@ -4955,6 +4961,8 @@ snapshots:
       safe-buffer: 5.2.1
 
   blake3-wasm@2.1.5: {}
+
+  browser-util-inspect@0.2.0: {}
 
   browserslist@4.25.2:
     dependencies:

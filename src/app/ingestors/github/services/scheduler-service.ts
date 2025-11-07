@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { getBackfillState, updateBackfillState } from "./backfill-state";
 import type { SchedulerJobMessage } from "./backfill-types";
+import { formatLog } from "../utils/inspect";
 
 declare module "rwsdk/worker" {
   interface WorkerEnv {
@@ -26,12 +27,7 @@ async function fetchGitHubPage<T>(
   }
 
   const fullUrl = page ? `${url}?per_page=100&page=${page}` : `${url}?per_page=100`;
-  console.log("[scheduler] Fetching GitHub API:", {
-    url: fullUrl,
-    hasToken: !!token,
-    tokenLength: token.length,
-    tokenPrefix: token.substring(0, 4),
-  });
+  console.log(formatLog("[scheduler] Fetching GitHub API:", { url: fullUrl, hasToken: !!token, tokenLength: token.length, tokenPrefix: token.substring(0, 4) }));
 
   const response = await fetch(fullUrl, {
     headers: {
@@ -40,21 +36,12 @@ async function fetchGitHubPage<T>(
     },
   });
 
-  console.log("[scheduler] GitHub API response:", {
-    status: response.status,
-    statusText: response.statusText,
-    ok: response.ok,
-    headers: Object.fromEntries(response.headers.entries()),
-  });
+  console.log(formatLog("[scheduler] GitHub API response:", { status: response.status, statusText: response.statusText, ok: response.ok }));
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("[scheduler] GitHub API error response:", {
-      status: response.status,
-      statusText: response.statusText,
-      body: errorText,
-    });
-    throw new Error(`GitHub API error: ${response.status} ${response.statusText}`);
+    console.error(formatLog("[scheduler] GitHub API error:", { status: response.status, statusText: response.statusText, url: fullUrl, errorBody: errorText }));
+    throw new Error(`GitHub API error: ${response.status} ${response.statusText} | URL: ${fullUrl} | Body: ${errorText.substring(0, 500)}`);
   }
 
   const data = (await response.json()) as T[];
@@ -78,16 +65,10 @@ async function fetchGitHubPage<T>(
 export async function processSchedulerJob(message: SchedulerJobMessage): Promise<void> {
   const { repository_key, owner, repo, entity_type, cursor } = message;
 
-  console.log("[scheduler] Processing scheduler job:", {
-    repository_key,
-    owner,
-    repo,
-    entity_type,
-    cursor,
-  });
+  console.log(formatLog("[scheduler] Processing scheduler job:", { repository_key, owner, repo, entity_type, cursor }));
 
   const state = await getBackfillState(repository_key);
-  console.log("[scheduler] Current backfill state:", state);
+  console.log(formatLog("[scheduler] Current backfill state:", state));
 
   if (state?.status === "paused_on_error") {
     console.log(`[scheduler] Backfill paused for ${repository_key}, skipping`);
@@ -95,7 +76,7 @@ export async function processSchedulerJob(message: SchedulerJobMessage): Promise
   }
 
   const isTestRun = state?.test_run ?? false;
-  console.log("[scheduler] Test run mode:", isTestRun);
+  console.log(`[scheduler] Test run mode: ${isTestRun}`);
 
   await updateBackfillState(repository_key, { status: "in_progress" });
 
@@ -130,19 +111,11 @@ export async function processSchedulerJob(message: SchedulerJobMessage): Promise
 
     const { data, nextPage } = await fetchGitHubPage(url, cursor);
 
-    console.log("[scheduler] Fetched data:", {
-      entityType: entity_type,
-      dataCount: data.length,
-      hasNextPage: !!nextPage,
-      nextPage,
-    });
+    console.log(formatLog("[scheduler] Fetched data:", { entityType: entity_type, count: data.length, hasNextPage: !!nextPage, nextPage }));
 
     const processorQueue = (env as any).PROCESSOR_QUEUE as Queue;
 
-    console.log("[scheduler] Enqueueing processor jobs:", {
-      count: data.length,
-      entityType: entity_type,
-    });
+    console.log(formatLog("[scheduler] Enqueueing processor jobs:", { count: data.length, entityType: entity_type }));
 
     for (const entity of data) {
       await processorQueue.send({
@@ -156,7 +129,7 @@ export async function processSchedulerJob(message: SchedulerJobMessage): Promise
       });
     }
 
-    console.log("[scheduler] Enqueued all processor jobs");
+    console.log(formatLog("[scheduler] Enqueued all processor jobs:", { count: data.length, entityType: entity_type }));
 
     if (isTestRun) {
       console.log(`[scheduler] Test run complete for ${repository_key} - processed first page of ${entity_type}`);
@@ -198,11 +171,13 @@ export async function processSchedulerJob(message: SchedulerJobMessage): Promise
       }
     }
   } catch (error) {
-    console.error(`[scheduler] Error processing ${entity_type} for ${repository_key}:`, error);
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error(formatLog("[scheduler] Error processing:", { entity_type, repository_key, owner, repo, error: errorMsg, stack: errorStack }));
     await updateBackfillState(repository_key, {
       status: "paused_on_error",
-      error_message: error instanceof Error ? error.message : String(error),
-      error_details: error instanceof Error ? error.stack : undefined,
+      error_message: errorMsg,
+      error_details: errorStack,
     });
     throw error;
   }

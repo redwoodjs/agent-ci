@@ -1,18 +1,28 @@
 import { route } from "rwsdk/router";
 import { type RequestInfo } from "rwsdk/worker";
+import { env } from "cloudflare:workers";
 import { requireGitHubWebhookSignature } from "./interruptors";
+import { requireIngestApiKey } from "../interruptors";
 import { processIssueEvent } from "./services/issue-processor";
 import { processPullRequestEvent } from "./services/pr-processor";
 import { processCommentEvent } from "./services/comment-processor";
 import { processReleaseEvent } from "./services/release-processor";
 import { processProjectEvent } from "./services/project-processor";
 import { processProjectItemEvent } from "./services/project-item-processor";
+import { updateBackfillState } from "./services/backfill-state";
 import type { GitHubIssue } from "./utils/issue-to-markdown";
 import type { GitHubPullRequest } from "./utils/pr-to-markdown";
 import type { GitHubComment } from "./utils/comment-to-markdown";
 import type { GitHubRelease } from "./utils/release-to-markdown";
 import type { GitHubProject } from "./utils/project-to-markdown";
 import type { GitHubProjectItem } from "./utils/project-item-to-markdown";
+import type { SchedulerJobMessage } from "./services/backfill-types";
+
+declare module "rwsdk/worker" {
+  interface WorkerEnv {
+    SCHEDULER_QUEUE: Queue<SchedulerJobMessage>;
+  }
+}
 
 interface GitHubWebhookPayload {
   action: string;
@@ -414,8 +424,49 @@ async function githubWebhookHandler({ request }: RequestInfo) {
   return new Response("Event type not handled", { status: 202 });
 }
 
+async function backfillHandler({ request }: RequestInfo) {
+  const body = (await request.json()) as { owner: string; repo: string };
+  const { owner, repo } = body;
+
+  if (!owner || !repo) {
+    return Response.json({ error: "Missing owner or repo" }, { status: 400 });
+  }
+
+  const repositoryKey = `${owner}/${repo}`;
+  const schedulerQueue = (env as any)
+    .SCHEDULER_QUEUE as Queue<SchedulerJobMessage>;
+
+  await updateBackfillState(repositoryKey, {
+    status: "pending",
+    issues_cursor: null,
+    pull_requests_cursor: null,
+    comments_cursor: null,
+    releases_cursor: null,
+    projects_cursor: null,
+    error_message: null,
+    error_details: null,
+  });
+
+  await schedulerQueue.send({
+    type: "scheduler",
+    repository_key: repositoryKey,
+    owner,
+    repo,
+    entity_type: "issues",
+  });
+
+  return Response.json({
+    success: true,
+    repository_key: repositoryKey,
+    message: "Backfill job started",
+  });
+}
+
 export const routes = [
   route("/webhook", {
     post: [requireGitHubWebhookSignature, githubWebhookHandler],
+  }),
+  route("/backfill", {
+    post: [requireIngestApiKey, backfillHandler],
   }),
 ];

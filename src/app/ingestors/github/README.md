@@ -31,3 +31,85 @@ wrangler secret put INGEST_API_KEY
 - In the "Secret" field, enter the **same value** as your `INGEST_API_KEY`
 
 The endpoint will verify all incoming webhook requests using HMAC-SHA256 signature verification. Requests with missing or invalid signatures will be rejected with `401 Unauthorized`.
+
+## Backfilling Historical Data
+
+The GitHub ingestor includes a backfill mechanism to ingest historical data from repositories. This is useful for initial setup or catching up on data that existed before webhooks were configured.
+
+### Setup
+
+1. **Configure GitHub Token**: Set a GitHub personal access token with appropriate permissions:
+
+   ```bash
+   wrangler secret put GITHUB_TOKEN
+   # Then paste your token when prompted
+   ```
+
+   The token needs the following permissions:
+   - `repo` (for private repositories)
+   - `read:org` (for organization projects)
+
+2. **Create Queues**: The backfill system uses Cloudflare Queues. These are automatically created when you deploy, but you can verify they exist:
+
+   ```bash
+   wrangler queues list
+   ```
+
+   You should see:
+   - `github-scheduler-queue`
+   - `github-processor-queue`
+   - `github-processor-queue-dlq`
+
+### Usage
+
+To start a backfill for a repository, make a POST request to the backfill endpoint:
+
+```bash
+curl -X POST https://your-domain.workers.dev/ingestors/github/backfill \
+  -H "Authorization: Bearer YOUR_INGEST_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"owner": "octocat", "repo": "Hello-World"}'
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "repository_key": "octocat/Hello-World",
+  "message": "Backfill job started"
+}
+```
+
+### How It Works
+
+The backfill process uses a two-tiered queue system:
+
+1. **Scheduler Queue**: Fetches pages of data from the GitHub API and enqueues individual entity processing jobs.
+2. **Processor Queue**: Processes individual entities (issues, PRs, comments, etc.) using the same idempotent processors used by webhooks.
+
+The backfill processes entities in this order:
+1. Issues
+2. Pull Requests
+3. Comments
+4. Releases
+5. Projects (organization-level)
+
+### Monitoring
+
+Backfill state is stored in a Durable Object (`GitHubBackfillStateDO`). You can check the status by querying the state:
+
+- `pending`: Backfill has been initiated but not started
+- `in_progress`: Backfill is actively running
+- `completed`: Backfill has finished successfully
+- `paused_on_error`: Backfill encountered an error and has been paused
+
+If a backfill is paused due to an error, you can resume it by making another backfill request for the same repository. The system will continue from where it left off.
+
+### Error Handling
+
+If a processor job fails repeatedly (after 3 retries), it is sent to a dead-letter queue (`github-processor-queue-dlq`). The dead-letter handler will:
+1. Update the backfill state to `paused_on_error`
+2. Record the error message and details
+3. Stop the scheduler from enqueuing more work for that repository
+
+To resume after fixing the issue, make another backfill request for the same repository.

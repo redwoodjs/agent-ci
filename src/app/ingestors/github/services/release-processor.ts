@@ -95,6 +95,29 @@ export async function processReleaseEvent(
     .where("github_id", "=", release.id)
     .executeTakeFirst();
 
+  const existingVersion = await db
+    .selectFrom("release_versions")
+    .selectAll()
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  if (existingVersion) {
+    if (existingRelease) {
+      await db
+        .updateTable("releases")
+        .set({
+          tag_name: release.tag_name,
+          name: release.name,
+          state: state,
+          latest_version_id: existingVersion.id,
+          updated_at: now,
+        })
+        .where("github_id", "=", release.id)
+        .execute();
+    }
+    return;
+  }
+
   if (existingRelease) {
     const versionResult = await db
       .insertInto("release_versions")
@@ -158,6 +181,9 @@ export async function processReleaseEvent(
     version_hash: versionHash,
   });
 
-  await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  const existingR2Object = await env.MACHINEN_BUCKET.head(r2Key);
+  if (!existingR2Object) {
+    await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  }
 }
 

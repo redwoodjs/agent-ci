@@ -94,6 +94,28 @@ export async function processIssueEvent(
     .where("github_id", "=", issue.id)
     .executeTakeFirst();
 
+  const existingVersion = await db
+    .selectFrom("issue_versions")
+    .selectAll()
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  if (existingVersion) {
+    if (existingIssue) {
+      await db
+        .updateTable("issues")
+        .set({
+          title: issue.title,
+          state: state,
+          latest_version_id: existingVersion.id,
+          updated_at: now,
+        })
+        .where("github_id", "=", issue.id)
+        .execute();
+    }
+    return;
+  }
+
   if (existingIssue) {
     const versionResult = await db
       .insertInto("issue_versions")
@@ -156,5 +178,8 @@ export async function processIssueEvent(
     version_hash: versionHash,
   });
 
-  await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  const existingR2Object = await env.MACHINEN_BUCKET.head(r2Key);
+  if (!existingR2Object) {
+    await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  }
 }

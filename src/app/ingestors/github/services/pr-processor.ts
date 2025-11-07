@@ -91,6 +91,28 @@ export async function processPullRequestEvent(
     .where("github_id", "=", pr.id)
     .executeTakeFirst();
 
+  const existingVersion = await db
+    .selectFrom("pull_request_versions")
+    .selectAll()
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  if (existingVersion) {
+    if (existingPR) {
+      await db
+        .updateTable("pull_requests")
+        .set({
+          title: pr.title,
+          state: state,
+          latest_version_id: existingVersion.id,
+          updated_at: now,
+        })
+        .where("github_id", "=", pr.id)
+        .execute();
+    }
+    return;
+  }
+
   if (existingPR) {
     const versionResult = await db
       .insertInto("pull_request_versions")
@@ -153,6 +175,9 @@ export async function processPullRequestEvent(
     version_hash: versionHash,
   });
 
-  await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  const existingR2Object = await env.MACHINEN_BUCKET.head(r2Key);
+  if (!existingR2Object) {
+    await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  }
 }
 

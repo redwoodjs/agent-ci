@@ -100,6 +100,29 @@ export async function processProjectEvent(
 
   console.log("[project-processor] Existing project check:", { exists: !!existingProject });
 
+  const existingVersion = await db
+    .selectFrom("project_versions")
+    .selectAll()
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  if (existingVersion) {
+    if (existingProject) {
+      await db
+        .updateTable("projects")
+        .set({
+          title: project.title,
+          body: project.body,
+          state: state,
+          latest_version_id: existingVersion.id,
+          updated_at: now,
+        })
+        .where("github_id", "=", project.id)
+        .execute();
+    }
+    return;
+  }
+
   if (existingProject) {
     console.log("[project-processor] Updating existing project");
     const versionResult = await db
@@ -171,7 +194,12 @@ export async function processProjectEvent(
   });
 
   console.log("[project-processor] Storing markdown to R2:", r2Key);
-  await env.MACHINEN_BUCKET.put(r2Key, markdown);
-  console.log("[project-processor] Successfully stored to R2");
+  const existingR2Object = await env.MACHINEN_BUCKET.head(r2Key);
+  if (!existingR2Object) {
+    await env.MACHINEN_BUCKET.put(r2Key, markdown);
+    console.log("[project-processor] Successfully stored to R2");
+  } else {
+    console.log("[project-processor] R2 object already exists, skipping");
+  }
 }
 

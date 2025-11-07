@@ -96,6 +96,26 @@ export async function processCommentEvent(
     .where("github_id", "=", comment.id)
     .executeTakeFirst();
 
+  const existingVersion = await db
+    .selectFrom("comment_versions")
+    .selectAll()
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  if (existingVersion) {
+    if (existingComment) {
+      await db
+        .updateTable("comments")
+        .set({
+          latest_version_id: existingVersion.id,
+          updated_at: now,
+        })
+        .where("github_id", "=", comment.id)
+        .execute();
+    }
+    return;
+  }
+
   if (existingComment) {
     const versionResult = await db
       .insertInto("comment_versions")
@@ -157,6 +177,9 @@ export async function processCommentEvent(
     version_hash: versionHash,
   });
 
-  await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  const existingR2Object = await env.MACHINEN_BUCKET.head(r2Key);
+  if (!existingR2Object) {
+    await env.MACHINEN_BUCKET.put(r2Key, markdown);
+  }
 }
 

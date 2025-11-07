@@ -169,6 +169,30 @@ export async function processProjectItemEvent(
 
   const now = new Date().toISOString();
 
+  const existingProject = await db
+    .selectFrom("projects")
+    .selectAll()
+    .where("github_id", "=", projectId)
+    .executeTakeFirst();
+
+  if (!existingProject) {
+    console.log(
+      "[project-item-processor] Project does not exist, creating minimal project record"
+    );
+    await db
+      .insertInto("projects")
+      .values({
+        github_id: projectId,
+        title: `Project ${projectId}`,
+        body: null,
+        state: "open",
+        created_at: now,
+        updated_at: now,
+      } as any)
+      .execute();
+    console.log("[project-item-processor] Created minimal project record");
+  }
+
   const existingItem = await db
     .selectFrom("project_items")
     .selectAll()

@@ -60,35 +60,36 @@ export function prToMarkdown(
   pr: GitHubPullRequest,
   metadata: PullRequestMetadata
 ): string {
-  const frontMatter = [
+  const frontMatterLines = [
     `github_id: ${metadata.github_id}`,
     `number: ${metadata.number}`,
     `state: ${escapeYamlValue(metadata.state)}`,
+    `author: ${escapeYamlValue(pr.user.login)}`,
     `created_at: ${escapeYamlValue(metadata.created_at)}`,
     `updated_at: ${escapeYamlValue(metadata.updated_at)}`,
     `version_hash: ${escapeYamlValue(metadata.version_hash)}`,
-  ].join("\n");
+    `base_ref: ${escapeYamlValue(pr.base.ref)}`,
+    `base_sha: ${escapeYamlValue(pr.base.sha)}`,
+    `head_ref: ${escapeYamlValue(pr.head.ref)}`,
+    `head_sha: ${escapeYamlValue(pr.head.sha)}`,
+  ];
 
-  const labels =
-    pr.labels && pr.labels.length > 0
-      ? pr.labels.map((label) => `- ${label.name}`).join("\n")
-      : "";
+  if (pr.labels && pr.labels.length > 0) {
+    const labelsList = pr.labels.map((label) => escapeYamlValue(label.name)).join(", ");
+    frontMatterLines.push(`labels: [${labelsList}]`);
+  }
 
-  const assignees =
-    pr.assignees && pr.assignees.length > 0
-      ? pr.assignees.map((assignee) => `- @${assignee.login}`).join("\n")
-      : "";
+  if (pr.assignees && pr.assignees.length > 0) {
+    const assigneesList = pr.assignees.map((assignee) => escapeYamlValue(assignee.login)).join(", ");
+    frontMatterLines.push(`assignees: [${assigneesList}]`);
+  }
 
-  const milestone = pr.milestone
-    ? `**Milestone:** ${pr.milestone.title} (${pr.milestone.state})`
-    : "";
+  if (pr.milestone) {
+    frontMatterLines.push(`milestone: ${escapeYamlValue(pr.milestone.title)}`);
+    frontMatterLines.push(`milestone_state: ${escapeYamlValue(pr.milestone.state)}`);
+  }
 
-  const branches = `**Base:** ${pr.base.ref} (${pr.base.sha.substring(0, 7)})\n**Head:** ${pr.head.ref} (${pr.head.sha.substring(0, 7)})`;
-
-  const metadataSection = [labels, assignees, milestone, branches]
-    .filter(Boolean)
-    .join("\n\n");
-
+  const frontMatter = frontMatterLines.join("\n");
   const body = pr.body || "_No description provided._";
 
   return `---
@@ -96,11 +97,6 @@ ${frontMatter}
 ---
 
 # ${pr.title}
-
-**Author:** @${pr.user.login}
-${metadataSection ? `\n${metadataSection}\n` : ""}
-
----
 
 ${body}
 `;

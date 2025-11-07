@@ -51,33 +51,40 @@ export function issueToMarkdown(
   issue: GitHubIssue,
   metadata: IssueMetadata
 ): string {
-  const frontMatter = [
+  const frontMatterLines = [
     `github_id: ${metadata.github_id}`,
     `number: ${metadata.number}`,
     `state: ${escapeYamlValue(metadata.state)}`,
+    `author: ${escapeYamlValue(issue.user.login)}`,
     `created_at: ${escapeYamlValue(metadata.created_at)}`,
     `updated_at: ${escapeYamlValue(metadata.updated_at)}`,
     `version_hash: ${escapeYamlValue(metadata.version_hash)}`,
-  ].join("\n");
+  ];
 
-  const labels =
-    issue.labels && issue.labels.length > 0
-      ? issue.labels.map((label) => `- ${label.name}`).join("\n")
-      : "";
+  if (issue.labels && issue.labels.length > 0) {
+    const labelsList = issue.labels
+      .map((label) => escapeYamlValue(label.name))
+      .join(", ");
+    frontMatterLines.push(`labels: [${labelsList}]`);
+  }
 
-  const assignees =
-    issue.assignees && issue.assignees.length > 0
-      ? issue.assignees.map((assignee) => `- @${assignee.login}`).join("\n")
-      : "";
+  if (issue.assignees && issue.assignees.length > 0) {
+    const assigneesList = issue.assignees
+      .map((assignee) => escapeYamlValue(assignee.login))
+      .join(", ");
+    frontMatterLines.push(`assignees: [${assigneesList}]`);
+  }
 
-  const milestone = issue.milestone
-    ? `**Milestone:** ${issue.milestone.title} (${issue.milestone.state})`
-    : "";
+  if (issue.milestone) {
+    frontMatterLines.push(
+      `milestone: ${escapeYamlValue(issue.milestone.title)}`
+    );
+    frontMatterLines.push(
+      `milestone_state: ${escapeYamlValue(issue.milestone.state)}`
+    );
+  }
 
-  const metadataSection = [labels, assignees, milestone]
-    .filter(Boolean)
-    .join("\n\n");
-
+  const frontMatter = frontMatterLines.join("\n");
   const body = issue.body || "_No description provided._";
 
   return `---
@@ -85,11 +92,6 @@ ${frontMatter}
 ---
 
 # ${issue.title}
-
-**Author:** @${issue.user.login}
-${metadataSection ? `\n${metadataSection}\n` : ""}
-
----
 
 ${body}
 `;

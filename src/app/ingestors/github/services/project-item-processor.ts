@@ -95,7 +95,7 @@ function getR2Key(
   versionHash: string
 ): string {
   const contentTypePath = contentType.toLowerCase().replace(" ", "-");
-  return `github-ingest/${repoOwner}/${repoName}/projects/${projectId}/items/${contentTypePath}/${contentId}/${versionHash}.md`;
+  return `github/${repoOwner}/${repoName}/projects/${projectId}/items/${contentTypePath}/${contentId}/${versionHash}.md`;
 }
 
 export async function processProjectItemEvent(

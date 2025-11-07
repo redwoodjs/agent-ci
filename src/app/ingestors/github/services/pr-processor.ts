@@ -34,7 +34,7 @@ function getR2Key(
   prNumber: number,
   versionHash: string
 ): string {
-  return `github-ingest/${repoOwner}/${repoName}/pull-requests/${prNumber}/${versionHash}.md`;
+  return `github/${repoOwner}/${repoName}/pull-requests/${prNumber}/${versionHash}.md`;
 }
 
 export async function processPullRequestEvent(

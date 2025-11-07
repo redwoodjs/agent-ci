@@ -127,6 +127,7 @@ async function fetchGitHubProjectsGraphQL(
   // Transform GraphQL response to match expected format
   const transformedProjects = projects.map((project: any) => ({
     id: project.id,
+    number: project.number,
     title: project.title,
     body: project.shortDescription || null,
     state: project.closed === true ? "closed" : "open",
@@ -298,9 +299,9 @@ export async function processSchedulerJob(
         for (const project of projectsData) {
           await projectsProcessorQueue.send({
             type: "processor",
-            repository_key,
+            repository_key: `${owner}/_projects`,
             owner,
-            repo,
+            repo: "_projects",
             entity_type: "project",
             entity_data: project,
             event_type: "backfill",

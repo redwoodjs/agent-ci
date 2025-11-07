@@ -34,7 +34,7 @@ function getR2Key(
   tagName: string,
   versionHash: string
 ): string {
-  return `github-ingest/${repoOwner}/${repoName}/releases/${tagName}/${versionHash}.md`;
+  return `github/${repoOwner}/${repoName}/releases/${tagName}/${versionHash}.md`;
 }
 
 export async function processReleaseEvent(

@@ -36,7 +36,7 @@ function getR2Key(
   commentId: number,
   versionHash: string
 ): string {
-  return `github-ingest/${repoOwner}/${repoName}/${parentType}/${parentNumber}/comments/${commentId}/${versionHash}.md`;
+  return `github/${repoOwner}/${repoName}/${parentType}/${parentNumber}/comments/${commentId}/${versionHash}.md`;
 }
 
 export async function processCommentEvent(
@@ -57,9 +57,10 @@ export async function processCommentEvent(
 
   const versionHash = await generateVersionHash(comment);
   const parentType = issueId ? "issues" : "pull-requests";
-  const parentNumber = issueId
-    ? comment.issue?.number || 0
-    : comment.pull_request?.number || 0;
+  const parentNumber = issueId || pullRequestId || 0;
+  if (!parentNumber) {
+    throw new Error(`Comment ${comment.id} has no parent issue or pull request`);
+  }
   const r2Key = getR2Key(
     repoOwner,
     repoName,

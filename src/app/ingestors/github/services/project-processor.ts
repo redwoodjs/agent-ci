@@ -31,10 +31,10 @@ async function generateVersionHash(project: GitHubProject): Promise<string> {
 function getR2Key(
   repoOwner: string,
   repoName: string,
-  projectId: string,
+  projectIdentifier: string | number,
   versionHash: string
 ): string {
-  return `github-ingest/${repoOwner}/${repoName}/projects/${projectId}/${versionHash}.md`;
+  return `github/${repoOwner}/${repoName}/projects/${projectIdentifier}/${versionHash}.md`;
 }
 
 export async function processProjectEvent(
@@ -54,8 +54,9 @@ export async function processProjectEvent(
   );
 
   const versionHash = await generateVersionHash(project);
-  const r2Key = getR2Key(repoOwner, repoName, project.id, versionHash);
-  console.log("[project-processor] Generated version hash and R2 key:", { versionHash, r2Key });
+  const projectIdentifier = project.number || project.id;
+  const r2Key = getR2Key(repoOwner, repoName, projectIdentifier, versionHash);
+  console.log("[project-processor] Generated version hash and R2 key:", { versionHash, r2Key, projectIdentifier });
 
   if (eventType === "deleted") {
     console.log("[project-processor] Handling deleted event");

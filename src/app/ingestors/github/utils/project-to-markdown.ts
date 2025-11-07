@@ -1,5 +1,6 @@
 export interface GitHubProject {
   id: string;
+  number?: number;
   title: string;
   body: string | null;
   state: "open" | "closed";

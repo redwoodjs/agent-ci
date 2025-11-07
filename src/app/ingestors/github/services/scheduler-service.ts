@@ -33,6 +33,7 @@ async function fetchGitHubPage<T>(
     headers: {
       Authorization: `token ${token}`,
       Accept: "application/vnd.github.v3+json",
+      "User-Agent": "machinen-github-ingestor/1.0",
     },
   });
 

@@ -1,6 +1,7 @@
 export interface GitHubProjectItem {
-  id: string;
-  content_id: number;
+  id: string | number;
+  content_node_id?: string;
+  content_id?: number;
   content_type: "Issue" | "PullRequest" | "DraftIssue";
   project_node_id: string;
   field_values?: Array<{

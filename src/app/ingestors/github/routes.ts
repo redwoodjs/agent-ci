@@ -383,6 +383,7 @@ async function githubWebhookHandler({ request }: RequestInfo) {
           action,
           contentType: projects_v2_item.content_type,
           contentId: projects_v2_item.content_id,
+          contentNodeId: projects_v2_item.content_node_id,
         });
         await processProjectItemEvent(
           projects_v2_item,

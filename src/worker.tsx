@@ -69,6 +69,7 @@ export default {
       try {
         if (
           (queueName === "github-scheduler-queue" ||
+            queueName === "github-scheduler-queue-prod" ||
             queueName === "SCHEDULER_QUEUE") &&
           queueMessage.type === "scheduler"
         ) {
@@ -76,6 +77,7 @@ export default {
           message.ack();
         } else if (
           (queueName === "github-processor-queue" ||
+            queueName === "github-processor-queue-prod" ||
             queueName === "PROCESSOR_QUEUE") &&
           queueMessage.type === "processor"
         ) {
@@ -83,6 +85,7 @@ export default {
           message.ack();
         } else if (
           (queueName === "github-processor-queue-dlq" ||
+            queueName === "github-processor-queue-prod-dlq" ||
             queueName === "PROCESSOR_QUEUE_DLQ") &&
           queueMessage.type === "processor"
         ) {

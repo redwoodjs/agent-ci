@@ -50,8 +50,16 @@ The GitHub ingestor includes a backfill mechanism to ingest historical data from
    - `read:org` (for accessing organization-level data)
    - `read:project` (for accessing Projects v2 data via GraphQL API)
 
-2. **Create Queues**: The backfill system uses Cloudflare Queues. These must be created manually before deployment:
+2. **Create Queues**: The backfill system uses Cloudflare Queues. These must be created manually before deployment. Each environment (test/production) needs its own set of queues.
 
+   **For production (default) environment:**
+   ```bash
+   npx wrangler queues create github-scheduler-queue-prod
+   npx wrangler queues create github-processor-queue-prod
+   npx wrangler queues create github-processor-queue-prod-dlq
+   ```
+
+   **For test environment:**
    ```bash
    npx wrangler queues create github-scheduler-queue
    npx wrangler queues create github-processor-queue
@@ -61,6 +69,11 @@ The GitHub ingestor includes a backfill mechanism to ingest historical data from
    You can verify they exist:
    ```bash
    wrangler queues list
+   ```
+
+   **Note**: When deploying to test, use the `--env test` flag:
+   ```bash
+   npx wrangler deploy --env test
    ```
 
 ### Usage

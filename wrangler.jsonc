@@ -61,32 +61,67 @@
   "queues": {
     "producers": [
       {
-        "queue": "github-scheduler-queue",
+        "queue": "github-scheduler-queue-prod",
         "binding": "SCHEDULER_QUEUE"
       },
       {
-        "queue": "github-processor-queue",
+        "queue": "github-processor-queue-prod",
         "binding": "PROCESSOR_QUEUE"
       }
     ],
     "consumers": [
       {
-        "queue": "github-scheduler-queue",
+        "queue": "github-scheduler-queue-prod",
         "max_batch_size": 10,
         "max_batch_timeout": 30
       },
       {
-        "queue": "github-processor-queue",
+        "queue": "github-processor-queue-prod",
         "max_batch_size": 100,
         "max_batch_timeout": 30,
-        "dead_letter_queue": "github-processor-queue-dlq",
+        "dead_letter_queue": "github-processor-queue-prod-dlq",
         "max_retries": 3
       },
       {
-        "queue": "github-processor-queue-dlq",
+        "queue": "github-processor-queue-prod-dlq",
         "max_batch_size": 10,
         "max_batch_timeout": 30
       }
     ]
+  },
+  "env": {
+    "test": {
+      "queues": {
+        "producers": [
+          {
+            "queue": "github-scheduler-queue",
+            "binding": "SCHEDULER_QUEUE"
+          },
+          {
+            "queue": "github-processor-queue",
+            "binding": "PROCESSOR_QUEUE"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "github-scheduler-queue",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "github-processor-queue",
+            "max_batch_size": 100,
+            "max_batch_timeout": 30,
+            "dead_letter_queue": "github-processor-queue-dlq",
+            "max_retries": 3
+          },
+          {
+            "queue": "github-processor-queue-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          }
+        ]
+      }
+    }
   }
 }

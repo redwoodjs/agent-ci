@@ -764,3 +764,59 @@ I will pause all other work and focus on implementing this architectural pivot. 
 1.  **Full Re-Backfill**: After deployment, trigger a fresh backfill for the `redwoodjs/machinen` repository.
 2.  **Data Deletion**: The old, fragmented data in the `github-ingest` directory will need to be manually deleted from the R2 bucket.
 3.  **Verification**: Sync the new `github` directory from R2 locally and verify that the structure is correct, the `latest.md` files are complete, and the `history/` diffs are being generated as expected.
+
+## 2025-11-08: Third Architectural Pivot - Denormalization for AI/RAG
+
+### Problem: A Normalized Store for a Denormalized World
+
+After reviewing the "Latest State" implementation, I've realized there's a deeper mismatch between our data structure and its ultimate purpose. We are building a highly normalized, database-like structure in R2: issues, pull requests, and comments are all stored as separate, self-contained entities.
+
+The end goal, however, is to feed this data into a Vector Database to power a RAG (Retrieval-Augmented Generation) system. For a RAG system to work effectively, it needs context. When it retrieves a document about a pull request, that document should be as complete as possible. It shouldn't have to perform complex "joins" across multiple, separate documents (one for the PR, dozens for its comments) to understand the full conversation.
+
+The current model is inefficient for the AI. It forces the retrieval step to find not just the parent entity, but also all of its children, and then requires the generation step to synthesize these disparate pieces of information. This is slow, complex, and likely to miss context. We're optimizing for storage purity, not for retrieval effectiveness.
+
+### Solution: A "Page-Centric" Denormalized Model
+
+I am going to attempt a third architectural approach. The guiding principle will be to structure the data not as discrete database records, but as complete, human-readable "pages" that mirror what a user would see in the GitHub UI. This means denormalizing the data, embedding child entities within their parents.
+
+**New R2 Structure:**
+
+1.  **Issues and Pull Requests**:
+    *   The `latest.md` for an issue or PR will contain the full body of the issue/PR, *followed by the full text of all its comments*, separated by horizontal rules. It will be a single, cohesive document representing the entire conversation.
+    *   When a comment is created or edited, we will not write to a separate comment entity. Instead, we will fetch the parent issue/PR, reconstruct its `latest.md` with the new/updated comment, and overwrite the parent's file.
+    *   The `history.json` file for the issue/PR will now store diffs for *any* change to the conversation, whether it's an edit to the PR body or an edit to one of its comments.
+    *   This eliminates the need for separate `comments/` directories and entities entirely.
+
+2.  **Projects**:
+    *   The `latest.md` for a project will contain the project's description, followed by a Markdown representation of all its items.
+    *   The items list will be structured to be human- and LLM-readable, referencing the linked issue or PR (e.g., `- [In Progress] Fix the login bug (#54)`). This provides a direct, readable link for the AI to follow.
+    *   When a project item is moved or edited, the parent project's `latest.md` is rebuilt and overwritten, and a diff is added to the project's `history.json`.
+    *   This eliminates the need for separate `project_items/` directories and entities.
+
+### Other Structural Cleanups
+
+*   **Eliminate `_projects`**: The synthetic `_projects` repository was a pragmatic choice to handle org-level webhooks, but it's not intuitive. I will flatten this structure. Project data will live at `github/{owner}/projects/{number}/`, removing the intermediate `_projects` directory. This makes the path cleaner and more predictable. The logic will need to be updated to handle this new path, but the principle of having a central place for an organization's projects remains.
+
+### Plan of Action
+
+This is another significant refactoring. I will proceed with the following plan after you've had a chance to review it.
+
+1.  **Refactor Comment Processing**:
+    *   The `comment-processor` will be heavily modified. Instead of writing its own files, its job will be to identify the parent issue or PR.
+    *   It will then need to trigger a re-processing of that parent entity. This might involve calling the `issue-processor` or `pr-processor` directly, or enqueuing a job for them. The parent processor will then be responsible for fetching all associated comments and rebuilding the composite `latest.md`.
+
+2.  **Refactor Issue and PR Processors**:
+    *   Update `issue-processor` and `pr-processor` to fetch not just the main entity, but also all of its associated comments from the GitHub API.
+    *   Modify the `issueToMarkdown` and `prToMarkdown` utilities to generate a single Markdown file that includes the parent body and all comments.
+    *   Update the diffing logic to handle this new, larger data structure.
+
+3.  **Refactor Project Processing**:
+    *   Similarly, modify the `project-processor` to fetch all of its items.
+    *   Update `projectToMarkdown` to generate a composite file.
+    *   Rework the `project-item-processor` to trigger updates on the parent project.
+
+4.  **Update R2 Key Generation**:
+    *   Remove the `_projects` segment from the project R2 key generation logic.
+
+5.  **Database and Entity Cleanup**:
+    *   The `comments` and `project_items` tables in the database may become obsolete and can be removed in a future migration. For now, they can be left as-is, but the processors will no longer write to them.

@@ -73,7 +73,7 @@ The GitHub ingestor includes a backfill mechanism to ingest historical data from
 
    **Note**: When deploying to test, use the `--env test` flag:
    ```bash
-   npx wrangler deploy --env test
+CLOUDFLARE_ENV=test pnpm release
    ```
 
 ### Usage

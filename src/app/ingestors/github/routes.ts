@@ -26,7 +26,7 @@ declare module "rwsdk/worker" {
 
 interface GitHubWebhookPayload {
   action: string;
-  issue?: GitHubIssue | { id?: number; number?: number };
+  issue?: GitHubIssue | { id?: number; number?: number; pull_request?: { url?: string; html_url?: string; diff_url?: string; patch_url?: string } };
   pull_request?: GitHubPullRequest | { id?: number; number?: number };
   comment?: GitHubComment;
   release?: GitHubRelease;
@@ -170,7 +170,15 @@ async function githubWebhookHandler({ request }: RequestInfo) {
         const issueNumber =
           (issue as GitHubIssue)?.number ||
           (issue as { number?: number })?.number;
-        await processCommentEvent(comment, action, repository, issueNumber);
+        
+        const issueObj = issue as { number?: number; pull_request?: { url?: string; html_url?: string; diff_url?: string; patch_url?: string } };
+        const isPullRequest = !!issueObj?.pull_request;
+        
+        if (isPullRequest) {
+          await processCommentEvent(comment, action, repository, undefined, issueNumber);
+        } else {
+          await processCommentEvent(comment, action, repository, issueNumber);
+        }
         return new Response("Comment processed", { status: 202 });
       } catch (error) {
         console.error("[github ingest] Error processing comment:", error);

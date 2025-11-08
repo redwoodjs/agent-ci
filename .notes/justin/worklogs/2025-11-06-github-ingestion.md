@@ -832,3 +832,32 @@ This is another significant refactoring. I will proceed with the following plan 
 - `pull_request_review_comment` handler now extracts `pull_request.number`
 
 This ensures that when a comment is created/edited/deleted, the parent issue or PR can be correctly fetched and re-processed with the updated comments embedded.
+
+## PR Description
+
+This PR introduces the GitHub ingestion pipeline, an architecture designed to solve a set of complex challenges in creating a durable, AI-ready knowledge base from GitHub activity.
+
+### The Narrative: Structuring Data for AI
+
+The central challenge is structuring the data for its end use in a Retrieval-Augmented Generation (RAG) system. A RAG system, built on a vector database, is source-agnostic and cannot perform the relational "joins" needed to make sense of a normalized data store where issues and comments are separate. This requirement for a "pre-joined," page-centric data model informs every other aspect of the architecture.
+
+To deliver this, the system also has to solve for:
+
+*   **Data Completeness**: How to create complete records when the primary data source (webhooks) provides only partial updates.
+*   **Backfill Resilience**: How to manage a long-running backfill process without it being susceptible to transient failures.
+*   **Structural Ambiguity**: How to handle entities like GitHub Projects that don't belong to a single repository.
+
+The architecture solves these problems with a **"page-centric" model** where the `latest.md` for an issue or pull request contains the full body *and* all of its comments. This is supported by a **"latest state" ingestion model** where webhooks act only as triggers to fetch the complete entity from the API, ensuring data completeness.
+
+For large-scale ingestion, a **queue-driven backfill system** with a stateful Durable Object manages the process, making it resumable. A Dead-Letter Queue handles persistent failures, allowing jobs to be paused and fixed. Finally, **synthetic keys** are used during processing to handle organization-level entities, ensuring all data is captured regardless of its source.
+
+While `latest.md` holds the current state, a `history/` subdirectory for each entity stores timestamped JSON diffs, preserving a machine-readable audit trail of all changes.
+
+### New Functionality
+
+*   **Webhook Endpoint**: `POST /ingestors/github/webhook` for real-time event ingestion.
+*   **Backfill Endpoint**: `POST /ingestors/github/backfill` to trigger and manage historical backfills.
+
+### Setup and Usage
+
+Check out the [README](https://github.com/redwoodjs/machinen/blob/61feb84e4b3141b95bc46c339d000af22f872913/src/app/ingestors/github/README.md)

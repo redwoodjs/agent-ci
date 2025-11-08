@@ -820,3 +820,15 @@ This is another significant refactoring. I will proceed with the following plan 
 
 5.  **Database and Entity Cleanup**:
     *   The `comments` and `project_items` tables in the database may become obsolete and can be removed in a future migration. For now, they can be left as-is, but the processors will no longer write to them.
+
+## Bug Fix: Comment Processing Using Issue ID Instead of Number
+
+**Problem**: When processing `issue_comment` webhook events, the code was extracting `issue.id` (GitHub's internal ID, e.g., 3598460411) instead of `issue.number` (the issue number, e.g., 58). The GitHub API endpoint `/repos/{owner}/{repo}/issues/{number}` requires the issue number, not the ID, resulting in 404 errors when trying to fetch the full issue.
+
+**Root Cause**: In `routes.ts`, the `issue_comment` and `pull_request_review_comment` handlers were extracting `id` fields instead of `number` fields from the webhook payload.
+
+**Fix**: Updated both handlers to extract `number` instead of `id`:
+- `issue_comment` handler now extracts `issue.number`
+- `pull_request_review_comment` handler now extracts `pull_request.number`
+
+This ensures that when a comment is created/edited/deleted, the parent issue or PR can be correctly fetched and re-processed with the updated comments embedded.

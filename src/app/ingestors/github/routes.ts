@@ -167,9 +167,10 @@ async function githubWebhookHandler({ request }: RequestInfo) {
 
     if (action === "created" || action === "edited" || action === "deleted") {
       try {
-        const issueId =
-          (issue as GitHubIssue)?.id || (issue as { id?: number })?.id;
-        await processCommentEvent(comment, action, repository, issueId);
+        const issueNumber =
+          (issue as GitHubIssue)?.number ||
+          (issue as { number?: number })?.number;
+        await processCommentEvent(comment, action, repository, issueNumber);
         return new Response("Comment processed", { status: 202 });
       } catch (error) {
         console.error("[github ingest] Error processing comment:", error);
@@ -195,16 +196,16 @@ async function githubWebhookHandler({ request }: RequestInfo) {
 
     if (action === "created" || action === "edited" || action === "deleted") {
       try {
-        const pullRequestId =
-          (pull_request as GitHubPullRequest)?.id ||
-          (pull_request as { id?: number })?.id;
+        const pullRequestNumber =
+          (pull_request as GitHubPullRequest)?.number ||
+          (pull_request as { number?: number })?.number;
         const reviewId = comment.pull_request_review_id;
         await processCommentEvent(
           comment,
           action,
           repository,
           undefined,
-          pullRequestId,
+          pullRequestNumber,
           reviewId
         );
         return new Response("Review comment processed", { status: 202 });

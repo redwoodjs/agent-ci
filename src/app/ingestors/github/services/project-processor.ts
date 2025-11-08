@@ -2,9 +2,20 @@ import { env } from "cloudflare:workers";
 import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "../db/migrations";
 import { type GitHubRepoDurableObject } from "../db/durableObject";
-import { projectToMarkdown, type GitHubProject } from "../utils/project-to-markdown";
-import { fetchGitHubProject } from "../utils/github-api";
+import {
+  projectToMarkdown,
+  type GitHubProject,
+  type ProjectItemWithTitle,
+} from "../utils/project-to-markdown";
+import {
+  fetchGitHubProject,
+  fetchProjectItems,
+  fetchGitHubEntity,
+  type GitHubProjectItem,
+} from "../utils/github-api";
 import { generateDiff } from "../utils/diff";
+import type { GitHubIssue } from "../utils/issue-to-markdown";
+import type { GitHubPullRequest } from "../utils/pr-to-markdown";
 
 type GitHubDatabase = Database<typeof migrations>;
 
@@ -22,19 +33,17 @@ function getRepositoryKey(repoOwner: string, repoName: string): string {
 
 function getLatestR2Key(
   repoOwner: string,
-  repoName: string,
   projectIdentifier: string | number
 ): string {
-  return `github/${repoOwner}/${repoName}/projects/${projectIdentifier}/latest.md`;
+  return `github/${repoOwner}/projects/${projectIdentifier}/latest.md`;
 }
 
 function getHistoryR2Key(
   repoOwner: string,
-  repoName: string,
   projectIdentifier: string | number,
   timestampForFilename: string
 ): string {
-  return `github/${repoOwner}/${repoName}/projects/${projectIdentifier}/history/${timestampForFilename}.json`;
+  return `github/${repoOwner}/projects/${projectIdentifier}/history/${timestampForFilename}.json`;
 }
 
 async function parseProjectFromMarkdown(
@@ -142,7 +151,29 @@ export async function processProjectEvent(
   };
 
   const projectIdentifier = fullProject.number || fullProject.id;
-  const latestR2Key = getLatestR2Key(repoOwner, repoName, projectIdentifier);
+  const latestR2Key = getLatestR2Key(repoOwner, projectIdentifier);
+
+  let itemsWithTitles: ProjectItemWithTitle[] = [];
+  try {
+    const items = await fetchProjectItems(fullProject.id);
+    itemsWithTitles = items.map((item) => {
+      return {
+        id: item.id,
+        content_id: item.content_id,
+        content_type: item.content_type,
+        title: undefined,
+        field_values: item.field_values?.map((fv) => ({
+          name: fv.name,
+          value: fv.value,
+        })),
+      };
+    });
+  } catch (error) {
+    console.warn(
+      `[project-processor] Failed to fetch project items for project ${projectIdentifier}:`,
+      error
+    );
+  }
 
   const now = new Date().toISOString();
   let state: "open" | "closed";
@@ -188,20 +219,23 @@ export async function processProjectEvent(
     .join("")
     .substring(0, 16);
 
-  const markdown = projectToMarkdown(fullProject, {
-    github_id: fullProject.id,
-    state: state,
-    created_at: fullProject.created_at,
-    updated_at: now,
-    version_hash: versionHashStr,
-  });
+  const markdown = projectToMarkdown(
+    fullProject,
+    {
+      github_id: fullProject.id,
+      state: state,
+      created_at: fullProject.created_at,
+      updated_at: now,
+      version_hash: versionHashStr,
+    },
+    itemsWithTitles
+  );
 
   await env.MACHINEN_BUCKET.put(latestR2Key, markdown);
 
   if (hasChanges && diff) {
     const historyR2Key = getHistoryR2Key(
       repoOwner,
-      repoName,
       projectIdentifier,
       diff.timestampForFilename
     );

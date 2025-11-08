@@ -3,7 +3,11 @@ import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "../db/migrations";
 import { type GitHubRepoDurableObject } from "../db/durableObject";
 import { issueToMarkdown, type GitHubIssue } from "../utils/issue-to-markdown";
-import { fetchGitHubEntity } from "../utils/github-api";
+import {
+  fetchGitHubEntity,
+  fetchIssueComments,
+  type GitHubComment,
+} from "../utils/github-api";
 import { generateDiff, type EntityDiff } from "../utils/diff";
 
 type GitHubDatabase = Database<typeof migrations>;
@@ -128,6 +132,16 @@ export async function processIssueEvent(
     throw error;
   }
 
+  let comments: GitHubComment[] = [];
+  try {
+    comments = await fetchIssueComments(repoOwner, repoName, issueNumber);
+  } catch (error) {
+    console.warn(
+      `[issue-processor] Failed to fetch comments for issue #${issueNumber}:`,
+      error
+    );
+  }
+
   const now = new Date().toISOString();
   let state: "open" | "closed";
   if (eventType === "closed") {
@@ -179,7 +193,7 @@ export async function processIssueEvent(
     created_at: fullIssue.created_at,
     updated_at: now,
     version_hash: versionHashStr,
-  });
+  }, comments);
 
   await env.MACHINEN_BUCKET.put(latestR2Key, markdown);
 

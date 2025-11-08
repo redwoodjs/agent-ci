@@ -56,9 +56,21 @@ function escapeYamlValue(value: string | number | boolean): string {
   return str;
 }
 
+export interface GitHubComment {
+  id: number;
+  body: string;
+  created_at: string;
+  updated_at: string;
+  user: {
+    login: string;
+    avatar_url?: string;
+  };
+}
+
 export function prToMarkdown(
   pr: GitHubPullRequest,
-  metadata: PullRequestMetadata
+  metadata: PullRequestMetadata,
+  comments?: GitHubComment[]
 ): string {
   const frontMatterLines = [
     `github_id: ${metadata.github_id}`,
@@ -92,13 +104,24 @@ export function prToMarkdown(
   const frontMatter = frontMatterLines.join("\n");
   const body = pr.body || "_No description provided._";
 
+  let commentsSection = "";
+  if (comments && comments.length > 0) {
+    const commentsText = comments
+      .map(
+        (comment) =>
+          `---\n\n**Comment by @${comment.user.login}** (${comment.created_at})\n\n${comment.body}`
+      )
+      .join("\n\n");
+    commentsSection = `\n\n---\n\n## Comments\n\n${commentsText}`;
+  }
+
   return `---
 ${frontMatter}
 ---
 
 # ${pr.title}
 
-${body}
+${body}${commentsSection}
 `;
 }
 

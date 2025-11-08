@@ -3,7 +3,12 @@ import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "../db/migrations";
 import { type GitHubRepoDurableObject } from "../db/durableObject";
 import { prToMarkdown, type GitHubPullRequest } from "../utils/pr-to-markdown";
-import { fetchGitHubEntity } from "../utils/github-api";
+import {
+  fetchGitHubEntity,
+  fetchIssueComments,
+  fetchPullRequestComments,
+  type GitHubComment,
+} from "../utils/github-api";
 import { generateDiff } from "../utils/diff";
 
 type GitHubDatabase = Database<typeof migrations>;
@@ -147,6 +152,20 @@ export async function processPullRequestEvent(
     throw error;
   }
 
+  let comments: GitHubComment[] = [];
+  try {
+    const [issueComments, reviewComments] = await Promise.all([
+      fetchIssueComments(repoOwner, repoName, prNumber).catch(() => []),
+      fetchPullRequestComments(repoOwner, repoName, prNumber).catch(() => []),
+    ]);
+    comments = [...issueComments, ...reviewComments];
+  } catch (error) {
+    console.warn(
+      `[pr-processor] Failed to fetch comments for PR #${prNumber}:`,
+      error
+    );
+  }
+
   const now = new Date().toISOString();
   let state: "open" | "closed" | "merged";
   if (eventType === "merged") {
@@ -204,7 +223,7 @@ export async function processPullRequestEvent(
     created_at: fullPR.created_at,
     updated_at: now,
     version_hash: versionHashStr,
-  });
+  }, comments);
 
   await env.MACHINEN_BUCKET.put(latestR2Key, markdown);
 

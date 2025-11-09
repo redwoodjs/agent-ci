@@ -71,3 +71,73 @@ This is about the features that improve the quality of the final RAG output.
 *   **Key Question:** Does it support hybrid search (combining keyword and vector search)?
 *   **Managed:** Often, yes. This is becoming a standard feature in mature vector search solutions.
 *   **DIY:** No, not out of the box. We would have to implement a separate keyword search system and manually combine the results.
+
+### 3.5. Tooling & Integration
+*   **Embedding Models:** For the POC, we will use the embedding models available directly through Cloudflare Workers AI. This simplifies the architecture by keeping the entire process within the Cloudflare ecosystem, avoiding the need for external API calls to services like OpenAI or Cohere.
+
+## 4. Engine Architecture Blueprint
+
+The core of the POC is the "Engine," a central orchestrator responsible for the entire RAG pipeline. The design is based on a plugin architecture, similar to Vite or ESLint, where the engine manages a core processing chain and plugins can "hook" into various stages to provide extensible functionality.
+
+### 4.1. Design Principles & Deliberations
+
+*   **Descriptive Naming:** Hook names should be clear and descriptive (e.g., `prepareSourceDocument` instead of a generic `transform`) to make the purpose of each stage obvious.
+*   **Explicit Plugin Composition:** The method for combining the outputs of multiple plugins for the same hook must be clearly defined. A single hook can't be both a "reducer" and a "collector." This led to defining specific composition strategies.
+*   **Data Provenance:** All data structures that flow through the system (e.g., `Document`, `Chunk`) must retain a clear reference back to the original source R2 object key. This is essential for retrieving the raw context and providing citations.
+
+### 4.2. Plugin Composition Strategies
+
+The engine will support different strategies for composing plugin outputs, depending on the hook:
+
+*   **Waterfall:** The output of one plugin becomes the input for the next, in a defined order. This is for sequential refinement. `(data) => pluginC(pluginB(pluginA(data)))`.
+*   **First-Match:** The engine tries plugins in order until one successfully handles the input and returns a non-null result. This is for source-specific logic where only one plugin should act.
+*   **Collector:** Each plugin can contribute a piece of a final collection (e.g., a filter clause). The engine aggregates these pieces into a final result (e.g., by joining with an `AND` operator).
+
+### 4.3. The Indexing Chain
+
+The indexing process is designed to be robust and scalable, handling both the initial backfill of existing data and the continuous ingestion of new objects.
+
+*   **Trigger Mechanism:** The system uses a queue-based architecture.
+    *   **Cron Job (Batch/Backfill):** A scheduled Worker runs periodically to scan R2 for unprocessed objects, sending them in batches to a Cloudflare Queue. This is the primary mechanism for the POC and for ensuring data integrity.
+    *   **R2 Events (Real-time):** Optionally, an R2 object-create event can also trigger a function to send a new object's key to the same queue for low-latency ingestion.
+    *   **Queue Consumer:** A dedicated Worker consumes from this queue, running the indexing pipeline for each object.
+
+*   **Pipeline Stages:**
+
+    *   **`prepareSourceDocument`**
+        *   **Composition:** First-Match
+        *   **Description:** Finds the correct plugin for the source (e.g., `GitHubPlugin` for a GitHub PR). The plugin extracts the primary text content and essential metadata into a standardized `Document` object, ensuring the original R2 object key is preserved.
+
+    *   **`splitDocumentIntoChunks`**
+        *   **Composition:** First-Match
+        *   **Description:** Finds the right strategy (e.g., a Markdown chunker) to split the `Document`'s text into smaller `Chunk` objects. Each chunk inherits the parent document's metadata and R2 key.
+
+    *   **`enrichChunk`**
+        *   **Composition:** Waterfall
+        *   **Description:** Each plugin receives a `Chunk` and can add or modify its metadata. This is for things like topic labeling, PII redaction, or adding keyword tags for hybrid search later.
+
+### 4.4. The Query Chain
+
+This pipeline is triggered by a user's query.
+
+*   **Pipeline Stages:**
+
+    *   **`prepareSearchQuery`**
+        *   **Composition:** Waterfall
+        *   **Description:** Each plugin can modify the user's raw query string. This is for expansion, clarification, or adding keywords. The output of one plugin is passed to the next.
+
+    *   **`buildVectorSearchFilter`**
+        *   **Composition:** Collector
+        *   **Description:** Each plugin can contribute a part of the `where` clause for the Vectorize query. The engine combines these clauses (e.g., with an `AND` operator) to create the final, efficient filter.
+
+    *   **`rerankSearchResults`**
+        *   **Composition:** Waterfall
+        *   **Description:** After the initial query to Vectorize, each plugin receives the list of results and can re-order, remove, or boost items. The output list is passed to the next reranker.
+
+    *   **`composeLlmPrompt`**
+        *   **Composition:** Waterfall
+        *   **Description:** The first plugin creates a base prompt from the final ranked chunks. Subsequent plugins can then *modify* that prompt (e.g., add system instructions, examples, or formatting).
+
+    *   **`formatFinalResponse`**
+        *   **Composition:** Waterfall
+        *   **Description:** The first plugin might format the raw LLM output (e.g., into basic Markdown). Subsequent plugins can then enrich it, for example by adding source links and citations to the final object.

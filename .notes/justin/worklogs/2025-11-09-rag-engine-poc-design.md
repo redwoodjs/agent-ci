@@ -194,3 +194,35 @@ The key to handling heterogeneous search results lies in a contract between the 
     5.  Concatenating these snippets into a single, coherent context block to be included in the prompt for the LLM.
 
 This architecture ensures that the indexing process is robust and the querying process is flexible, allowing the system to construct targeted, high-quality prompts from diverse data sources.
+
+## 6. Implementation Plan: Path to POC
+
+This plan outlines the minimal, sequential tasks required to build a proof-of-concept of the RAG engine, focusing on the GitHub data source.
+
+### Phase 1: Foundation & Setup
+1.  **Setup RAG Engine Project:** Create the directory structure, `package.json`, and basic configuration for the new RAG engine worker.
+2.  **Define Core Types:** Implement the core TypeScript interfaces for the engine, including `Engine`, `Plugin`, `Document`, `Chunk`, and the `ChunkMetadata` structure.
+
+### Phase 2: Update the Ingestor
+3.  **Modify GitHub Ingestor for `latest.json` Output:** Update the existing GitHub ingestor's processors and backfill logic. The goal is for both real-time webhooks and the existing backfill mechanism (`POST /ingestors/github/backfill`) to generate `latest.json` files instead of `latest.md`. This will serve as the mechanism to populate R2 with data for the POC.
+
+### Phase 3: The Indexing Pipeline (MVP)
+4.  **Build the Indexing Engine Core:** Implement the main orchestrator logic that can process an R2 object key through the indexing pipeline hooks (`prepareSourceDocument`, `splitDocumentIntoChunks`).
+5.  **Implement the GitHub Indexing Plugin:** Create the first plugin. It will be responsible for:
+    *   `prepareSourceDocument`: Reading the `latest.json` from R2.
+    *   `splitDocumentIntoChunks`: Implementing the logic to split the body and comments into separate chunks with the rich metadata we defined.
+6.  **Implement the Indexing Worker:** Create the queue consumer worker. This worker will:
+    *   Take an R2 key from a queue.
+    *   Run it through the indexing engine.
+    *   Call the Cloudflare AI API to generate embeddings for each chunk.
+    *   Insert the vectors and their metadata into our Cloudflare Vectorize index.
+
+### Phase 4: The Query Pipeline (MVP)
+7.  **Build the Query Engine Core:** Implement the orchestrator logic for the query pipeline.
+8.  **Create the Query API Endpoint:** Set up an HTTP endpoint in a worker that will accept a user's search query.
+9.  **Implement the Dynamic Prompt Plugin:** This is the most critical query plugin. It will hook into `composeLlmPrompt` and contain the logic to:
+    *   Receive the ranked list of chunk metadata from Vectorize.
+    *   Fetch the necessary `latest.json` files from R2.
+    *   Use the `jsonPath` from the metadata to extract the text.
+    *   Assemble the final context string for the LLM.
+10. **Integrate LLM and Return Response:** The query endpoint will orchestrate calling the Vectorize API, running the query engine, passing the result to a Cloudflare AI LLM, and returning the raw text response.

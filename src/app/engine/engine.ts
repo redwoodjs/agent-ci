@@ -90,41 +90,23 @@ export async function query(
   );
 
   let prompt: string | null = null;
-  let firstPluginIndex = -1;
 
-  for (let i = 0; i < context.plugins.length; i++) {
-    const plugin = context.plugins[i];
+  for (const plugin of context.plugins) {
     if (plugin.composeLlmPrompt) {
       const result = await plugin.composeLlmPrompt(
         rerankedResults,
         processedQuery,
-        queryContext
+        queryContext,
+        prompt || undefined
       );
       if (result) {
         prompt = result;
-        firstPluginIndex = i;
-        break;
       }
     }
   }
 
   if (!prompt) {
     throw new Error("No plugin could compose LLM prompt");
-  }
-
-  for (let i = firstPluginIndex + 1; i < context.plugins.length; i++) {
-    const plugin = context.plugins[i];
-    if (plugin.composeLlmPrompt) {
-      const modifiedPrompt = await plugin.composeLlmPrompt(
-        rerankedResults,
-        processedQuery,
-        queryContext,
-        prompt
-      );
-      if (modifiedPrompt) {
-        prompt = modifiedPrompt;
-      }
-    }
   }
 
   const llmResponse = await callLlm(prompt, context.env);

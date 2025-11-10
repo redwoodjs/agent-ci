@@ -202,18 +202,18 @@ This plan prioritizes building plugins first and validating the engine's design 
 ### Phase 1: Foundation & Setup (Completed)
 *   The core types (`Document`, `Chunk`, etc.) and engine function shells (`indexDocument`, `query`) are already in place, providing a harness for plugin development.
 
-### Phase 2: Validate Engine Design with GitHub Indexing Plugin
+### Phase 2: Validate Engine Design with GitHub Plugin (Indexing + Query)
 1.  **Implement GitHub Indexing Plugin (MVP):** Create the first plugin. The focus will be on implementing the `prepareSourceDocument` and `splitDocumentIntoChunks` hooks to correctly process a GitHub `latest.json` file from R2. This will be tested against manually created test data or existing `latest.md` files converted to JSON format.
-2.  **Validate Engine Design:** Test the plugin with the current `indexDocument` engine function. This step will reveal whether the engine's interface and logic need adjustments. If the engine looks good, proceed to the next phase. If not, iterate on the engine design.
+2.  **Implement GitHub Query Plugin (MVP):** Implement the query-side hooks, primarily `composeLlmPrompt`. This hook will receive chunk metadata from vector search, fetch the original content from source `latest.json` files in R2 using `jsonPath`, and assemble a coherent prompt. This validates the query API design alongside the indexing API.
+3.  **Validate Engine Design:** Test both indexing and querying with the current engine functions. This step will reveal whether the engine's interface and logic need adjustments. If the engine looks good, proceed to the next phase. If not, iterate on the engine design.
 
 ### Phase 3: Update the Ingestor
-3.  **Modify GitHub Ingestor:** Once the engine design is validated, update the existing GitHub ingestor and its backfill logic to produce `latest.json` files instead of `latest.md`. This populates R2 with the correct data format for the indexing pipeline.
+4.  **Modify GitHub Ingestor:** Once the engine design is validated, update the existing GitHub ingestor and its backfill logic to produce `latest.json` files instead of `latest.md`. This populates R2 with the correct data format for the indexing pipeline.
 
 ### Phase 4: Complete Indexing Pipeline
-4.  **Implement Minimal Indexing Worker:** Build the queue consumer worker. This worker will call the `indexDocument` engine function, passing in the GitHub plugin. Its responsibility is to take the chunks returned by the engine, generate embeddings, and insert them into Vectorize.
-5.  **Test Indexing End-to-End:** Trigger a backfill for the GitHub ingestor. Once complete, manually enqueue a few R2 keys for `latest.json` files to verify that the entire indexing pipeline is creating vectors as expected.
+5.  **Implement Minimal Indexing Worker:** Build the queue consumer worker. This worker will call the `indexDocument` engine function, passing in the GitHub plugin. Its responsibility is to take the chunks returned by the engine, generate embeddings, and insert them into Vectorize.
+6.  **Test Indexing End-to-End:** Trigger a backfill for the GitHub ingestor. Once complete, manually enqueue a few R2 keys for `latest.json` files to verify that the entire indexing pipeline is creating vectors as expected.
 
-### Phase 5: Query Pipeline (Plugin-First)
-6.  **Implement Dynamic Prompt Plugin (MVP):** Create the query-side plugin. The focus will be on implementing the `composeLlmPrompt` hook. This hook will contain the logic to receive chunk metadata from the vector search, fetch the original content from the source `latest.json` files in R2, and assemble a coherent prompt.
-7.  **Implement Minimal Query API:** Build the API endpoint that takes a user's query. This endpoint will call the vector search, pass results to the `query` engine function (which will use the new prompt plugin), send the final prompt to the LLM, and return the response.
+### Phase 5: Complete Query Pipeline
+7.  **Implement Minimal Query API:** Build the API endpoint that takes a user's query. This endpoint will call the vector search, pass results to the `query` engine function (which will use the GitHub query plugin), send the final prompt to the LLM, and return the response.
 8.  **Test Querying End-to-End:** Hit the endpoint with test queries to validate the full retrieval, prompt composition, and generation loop.

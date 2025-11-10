@@ -25,6 +25,12 @@
     "binding": "AI",
     "remote": true
   },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE_INDEX",
+      "index_name": "rag-index"
+    }
+  ],
 
   "migrations": [
     {

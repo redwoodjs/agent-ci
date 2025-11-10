@@ -256,3 +256,27 @@ The solution was to make this contract explicit by enriching the metadata at ind
 3.  **Use at Query Time:** The `reconstructContext` hook now reads directly from this structured `sourceMetadata` object. It no longer needs to parse the R2 key.
 
 This final change decouples the query logic from the storage layout, makes the plugin's data contract explicit and self-contained, and makes the entire system more robust and maintainable.
+
+## 8. Revised Implementation Plan
+
+After completing Phase 2, the engine design has been validated through implementation. The GitHub plugin successfully exercises both the indexing and query pipelines, proving that the engine's interface and plugin architecture work as designed. The following is the revised plan moving forward:
+
+### Phase 1: Foundation & Setup (Completed)
+*   The core types (`Document`, `Chunk`, etc.) and engine function shells (`indexDocument`, `query`) are already in place, providing a harness for plugin development.
+
+### Phase 2: Validate Engine Design with GitHub Plugin (Indexing + Query) (Completed)
+1.  **Implement GitHub Indexing Plugin (MVP):** Completed. The plugin implements `prepareSourceDocument` and `splitDocumentIntoChunks` hooks, including the addition of explicit `sourceMetadata` for robust query-time reconstruction.
+2.  **Implement GitHub Query Plugin (MVP):** Completed. The plugin implements the two-stage architecture (`reconstructContext` and `composeLlmPrompt`), using explicit `sourceMetadata` instead of parsing R2 keys.
+
+**Validation Complete:** The engine design has been validated through implementation. The GitHub plugin successfully exercises both the indexing and query pipelines, proving that the engine's interface and plugin architecture work as designed.
+
+### Phase 3: Update the Ingestor
+3.  **Modify GitHub Ingestor:** Update the existing GitHub ingestor and its backfill logic to produce `latest.json` files instead of `latest.md`. This populates R2 with the correct data format for the indexing pipeline.
+
+### Phase 4: Complete Indexing Pipeline
+4.  **Implement Minimal Indexing Worker:** Build the queue consumer worker. This worker will call the `indexDocument` engine function, passing in the GitHub plugin. Its responsibility is to take the chunks returned by the engine, generate embeddings, and insert them into Vectorize.
+5.  **Test Indexing End-to-End:** Trigger a backfill for the GitHub ingestor. Once complete, manually enqueue a few R2 keys for `latest.json` files to verify that the entire indexing pipeline is creating vectors as expected.
+
+### Phase 5: Complete Query Pipeline
+6.  **Implement Minimal Query API:** Build the API endpoint that takes a user's query. This endpoint will call the vector search, pass results to the `query` engine function (which will use the GitHub query plugin), send the final prompt to the LLM, and return the response.
+7.  **Test Querying End-to-End:** Hit the endpoint with test queries to validate the full retrieval, prompt composition, and generation loop.

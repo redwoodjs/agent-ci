@@ -6,6 +6,7 @@ import type {
   IndexingHookContext,
   QueryHookContext,
   EngineContext,
+  ReconstructedContext,
 } from "./types";
 
 export async function indexDocument(
@@ -89,25 +90,31 @@ export async function query(
     (results, plugin) => plugin.rerankSearchResults?.(results, queryContext)
   );
 
-  let prompt: string | null = null;
+  const reconstructedContexts = await reconstructContexts(
+    rerankedResults,
+    context.plugins,
+    queryContext
+  );
 
+  const promptParts: string[] = [];
   for (const plugin of context.plugins) {
     if (plugin.composeLlmPrompt) {
       const result = await plugin.composeLlmPrompt(
-        rerankedResults,
+        reconstructedContexts,
         processedQuery,
-        queryContext,
-        prompt || undefined
+        queryContext
       );
       if (result) {
-        prompt = result;
+        promptParts.push(result);
       }
     }
   }
 
-  if (!prompt) {
+  if (promptParts.length === 0) {
     throw new Error("No plugin could compose LLM prompt");
   }
+
+  const prompt = promptParts.join("\n\n");
 
   const llmResponse = await callLlm(prompt, context.env);
 
@@ -120,6 +127,54 @@ export async function query(
   );
 
   return formattedResponse;
+}
+
+async function reconstructContexts(
+  chunks: ChunkMetadata[],
+  plugins: Plugin[],
+  queryContext: QueryHookContext
+): Promise<ReconstructedContext[]> {
+  const chunksByDocument = new Map<string, ChunkMetadata[]>();
+
+  for (const chunk of chunks) {
+    if (!chunk.documentId) {
+      continue;
+    }
+    if (!chunksByDocument.has(chunk.documentId)) {
+      chunksByDocument.set(chunk.documentId, []);
+    }
+    chunksByDocument.get(chunk.documentId)!.push(chunk);
+  }
+
+  const reconstructedContexts: ReconstructedContext[] = [];
+
+  for (const [documentId, documentChunks] of chunksByDocument) {
+    const bucket = queryContext.env.MACHINEN_BUCKET;
+    const object = await bucket.get(documentId);
+    if (!object) {
+      continue;
+    }
+
+    const jsonText = await object.text();
+    const sourceDocument = JSON.parse(jsonText);
+
+    const reconstructed = await runFirstMatchHook(
+      plugins,
+      "reconstructContext",
+      (plugin) =>
+        plugin.reconstructContext?.(
+          documentChunks,
+          sourceDocument,
+          queryContext
+        )
+    );
+
+    if (reconstructed) {
+      reconstructedContexts.push(reconstructed);
+    }
+  }
+
+  return reconstructedContexts;
 }
 
 async function runFirstMatchHook<T>(

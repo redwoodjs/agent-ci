@@ -6,11 +6,12 @@ export interface Document {
   type: string;
   content: string;
   metadata: {
-    title?: string;
-    url?: string;
+    title: string;
+    url: string;
     createdAt: string;
-    author?: string;
-    [key: string]: unknown;
+    author: string;
+    sourceMetadata?: Record<string, any>;
+    [key: string]: any;
   };
 }
 
@@ -25,12 +26,13 @@ export interface Chunk {
 export interface ChunkMetadata {
   chunkId: string;
   documentId: string;
-  source: Source;
+  source: string;
   type: string;
-  documentTitle?: string;
-  author?: string;
+  documentTitle: string;
+  author: string;
   jsonPath: string;
-  [key: string]: unknown;
+  sourceMetadata?: Record<string, any>;
+  [key: string]: any;
 }
 
 export type PluginCompositionStrategy =
@@ -69,17 +71,27 @@ export interface Plugin {
     results: ChunkMetadata[],
     context: QueryHookContext
   ) => Promise<ChunkMetadata[]>;
+  reconstructContext?: (
+    documentChunks: ChunkMetadata[],
+    sourceDocument: any,
+    context: QueryHookContext
+  ) => Promise<ReconstructedContext | null>;
   composeLlmPrompt?: (
-    chunks: ChunkMetadata[],
+    contexts: ReconstructedContext[],
     query: string,
-    context: QueryHookContext,
-    existingPrompt?: string
+    context: QueryHookContext
   ) => Promise<string>;
   formatFinalResponse?: (
     response: string,
     chunks: ChunkMetadata[],
     context: QueryHookContext
   ) => Promise<string>;
+}
+
+export interface ReconstructedContext {
+  content: string;
+  source: string;
+  primaryMetadata: ChunkMetadata;
 }
 
 export interface EngineContext {

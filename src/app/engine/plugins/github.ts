@@ -5,6 +5,7 @@ import type {
   ChunkMetadata,
   IndexingHookContext,
   QueryHookContext,
+  ReconstructedContext,
 } from "../types";
 
 interface GitHubLatestJson {
@@ -156,12 +157,13 @@ export const githubPlugin: Plugin = {
           url,
           createdAt: prIssueData.created_at,
           author: prIssueData.author,
-          github_id: prIssueData.github_id,
-          number: prIssueData.number,
-          state: prIssueData.state,
-          owner: parsed.owner,
-          repo: parsed.repo,
           _rawJson: prIssueData,
+          sourceMetadata: {
+            type: "github-pr-issue",
+            owner: parsed.owner,
+            repo: parsed.repo,
+            number: parsed.number,
+          },
         },
       };
     } else {
@@ -178,11 +180,12 @@ export const githubPlugin: Plugin = {
           url,
           createdAt: projectData.created_at,
           author: projectData.owner,
-          github_id: projectData.github_id,
-          number: projectData.number,
-          state: projectData.state,
-          owner: parsed.owner,
           _rawJson: projectData,
+          sourceMetadata: {
+            type: "github-project",
+            owner: parsed.owner,
+            number: parsed.number,
+          },
         },
       };
     }
@@ -228,9 +231,7 @@ export const githubPlugin: Plugin = {
             documentTitle: data.title,
             author: data.author,
             jsonPath: "$.body",
-            github_id: data.github_id,
-            number: data.number,
-            state: data.state,
+            sourceMetadata: document.metadata.sourceMetadata,
           },
         });
       }
@@ -254,10 +255,7 @@ export const githubPlugin: Plugin = {
               documentTitle: data.title,
               author: comment.author,
               jsonPath: `$.comments[${i}].body`,
-              github_id: data.github_id,
-              number: data.number,
-              comment_id: comment.id,
-              created_at: comment.created_at,
+              sourceMetadata: document.metadata.sourceMetadata,
             },
           });
         }
@@ -286,9 +284,7 @@ export const githubPlugin: Plugin = {
             documentTitle: data.title,
             author: data.owner,
             jsonPath: "$.body",
-            github_id: data.github_id,
-            number: data.number,
-            state: data.state,
+            sourceMetadata: document.metadata.sourceMetadata,
           },
         });
       }
@@ -319,10 +315,7 @@ export const githubPlugin: Plugin = {
               documentTitle: data.title,
               author: data.owner,
               jsonPath: `$.items[${i}]`,
-              github_id: data.github_id,
-              number: data.number,
-              content_id: item.content_id,
-              content_type: item.content_type,
+              sourceMetadata: document.metadata.sourceMetadata,
             },
           });
         }
@@ -335,159 +328,131 @@ export const githubPlugin: Plugin = {
   async buildVectorSearchFilter(
     context: QueryHookContext
   ): Promise<Record<string, unknown> | null> {
+    return null;
+  },
+
+  async reconstructContext(
+    documentChunks: ChunkMetadata[],
+    sourceDocument: GitHubLatestJson | GitHubProjectLatestJson,
+    context: QueryHookContext
+  ): Promise<ReconstructedContext | null> {
+    if (documentChunks.length === 0) {
+      return null;
+    }
+
+    const firstChunk = documentChunks[0];
+    const sourceMetadata = firstChunk.sourceMetadata;
+
+    if (!sourceMetadata || firstChunk.source !== "github") {
+      return null;
+    }
+
+    const docSections: string[] = [];
+
+    if (sourceMetadata.type === "github-pr-issue") {
+      const prIssueDoc = sourceDocument as GitHubLatestJson;
+      const typeLabel =
+        sourceMetadata.type === "pull-requests" ? "Pull Request" : "Issue";
+      const url =
+        prIssueDoc.url ||
+        `https://github.com/${sourceMetadata.owner}/${sourceMetadata.repo}/${
+          typeLabel === "Pull Request" ? "pull" : "issues"
+        }/${sourceMetadata.number}`;
+      docSections.push(
+        `## ${typeLabel} #${prIssueDoc.number}: ${prIssueDoc.title}`
+      );
+      docSections.push(`**URL:** ${url}`);
+      docSections.push(`**Author:** @${prIssueDoc.author}`);
+      docSections.push(`**State:** ${prIssueDoc.state}`);
+
+      for (const chunk of documentChunks) {
+        if (!chunk.jsonPath) {
+          continue;
+        }
+        const content = extractJsonPath(sourceDocument, chunk.jsonPath);
+        if (content) {
+          if (
+            chunk.type === "pull-request-body" ||
+            chunk.type === "issue-body"
+          ) {
+            docSections.push(`\n**Description:**\n${content}`);
+          } else if (
+            chunk.type === "pull-request-comment" ||
+            chunk.type === "issue-comment"
+          ) {
+            const commentAuthor = chunk.author || "unknown";
+            docSections.push(`\n**Comment by @${commentAuthor}:**\n${content}`);
+          }
+        }
+      }
+    } else if (sourceMetadata.type === "github-project") {
+      const projectDoc = sourceDocument as GitHubProjectLatestJson;
+      docSections.push(`## Project: ${projectDoc.title}`);
+      const url = `https://github.com/orgs/${sourceMetadata.owner}/projects/${sourceMetadata.number}`;
+      docSections.push(`**URL:** ${url}`);
+      docSections.push(`**Owner:** ${projectDoc.owner}`);
+      docSections.push(`**State:** ${projectDoc.state}`);
+
+      for (const chunk of documentChunks) {
+        if (!chunk.jsonPath) {
+          continue;
+        }
+        const content = extractJsonPath(sourceDocument, chunk.jsonPath);
+        if (content) {
+          if (chunk.type === "project-body") {
+            docSections.push(`\n**Description:**\n${content}`);
+          } else if (chunk.type === "project-item") {
+            try {
+              const item = JSON.parse(content);
+              const fieldValuesText =
+                item.field_values
+                  ?.map(
+                    (fv: { name: string; value: unknown }) =>
+                      `${fv.name}: ${fv.value ?? "null"}`
+                  )
+                  .join(", ") || "";
+              const itemTitle =
+                item.title ||
+                `${item.content_type}${
+                  item.content_id ? ` #${item.content_id}` : ""
+                }`;
+              docSections.push(
+                `\n**Project Item:** ${itemTitle}${
+                  fieldValuesText ? ` (${fieldValuesText})` : ""
+                }`
+              );
+            } catch {
+              docSections.push(`\n**Project Item:**\n${content}`);
+            }
+          }
+        }
+      }
+    }
+
+    const content = docSections.join("\n");
+
     return {
+      content,
       source: "github",
+      primaryMetadata: firstChunk,
     };
   },
 
   async composeLlmPrompt(
-    chunks: ChunkMetadata[],
+    contexts: ReconstructedContext[],
     query: string,
-    context: QueryHookContext,
-    existingPrompt?: string
+    context: QueryHookContext
   ): Promise<string> {
-    const githubChunks = chunks.filter((chunk) => chunk.source === "github");
-    if (githubChunks.length === 0) {
-      return existingPrompt || "";
+    const githubContexts = contexts.filter((ctx) => ctx.source === "github");
+    if (githubContexts.length === 0) {
+      return "";
     }
 
-    const documentMap = new Map<
-      string,
-      GitHubLatestJson | GitHubProjectLatestJson
-    >();
-    const chunksByDocument = new Map<string, ChunkMetadata[]>();
+    const contextSection = githubContexts
+      .map((ctx) => ctx.content)
+      .join("\n\n---\n\n");
 
-    for (const chunk of githubChunks) {
-      if (!chunk.documentId) {
-        continue;
-      }
-      if (!chunksByDocument.has(chunk.documentId)) {
-        chunksByDocument.set(chunk.documentId, []);
-      }
-      chunksByDocument.get(chunk.documentId)!.push(chunk);
-    }
-
-    for (const [documentId] of chunksByDocument) {
-      const bucket = context.env.MACHINEN_BUCKET;
-      const object = await bucket.get(documentId);
-      if (object) {
-        const jsonText = await object.text();
-        const data = JSON.parse(jsonText);
-        documentMap.set(documentId, data);
-      }
-    }
-
-    const sections: string[] = [];
-
-    for (const [documentId, docChunks] of chunksByDocument) {
-      const document = documentMap.get(documentId);
-      if (!document) {
-        continue;
-      }
-
-      const parsed = parseR2Key(documentId);
-      if (!parsed) {
-        continue;
-      }
-
-      const docSections: string[] = [];
-
-      if ("repo" in parsed) {
-        const prIssueDoc = document as GitHubLatestJson;
-        const typeLabel =
-          parsed.type === "pull-requests" ? "Pull Request" : "Issue";
-        const url = prIssueDoc.url || buildGitHubUrl(parsed);
-        docSections.push(
-          `## ${typeLabel} #${prIssueDoc.number}: ${prIssueDoc.title}`
-        );
-        docSections.push(`**URL:** ${url}`);
-        docSections.push(`**Author:** @${prIssueDoc.author}`);
-        docSections.push(`**State:** ${prIssueDoc.state}`);
-
-        for (const chunk of docChunks) {
-          if (!chunk.jsonPath) {
-            continue;
-          }
-          const content = extractJsonPath(document, chunk.jsonPath);
-          if (content) {
-            if (
-              chunk.type === "pull-request-body" ||
-              chunk.type === "issue-body"
-            ) {
-              docSections.push(`\n**Description:**\n${content}`);
-            } else if (
-              chunk.type === "pull-request-comment" ||
-              chunk.type === "issue-comment"
-            ) {
-              const commentAuthor = chunk.author || "unknown";
-              docSections.push(
-                `\n**Comment by @${commentAuthor}:**\n${content}`
-              );
-            }
-          }
-        }
-      } else {
-        const projectDoc = document as GitHubProjectLatestJson;
-        docSections.push(`## Project: ${projectDoc.title}`);
-        const url = buildGitHubUrl(parsed);
-        docSections.push(`**URL:** ${url}`);
-        docSections.push(`**Owner:** ${projectDoc.owner}`);
-        docSections.push(`**State:** ${projectDoc.state}`);
-
-        for (const chunk of docChunks) {
-          if (!chunk.jsonPath) {
-            continue;
-          }
-          const content = extractJsonPath(document, chunk.jsonPath);
-          if (content) {
-            if (chunk.type === "project-body") {
-              docSections.push(`\n**Description:**\n${content}`);
-            } else if (chunk.type === "project-item") {
-              try {
-                const item = JSON.parse(content);
-                const fieldValuesText =
-                  item.field_values
-                    ?.map(
-                      (fv: { name: string; value: unknown }) =>
-                        `${fv.name}: ${fv.value ?? "null"}`
-                    )
-                    .join(", ") || "";
-                const itemTitle =
-                  item.title ||
-                  `${item.content_type}${
-                    item.content_id ? ` #${item.content_id}` : ""
-                  }`;
-                docSections.push(
-                  `\n**Project Item:** ${itemTitle}${
-                    fieldValuesText ? ` (${fieldValuesText})` : ""
-                  }`
-                );
-              } catch {
-                docSections.push(`\n**Project Item:**\n${content}`);
-              }
-            }
-          }
-        }
-      }
-
-      sections.push(docSections.join("\n"));
-    }
-
-    const contextSection = sections.join("\n\n---\n\n");
-
-    if (existingPrompt) {
-      return `${existingPrompt}\n\n## Context\n\n${contextSection}`;
-    }
-
-    return `You are a helpful assistant answering questions based on GitHub content.
-
-## User Query
-${query}
-
-## Context
-${contextSection}
-
-Please answer the user's query based on the context provided above.`;
+    return `## GitHub Context\n\n${contextSection}`;
   },
 };
 

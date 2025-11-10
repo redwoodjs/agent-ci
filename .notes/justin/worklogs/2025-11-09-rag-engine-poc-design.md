@@ -217,3 +217,42 @@ This plan prioritizes building plugins first and validating the engine's design 
 ### Phase 5: Complete Query Pipeline
 7.  **Implement Minimal Query API:** Build the API endpoint that takes a user's query. This endpoint will call the vector search, pass results to the `query` engine function (which will use the GitHub query plugin), send the final prompt to the LLM, and return the response.
 8.  **Test Querying End-to-End:** Hit the endpoint with test queries to validate the full retrieval, prompt composition, and generation loop.
+
+## 7. Refining the Query-Time Context Assembly: A Two-Stage Design
+
+During the implementation of the query-side plugin, a significant architectural refinement was made to the prompt composition process.
+
+**Initial Design and Problem:** The original blueprint proposed a single `composeLlmPrompt` hook. The intention was for this hook to handle both fetching the raw content (using the `documentId` and `jsonPath` from chunk metadata) and assembling the final prompt string. However, this design conflated two distinct responsibilities: **data reconstruction** and **prompt aggregation**. This became problematic when considering advanced use cases.
+
+**Use Case Deliberation:**
+1.  **Simple Case (Source-Siloed Context):** A query returns chunks from a single GitHub PR. The plugin needs to fetch the `latest.json` file and format the PR body and its comments into a coherent block. The initial design handled this adequately.
+2.  **Advanced Case (Cross-Source Narrative):** A query like "why did we add dependency X?" might return chunks from a GitHub PR, a Cursor conversation, and a planning document. The ideal prompt would not be siloed by source (`## GitHub Context`, `## Cursor Context`). Instead, it would present a unified, chronological narrative.
+
+The initial design made this advanced case difficult and inefficient. An "aggregator" plugin running last would either have to:
+*   Re-fetch all the source data, duplicating the work already done by the source-specific plugins.
+*   Parse the formatted markdown string from the `existingPrompt`, which is brittle and unreliable.
+*   The intermediate proposal of passing a mutable `PromptState` object was an improvement, as it preserved metadata, but still blurred the lines between formatting and aggregation within a single hook.
+
+**The Final Two-Stage Architecture:**
+To solve this, we separated the concerns into two distinct stages, orchestrated by the engine:
+
+*   **Stage 1: Reconstruct Context (`reconstructContext` hook)**
+    *   **Engine's Role:** The engine takes the list of search results, groups them by `documentId`, fetches the unique source documents from R2 *once*, and then calls a new, specialized `reconstructContext` hook on the appropriate plugin for each document.
+    *   **Plugin's Role:** The plugin's sole responsibility is to receive the chunks for a *single document* and its full source JSON, and format them into a self-contained markdown block. It returns a `ReconstructedContext` object, which contains the formatted `content` string and the original, rich metadata.
+
+*   **Stage 2: Aggregate Contexts (`composeLlmPrompt` hook)**
+    *   **Engine's Role:** The engine gathers the flat array of `ReconstructedContext` objects from Stage 1 and passes them to the `composeLlmPrompt` hook.
+    *   **Plugin's Role:** This hook's sole responsibility is now **aggregation**. It receives an array of pre-formatted, metadata-rich context blocks. It does no fetching or low-level formatting. A default implementation can simply join them, while a more advanced "aggregator" plugin can use the preserved metadata to sort the blocks chronologically before joining, creating a unified narrative.
+
+This revised architecture is superior because it establishes a clear separation of concerns, centralizes the repetitive fetching logic in the engine, simplifies plugin development, and provides a robust foundation for both simple and advanced prompt aggregation strategies without inefficiency or brittle parsing.
+
+**Further Refinement: Explicit, Namespaced Metadata**
+A final refinement was added to this two-stage design to make it even more robust. The initial implementation of the `reconstructContext` hook still had a flaw: it relied on parsing the `documentId` (the R2 key) to determine the type of GitHub entity (e.g., PR/Issue vs. Project). This created a brittle, implicit contract between the file storage schema and the query-side logic.
+
+The solution was to make this contract explicit by enriching the metadata at indexing time.
+
+1.  **Introduce `sourceMetadata`:** A generic, optional `sourceMetadata: Record<string, any>` field was added to the `ChunkMetadata` interface. This provides a dedicated namespace for each plugin to store its own specific data without polluting the top-level metadata fields.
+2.  **Populate at Indexing Time:** The `prepareSourceDocument` hook in the GitHub plugin is now responsible for populating this object with explicit identifiers (e.g., `{ type: 'github-pr-issue', owner: '...', repo: '...', number: 123 }`). This data is then propagated to all chunks created from that document.
+3.  **Use at Query Time:** The `reconstructContext` hook now reads directly from this structured `sourceMetadata` object. It no longer needs to parse the R2 key.
+
+This final change decouples the query logic from the storage layout, makes the plugin's data contract explicit and self-contained, and makes the entire system more robust and maintainable.

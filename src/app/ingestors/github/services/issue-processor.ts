@@ -2,7 +2,8 @@ import { env } from "cloudflare:workers";
 import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "../db/migrations";
 import { type GitHubRepoDurableObject } from "../db/durableObject";
-import { issueToMarkdown, type GitHubIssue } from "../utils/issue-to-markdown";
+import { type GitHubIssue } from "../utils/issue-to-markdown";
+import { issueToJson, type IssueLatestJson } from "../utils/issue-to-json";
 import {
   fetchGitHubEntity,
   fetchIssueComments,
@@ -29,7 +30,7 @@ function getLatestR2Key(
   repoName: string,
   issueNumber: number
 ): string {
-  return `github/${repoOwner}/${repoName}/issues/${issueNumber}/latest.md`;
+  return `github/${repoOwner}/${repoName}/issues/${issueNumber}/latest.json`;
 }
 
 function getHistoryR2Key(
@@ -41,44 +42,23 @@ function getHistoryR2Key(
   return `github/${repoOwner}/${repoName}/issues/${issueNumber}/history/${timestampForFilename}.json`;
 }
 
-async function parseIssueFromMarkdown(
-  markdown: string
+async function parseIssueFromJson(
+  jsonText: string
 ): Promise<GitHubIssue | null> {
   try {
-    const frontMatterMatch = markdown.match(/^---\n([\s\S]*?)\n---/);
-    if (!frontMatterMatch) {
-      return null;
-    }
-
-    const frontMatter = frontMatterMatch[1];
-    const lines = frontMatter.split("\n");
-    const metadata: Record<string, string> = {};
-
-    for (const line of lines) {
-      const match = line.match(/^(\w+):\s*(.+)$/);
-      if (match) {
-        metadata[match[1]] = match[2].replace(/^["']|["']$/g, "");
-      }
-    }
-
-    const bodyMatch = markdown.match(/^---\n[\s\S]*?\n---\n\n([\s\S]*)$/);
-    const body = bodyMatch ? bodyMatch[1].trim() : null;
-
-    const titleMatch = markdown.match(/^#\s+(.+)$/m);
-    const title = titleMatch ? titleMatch[1] : "";
-
+    const json = JSON.parse(jsonText) as IssueLatestJson;
     return {
-      id: parseInt(metadata.github_id || "0", 10),
-      number: parseInt(metadata.number || "0", 10),
-      title,
-      body,
-      state: (metadata.state as "open" | "closed") || "open",
-      created_at: metadata.created_at || "",
-      updated_at: metadata.updated_at || "",
-      user: { login: "" },
+      id: json.github_id,
+      number: json.number,
+      title: json.title,
+      body: json.body,
+      state: json.state as "open" | "closed",
+      created_at: json.created_at,
+      updated_at: json.updated_at,
+      user: { login: json.author },
     };
   } catch (e) {
-    console.warn("[issue-processor] Failed to parse issue from markdown:", e);
+    console.warn("[issue-processor] Failed to parse issue from JSON:", e);
     return null;
   }
 }
@@ -158,12 +138,12 @@ export async function processIssueEvent(
     .where("github_id", "=", fullIssue.id)
     .executeTakeFirst();
 
-  const existingLatestMd = await env.MACHINEN_BUCKET.get(latestR2Key);
+  const existingLatestJson = await env.MACHINEN_BUCKET.get(latestR2Key);
   let oldIssue: GitHubIssue | null = null;
 
-  if (existingLatestMd) {
-    const markdown = await existingLatestMd.text();
-    oldIssue = await parseIssueFromMarkdown(markdown);
+  if (existingLatestJson) {
+    const jsonText = await existingLatestJson.text();
+    oldIssue = await parseIssueFromJson(jsonText);
   }
 
   const diff = generateDiff(
@@ -186,16 +166,25 @@ export async function processIssueEvent(
     .join("")
     .substring(0, 16);
 
-  const markdown = issueToMarkdown(fullIssue, {
-    github_id: fullIssue.id,
-    number: fullIssue.number,
-    state: state,
-    created_at: fullIssue.created_at,
-    updated_at: now,
-    version_hash: versionHashStr,
-  }, comments);
+  const url = `https://github.com/${repoOwner}/${repoName}/issues/${issueNumber}`;
+  const json = issueToJson(
+    fullIssue,
+    {
+      github_id: fullIssue.id,
+      number: fullIssue.number,
+      state: state,
+      created_at: fullIssue.created_at,
+      updated_at: now,
+      version_hash: versionHashStr,
+    },
+    comments,
+    url
+  );
 
-  await env.MACHINEN_BUCKET.put(latestR2Key, markdown);
+  await env.MACHINEN_BUCKET.put(
+    latestR2Key,
+    JSON.stringify(json, null, 2)
+  );
 
   if (hasChanges && diff) {
     const historyR2Key = getHistoryR2Key(

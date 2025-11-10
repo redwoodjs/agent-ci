@@ -270,8 +270,17 @@ After completing Phase 2, the engine design has been validated through implement
 
 **Validation Complete:** The engine design has been validated through implementation. The GitHub plugin successfully exercises both the indexing and query pipelines, proving that the engine's interface and plugin architecture work as designed.
 
-### Phase 3: Update the Ingestor
-3.  **Modify GitHub Ingestor:** Update the existing GitHub ingestor and its backfill logic to produce `latest.json` files instead of `latest.md`. This populates R2 with the correct data format for the indexing pipeline.
+### Phase 3: Update the Ingestor (Completed)
+3.  **Modify GitHub Ingestor:** Updated the existing GitHub ingestor and its backfill logic to produce `latest.json` files instead of `latest.md`. This populates R2 with the correct data format for the indexing pipeline.
+
+**Changes Made:**
+*   Created JSON conversion utilities (`pr-to-json.ts`, `issue-to-json.ts`, `project-to-json.ts`) that match the structure expected by the RAG engine plugin.
+*   Updated `pr-processor.ts`, `issue-processor.ts`, and `project-processor.ts` to:
+    *   Change `getLatestR2Key` functions to return `.json` paths instead of `.md`.
+    *   Replace markdown conversion with JSON conversion.
+    *   Update parsing functions to read JSON instead of markdown.
+    *   Write JSON files to R2 using `JSON.stringify`.
+*   The backfill service automatically uses the updated processors, so no changes were needed there.
 
 ### Phase 4: Complete Indexing Pipeline
 4.  **Implement Minimal Indexing Worker:** Build the queue consumer worker. This worker will call the `indexDocument` engine function, passing in the GitHub plugin. Its responsibility is to take the chunks returned by the engine, generate embeddings, and insert them into Vectorize.

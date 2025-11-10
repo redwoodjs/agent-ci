@@ -89,42 +89,15 @@ export async function query(
     (results, plugin) => plugin.rerankSearchResults?.(results, queryContext)
   );
 
-  let prompt: string | null = null;
-  let firstPluginIndex = -1;
-
-  for (let i = 0; i < context.plugins.length; i++) {
-    const plugin = context.plugins[i];
-    if (plugin.composeLlmPrompt) {
-      const result = await plugin.composeLlmPrompt(
-        rerankedResults,
-        processedQuery,
-        queryContext
-      );
-      if (result) {
-        prompt = result;
-        firstPluginIndex = i;
-        break;
-      }
-    }
-  }
+  const prompt = await runFirstMatchHook(
+    context.plugins,
+    "composeLlmPrompt",
+    (plugin) =>
+      plugin.composeLlmPrompt?.(rerankedResults, processedQuery, queryContext)
+  );
 
   if (!prompt) {
     throw new Error("No plugin could compose LLM prompt");
-  }
-
-  for (let i = firstPluginIndex + 1; i < context.plugins.length; i++) {
-    const plugin = context.plugins[i];
-    if (plugin.composeLlmPrompt) {
-      const modifiedPrompt = await plugin.composeLlmPrompt(
-        rerankedResults,
-        processedQuery,
-        queryContext,
-        prompt
-      );
-      if (modifiedPrompt) {
-        prompt = modifiedPrompt;
-      }
-    }
   }
 
   const llmResponse = await callLlm(prompt, context.env);

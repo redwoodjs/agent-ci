@@ -72,8 +72,7 @@ export interface Plugin {
   composeLlmPrompt?: (
     chunks: ChunkMetadata[],
     query: string,
-    context: QueryHookContext,
-    existingPrompt?: string
+    context: QueryHookContext
   ) => Promise<string>;
   formatFinalResponse?: (
     response: string,

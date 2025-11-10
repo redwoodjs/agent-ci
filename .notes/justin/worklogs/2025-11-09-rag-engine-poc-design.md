@@ -330,3 +330,9 @@ To maintain index integrity, the indexing worker must be updated to perform a "d
 2.  **Insert New Vectors**: After the old vectors have been purged, the worker proceeds with the standard indexing flow: it generates the new chunks and embeddings and inserts them into the vector index.
 
 This atomic operation ensures that every time a document is updated, its old representations are cleanly removed from the index, keeping it perfectly synchronized with the source of truth in R2.
+
+**Implementation:**
+*   Added `deleteExistingVectors()` helper function that queries Vectorize with a metadata filter on `documentId` to find all existing vectors for a document.
+*   The function uses a dummy embedding (generated from the text "dummy") to perform the query, since Vectorize requires a vector for similarity search even when filtering by metadata.
+*   After retrieving matching vector IDs, it calls `VECTORIZE_INDEX.deleteByIds()` to remove them.
+*   The `processIndexingJob()` function now calls `deleteExistingVectors()` before generating new chunks and inserting them.

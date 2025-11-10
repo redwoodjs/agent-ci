@@ -26,6 +26,28 @@ async function generateEmbedding(
   return response.data[0];
 }
 
+async function deleteExistingVectors(
+  documentId: string,
+  env: Cloudflare.Env
+): Promise<void> {
+  const dummyEmbedding = await generateEmbedding("dummy", env);
+  const queryResult = await env.VECTORIZE_INDEX.query(dummyEmbedding, {
+    topK: 1000,
+    returnMetadata: true,
+    filter: {
+      documentId: documentId,
+    },
+  });
+
+  if (queryResult.matches.length > 0) {
+    const idsToDelete = queryResult.matches.map((match) => match.id);
+    await env.VECTORIZE_INDEX.deleteByIds(idsToDelete);
+    console.log(
+      `[indexing-worker] Deleted ${idsToDelete.length} existing vectors for document ${documentId}`
+    );
+  }
+}
+
 export async function processIndexingJob(
   message: IndexingMessage,
   env: Cloudflare.Env
@@ -33,6 +55,8 @@ export async function processIndexingJob(
   const { r2Key } = message;
 
   console.log(`[indexing-worker] Processing R2 key: ${r2Key}`);
+
+  await deleteExistingVectors(r2Key, env);
 
   const context: EngineContext = {
     plugins: [githubPlugin],
@@ -65,4 +89,3 @@ export async function processIndexingJob(
 
   console.log(`[indexing-worker] Completed indexing for ${r2Key}`);
 }
-

@@ -73,6 +73,10 @@
       {
         "queue": "github-processor-queue-prod",
         "binding": "PROCESSOR_QUEUE"
+      },
+      {
+        "queue": "engine-indexing-queue-prod",
+        "binding": "ENGINE_INDEXING_QUEUE"
       }
     ],
     "consumers": [
@@ -92,6 +96,11 @@
         "queue": "github-processor-queue-prod-dlq",
         "max_batch_size": 10,
         "max_batch_timeout": 30
+      },
+      {
+        "queue": "engine-indexing-queue-prod",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
       }
     ]
   },
@@ -106,6 +115,10 @@
           {
             "queue": "github-processor-queue",
             "binding": "PROCESSOR_QUEUE"
+          },
+          {
+            "queue": "engine-indexing-queue",
+            "binding": "ENGINE_INDEXING_QUEUE"
           }
         ],
         "consumers": [
@@ -123,6 +136,11 @@
           },
           {
             "queue": "github-processor-queue-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "engine-indexing-queue",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           }

@@ -282,10 +282,23 @@ After completing Phase 2, the engine design has been validated through implement
     *   Write JSON files to R2 using `JSON.stringify`.
 *   The backfill service automatically uses the updated processors, so no changes were needed there.
 
-### Phase 4: Complete Indexing Pipeline
-4.  **Implement Minimal Indexing Worker:** Build the queue consumer worker. This worker will call the `indexDocument` engine function, passing in the GitHub plugin. Its responsibility is to take the chunks returned by the engine, generate embeddings, and insert them into Vectorize.
-5.  **Test Indexing End-to-End:** Trigger a backfill for the GitHub ingestor. Once complete, manually enqueue a few R2 keys for `latest.json` files to verify that the entire indexing pipeline is creating vectors as expected.
+### Phase 4: Complete Indexing Pipeline (Completed)
+4.  **Implement Minimal Indexing Worker:** Built the queue consumer worker. The worker (`src/app/engine/services/indexing-worker.ts`) consumes messages from the `engine-indexing-queue`, calls `indexDocument` with the GitHub plugin, generates embeddings for each chunk, and batch inserts them into Vectorize.
 
-### Phase 5: Complete Query Pipeline
-6.  **Implement Minimal Query API:** Build the API endpoint that takes a user's query. This endpoint will call the vector search, pass results to the `query` engine function (which will use the GitHub query plugin), send the final prompt to the LLM, and return the response.
-7.  **Test Querying End-to-End:** Hit the endpoint with test queries to validate the full retrieval, prompt composition, and generation loop.
+**Changes Made:**
+*   Created `indexing-worker.ts` that processes R2 keys from the queue.
+*   Integrated the worker into `worker.tsx` queue handler.
+*   Added `engine-indexing-queue` configuration to `wrangler.jsonc` (both prod and test environments).
+*   The worker batches embedding generation and Vectorize inserts for efficiency.
+
+5.  **Test Indexing End-to-End:** Pending - User will trigger backfill and manually enqueue R2 keys for testing.
+
+### Phase 5: Complete Query Pipeline (Completed)
+6.  **Implement Minimal Query API:** Built the API endpoint at `/rag/query`. The endpoint accepts GET or POST requests with a `query` parameter, calls the `query` engine function with the GitHub plugin, and returns the LLM response.
+
+**Changes Made:**
+*   Created `src/app/engine/routes.ts` with the query handler.
+*   Integrated the route into the main worker with prefix `/rag`.
+*   The endpoint supports both GET (query param `q`) and POST (body `query`) for flexibility.
+
+7.  **Test Querying End-to-End:** Pending - User will test with sample queries once indexing is complete.

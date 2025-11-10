@@ -11,6 +11,7 @@ import { sourceRoutes } from "./app/pages/sources/routes";
 import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
+import { routes as ragRoutes } from "./app/engine/routes";
 import { HomePage } from "./app/pages/HomePage";
 
 export type AppContext = {
@@ -42,6 +43,7 @@ const app = defineApp([
   prefix("/ingest/discord", discordRoutes),
   prefix("/ingestors/cursor", cursorIngestorRoutes),
   prefix("/ingestors/github", githubIngestorRoutes),
+  prefix("/rag", ragRoutes),
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";
@@ -53,11 +55,13 @@ export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durabl
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";
 import { handleDeadLetterMessage } from "@/app/ingestors/github/services/dlq-handler";
+import { processIndexingJob } from "@/app/engine/services/indexing-worker";
 import type {
   QueueMessage,
   ProcessorJobMessage,
 } from "@/app/ingestors/github/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
+import type { Cloudflare } from "wrangler";
 
 export default {
   fetch: app.fetch,
@@ -90,6 +94,16 @@ export default {
           queueMessage.type === "processor"
         ) {
           await handleDeadLetterMessage(queueMessage);
+          message.ack();
+        } else if (
+          queueName === "engine-indexing-queue" ||
+          queueName === "engine-indexing-queue-prod" ||
+          queueName === "ENGINE_INDEXING_QUEUE"
+        ) {
+          await processIndexingJob(
+            queueMessage as { r2Key: string },
+            env as Cloudflare.Env
+          );
           message.ack();
         } else {
           console.error(

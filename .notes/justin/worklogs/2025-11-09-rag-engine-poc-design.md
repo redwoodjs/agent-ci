@@ -136,8 +136,61 @@ This pipeline is triggered by a user's query.
 
     *   **`composeLlmPrompt`**
         *   **Composition:** Waterfall
-        *   **Description:** The first plugin creates a base prompt from the final ranked chunks. Subsequent plugins can then *modify* that prompt (e.g., add system instructions, examples, or formatting).
+        *   **Description:** Receives the ranked list of chunk metadata from the reranking stage. The primary plugin for this hook is responsible for dynamically fetching the original text content for each chunk from R2 (using the `documentId` and `jsonPath` from the metadata), formatting each piece into a readable snippet, and assembling them into a coherent block of context for the LLM prompt. Subsequent plugins can then modify this assembled prompt.
 
     *   **`formatFinalResponse`**
         *   **Composition:** Waterfall
         *   **Description:** The first plugin might format the raw LLM output (e.g., into basic Markdown). Subsequent plugins can then enrich it, for example by adding source links and citations to the final object.
+
+## 5. Ingester Output, Chunking, and Retrieval Strategy
+
+This section defines the end-to-end data flow, from the ideal output of our ingestors to the strategy for chunking and retrieving content for the RAG pipeline. The core principle is to use a structured format (`.json`) as the single source of truth for indexing, and then dynamically assemble context for the LLM from that structured data.
+
+### 5.1. GitHub Source (Issues & Pull Requests)
+
+**Proposed Solution: `latest.json` as the Single Source of Truth**
+
+The GitHub ingestor will produce a single `latest.json` artifact for each entity. The `latest.md` file will be dropped, as it's better to generate the final LLM context dynamically, which provides more flexibility (e.g., filtering out irrelevant comments).
+
+*   **`latest.json` Structure:** This file will contain the entity's metadata, body, and an array of comment objects, providing a machine-readable source for indexing.
+
+*   **Chunking Strategy:**
+    *   The PR/issue `body` will be treated as one or more chunks.
+    *   Each object in the `comments` array will be treated as a distinct chunk.
+
+### 5.2. Cursor Conversation Source
+
+**Proposed Solution: Use Raw JSON for the POC**
+
+For the initial proof-of-concept, we will use the raw JSON output from the Cursor ingestor. While it contains some noise, it is already structured. A pre-processing step to clean it can be introduced later as an optimization.
+
+*   **Chunking Strategy:**
+    *   **Chunk-per-Turn-Pair:** A user's prompt and the subsequent assistant's response can be combined into a single chunk. This preserves the immediate conversational context, which is semantically valuable.
+
+### 5.3. Chunk Metadata and Context Retrieval
+
+The key to handling heterogeneous search results lies in a contract between the metadata we store with each chunk and the logic that reassembles the context.
+
+*   **Rich Metadata:** When a document is chunked, each chunk's vector will be stored with a rich metadata object. This object acts as a "pointer" back to its origin.
+
+    ```typescript
+    // Example metadata for a GitHub comment chunk
+    {
+      "chunkId": "github/pull-requests/57#comment-12346", // A unique, human-readable ID
+      "documentId": "github/redwoodjs/machinen/pull-requests/57/latest.json", // The R2 key of the source JSON
+      "source": "github",
+      "type": "pull-request-comment",
+      "documentTitle": "Github ingestor",
+      "author": "justinvdm",
+      "jsonPath": "$.comments[1].body" // A JSONPath to extract the content from the source file
+    }
+    ```
+
+*   **Dynamic Retrieval in `composeLlmPrompt`:** The vector search will return a ranked list of these metadata objects. A plugin hooking into the `composeLlmPrompt` stage will be responsible for:
+    1.  Receiving the list of chunk metadata.
+    2.  Fetching the source `latest.json` files from R2 based on the `documentId` in the metadata.
+    3.  Using the `jsonPath` from each metadata object to extract the specific text content from the JSON file.
+    4.  Formatting each piece of content into a readable snippet (e.g., `"Comment by @justinvdm on PR #57: ..."`).
+    5.  Concatenating these snippets into a single, coherent context block to be included in the prompt for the LLM.
+
+This architecture ensures that the indexing process is robust and the querying process is flexible, allowing the system to construct targeted, high-quality prompts from diverse data sources.

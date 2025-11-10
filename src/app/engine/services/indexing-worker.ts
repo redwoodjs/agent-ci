@@ -1,7 +1,6 @@
 import { indexDocument } from "../engine";
 import { githubPlugin } from "../plugins";
 import type { EngineContext } from "../types";
-import type { Cloudflare } from "wrangler";
 
 interface IndexingMessage {
   r2Key: string;
@@ -40,7 +39,9 @@ async function deleteExistingVectors(
   });
 
   if (queryResult.matches.length > 0) {
-    const idsToDelete = queryResult.matches.map((match) => match.id);
+    const idsToDelete = queryResult.matches.map(
+      (match: { id: string }) => match.id
+    );
     await env.VECTORIZE_INDEX.deleteByIds(idsToDelete);
     console.log(
       `[indexing-worker] Deleted ${idsToDelete.length} existing vectors for document ${documentId}`

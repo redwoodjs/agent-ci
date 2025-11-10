@@ -6,7 +6,9 @@ import { githubPlugin } from "./plugins";
 import type { EngineContext } from "./types";
 
 async function queryHandler({ request }: RequestInfo) {
-  const body = await request.json().catch(() => ({}));
+  const body = (await request.json().catch(() => ({}))) as {
+    query?: string;
+  };
   const queryText = body.query || new URL(request.url).searchParams.get("q");
 
   if (!queryText || typeof queryText !== "string") {

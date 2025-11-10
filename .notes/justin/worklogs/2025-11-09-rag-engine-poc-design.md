@@ -302,3 +302,31 @@ After completing Phase 2, the engine design has been validated through implement
 *   The endpoint supports both GET (query param `q`) and POST (body `query`) for flexibility.
 
 7.  **Test Querying End-to-End:** Pending - User will test with sample queries once indexing is complete.
+
+## 10. Handling Document Updates and Index Synchronization
+
+A critical aspect of the RAG engine is ensuring the vector index remains synchronized when source documents are modified (e.g., a new comment is added to a GitHub issue, or a PR description is edited).
+
+### How Updates are Processed
+
+1.  **Ingestion Overwrites `latest.json`**: When a source entity is modified, the GitHub ingestor re-fetches the *entire* entity from the GitHub API, rebuilds the JSON structure, and overwrites the existing `latest.json` file in R2. This ensures R2 always contains the latest, complete state.
+
+2.  **Re-Indexing Trigger**: The update to the R2 object triggers a message to the `engine-indexing-queue` with the `r2Key` of the modified file.
+
+3.  **Indexing Worker Re-Processes**: The `indexing-worker` receives the job and re-runs the full indexing pipeline for the specified `r2Key`, generating a fresh set of chunks and embeddings.
+
+### The Flaw: Index Pollution
+
+The current implementation uses `VECTORIZE_INDEX.insert()` to add the newly generated vectors to the index. However, this action **does not remove the old, stale vectors** from the previous version of the document.
+
+This would lead to index pollution. Over time, a search for a given document would return both old and new chunks, providing outdated, duplicated, or contradictory context to the LLM and degrading the quality of the responses.
+
+### The Solution: "Delete-Then-Insert" Strategy
+
+To maintain index integrity, the indexing worker must be updated to perform a "delete-then-insert" operation.
+
+1.  **Delete by `documentId`**: Before starting the indexing process for a given `r2Key`, the worker must first issue a delete command to Vectorize to remove all existing vectors associated with that document. Since every chunk's metadata contains a `documentId` field (which corresponds to the `r2Key`), this can be achieved efficiently using a metadata filter.
+
+2.  **Insert New Vectors**: After the old vectors have been purged, the worker proceeds with the standard indexing flow: it generates the new chunks and embeddings and inserts them into the vector index.
+
+This atomic operation ensures that every time a document is updated, its old representations are cleanly removed from the index, keeping it perfectly synchronized with the source of truth in R2.

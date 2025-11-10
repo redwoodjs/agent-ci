@@ -87,8 +87,10 @@ wrangler queues list
 
 ## Documentation
 
+- [Architecture: RAG Engine](./docs/architecture/rag-engine.md)
+- [Architecture: GitHub Ingestion Pipeline](./docs/architecture/github-ingestion-pipeline.md)
 - [Architecture: Sources-Artifacts-Subjects](./docs/architecture/sources-artifacts-subjects.md)
-- [RAG Engine Design](./.notes/justin/worklogs/2025-11-09-rag-engine-poc-design.md)
+- [RAG Engine Design Worklog](./.notes/justin/worklogs/2025-11-09-rag-engine-poc-design.md)
 
 ## Licensing
 

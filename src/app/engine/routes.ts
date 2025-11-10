@@ -1,17 +1,22 @@
 import { route } from "rwsdk/router";
 import { type RequestInfo } from "rwsdk/worker";
 import { env } from "cloudflare:workers";
+import {
+  requireQueryApiKey,
+  rateLimitQuery,
+  validateQueryInput,
+} from "./interruptors";
 import { query } from "./engine";
 import { githubPlugin } from "./plugins";
 import type { EngineContext } from "./types";
 
-async function queryHandler({ request }: RequestInfo) {
-  const body = (await request.json().catch(() => ({}))) as {
-    query?: string;
-  };
-  const queryText = body.query || new URL(request.url).searchParams.get("q");
+async function queryHandler({ request, ctx }: RequestInfo) {
+  const queryText =
+    (ctx as any).validatedQuery ||
+    ((ctx as any).parsedBody as { query?: string })?.query ||
+    new URL(request.url).searchParams.get("q");
 
-  if (!queryText || typeof queryText !== "string") {
+  if (!queryText) {
     return Response.json(
       { error: "Missing 'query' parameter" },
       { status: 400 }
@@ -39,5 +44,13 @@ async function queryHandler({ request }: RequestInfo) {
 }
 
 export const routes = [
-  route("/query", { post: queryHandler, get: queryHandler }),
+  route("/query", {
+    post: [
+      requireQueryApiKey,
+      rateLimitQuery,
+      validateQueryInput,
+      queryHandler,
+    ],
+    get: [requireQueryApiKey, rateLimitQuery, validateQueryInput, queryHandler],
+  }),
 ];

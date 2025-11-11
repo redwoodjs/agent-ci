@@ -1,6 +1,8 @@
 import { route } from "rwsdk/router";
 import { z } from "zod";
+import { env } from "cloudflare:workers";
 import { ingestDiscordMessages } from "@/app/ingestors/discord/fetch";
+import { parseDiscordFromR2 } from "@/app/ingestors/discord/parse";
 
 const fetchRequestSchema = z.object({
   guildID: z.string().min(1).default("679514959968993311"),
@@ -139,4 +141,72 @@ const fetchRoute = route("/fetch", [
   },
 ]);
 
-export const routes = [fetchRoute];
+const parseRequestSchema = z.object({
+  key: z.string().min(1),
+});
+
+async function validateParseRequest({
+  request,
+  ctx,
+}: {
+  request: Request;
+  ctx: any;
+}) {
+  try {
+    const data = await request.json();
+    const validated = parseRequestSchema.parse(data);
+    ctx.validatedData = validated;
+    return ctx;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return Response.json(
+        {
+          success: false,
+          error: "Validation failed",
+          details: error.issues,
+        },
+        { status: 400 }
+      );
+    }
+    return Response.json(
+      { success: false, error: "Invalid JSON" },
+      { status: 400 }
+    );
+  }
+}
+
+const parseRoute = route("/parse", [
+  logDiscordRequest,
+  validateParseRequest,
+  async ({ ctx }: { ctx: any }) => {
+    try {
+      const { key } = ctx.validatedData;
+
+      console.log(`Parsing Discord file from R2: ${key}`);
+
+      const transcript = await parseDiscordFromR2(env.MACHINEN_BUCKET, key);
+
+      const apiResponse = Response.json({
+        success: true,
+        key,
+        lines: transcript.length,
+        transcript,
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord parse error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
+export const routes = [fetchRoute, parseRoute];

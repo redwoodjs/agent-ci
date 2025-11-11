@@ -11,11 +11,6 @@
 
   "r2_buckets": [
     {
-      "binding": "MACHINEN_CONTEXT_STREAM_BUCKET",
-      "bucket_name": "machinen-context-stream",
-      "remote": true
-    },
-    {
       "binding": "MACHINEN_BUCKET",
       "bucket_name": "machinen",
       "remote": true

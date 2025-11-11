@@ -44,3 +44,17 @@ export function rawToTranscript(contents: string): string[] {
   }
   return formatted;
 }
+
+export async function parseDiscordFromR2(
+  bucket: R2Bucket,
+  key: string
+): Promise<string[]> {
+  const file = await bucket.get(key);
+
+  if (!file) {
+    throw new Error(`File not found: ${key}`);
+  }
+
+  const contents = await file.text();
+  return rawToTranscript(contents);
+}

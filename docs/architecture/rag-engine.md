@@ -6,15 +6,15 @@ The RAG (Retrieval-Augmented Generation) engine is a plugin-based system designe
 
 ### 1. Data Retrieval in a Serverless Environment
 
-A RAG system's effectiveness hinges on its vector database. In a serverless environment like Cloudflare Workers, this presents unique constraints. A viable solution must scale beyond a single worker's memory limits and, critically, must support efficient **metadata filtering** at the database level. Without this, combining a semantic vector search with a structured filter (e.g., `source: 'github' AND author: 'justinvdm'`) would require a slow, inefficient, and costly two-step process: first fetch a large number of vector results, then filter them in application code. This led to the selection of a managed vector database (Cloudflare Vectorize) that handles these requirements natively.
+A RAG system's effectiveness hinges on its vector database. In a serverless environment like Cloudflare Workers, this presents unique constraints. A viable solution must scale beyond a single worker's memory limits and, critically, must support efficient **metadata filtering** at the database level. Without this, combining a semantic vector search with a structured filter (e.g., `source: 'github' AND author: 'justinvdm'`) would require a slow, inefficient, and costly two-step process: first fetch a large number of vector results, then filter them in application code. This led to the selection of Cloudflare Vectorize, which supports metadata filtering directly in the query.
 
-### 2. Supporting Multiple, Heterogeneous Data Sources
+### 2. Accommodating Heterogeneous Data Sources
 
-The engine cannot have source-specific logic (e.g., how to parse a GitHub PR vs. a Cursor conversation) hardcoded into its core. Such a design would be monolithic and unmaintainable. The system requires a design that decouples the core indexing and querying logic from the specifics of each data source, allowing new sources to be added without modifying the engine itself.
+Each data source-from GitHub issues to Discord conversations-has its own unique structure, metadata, and semantics. The system must be able to understand and process these differences to build a coherent, searchable index. Hardcoding source-specific logic into the engine's core would create a monolithic and unmaintainable system. Therefore, the architecture required a design that decouples the core indexing and querying logic from the specifics of each data source. This is solved by a **plugin-based architecture**, which allows new sources to be added without modifying the engine itself.
 
-### 3. Reconstructing Coherent Context from Disconnected Chunks
+### 3. Maintaining a Complete and Fresh Index
 
-A vector search, by its nature, returns a flat list of semantically similar but disconnected "chunks" of text. The engine's primary challenge at query time is to transform this disconnected list into a coherent, readable block of context to feed to an LLM. A naive implementation that simply concatenates chunk text is insufficient. The system must be able to group related chunks (e.g., all comments from a single PR) and format them intelligently.
+The information in our data sources is constantly changing. New issues are created, PRs are updated, and conversations evolve. The index must reflect these changes in a timely manner without requiring a full, costly re-indexing of all documents. The challenge is to efficiently detect and process only what has changed since the last update.
 
 ### 4. Decoupling Query Logic from Storage Schema
 

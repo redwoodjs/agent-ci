@@ -1,6 +1,7 @@
 import { indexDocument } from "../engine";
 import { githubPlugin } from "../plugins";
 import type { EngineContext } from "../types";
+import { updateIndexingState } from "../db";
 
 interface IndexingMessage {
   r2Key: string;
@@ -85,6 +86,18 @@ export async function processIndexingJob(
     await env.VECTORIZE_INDEX.insert(vectors);
     console.log(
       `[indexing-worker] Inserted ${vectors.length} chunks into Vectorize`
+    );
+  }
+
+  const object = await env.MACHINEN_BUCKET.head(r2Key);
+  if (object) {
+    await updateIndexingState(r2Key, object.etag);
+    console.log(
+      `[indexing-worker] Updated indexing state for ${r2Key} with etag ${object.etag}`
+    );
+  } else {
+    console.warn(
+      `[indexing-worker] Could not get R2 object head for ${r2Key}, skipping state update`
     );
   }
 

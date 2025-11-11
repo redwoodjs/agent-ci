@@ -51,11 +51,13 @@ export { Database } from "@/db/durableObject";
 export { CursorEventsDurableObject } from "@/app/ingestors/cursor/db/durableObject";
 export { GitHubRepoDurableObject } from "@/app/ingestors/github/db/durableObject";
 export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durableObject";
+export { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";
 import { handleDeadLetterMessage } from "@/app/ingestors/github/services/dlq-handler";
 import { processIndexingJob } from "@/app/engine/services/indexing-worker";
+import { processScannerJob } from "@/app/engine/services/scanner-service";
 import type {
   QueueMessage,
   ProcessorJobMessage,
@@ -128,5 +130,8 @@ export default {
         message.retry();
       }
     }
+  },
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(processScannerJob(env as Cloudflare.Env));
   },
 } as ExportedHandler;

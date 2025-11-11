@@ -53,6 +53,10 @@
     {
       "tag": "v5",
       "new_sqlite_classes": ["GitHubBackfillStateDO"]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["EngineIndexingStateDO"]
     }
   ],
   "durable_objects": {
@@ -61,8 +65,12 @@
       { "name": "DB", "class_name": "Database" },
       { "name": "CURSOR_EVENTS", "class_name": "CursorEventsDurableObject" },
       { "name": "GITHUB_REPO", "class_name": "GitHubRepoDurableObject" },
-      { "name": "GITHUB_BACKFILL_STATE", "class_name": "GitHubBackfillStateDO" }
+      { "name": "GITHUB_BACKFILL_STATE", "class_name": "GitHubBackfillStateDO" },
+      { "name": "ENGINE_INDEXING_STATE", "class_name": "EngineIndexingStateDO" }
     ]
+  },
+  "triggers": {
+    "crons": ["0 * * * *"]
   },
   "queues": {
     "producers": [

@@ -128,10 +128,14 @@ export async function query(
   }
 
   const prompt = promptParts.join("\n\n");
-  console.log(`[query] Step 7: Calling LLM (prompt length: ${prompt.length} chars)`);
+  console.log(
+    `[query] Step 7: Calling LLM (prompt length: ${prompt.length} chars)`
+  );
 
   const llmResponse = await callLlm(prompt, context.env);
-  console.log(`[query] Step 8: LLM response received (length: ${llmResponse.length} chars)`);
+  console.log(
+    `[query] Step 8: LLM response received (length: ${llmResponse.length} chars)`
+  );
 
   console.log(`[query] Step 9: Formatting final response`);
   const formattedResponse = await runWaterfallHook(
@@ -299,17 +303,14 @@ async function generateEmbedding(
 }
 
 async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
-  const response = (await (env.AI.run as any)(
-    "@cf/openai/gpt-oss-120b",
-    {
-      input: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    }
-  )) as { response: string };
+  const response = (await (env.AI.run as any)("@cf/google/gemma-3-12b-it", {
+    messages: [
+      {
+        role: "user",
+        content: prompt,
+      },
+    ],
+  })) as { response: string };
 
   if (!response || typeof response.response !== "string") {
     throw new Error("Failed to get LLM response");

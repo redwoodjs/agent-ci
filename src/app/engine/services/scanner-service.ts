@@ -1,4 +1,4 @@
-import { getIndexingState } from "../db";
+import { getIndexingStatesBatch } from "../db";
 
 export async function scanForUnprocessedFiles(
   env: Cloudflare.Env,
@@ -9,6 +9,7 @@ export async function scanForUnprocessedFiles(
   let totalFiles = 0;
   let dbQueries = 0;
   const logInterval = 100;
+  const batchSize = 100;
 
   console.log(`[scanner] Starting scan for prefix: ${prefix}`);
 
@@ -18,24 +19,49 @@ export async function scanForUnprocessedFiles(
       cursor,
     });
 
+    const batchKeys: string[] = [];
+    const batchObjects: Array<{ key: string; etag: string }> = [];
+
     for (const object of listed.objects) {
       if (!object.key.endsWith("latest.json")) {
         continue;
       }
 
       totalFiles++;
-      dbQueries++;
+      batchKeys.push(object.key);
+      batchObjects.push({ key: object.key, etag: object.etag });
 
-      const state = await getIndexingState(object.key);
+      if (batchKeys.length >= batchSize) {
+        dbQueries++;
+        const states = await getIndexingStatesBatch(batchKeys);
 
-      if (!state || state.etag !== object.etag) {
-        unprocessedKeys.push(object.key);
+        for (const { key, etag } of batchObjects) {
+          const state = states.get(key);
+          if (!state || state.etag !== etag) {
+            unprocessedKeys.push(key);
+          }
+        }
+
+        batchKeys.length = 0;
+        batchObjects.length = 0;
+
+        if (totalFiles % logInterval === 0) {
+          console.log(
+            `[scanner] Progress: scanned ${totalFiles} files, ${dbQueries} DB queries, ${unprocessedKeys.length} unprocessed so far`
+          );
+        }
       }
+    }
 
-      if (totalFiles % logInterval === 0) {
-        console.log(
-          `[scanner] Progress: scanned ${totalFiles} files, ${dbQueries} DB queries, ${unprocessedKeys.length} unprocessed so far`
-        );
+    if (batchKeys.length > 0) {
+      dbQueries++;
+      const states = await getIndexingStatesBatch(batchKeys);
+
+      for (const { key, etag } of batchObjects) {
+        const state = states.get(key);
+        if (!state || state.etag !== etag) {
+          unprocessedKeys.push(key);
+        }
       }
     }
 

@@ -63,6 +63,76 @@ export async function getIndexingState(r2Key: string): Promise<{
   };
 }
 
+export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
+  Map<
+    string,
+    {
+      r2_key: string;
+      etag: string;
+      indexed_at: string;
+      chunk_ids: string[] | null;
+    }
+  >
+> {
+  if (r2Keys.length === 0) {
+    return new Map();
+  }
+
+  console.log(`[db] getIndexingStatesBatch called for ${r2Keys.length} keys`);
+
+  const db = createDb<IndexingStateDatabase>(
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    "engine-indexing-state"
+  );
+
+  const states = await db
+    .selectFrom("indexing_state")
+    .selectAll()
+    .where("r2_key", "in", r2Keys)
+    .execute();
+
+  console.log(
+    `[db] getIndexingStatesBatch: found ${states.length} states out of ${r2Keys.length} requested`
+  );
+
+  const result = new Map<
+    string,
+    {
+      r2_key: string;
+      etag: string;
+      indexed_at: string;
+      chunk_ids: string[] | null;
+    }
+  >();
+
+  for (const state of states) {
+    let chunkIds: string[] | null = null;
+    if (state.chunk_ids) {
+      if (Array.isArray(state.chunk_ids)) {
+        chunkIds = state.chunk_ids;
+      } else {
+        console.warn(
+          `[db] Invalid chunk_ids for ${
+            state.r2_key
+          }: expected array (already parsed by ParseJSONResultsPlugin), got ${typeof state.chunk_ids}. Value: ${JSON.stringify(
+            state.chunk_ids
+          ).substring(0, 200)}`
+        );
+      }
+    }
+
+    result.set(state.r2_key, {
+      r2_key: state.r2_key,
+      etag: state.etag,
+      indexed_at: state.indexed_at,
+      chunk_ids: chunkIds,
+    });
+  }
+
+  return result;
+}
+
 export async function updateIndexingState(
   r2Key: string,
   etag: string,

@@ -11,16 +11,15 @@ declare module "rwsdk/worker" {
   }
 }
 
-export async function getIndexingState(
-  r2Key: string
-): Promise<{
+export async function getIndexingState(r2Key: string): Promise<{
   r2_key: string;
   etag: string;
   indexed_at: string;
   chunk_ids: string[] | null;
 } | null> {
   const db = createDb<IndexingStateDatabase>(
-    (env as any).ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
     "engine-indexing-state"
   );
 
@@ -33,6 +32,12 @@ export async function getIndexingState(
   if (!state) {
     return null;
   }
+
+  console.log(
+    `[db] getIndexingState for ${r2Key}: chunk_ids raw value type=${typeof state.chunk_ids}, value=${String(
+      state.chunk_ids
+    ).substring(0, 200)}`
+  );
 
   return {
     r2_key: state.r2_key,
@@ -47,12 +52,29 @@ export async function updateIndexingState(
   etag: string,
   chunkIds: string[]
 ): Promise<void> {
+  console.log(
+    `[db] updateIndexingState called for ${r2Key}: chunkIds type=${typeof chunkIds}, isArray=${Array.isArray(
+      chunkIds
+    )}, length=${Array.isArray(chunkIds) ? chunkIds.length : "N/A"}, firstFew=${
+      Array.isArray(chunkIds) && chunkIds.length > 0
+        ? JSON.stringify(chunkIds.slice(0, 3))
+        : "empty"
+    }`
+  );
+
   const db = createDb<IndexingStateDatabase>(
-    (env as any).ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
     "engine-indexing-state"
   );
 
   const now = new Date().toISOString();
+  const chunkIdsJson = JSON.stringify(chunkIds);
+  console.log(
+    `[db] updateIndexingState: JSON.stringify result length=${
+      chunkIdsJson.length
+    }, preview=${chunkIdsJson.substring(0, 200)}`
+  );
 
   const existing = await db
     .selectFrom("indexing_state")
@@ -66,7 +88,7 @@ export async function updateIndexingState(
       .set({
         etag,
         indexed_at: now,
-        chunk_ids: JSON.stringify(chunkIds),
+        chunk_ids: chunkIdsJson,
       })
       .where("r2_key", "=", r2Key)
       .execute();
@@ -77,7 +99,7 @@ export async function updateIndexingState(
         r2_key: r2Key,
         etag,
         indexed_at: now,
-        chunk_ids: JSON.stringify(chunkIds),
+        chunk_ids: chunkIdsJson,
       })
       .execute();
   }

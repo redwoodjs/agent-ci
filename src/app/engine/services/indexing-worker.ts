@@ -12,7 +12,9 @@ async function hashChunkId(chunkId: string): Promise<string> {
   const data = encoder.encode(chunkId);
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hashHex = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
   return hashHex.substring(0, 16);
 }
 
@@ -98,6 +100,13 @@ export async function processIndexingJob(
     const chunkIds = vectors.map((v) => v.id);
     console.log(
       `[indexing-worker] Inserted ${vectors.length} chunks into Vectorize`
+    );
+    console.log(
+      `[indexing-worker] About to call updateIndexingState: chunkIds type=${typeof chunkIds}, isArray=${Array.isArray(
+        chunkIds
+      )}, length=${chunkIds.length}, sample=${JSON.stringify(
+        chunkIds.slice(0, 3)
+      )}`
     );
 
     const object = await env.MACHINEN_BUCKET.head(r2Key);

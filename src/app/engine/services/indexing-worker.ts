@@ -1,7 +1,7 @@
 import { indexDocument } from "../engine";
 import { githubPlugin } from "../plugins";
 import type { EngineContext } from "../types";
-import { updateIndexingState } from "../db";
+import { getIndexingState, updateIndexingState } from "../db";
 
 interface IndexingMessage {
   r2Key: string;
@@ -30,24 +30,25 @@ async function deleteExistingVectors(
   documentId: string,
   env: Cloudflare.Env
 ): Promise<void> {
-  const dummyEmbedding = await generateEmbedding("dummy", env);
-  const queryResult = await env.VECTORIZE_INDEX.query(dummyEmbedding, {
-    topK: 1000,
-    returnMetadata: true,
-    filter: {
-      documentId: documentId,
-    },
-  });
+  const state = await getIndexingState(documentId);
 
-  if (queryResult.matches.length > 0) {
-    const idsToDelete = queryResult.matches.map(
-      (match: { id: string }) => match.id
-    );
-    await env.VECTORIZE_INDEX.deleteByIds(idsToDelete);
+  if (!state || !state.chunk_ids || state.chunk_ids.length === 0) {
     console.log(
-      `[indexing-worker] Deleted ${idsToDelete.length} existing vectors for document ${documentId}`
+      `[indexing-worker] No existing vectors to delete for ${documentId} (first time indexing)`
     );
+    return;
   }
+
+  const chunkIds = state.chunk_ids;
+
+  for (let i = 0; i < chunkIds.length; i += 1000) {
+    const batch = chunkIds.slice(i, i + 1000);
+    await env.VECTORIZE_INDEX.deleteByIds(batch);
+  }
+
+  console.log(
+    `[indexing-worker] Deleted ${chunkIds.length} existing vectors for document ${documentId} (from state)`
+  );
 }
 
 export async function processIndexingJob(
@@ -84,20 +85,25 @@ export async function processIndexingJob(
 
   if (vectors.length > 0) {
     await env.VECTORIZE_INDEX.insert(vectors);
+    const chunkIds = vectors.map((v) => v.id);
     console.log(
       `[indexing-worker] Inserted ${vectors.length} chunks into Vectorize`
     );
-  }
 
-  const object = await env.MACHINEN_BUCKET.head(r2Key);
-  if (object) {
-    await updateIndexingState(r2Key, object.etag);
-    console.log(
-      `[indexing-worker] Updated indexing state for ${r2Key} with etag ${object.etag}`
-    );
+    const object = await env.MACHINEN_BUCKET.head(r2Key);
+    if (object) {
+      await updateIndexingState(r2Key, object.etag, chunkIds);
+      console.log(
+        `[indexing-worker] Updated indexing state for ${r2Key} with etag ${object.etag} and ${chunkIds.length} chunk IDs`
+      );
+    } else {
+      console.warn(
+        `[indexing-worker] Could not get R2 object head for ${r2Key}, skipping state update`
+      );
+    }
   } else {
     console.warn(
-      `[indexing-worker] Could not get R2 object head for ${r2Key}, skipping state update`
+      `[indexing-worker] No vectors generated for ${r2Key}, skipping state update`
     );
   }
 

@@ -17,6 +17,7 @@ export async function getIndexingState(
   r2_key: string;
   etag: string;
   indexed_at: string;
+  chunk_ids: string[] | null;
 } | null> {
   const db = createDb<IndexingStateDatabase>(
     (env as any).ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
@@ -37,12 +38,14 @@ export async function getIndexingState(
     r2_key: state.r2_key,
     etag: state.etag,
     indexed_at: state.indexed_at,
+    chunk_ids: state.chunk_ids ? JSON.parse(state.chunk_ids) : null,
   };
 }
 
 export async function updateIndexingState(
   r2Key: string,
-  etag: string
+  etag: string,
+  chunkIds: string[]
 ): Promise<void> {
   const db = createDb<IndexingStateDatabase>(
     (env as any).ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
@@ -63,6 +66,7 @@ export async function updateIndexingState(
       .set({
         etag,
         indexed_at: now,
+        chunk_ids: JSON.stringify(chunkIds),
       })
       .where("r2_key", "=", r2Key)
       .execute();
@@ -73,6 +77,7 @@ export async function updateIndexingState(
         r2_key: r2Key,
         etag,
         indexed_at: now,
+        chunk_ids: JSON.stringify(chunkIds),
       })
       .execute();
   }

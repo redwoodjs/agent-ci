@@ -21,5 +21,21 @@ export const indexingStateMigrations = {
       await db.schema.dropTable("indexing_state").execute();
     },
   },
+  "002_add_chunk_ids": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("indexing_state")
+          .addColumn("chunk_ids", "text")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema
+        .alterTable("indexing_state")
+        .dropColumn("chunk_ids")
+        .execute();
+    },
+  },
 } satisfies Migrations;
 

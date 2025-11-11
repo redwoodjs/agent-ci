@@ -3,10 +3,13 @@ import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "../db/migrations";
 import { type GitHubRepoDurableObject } from "../db/durableObject";
 import {
-  projectToMarkdown,
   type GitHubProject,
   type ProjectItemWithTitle,
 } from "../utils/project-to-markdown";
+import {
+  projectToJson,
+  type ProjectLatestJson,
+} from "../utils/project-to-json";
 import {
   fetchGitHubProject,
   fetchProjectItems,
@@ -35,7 +38,7 @@ function getLatestR2Key(
   repoOwner: string,
   projectIdentifier: string | number
 ): string {
-  return `github/${repoOwner}/projects/${projectIdentifier}/latest.md`;
+  return `github/${repoOwner}/projects/${projectIdentifier}/latest.json`;
 }
 
 function getHistoryR2Key(
@@ -46,51 +49,26 @@ function getHistoryR2Key(
   return `github/${repoOwner}/projects/${projectIdentifier}/history/${timestampForFilename}.json`;
 }
 
-async function parseProjectFromMarkdown(
-  markdown: string
+async function parseProjectFromJson(
+  jsonText: string
 ): Promise<GitHubProject | null> {
   try {
-    const frontMatterMatch = markdown.match(/^---\n([\s\S]*?)\n---/);
-    if (!frontMatterMatch) {
-      return null;
-    }
-
-    const frontMatter = frontMatterMatch[1];
-    const lines = frontMatter.split("\n");
-    const metadata: Record<string, string> = {};
-
-    for (const line of lines) {
-      const match = line.match(/^(\w+):\s*(.+)$/);
-      if (match) {
-        metadata[match[1]] = match[2].replace(/^["']|["']$/g, "");
-      }
-    }
-
-    const bodyMatch = markdown.match(/^---\n[\s\S]*?\n---\n\n[\s\S]*?\n---\n\n([\s\S]*)$/);
-    const body = bodyMatch ? bodyMatch[1].trim() : null;
-
-    const titleMatch = markdown.match(/^#\s+(.+)$/m);
-    const title = titleMatch ? titleMatch[1] : "";
-
-    const ownerMatch = markdown.match(/\*\*Owner:\*\*\s+@(\w+)\s+\((\w+)\)/);
-    const ownerLogin = ownerMatch ? ownerMatch[1] : "";
-    const ownerType = ownerMatch ? ownerMatch[2] : "";
-
+    const json = JSON.parse(jsonText) as ProjectLatestJson;
     return {
-      id: metadata.github_id || "",
-      number: metadata.number ? parseInt(metadata.number, 10) : undefined,
-      title,
-      body,
-      state: (metadata.state as "open" | "closed") || "open",
-      created_at: metadata.created_at || "",
-      updated_at: metadata.updated_at || "",
+      id: json.github_id,
+      number: json.number,
+      title: json.title,
+      body: json.body,
+      state: json.state === "deleted" ? "closed" : json.state,
+      created_at: json.created_at,
+      updated_at: json.updated_at,
       owner: {
-        login: ownerLogin,
-        type: ownerType,
+        login: json.owner,
+        type: json.owner_type,
       },
     };
   } catch (e) {
-    console.warn("[project-processor] Failed to parse project from markdown:", e);
+    console.warn("[project-processor] Failed to parse project from JSON:", e);
     return null;
   }
 }
@@ -191,12 +169,12 @@ export async function processProjectEvent(
     .where("github_id", "=", fullProject.id)
     .executeTakeFirst();
 
-  const existingLatestMd = await env.MACHINEN_BUCKET.get(latestR2Key);
+  const existingLatestJson = await env.MACHINEN_BUCKET.get(latestR2Key);
   let oldProject: GitHubProject | null = null;
 
-  if (existingLatestMd) {
-    const markdown = await existingLatestMd.text();
-    oldProject = await parseProjectFromMarkdown(markdown);
+  if (existingLatestJson) {
+    const jsonText = await existingLatestJson.text();
+    oldProject = await parseProjectFromJson(jsonText);
   }
 
   const diff = generateDiff(
@@ -219,7 +197,7 @@ export async function processProjectEvent(
     .join("")
     .substring(0, 16);
 
-  const markdown = projectToMarkdown(
+  const json = projectToJson(
     fullProject,
     {
       github_id: fullProject.id,
@@ -231,7 +209,10 @@ export async function processProjectEvent(
     itemsWithTitles
   );
 
-  await env.MACHINEN_BUCKET.put(latestR2Key, markdown);
+  await env.MACHINEN_BUCKET.put(
+    latestR2Key,
+    JSON.stringify(json, null, 2)
+  );
 
   if (hasChanges && diff) {
     const historyR2Key = getHistoryR2Key(

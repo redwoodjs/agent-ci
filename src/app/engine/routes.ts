@@ -29,10 +29,12 @@ async function queryHandler({ request, ctx }: RequestInfo) {
   };
 
   try {
+    console.log(`[query] Starting query: "${queryText}"`);
     const response = await query(queryText, context);
+    console.log(`[query] Query completed successfully`);
     return Response.json({ response });
   } catch (error) {
-    console.error("[query-api] Error processing query:", error);
+    console.error("[query] Error processing query:", error);
     return Response.json(
       {
         error: "Failed to process query",

@@ -69,6 +69,7 @@ export async function query(
     env: context.env,
   };
 
+  console.log(`[query] Step 1: Preparing search query`);
   const processedQuery = await runWaterfallHook(
     context.plugins,
     "prepareSearchQuery",
@@ -76,18 +77,22 @@ export async function query(
     (query, plugin) => plugin.prepareSearchQuery?.(query, queryContext)
   );
 
+  console.log(`[query] Step 2: Building vector search filter`);
   const filterClauses = await runCollectorHook(
     context.plugins,
     "buildVectorSearchFilter",
     (plugin) => plugin.buildVectorSearchFilter?.(queryContext)
   );
 
+  console.log(`[query] Step 3: Performing vector search`);
   const searchResults = await performVectorSearch(
     processedQuery,
     filterClauses,
     context.env
   );
+  console.log(`[query] Found ${searchResults.length} search results`);
 
+  console.log(`[query] Step 4: Reranking results`);
   const rerankedResults = await runWaterfallHook(
     context.plugins,
     "rerankSearchResults",
@@ -95,12 +100,15 @@ export async function query(
     (results, plugin) => plugin.rerankSearchResults?.(results, queryContext)
   );
 
+  console.log(`[query] Step 5: Reconstructing contexts`);
   const reconstructedContexts = await reconstructContexts(
     rerankedResults,
     context.plugins,
     queryContext
   );
+  console.log(`[query] Reconstructed ${reconstructedContexts.length} contexts`);
 
+  console.log(`[query] Step 6: Composing LLM prompt`);
   const promptParts: string[] = [];
   for (const plugin of context.plugins) {
     if (plugin.composeLlmPrompt) {
@@ -120,9 +128,12 @@ export async function query(
   }
 
   const prompt = promptParts.join("\n\n");
+  console.log(`[query] Step 7: Calling LLM (prompt length: ${prompt.length} chars)`);
 
   const llmResponse = await callLlm(prompt, context.env);
+  console.log(`[query] Step 8: LLM response received (length: ${llmResponse.length} chars)`);
 
+  console.log(`[query] Step 9: Formatting final response`);
   const formattedResponse = await runWaterfallHook(
     context.plugins,
     "formatFinalResponse",

@@ -12,7 +12,7 @@ DEFAULT_WORKER="rag-experiment-1"
 WORKER_NAME="${1:-$DEFAULT_WORKER}"
 
 # Filter pattern for our application log prefixes
-LOG_PATTERN="\\[(cron|queue|engine|scanner|indexing|query|db)\\]"
+LOG_PATTERN="\\[(cron|queue|engine|scanner|indexing|query|db|query-api)\\]"
 
 npx wrangler tail "$WORKER_NAME" --format=json 2>&1 | while IFS= read -r line; do
   # Skip empty lines and non-JSON lines

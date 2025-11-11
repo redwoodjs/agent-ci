@@ -291,7 +291,7 @@ async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
   const response = (await (env.AI.run as any)(
     "@cf/openai/gpt-oss-120b",
     {
-      messages: [
+      input: [
         {
           role: "user",
           content: prompt,

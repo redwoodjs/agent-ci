@@ -29,7 +29,9 @@ export async function indexDocument(
     throw new Error(`No plugin could prepare document for R2 key: ${r2Key}`);
   }
 
-  console.log(`[engine] Document prepared: ${document.title || r2Key}`);
+  console.log(
+    `[engine] Document prepared: ${document.metadata.title || r2Key}`
+  );
 
   const chunks = await runFirstMatchHook(
     context.plugins,

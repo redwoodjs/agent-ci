@@ -1,6 +1,4 @@
-import { env } from "cloudflare:workers";
 import { getIndexingState } from "../db";
-import type { Cloudflare } from "wrangler";
 
 export async function scanForUnprocessedFiles(
   env: Cloudflare.Env,
@@ -8,6 +6,7 @@ export async function scanForUnprocessedFiles(
 ): Promise<string[]> {
   const unprocessedKeys: string[] = [];
   let cursor: string | undefined = undefined;
+  let totalFiles = 0;
 
   console.log(`[scanner] Starting scan for prefix: ${prefix}`);
 
@@ -22,18 +21,12 @@ export async function scanForUnprocessedFiles(
         continue;
       }
 
+      totalFiles++;
+
       const state = await getIndexingState(object.key);
 
-      if (!state) {
+      if (!state || state.etag !== object.etag) {
         unprocessedKeys.push(object.key);
-        console.log(
-          `[scanner] Found unprocessed file (no state): ${object.key} (etag: ${object.etag})`
-        );
-      } else if (state.etag !== object.etag) {
-        unprocessedKeys.push(object.key);
-        console.log(
-          `[scanner] Found updated file: ${object.key} (stored etag: ${state.etag}, current etag: ${object.etag})`
-        );
       }
     }
 
@@ -41,7 +34,7 @@ export async function scanForUnprocessedFiles(
   } while (cursor);
 
   console.log(
-    `[scanner] Scan complete. Found ${unprocessedKeys.length} unprocessed files.`
+    `[scanner] Scan complete. Found ${unprocessedKeys.length} unprocessed files out of ${totalFiles} total files.`
   );
 
   return unprocessedKeys;
@@ -64,7 +57,10 @@ export async function enqueueUnprocessedFiles(
       }))
     );
     console.log(
-      `[scanner] Enqueued batch of ${batch.length} files (${i + 1}-${Math.min(i + batchSize, unprocessedKeys.length)} of ${unprocessedKeys.length})`
+      `[scanner] Enqueued batch of ${batch.length} files (${i + 1}-${Math.min(
+        i + batchSize,
+        unprocessedKeys.length
+      )} of ${unprocessedKeys.length})`
     );
   }
 }
@@ -83,4 +79,3 @@ export async function processScannerJob(env: Cloudflare.Env): Promise<void> {
     console.log("[scanner] Scanner job complete. No unprocessed files found.");
   }
 }
-

@@ -86,16 +86,6 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
     "engine-indexing-state"
   );
 
-  const states = await db
-    .selectFrom("indexing_state")
-    .selectAll()
-    .where("r2_key", "in", r2Keys)
-    .execute();
-
-  console.log(
-    `[db] getIndexingStatesBatch: found ${states.length} states out of ${r2Keys.length} requested`
-  );
-
   const result = new Map<
     string,
     {
@@ -106,29 +96,43 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
     }
   >();
 
-  for (const state of states) {
-    let chunkIds: string[] | null = null;
-    if (state.chunk_ids) {
-      if (Array.isArray(state.chunk_ids)) {
-        chunkIds = state.chunk_ids;
-      } else {
-        console.warn(
-          `[db] Invalid chunk_ids for ${
-            state.r2_key
-          }: expected array (already parsed by ParseJSONResultsPlugin), got ${typeof state.chunk_ids}. Value: ${JSON.stringify(
-            state.chunk_ids
-          ).substring(0, 200)}`
-        );
-      }
-    }
+  const maxBatchSize = 500;
+  for (let i = 0; i < r2Keys.length; i += maxBatchSize) {
+    const batch = r2Keys.slice(i, i + maxBatchSize);
+    const states = await db
+      .selectFrom("indexing_state")
+      .selectAll()
+      .where("r2_key", "in", batch)
+      .execute();
 
-    result.set(state.r2_key, {
-      r2_key: state.r2_key,
-      etag: state.etag,
-      indexed_at: state.indexed_at,
-      chunk_ids: chunkIds,
-    });
+    for (const state of states) {
+      let chunkIds: string[] | null = null;
+      if (state.chunk_ids) {
+        if (Array.isArray(state.chunk_ids)) {
+          chunkIds = state.chunk_ids;
+        } else {
+          console.warn(
+            `[db] Invalid chunk_ids for ${
+              state.r2_key
+            }: expected array (already parsed by ParseJSONResultsPlugin), got ${typeof state.chunk_ids}. Value: ${JSON.stringify(
+              state.chunk_ids
+            ).substring(0, 200)}`
+          );
+        }
+      }
+
+      result.set(state.r2_key, {
+        r2_key: state.r2_key,
+        etag: state.etag,
+        indexed_at: state.indexed_at,
+        chunk_ids: chunkIds,
+      });
+    }
   }
+
+  console.log(
+    `[db] getIndexingStatesBatch: found ${result.size} states out of ${r2Keys.length} requested`
+  );
 
   return result;
 }

@@ -43,7 +43,6 @@ async function queryHandler({ request, ctx }: RequestInfo) {
     return Response.json(
       {
         error: "Failed to process query",
-        message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 }
     );
@@ -107,7 +106,6 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
     return Response.json(
       {
         error: "Failed to start backfill",
-        message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 500 }
     );

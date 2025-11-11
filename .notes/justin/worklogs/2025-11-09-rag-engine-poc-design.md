@@ -381,3 +381,36 @@ This provides a machine-readable source of truth that the RAG engine can reliabl
 ### Testing
 
 The changes have been deployed and a full backfill of GitHub data has been initiated to populate R2 with the new JSON artifacts.
+
+## 13. Optimizing the "Delete-Then-Insert" Strategy
+
+While testing the indexing worker, I realized the initial implementation of the "delete-then-insert" strategy was inefficient. The core issue is that Vectorize does not support deleting vectors by a metadata filter; it can only delete by a list of vector IDs.
+
+### The Flaw: Inefficient Deletion via Querying
+
+My first implementation worked around this limitation by:
+1.  Generating a dummy vector embedding.
+2.  Performing a vector search using the dummy embedding, but filtering by `documentId` to find all existing vectors for a document.
+3.  Paginating through the results to collect all the vector IDs.
+4.  Calling `deleteByIds()` with the collected IDs.
+
+This approach has several significant drawbacks:
+*   **Performance:** It requires at least one, and potentially many, round-trips to Vectorize just to fetch data we are about to delete.
+*   **Cost:** Each query to Vectorize and each AI call to generate the dummy embedding incurs a small cost, which adds up during a large backfill.
+*   **Complexity:** The pagination logic adds complexity and a potential point of failure.
+
+This process has to run for every single document being indexed, which is not a scalable solution.
+
+### The Solution: Storing Vector IDs in the State DO
+
+A much more efficient solution is to leverage the `EngineIndexingStateDO` we already use for tracking indexed files. I've updated the system to store the vector IDs directly in the state database alongside the `etag`.
+
+1.  **Updated DB Schema:** I added a `chunk_ids` column (of type `text`) to the `indexing_state` table. This column stores a JSON array of all the vector IDs created for a given document.
+
+2.  **Updated Indexing Worker Logic:**
+    *   When the `indexing-worker` processes a document, it now first checks the state DO for `chunk_ids`.
+    *   If a list of IDs exists, it calls `VECTORIZE_INDEX.deleteByIds()` directly with those IDs. This completely bypasses the need for any querying.
+    *   If no IDs are stored (i.e., it's the first time indexing this document), it skips the delete step.
+    *   After successfully inserting the new vectors into Vectorize, the worker saves the list of new `chunk_ids` back into the state DO along with the `etag`.
+
+This revised approach is far more performant. It eliminates the unnecessary query and embedding steps entirely for any subsequent re-indexing of a document, making the process faster, cheaper, and more reliable.

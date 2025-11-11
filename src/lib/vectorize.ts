@@ -7,21 +7,24 @@ type OpenAiEmbeddingResponse = {
   }>
 }
 
-export async function fetchOpenAiVectorString(text: string): Promise<string> {
+export async function fetchOpenAiVectorString(
+  text: string,
+  apiKey?: string
+): Promise<string> {
   if (typeof text !== "string" || text.length === 0) {
     throw new Error("text must be a non-empty string")
   }
 
-  const apiKey = process.env.OPENAI_API_KEY
+  const key = apiKey || process.env.OPENAI_API_KEY
 
-  if (!apiKey) {
+  if (!key) {
     throw new Error("OPENAI_API_KEY is not set")
   }
 
   const response = await fetch(OPENAI_EMBEDDING_URL, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${apiKey}`,
+      Authorization: `Bearer ${key}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({

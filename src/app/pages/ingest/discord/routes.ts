@@ -184,13 +184,13 @@ const parseRoute = route("/parse", [
 
       console.log(`Parsing Discord file from R2: ${key}`);
 
-      const transcript = await parseDiscordFromR2(env.MACHINEN_BUCKET, key);
+      const messages = await parseDiscordFromR2(env.MACHINEN_BUCKET, key);
 
       const apiResponse = Response.json({
         success: true,
         key,
-        lines: transcript.length,
-        transcript,
+        count: messages.length,
+        messages,
       });
       ctx.logCompletion?.(apiResponse);
       return apiResponse;

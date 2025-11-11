@@ -27,14 +27,17 @@ async function testDiscordParse(key) {
     }
 
     console.log("Success!");
-    console.log(`Lines parsed: ${data.lines}`);
-    console.log(`\nFirst 5 lines:\n`);
-    data.transcript.slice(0, 5).forEach((line, i) => {
-      console.log(`${i + 1}. ${line}`);
+    console.log(`Messages parsed: ${data.count}`);
+    console.log(`\nFirst 5 messages:\n`);
+    data.messages.slice(0, 5).forEach((msg, i) => {
+      console.log(
+        `${i + 1}. [${msg.timestamp}] ${msg.username}: ${msg.content}`
+      );
+      console.log(`   Embedding dimensions: ${msg.embedding.length}`);
     });
 
-    if (data.transcript.length > 5) {
-      console.log(`\n... and ${data.transcript.length - 5} more lines`);
+    if (data.messages.length > 5) {
+      console.log(`\n... and ${data.messages.length - 5} more messages`);
     }
 
     console.log(`\nFull response saved to: discord-parse-result.json`);

@@ -36,9 +36,9 @@ The architecture is a stateful pipeline that uses a denormalized structure, webh
 
 To address the needs of the RAG system, the data is stored in a denormalized, "page-centric" format that mirrors how a user would see the information in the GitHub UI.
 
-*   **Embedded Content**: A single `latest.md` file is maintained for each primary entity (Issue, Pull Request, Project). Child entities are embedded directly within their parent's file. For example, the `latest.md` for a pull request contains its full description, followed by the formatted text of all its associated comments. This creates a single document that represents the entire conversation.
+*   **Embedded Content**: A single `latest.json` file is maintained for each primary entity (Issue, Pull Request, Project). Child entities are embedded directly within their parent's file. For example, the `latest.json` for a pull request contains its full description, followed by a structured array of all its associated comments. This creates a single document that represents the entire conversation in a machine-readable format.
 
-*   **Trigger-Based Updates**: When a child entity is modified (e.g., a comment is edited), the system does not create or update a separate file for the comment. Instead, it triggers a re-processing of the *parent* entity. The parent's full state is re-fetched, the `latest.md` is rebuilt with the updated comment, and the single file is overwritten.
+*   **Trigger-Based Updates**: When a child entity is modified (e.g., a comment is edited), the system does not create or update a separate file for the comment. Instead, it triggers a re-processing of the *parent* entity. The parent's full state is re-fetched, the `latest.json` is rebuilt with the updated comment, and the single file is overwritten.
 
 *   **History Diffs**: Versioning is handled by storing diffs. For each primary entity, a `history/` subdirectory is maintained. When an update occurs, the system generates a JSON "diff" of the changes between the new and previous states and stores it as a timestamped file. This creates a machine-readable audit trail of all changes.
 

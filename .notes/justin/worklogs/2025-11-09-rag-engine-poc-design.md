@@ -336,3 +336,25 @@ This atomic operation ensures that every time a document is updated, its old rep
 *   The function uses a dummy embedding (generated from the text "dummy") to perform the query, since Vectorize requires a vector for similarity search even when filtering by metadata.
 *   After retrieving matching vector IDs, it calls `VECTORIZE_INDEX.deleteByIds()` to remove them.
 *   The `processIndexingJob()` function now calls `deleteExistingVectors()` before generating new chunks and inserting them.
+
+## 11. Ensuring Index Freshness with a Cron-Based Scanner
+
+A potential weakness in the design is relying solely on R2 object-create events to trigger the indexing pipeline. This approach is not robust enough to handle a large, one-time backfill of existing data, and it provides no guarantee that 100% of events will be processed if there's a temporary outage or other issue. An object could be created in R2, but the event to trigger its indexing could be missed, leaving it out of the vector index indefinitely.
+
+To solve this, I will implement a more reliable, systematic process for keeping the index synchronized.
+
+### The Solution: "Scan and Compare" Cron Job
+
+The primary mechanism for ensuring data integrity will be a cron-triggered worker, as originally envisioned in the architecture blueprint. This worker will run periodically to find any unprocessed or updated documents and enqueue them for indexing.
+
+1.  **State Tracking with a Durable Object:** I will create a new Durable Object specifically for tracking the state of the indexing process, separate from the ingestor's own backfill state. Using `rwsdk/db`, this DO will manage a simple SQLite database with a table that stores the `r2_key` and `etag` for every `latest.json` file that has been successfully indexed.
+
+2.  **Cron Worker Logic:** The scheduled worker will:
+    *   List all objects in the R2 bucket (e.g., all files under the `github/` prefix).
+    *   For each object, it will query the indexing state DO.
+    *   If the object's `r2_key` is not in the state table, or if its `etag` in R2 does not match the stored `etag`, the object is considered "unprocessed."
+    *   The `r2_key` for each unprocessed object will be sent as a message to the `engine-indexing-queue`.
+
+3.  **Indexing Worker Update:** After the `indexing-worker` successfully processes a job and its vectors are inserted into Vectorize, it will update the state DO, recording the `r2_key` and the `etag` of the file it just processed.
+
+This "scan and compare" approach makes the system resilient. A failed indexing job won't update the state, so it will be automatically retried on the next cron run. A large backfill of files will be systematically processed over time. The R2 events can still be used as a low-latency trigger for new files, but the cron job acts as the ultimate source of truth for index completeness.

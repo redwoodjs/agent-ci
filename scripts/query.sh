@@ -10,11 +10,12 @@
 # Environment variables can also be used:
 #   QUERY_API_KEY="your-key" ./query.sh "your query"
 
-# Auto-source .dev.vars if it exists
+# Auto-source .dev.vars if it exists (look in project root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/.dev.vars" ]; then
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+if [ -f "$PROJECT_ROOT/.dev.vars" ]; then
   set -a
-  source "$SCRIPT_DIR/.dev.vars"
+  source "$PROJECT_ROOT/.dev.vars"
   set +a
 fi
 

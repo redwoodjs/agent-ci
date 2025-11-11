@@ -96,7 +96,7 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
     }
   >();
 
-  const maxBatchSize = 500;
+  const maxBatchSize = 150;
   for (let i = 0; i < r2Keys.length; i += maxBatchSize) {
     const batch = r2Keys.slice(i, i + maxBatchSize);
     const states = await db

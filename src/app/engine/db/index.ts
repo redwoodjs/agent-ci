@@ -33,17 +33,24 @@ export async function getIndexingState(r2Key: string): Promise<{
     return null;
   }
 
-  console.log(
-    `[db] getIndexingState for ${r2Key}: chunk_ids raw value type=${typeof state.chunk_ids}, value=${String(
-      state.chunk_ids
-    ).substring(0, 200)}`
-  );
+  let chunkIds: string[] | null = null;
+  if (state.chunk_ids) {
+    if (Array.isArray(state.chunk_ids)) {
+      chunkIds = state.chunk_ids;
+    } else {
+      console.warn(
+        `[db] Invalid chunk_ids for ${r2Key}: expected array (already parsed by ParseJSONResultsPlugin), got ${typeof state.chunk_ids}. Value: ${JSON.stringify(
+          state.chunk_ids
+        ).substring(0, 200)}`
+      );
+    }
+  }
 
   return {
     r2_key: state.r2_key,
     etag: state.etag,
     indexed_at: state.indexed_at,
-    chunk_ids: state.chunk_ids ? JSON.parse(state.chunk_ids) : null,
+    chunk_ids: chunkIds,
   };
 }
 

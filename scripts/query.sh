@@ -42,10 +42,10 @@ fi
 echo "Querying: $QUERY"
 echo ""
 
-curl -X POST \
+curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"query\": $(echo "$QUERY" | jq -R .)}" \
   "$WORKER_URL/rag/query" \
-  | jq '.'
+  | jq -r '.response'
 

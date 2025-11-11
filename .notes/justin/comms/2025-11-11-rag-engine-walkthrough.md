@@ -1,7 +1,5 @@
 # RAG Engine POC: A Quick Walkthrough
 
-Here's a quick look at the RAG engine POC we've been working on. The goal is to share the thinking behind it, the problems we've hit, and how we've tried to solve them.
-
 ## 1. The Idea: An "Org AI"
 
 The core idea is to build an internal "organization AI" that can ingest our knowledge from places like GitHub, Cursor chats, and meeting notes. The goal is to make institutional knowledge searchable so we can ask it questions and get context on past decisions.

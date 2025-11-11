@@ -7,6 +7,15 @@ interface IndexingMessage {
   r2Key: string;
 }
 
+async function hashChunkId(chunkId: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(chunkId);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex.substring(0, 16);
+}
+
 async function generateEmbedding(
   text: string,
   env: Cloudflare.Env
@@ -75,8 +84,9 @@ export async function processIndexingJob(
   const vectors = await Promise.all(
     chunks.map(async (chunk) => {
       const embedding = await generateEmbedding(chunk.content, env);
+      const vectorId = await hashChunkId(chunk.metadata.chunkId);
       return {
-        id: chunk.metadata.chunkId,
+        id: vectorId,
         values: embedding,
         metadata: chunk.metadata,
       };

@@ -154,6 +154,45 @@
       }
     },
     "rag-experiment-1": {
+      "r2_buckets": [
+        {
+          "binding": "MACHINEN_BUCKET",
+          "bucket_name": "machinen",
+          "remote": true
+        }
+      ],
+      "ai": {
+        "binding": "AI",
+        "remote": true
+      },
+      "vectorize": [
+        {
+          "binding": "VECTORIZE_INDEX",
+          "index_name": "rag-index"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "REALTIME", "class_name": "RealtimeDurableObject" },
+          { "name": "DB", "class_name": "Database" },
+          {
+            "name": "CURSOR_EVENTS",
+            "class_name": "CursorEventsDurableObject"
+          },
+          { "name": "GITHUB_REPO", "class_name": "GitHubRepoDurableObject" },
+          {
+            "name": "GITHUB_BACKFILL_STATE",
+            "class_name": "GitHubBackfillStateDO"
+          },
+          {
+            "name": "ENGINE_INDEXING_STATE",
+            "class_name": "EngineIndexingStateDO"
+          }
+        ]
+      },
+      "triggers": {
+        "crons": ["0 * * * *"]
+      },
       "queues": {
         "producers": [
           {

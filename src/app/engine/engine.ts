@@ -111,25 +111,22 @@ export async function query(
   console.log(`[query] Reconstructed ${reconstructedContexts.length} contexts`);
 
   console.log(`[query] Step 6: Composing LLM prompt`);
-  const promptParts: string[] = [];
-  for (const plugin of context.plugins) {
-    if (plugin.composeLlmPrompt) {
-      const result = await plugin.composeLlmPrompt(
+
+  const prompt = await runFirstMatchHook(
+    [...context.plugins].reverse(),
+    "composeLlmPrompt",
+    (plugin) =>
+      plugin.composeLlmPrompt?.(
         reconstructedContexts,
         processedQuery,
         queryContext
-      );
-      if (result) {
-        promptParts.push(result);
-      }
-    }
-  }
+      )
+  );
 
-  if (promptParts.length === 0) {
+  if (!prompt) {
     throw new Error("No plugin could compose LLM prompt");
   }
 
-  const prompt = promptParts.join("\n\n");
   console.log(
     `[query] Step 7: Calling LLM (prompt length: ${prompt.length} chars)`
   );

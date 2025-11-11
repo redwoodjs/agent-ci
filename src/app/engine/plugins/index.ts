@@ -1,2 +1,3 @@
-export { githubPlugin } from "./github";
+export * from "./github";
+export * from "./default";
 

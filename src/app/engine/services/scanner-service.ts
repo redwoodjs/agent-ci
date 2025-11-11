@@ -9,7 +9,7 @@ export async function scanForUnprocessedFiles(
   let totalFiles = 0;
   let dbQueries = 0;
   const logInterval = 100;
-  const batchSize = 150;
+  const batchSize = 100;
 
   console.log(`[scanner] Starting scan for prefix: ${prefix}`);
 

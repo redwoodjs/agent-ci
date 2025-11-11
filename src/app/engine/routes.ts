@@ -9,7 +9,11 @@ import {
 import { query } from "./engine";
 import { githubPlugin, defaultPlugin } from "./plugins";
 import type { EngineContext } from "./types";
-import { processScannerJob } from "./services/scanner-service";
+import {
+  processScannerJob,
+  scanForUnprocessedFiles,
+  enqueueUnprocessedFiles,
+} from "./services/scanner-service";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const queryText =
@@ -52,10 +56,52 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
   }
 
   try {
-    console.log("[backfill] Starting manual backfill");
-    await processScannerJob(env as Cloudflare.Env);
-    console.log("[backfill] Manual backfill completed");
-    return Response.json({ success: true, message: "Backfill started" });
+    let body: { prefix?: string; r2Keys?: string[] } = {};
+    try {
+      body = (await request.json()) as { prefix?: string; r2Keys?: string[] };
+    } catch {
+      body = {};
+    }
+
+    const envCloudflare = env as Cloudflare.Env;
+
+    if (body.r2Keys && Array.isArray(body.r2Keys)) {
+      console.log(
+        `[backfill] Indexing ${body.r2Keys.length} specific R2 keys directly`
+      );
+      await enqueueUnprocessedFiles(body.r2Keys, envCloudflare);
+      return Response.json({
+        success: true,
+        message: `Enqueued ${body.r2Keys.length} files for indexing`,
+      });
+    }
+
+    const prefix = body.prefix || "github/";
+    console.log(`[backfill] Starting manual backfill for prefix: ${prefix}`);
+
+    const unprocessedKeys = await scanForUnprocessedFiles(
+      envCloudflare,
+      prefix
+    );
+
+    if (unprocessedKeys.length > 0) {
+      await enqueueUnprocessedFiles(unprocessedKeys, envCloudflare);
+      console.log(
+        `[backfill] Manual backfill completed. Enqueued ${unprocessedKeys.length} files.`
+      );
+      return Response.json({
+        success: true,
+        message: `Backfill completed. Enqueued ${unprocessedKeys.length} files for indexing.`,
+        filesEnqueued: unprocessedKeys.length,
+      });
+    } else {
+      console.log(`[backfill] Manual backfill completed. No files to index.`);
+      return Response.json({
+        success: true,
+        message: "Backfill completed. No files need indexing.",
+        filesEnqueued: 0,
+      });
+    }
   } catch (error) {
     console.error("[backfill] Error starting backfill:", error);
     return Response.json(

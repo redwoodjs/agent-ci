@@ -8,6 +8,7 @@ The core idea is to build an internal "organization AI" that can ingest our know
 
 ## 2. Challenges
 
+*   **Cloudflare-Native Scalability**: A core goal was to build this entirely on Cloudflare to leverage our existing infrastructure and expertise. This presented a specific challenge: finding a vector search solution and designing a RAG pipeline that could scale effectively within the serverless constraints of Cloudflare Workers, handling large data volumes and high query loads without hitting platform limits.
 *   **Vector Search in a Serverless Environment**: Any vector database we use has to work within the constraints of a serverless environment. This means it must scale beyond a single worker's memory limits and, critically, support efficient metadata filtering at the database level. Without that, combining a semantic search with a filter (e.g., `source: 'github'`) would be slow and inefficient.
 *   **Handling Different Data Sources**: GitHub issues, PRs, and Cursor chats all have different shapes. We need a solution where we can define how to process (chunk/index), query, filter, and rank differently for each of these sources
 *   **Assembling Coherent Context**: A query might return chunks from a PR body, several comments, and a related issue. Simply concatenating them doesn't produce a good prompt. We need a way to reconstruct a readable, logical narrative from these disparate pieces, in a way that filters out parts irrelevant to the query
@@ -56,11 +57,10 @@ Let's trace a GitHub issue from a raw file to a searchable vector.
 
 The process starts when the GitHub ingestor saves an issue as a structured `latest.json` file in R2.
 
-The guiding principle here is simple: give the AI context the same way a human gets it. A human reads the whole GitHub page—the issue and all its comments—to understand the full picture. By creating a complete, denormalized snapshot in `latest.json`, we do the hard work of assembling that context upfront. This avoids forcing the RAG engine to perform complex, slow 'stitching' of related data during a query, a process that is not only inefficient but also risks losing the semantic relationship between the pieces when the data is in the form of flattened, vectorized chunks+metada representation.
+The ingestor creates a single `latest.json` for each issue, containing the body and all its comments. The principle is simple: give the AI the same complete, denormalized view a human gets. This does the hard work of assembling context upfront, avoiding slow, complex data "stitching" at query time.
 
-While it represents a full page, we use JSON instead of a flat Markdown file so we can easily slice it up. The structured format allows the engine to treat the issue body and each individual comment as distinct chunks for indexing. Later, during a query, the engine can intelligently reconstruct the context from these pieces, with the added power of **filtering out chunks that are irrelevant** to the user's question.
-
-Any time a comment is added or the issue's description is edited, the ingestor completely overwrites this `latest.json` file with the new, full state of the issue. This overwrite action in R2 is the event that kicks off the re-indexing process, ensuring the engine is always working with the latest version.
+*   **Why JSON?** We use JSON (not Markdown) so we can precisely slice the content into chunks (the body, each comment). This allows the engine to intelligently reconstruct the context later, filtering out irrelevant parts.
+*   **How are updates handled?** When the source changes, the ingestor just overwrites this file. That single R2 event is what triggers the re-indexing pipeline, keeping everything in sync.
 
 *   **`github/redwoodjs/machinen/issues/42/latest.json`**
     ```json
@@ -226,6 +226,6 @@ This final prompt is sent to the LLM to generate the answer.
 Now that the core plugin-driven engine is in place, we can easily experiment with different strategies to improve the results. Some ideas:
 *   **Support More Data Sources**: Write plugins for other data sources (Cursor, Discord).
 *   **Experiment with a `TopicsPlugin`**: Introduce "topics" via a plugin as a way to improve search accuracy.
-    *   **Indexing**: A plugin's `enrichChunk` hook could be used to analyze each chunk and tag it with relevant topics (e.g., "SSR," "database," "authentication").
+    *   **Indexing**: The plugin's `enrichChunk` hook could be used to analyze each chunk and tag it with relevant topics (e.g., "SSR," "database," "authentication").
     *   **Querying**: At query time, another hook could use these topics to either pre-filter the search or to boost the relevance of chunks that match the query's topic.
 *   **Build a UI**: A simple chat interface would make it easier to run these experiments and use the system.

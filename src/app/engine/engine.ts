@@ -289,7 +289,7 @@ async function generateEmbedding(
 
 async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
   const response = (await (env.AI.run as any)(
-    "@cf/meta/llama-3.1-8b-instruct",
+    "@cf/openai/gpt-oss-120b",
     {
       messages: [
         {

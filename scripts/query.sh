@@ -13,6 +13,7 @@
 # Auto-source .dev.vars if it exists (look in project root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 if [ -f "$PROJECT_ROOT/.dev.vars" ]; then
   set -a
   source "$PROJECT_ROOT/.dev.vars"

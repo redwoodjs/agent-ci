@@ -13,6 +13,7 @@ export async function indexDocument(
   r2Key: string,
   context: EngineContext
 ): Promise<Chunk[]> {
+  console.log(`[engine] Starting indexDocument for: ${r2Key}`);
   const indexingContext: IndexingHookContext = {
     r2Key,
     env: context.env,
@@ -28,6 +29,8 @@ export async function indexDocument(
     throw new Error(`No plugin could prepare document for R2 key: ${r2Key}`);
   }
 
+  console.log(`[engine] Document prepared: ${document.title || r2Key}`);
+
   const chunks = await runFirstMatchHook(
     context.plugins,
     "splitDocumentIntoChunks",
@@ -37,6 +40,8 @@ export async function indexDocument(
   if (!chunks || chunks.length === 0) {
     throw new Error(`No plugin could split document into chunks: ${r2Key}`);
   }
+
+  console.log(`[engine] Document split into ${chunks.length} chunks`);
 
   const enrichedChunks: Chunk[] = [];
   for (const chunk of chunks) {

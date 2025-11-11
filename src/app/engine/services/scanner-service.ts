@@ -24,10 +24,15 @@ export async function scanForUnprocessedFiles(
 
       const state = await getIndexingState(object.key);
 
-      if (!state || state.etag !== object.etag) {
+      if (!state) {
         unprocessedKeys.push(object.key);
         console.log(
-          `[scanner] Found unprocessed file: ${object.key} (etag: ${object.etag})`
+          `[scanner] Found unprocessed file (no state): ${object.key} (etag: ${object.etag})`
+        );
+      } else if (state.etag !== object.etag) {
+        unprocessedKeys.push(object.key);
+        console.log(
+          `[scanner] Found updated file: ${object.key} (stored etag: ${state.etag}, current etag: ${object.etag})`
         );
       }
     }

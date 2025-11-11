@@ -63,7 +63,6 @@ import type {
   ProcessorJobMessage,
 } from "@/app/ingestors/github/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
-import type { Cloudflare } from "wrangler";
 
 export default {
   fetch: app.fetch,
@@ -100,12 +99,15 @@ export default {
         } else if (
           queueName === "engine-indexing-queue" ||
           queueName === "engine-indexing-queue-prod" ||
+          queueName === "engine-indexing-queue-rag-experiment-1" ||
           queueName === "ENGINE_INDEXING_QUEUE"
         ) {
-          await processIndexingJob(
-            queueMessage as { r2Key: string },
-            env as Cloudflare.Env
+          const indexingMessage = queueMessage as unknown as { r2Key: string };
+          console.log(
+            `[queue] Received indexing job from ${queueName}:`,
+            indexingMessage
           );
+          await processIndexingJob(indexingMessage, env as Cloudflare.Env);
           message.ack();
         } else {
           console.error(
@@ -132,6 +134,7 @@ export default {
     }
   },
   async scheduled(event, env, ctx) {
+    console.log(`[cron] Scheduled event triggered: ${event.cron}`);
     ctx.waitUntil(processScannerJob(env as Cloudflare.Env));
   },
 } as ExportedHandler;

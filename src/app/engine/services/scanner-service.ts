@@ -7,6 +7,8 @@ export async function scanForUnprocessedFiles(
   const unprocessedKeys: string[] = [];
   let cursor: string | undefined = undefined;
   let totalFiles = 0;
+  let dbQueries = 0;
+  const logInterval = 100;
 
   console.log(`[scanner] Starting scan for prefix: ${prefix}`);
 
@@ -22,11 +24,18 @@ export async function scanForUnprocessedFiles(
       }
 
       totalFiles++;
+      dbQueries++;
 
       const state = await getIndexingState(object.key);
 
       if (!state || state.etag !== object.etag) {
         unprocessedKeys.push(object.key);
+      }
+
+      if (totalFiles % logInterval === 0) {
+        console.log(
+          `[scanner] Progress: scanned ${totalFiles} files, ${dbQueries} DB queries, ${unprocessedKeys.length} unprocessed so far`
+        );
       }
     }
 
@@ -34,7 +43,7 @@ export async function scanForUnprocessedFiles(
   } while (cursor);
 
   console.log(
-    `[scanner] Scan complete. Found ${unprocessedKeys.length} unprocessed files out of ${totalFiles} total files.`
+    `[scanner] Scan complete. Scanned ${totalFiles} files, made ${dbQueries} DB queries, found ${unprocessedKeys.length} unprocessed files.`
   );
 
   return unprocessedKeys;

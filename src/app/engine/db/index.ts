@@ -17,6 +17,8 @@ export async function getIndexingState(r2Key: string): Promise<{
   indexed_at: string;
   chunk_ids: string[] | null;
 } | null> {
+  console.log(`[db] getIndexingState called for: ${r2Key}`);
+
   const db = createDb<IndexingStateDatabase>(
     (env as any)
       .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
@@ -30,6 +32,7 @@ export async function getIndexingState(r2Key: string): Promise<{
     .executeTakeFirst();
 
   if (!state) {
+    console.log(`[db] getIndexingState: no state found for ${r2Key}`);
     return null;
   }
 
@@ -46,6 +49,12 @@ export async function getIndexingState(r2Key: string): Promise<{
     }
   }
 
+  console.log(
+    `[db] getIndexingState: found state for ${r2Key}, etag=${
+      state.etag
+    }, chunk_ids=${chunkIds ? chunkIds.length : 0} items`
+  );
+
   return {
     r2_key: state.r2_key,
     etag: state.etag,
@@ -60,13 +69,7 @@ export async function updateIndexingState(
   chunkIds: string[]
 ): Promise<void> {
   console.log(
-    `[db] updateIndexingState called for ${r2Key}: chunkIds type=${typeof chunkIds}, isArray=${Array.isArray(
-      chunkIds
-    )}, length=${Array.isArray(chunkIds) ? chunkIds.length : "N/A"}, firstFew=${
-      Array.isArray(chunkIds) && chunkIds.length > 0
-        ? JSON.stringify(chunkIds.slice(0, 3))
-        : "empty"
-    }`
+    `[db] updateIndexingState called for ${r2Key}: etag=${etag}, chunkIds=${chunkIds.length} items`
   );
 
   const db = createDb<IndexingStateDatabase>(
@@ -77,11 +80,6 @@ export async function updateIndexingState(
 
   const now = new Date().toISOString();
   const chunkIdsJson = JSON.stringify(chunkIds);
-  console.log(
-    `[db] updateIndexingState: JSON.stringify result length=${
-      chunkIdsJson.length
-    }, preview=${chunkIdsJson.substring(0, 200)}`
-  );
 
   const existing = await db
     .selectFrom("indexing_state")
@@ -90,6 +88,9 @@ export async function updateIndexingState(
     .executeTakeFirst();
 
   if (existing) {
+    console.log(
+      `[db] updateIndexingState: updating existing record for ${r2Key}`
+    );
     await db
       .updateTable("indexing_state")
       .set({
@@ -99,7 +100,9 @@ export async function updateIndexingState(
       })
       .where("r2_key", "=", r2Key)
       .execute();
+    console.log(`[db] updateIndexingState: update complete for ${r2Key}`);
   } else {
+    console.log(`[db] updateIndexingState: inserting new record for ${r2Key}`);
     await db
       .insertInto("indexing_state")
       .values({
@@ -109,6 +112,7 @@ export async function updateIndexingState(
         chunk_ids: chunkIdsJson,
       })
       .execute();
+    console.log(`[db] updateIndexingState: insert complete for ${r2Key}`);
   }
 }
 

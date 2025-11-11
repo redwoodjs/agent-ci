@@ -1,42 +1,7 @@
 import { env } from "cloudflare:workers";
+import type { components } from "./discord-api-types";
 
-interface DiscordMessage {
-  id: string;
-  type?: number;
-  timestamp: string;
-  edited_timestamp?: string | null;
-  author: {
-    id: string;
-    username: string;
-    global_name?: string;
-  };
-  content: string;
-  channel_id: string;
-  thread?: {
-    id: string;
-    name: string;
-    message_count: number;
-    member_count: number;
-  } | null;
-  message_reference?: {
-    message_id: string;
-    channel_id: string;
-  } | null;
-  reactions?: Array<{
-    emoji: { name: string };
-    count: number;
-  }>;
-  attachments?: Array<{
-    filename: string;
-    size: number;
-    url: string;
-  }>;
-  embeds?: Array<{
-    title?: string;
-    description?: string;
-    url?: string;
-  }>;
-}
+type DiscordMessage = components["schemas"]["MessageResponse"];
 
 interface IngestOptions {
   guildID: string;

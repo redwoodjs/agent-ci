@@ -11,11 +11,6 @@
 
   "r2_buckets": [
     {
-      "binding": "MACHINEN_CONTEXT_STREAM_BUCKET",
-      "bucket_name": "machinen-context-stream",
-      "remote": true
-    },
-    {
       "binding": "MACHINEN_BUCKET",
       "bucket_name": "machinen",
       "remote": true
@@ -65,7 +60,10 @@
       { "name": "DB", "class_name": "Database" },
       { "name": "CURSOR_EVENTS", "class_name": "CursorEventsDurableObject" },
       { "name": "GITHUB_REPO", "class_name": "GitHubRepoDurableObject" },
-      { "name": "GITHUB_BACKFILL_STATE", "class_name": "GitHubBackfillStateDO" },
+      {
+        "name": "GITHUB_BACKFILL_STATE",
+        "class_name": "GitHubBackfillStateDO"
+      },
       { "name": "ENGINE_INDEXING_STATE", "class_name": "EngineIndexingStateDO" }
     ]
   },

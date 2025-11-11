@@ -358,3 +358,26 @@ The primary mechanism for ensuring data integrity will be a cron-triggered worke
 3.  **Indexing Worker Update:** After the `indexing-worker` successfully processes a job and its vectors are inserted into Vectorize, it will update the state DO, recording the `r2_key` and the `etag` of the file it just processed.
 
 This "scan and compare" approach makes the system resilient. A failed indexing job won't update the state, so it will be automatically retried on the next cron run. A large backfill of files will be systematically processed over time. The R2 events can still be used as a low-latency trigger for new files, but the cron job acts as the ultimate source of truth for index completeness.
+
+## 12. Ingestor Changes PR
+
+**Title:** `feat(ingestor): Switch GitHub ingestor output to JSON`
+
+**Description:**
+
+### Problem
+
+The previous version of the GitHub ingestor produced markdown (`.md`) artifacts. This format is not well-suited for the RAG engine's indexing pipeline, which requires structured data to perform more granular chunking (e.g., separating a pull request body from individual comments) and to enable dynamic context retrieval at query time.
+
+### Solution
+
+This change updates the GitHub ingestor to output a single `latest.json` file for each entity (pull request, issue, project) instead of a `latest.md` file.
+
+*   JSON conversion utilities have been added to transform the data fetched from the GitHub API into a structured format.
+*   The existing processors for pull requests, issues, and projects have been updated to use these utilities and write the resulting JSON to R2.
+
+This provides a machine-readable source of truth that the RAG engine can reliably parse, chunk, and index.
+
+### Testing
+
+The changes have been deployed and a full backfill of GitHub data has been initiated to populate R2 with the new JSON artifacts.

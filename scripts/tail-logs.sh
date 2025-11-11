@@ -12,5 +12,5 @@ DEFAULT_WORKER="rag-experiment-1"
 WORKER_NAME="${1:-$DEFAULT_WORKER}"
 
 npx wrangler tail "$WORKER_NAME" --format=json 2>&1 | \
-  jq -r 'select(.event.rpcMethod == null) | .logs[]?.message[]? | select(type == "string")' | \
+  jq -r 'select(.event.rpcMethod == null)' | \
   tee out.log

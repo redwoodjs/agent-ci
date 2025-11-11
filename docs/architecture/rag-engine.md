@@ -6,11 +6,11 @@ The RAG (Retrieval-Augmented Generation) engine is a plugin-based system designe
 
 ### 1. Data Retrieval in a Serverless Environment
 
-A RAG system's effectiveness hinges on its vector database. In a serverless environment like Cloudflare Workers, this presents unique constraints. A viable solution must scale beyond a single worker's memory limits and, critically, must support efficient **metadata filtering** at the database level. Without this, combining a semantic vector search with a structured filter (e.g., `source: 'github' AND author: 'justinvdm'`) would require a slow, inefficient, and costly two-step process: first fetch a large number of vector results, then filter them in application code. This led to the selection of Cloudflare Vectorize, which supports metadata filtering directly in the query.
+A RAG system's effectiveness hinges on its vector database. In a serverless environment like Cloudflare Workers, this presents unique constraints. A viable solution must scale beyond a single worker's memory limits and, critically, must support efficient **metadata filtering** at the database level. Without this, combining a semantic vector search with a structured filter (e.g., `source: 'github' AND author: 'justinvdm'`) would require a slow, inefficient, and costly two-step process: first fetch a large number of vector results, then filter them in application code.
 
 ### 2. Accommodating Heterogeneous Data Sources
 
-Each data source-from GitHub issues to Discord conversations-has its own unique structure, metadata, and semantics. The system must be able to understand and process these differences to build a coherent, searchable index. Hardcoding source-specific logic into the engine's core would create a monolithic and unmaintainable system. Therefore, the architecture required a design that decouples the core indexing and querying logic from the specifics of each data source. This is solved by a **plugin-based architecture**, which allows new sources to be added without modifying the engine itself.
+Each data source-from GitHub issues to Discord conversations-has its own unique structure, metadata, and semantics. The system must be able to understand and process these differences to build a coherent, searchable index.
 
 ### 3. Maintaining a Complete and Fresh Index
 

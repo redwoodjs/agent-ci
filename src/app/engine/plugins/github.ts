@@ -234,6 +234,26 @@ export const githubPlugin: Plugin = {
             sourceMetadata: document.metadata.sourceMetadata,
           },
         });
+      } else if (data.title) {
+        chunks.push({
+          id: `${context.r2Key}#title`,
+          documentId: context.r2Key,
+          source: "github",
+          content: data.title,
+          metadata: {
+            chunkId: `${context.r2Key}#title`,
+            documentId: context.r2Key,
+            source: "github",
+            type:
+              parsed.type === "pull-requests"
+                ? "pull-request-title"
+                : "issue-title",
+            documentTitle: data.title,
+            author: data.author,
+            jsonPath: "$.title",
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
       }
 
       if (data.comments) {
@@ -284,6 +304,23 @@ export const githubPlugin: Plugin = {
             documentTitle: data.title,
             author: data.owner,
             jsonPath: "$.body",
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      } else if (data.title) {
+        chunks.push({
+          id: `${context.r2Key}#title`,
+          documentId: context.r2Key,
+          source: "github",
+          content: data.title,
+          metadata: {
+            chunkId: `${context.r2Key}#title`,
+            documentId: context.r2Key,
+            source: "github",
+            type: "project-title",
+            documentTitle: data.title,
+            author: data.owner,
+            jsonPath: "$.title",
             sourceMetadata: document.metadata.sourceMetadata,
           },
         });

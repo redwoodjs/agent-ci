@@ -9,7 +9,7 @@ export async function scanForUnprocessedFiles(
   let totalFiles = 0;
   let dbQueries = 0;
   const logInterval = 100;
-  const batchSize = 100;
+  const batchSize = 200;
 
   console.log(`[scanner] Starting scan for prefix: ${prefix}`);
 
@@ -33,13 +33,22 @@ export async function scanForUnprocessedFiles(
 
       if (batchKeys.length >= batchSize) {
         dbQueries++;
-        const states = await getIndexingStatesBatch(batchKeys);
+        try {
+          const states = await getIndexingStatesBatch(batchKeys);
 
-        for (const { key, etag } of batchObjects) {
-          const state = states.get(key);
-          if (!state || state.etag !== etag) {
-            unprocessedKeys.push(key);
+          for (const { key, etag } of batchObjects) {
+            const state = states.get(key);
+            if (!state || state.etag !== etag) {
+              unprocessedKeys.push(key);
+            }
           }
+        } catch (error) {
+          console.error(
+            `[scanner] Error fetching batch states: ${
+              error instanceof Error ? error.message : String(error)
+            }`
+          );
+          throw error;
         }
 
         batchKeys.length = 0;
@@ -55,13 +64,22 @@ export async function scanForUnprocessedFiles(
 
     if (batchKeys.length > 0) {
       dbQueries++;
-      const states = await getIndexingStatesBatch(batchKeys);
+      try {
+        const states = await getIndexingStatesBatch(batchKeys);
 
-      for (const { key, etag } of batchObjects) {
-        const state = states.get(key);
-        if (!state || state.etag !== etag) {
-          unprocessedKeys.push(key);
+        for (const { key, etag } of batchObjects) {
+          const state = states.get(key);
+          if (!state || state.etag !== etag) {
+            unprocessedKeys.push(key);
+          }
         }
+      } catch (error) {
+        console.error(
+          `[scanner] Error fetching final batch states: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+        throw error;
       }
     }
 

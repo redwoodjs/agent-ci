@@ -39,24 +39,9 @@ if [ -z "$API_KEY" ]; then
   exit 1
 fi
 
-# URL encode the query for GET request
-ENCODED_QUERY=$(printf '%s' "$QUERY" | jq -sRr @uri)
-
 echo "Querying: $QUERY"
 echo ""
 
-# GET request (simpler, query in URL)
-echo "=== GET Request ==="
-curl -X GET \
-  -H "Authorization: Bearer $API_KEY" \
-  "$WORKER_URL/rag/query?q=$ENCODED_QUERY" \
-  | jq '.'
-
-echo ""
-echo ""
-
-# POST request (query in JSON body)
-echo "=== POST Request ==="
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \

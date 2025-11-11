@@ -8,7 +8,7 @@
 #   ./query.sh "your query" "your-api-key" "https://your-worker.workers.dev"
 #
 # Environment variables can also be used:
-#   QUERY_API_KEY="your-key" ./query.sh "your query"
+#   API_KEY="your-key" ./query.sh "your query"
 
 # Auto-source .dev.vars if it exists (look in project root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +22,7 @@ fi
 
 # Parse positional arguments
 QUERY="${1:-}"
-API_KEY="${2:-${API_KEY:-${QUERY_API_KEY}}}"
+API_KEY="${2:-${API_KEY}}"
 WORKER_URL="${3:-${WORKER_URL:-https://rag-experiment-1.redwoodjs.workers.dev}}"
 
 # Check required args
@@ -35,7 +35,7 @@ fi
 if [ -z "$API_KEY" ]; then
   echo "Error: API key is required"
   echo "Usage: $0 \"your query\" \"your-api-key\" [worker-url]"
-  echo "Or set QUERY_API_KEY environment variable"
+  echo "Or set API_KEY environment variable"
   exit 1
 fi
 

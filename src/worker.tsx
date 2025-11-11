@@ -109,6 +109,37 @@ export default {
           );
           await processIndexingJob(indexingMessage, env as Cloudflare.Env);
           message.ack();
+        } else if (
+          queueName === "r2-file-update-queue-rag-experiment-1"
+        ) {
+          const r2Event = queueMessage as unknown as {
+            key: string;
+            bucket: string;
+            eventType: string;
+          };
+          console.log(
+            `[r2-event] Received R2 event: ${r2Event.eventType} for ${r2Event.key}`
+          );
+
+          if (
+            r2Event.key.endsWith("latest.json") &&
+            (r2Event.eventType === "ObjectCreated" ||
+              r2Event.eventType === "ObjectCreated:Copy")
+          ) {
+            if (env.ENGINE_INDEXING_QUEUE) {
+              await env.ENGINE_INDEXING_QUEUE.send({
+                body: { r2Key: r2Event.key },
+              });
+              console.log(
+                `[r2-event] Enqueued ${r2Event.key} for indexing`
+              );
+            } else {
+              console.error(
+                `[r2-event] ENGINE_INDEXING_QUEUE binding not found`
+              );
+            }
+          }
+          message.ack();
         } else {
           console.error(
             formatLog("[queue] Unknown queue or message type:", {

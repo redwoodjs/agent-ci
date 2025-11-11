@@ -27,16 +27,16 @@ The default embedding model (`@cf/baai/bge-base-en-v1.5`) uses 768 dimensions. U
 
 ### 2. Configure API Key
 
-Set the `QUERY_API_KEY` environment variable for query endpoint authentication:
+Set the `API_KEY` environment variable for query and admin endpoint authentication:
 
 **For local development (in `.dev.vars`):**
 ```bash
-QUERY_API_KEY=your_secret_here
+API_KEY=your_secret_here
 ```
 
 **For production:**
 ```bash
-wrangler secret put QUERY_API_KEY
+wrangler secret put API_KEY
 # Then paste your secret when prompted
 ```
 
@@ -91,14 +91,14 @@ Query the RAG engine via the `/rag/query` endpoint:
 
 **GET request:**
 ```bash
-curl -H "Authorization: Bearer $QUERY_API_KEY" \
+curl -H "Authorization: Bearer $API_KEY" \
   "https://your-domain.workers.dev/rag/query?q=your+query"
 ```
 
 **POST request:**
 ```bash
 curl -X POST \
-  -H "Authorization: Bearer $QUERY_API_KEY" \
+  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query": "your query"}' \
   "https://your-domain.workers.dev/rag/query"
@@ -115,7 +115,7 @@ curl -X POST \
 
 The query endpoint is protected by:
 
-1. **API Key Authentication**: Requires `Authorization: Bearer <QUERY_API_KEY>` header
+1. **API Key Authentication**: Requires `Authorization: Bearer <API_KEY>` header
 2. **Rate Limiting**: 20 requests per minute per API key
 3. **Input Validation**: Query must be 3-1000 characters
 
@@ -135,7 +135,7 @@ See `types.ts` for the complete plugin interface.
 
 ## Environment Variables
 
-- `QUERY_API_KEY`: API key for query endpoint authentication
+- `API_KEY`: API key for query and admin endpoint authentication
 - `MACHINEN_BUCKET`: R2 bucket binding (configured in wrangler.jsonc)
 - `VECTORIZE_INDEX`: Vectorize index binding (configured in wrangler.jsonc)
 - `AI`: Cloudflare AI binding (configured in wrangler.jsonc)

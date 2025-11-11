@@ -22,7 +22,7 @@ pnpm dev
 Create a `.dev.vars` file in the project root. See each component's README for specific variables needed:
 
 - `INGEST_API_KEY`: Used by GitHub and Cursor ingestors
-- `QUERY_API_KEY`: Used by RAG engine query endpoint
+- `API_KEY`: Used by RAG engine query and admin endpoints
 - `GITHUB_TOKEN`: Used by GitHub ingestor for backfilling
 - `DISCORD_BOT_TOKEN`: Used by Discord ingestor
 
@@ -30,7 +30,7 @@ For production, set these as Cloudflare Worker secrets:
 
 ```bash
 wrangler secret put INGEST_API_KEY
-wrangler secret put QUERY_API_KEY
+wrangler secret put API_KEY
 wrangler secret put GITHUB_TOKEN
 wrangler secret put DISCORD_BOT_TOKEN
 ```

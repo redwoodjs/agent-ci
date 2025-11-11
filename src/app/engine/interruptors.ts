@@ -3,12 +3,12 @@ import { env } from "cloudflare:workers";
 
 declare module "rwsdk/worker" {
   interface WorkerEnv {
-    QUERY_API_KEY?: string;
+    API_KEY?: string;
   }
 }
 
 export async function requireQueryApiKey({ request }: RequestInfo) {
-  const apiKey = (env as any).QUERY_API_KEY;
+  const apiKey = (env as any).API_KEY;
 
   if (!apiKey) {
     return Response.json(

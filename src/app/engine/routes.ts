@@ -9,6 +9,7 @@ import {
 import { query } from "./engine";
 import { githubPlugin, defaultPlugin } from "./plugins";
 import type { EngineContext } from "./types";
+import { processScannerJob } from "./services/scanner-service";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const queryText =
@@ -45,6 +46,28 @@ async function queryHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function backfillHandler({ request, ctx }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  try {
+    console.log("[backfill] Starting manual backfill");
+    await processScannerJob(env as Cloudflare.Env);
+    console.log("[backfill] Manual backfill completed");
+    return Response.json({ success: true, message: "Backfill started" });
+  } catch (error) {
+    console.error("[backfill] Error starting backfill:", error);
+    return Response.json(
+      {
+        error: "Failed to start backfill",
+        message: error instanceof Error ? error.message : "Unknown error",
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export const routes = [
   route("/query", {
     post: [
@@ -54,5 +77,8 @@ export const routes = [
       queryHandler,
     ],
     get: [requireQueryApiKey, rateLimitQuery, validateQueryInput, queryHandler],
+  }),
+  route("/admin/backfill", {
+    post: [requireQueryApiKey, backfillHandler],
   }),
 ];

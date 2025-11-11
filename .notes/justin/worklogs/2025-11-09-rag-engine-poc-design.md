@@ -443,3 +443,34 @@ This approach ensures:
 The original chunk ID is preserved in the vector metadata (`chunkId` field), so we can still reference it when needed. Only the vector ID stored in Vectorize is hashed.
 
 **Note:** Documents that were indexed before this fix will have orphaned vectors in Vectorize with the old long IDs. These won't be automatically cleaned up, but since this is an experiment environment, that's acceptable. Future re-indexing will use the new hashed IDs.
+
+## 15. Transitioning to an Event-Driven Architecture
+
+While testing, I've consistently run into a fundamental scaling issue with the cron-based scanner. The current "scan and compare" approach requires the scanner to list every single file in the R2 bucket and then query our database for each one (albeit in batches) to check its indexing status.
+
+As the number of files grows into the thousands, this process generates an enormous number of API calls to the Durable Object in a very short period, causing the worker to hit Cloudflare's "Too many API requests by single worker invocation" limit. Even with batching, a full scan of thousands of files is too much work for a single cron-triggered invocation.
+
+This is a major pain point and a clear signal that the architecture needs to evolve to be more scalable and efficient.
+
+### The New Plan: R2 Event Notifications + Manual Backfill
+
+I've decided to move away from the cron-based scanner and adopt a more robust, event-driven architecture. This plan addresses both the need to process the large number of existing files and to handle new/updated files in real-time without constant scanning.
+
+**Part 1: Event-Driven Indexing for New/Updated Files**
+
+The core of the new architecture will be R2 Event Notifications.
+1.  **Configure R2 Notifications**: I will configure our `machinen` R2 bucket to send a message to a new Cloudflare Queue (`r2-file-update-queue`) every time a file is created or updated (`ObjectCreated` and `ObjectCreated:Copy` events).
+2.  **Create a Queue Consumer**: The main worker will be configured to consume messages from this new queue.
+3.  **Process Events**: When the worker receives a message, it will extract the `r2Key` and immediately enqueue it into our existing `engine-indexing-queue`.
+
+This completely eliminates the need for a cron job for real-time updates. The R2 bucket will now *tell* us when something changes, which is far more efficient.
+
+**Part 2: A One-Time Manual Backfill for Existing Files**
+
+The event-driven approach only works for files created or changed *after* it's been set up. To handle the thousands of files already in R2, I will perform a one-time backfill.
+
+1.  **Remove the Cron Job**: I will remove the `crons` trigger from `wrangler.jsonc`. The scanner will no longer run on a schedule.
+2.  **Create a Manual Trigger**: I will add a simple, protected HTTP endpoint to the worker (e.g., `POST /admin/start-backfill`). When this endpoint is called, it will execute the `processScannerJob` logic that the cron used to run. This logic, which we've already optimized with batching, is perfectly suited for a one-time backfill.
+3.  **Run the Backfill Once**: After deploying the changes, I will manually trigger this endpoint. The scanner will run, find all existing files, compare their etags with the database, and enqueue everything that needs to be indexed.
+
+This two-part strategy provides a robust and scalable solution. It allows us to efficiently process the existing data in a controlled manner, and then switch to a highly performant, real-time system for all future updates, permanently solving the "too many API requests" issue.

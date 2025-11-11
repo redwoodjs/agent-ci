@@ -190,9 +190,6 @@
           }
         ]
       },
-      "triggers": {
-        "crons": ["* * * * *"]
-      },
       "queues": {
         "producers": [
           {
@@ -228,6 +225,11 @@
           },
           {
             "queue": "engine-indexing-queue-rag-experiment-1",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "r2-file-update-queue-rag-experiment-1",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           }

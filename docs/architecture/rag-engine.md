@@ -14,7 +14,7 @@ Each data source-from GitHub issues to Discord conversations-has its own unique 
 
 ### 3. Maintaining a Complete and Fresh Index
 
-The information in our data sources is constantly changing. New issues are created, PRs are updated, and conversations evolve. The index must reflect these changes in a timely manner without requiring a full, costly re-indexing of all documents. The challenge is to efficiently detect and process only what has changed since the last update.
+The information in our data sources is constantly changing. New issues are created, PRs are updated, and conversations evolve. The index must reflect these changes in a timely manner without requiring a full, costly re-indexing of all documents. Furthermore, relying solely on real-time events to trigger indexing is not robust; events can be missed during outages, leading to parts of the knowledge base never being indexed. The system needs a reliable, systematic process to handle both real-time updates and bulk backfills.
 
 ### 4. Decoupling Query Logic from Storage Schema
 
@@ -23,10 +23,6 @@ An early implementation of the context reconstruction logic relied on parsing th
 ### 5. Maintaining Index Synchronization on Document Updates
 
 When a source document is updated (e.g., a new comment is added to a GitHub PR), the vector index must be updated. A naive implementation that simply inserts new vectors would leave the old, stale vectors in the index. This "index pollution" degrades the quality of search results over time by providing outdated and contradictory context to the LLM. The system requires an atomic "delete-then-insert" operation, but a key challenge is efficiently identifying which vectors to delete without performing slow and costly queries.
-
-### 6. Ensuring Index Freshness and Completeness
-
-Relying solely on real-time events (like an R2 object-create event) to trigger indexing is not robust. Events can be missed during outages or high load, leading to parts of the knowledge base never being indexed. The system needs a reliable, systematic process to periodically scan the entire data source and ensure that every document is correctly represented in the vector index.
 
 ## The Architecture
 
@@ -55,9 +51,14 @@ To maintain index synchronization efficiently, the engine uses a stateful "delet
 2.  **Delete by ID**: When a document is re-indexed, the engine first retrieves the list of old `chunk_ids` from the state database. It then issues a direct `deleteByIds()` call to Vectorize, which is highly efficient.
 3.  **Insert New Vectors**: Only after the old vectors are purged does it insert the new ones and update the state database with the new list of `chunk_ids`.
 
-### 5. The "Scan and Compare" Cron Job for Index Freshness
+### 5. Event-Driven Architecture for Index Freshness
 
-To ensure the index is always complete, a cron-triggered worker periodically scans the R2 bucket. For each document, it compares its ETag against the one stored in the indexing state database. If the document is missing from the state or the ETags don't match, it's enqueued for indexing. This makes the system resilient, guaranteeing that any missed events or failed jobs are automatically corrected.
+To ensure the index is always complete and to handle the high volume of files efficiently, the system uses a two-pronged, event-driven architecture instead of a continuous cron-based scanner.
+
+1.  **Real-Time Indexing via R2 Event Notifications**: The R2 bucket is configured to send a message to a queue whenever a file is created or updated. A worker consumes from this queue and triggers the indexing pipeline for that specific file. This is a highly efficient, push-based approach for keeping the index synchronized with new changes.
+2.  **Manual Backfill via an Admin Endpoint**: To process the large number of existing files without overwhelming the system, a protected admin endpoint is available. When triggered, this endpoint runs the "scan and compare" logic as a one-time operation, finding all unprocessed or updated files and enqueuing them for indexing.
+
+This dual strategy provides a robust solution: real-time events handle day-to-day updates efficiently, while the manual backfill provides a controlled mechanism for bulk processing and disaster recovery, solving the scaling limitations of a cron-based approach.
 
 ## The Anatomy of a Plugin
 

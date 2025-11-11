@@ -67,9 +67,6 @@
       { "name": "ENGINE_INDEXING_STATE", "class_name": "EngineIndexingStateDO" }
     ]
   },
-  "triggers": {
-    "crons": ["*/15 * * * *"]
-  },
   "queues": {
     "producers": [
       {

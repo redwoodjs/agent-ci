@@ -7,7 +7,7 @@
 #   ./scripts/tail-logs.sh rag-experiment-1
 
 # Default worker name (can be overridden via command line argument)
-DEFAULT_WORKER="rag-experiment-1"
+DEFAULT_WORKER="machinen"
 
 WORKER_NAME="${1:-$DEFAULT_WORKER}"
 

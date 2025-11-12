@@ -163,6 +163,7 @@ The engine queries Vectorize and gets back a ranked list of the most relevant **
         "jsonPath": "$.comments[0].body",
         "type": "issue-comment",
         "author": "userA",
+        "source": "github",
         "score": 0.91
       },
       {
@@ -170,6 +171,7 @@ The engine queries Vectorize and gets back a ranked list of the most relevant **
         "chunkId": "github/.../issues/42/latest.json#body",
         "jsonPath": "$.body",
         "type": "issue-body",
+        "source": "github",
         "score": 0.88
       }
     ]

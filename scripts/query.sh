@@ -23,7 +23,7 @@ fi
 # Parse positional arguments
 QUERY="${1:-}"
 API_KEY="${2:-${API_KEY}}"
-WORKER_URL="${3:-${WORKER_URL:-https://rag-experiment-1.redwoodjs.workers.dev}}"
+WORKER_URL="${3:-${WORKER_URL:-https://machinen.redwoodjs.workers.dev}}"
 
 # Check required args
 if [ -z "$QUERY" ]; then

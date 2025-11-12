@@ -109,9 +109,7 @@ export default {
           );
           await processIndexingJob(indexingMessage, env as Cloudflare.Env);
           message.ack();
-        } else if (
-          queueName === "r2-file-update-queue-rag-experiment-1"
-        ) {
+        } else if (queueName.startsWith("r2-file-update-queue-")) {
           const r2Event = queueMessage as unknown as {
             key: string;
             bucket: string;
@@ -130,9 +128,7 @@ export default {
               await env.ENGINE_INDEXING_QUEUE.send({
                 body: { r2Key: r2Event.key },
               });
-              console.log(
-                `[r2-event] Enqueued ${r2Event.key} for indexing`
-              );
+              console.log(`[r2-event] Enqueued ${r2Event.key} for indexing`);
             } else {
               console.error(
                 `[r2-event] ENGINE_INDEXING_QUEUE binding not found`

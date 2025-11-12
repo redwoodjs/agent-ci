@@ -80,6 +80,10 @@
       {
         "queue": "engine-indexing-queue-prod",
         "binding": "ENGINE_INDEXING_QUEUE"
+      },
+      {
+        "queue": "r2-file-update-queue-prod",
+        "binding": "R2_FILE_UPDATE_QUEUE"
       }
     ],
     "consumers": [
@@ -102,6 +106,11 @@
       },
       {
         "queue": "engine-indexing-queue-prod",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
+      },
+      {
+        "queue": "r2-file-update-queue-prod",
         "max_batch_size": 10,
         "max_batch_timeout": 30
       }

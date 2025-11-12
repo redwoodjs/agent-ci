@@ -11,6 +11,7 @@ import { sourceRoutes } from "./app/pages/sources/routes";
 import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
+import { routes as ragRoutes } from "./app/engine/routes";
 import { HomePage } from "./app/pages/HomePage";
 
 export type AppContext = {
@@ -42,6 +43,7 @@ const app = defineApp([
   prefix("/ingest/discord", discordRoutes),
   prefix("/ingestors/cursor", cursorIngestorRoutes),
   prefix("/ingestors/github", githubIngestorRoutes),
+  prefix("/rag", ragRoutes),
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";
@@ -49,10 +51,13 @@ export { Database } from "@/db/durableObject";
 export { CursorEventsDurableObject } from "@/app/ingestors/cursor/db/durableObject";
 export { GitHubRepoDurableObject } from "@/app/ingestors/github/db/durableObject";
 export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durableObject";
+export { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";
 import { handleDeadLetterMessage } from "@/app/ingestors/github/services/dlq-handler";
+import { processIndexingJob } from "@/app/engine/services/indexing-worker";
+import { processScannerJob } from "@/app/engine/services/scanner-service";
 import type {
   QueueMessage,
   ProcessorJobMessage,
@@ -91,6 +96,50 @@ export default {
         ) {
           await handleDeadLetterMessage(queueMessage);
           message.ack();
+        } else if (
+          queueName === "engine-indexing-queue" ||
+          queueName === "engine-indexing-queue-prod" ||
+          queueName === "engine-indexing-queue-rag-experiment-1" ||
+          queueName === "ENGINE_INDEXING_QUEUE"
+        ) {
+          const indexingMessage = queueMessage as unknown as { r2Key: string };
+          console.log(
+            `[queue] Received indexing job from ${queueName}:`,
+            indexingMessage
+          );
+          await processIndexingJob(indexingMessage, env as Cloudflare.Env);
+          message.ack();
+        } else if (
+          queueName === "r2-file-update-queue-rag-experiment-1"
+        ) {
+          const r2Event = queueMessage as unknown as {
+            key: string;
+            bucket: string;
+            eventType: string;
+          };
+          console.log(
+            `[r2-event] Received R2 event: ${r2Event.eventType} for ${r2Event.key}`
+          );
+
+          if (
+            r2Event.key.endsWith("latest.json") &&
+            (r2Event.eventType === "ObjectCreated" ||
+              r2Event.eventType === "ObjectCreated:Copy")
+          ) {
+            if (env.ENGINE_INDEXING_QUEUE) {
+              await env.ENGINE_INDEXING_QUEUE.send({
+                body: { r2Key: r2Event.key },
+              });
+              console.log(
+                `[r2-event] Enqueued ${r2Event.key} for indexing`
+              );
+            } else {
+              console.error(
+                `[r2-event] ENGINE_INDEXING_QUEUE binding not found`
+              );
+            }
+          }
+          message.ack();
         } else {
           console.error(
             formatLog("[queue] Unknown queue or message type:", {
@@ -114,5 +163,9 @@ export default {
         message.retry();
       }
     }
+  },
+  async scheduled(event, env, ctx) {
+    console.log(`[cron] Scheduled event triggered: ${event.cron}`);
+    ctx.waitUntil(processScannerJob(env as Cloudflare.Env));
   },
 } as ExportedHandler;

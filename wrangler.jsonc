@@ -20,6 +20,12 @@
     "binding": "AI",
     "remote": true
   },
+  "vectorize": [
+    {
+      "binding": "VECTORIZE_INDEX",
+      "index_name": "rag-index"
+    }
+  ],
 
   "migrations": [
     {
@@ -42,6 +48,10 @@
     {
       "tag": "v5",
       "new_sqlite_classes": ["GitHubBackfillStateDO"]
+    },
+    {
+      "tag": "v6",
+      "new_sqlite_classes": ["EngineIndexingStateDO"]
     }
   ],
   "durable_objects": {
@@ -50,7 +60,11 @@
       { "name": "DB", "class_name": "Database" },
       { "name": "CURSOR_EVENTS", "class_name": "CursorEventsDurableObject" },
       { "name": "GITHUB_REPO", "class_name": "GitHubRepoDurableObject" },
-      { "name": "GITHUB_BACKFILL_STATE", "class_name": "GitHubBackfillStateDO" }
+      {
+        "name": "GITHUB_BACKFILL_STATE",
+        "class_name": "GitHubBackfillStateDO"
+      },
+      { "name": "ENGINE_INDEXING_STATE", "class_name": "EngineIndexingStateDO" }
     ]
   },
   "queues": {
@@ -62,6 +76,14 @@
       {
         "queue": "github-processor-queue-prod",
         "binding": "PROCESSOR_QUEUE"
+      },
+      {
+        "queue": "engine-indexing-queue-prod",
+        "binding": "ENGINE_INDEXING_QUEUE"
+      },
+      {
+        "queue": "r2-file-update-queue-prod",
+        "binding": "R2_FILE_UPDATE_QUEUE"
       }
     ],
     "consumers": [
@@ -81,6 +103,16 @@
         "queue": "github-processor-queue-prod-dlq",
         "max_batch_size": 10,
         "max_batch_timeout": 30
+      },
+      {
+        "queue": "engine-indexing-queue-prod",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
+      },
+      {
+        "queue": "r2-file-update-queue-prod",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
       }
     ]
   },
@@ -95,6 +127,10 @@
           {
             "queue": "github-processor-queue",
             "binding": "PROCESSOR_QUEUE"
+          },
+          {
+            "queue": "engine-indexing-queue",
+            "binding": "ENGINE_INDEXING_QUEUE"
           }
         ],
         "consumers": [
@@ -112,6 +148,94 @@
           },
           {
             "queue": "github-processor-queue-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "engine-indexing-queue",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          }
+        ]
+      }
+    },
+    "rag-experiment-1": {
+      "r2_buckets": [
+        {
+          "binding": "MACHINEN_BUCKET",
+          "bucket_name": "machinen",
+          "remote": true
+        }
+      ],
+      "ai": {
+        "binding": "AI",
+        "remote": true
+      },
+      "vectorize": [
+        {
+          "binding": "VECTORIZE_INDEX",
+          "index_name": "rag-index"
+        }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "REALTIME", "class_name": "RealtimeDurableObject" },
+          { "name": "DB", "class_name": "Database" },
+          {
+            "name": "CURSOR_EVENTS",
+            "class_name": "CursorEventsDurableObject"
+          },
+          { "name": "GITHUB_REPO", "class_name": "GitHubRepoDurableObject" },
+          {
+            "name": "GITHUB_BACKFILL_STATE",
+            "class_name": "GitHubBackfillStateDO"
+          },
+          {
+            "name": "ENGINE_INDEXING_STATE",
+            "class_name": "EngineIndexingStateDO"
+          }
+        ]
+      },
+      "queues": {
+        "producers": [
+          {
+            "queue": "github-scheduler-queue-rag-experiment-1",
+            "binding": "SCHEDULER_QUEUE"
+          },
+          {
+            "queue": "github-processor-queue-rag-experiment-1",
+            "binding": "PROCESSOR_QUEUE"
+          },
+          {
+            "queue": "engine-indexing-queue-rag-experiment-1",
+            "binding": "ENGINE_INDEXING_QUEUE"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "github-scheduler-queue-rag-experiment-1",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "github-processor-queue-rag-experiment-1",
+            "max_batch_size": 100,
+            "max_batch_timeout": 30,
+            "dead_letter_queue": "github-processor-queue-rag-experiment-1-dlq",
+            "max_retries": 3
+          },
+          {
+            "queue": "github-processor-queue-rag-experiment-1-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "engine-indexing-queue-rag-experiment-1",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "r2-file-update-queue-rag-experiment-1",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           }

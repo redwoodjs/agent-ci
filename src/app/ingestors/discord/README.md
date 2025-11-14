@@ -1,48 +1,59 @@
 # Discord Ingestor
 
-Page-centric ingestion pipeline that fetches Discord messages and stores them as denormalized conversation pages with history tracking.
+Hybrid ingestion pipeline that fetches Discord messages and stores them using a daily JSONL format for channels and page-centric JSON with history tracking for threads.
 
 ## Overview
 
-This ingestor fetches messages from Discord channels and threads using the Discord Bot API and stores them in R2 as JSON documents with history diffs. The architecture mirrors the GitHub ingestion pipeline, using a queue-driven backfill system with state management.
+This ingestor fetches messages from Discord channels and threads using the Discord Bot API and stores them in R2. The architecture uses a queue-driven backfill system with state management, storing channel messages in daily JSONL files and thread conversations as complete pages with history tracking.
 
 ## Architecture
 
 The ingestor uses a two-tier queue architecture:
 
 1. **Scheduler Queue**: Fetches pages of messages and threads from Discord API
-2. **Processor Queue**: Processes individual channels and threads, generating `latest.json` files
+2. **Processor Queue**: Processes individual channels and threads
 3. **State Management**: Durable Object tracks backfill progress and allows resumption
 
 See `docs/architecture/discord-ingestion-pipeline.md` for detailed architecture documentation.
 
 ## Storage Structure
 
-Files are stored in R2 with this page-centric structure:
+Files are stored in R2 with this hybrid structure:
 
 ```
-discord/{guildID}/{channelID}/latest.json
-discord/{guildID}/{channelID}/history/{timestamp}.json
+discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl
 discord/{guildID}/{channelID}/threads/{threadID}/latest.json
 discord/{guildID}/{channelID}/threads/{threadID}/history/{timestamp}.json
 ```
 
-### Channel Pages
+### Channel Messages (Daily JSONL)
 
-Each channel's `latest.json` contains:
-- Metadata (guild ID, channel ID, timestamps, version hash)
-- Complete array of non-thread messages sorted chronologically
+Each day's messages are stored in a separate JSONL file:
 
-### Thread Pages
+- One message per line in JSON format
+- Contains all non-thread messages for that date
+- Sorted chronologically
+- Completely regenerated on each backfill
+- No history tracking
+
+Example JSONL content:
+
+```jsonl
+{"id":"123","timestamp":"2024-11-04T10:30:00.000Z","author":{"username":"alice"},"content":"Hello"}
+{"id":"124","timestamp":"2024-11-04T10:31:15.000Z","author":{"username":"bob"},"content":"Hi there!"}
+```
+
+### Thread Pages (JSON with History)
 
 Each thread's `latest.json` contains:
+
 - Metadata (guild ID, channel ID, thread ID, timestamps, version hash)
 - Starter message from parent channel
 - Complete array of thread replies sorted chronologically
 
-### History Diffs
+### History Diffs (Threads Only)
 
-History files contain JSON diffs showing what changed between versions, creating an audit trail of all modifications.
+History files contain JSON diffs showing what changed between thread versions, creating an audit trail. Channel messages do not have history tracking.
 
 ## Quick Start
 
@@ -110,6 +121,7 @@ Response:
 ```
 
 Status values:
+
 - `pending`: Backfill has been initiated but not started
 - `in_progress`: Backfill is actively running
 - `completed`: Backfill has finished successfully
@@ -151,14 +163,17 @@ Response:
    - Enqueues channel processor job
    - Enqueues thread processor jobs for each discovered thread
 4. Processor queue consumes jobs:
-   - Channel processor: Fetches all non-thread messages, generates `latest.json`, stores diffs
+   - Channel processor: Fetches all non-thread messages, groups by day, generates daily JSONL files
    - Thread processor: Fetches starter message and thread replies, generates `latest.json`, stores diffs
 5. On completion, backfill state updates to `completed`
 6. On error after retries, job moves to DLQ and backfill pauses
 
+**Note**: Channel JSONL files are completely regenerated on each backfill. Only threads maintain incremental history with diffs.
+
 ### State Management
 
 A Durable Object (`DiscordBackfillStateDO`) tracks:
+
 - Backfill status
 - Pagination cursors for messages and threads
 - Error messages and details if issues occur
@@ -168,17 +183,20 @@ The backfill process is resumable. If a backfill is paused or encounters an erro
 ### Queue System
 
 **Scheduler Queue (`DISCORD_SCHEDULER_QUEUE`):**
+
 - Fetches pages of data from Discord API (100 messages per page)
 - Tracks pagination state using message IDs
 - Enqueues individual processing jobs
 
 **Processor Queue (`DISCORD_PROCESSOR_QUEUE`):**
+
 - Processes individual channels or threads
 - Fetches full current state from Discord API
 - Generates `latest.json` and history diffs
 - Idempotent operations (safe to retry)
 
 **Dead-Letter Queue:**
+
 - If a processor job fails after 3 retries, it moves to DLQ
 - DLQ handler updates backfill state to `paused_on_error`
 - Prevents infinite retry loops while preserving error information
@@ -186,6 +204,7 @@ The backfill process is resumable. If a backfill is paused or encounters an erro
 ### Error Handling
 
 If a backfill encounters an error:
+
 1. Failed jobs retry up to 3 times
 2. After exhausting retries, job moves to dead-letter queue
 3. DLQ handler updates backfill state to `paused_on_error`
@@ -245,6 +264,7 @@ Pauses a running backfill.
 Checks the status of a backfill.
 
 **Query Parameters:**
+
 - `guildID`: Discord guild (server) ID
 - `channelID`: Discord channel ID
 
@@ -267,6 +287,7 @@ Checks the status of a backfill.
 ## Rate Limiting
 
 The ingestor monitors Discord API rate limits:
+
 - Checks `X-RateLimit-Remaining` header after each request
 - Automatically retries with exponential backoff when rate limited
 - Fetches up to 100 messages per API call
@@ -278,15 +299,14 @@ The ingestor monitors Discord API rate limits:
 
 - `services/scheduler-service.ts`: Scheduler queue consumer, handles pagination
 - `services/processor-service.ts`: Processor queue coordinator
-- `services/channel-processor.ts`: Channel entity processor
-- `services/thread-processor.ts`: Thread entity processor
+- `services/channel-processor.ts`: Channel entity processor (generates daily JSONL files)
+- `services/thread-processor.ts`: Thread entity processor (generates JSON with history)
 - `services/backfill-state.ts`: State management functions
 - `services/dlq-handler.ts`: Dead-letter queue handler
 - `db/backfill-durableObject.ts`: Durable Object for state persistence
 - `db/backfill-migrations.ts`: Database schema migrations
 - `utils/discord-api.ts`: Discord API client utilities
-- `utils/diff.ts`: Diff generation
-- `utils/channel-to-json.ts`: Channel to JSON conversion
+- `utils/diff.ts`: Diff generation (used for threads only)
 - `utils/thread-to-json.ts`: Thread to JSON conversion
 
 See `docs/architecture/discord-ingestion-pipeline.md` for detailed architecture documentation.

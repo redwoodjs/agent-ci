@@ -52,16 +52,21 @@ export { CursorEventsDurableObject } from "@/app/ingestors/cursor/db/durableObje
 export { GitHubRepoDurableObject } from "@/app/ingestors/github/db/durableObject";
 export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durableObject";
 export { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
+export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";
 import { handleDeadLetterMessage } from "@/app/ingestors/github/services/dlq-handler";
+import { processSchedulerJob as processDiscordSchedulerJob } from "@/app/ingestors/discord/services/scheduler-service";
+import { processProcessorJob as processDiscordProcessorJob } from "@/app/ingestors/discord/services/processor-service";
+import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app/ingestors/discord/services/dlq-handler";
 import { processIndexingJob } from "@/app/engine/services/indexing-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
 import type {
   QueueMessage,
   ProcessorJobMessage,
 } from "@/app/ingestors/github/services/backfill-types";
+import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
 
 export default {
@@ -109,6 +114,56 @@ export default {
           );
           await processIndexingJob(indexingMessage, env as Cloudflare.Env);
           message.ack();
+        } else if (
+          queueName.startsWith("discord-scheduler-queue")
+        ) {
+          const discordMessage = queueMessage as unknown as DiscordQueueMessage;
+          if (discordMessage.type === "scheduler") {
+            await processDiscordSchedulerJob(discordMessage);
+            message.ack();
+          } else {
+            console.error(
+              formatLog("[queue] Invalid Discord scheduler message type:", {
+                queueName,
+                message: discordMessage,
+              })
+            );
+            message.ack();
+          }
+        } else if (
+          queueName.startsWith("discord-processor-queue") &&
+          !queueName.includes("-dlq")
+        ) {
+          const discordMessage = queueMessage as unknown as DiscordQueueMessage;
+          if (discordMessage.type === "processor") {
+            await processDiscordProcessorJob(discordMessage);
+            message.ack();
+          } else {
+            console.error(
+              formatLog("[queue] Invalid Discord processor message type:", {
+                queueName,
+                message: discordMessage,
+              })
+            );
+            message.ack();
+          }
+        } else if (
+          queueName.includes("discord-processor-queue") &&
+          queueName.includes("-dlq")
+        ) {
+          const discordMessage = queueMessage as unknown as DiscordQueueMessage;
+          if (discordMessage.type === "processor") {
+            await handleDiscordDeadLetterMessage(discordMessage);
+            message.ack();
+          } else {
+            console.error(
+              formatLog("[queue] Invalid Discord DLQ message type:", {
+                queueName,
+                message: discordMessage,
+              })
+            );
+            message.ack();
+          }
         } else if (queueName.startsWith("r2-file-update-queue-")) {
           const r2Event = queueMessage as unknown as {
             key: string;

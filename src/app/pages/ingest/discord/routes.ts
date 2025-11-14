@@ -1,84 +1,16 @@
 import { route } from "rwsdk/router";
 import { z } from "zod";
 import { env } from "cloudflare:workers";
-import { ingestDiscordMessages } from "@/app/ingestors/discord/fetch";
-import { parseDiscordFromR2 } from "@/app/ingestors/discord/parse";
+import {
+  updateBackfillState,
+  getBackfillState,
+} from "@/app/ingestors/discord/services/backfill-state";
+import type { SchedulerJobMessage } from "@/app/ingestors/discord/services/backfill-types";
 
-const fetchRequestSchema = z.object({
-  guildID: z.string().min(1).default("679514959968993311"),
-  channelID: z.string().min(1).default("1307974274145062912"),
-  date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  startDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-  endDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
+const backfillRequestSchema = z.object({
+  guildID: z.string().min(1),
+  channelID: z.string().min(1),
 });
-
-async function validateFetchRequest({
-  request,
-  ctx,
-}: {
-  request: Request;
-  ctx: any;
-}) {
-  try {
-    let data = {};
-    try {
-      data = await request.json();
-    } catch {
-      // Empty body is OK, we have defaults
-    }
-    const validated = fetchRequestSchema.parse(data);
-
-    if (validated.date && (validated.startDate || validated.endDate)) {
-      return Response.json(
-        {
-          success: false,
-          error: "Cannot specify both 'date' and 'startDate/endDate'",
-        },
-        { status: 400 }
-      );
-    }
-
-    if (
-      (validated.startDate && !validated.endDate) ||
-      (!validated.startDate && validated.endDate)
-    ) {
-      return Response.json(
-        {
-          success: false,
-          error: "Both 'startDate' and 'endDate' must be specified together",
-        },
-        { status: 400 }
-      );
-    }
-
-    ctx.validatedData = validated;
-    return ctx;
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return Response.json(
-        {
-          success: false,
-          error: "Validation failed",
-          details: error.issues,
-        },
-        { status: 400 }
-      );
-    }
-    return Response.json(
-      { success: false, error: "Invalid JSON" },
-      { status: 400 }
-    );
-  }
-}
 
 async function logDiscordRequest({
   request,
@@ -102,32 +34,42 @@ async function logDiscordRequest({
   return ctx;
 }
 
-const fetchRoute = route("/fetch", [
+const backfillRoute = route("/backfill", [
   logDiscordRequest,
-  validateFetchRequest,
-  async ({ ctx }: { ctx: any }) => {
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
     try {
-      const { guildID, channelID, date, startDate, endDate } =
-        ctx.validatedData;
+      const body = await request.json();
+      const { guildID, channelID } = backfillRequestSchema.parse(body);
 
-      console.log(`Ingesting Discord messages for channel ${channelID}`);
+      const guildChannelKey = `${guildID}/${channelID}`;
+      const schedulerQueue = (env as any)
+        .DISCORD_SCHEDULER_QUEUE as Queue<SchedulerJobMessage>;
 
-      const result = await ingestDiscordMessages({
+      await updateBackfillState(guildChannelKey, {
+        status: "pending",
+        messages_cursor: null,
+        threads_cursor: null,
+        error_message: null,
+        error_details: null,
+      });
+
+      await schedulerQueue.send({
+        type: "scheduler",
+        guild_channel_key: guildChannelKey,
         guildID,
         channelID,
-        date,
-        startDate,
-        endDate,
+        entity_type: "messages",
       });
 
       const apiResponse = Response.json({
         success: true,
-        ...result,
+        guild_channel_key: guildChannelKey,
+        message: "Backfill job started",
       });
       ctx.logCompletion?.(apiResponse);
       return apiResponse;
     } catch (error) {
-      console.error("Discord ingestion error:", error);
+      console.error("Discord backfill error:", error);
       const errorResponse = Response.json(
         {
           success: false,
@@ -141,61 +83,29 @@ const fetchRoute = route("/fetch", [
   },
 ]);
 
-const parseRequestSchema = z.object({
-  key: z.string().min(1),
-});
-
-async function validateParseRequest({
-  request,
-  ctx,
-}: {
-  request: Request;
-  ctx: any;
-}) {
-  try {
-    const data = await request.json();
-    const validated = parseRequestSchema.parse(data);
-    ctx.validatedData = validated;
-    return ctx;
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return Response.json(
-        {
-          success: false,
-          error: "Validation failed",
-          details: error.issues,
-        },
-        { status: 400 }
-      );
-    }
-    return Response.json(
-      { success: false, error: "Invalid JSON" },
-      { status: 400 }
-    );
-  }
-}
-
-const parseRoute = route("/parse", [
+const pauseBackfillRoute = route("/backfill/pause", [
   logDiscordRequest,
-  validateParseRequest,
-  async ({ ctx }: { ctx: any }) => {
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
     try {
-      const { key } = ctx.validatedData;
+      const body = await request.json();
+      const { guildID, channelID } = backfillRequestSchema.parse(body);
 
-      console.log(`Parsing Discord file from R2: ${key}`);
+      const guildChannelKey = `${guildID}/${channelID}`;
 
-      const messages = await parseDiscordFromR2(env.MACHINEN_BUCKET, key);
+      await updateBackfillState(guildChannelKey, {
+        status: "paused",
+        error_message: "Backfill paused manually",
+      });
 
       const apiResponse = Response.json({
         success: true,
-        key,
-        count: messages.length,
-        messages,
+        guild_channel_key: guildChannelKey,
+        message: "Backfill paused",
       });
       ctx.logCompletion?.(apiResponse);
       return apiResponse;
     } catch (error) {
-      console.error("Discord parse error:", error);
+      console.error("Discord pause backfill error:", error);
       const errorResponse = Response.json(
         {
           success: false,
@@ -209,4 +119,54 @@ const parseRoute = route("/parse", [
   },
 ]);
 
-export const routes = [fetchRoute, parseRoute];
+const statusRoute = route("/backfill/status", [
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      const url = new URL(request.url);
+      const guildID = url.searchParams.get("guildID");
+      const channelID = url.searchParams.get("channelID");
+
+      if (!guildID || !channelID) {
+        return Response.json(
+          {
+            success: false,
+            error: "Missing guildID or channelID query parameters",
+          },
+          { status: 400 }
+        );
+      }
+
+      const guildChannelKey = `${guildID}/${channelID}`;
+      const state = await getBackfillState(guildChannelKey);
+
+      if (!state) {
+        return Response.json(
+          { success: false, error: "No backfill state found for this channel" },
+          { status: 404 }
+        );
+      }
+
+      const apiResponse = Response.json({
+        success: true,
+        guild_channel_key: guildChannelKey,
+        state,
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord status check error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
+export const routes = [backfillRoute, pauseBackfillRoute, statusRoute];

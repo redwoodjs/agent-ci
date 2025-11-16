@@ -78,7 +78,7 @@ wrangler secret put DISCORD_BOT_TOKEN
 Trigger a backfill for a Discord channel:
 
 ```bash
-curl -X POST http://localhost:8787/ingest/discord/backfill \
+curl -X POST http://localhost:5173/ingest/discord/backfill \
   -H "Content-Type: application/json" \
   -d '{
     "guildID": "679514959968993311",
@@ -101,7 +101,7 @@ Response:
 Query the backfill status:
 
 ```bash
-curl "http://localhost:8787/ingest/discord/backfill/status?guildID=679514959968993311&channelID=1307974274145062912"
+curl "http://localhost:5173/ingest/discord/backfill/status?guildID=679514959968993311&channelID=1307974274145062912"
 ```
 
 Response:
@@ -133,7 +133,7 @@ Status values:
 Manually pause a running backfill:
 
 ```bash
-curl -X POST http://localhost:8787/ingest/discord/backfill/pause \
+curl -X POST http://localhost:5173/ingest/discord/backfill/pause \
   -H "Content-Type: application/json" \
   -d '{
     "guildID": "679514959968993311",

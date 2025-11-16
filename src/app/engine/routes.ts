@@ -49,6 +49,48 @@ async function queryHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function indexHandler({ request, ctx }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  try {
+    let body: { r2Key?: string } = {};
+    try {
+      body = (await request.json()) as { r2Key?: string };
+    } catch {
+      body = {};
+    }
+
+    if (!body.r2Key || typeof body.r2Key !== "string") {
+      return Response.json(
+        { error: "Missing or invalid 'r2Key' parameter" },
+        { status: 400 }
+      );
+    }
+
+    const envCloudflare = env as Cloudflare.Env;
+
+    console.log(`[index] Indexing single R2 key: ${body.r2Key}`);
+    await enqueueUnprocessedFiles([body.r2Key], envCloudflare);
+
+    return Response.json({
+      success: true,
+      message: `Enqueued file for indexing`,
+      r2Key: body.r2Key,
+    });
+  } catch (error) {
+    console.error("[index] Error indexing file:", error);
+    return Response.json(
+      {
+        error: "Failed to index file",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+
 async function backfillHandler({ request, ctx }: RequestInfo) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -121,6 +163,9 @@ export const routes = [
       queryHandler,
     ],
     get: [requireQueryApiKey, rateLimitQuery, validateQueryInput, queryHandler],
+  }),
+  route("/admin/index", {
+    post: [requireQueryApiKey, indexHandler],
   }),
   route("/admin/backfill", {
     post: [requireQueryApiKey, backfillHandler],

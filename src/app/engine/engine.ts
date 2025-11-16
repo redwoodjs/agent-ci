@@ -175,7 +175,14 @@ async function reconstructContexts(
     }
 
     const jsonText = await object.text();
-    const sourceDocument = JSON.parse(jsonText);
+    let sourceDocument: any;
+    try {
+      sourceDocument = JSON.parse(jsonText);
+    } catch (error) {
+      // JSON parsing failed (e.g., for JSONL files), pass the raw text to plugins
+      // Plugins can handle non-JSON formats themselves
+      sourceDocument = jsonText;
+    }
 
     const reconstructed = await runFirstMatchHook(
       plugins,

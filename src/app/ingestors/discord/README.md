@@ -55,6 +55,42 @@ Each thread's `latest.json` contains:
 
 History files contain JSON diffs showing what changed between thread versions, creating an audit trail. Channel messages do not have history tracking.
 
+## Vectorization
+
+Discord messages are automatically vectorized when stored in R2. The RAG engine processes both channel JSONL files and thread JSON files:
+
+- **Channel Messages**: Each daily JSONL file is indexed as a document, with individual messages as chunks. This allows semantic search across messages within a day.
+
+- **Thread Messages**: Each thread's `latest.json` is indexed as a document, with the starter message and each reply as separate chunks. This maintains conversation context for semantic search.
+
+When files are created or updated in R2, they are automatically enqueued for indexing via the `engine-indexing-queue`. The Discord plugin handles:
+
+- Parsing JSONL files (channel messages) and JSON files (threads)
+- Creating chunks with proper metadata (author, timestamp, message ID)
+- Reconstructing conversation context for query responses
+
+### Manual Indexing
+
+To manually trigger vectorization for a specific Discord file, use the `/rag/admin/index` endpoint:
+
+```bash
+# Index a channel's daily messages
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
+  "https://your-domain.workers.dev/rag/admin/index"
+
+# Index a thread
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"r2Key": "discord/123456789/987654321/threads/111222333/latest.json"}' \
+  "https://your-domain.workers.dev/rag/admin/index"
+```
+
+See the [RAG Engine README](../engine/README.md) for more details on the indexing pipeline.
+
 ## Quick Start
 
 ### 1. Configure Discord Bot Token

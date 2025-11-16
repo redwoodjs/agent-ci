@@ -175,7 +175,9 @@ export default {
           );
 
           if (
-            r2Event.key.endsWith("latest.json") &&
+            (r2Event.key.endsWith("latest.json") ||
+              (r2Event.key.startsWith("discord/") &&
+                r2Event.key.endsWith(".jsonl"))) &&
             (r2Event.eventType === "ObjectCreated" ||
               r2Event.eventType === "ObjectCreated:Copy")
           ) {

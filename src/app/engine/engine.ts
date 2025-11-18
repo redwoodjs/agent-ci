@@ -33,11 +33,22 @@ export async function indexDocument(
     `[engine] Document prepared: ${document.metadata.title || r2Key}`
   );
 
-  const chunks = await runFirstMatchHook(
-    context.plugins,
-    "splitDocumentIntoChunks",
-    (plugin) => plugin.splitDocumentIntoChunks?.(document, indexingContext)
-  );
+  // Try each plugin until we get non-empty chunks
+  // Empty arrays are treated as "no match" to allow the correct plugin to handle it
+  let chunks: Chunk[] | null = null;
+  for (const plugin of context.plugins) {
+    if (plugin.splitDocumentIntoChunks) {
+      const result = await plugin.splitDocumentIntoChunks(
+        document,
+        indexingContext
+      );
+      // Treat empty arrays as "no match" - continue to next plugin
+      if (result && result.length > 0) {
+        chunks = result;
+        break;
+      }
+    }
+  }
 
   if (!chunks || chunks.length === 0) {
     throw new Error(`No plugin could split document into chunks: ${r2Key}`);
@@ -175,7 +186,14 @@ async function reconstructContexts(
     }
 
     const jsonText = await object.text();
-    const sourceDocument = JSON.parse(jsonText);
+    let sourceDocument: any;
+    try {
+      sourceDocument = JSON.parse(jsonText);
+    } catch (error) {
+      // JSON parsing failed (e.g., for JSONL files), pass the raw text to plugins
+      // Plugins can handle non-JSON formats themselves
+      sourceDocument = jsonText;
+    }
 
     const reconstructed = await runFirstMatchHook(
       plugins,

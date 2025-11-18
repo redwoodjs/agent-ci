@@ -1,5 +1,5 @@
 import { indexDocument } from "../engine";
-import { githubPlugin } from "../plugins";
+import { githubPlugin, discordPlugin } from "../plugins";
 import type { EngineContext } from "../types";
 import { getIndexingState, updateIndexingState } from "../db";
 
@@ -41,6 +41,13 @@ async function deleteExistingVectors(
   documentId: string,
   env: Cloudflare.Env
 ): Promise<void> {
+  if (!env.VECTORIZE_INDEX) {
+    console.warn(
+      `[indexing-worker] VECTORIZE_INDEX not available, skipping vector deletion`
+    );
+    return;
+  }
+
   const state = await getIndexingState(documentId);
 
   if (!state || !state.chunk_ids || state.chunk_ids.length === 0) {
@@ -73,7 +80,7 @@ export async function processIndexingJob(
   await deleteExistingVectors(r2Key, env);
 
   const context: EngineContext = {
-    plugins: [githubPlugin],
+    plugins: [githubPlugin, discordPlugin],
     env,
   };
 
@@ -96,6 +103,13 @@ export async function processIndexingJob(
   );
 
   if (vectors.length > 0) {
+    if (!env.VECTORIZE_INDEX) {
+      console.warn(
+        `[indexing-worker] VECTORIZE_INDEX not available, skipping vector insertion. Generated ${vectors.length} vectors but cannot store them.`
+      );
+      return;
+    }
+
     await env.VECTORIZE_INDEX.insert(vectors);
     const chunkIds = vectors.map((v) => v.id);
     console.log(

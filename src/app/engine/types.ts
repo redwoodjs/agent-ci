@@ -1,4 +1,4 @@
-export type Source = "github" | "cursor" | "slack" | "meeting-notes";
+export type Source = "github" | "cursor" | "slack" | "meeting-notes" | "discord";
 
 export interface Document {
   id: string;

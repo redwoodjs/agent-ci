@@ -74,3 +74,7 @@ plan/
 # Cursor User Rules
 .cursor/rules/user
 postgres-data/
+r2-backup/
+
+# Discord OpenAPI spec (fetched at build time)
+src/app/ingestors/discord/openapi.json

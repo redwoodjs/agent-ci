@@ -30,11 +30,13 @@ The default embedding model (`@cf/baai/bge-base-en-v1.5`) uses 768 dimensions. U
 Set the `API_KEY` environment variable for query and admin endpoint authentication:
 
 **For local development (in `.dev.vars`):**
+
 ```bash
 API_KEY=your_secret_here
 ```
 
 **For production:**
+
 ```bash
 wrangler secret put API_KEY
 # Then paste your secret when prompted
@@ -45,16 +47,19 @@ wrangler secret put API_KEY
 Create the queue for indexing jobs:
 
 **For production:**
+
 ```bash
 npx wrangler queues create engine-indexing-queue-prod
 ```
 
 **For test environment:**
+
 ```bash
 npx wrangler queues create engine-indexing-queue
 ```
 
 Verify it exists:
+
 ```bash
 wrangler queues list
 ```
@@ -62,9 +67,12 @@ wrangler queues list
 ### 4. Configure R2 Bucket
 
 Ensure your `MACHINEN_BUCKET` R2 binding is configured in `wrangler.jsonc`. The engine expects source documents to be stored in R2 with paths like:
+
 - `github/{owner}/{repo}/pull-requests/{number}/latest.json`
 - `github/{owner}/{repo}/issues/{number}/latest.json`
 - `github/{owner}/projects/{number}/latest.json`
+- `discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl` (channel messages)
+- `discord/{guildID}/{channelID}/threads/{threadID}/latest.json` (thread messages)
 
 ## Usage
 
@@ -73,12 +81,48 @@ Ensure your `MACHINEN_BUCKET` R2 binding is configured in `wrangler.jsonc`. The 
 To index a document, send a message to the `engine-indexing-queue` with the R2 key:
 
 ```typescript
+// GitHub example
 await env.ENGINE_INDEXING_QUEUE.send({
-  r2Key: "github/owner/repo/pull-requests/123/latest.json"
+  r2Key: "github/owner/repo/pull-requests/123/latest.json",
+});
+
+// Discord example (channel messages)
+await env.ENGINE_INDEXING_QUEUE.send({
+  r2Key: "discord/123456789/987654321/2024-11-04.jsonl",
+});
+
+// Discord example (thread)
+await env.ENGINE_INDEXING_QUEUE.send({
+  r2Key: "discord/123456789/987654321/threads/111222333/latest.json",
 });
 ```
 
+**Note**: Documents are automatically indexed when created or updated in R2 via R2 event notifications. Manual indexing is typically only needed for backfilling or re-indexing.
+
+### Manual Indexing via API
+
+You can manually trigger indexing for a single file using the `/admin/index` endpoint:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
+  "https://your-domain.workers.dev/rag/admin/index"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Enqueued file for indexing",
+  "r2Key": "discord/123456789/987654321/2024-11-04.jsonl"
+}
+```
+
 The indexing worker will:
+
 1. Fetch the document from R2
 2. Use plugins to prepare and chunk the document
 3. Generate embeddings for each chunk
@@ -90,12 +134,14 @@ The indexing worker will:
 Query the RAG engine via the `/rag/query` endpoint:
 
 **GET request:**
+
 ```bash
 curl -H "Authorization: Bearer $API_KEY" \
   "https://your-domain.workers.dev/rag/query?q=your+query"
 ```
 
 **POST request:**
+
 ```bash
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
@@ -105,6 +151,7 @@ curl -X POST \
 ```
 
 **Response:**
+
 ```json
 {
   "response": "LLM-generated answer based on retrieved context"
@@ -124,8 +171,10 @@ The query endpoint is protected by:
 Plugins extend the engine's functionality for different data sources. Currently implemented:
 
 - **GitHub Plugin** (`plugins/github.ts`): Handles GitHub PRs, Issues, and Projects
+- **Discord Plugin** (`plugins/discord.ts`): Handles Discord channel messages (JSONL) and thread conversations (JSON)
 
 Plugins implement hooks for:
+
 - `prepareSourceDocument`: Converts R2 data into a `Document`
 - `splitDocumentIntoChunks`: Splits documents into chunks with metadata
 - `reconstructContext`: Formats document context for LLM prompts
@@ -163,4 +212,3 @@ The indexing queue is configured in `wrangler.jsonc`:
   }
 }
 ```
-

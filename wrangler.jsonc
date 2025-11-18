@@ -52,6 +52,10 @@
     {
       "tag": "v6",
       "new_sqlite_classes": ["EngineIndexingStateDO"]
+    },
+    {
+      "tag": "v7",
+      "new_sqlite_classes": ["DiscordBackfillStateDO"]
     }
   ],
   "durable_objects": {
@@ -64,7 +68,14 @@
         "name": "GITHUB_BACKFILL_STATE",
         "class_name": "GitHubBackfillStateDO"
       },
-      { "name": "ENGINE_INDEXING_STATE", "class_name": "EngineIndexingStateDO" }
+      {
+        "name": "ENGINE_INDEXING_STATE",
+        "class_name": "EngineIndexingStateDO"
+      },
+      {
+        "name": "DISCORD_BACKFILL_STATE",
+        "class_name": "DiscordBackfillStateDO"
+      }
     ]
   },
   "queues": {
@@ -84,6 +95,14 @@
       {
         "queue": "r2-file-update-queue-prod",
         "binding": "R2_FILE_UPDATE_QUEUE"
+      },
+      {
+        "queue": "discord-scheduler-queue-prod",
+        "binding": "DISCORD_SCHEDULER_QUEUE"
+      },
+      {
+        "queue": "discord-processor-queue-prod",
+        "binding": "DISCORD_PROCESSOR_QUEUE"
       }
     ],
     "consumers": [
@@ -113,6 +132,23 @@
         "queue": "r2-file-update-queue-prod",
         "max_batch_size": 10,
         "max_batch_timeout": 30
+      },
+      {
+        "queue": "discord-scheduler-queue-prod",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
+      },
+      {
+        "queue": "discord-processor-queue-prod",
+        "max_batch_size": 100,
+        "max_batch_timeout": 30,
+        "dead_letter_queue": "discord-processor-queue-prod-dlq",
+        "max_retries": 3
+      },
+      {
+        "queue": "discord-processor-queue-prod-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
       }
     ]
   },
@@ -131,6 +167,14 @@
           {
             "queue": "engine-indexing-queue",
             "binding": "ENGINE_INDEXING_QUEUE"
+          },
+          {
+            "queue": "discord-scheduler-queue",
+            "binding": "DISCORD_SCHEDULER_QUEUE"
+          },
+          {
+            "queue": "discord-processor-queue",
+            "binding": "DISCORD_PROCESSOR_QUEUE"
           }
         ],
         "consumers": [
@@ -153,6 +197,23 @@
           },
           {
             "queue": "engine-indexing-queue",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "discord-scheduler-queue",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "discord-processor-queue",
+            "max_batch_size": 100,
+            "max_batch_timeout": 30,
+            "dead_letter_queue": "discord-processor-queue-dlq",
+            "max_retries": 3
+          },
+          {
+            "queue": "discord-processor-queue-dlq",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           }
@@ -193,6 +254,10 @@
           {
             "name": "ENGINE_INDEXING_STATE",
             "class_name": "EngineIndexingStateDO"
+          },
+          {
+            "name": "DISCORD_BACKFILL_STATE",
+            "class_name": "DiscordBackfillStateDO"
           }
         ]
       },
@@ -209,6 +274,14 @@
           {
             "queue": "engine-indexing-queue-rag-experiment-1",
             "binding": "ENGINE_INDEXING_QUEUE"
+          },
+          {
+            "queue": "discord-scheduler-queue-rag-experiment-1",
+            "binding": "DISCORD_SCHEDULER_QUEUE"
+          },
+          {
+            "queue": "discord-processor-queue-rag-experiment-1",
+            "binding": "DISCORD_PROCESSOR_QUEUE"
           }
         ],
         "consumers": [
@@ -236,6 +309,23 @@
           },
           {
             "queue": "r2-file-update-queue-rag-experiment-1",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "discord-scheduler-queue-rag-experiment-1",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "discord-processor-queue-rag-experiment-1",
+            "max_batch_size": 100,
+            "max_batch_timeout": 30,
+            "dead_letter_queue": "discord-processor-queue-rag-experiment-1-dlq",
+            "max_retries": 3
+          },
+          {
+            "queue": "discord-processor-queue-rag-experiment-1-dlq",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           }

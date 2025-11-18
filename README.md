@@ -40,13 +40,13 @@ wrangler secret put DISCORD_BOT_TOKEN
 Ensure your R2 buckets are configured in `wrangler.jsonc`. The following bindings are required:
 
 - `MACHINEN_BUCKET`: Main storage bucket for ingested data
-- `MACHINEN_CONTEXT_STREAM_BUCKET`: Context stream bucket
 
 ### Cloudflare Queues
 
 Multiple components require Cloudflare Queues. Create queues as needed:
 
 **Production:**
+
 ```bash
 # GitHub ingestor queues
 npx wrangler queues create github-scheduler-queue-prod
@@ -58,6 +58,7 @@ npx wrangler queues create engine-indexing-queue-prod
 ```
 
 **Test environment:**
+
 ```bash
 # GitHub ingestor queues
 npx wrangler queues create github-scheduler-queue
@@ -69,6 +70,7 @@ npx wrangler queues create engine-indexing-queue
 ```
 
 Verify queues exist:
+
 ```bash
 wrangler queues list
 ```
@@ -89,9 +91,4 @@ wrangler queues list
 
 - [Architecture: RAG Engine](./docs/architecture/rag-engine.md)
 - [Architecture: GitHub Ingestion Pipeline](./docs/architecture/github-ingestion-pipeline.md)
-- [Architecture: Sources-Artifacts-Subjects](./docs/architecture/sources-artifacts-subjects.md)
 - [RAG Engine Design Worklog](./.notes/justin/worklogs/2025-11-09-rag-engine-poc-design.md)
-
-## Licensing
-
-This is released under the FSL license.

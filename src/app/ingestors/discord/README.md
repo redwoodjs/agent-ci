@@ -187,6 +187,36 @@ Response:
 }
 ```
 
+### 5. Manually Index a Discord File
+
+To manually trigger vectorization for a specific Discord file:
+
+```bash
+# Index a channel's daily messages
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"r2Key": "discord/679514959968993311/1307974274145062912/2024-11-04.jsonl"}' \
+  "http://localhost:5173/rag/admin/index"
+
+# Index a thread
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"r2Key": "discord/679514959968993311/1307974274145062912/threads/111222333/latest.json"}' \
+  "http://localhost:5173/rag/admin/index"
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Enqueued file for indexing",
+  "r2Key": "discord/679514959968993311/1307974274145062912/2024-11-04.jsonl"
+}
+```
+
 ## How It Works
 
 ### Backfill Process

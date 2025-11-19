@@ -8,6 +8,7 @@ import { setCommonHeaders } from "./app/headers";
 
 import { authRoutes } from "./app/pages/auth/routes";
 import { sourceRoutes } from "./app/pages/sources/routes";
+import { auditRoutes } from "./app/pages/audit/routes";
 import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
@@ -38,6 +39,7 @@ const app = defineApp([
 
     prefix("/auth", authRoutes),
     prefix("/sources", sourceRoutes),
+    prefix("/audit", auditRoutes),
   ]),
 
   prefix("/ingest/discord", discordRoutes),

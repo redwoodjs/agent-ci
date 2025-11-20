@@ -6,7 +6,7 @@ import { Document } from "@/app/Document";
 import { setCommonHeaders } from "./app/headers";
 
 import { auditRoutes } from "./app/pages/audit/routes";
-import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
+import { routes as discordRoutes } from "./app/ingestors/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
 import { routes as ragRoutes } from "./app/engine/routes";

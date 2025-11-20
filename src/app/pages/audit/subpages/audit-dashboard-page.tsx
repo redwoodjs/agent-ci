@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { env } from "cloudflare:workers";
 import {
   Card,
@@ -7,12 +8,31 @@ import {
   CardDescription,
 } from "@/app/components/ui/card";
 import { getIndexingStatesBatch } from "@/app/engine/db";
-import type { RequestInfo } from "rwsdk/worker";
 
-export async function AuditDashboardPage() {
+export function AuditDashboardPage() {
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <h1 className="text-3xl font-bold mb-8">Audit Dashboard</h1>
+
+      <Suspense
+        fallback={
+          <>
+            <StatsGridSkeleton />
+            <SourceBreakdownSkeleton />
+            <RecentActivitySkeleton />
+          </>
+        }
+      >
+        <DashboardContent />
+      </Suspense>
+    </div>
+  );
+}
+
+async function DashboardContent() {
   const bucket = env.MACHINEN_BUCKET;
 
-  // Fetch R2 listings for each source type
+  // Fetch R2 listings for each source type once
   const [discordList, githubList, cursorList] = await Promise.all([
     bucket.list({ prefix: "discord/", limit: 1000 }),
     bucket.list({ prefix: "github/", limit: 1000 }),
@@ -24,7 +44,7 @@ export async function AuditDashboardPage() {
   const totalCursorFiles = cursorList.objects.length;
   const totalFiles = totalDiscordFiles + totalGithubFiles + totalCursorFiles;
 
-  // Get indexing state for all files
+  // Get indexing state for all files once
   const allKeys = [
     ...discordList.objects.map((obj) => obj.key),
     ...githubList.objects.map((obj) => obj.key),
@@ -35,7 +55,7 @@ export async function AuditDashboardPage() {
   const indexedCount = indexingStates.size;
   const pendingCount = totalFiles - indexedCount;
 
-  // Get most recently modified files
+  // Prepare data for recent activity
   const allObjects = [
     ...discordList.objects,
     ...githubList.objects,
@@ -45,7 +65,6 @@ export async function AuditDashboardPage() {
     .sort((a, b) => b.uploaded.getTime() - a.uploaded.getTime())
     .slice(0, 10);
 
-  // Get most recently indexed files
   const indexedEntries = Array.from(indexingStates.entries())
     .sort(
       (a, b) =>
@@ -55,159 +74,273 @@ export async function AuditDashboardPage() {
     .slice(0, 10);
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-bold mb-8">Audit Dashboard</h1>
+    <>
+      <StatsGrid
+        totalFiles={totalFiles}
+        indexedCount={indexedCount}
+        pendingCount={pendingCount}
+      />
+      <SourceBreakdown
+        totalDiscordFiles={totalDiscordFiles}
+        totalGithubFiles={totalGithubFiles}
+        totalCursorFiles={totalCursorFiles}
+      />
+      <RecentActivity
+        recentFiles={recentFiles}
+        indexedEntries={indexedEntries}
+      />
+    </>
+  );
+}
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        <Card>
+function StatsGrid({
+  totalFiles,
+  indexedCount,
+  pendingCount,
+}: {
+  totalFiles: number;
+  indexedCount: number;
+  pendingCount: number;
+}) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium text-gray-500">
+            Total Files
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold">{totalFiles}</div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium text-gray-500">
+            Indexed
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold text-green-600">
+            {indexedCount}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium text-gray-500">
+            Pending
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold text-orange-600">
+            {pendingCount}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium text-gray-500">
+            Index Coverage
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-3xl font-bold">
+            {totalFiles > 0 ? Math.round((indexedCount / totalFiles) * 100) : 0}
+            %
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function SourceBreakdown({
+  totalDiscordFiles,
+  totalGithubFiles,
+  totalCursorFiles,
+}: {
+  totalDiscordFiles: number;
+  totalGithubFiles: number;
+  totalCursorFiles: number;
+}) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <Card>
+        <CardHeader>
+          <CardTitle>Discord</CardTitle>
+          <CardDescription>Messages and threads</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{totalDiscordFiles}</div>
+          <div className="text-sm text-gray-500">files in R2</div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>GitHub</CardTitle>
+          <CardDescription>Issues, PRs, and comments</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{totalGithubFiles}</div>
+          <div className="text-sm text-gray-500">files in R2</div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Cursor</CardTitle>
+          <CardDescription>Conversations</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold">{totalCursorFiles}</div>
+          <div className="text-sm text-gray-500">files in R2</div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function RecentActivity({
+  recentFiles,
+  indexedEntries,
+}: {
+  recentFiles: Array<{ key: string; size: number; uploaded: Date }>;
+  indexedEntries: Array<[string, { indexed_at: string; chunk_ids?: string[] }]>;
+}) {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <Card>
+        <CardHeader>
+          <CardTitle>Recently Modified Files</CardTitle>
+          <CardDescription>Last 10 files updated in R2</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {recentFiles.map((file) => (
+              <div
+                key={file.key}
+                className="flex justify-between items-start p-2 hover:bg-gray-50 rounded"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{file.key}</div>
+                  <div className="text-xs text-gray-500">
+                    {formatBytes(file.size)}
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 ml-2 whitespace-nowrap">
+                  {formatDate(file.uploaded)}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Recently Indexed</CardTitle>
+          <CardDescription>Last 10 files indexed into RAG</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {indexedEntries.map(([key, state]) => (
+              <div
+                key={key}
+                className="flex justify-between items-start p-2 hover:bg-gray-50 rounded"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-medium truncate">{key}</div>
+                  <div className="text-xs text-gray-500">
+                    {state.chunk_ids?.length || 0} chunks
+                  </div>
+                </div>
+                <div className="text-xs text-gray-500 ml-2 whitespace-nowrap">
+                  {formatDate(new Date(state.indexed_at))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function StatsGridSkeleton() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      {[1, 2, 3, 4].map((i) => (
+        <Card key={i}>
           <CardHeader>
             <CardTitle className="text-sm font-medium text-gray-500">
-              Total Files
+              <div className="h-4 w-24 bg-gray-200 rounded animate-pulse" />
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{totalFiles}</div>
+            <div className="h-8 w-16 bg-gray-200 rounded animate-pulse" />
           </CardContent>
         </Card>
+      ))}
+    </div>
+  );
+}
 
-        <Card>
+function SourceBreakdownSkeleton() {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      {[1, 2, 3].map((i) => (
+        <Card key={i}>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-gray-500">
-              Indexed
+            <CardTitle>
+              <div className="h-6 w-24 bg-gray-200 rounded animate-pulse" />
             </CardTitle>
+            <CardDescription>
+              <div className="h-4 w-32 bg-gray-200 rounded animate-pulse mt-2" />
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-green-600">
-              {indexedCount}
-            </div>
+            <div className="h-8 w-16 bg-gray-200 rounded animate-pulse" />
+            <div className="h-4 w-20 bg-gray-200 rounded animate-pulse mt-2" />
           </CardContent>
         </Card>
+      ))}
+    </div>
+  );
+}
 
-        <Card>
+function RecentActivitySkeleton() {
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      {[1, 2].map((i) => (
+        <Card key={i}>
           <CardHeader>
-            <CardTitle className="text-sm font-medium text-gray-500">
-              Pending
+            <CardTitle>
+              <div className="h-6 w-48 bg-gray-200 rounded animate-pulse" />
             </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-orange-600">
-              {pendingCount}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm font-medium text-gray-500">
-              Index Coverage
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold">
-              {totalFiles > 0
-                ? Math.round((indexedCount / totalFiles) * 100)
-                : 0}
-              %
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Source Breakdown */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>Discord</CardTitle>
-            <CardDescription>Messages and threads</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalDiscordFiles}</div>
-            <div className="text-sm text-gray-500">files in R2</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>GitHub</CardTitle>
-            <CardDescription>Issues, PRs, and comments</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalGithubFiles}</div>
-            <div className="text-sm text-gray-500">files in R2</div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Cursor</CardTitle>
-            <CardDescription>Conversations</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalCursorFiles}</div>
-            <div className="text-sm text-gray-500">files in R2</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <Card>
-          <CardHeader>
-            <CardTitle>Recently Modified Files</CardTitle>
-            <CardDescription>Last 10 files updated in R2</CardDescription>
+            <CardDescription>
+              <div className="h-4 w-40 bg-gray-200 rounded animate-pulse mt-2" />
+            </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {recentFiles.map((file) => (
-                <div
-                  key={file.key}
-                  className="flex justify-between items-start p-2 hover:bg-gray-50 rounded"
-                >
+              {[1, 2, 3, 4, 5].map((j) => (
+                <div key={j} className="flex justify-between items-start p-2">
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">
-                      {file.key}
-                    </div>
-                    <div className="text-xs text-gray-500">
-                      {formatBytes(file.size)}
-                    </div>
+                    <div className="h-4 w-full bg-gray-200 rounded animate-pulse mb-1" />
+                    <div className="h-3 w-20 bg-gray-200 rounded animate-pulse" />
                   </div>
-                  <div className="text-xs text-gray-500 ml-2 whitespace-nowrap">
-                    {formatDate(file.uploaded)}
-                  </div>
+                  <div className="h-3 w-16 bg-gray-200 rounded animate-pulse ml-2" />
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Recently Indexed</CardTitle>
-            <CardDescription>Last 10 files indexed into RAG</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {indexedEntries.map(([key, state]) => (
-                <div
-                  key={key}
-                  className="flex justify-between items-start p-2 hover:bg-gray-50 rounded"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{key}</div>
-                    <div className="text-xs text-gray-500">
-                      {state.chunk_ids?.length || 0} chunks
-                    </div>
-                  </div>
-                  <div className="text-xs text-gray-500 ml-2 whitespace-nowrap">
-                    {formatDate(new Date(state.indexed_at))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      ))}
     </div>
   );
 }

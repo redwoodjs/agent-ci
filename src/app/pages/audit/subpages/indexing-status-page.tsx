@@ -8,9 +8,9 @@ import {
 import { getIndexingStatesBatch } from "@/app/engine/db";
 import type { RequestInfo } from "rwsdk/worker";
 
-export async function IndexingStatusPage({ requestInfo }: RequestInfo) {
+export async function IndexingStatusPage({ request }: { request: Request }) {
   const bucket = env.MACHINEN_BUCKET;
-  const url = new URL(requestInfo.request.url);
+  const url = new URL(request.url);
   const source = url.searchParams.get("source") || "all";
   const statusFilter = url.searchParams.get("status") || "all";
 
@@ -42,9 +42,7 @@ export async function IndexingStatusPage({ requestInfo }: RequestInfo) {
       indexedAt: indexingState?.indexed_at,
       indexedEtag: indexingState?.etag,
       chunkCount: indexingState?.chunk_ids?.length || 0,
-      needsReindex: indexingState
-        ? indexingState.etag !== obj.etag
-        : false,
+      needsReindex: indexingState ? indexingState.etag !== obj.etag : false,
     };
   });
 
@@ -113,9 +111,7 @@ export async function IndexingStatusPage({ requestInfo }: RequestInfo) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">
-              {stats.stale}
-            </div>
+            <div className="text-2xl font-bold text-red-600">{stats.stale}</div>
           </CardContent>
         </Card>
       </div>
@@ -291,4 +287,3 @@ export async function IndexingStatusPage({ requestInfo }: RequestInfo) {
     </div>
   );
 }
-

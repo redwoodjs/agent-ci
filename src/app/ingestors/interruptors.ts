@@ -26,3 +26,28 @@ export async function requireIngestApiKey({ request }: RequestInfo) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 }
+
+export const requireBasicAuth = async ({ request }: { request: Request }) => {
+  // require basic authentication
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader) {
+    return new Response(null, {
+      status: 401,
+      headers: { "WWW-Authenticate": 'Basic realm="Audit Area"' },
+    });
+  }
+  const [type, credentials] = authHeader.split(" ");
+  if (type !== "Basic") {
+    return new Response(null, {
+      status: 401,
+      headers: { "WWW-Authenticate": 'Basic realm="Audit Area"' },
+    });
+  }
+  const [username, password] = atob(credentials).split(":");
+  if (username !== "admin" || password !== "admin") {
+    return new Response(null, {
+      status: 401,
+      headers: { "WWW-Authenticate": 'Basic realm="Audit Area"' },
+    });
+  }
+};

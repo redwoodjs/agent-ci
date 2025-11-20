@@ -3,11 +3,8 @@ import { render, prefix, route } from "rwsdk/router";
 
 import { Document } from "@/app/Document";
 
-import { auth } from "@/app/pages/auth/auth";
 import { setCommonHeaders } from "./app/headers";
 
-import { authRoutes } from "./app/pages/auth/routes";
-import { sourceRoutes } from "./app/pages/sources/routes";
 import { auditRoutes } from "./app/pages/audit/routes";
 import { routes as discordRoutes } from "./app/pages/ingest/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
@@ -21,26 +18,8 @@ export type AppContext = {
 
 const app = defineApp([
   setCommonHeaders(),
-  async function authMiddleware({ ctx, request }) {
-    try {
-      const session = await auth.api.getSession({
-        headers: request.headers,
-      });
-      if (session?.user) {
-        ctx.user = session.user;
-      }
-    } catch (error) {
-      // console.error("Session error:", error);
-    }
-  },
 
-  render(Document, [
-    route("/", [HomePage]),
-
-    prefix("/auth", authRoutes),
-    prefix("/sources", sourceRoutes),
-    prefix("/audit", auditRoutes),
-  ]),
+  render(Document, [route("/", [HomePage]), prefix("/audit", auditRoutes)]),
 
   prefix("/ingest/discord", discordRoutes),
   prefix("/ingestors/cursor", cursorIngestorRoutes),
@@ -116,9 +95,7 @@ export default {
           );
           await processIndexingJob(indexingMessage, env as Cloudflare.Env);
           message.ack();
-        } else if (
-          queueName.startsWith("discord-scheduler-queue")
-        ) {
+        } else if (queueName.startsWith("discord-scheduler-queue")) {
           const discordMessage = queueMessage as unknown as DiscordQueueMessage;
           if (discordMessage.type === "scheduler") {
             await processDiscordSchedulerJob(discordMessage);

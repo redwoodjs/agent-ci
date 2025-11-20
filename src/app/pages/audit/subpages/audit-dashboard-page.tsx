@@ -9,7 +9,7 @@ import {
 import { getIndexingStatesBatch } from "@/app/engine/db";
 import type { RequestInfo } from "rwsdk/worker";
 
-export async function AuditDashboardPage({ requestInfo }: RequestInfo) {
+export async function AuditDashboardPage() {
   const bucket = env.MACHINEN_BUCKET;
 
   // Fetch R2 listings for each source type
@@ -217,7 +217,7 @@ function formatBytes(bytes: number): string {
   const k = 1024;
   const sizes = ["Bytes", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round(bytes / Math.pow(k, i) * 100) / 100 + " " + sizes[i];
+  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }
 
 function formatDate(date: Date): string {
@@ -240,4 +240,3 @@ function formatDate(date: Date): string {
     return "just now";
   }
 }
-

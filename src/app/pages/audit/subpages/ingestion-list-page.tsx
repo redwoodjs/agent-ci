@@ -7,9 +7,9 @@ import {
 } from "@/app/components/ui/card";
 import type { RequestInfo } from "rwsdk/worker";
 
-export async function IngestionListPage({ requestInfo }: RequestInfo) {
+export async function IngestionListPage({ request }: { request: Request }) {
   const bucket = env.MACHINEN_BUCKET;
-  const url = new URL(requestInfo.request.url);
+  const url = new URL(request.url);
   const source = url.searchParams.get("source") || "all";
   const cursor = url.searchParams.get("cursor") || undefined;
 
@@ -158,4 +158,3 @@ function formatBytes(bytes: number): string {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }
-

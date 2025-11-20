@@ -1,16 +1,16 @@
 import { route, layout } from "rwsdk/router";
-import { requireAuth } from "../auth/interruptors";
+
 import { AuditLayout } from "./layout";
 import { AuditDashboardPage } from "./subpages/audit-dashboard-page";
 import { IngestionListPage } from "./subpages/ingestion-list-page";
 import { IndexingStatusPage } from "./subpages/indexing-status-page";
+import { requireBasicAuth } from "@/app/ingestors/interruptors";
 
 export const auditRoutes = [
-  requireAuth,
+  requireBasicAuth,
   layout(AuditLayout, [
     route("/", AuditDashboardPage),
     route("/ingestion", IngestionListPage),
     route("/indexing", IndexingStatusPage),
   ]),
 ];
-

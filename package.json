@@ -49,6 +49,7 @@
     "zod": "^4.1.11"
   },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.934.0",
     "@cloudflare/vite-plugin": "^1.13.7",
     "@cloudflare/workers-types": "^4.20250927.0",
     "@types/node": "^22.17.1",

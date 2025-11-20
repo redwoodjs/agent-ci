@@ -4,6 +4,7 @@ import { env } from "cloudflare:workers";
 declare module "rwsdk/worker" {
   interface WorkerEnv {
     INGEST_API_KEY?: string;
+    API_KEY?: string;
   }
 }
 
@@ -44,7 +45,7 @@ export const requireBasicAuth = async ({ request }: { request: Request }) => {
     });
   }
   const [username, password] = atob(credentials).split(":");
-  if (username !== "admin" || password !== "admin") {
+  if (username !== "admin" || password !== env.API_KEY) {
     return new Response(null, {
       status: 401,
       headers: { "WWW-Authenticate": 'Basic realm="Audit Area"' },

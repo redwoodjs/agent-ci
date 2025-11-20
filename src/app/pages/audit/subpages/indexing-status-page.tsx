@@ -7,6 +7,7 @@ import {
 } from "@/app/components/ui/card";
 import { getIndexingStatesBatch } from "@/app/engine/db";
 import type { RequestInfo } from "rwsdk/worker";
+import { IndexingTable } from "./indexing-table";
 
 export async function IndexingStatusPage({ request }: { request: Request }) {
   const bucket = env.MACHINEN_BUCKET;
@@ -214,62 +215,7 @@ export async function IndexingStatusPage({ request }: { request: Request }) {
       {/* Files Table */}
       <Card>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b">
-                <tr>
-                  <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                    Key
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                    Status
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                    Chunks
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                    Indexed At
-                  </th>
-                  <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                    Last Modified
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFiles.map((file) => (
-                  <tr key={file.key} className="border-b hover:bg-gray-50">
-                    <td className="py-3 px-4 text-sm font-mono max-w-md truncate">
-                      {file.key}
-                    </td>
-                    <td className="py-3 px-4 text-sm">
-                      {file.needsReindex ? (
-                        <span className="px-2 py-1 bg-red-100 text-red-800 rounded text-xs">
-                          Needs Reindex
-                        </span>
-                      ) : file.indexed ? (
-                        <span className="px-2 py-1 bg-green-100 text-green-800 rounded text-xs">
-                          Indexed
-                        </span>
-                      ) : (
-                        <span className="px-2 py-1 bg-orange-100 text-orange-800 rounded text-xs">
-                          Pending
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-sm">{file.chunkCount}</td>
-                    <td className="py-3 px-4 text-sm text-gray-500">
-                      {file.indexedAt
-                        ? new Date(file.indexedAt).toLocaleString()
-                        : "-"}
-                    </td>
-                    <td className="py-3 px-4 text-sm text-gray-500">
-                      {file.uploaded.toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <IndexingTable files={filteredFiles} />
 
           {filteredFiles.length === 0 && (
             <div className="text-center py-8 text-gray-500">

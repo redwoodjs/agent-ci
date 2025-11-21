@@ -6,9 +6,7 @@ import {
   rateLimitQuery,
   validateQueryInput,
 } from "./interruptors";
-import { query } from "./engine";
-import { githubPlugin, defaultPlugin, cursorPlugin } from "./plugins";
-import type { EngineContext } from "./types";
+import { query, createEngineContext } from "./engine";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
@@ -28,10 +26,7 @@ async function queryHandler({ request, ctx }: RequestInfo) {
     );
   }
 
-  const context: EngineContext = {
-    plugins: [githubPlugin, cursorPlugin, defaultPlugin],
-    env: env as Cloudflare.Env,
-  };
+  const context = createEngineContext(env as Cloudflare.Env, "querying");
 
   try {
     console.log(`[query] Starting query: "${queryText}"`);

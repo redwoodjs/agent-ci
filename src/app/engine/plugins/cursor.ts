@@ -18,6 +18,8 @@ export const cursorPlugin: Plugin = {
       return null;
     }
 
+    console.log(`[cursor-plugin] Preparing document for: ${context.r2Key}`);
+
     const bucket = context.env.MACHINEN_BUCKET;
     const object = await bucket.get(context.r2Key);
 
@@ -27,6 +29,8 @@ export const cursorPlugin: Plugin = {
 
     const jsonText = await object.text();
     const data = JSON.parse(jsonText) as CursorConversationLatestJson;
+    
+    console.log(`[cursor-plugin] Loaded conversation with ${data.generations.length} generations`);
 
     // For the document content, we'll use a summary or the full text.
     // Since this is for the 'document' level, let's just say it's a conversation.
@@ -66,21 +70,24 @@ export const cursorPlugin: Plugin = {
     const chunks: Chunk[] = [];
 
     data.generations.forEach((gen, index) => {
-      // Extract text from events. 
-      // Since we don't have a guaranteed schema for events, we'll try to find text fields
-      // or just dump the JSON if it's structured.
-      // A common pattern in LLM interactions is a 'prompt' and a 'completion'.
-      // We'll look for those, or 'text', or 'message'.
+      // Extract text from events
+      const promptEvent = gen.events.find((e: any) => e.hook_event_name === "beforeSubmitPrompt");
+      const responseEvent = gen.events.find((e: any) => e.hook_event_name === "afterAgentResponse");
       
       let textContent = "";
       
-      // Heuristic: Try to construct a dialogue
-      const promptEvents = gen.events.filter(e => e.hook_event_name === 'chat' || e.prompt); // Hypothetical
-      const responseEvents = gen.events.filter(e => e.response || e.completion || e.text); // Hypothetical
-
-      // Fallback: Stringify the whole generation's events for searchability
-      // This is "dirty" but ensures we index *something* unique to this turn.
-      textContent = JSON.stringify(gen.events);
+      if (promptEvent?.prompt) {
+        textContent += `User: ${promptEvent.prompt}\n\n`;
+      }
+      
+      if (responseEvent?.text) {
+        textContent += `Assistant: ${responseEvent.text}`;
+      }
+      
+      // Fallback: if we couldn't extract structured text, stringify the events
+      if (!textContent.trim()) {
+        textContent = JSON.stringify(gen.events);
+      }
 
       chunks.push({
         content: textContent,
@@ -89,10 +96,13 @@ export const cursorPlugin: Plugin = {
           type: "cursor-generation",
           chunkId: `${document.id}#gen-${gen.id}`,
           jsonPath: `$.generations[${index}]`,
+          documentId: document.id,
         },
       });
     });
 
+    console.log(`[cursor-plugin] Created ${chunks.length} chunks from ${data.generations.length} generations`);
+    
     return chunks;
   },
 

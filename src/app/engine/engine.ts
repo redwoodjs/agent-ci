@@ -105,6 +105,18 @@ export async function query(
   );
   console.log(`[query] Found ${searchResults.length} search results`);
 
+  if (searchResults.length > 0) {
+    console.log(
+      `[query] Top 3 search results:`,
+      searchResults.slice(0, 3).map((r) => ({
+        documentId: r.documentId,
+        chunkId: r.chunkId,
+        source: r.source,
+        score: (r as any).score,
+      }))
+    );
+  }
+
   console.log(`[query] Step 4: Reranking results`);
   const rerankedResults = await runWaterfallHook(
     context.plugins,

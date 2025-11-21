@@ -1,6 +1,4 @@
-import { indexDocument } from "../engine";
-import { githubPlugin, discordPlugin, cursorPlugin } from "../plugins";
-import type { EngineContext } from "../types";
+import { indexDocument, createEngineContext } from "../index";
 import { getIndexingState, updateIndexingState } from "../db";
 
 interface IndexingMessage {
@@ -106,16 +104,19 @@ export async function processIndexingJob(
 
   await deleteExistingVectors(r2Key, env);
 
-  const context: EngineContext = {
-    plugins: [githubPlugin, discordPlugin, cursorPlugin],
-    env,
-  };
-
+  const context = createEngineContext(env, "indexing");
   const chunks = await indexDocument(r2Key, context);
 
   console.log(
     `[indexing-worker] Generated ${chunks.length} chunks for ${r2Key}`
   );
+
+  if (chunks.length > 0) {
+    console.log(
+      `[indexing-worker] Sample chunk metadata:`,
+      JSON.stringify(chunks[0].metadata, null, 2)
+    );
+  }
 
   const vectors = await Promise.all(
     chunks.map(async (chunk) => {

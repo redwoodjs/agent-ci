@@ -26,11 +26,16 @@ export interface CursorEvent {
 
 async function ingestHandler({ request, ctx }: RequestInfo) {
   const data = (await request.json()) as CursorEvent;
-  const { generation_id, hook_event_name } = data;
+  const { conversation_id, generation_id, hook_event_name } = data;
 
   if (!generation_id) {
     log("Missing generation_id", data);
     return Response.json({ error: "Missing generation_id" }, { status: 400 });
+  }
+
+  if (!conversation_id) {
+    log("Missing conversation_id", data);
+    return Response.json({ error: "Missing conversation_id" }, { status: 400 });
   }
 
   const db = createDb<CursorDatabase>(env.CURSOR_EVENTS, conversation_id);

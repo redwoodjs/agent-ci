@@ -16,11 +16,19 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [ -f "$PROJECT_ROOT/.dev.vars" ]; then
+  # Preserve existing environment variables before sourcing .dev.vars
+  # Save API_KEY if it exists
+  SAVED_API_KEY="${API_KEY:-}"
+  
   set -a
   # Filter out comments and lines without =
-  # Use process substitution to source only valid assignment lines
   source <(grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep '=')
   set +a
+  
+  # Restore API_KEY if it was set in the environment before sourcing
+  if [ -n "$SAVED_API_KEY" ]; then
+    export API_KEY="$SAVED_API_KEY"
+  fi
 fi
 
 # Parse positional arguments
@@ -65,10 +73,19 @@ fi
 echo "Querying: $QUERY"
 echo ""
 
-curl -s -X POST \
+RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"query\": $(echo "$QUERY" | jq -R .)}" \
-  "$WORKER_URL/rag/query" \
-  | jq -r '.response'
+  "$WORKER_URL/rag/query")
+
+# Try to extract .response, but if jq returns null or fails, show raw response
+EXTRACTED=$(echo "$RESPONSE" | jq -r '.response // empty' 2>/dev/null)
+
+if [ -z "$EXTRACTED" ] || [ "$EXTRACTED" = "null" ]; then
+  # If jq extraction failed or returned null, show the raw response
+  echo "$RESPONSE"
+else
+  echo "$EXTRACTED"
+fi
 

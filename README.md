@@ -87,6 +87,49 @@ wrangler queues list
 
 - **[RAG Engine](./src/app/engine/README.md)**: Plugin-based architecture for indexing and querying documents using Vectorize and Cloudflare AI
 
+### Query Script
+
+The `scripts/query.sh` script provides a convenient way to query the RAG engine from the command line.
+
+**Basic Usage:**
+
+```bash
+./scripts/query.sh "your query here"
+```
+
+**With Local Development Server:**
+
+```bash
+# Using port shorthand
+WORKER_URL=':5173' ./scripts/query.sh "your query"
+
+# Using full localhost URL
+./scripts/query.sh "your query" "http://localhost:5173"
+```
+
+**Environment Variables:**
+
+The script automatically reads `API_KEY` from `.dev.vars` if present. You can also override it:
+
+```bash
+# Via environment variable
+API_KEY="your-key" ./scripts/query.sh "your query"
+
+# Via command line argument
+./scripts/query.sh "your query" "your-api-key"
+```
+
+**URL Shorthand:**
+
+The script supports shorthand formats for the worker URL:
+- `:5173` → `http://localhost:5173`
+- `localhost:5173` → `http://localhost:5173`
+- Full URLs work as-is: `https://machinen.redwoodjs.workers.dev`
+
+**Error Handling:**
+
+If the API response cannot be parsed (e.g., authentication errors), the script will display the raw JSON response instead of silently returning null.
+
 ## Documentation
 
 - [Architecture: RAG Engine](./docs/architecture/rag-engine.md)

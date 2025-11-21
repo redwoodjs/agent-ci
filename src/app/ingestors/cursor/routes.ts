@@ -1,13 +1,10 @@
 import { route } from "rwsdk/router";
 import { env } from "cloudflare:workers";
 import { type RequestInfo } from "rwsdk/worker";
-import debug from "rwsdk/debug";
 import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "./db/migrations";
 import { type CursorEventsDurableObject } from "./db/durableObject";
 import { requireApiKey } from "./interruptors";
-
-const log = debug("machinen:cursor:ingest");
 
 type CursorDatabase = Database<typeof migrations>;
 
@@ -29,12 +26,12 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
   const { conversation_id, generation_id, hook_event_name } = data;
 
   if (!generation_id) {
-    log("Missing generation_id", data);
+    console.log("[cursor ingest] Missing generation_id", data);
     return Response.json({ error: "Missing generation_id" }, { status: 400 });
   }
 
   if (!conversation_id) {
-    log("Missing conversation_id", data);
+    console.log("[cursor ingest] Missing conversation_id", data);
     return Response.json({ error: "Missing conversation_id" }, { status: 400 });
   }
 
@@ -88,7 +85,10 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
           const text = await existing.text();
           conversationData = JSON.parse(text);
         } catch (e) {
-          log("Error parsing existing conversation data", { error: e, key });
+          console.log(
+            "[cursor ingest] Error parsing existing conversation data",
+            { error: e, key }
+          );
           // If corrupt, start fresh but preserve ID
           conversationData = {
             id: conversation_id,
@@ -103,14 +103,17 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
         events: generationEvents,
       });
 
-      log("[cursor ingest] Storing conversation update to R2", {
-        key,
-        generationsCount: conversationData.generations.length,
-      });
+      console.log(
+        `[cursor ingest] Storing conversation update to R2: ${key} (${conversationData.generations.length} generations)`
+      );
 
       await env.MACHINEN_BUCKET.put(
         key,
         JSON.stringify(conversationData, null, 2)
+      );
+
+      console.log(
+        `[cursor ingest] Successfully stored conversation to R2: ${key}`
       );
 
       // Delete processed events

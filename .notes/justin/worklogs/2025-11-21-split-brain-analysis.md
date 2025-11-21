@@ -102,3 +102,17 @@ A detailed breakdown of why each Durable Object is (or isn't) safe to run in a "
 *   **Cursor DO**: **Safe.** It's a one-way pipe from your local editor to R2. It doesn't overwrite shared state.
 *   **Backfill DOs**: **Safe.** They just manage local job progress. Processors are idempotent, so running a job locally doesn't break anything.
 *   **Indexing DO**: **Was Unsafe, Now Safe.** It used to hold the "delete keys" for vectors. We fixed it by making the deletion logic stateless (querying Vectorize directly). Now it's just a harmless cache.
+
+---
+
+## PR Description
+
+### Title: fix(engine): Implement stateless vector deletion to prevent index pollution
+
+### Overview
+I looked through our durable objects to see which ones are safe versus unsafe to run both locally and in production, alongside R2 and Vectorize both being in production. Here's what I found:
+
+*   **Ingestor DOs (GitHub, Discord)**: **Safe.** They treat R2 as the source of truth. Worst case is "last write wins," which is just eventual consistency.
+*   **Cursor DO**: **Safe.** It's a one-way pipe from your local editor to R2. It doesn't overwrite shared state.
+*   **Backfill DOs**: **Safe.** They just manage local job progress. Processors are idempotent, so running a job locally doesn't break anything.
+*   **Indexing DO**: **Was Unsafe, Now Safe.** It used to hold the "delete keys" for vectors. We fixed it by making the deletion logic stateless (querying Vectorize directly). Now it's just a harmless cache (for ETags).

@@ -96,31 +96,6 @@ A detailed breakdown of why each Durable Object is (or isn't) safe to run in a "
 
 ---
 
-## PR Description
-
-### Title: fix(engine): Implement stateless vector deletion to prevent index pollution
-
-### Overview
-This PR addresses a critical architectural flaw when running the worker locally while connected to remote resources (R2 and Vectorize). The previous design relied on a local Durable Object (`EngineIndexingStateDO`) to track which vectors needed to be deleted when a document was updated. In a "split-brain" environment (Local Worker + Remote Vectorize), the local state would be empty, causing the worker to skip the deletion step and insert duplicate vectors into the production index.
-
-### Analysis of State Safety
-We audited all Durable Objects to determine the safety of running them locally against production resources:
-
-*   **`GitHubRepoDurableObject`**: **SAFE**. It treats Remote R2 as the source of truth. Local execution correctly fetches current state from R2, calculates diffs, and updates R2. Race conditions are handled via standard "last write wins" consistency.
-*   **`CursorEventsDurableObject`**: **SAFE**. It acts as a write-only buffer for local editor events, flushing them to R2 with unique keys (`generation_id`). It does not overwrite shared state.
-*   **`GitHubBackfillStateDO` / `DiscordBackfillStateDO`**: **SAFE**. These manage local job progress. Since the underlying processors are idempotent and check R2 before writing, running a backfill locally is safe, even if Production is unaware of the job.
-*   **`EngineIndexingStateDO`**: **UNSAFE**. It was the single point of failure for index integrity. If the local database didn't know about existing vectors, the system would fail to delete them, corrupting the remote index.
-
-### The Fix
-We have refactored the `indexing-worker` to use a **Stateless Deletion Strategy**.
-
-*   **Removed Dependency:** The worker no longer relies on `EngineIndexingStateDO` to provide the list of vector IDs to delete.
-*   **Query-Based Deletion:** Before indexing a document, the worker now queries Vectorize directly for all vectors matching the `documentId` metadata.
-*   **Robustness:** This ensures that regardless of where the worker is running (Local or Prod) or what its local state is, it will always correctly identify and clean up old vectors before inserting new ones.
-*   **Performance:** While this adds a query round-trip, the move to an event-driven architecture (processing single file updates) makes this overhead negligible compared to the gain in correctness and safety.
-
----
-
 ## RE: Durable Objects Locally vs Production: TLDR
 
 *   **Ingestor DOs (GitHub, Discord)**: **Safe.** They treat R2 as the source of truth. Worst case is "last write wins," which is just eventual consistency.

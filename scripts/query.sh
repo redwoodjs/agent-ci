@@ -17,7 +17,9 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [ -f "$PROJECT_ROOT/.dev.vars" ]; then
   set -a
-  source "$PROJECT_ROOT/.dev.vars"
+  # Filter out comments and lines without =
+  # Use process substitution to source only valid assignment lines
+  source <(grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep '=')
   set +a
 fi
 

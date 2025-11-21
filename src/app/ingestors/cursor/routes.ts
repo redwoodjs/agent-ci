@@ -56,10 +56,18 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
       .orderBy("timestamp", "asc")
       .execute();
 
-    const allEvents = eventsResult.map((row) => ({
-      rowId: row.id,
-      data: JSON.parse(row.event_data) as CursorEvent,
-    }));
+    const allEvents = eventsResult.map((row) => {
+      let eventData: CursorEvent;
+      if (typeof row.event_data === "string") {
+        eventData = JSON.parse(row.event_data) as CursorEvent;
+      } else {
+        eventData = row.event_data as CursorEvent;
+      }
+      return {
+        rowId: row.id,
+        data: eventData,
+      };
+    });
 
     // Filter for the current generation
     const generationEvents = allEvents
@@ -77,11 +85,15 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
       const existing = await env.MACHINEN_BUCKET.get(key);
       if (existing) {
         try {
-          conversationData = await existing.json();
+          const text = await existing.text();
+          conversationData = JSON.parse(text);
         } catch (e) {
-          log("Error parsing existing conversation data", e);
+          log("Error parsing existing conversation data", { error: e, key });
           // If corrupt, start fresh but preserve ID
-          conversationData.id = conversation_id;
+          conversationData = {
+            id: conversation_id,
+            generations: [],
+          };
         }
       }
 

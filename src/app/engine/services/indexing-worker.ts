@@ -62,10 +62,11 @@ async function deleteExistingVectors(
   while (hasMore) {
     // Query for vectors with matching documentId
     // We ask for a large number (100) to minimize round trips
+    // Note: With topK > 50, we must use returnMetadata: "indexed" instead of true
     const queryResult = await env.VECTORIZE_INDEX.query(dummyVector, {
       topK: 100,
       filter: { documentId },
-      returnMetadata: true, // Required by Vectorize API
+      returnMetadata: "indexed", // Required for topK > 50
     });
 
     if (!queryResult.matches || queryResult.matches.length === 0) {

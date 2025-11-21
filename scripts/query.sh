@@ -4,6 +4,7 @@
 #
 # Usage:
 #   ./query.sh "your query here"
+#   ./query.sh "your query" "http://localhost:8787" (uses API_KEY from env)
 #   ./query.sh "your query" "your-api-key"
 #   ./query.sh "your query" "your-api-key" "https://your-worker.workers.dev"
 #
@@ -22,8 +23,28 @@ fi
 
 # Parse positional arguments
 QUERY="${1:-}"
-API_KEY="${2:-${API_KEY}}"
-WORKER_URL="${3:-${WORKER_URL:-https://machinen.redwoodjs.workers.dev}}"
+# Detect if second argument is URL/port or API key
+# Matches: http(s)://..., localhost:..., or :1234
+if [[ "${2:-}" =~ ^(https?://|localhost|:[0-9]+) ]]; then
+  # Usage: ./query.sh "query" "http://localhost:8787"
+  CLI_WORKER_URL="${2}"
+else
+  # Usage: ./query.sh "query" "api-key" ["worker-url"]
+  CLI_API_KEY="${2:-}"
+  CLI_WORKER_URL="${3:-}"
+fi
+
+API_KEY="${CLI_API_KEY:-${API_KEY}}"
+WORKER_URL="${CLI_WORKER_URL:-${WORKER_URL:-https://machinen.redwoodjs.workers.dev}}"
+
+# Normalize WORKER_URL shorthand
+if [[ "$WORKER_URL" =~ ^:[0-9]+$ ]]; then
+  # Handle ":8787" -> "http://localhost:8787"
+  WORKER_URL="http://localhost${WORKER_URL}"
+elif [[ "$WORKER_URL" =~ ^localhost:[0-9]+$ ]]; then
+  # Handle "localhost:8787" -> "http://localhost:8787"
+  WORKER_URL="http://${WORKER_URL}"
+fi
 
 # Check required args
 if [ -z "$QUERY" ]; then

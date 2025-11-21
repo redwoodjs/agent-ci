@@ -41,9 +41,10 @@ async function fetchOpenAPISpec() {
         );
         return true;
       }
-      throw new Error(
-        `Failed to fetch OpenAPI spec: ${response.status} ${response.statusText}`
+      console.warn(
+        `⚠ Failed to fetch OpenAPI spec: ${response.status} ${response.statusText}`
       );
+      return true; // Don't fail the build, just warn
     }
 
     const spec = await response.json();
@@ -60,12 +61,12 @@ async function fetchOpenAPISpec() {
       console.log(`  Local file exists, continuing with local file.`);
       return true;
     }
-    console.error(`✗ Error fetching OpenAPI spec: ${error.message}`);
-    console.error(
+    console.warn(`⚠ Error fetching OpenAPI spec: ${error.message}`);
+    console.warn(
       `  Set DISCORD_OPENAPI_URL environment variable to use a different URL`
     );
-    console.error(`  Or manually download the spec to ${outputPathStr}`);
-    return false;
+    console.warn(`  Or manually download the spec to ${outputPathStr}`);
+    return true; // Don't fail the build, just warn
   }
 }
 

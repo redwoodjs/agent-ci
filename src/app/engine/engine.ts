@@ -294,7 +294,7 @@ async function performVectorSearch(
 
   console.log(`[query] Vector search filter:`, JSON.stringify(combinedFilter));
   const vectorizeResponse = await env.VECTORIZE_INDEX.query(embedding, {
-    topK: 10,
+    topK: 50,
     returnMetadata: true,
     filter: combinedFilter as any,
   });
@@ -315,7 +315,16 @@ async function performVectorSearch(
     cursor: results.filter((r) => r.source === "cursor").length,
     discord: results.filter((r) => r.source === "discord").length,
   });
-  return results;
+  console.log(
+    `[query] All results with sources and scores:`,
+    results.map((r, idx) => ({
+      rank: idx + 1,
+      source: r.source,
+      documentId: r.documentId,
+      score: (r as any).score,
+    }))
+  );
+  return results.slice(0, 10);
 }
 
 function combineFilterClauses(

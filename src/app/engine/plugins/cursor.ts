@@ -102,6 +102,10 @@ export const cursorPlugin: Plugin = {
     });
 
     console.log(`[cursor-plugin] Created ${chunks.length} chunks from ${data.generations.length} generations`);
+    if (chunks.length > 0) {
+      console.log(`[cursor-plugin] Sample chunk content (first 200 chars): ${chunks[0].content.substring(0, 200)}`);
+      console.log(`[cursor-plugin] Sample chunk content (last chunk, first 200 chars): ${chunks[chunks.length - 1].content.substring(0, 200)}`);
+    }
     
     return chunks;
   },

@@ -1,6 +1,4 @@
-import { indexDocument } from "../engine";
-import { githubPlugin, discordPlugin } from "../plugins";
-import type { EngineContext } from "../types";
+import { indexDocument, createEngineContext } from "../index";
 import { getIndexingState, updateIndexingState } from "../db";
 
 interface IndexingMessage {
@@ -59,16 +57,29 @@ async function deleteExistingVectors(
 
   let deletedCount = 0;
   let hasMore = true;
+  let iteration = 0;
 
   // Loop to ensure we find and delete all chunks for this document
   while (hasMore) {
+    iteration++;
+    console.log(
+      `[indexing-worker] Deletion iteration ${iteration}: Querying for vectors with documentId=${documentId}`
+    );
+
     // Query for vectors with matching documentId
     // We ask for a large number (100) to minimize round trips
+    // Note: With topK > 50, we must use returnMetadata: "indexed" instead of true
     const queryResult = await env.VECTORIZE_INDEX.query(dummyVector, {
       topK: 100,
       filter: { documentId },
-      returnMetadata: false, // We only need IDs
+      returnMetadata: "indexed", // Required for topK > 50
     });
+
+    console.log(
+      `[indexing-worker] Deletion query returned ${
+        queryResult.matches?.length || 0
+      } matches`
+    );
 
     if (!queryResult.matches || queryResult.matches.length === 0) {
       hasMore = false;
@@ -76,8 +87,16 @@ async function deleteExistingVectors(
     }
 
     const vectorIds = queryResult.matches.map((match) => match.id);
+    console.log(
+      `[indexing-worker] Deleting ${vectorIds.length} vectors: ${vectorIds
+        .slice(0, 3)
+        .join(", ")}${vectorIds.length > 3 ? "..." : ""}`
+    );
     await env.VECTORIZE_INDEX.deleteByIds(vectorIds);
     deletedCount += vectorIds.length;
+    console.log(
+      `[indexing-worker] Deleted ${vectorIds.length} vectors (total so far: ${deletedCount})`
+    );
 
     // If we got fewer results than we asked for, we've likely exhausted the list
     if (queryResult.matches.length < 100) {
@@ -102,72 +121,121 @@ export async function processIndexingJob(
 ): Promise<void> {
   const { r2Key } = message;
 
-  console.log(`[indexing-worker] Processing R2 key: ${r2Key}`);
+  console.log(`[indexing-worker] Starting job for R2 key: ${r2Key}`);
+  console.log(`[indexing-worker] Message structure:`, JSON.stringify(message));
 
-  await deleteExistingVectors(r2Key, env);
+  try {
+    console.log(
+      `[indexing-worker] Step 1: Deleting existing vectors for ${r2Key}`
+    );
+    await deleteExistingVectors(r2Key, env);
+    console.log(
+      `[indexing-worker] Step 1 complete: Finished deleting existing vectors`
+    );
 
-  const context: EngineContext = {
-    plugins: [githubPlugin, discordPlugin],
-    env,
-  };
+    console.log(`[indexing-worker] Step 2: Creating engine context`);
+    const context = createEngineContext(env, "indexing");
+    console.log(
+      `[indexing-worker] Step 2 complete: Engine context created with ${context.plugins.length} plugins`
+    );
 
-  const chunks = await indexDocument(r2Key, context);
+    console.log(`[indexing-worker] Step 3: Indexing document ${r2Key}`);
+    const chunks = await indexDocument(r2Key, context);
+    console.log(
+      `[indexing-worker] Step 3 complete: Document indexed, got ${chunks.length} chunks`
+    );
 
-  console.log(
-    `[indexing-worker] Generated ${chunks.length} chunks for ${r2Key}`
-  );
-
-  const vectors = await Promise.all(
-    chunks.map(async (chunk) => {
-      const embedding = await generateEmbedding(chunk.content, env);
-      const vectorId = await hashChunkId(chunk.metadata.chunkId);
-      return {
-        id: vectorId,
-        values: embedding,
-        metadata: chunk.metadata,
-      };
-    })
-  );
-
-  if (vectors.length > 0) {
-    if (!env.VECTORIZE_INDEX) {
-      console.warn(
-        `[indexing-worker] VECTORIZE_INDEX not available, skipping vector insertion. Generated ${vectors.length} vectors but cannot store them.`
+    if (chunks.length > 0) {
+      console.log(
+        `[indexing-worker] Sample chunk metadata:`,
+        JSON.stringify(chunks[0].metadata, null, 2)
       );
-      return;
     }
 
-    await env.VECTORIZE_INDEX.insert(vectors);
-    const chunkIds = vectors.map((v) => v.id);
     console.log(
-      `[indexing-worker] Inserted ${vectors.length} chunks into Vectorize`
+      `[indexing-worker] Step 4: Generating embeddings for ${chunks.length} chunks`
+    );
+    const vectors = await Promise.all(
+      chunks.map(async (chunk, index) => {
+        console.log(
+          `[indexing-worker] Generating embedding ${index + 1}/${
+            chunks.length
+          } for chunk ${chunk.metadata.chunkId}`
+        );
+        const embedding = await generateEmbedding(chunk.content, env);
+        const vectorId = await hashChunkId(chunk.metadata.chunkId);
+        console.log(
+          `[indexing-worker] Generated embedding for chunk ${chunk.metadata.chunkId}, vectorId: ${vectorId}`
+        );
+        return {
+          id: vectorId,
+          values: embedding,
+          metadata: chunk.metadata,
+        };
+      })
     );
     console.log(
-      `[indexing-worker] About to call updateIndexingState: chunkIds type=${typeof chunkIds}, isArray=${Array.isArray(
-        chunkIds
-      )}, length=${chunkIds.length}, sample=${JSON.stringify(
-        chunkIds.slice(0, 3)
-      )}`
+      `[indexing-worker] Step 4 complete: Generated ${vectors.length} vectors`
     );
 
-    const object = await env.MACHINEN_BUCKET.head(r2Key);
-    if (object) {
-      // Note: We still pass chunkIds to updateIndexingState for now to keep the signature valid,
-      // but we no longer rely on them for deletion.
-      await updateIndexingState(r2Key, object.etag, chunkIds);
+    if (vectors.length > 0) {
       console.log(
-        `[indexing-worker] Updated indexing state for ${r2Key} with etag ${object.etag}`
+        `[indexing-worker] Step 5: Inserting ${vectors.length} vectors into Vectorize`
       );
+      if (!env.VECTORIZE_INDEX) {
+        console.warn(
+          `[indexing-worker] VECTORIZE_INDEX not available, skipping vector insertion. Generated ${vectors.length} vectors but cannot store them.`
+        );
+        return;
+      }
+
+      console.log(
+        `[indexing-worker] Calling VECTORIZE_INDEX.insert with ${vectors.length} vectors`
+      );
+      await env.VECTORIZE_INDEX.insert(vectors);
+      const chunkIds = vectors.map((v) => v.id);
+      console.log(
+        `[indexing-worker] Step 5 complete: Successfully inserted ${vectors.length} chunks into Vectorize`
+      );
+      console.log(
+        `[indexing-worker] About to call updateIndexingState: chunkIds type=${typeof chunkIds}, isArray=${Array.isArray(
+          chunkIds
+        )}, length=${chunkIds.length}, sample=${JSON.stringify(
+          chunkIds.slice(0, 3)
+        )}`
+      );
+
+      console.log(`[indexing-worker] Step 6: Updating indexing state`);
+      const object = await env.MACHINEN_BUCKET.head(r2Key);
+      if (object) {
+        // Note: We still pass chunkIds to updateIndexingState for now to keep the signature valid,
+        // but we no longer rely on them for deletion.
+        await updateIndexingState(r2Key, object.etag, chunkIds);
+        console.log(
+          `[indexing-worker] Step 6 complete: Updated indexing state for ${r2Key} with etag ${object.etag}`
+        );
+      } else {
+        console.warn(
+          `[indexing-worker] Could not get R2 object head for ${r2Key}, skipping state update`
+        );
+      }
     } else {
       console.warn(
-        `[indexing-worker] Could not get R2 object head for ${r2Key}, skipping state update`
+        `[indexing-worker] No vectors generated for ${r2Key}, skipping state update`
       );
     }
-  } else {
-    console.warn(
-      `[indexing-worker] No vectors generated for ${r2Key}, skipping state update`
-    );
-  }
 
-  console.log(`[indexing-worker] Completed indexing for ${r2Key}`);
+    console.log(
+      `[indexing-worker] Successfully completed indexing for ${r2Key}`
+    );
+  } catch (error) {
+    console.error(
+      `[indexing-worker] Error processing indexing job for ${r2Key}:`,
+      error
+    );
+    if (error instanceof Error) {
+      console.error(`[indexing-worker] Error stack:`, error.stack);
+    }
+    throw error;
+  }
 }

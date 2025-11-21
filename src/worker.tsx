@@ -54,6 +54,9 @@ export default {
   fetch: app.fetch,
   async queue(batch, env) {
     const queueName = batch.queue;
+    console.log(
+      `[queue] Processing batch from queue: ${queueName}, batch size: ${batch.messages.length}`
+    );
 
     for (const message of batch.messages) {
       const queueMessage = message.body as QueueMessage;
@@ -88,12 +91,26 @@ export default {
           queueName === "engine-indexing-queue-rag-experiment-1" ||
           queueName === "ENGINE_INDEXING_QUEUE"
         ) {
-          const indexingMessage = queueMessage as unknown as { r2Key: string };
-          console.log(
-            `[queue] Received indexing job from ${queueName}:`,
-            indexingMessage
-          );
-          await processIndexingJob(indexingMessage, env as Cloudflare.Env);
+          const indexingMessage = queueMessage as unknown as {
+            r2Key?: string;
+            body?: { r2Key?: string };
+          };
+          const r2Key = indexingMessage.r2Key || indexingMessage.body?.r2Key;
+          console.log(`[queue] Received indexing job from ${queueName}:`, {
+            r2Key,
+            rawMessage: indexingMessage,
+          });
+          if (!r2Key) {
+            console.error(
+              formatLog("[queue] Missing r2Key in indexing message:", {
+                queueName,
+                message: indexingMessage,
+              })
+            );
+            message.ack();
+            continue;
+          }
+          await processIndexingJob({ r2Key }, env as Cloudflare.Env);
           message.ack();
         } else if (queueName.startsWith("discord-scheduler-queue")) {
           const discordMessage = queueMessage as unknown as DiscordQueueMessage;
@@ -145,26 +162,41 @@ export default {
           }
         } else if (queueName.startsWith("r2-file-update-queue-")) {
           const r2Event = queueMessage as unknown as {
-            key: string;
+            action: string;
             bucket: string;
-            eventType: string;
+            object?: {
+              key: string;
+              size?: number;
+              eTag?: string;
+            };
           };
+
+          const r2Key = r2Event.object?.key;
+          const eventType =
+            r2Event.action === "PutObject" ? "ObjectCreated" : r2Event.action;
+
           console.log(
-            `[r2-event] Received R2 event: ${r2Event.eventType} for ${r2Event.key}`
+            `[r2-event] Received R2 event: ${eventType} for ${r2Key}`
           );
 
           if (
-            (r2Event.key.endsWith("latest.json") ||
-              (r2Event.key.startsWith("discord/") &&
-                r2Event.key.endsWith(".jsonl"))) &&
-            (r2Event.eventType === "ObjectCreated" ||
-              r2Event.eventType === "ObjectCreated:Copy")
+            r2Key &&
+            (r2Key.endsWith("latest.json") ||
+              (r2Key.startsWith("discord/") && r2Key.endsWith(".jsonl"))) &&
+            (eventType === "ObjectCreated" ||
+              eventType === "ObjectCreated:Copy")
           ) {
-            if (env.ENGINE_INDEXING_QUEUE) {
-              await env.ENGINE_INDEXING_QUEUE.send({
-                body: { r2Key: r2Event.key },
+            const envCloudflare = env as Cloudflare.Env;
+            if (envCloudflare.ENGINE_INDEXING_QUEUE) {
+              console.log(
+                `[r2-event] Sending to ENGINE_INDEXING_QUEUE binding with r2Key: ${r2Key}`
+              );
+              await envCloudflare.ENGINE_INDEXING_QUEUE.send({
+                body: { r2Key },
               });
-              console.log(`[r2-event] Enqueued ${r2Event.key} for indexing`);
+              console.log(
+                `[r2-event] Successfully enqueued ${r2Key} for indexing`
+              );
             } else {
               console.error(
                 `[r2-event] ENGINE_INDEXING_QUEUE binding not found`

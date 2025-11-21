@@ -73,6 +73,63 @@ Ensure your `MACHINEN_BUCKET` R2 binding is configured in `wrangler.jsonc`. The 
 - `github/{owner}/projects/{number}/latest.json`
 - `discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl` (channel messages)
 - `discord/{guildID}/{channelID}/threads/{threadID}/latest.json` (thread messages)
+- `cursor/conversations/{conversation_id}/latest.json`
+
+### 5. Configure R2 Event Notifications
+
+To enable automatic indexing when files are created or updated in R2, configure event notifications.
+
+**Why two rules?**
+
+The worker processes two file patterns:
+- Files ending with `latest.json` → GitHub (PRs, Issues, Projects), Cursor (conversations), Discord threads
+- Files starting with `discord/` and ending with `.jsonl` → Discord channel messages
+
+Since R2 notifications can only match one suffix pattern per rule, we need two separate rules to cover both patterns.
+
+**For production:**
+
+```bash
+# Required: For latest.json files (covers GitHub, Cursor, Discord threads)
+npx wrangler r2 bucket notification create machinen \
+  --queue r2-file-update-queue-prod \
+  --event-type object-create \
+  --suffix latest.json
+
+# Optional: Only needed if you're ingesting Discord channel messages (.jsonl files)
+npx wrangler r2 bucket notification create machinen \
+  --queue r2-file-update-queue-prod \
+  --event-type object-create \
+  --prefix discord/ \
+  --suffix .jsonl
+```
+
+**For test environment:**
+
+```bash
+# Required: For latest.json files (covers GitHub, Cursor, Discord threads)
+npx wrangler r2 bucket notification create machinen \
+  --queue r2-file-update-queue \
+  --event-type object-create \
+  --suffix latest.json
+
+# Optional: Only needed if you're ingesting Discord channel messages (.jsonl files)
+npx wrangler r2 bucket notification create machinen \
+  --queue r2-file-update-queue \
+  --event-type object-create \
+  --prefix discord/ \
+  --suffix .jsonl
+```
+
+**How it works:**
+
+- When a file matching these patterns is created or updated in R2, a message is sent to the queue
+- The worker filters events and only processes files that match expected patterns:
+  - Files ending with `latest.json` (GitHub, Cursor, Discord threads)
+  - Files starting with `discord/` and ending with `.jsonl` (Discord channel messages)
+- The worker then enqueues matching files to the indexing queue
+
+**Note**: If event notifications aren't configured, you can still use the manual backfill endpoint (see "Manual Backfill" section below) to index files.
 
 ## Usage
 
@@ -129,6 +186,52 @@ The indexing worker will:
 4. Delete any existing vectors for that document
 5. Insert new vectors into Vectorize
 
+### Manual Backfill
+
+To backfill all unprocessed or updated files for a specific prefix, use the `/admin/backfill` endpoint:
+
+```bash
+# Backfill GitHub files
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"prefix": "github/"}' \
+  "https://your-domain.workers.dev/rag/admin/backfill"
+
+# Backfill Cursor conversations
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"prefix": "cursor/"}' \
+  "https://your-domain.workers.dev/rag/admin/backfill"
+
+# Backfill Discord files
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"prefix": "discord/"}' \
+  "https://your-domain.workers.dev/rag/admin/backfill"
+```
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Backfill completed. Enqueued 42 files for indexing.",
+  "filesEnqueued": 42
+}
+```
+
+The backfill process:
+
+1. Scans all files in R2 matching the prefix
+2. Compares each file's ETag with the stored state in the indexing database
+3. Only enqueues files that:
+   - Have never been indexed, or
+   - Have been updated since last indexing (ETag mismatch)
+4. Is idempotent and safe to run multiple times
+
 ### Querying
 
 Query the RAG engine via the `/rag/query` endpoint:
@@ -172,6 +275,7 @@ Plugins extend the engine's functionality for different data sources. Currently 
 
 - **GitHub Plugin** (`plugins/github.ts`): Handles GitHub PRs, Issues, and Projects
 - **Discord Plugin** (`plugins/discord.ts`): Handles Discord channel messages (JSONL) and thread conversations (JSON)
+- **Cursor Plugin** (`plugins/cursor.ts`): Handles Cursor conversation data
 
 Plugins implement hooks for:
 

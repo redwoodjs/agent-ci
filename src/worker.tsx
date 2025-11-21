@@ -153,10 +153,11 @@ export default {
               eTag?: string;
             };
           };
-          
+
           const r2Key = r2Event.object?.key;
-          const eventType = r2Event.action === "PutObject" ? "ObjectCreated" : r2Event.action;
-          
+          const eventType =
+            r2Event.action === "PutObject" ? "ObjectCreated" : r2Event.action;
+
           console.log(
             `[r2-event] Received R2 event: ${eventType} for ${r2Key}`
           );
@@ -164,8 +165,7 @@ export default {
           if (
             r2Key &&
             (r2Key.endsWith("latest.json") ||
-              (r2Key.startsWith("discord/") &&
-                r2Key.endsWith(".jsonl"))) &&
+              (r2Key.startsWith("discord/") && r2Key.endsWith(".jsonl"))) &&
             (eventType === "ObjectCreated" ||
               eventType === "ObjectCreated:Copy")
           ) {

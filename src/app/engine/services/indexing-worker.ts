@@ -65,7 +65,7 @@ async function deleteExistingVectors(
     const queryResult = await env.VECTORIZE_INDEX.query(dummyVector, {
       topK: 100,
       filter: { documentId },
-      returnMetadata: false, // We only need IDs
+      returnMetadata: true, // Required by Vectorize API
     });
 
     if (!queryResult.matches || queryResult.matches.length === 0) {

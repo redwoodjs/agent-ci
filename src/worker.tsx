@@ -54,6 +54,9 @@ export default {
   fetch: app.fetch,
   async queue(batch, env) {
     const queueName = batch.queue;
+    console.log(
+      `[queue] Processing batch from queue: ${queueName}, batch size: ${batch.messages.length}`
+    );
 
     for (const message of batch.messages) {
       const queueMessage = message.body as QueueMessage;
@@ -185,10 +188,15 @@ export default {
           ) {
             const envCloudflare = env as Cloudflare.Env;
             if (envCloudflare.ENGINE_INDEXING_QUEUE) {
+              console.log(
+                `[r2-event] Sending to ENGINE_INDEXING_QUEUE binding with r2Key: ${r2Key}`
+              );
               await envCloudflare.ENGINE_INDEXING_QUEUE.send({
                 body: { r2Key },
               });
-              console.log(`[r2-event] Enqueued ${r2Key} for indexing`);
+              console.log(
+                `[r2-event] Successfully enqueued ${r2Key} for indexing`
+              );
             } else {
               console.error(
                 `[r2-event] ENGINE_INDEXING_QUEUE binding not found`

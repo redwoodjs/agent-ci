@@ -7,7 +7,7 @@ import {
   validateQueryInput,
 } from "./interruptors";
 import { query } from "./engine";
-import { githubPlugin, defaultPlugin } from "./plugins";
+import { githubPlugin, defaultPlugin, cursorPlugin } from "./plugins";
 import type { EngineContext } from "./types";
 import {
   processScannerJob,
@@ -29,7 +29,7 @@ async function queryHandler({ request, ctx }: RequestInfo) {
   }
 
   const context: EngineContext = {
-    plugins: [githubPlugin, defaultPlugin],
+    plugins: [githubPlugin, cursorPlugin, defaultPlugin],
     env: env as Cloudflare.Env,
   };
 

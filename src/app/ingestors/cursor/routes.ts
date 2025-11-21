@@ -33,7 +33,7 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
     return Response.json({ error: "Missing generation_id" }, { status: 400 });
   }
 
-  const db = createDb<CursorDatabase>(env.CURSOR_EVENTS, generation_id);
+  const db = createDb<CursorDatabase>(env.CURSOR_EVENTS, conversation_id);
 
   await db
     .insertInto("events")
@@ -51,25 +51,59 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
       .orderBy("timestamp", "asc")
       .execute();
 
-    if (eventsResult.length > 0) {
-      const events: CursorEvent[] = eventsResult.map(
-        (row) => row.event_data as unknown as CursorEvent
-      );
-      const { conversation_id } = events[0];
-      const key = `cursor-conversations/${conversation_id}/${generation_id}.json`;
+    const allEvents = eventsResult.map((row) => ({
+      rowId: row.id,
+      data: JSON.parse(row.event_data) as CursorEvent,
+    }));
 
-      const aggregatedData = {
-        conversation_id,
-        generation_id,
-        events,
+    // Filter for the current generation
+    const generationEvents = allEvents
+      .filter((e) => e.data.generation_id === generation_id)
+      .map((e) => e.data);
+
+    if (generationEvents.length > 0) {
+      const key = `cursor/conversations/${conversation_id}/latest.json`;
+
+      let conversationData = {
+        id: conversation_id,
+        generations: [] as { id: string; events: CursorEvent[] }[],
       };
 
-      console.log("[cursor ingest] Storing interaction to R2", aggregatedData);
+      const existing = await env.MACHINEN_BUCKET.get(key);
+      if (existing) {
+        try {
+          conversationData = await existing.json();
+        } catch (e) {
+          log("Error parsing existing conversation data", e);
+          // If corrupt, start fresh but preserve ID
+          conversationData.id = conversation_id;
+        }
+      }
+
+      // Append new generation
+      conversationData.generations.push({
+        id: generation_id,
+        events: generationEvents,
+      });
+
+      log("[cursor ingest] Storing conversation update to R2", {
+        key,
+        generationsCount: conversationData.generations.length,
+      });
+
       await env.MACHINEN_BUCKET.put(
         key,
-        JSON.stringify(aggregatedData, null, 2)
+        JSON.stringify(conversationData, null, 2)
       );
-      await db.deleteFrom("events").execute();
+
+      // Delete processed events
+      const idsToDelete = allEvents
+        .filter((e) => e.data.generation_id === generation_id)
+        .map((e) => e.rowId);
+
+      if (idsToDelete.length > 0) {
+        await db.deleteFrom("events").where("id", "in", idsToDelete).execute();
+      }
     }
   }
 

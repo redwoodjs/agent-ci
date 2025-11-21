@@ -1,5 +1,5 @@
 import { indexDocument } from "../engine";
-import { githubPlugin, discordPlugin } from "../plugins";
+import { githubPlugin, discordPlugin, cursorPlugin } from "../plugins";
 import type { EngineContext } from "../types";
 import { getIndexingState, updateIndexingState } from "../db";
 
@@ -107,7 +107,7 @@ export async function processIndexingJob(
   await deleteExistingVectors(r2Key, env);
 
   const context: EngineContext = {
-    plugins: [githubPlugin, discordPlugin],
+    plugins: [githubPlugin, discordPlugin, cursorPlugin],
     env,
   };
 

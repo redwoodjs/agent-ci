@@ -145,26 +145,35 @@ export default {
           }
         } else if (queueName.startsWith("r2-file-update-queue-")) {
           const r2Event = queueMessage as unknown as {
-            key: string;
+            action: string;
             bucket: string;
-            eventType: string;
+            object?: {
+              key: string;
+              size?: number;
+              eTag?: string;
+            };
           };
+          
+          const r2Key = r2Event.object?.key;
+          const eventType = r2Event.action === "PutObject" ? "ObjectCreated" : r2Event.action;
+          
           console.log(
-            `[r2-event] Received R2 event: ${r2Event.eventType} for ${r2Event.key}`
+            `[r2-event] Received R2 event: ${eventType} for ${r2Key}`
           );
 
           if (
-            (r2Event.key.endsWith("latest.json") ||
-              (r2Event.key.startsWith("discord/") &&
-                r2Event.key.endsWith(".jsonl"))) &&
-            (r2Event.eventType === "ObjectCreated" ||
-              r2Event.eventType === "ObjectCreated:Copy")
+            r2Key &&
+            (r2Key.endsWith("latest.json") ||
+              (r2Key.startsWith("discord/") &&
+                r2Key.endsWith(".jsonl"))) &&
+            (eventType === "ObjectCreated" ||
+              eventType === "ObjectCreated:Copy")
           ) {
             if (env.ENGINE_INDEXING_QUEUE) {
               await env.ENGINE_INDEXING_QUEUE.send({
-                body: { r2Key: r2Event.key },
+                body: { r2Key },
               });
-              console.log(`[r2-event] Enqueued ${r2Event.key} for indexing`);
+              console.log(`[r2-event] Enqueued ${r2Key} for indexing`);
             } else {
               console.error(
                 `[r2-event] ENGINE_INDEXING_QUEUE binding not found`

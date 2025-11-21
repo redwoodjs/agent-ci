@@ -22,6 +22,9 @@ export const indexingStateMigrations = {
     },
   },
   "002_add_chunk_ids": {
+    // context(justinvdm, 21 Nov 2025): This column is effectively deprecated.
+    // We no longer read/write `chunk_ids` to manage vector deletion (see EngineIndexingStateDO comments).
+    // It remains in the schema to avoid migration churn.
     async up(db) {
       return [
         await db.schema
@@ -38,4 +41,3 @@ export const indexingStateMigrations = {
     },
   },
 } satisfies Migrations;
-

@@ -46,29 +46,6 @@ This is the dangerous component in the "Split Brain" setup.
     5.  Local generates new vectors `[C, D]` and inserts them into **Remote Vectorize**.
 *   **Result:** **Index Pollution.** The remote index now contains `[A, B, C, D]` for the same document. Search results will be duplicated or conflicting.
 
-## Proposed Solutions for Indexing
-
-### Option A: Disable Local Indexing (Safest)
-*   Configure the local worker to *not* consume the `engine-indexing-queue`.
-*   Let Production handle all indexing.
-*   **Pros:** Zero risk of pollution.
-*   **Cons:** Cannot test indexing changes locally.
-
-### Option B: Query-Based Deletion (Stateless)
-*   Modify `indexing-worker.ts` to stop relying on the DO for Vector IDs.
-*   Instead, **query Vectorize** for all vectors belonging to the document (`metadata.documentId = X`) and delete them by ID.
-*   **Pros:** Stateless, safe to run anywhere. Eliminates the "Split Brain" risk.
-*   **Cons:**
-    *   Vectorize does *not* support `delete where metadata...`.
-    *   Requires a "Query -> Get IDs -> Delete IDs" round-trip.
-    *   **Performance:** Adds latency/cost to every indexing operation.
-    *   **Feasibility:** Previously rejected due to slowness during *bulk* backfills. However, for *event-driven* (one-at-a-time) updates, the overhead might be acceptable.
-
-### Option C: Full Remote Mode
-*   Run `wrangler dev --remote`.
-*   **Pros:** Local code interacts with **Production DOs**. Safe state.
-*   **Cons:** High risk of accidentally modifying/breaking production state during development logic changes.
-
 ## Decision: Implement Architecture Fix (Stateless Deletion)
 
 We have decided to implement **Option B: Query-Based Deletion (Stateless)**.
@@ -119,16 +96,25 @@ A detailed breakdown of why each Durable Object is (or isn't) safe to run in a "
 
 ---
 
-## Implementation Plan
+## PR Description
 
-1.  **Modify `indexing-worker.ts`**:
-    *   Remove the logic that reads `chunk_ids` from `EngineIndexingStateDO`.
-    *   Implement `deleteExistingVectors` using the query-based approach:
-        *   Generate a dummy embedding (all zeros or standard dimension).
-        *   Query Vectorize for neighbors: `topK: 20 (or more)`, `filter: { documentId: r2Key }`.
-        *   *Note:* We need to ensure we paginate or fetch enough to get *all* vectors. Since we chunk documents, we might need to loop until no results are returned.
-    *   Delete the found IDs.
-2.  **Update `EngineIndexingStateDO`**:
-    *   It can still store `etag` to prevent re-indexing unchanged files (optimization).
-    *   We can stop storing `chunk_ids` since they are no longer the source of truth for deletion.
+### Title: fix(engine): Implement stateless vector deletion to prevent index pollution
 
+### Overview
+This PR addresses a critical architectural flaw when running the worker locally while connected to remote resources (R2 and Vectorize). The previous design relied on a local Durable Object (`EngineIndexingStateDO`) to track which vectors needed to be deleted when a document was updated. In a "split-brain" environment (Local Worker + Remote Vectorize), the local state would be empty, causing the worker to skip the deletion step and insert duplicate vectors into the production index.
+
+### Analysis of State Safety
+We audited all Durable Objects to determine the safety of running them locally against production resources:
+
+*   **`GitHubRepoDurableObject`**: **SAFE**. It treats Remote R2 as the source of truth. Local execution correctly fetches current state from R2, calculates diffs, and updates R2. Race conditions are handled via standard "last write wins" consistency.
+*   **`CursorEventsDurableObject`**: **SAFE**. It acts as a write-only buffer for local editor events, flushing them to R2 with unique keys (`generation_id`). It does not overwrite shared state.
+*   **`GitHubBackfillStateDO` / `DiscordBackfillStateDO`**: **SAFE**. These manage local job progress. Since the underlying processors are idempotent and check R2 before writing, running a backfill locally is safe, even if Production is unaware of the job.
+*   **`EngineIndexingStateDO`**: **UNSAFE**. It was the single point of failure for index integrity. If the local database didn't know about existing vectors, the system would fail to delete them, corrupting the remote index.
+
+### The Fix
+We have refactored the `indexing-worker` to use a **Stateless Deletion Strategy**.
+
+*   **Removed Dependency:** The worker no longer relies on `EngineIndexingStateDO` to provide the list of vector IDs to delete.
+*   **Query-Based Deletion:** Before indexing a document, the worker now queries Vectorize directly for all vectors matching the `documentId` metadata.
+*   **Robustness:** This ensures that regardless of where the worker is running (Local or Prod) or what its local state is, it will always correctly identify and clean up old vectors before inserting new ones.
+*   **Performance:** While this adds a query round-trip, the move to an event-driven architecture (processing single file updates) makes this overhead negligible compared to the gain in correctness and safety.

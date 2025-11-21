@@ -6,7 +6,7 @@ import {
   rateLimitQuery,
   validateQueryInput,
 } from "./interruptors";
-import { query, createEngineContext } from "./engine";
+import { query, createEngineContext } from "./index";
 import {
   processScannerJob,
   scanForUnprocessedFiles,

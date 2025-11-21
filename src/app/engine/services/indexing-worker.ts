@@ -48,25 +48,52 @@ async function deleteExistingVectors(
     return;
   }
 
-  const state = await getIndexingState(documentId);
-
-  if (!state || !state.chunk_ids || state.chunk_ids.length === 0) {
-    console.log(
-      `[indexing-worker] No existing vectors to delete for ${documentId} (first time indexing)`
-    );
-    return;
-  }
-
-  const chunkIds = state.chunk_ids;
-
-  for (let i = 0; i < chunkIds.length; i += 1000) {
-    const batch = chunkIds.slice(i, i + 1000);
-    await env.VECTORIZE_INDEX.deleteByIds(batch);
-  }
-
   console.log(
-    `[indexing-worker] Deleted ${chunkIds.length} existing vectors for document ${documentId} (from state)`
+    `[indexing-worker] Deleting existing vectors for ${documentId} via query`
   );
+
+  // Generate a dummy embedding for the query
+  // We use a zero vector of dimension 768 (standard for bge-base-en-v1.5)
+  // Note: Vectorize requires a vector for query even if we only care about the filter
+  const dummyVector = new Array(768).fill(0);
+
+  let deletedCount = 0;
+  let hasMore = true;
+
+  // Loop to ensure we find and delete all chunks for this document
+  while (hasMore) {
+    // Query for vectors with matching documentId
+    // We ask for a large number (100) to minimize round trips
+    const queryResult = await env.VECTORIZE_INDEX.query(dummyVector, {
+      topK: 100,
+      filter: { documentId },
+      returnMetadata: false, // We only need IDs
+    });
+
+    if (!queryResult.matches || queryResult.matches.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    const vectorIds = queryResult.matches.map((match) => match.id);
+    await env.VECTORIZE_INDEX.deleteByIds(vectorIds);
+    deletedCount += vectorIds.length;
+
+    // If we got fewer results than we asked for, we've likely exhausted the list
+    if (queryResult.matches.length < 100) {
+      hasMore = false;
+    }
+  }
+
+  if (deletedCount > 0) {
+    console.log(
+      `[indexing-worker] Deleted ${deletedCount} existing vectors for document ${documentId}`
+    );
+  } else {
+    console.log(
+      `[indexing-worker] No existing vectors found for ${documentId} (clean insert)`
+    );
+  }
 }
 
 export async function processIndexingJob(
@@ -125,9 +152,11 @@ export async function processIndexingJob(
 
     const object = await env.MACHINEN_BUCKET.head(r2Key);
     if (object) {
+      // Note: We still pass chunkIds to updateIndexingState for now to keep the signature valid,
+      // but we no longer rely on them for deletion.
       await updateIndexingState(r2Key, object.etag, chunkIds);
       console.log(
-        `[indexing-worker] Updated indexing state for ${r2Key} with etag ${object.etag} and ${chunkIds.length} chunk IDs`
+        `[indexing-worker] Updated indexing state for ${r2Key} with etag ${object.etag}`
       );
     } else {
       console.warn(

@@ -256,23 +256,50 @@ export async function processIndexingJob(
 
       await env.VECTORIZE_INDEX.insert(vectors);
 
-      // DEBUG: Verify insertion by querying immediately
+      // DEBUG: Verify insertion by querying after a delay to account for eventual consistency
       if (vectors.length > 0 && vectors[0].metadata.source === "cursor") {
+        console.log(
+          `[indexing-worker] DEBUG - Waiting 5 seconds for eventual consistency before verification query...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5000)); // 5-second delay
+
         const testVector = new Array(768).fill(0); // Dummy vector for query
-        const verifyResponse = await env.VECTORIZE_INDEX.query(testVector, {
+        const documentIdToVerify = vectors[0].metadata.documentId;
+
+        console.log(
+          `[indexing-worker] DEBUG - Verification attempt 1: Querying by documentId: ${documentIdToVerify}`
+        );
+        const verifyResponseById = await env.VECTORIZE_INDEX.query(testVector, {
           topK: 10,
           returnMetadata: true,
-          filter: { documentId: vectors[0].metadata.documentId } as any,
+          filter: { documentId: documentIdToVerify } as any,
         });
         console.log(
-          `[indexing-worker] DEBUG - Verification query after insert: Found ${verifyResponse.matches.length} matches for documentId ${vectors[0].metadata.documentId}`
+          `[indexing-worker] DEBUG - Verification query by documentId found ${verifyResponseById.matches.length} matches.`
         );
-        if (verifyResponse.matches.length > 0) {
+
+        if (verifyResponseById.matches.length === 0) {
           console.log(
-            `[indexing-worker] DEBUG - Verification match metadata: ${JSON.stringify(
-              verifyResponse.matches[0].metadata as any
-            )}`
+            `[indexing-worker] DEBUG - Verification attempt 2: Querying by source: "cursor"`
           );
+          const verifyResponseBySource = await env.VECTORIZE_INDEX.query(
+            testVector,
+            {
+              topK: 10,
+              returnMetadata: true,
+              filter: { source: "cursor" } as any,
+            }
+          );
+          console.log(
+            `[indexing-worker] DEBUG - Verification query by source found ${verifyResponseBySource.matches.length} matches.`
+          );
+          if (verifyResponseBySource.matches.length > 0) {
+            console.log(
+              `[indexing-worker] DEBUG - Found other cursor chunks, sample metadata: ${JSON.stringify(
+                verifyResponseBySource.matches[0].metadata as any
+              )}`
+            );
+          }
         }
       }
       const chunkIds = vectors.map((v) => v.id);

@@ -29,7 +29,7 @@ export function createEngineContext(
   }
 
   return {
-    plugins: [githubPlugin, cursorPlugin, defaultPlugin],
+    plugins: [githubPlugin, discordPlugin, cursorPlugin, defaultPlugin],
     env,
   };
 }

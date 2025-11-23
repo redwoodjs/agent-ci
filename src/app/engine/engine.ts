@@ -97,6 +97,10 @@ export async function query(
     (plugin) => plugin.buildVectorSearchFilter?.(queryContext)
   );
 
+  // TEMPORARY DEBUG: Force cursor-only filter
+  console.log(`[query] DEBUG MODE: Restricting to cursor source only`);
+  filterClauses.push({ source: "cursor" });
+
   console.log(`[query] Step 3: Performing vector search`);
   const searchResults = await performVectorSearch(
     processedQuery,

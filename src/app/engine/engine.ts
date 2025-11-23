@@ -302,7 +302,7 @@ async function performVectorSearch(
 
   // DEBUG: Query without filter first to see if cursor chunks exist at all
   const debugResponse = await env.VECTORIZE_INDEX.query(embedding, {
-    topK: 100,
+    topK: 50,
     returnMetadata: true,
   });
   const cursorChunksInResults = debugResponse.matches.filter(

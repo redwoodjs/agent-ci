@@ -299,6 +299,29 @@ async function performVectorSearch(
   );
 
   console.log(`[query] Vector search filter:`, JSON.stringify(combinedFilter));
+
+  // DEBUG: Query without filter first to see if cursor chunks exist at all
+  const debugResponse = await env.VECTORIZE_INDEX.query(embedding, {
+    topK: 100,
+    returnMetadata: true,
+  });
+  const cursorChunksInResults = debugResponse.matches.filter(
+    (m) => m.metadata && (m.metadata as any).source === "cursor"
+  );
+  console.log(
+    `[query] DEBUG - Query without filter: Found ${debugResponse.matches.length} total matches, ${cursorChunksInResults.length} cursor chunks`
+  );
+  if (cursorChunksInResults.length > 0) {
+    console.log(
+      `[query] DEBUG - Sample cursor chunk metadata: ${JSON.stringify(
+        cursorChunksInResults[0].metadata as any
+      )}`
+    );
+    console.log(
+      `[query] DEBUG - Sample cursor chunk score: ${cursorChunksInResults[0].score}`
+    );
+  }
+
   const vectorizeResponse = await env.VECTORIZE_INDEX.query(embedding, {
     topK: 50,
     returnMetadata: true,

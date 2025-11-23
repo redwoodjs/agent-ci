@@ -51,10 +51,6 @@ export function IndexingTable({ files }: { files: File[] }) {
       const result = await enqueueFile(r2Key);
       if (result.success) {
         setMessage({ type: "success", text: result.message });
-        // Refresh the page after a short delay
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
       } else {
         setMessage({
           type: "error",
@@ -90,10 +86,6 @@ export function IndexingTable({ files }: { files: File[] }) {
       if (result.success) {
         setMessage({ type: "success", text: result.message || "" });
         setSelectedKeys(new Set());
-        // Refresh the page after a short delay
-        setTimeout(() => {
-          window.location.reload();
-        }, 1000);
       } else {
         setMessage({
           type: "error",

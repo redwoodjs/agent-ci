@@ -57,7 +57,7 @@ export const cursorPlugin: Plugin = {
     context: IndexingHookContext
   ): Promise<Chunk[]> {
     if (document.source !== "cursor") {
-      return null; // Not handled by this plugin
+      return []; // Not handled by this plugin
     }
 
     const bucket = context.env.MACHINEN_BUCKET;
@@ -108,12 +108,17 @@ export const cursorPlugin: Plugin = {
       }
 
       if (content.trim()) {
+        const chunkId = `${document.id}#gen-${gen.id}`;
         chunks.push({
+          id: chunkId,
+          documentId: document.id,
+          source: "cursor",
           content: content.trim(),
           metadata: {
             ...document.metadata,
+            source: "cursor",
             type: "cursor-generation",
-            chunkId: `${document.id}#gen-${gen.id}`,
+            chunkId: chunkId,
             jsonPath: `$.generations[${index}]`,
             documentId: document.id,
           },

@@ -324,7 +324,7 @@ async function performVectorSearch(
       score: (r as any).score,
     }))
   );
-  return results.slice(0, 10);
+  return results;
 }
 
 function combineFilterClauses(

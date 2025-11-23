@@ -122,7 +122,7 @@ export async function processIndexingJob(
   const { r2Key } = message;
 
   console.log(`[indexing-worker] Starting job for R2 key: ${r2Key}`);
-  console.log(`[indexing-worker] Message structure:`, JSON.stringify(message));
+  console.log(`[indexing-worker] Message structure: ${JSON.stringify(message)}`);
 
   try {
     console.log(
@@ -147,8 +147,7 @@ export async function processIndexingJob(
 
     if (chunks.length > 0) {
       console.log(
-        `[indexing-worker] Sample chunk metadata:`,
-        JSON.stringify(chunks[0].metadata, null, 2)
+        `[indexing-worker] Sample chunk metadata: ${JSON.stringify(chunks[0].metadata, null, 2)}`
       );
     }
 
@@ -230,11 +229,10 @@ export async function processIndexingJob(
     );
   } catch (error) {
     console.error(
-      `[indexing-worker] Error processing indexing job for ${r2Key}:`,
-      error
+      `[indexing-worker] Error processing indexing job for ${r2Key}: ${error instanceof Error ? error.message : String(error)}`
     );
     if (error instanceof Error) {
-      console.error(`[indexing-worker] Error stack:`, error.stack);
+      console.error(`[indexing-worker] Error stack: ${error.stack || "no stack"}`);
     }
     throw error;
   }

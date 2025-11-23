@@ -122,7 +122,9 @@ export async function processIndexingJob(
   const { r2Key } = message;
 
   console.log(`[indexing-worker] Starting job for R2 key: ${r2Key}`);
-  console.log(`[indexing-worker] Message structure: ${JSON.stringify(message)}`);
+  console.log(
+    `[indexing-worker] Message structure: ${JSON.stringify(message)}`
+  );
 
   try {
     console.log(
@@ -147,12 +149,45 @@ export async function processIndexingJob(
 
     if (chunks.length > 0) {
       console.log(
-        `[indexing-worker] Sample chunk metadata: ${JSON.stringify(chunks[0].metadata, null, 2)}`
+        `[indexing-worker] Sample chunk metadata: ${JSON.stringify(
+          chunks[0].metadata,
+          null,
+          2
+        )}`
       );
     }
 
     console.log(
       `[indexing-worker] Step 4: Generating embeddings for ${chunks.length} chunks`
+    );
+
+    // DEBUG: Log content stats by source
+    const contentStats = chunks.reduce((acc, chunk) => {
+      const source = chunk.metadata.source || "unknown";
+      if (!acc[source]) {
+        acc[source] = {
+          count: 0,
+          totalLength: 0,
+          minLength: Infinity,
+          maxLength: 0,
+        };
+      }
+      acc[source].count++;
+      acc[source].totalLength += chunk.content.length;
+      acc[source].minLength = Math.min(
+        acc[source].minLength,
+        chunk.content.length
+      );
+      acc[source].maxLength = Math.max(
+        acc[source].maxLength,
+        chunk.content.length
+      );
+      return acc;
+    }, {} as Record<string, { count: number; totalLength: number; minLength: number; maxLength: number }>);
+    console.log(
+      `[indexing-worker] DEBUG - Content stats by source: ${JSON.stringify(
+        contentStats
+      )}`
     );
     const vectors = await Promise.all(
       chunks.map(async (chunk, index) => {
@@ -161,7 +196,19 @@ export async function processIndexingJob(
             chunks.length
           } for chunk ${chunk.metadata.chunkId}`
         );
+        console.log(
+          `[indexing-worker] DEBUG - Chunk content (first 200 chars): ${chunk.content.substring(
+            0,
+            200
+          )}`
+        );
+        console.log(
+          `[indexing-worker] DEBUG - Chunk content length: ${chunk.content.length}`
+        );
         const embedding = await generateEmbedding(chunk.content, env);
+        console.log(
+          `[indexing-worker] DEBUG - Generated embedding length: ${embedding.length}`
+        );
         const vectorId = await hashChunkId(chunk.metadata.chunkId);
         console.log(
           `[indexing-worker] Generated embedding for chunk ${chunk.metadata.chunkId}, vectorId: ${vectorId}`
@@ -191,7 +238,43 @@ export async function processIndexingJob(
       console.log(
         `[indexing-worker] Calling VECTORIZE_INDEX.insert with ${vectors.length} vectors`
       );
+
+      // DEBUG: Log sample vector metadata before insertion
+      if (vectors.length > 0) {
+        console.log(
+          `[indexing-worker] DEBUG - Sample vector to insert: ${JSON.stringify(
+            {
+              id: vectors[0].id,
+              metadata: vectors[0].metadata,
+              valuesLength: vectors[0].values.length,
+            },
+            null,
+            2
+          )}`
+        );
+      }
+
       await env.VECTORIZE_INDEX.insert(vectors);
+
+      // DEBUG: Verify insertion by querying immediately
+      if (vectors.length > 0 && vectors[0].metadata.source === "cursor") {
+        const testVector = new Array(768).fill(0); // Dummy vector for query
+        const verifyResponse = await env.VECTORIZE_INDEX.query(testVector, {
+          topK: 10,
+          returnMetadata: true,
+          filter: { documentId: vectors[0].metadata.documentId } as any,
+        });
+        console.log(
+          `[indexing-worker] DEBUG - Verification query after insert: Found ${verifyResponse.matches.length} matches for documentId ${vectors[0].metadata.documentId}`
+        );
+        if (verifyResponse.matches.length > 0) {
+          console.log(
+            `[indexing-worker] DEBUG - Verification match metadata: ${JSON.stringify(
+              verifyResponse.matches[0].metadata as any
+            )}`
+          );
+        }
+      }
       const chunkIds = vectors.map((v) => v.id);
       console.log(
         `[indexing-worker] Step 5 complete: Successfully inserted ${vectors.length} chunks into Vectorize`
@@ -229,10 +312,14 @@ export async function processIndexingJob(
     );
   } catch (error) {
     console.error(
-      `[indexing-worker] Error processing indexing job for ${r2Key}: ${error instanceof Error ? error.message : String(error)}`
+      `[indexing-worker] Error processing indexing job for ${r2Key}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
     );
     if (error instanceof Error) {
-      console.error(`[indexing-worker] Error stack: ${error.stack || "no stack"}`);
+      console.error(
+        `[indexing-worker] Error stack: ${error.stack || "no stack"}`
+      );
     }
     throw error;
   }

@@ -121,6 +121,12 @@ export const cursorPlugin: Plugin = {
             chunkId: chunkId,
             jsonPath: `$.generations[${index}]`,
             documentId: document.id,
+            documentTitle:
+              document.metadata.title ||
+              `Cursor Conversation ${
+                document.metadata.sourceMetadata?.conversationId || "unknown"
+              }`,
+            author: "cursor-user", // Cursor conversations don't have a specific author
           },
         });
       } else {

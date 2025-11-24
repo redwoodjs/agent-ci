@@ -216,7 +216,10 @@ export async function processIndexingJob(
         return {
           id: vectorId,
           values: embedding,
-          metadata: chunk.metadata,
+          // TEST 1: Inserting with only the documentId to isolate filtering issues.
+          metadata: {
+            documentId: chunk.metadata.documentId,
+          },
         };
       })
     );
@@ -254,54 +257,138 @@ export async function processIndexingJob(
         );
       }
 
-      await env.VECTORIZE_INDEX.insert(vectors);
+      // TEST: Insert multiple variations of metadata to test filtering
+      if (vectors.length > 0 && chunks[0].metadata.source === "cursor") {
+        const testChunk = chunks[0];
+        const testEmbedding = vectors[0].values;
+        const testVectorId = `test-${Date.now()}`;
 
-      // DEBUG: Verify insertion by querying after a delay to account for eventual consistency
-      if (vectors.length > 0 && vectors[0].metadata.source === "cursor") {
+        // Create test vectors with progressively more complex metadata
+        const testVariations = [
+          {
+            name: "Test 0: No metadata",
+            metadata: {},
+          },
+          {
+            name: "Test 1: documentId only",
+            metadata: {
+              documentId: testChunk.metadata.documentId,
+            },
+          },
+          {
+            name: "Test 2: documentId + source",
+            metadata: {
+              documentId: testChunk.metadata.documentId,
+              source: "cursor",
+            },
+          },
+          {
+            name: "Test 3: documentId + source + chunkId",
+            metadata: {
+              documentId: testChunk.metadata.documentId,
+              source: "cursor",
+              chunkId: testChunk.metadata.chunkId,
+            },
+          },
+          {
+            name: "Test 4: Full metadata",
+            metadata: testChunk.metadata,
+          },
+        ];
+
+        const testVectors = testVariations.map((variation, idx) => ({
+          id: `${testVectorId}-${idx}`,
+          values: testEmbedding,
+          metadata: variation.metadata,
+        }));
+
         console.log(
-          `[indexing-worker] DEBUG - Waiting 5 seconds for eventual consistency before verification query...`
+          `[indexing-worker] DEBUG - Inserting ${testVectors.length} test variations:`
         );
-        await new Promise((resolve) => setTimeout(resolve, 5000)); // 5-second delay
-
-        const testVector = new Array(768).fill(0); // Dummy vector for query
-        const documentIdToVerify = vectors[0].metadata.documentId;
-
-        console.log(
-          `[indexing-worker] DEBUG - Verification attempt 1: Querying by documentId: ${documentIdToVerify}`
-        );
-        const verifyResponseById = await env.VECTORIZE_INDEX.query(testVector, {
-          topK: 10,
-          returnMetadata: true,
-          filter: { documentId: documentIdToVerify } as any,
-        });
-        console.log(
-          `[indexing-worker] DEBUG - Verification query by documentId found ${verifyResponseById.matches.length} matches.`
-        );
-
-        if (verifyResponseById.matches.length === 0) {
+        testVectors.forEach((tv, idx) => {
           console.log(
-            `[indexing-worker] DEBUG - Verification attempt 2: Querying by source: "cursor"`
+            `[indexing-worker] DEBUG -   ${testVariations[idx].name}: ${JSON.stringify(
+              tv.metadata
+            )}`
           );
-          const verifyResponseBySource = await env.VECTORIZE_INDEX.query(
-            testVector,
-            {
+        });
+
+        await env.VECTORIZE_INDEX.insert(testVectors);
+
+        console.log(
+          `[indexing-worker] DEBUG - Waiting 5 seconds for eventual consistency...`
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5000));
+
+        const dummyVector = new Array(768).fill(0);
+        const documentIdToTest = testChunk.metadata.documentId;
+
+        // Test each variation
+        for (let i = 0; i < testVariations.length; i++) {
+          const variation = testVariations[i];
+          const testVectorIdToFind = `${testVectorId}-${i}`;
+
+          console.log(
+            `[indexing-worker] DEBUG - Testing ${variation.name}...`
+          );
+
+          // Try querying by documentId (skip for Test 0 which has no metadata)
+          if (variation.metadata.documentId) {
+            const queryByDocId = await env.VECTORIZE_INDEX.query(dummyVector, {
               topK: 10,
               returnMetadata: true,
-              filter: { source: "cursor" } as any,
-            }
-          );
-          console.log(
-            `[indexing-worker] DEBUG - Verification query by source found ${verifyResponseBySource.matches.length} matches.`
-          );
-          if (verifyResponseBySource.matches.length > 0) {
+              filter: { documentId: documentIdToTest } as any,
+            });
+
+            const foundById = queryByDocId.matches.find(
+              (m) => m.id === testVectorIdToFind
+            );
+
             console.log(
-              `[indexing-worker] DEBUG - Found other cursor chunks, sample metadata: ${JSON.stringify(
-                verifyResponseBySource.matches[0].metadata as any
-              )}`
+              `[indexing-worker] DEBUG -   Query by documentId: Found ${foundById ? "YES" : "NO"} (total matches: ${queryByDocId.matches.length})`
+            );
+          } else {
+            // For Test 0 (no metadata), try a similarity search without filter
+            const queryBySimilarity = await env.VECTORIZE_INDEX.query(
+              testEmbedding,
+              {
+                topK: 10,
+                returnMetadata: true,
+              }
+            );
+
+            const foundBySimilarity = queryBySimilarity.matches.find(
+              (m) => m.id === testVectorIdToFind
+            );
+
+            console.log(
+              `[indexing-worker] DEBUG -   Query by similarity (no filter): Found ${foundBySimilarity ? "YES" : "NO"} (total matches: ${queryBySimilarity.matches.length}, score: ${foundBySimilarity?.score || "N/A"})`
+            );
+          }
+
+          // If this variation has source, try querying by source
+          if (variation.metadata.source) {
+            const queryBySource = await env.VECTORIZE_INDEX.query(
+              dummyVector,
+              {
+                topK: 10,
+                returnMetadata: true,
+                filter: { source: "cursor" } as any,
+              }
+            );
+
+            const foundBySource = queryBySource.matches.find(
+              (m) => m.id === testVectorIdToFind
+            );
+
+            console.log(
+              `[indexing-worker] DEBUG -   Query by source: Found ${foundBySource ? "YES" : "NO"} (total matches: ${queryBySource.matches.length})`
             );
           }
         }
       }
+
+      await env.VECTORIZE_INDEX.insert(vectors);
       const chunkIds = vectors.map((v) => v.id);
       console.log(
         `[indexing-worker] Step 5 complete: Successfully inserted ${vectors.length} chunks into Vectorize`

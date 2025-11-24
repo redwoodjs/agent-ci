@@ -40,6 +40,42 @@ export async function enqueueFiles(r2Keys: string[]) {
   }
 }
 
+export async function deleteFile(r2Key: string) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    await envCloudflare.MACHINEN_BUCKET.delete(r2Key);
+    return { success: true, message: `Deleted file: ${r2Key}`, r2Key };
+  } catch (error) {
+    console.error("[actions] Error deleting file:", error);
+    return {
+      success: false,
+      error: "Failed to delete file",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function deleteFiles(r2Keys: string[]) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    await Promise.all(
+      r2Keys.map((key) => envCloudflare.MACHINEN_BUCKET.delete(key))
+    );
+    return {
+      success: true,
+      message: `Deleted ${r2Keys.length} files`,
+      count: r2Keys.length,
+    };
+  } catch (error) {
+    console.error("[actions] Error deleting files:", error);
+    return {
+      success: false,
+      error: "Failed to delete files",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function queryRag(queryText: string) {
   try {
     // Validate query length (matching the interruptor validation)
@@ -86,4 +122,3 @@ export async function queryRag(queryText: string) {
     };
   }
 }
-

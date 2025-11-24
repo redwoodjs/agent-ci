@@ -23,7 +23,15 @@ export async function scanForUnprocessedFiles(
     const batchObjects: Array<{ key: string; etag: string }> = [];
 
     for (const object of listed.objects) {
-      if (!object.key.endsWith("latest.json")) {
+      // Include both latest.json files and Discord .jsonl files
+      // Exclude old Discord thread files with pattern: YYYY-MM-DD-thread-ID.jsonl
+      const isIndexableFile =
+        object.key.endsWith("latest.json") ||
+        (object.key.startsWith("discord/") && 
+         object.key.endsWith(".jsonl") && 
+         !object.key.includes("-thread-"));
+
+      if (!isIndexableFile) {
         continue;
       }
 
@@ -118,15 +126,27 @@ export async function enqueueUnprocessedFiles(
   }
 }
 
-export async function processScannerJob(env: Cloudflare.Env): Promise<void> {
+export async function processScannerJob(
+  env: Cloudflare.Env,
+  prefix?: string
+): Promise<void> {
   console.log("[scanner] Starting scanner job");
 
-  const unprocessedKeys = await scanForUnprocessedFiles(env, "github/");
+  // If no prefix specified, scan all sources
+  const prefixes = prefix ? [prefix] : ["github/", "discord/", "cursor/"];
 
-  if (unprocessedKeys.length > 0) {
-    await enqueueUnprocessedFiles(unprocessedKeys, env);
+  let totalUnprocessedKeys: string[] = [];
+
+  for (const scanPrefix of prefixes) {
+    console.log(`[scanner] Scanning prefix: ${scanPrefix}`);
+    const unprocessedKeys = await scanForUnprocessedFiles(env, scanPrefix);
+    totalUnprocessedKeys = totalUnprocessedKeys.concat(unprocessedKeys);
+  }
+
+  if (totalUnprocessedKeys.length > 0) {
+    await enqueueUnprocessedFiles(totalUnprocessedKeys, env);
     console.log(
-      `[scanner] Scanner job complete. Enqueued ${unprocessedKeys.length} files for indexing.`
+      `[scanner] Scanner job complete. Enqueued ${totalUnprocessedKeys.length} files for indexing.`
     );
   } else {
     console.log("[scanner] Scanner job complete. No unprocessed files found.");

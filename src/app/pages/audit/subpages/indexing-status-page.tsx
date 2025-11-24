@@ -60,6 +60,15 @@ async function IndexingContent({
   // Build combined view once
   const files = list.objects.map((obj) => {
     const indexingState = indexingStates.get(obj.key);
+
+    // Check if file is a valid indexable file
+    // Old Discord thread files with pattern YYYY-MM-DD-thread-ID.jsonl are invalid
+    const isValid = !(
+      obj.key.startsWith("discord/") &&
+      obj.key.endsWith(".jsonl") &&
+      obj.key.includes("-thread-")
+    );
+
     return {
       key: obj.key,
       size: obj.size,
@@ -70,6 +79,7 @@ async function IndexingContent({
       indexedEtag: indexingState?.etag,
       chunkCount: indexingState?.chunk_ids?.length || 0,
       needsReindex: indexingState ? indexingState.etag !== obj.etag : false,
+      isValid,
     };
   });
 
@@ -78,6 +88,7 @@ async function IndexingContent({
     indexed: files.filter((f) => f.indexed && !f.needsReindex).length,
     pending: files.filter((f) => !f.indexed).length,
     stale: files.filter((f) => f.needsReindex).length,
+    invalid: files.filter((f) => !f.isValid).length,
   };
 
   // Filter by status
@@ -85,6 +96,7 @@ async function IndexingContent({
     if (statusFilter === "indexed") return file.indexed && !file.needsReindex;
     if (statusFilter === "pending") return !file.indexed;
     if (statusFilter === "stale") return file.needsReindex;
+    if (statusFilter === "invalid") return !file.isValid;
     return true;
   });
 
@@ -105,10 +117,11 @@ function StatsCards({
     indexed: number;
     pending: number;
     stale: number;
+    invalid: number;
   };
 }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+    <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
       <Card>
         <CardHeader>
           <CardTitle className="text-sm font-medium text-gray-500">
@@ -154,6 +167,19 @@ function StatsCards({
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-red-600">{stats.stale}</div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-medium text-gray-500">
+            Invalid
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold text-gray-600">
+            {stats.invalid}
+          </div>
         </CardContent>
       </Card>
     </div>
@@ -259,6 +285,16 @@ function Filters({
         >
           Stale
         </a>
+        <a
+          href={`/audit/indexing?source=${source}&status=invalid`}
+          className={`px-3 py-1 text-sm rounded ${
+            statusFilter === "invalid"
+              ? "bg-gray-600 text-white"
+              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+          }`}
+        >
+          Invalid
+        </a>
       </div>
     </div>
   );
@@ -278,6 +314,7 @@ function FilesTable({
     indexedEtag?: string;
     chunkCount: number;
     needsReindex: boolean;
+    isValid: boolean;
   }>;
   listTruncated: boolean;
 }) {

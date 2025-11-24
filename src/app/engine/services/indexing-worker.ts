@@ -122,7 +122,9 @@ export async function processIndexingJob(
   const { r2Key } = message;
 
   console.log(`[indexing-worker] Starting job for R2 key: ${r2Key}`);
-  console.log(`[indexing-worker] Message structure:`, JSON.stringify(message));
+  console.log(
+    `[indexing-worker] Message structure: ${JSON.stringify(message)}`
+  );
 
   try {
     console.log(
@@ -147,21 +149,20 @@ export async function processIndexingJob(
 
     if (chunks.length > 0) {
       console.log(
-        `[indexing-worker] Sample chunk metadata:`,
-        JSON.stringify(chunks[0].metadata, null, 2)
+        `[indexing-worker] Sample chunk metadata: ${JSON.stringify(
+          chunks[0].metadata,
+          null,
+          2
+        )}`
       );
     }
 
     console.log(
       `[indexing-worker] Step 4: Generating embeddings for ${chunks.length} chunks`
     );
+
     const vectors = await Promise.all(
       chunks.map(async (chunk, index) => {
-        console.log(
-          `[indexing-worker] Generating embedding ${index + 1}/${
-            chunks.length
-          } for chunk ${chunk.metadata.chunkId}`
-        );
         const embedding = await generateEmbedding(chunk.content, env);
         const vectorId = await hashChunkId(chunk.metadata.chunkId);
         console.log(
@@ -189,10 +190,36 @@ export async function processIndexingJob(
         return;
       }
 
-      console.log(
-        `[indexing-worker] Calling VECTORIZE_INDEX.insert with ${vectors.length} vectors`
-      );
-      await env.VECTORIZE_INDEX.insert(vectors);
+      // Verify all vectors have same dimension
+      if (vectors.length > 0) {
+        const dimensions = vectors.map((v) => v.values.length);
+        const uniqueDimensions = [...new Set(dimensions)];
+        if (uniqueDimensions.length > 1) {
+          console.error(
+            `[indexing-worker] ERROR - Vectors have inconsistent dimensions: ${JSON.stringify(
+              uniqueDimensions
+            )}`
+          );
+        }
+      }
+
+      try {
+        await env.VECTORIZE_INDEX.insert(vectors);
+      } catch (insertError) {
+        console.error(
+          `[indexing-worker] ERROR - insert() threw error: ${
+            insertError instanceof Error
+              ? insertError.message
+              : String(insertError)
+          }`
+        );
+        if (insertError instanceof Error && insertError.stack) {
+          console.error(
+            `[indexing-worker] ERROR - Stack trace: ${insertError.stack}`
+          );
+        }
+        throw insertError;
+      }
       const chunkIds = vectors.map((v) => v.id);
       console.log(
         `[indexing-worker] Step 5 complete: Successfully inserted ${vectors.length} chunks into Vectorize`
@@ -230,11 +257,14 @@ export async function processIndexingJob(
     );
   } catch (error) {
     console.error(
-      `[indexing-worker] Error processing indexing job for ${r2Key}:`,
-      error
+      `[indexing-worker] Error processing indexing job for ${r2Key}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
     );
     if (error instanceof Error) {
-      console.error(`[indexing-worker] Error stack:`, error.stack);
+      console.error(
+        `[indexing-worker] Error stack: ${error.stack || "no stack"}`
+      );
     }
     throw error;
   }

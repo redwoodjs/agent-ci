@@ -34,7 +34,7 @@ async function queryHandler({ request, ctx }: RequestInfo) {
     console.log(`[query] Query completed successfully`);
     return Response.json({ response });
   } catch (error) {
-    console.error("[query] Error processing query:", error);
+    console.error(`[query] Error processing query: ${error instanceof Error ? error.message : String(error)}`);
     return Response.json(
       {
         error: "Failed to process query",
@@ -75,7 +75,7 @@ async function indexHandler({ request, ctx }: RequestInfo) {
       r2Key: body.r2Key,
     });
   } catch (error) {
-    console.error("[index] Error indexing file:", error);
+    console.error(`[index] Error indexing file: ${error instanceof Error ? error.message : String(error)}`);
     return Response.json(
       {
         error: "Failed to index file",
@@ -139,7 +139,7 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
       });
     }
   } catch (error) {
-    console.error("[backfill] Error starting backfill:", error);
+    console.error(`[backfill] Error starting backfill: ${error instanceof Error ? error.message : String(error)}`);
     return Response.json(
       {
         error: "Failed to start backfill",

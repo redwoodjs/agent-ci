@@ -107,23 +107,25 @@ export async function query(
 
   if (searchResults.length > 0) {
     console.log(
-      `[query] All search results with scores:`,
-      searchResults.map((r, idx) => ({
-        rank: idx + 1,
-        documentId: r.documentId,
-        chunkId: r.chunkId,
-        source: r.source,
-        score: (r as any).score,
-      }))
+      `[query] All search results with scores: ${JSON.stringify(
+        searchResults.map((r, idx) => ({
+          rank: idx + 1,
+          documentId: r.documentId,
+          chunkId: r.chunkId,
+          source: r.source,
+          score: (r as any).score,
+        }))
+      )}`
     );
     console.log(
-      `[query] Top 3 search results:`,
-      searchResults.slice(0, 3).map((r) => ({
-        documentId: r.documentId,
-        chunkId: r.chunkId,
-        source: r.source,
-        score: (r as any).score,
-      }))
+      `[query] Top 3 search results: ${JSON.stringify(
+        searchResults.slice(0, 3).map((r) => ({
+          documentId: r.documentId,
+          chunkId: r.chunkId,
+          source: r.source,
+          score: (r as any).score,
+        }))
+      )}`
     );
   }
 
@@ -299,9 +301,6 @@ async function performVectorSearch(
     filter: combinedFilter as any,
   });
 
-  console.log(
-    `[query] Vectorize returned ${vectorizeResponse.matches.length} matches`
-  );
   const results = vectorizeResponse.matches.map((match) => {
     if (!match.metadata) {
       throw new Error("Vectorize match missing metadata");
@@ -310,21 +309,7 @@ async function performVectorSearch(
     (metadata as any).score = match.score;
     return metadata;
   });
-  console.log(`[query] Results by source:`, {
-    github: results.filter((r) => r.source === "github").length,
-    cursor: results.filter((r) => r.source === "cursor").length,
-    discord: results.filter((r) => r.source === "discord").length,
-  });
-  console.log(
-    `[query] All results with sources and scores:`,
-    results.map((r, idx) => ({
-      rank: idx + 1,
-      source: r.source,
-      documentId: r.documentId,
-      score: (r as any).score,
-    }))
-  );
-  return results.slice(0, 10);
+  return results;
 }
 
 function combineFilterClauses(

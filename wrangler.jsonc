@@ -23,7 +23,7 @@
   "vectorize": [
     {
       "binding": "VECTORIZE_INDEX",
-      "index_name": "rag-index",
+      "index_name": "rag-index-v2",
       "remote": true
     }
   ],
@@ -236,7 +236,7 @@
       "vectorize": [
         {
           "binding": "VECTORIZE_INDEX",
-          "index_name": "rag-index",
+          "index_name": "rag-index-v2",
           "remote": true
         }
       ],

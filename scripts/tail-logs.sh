@@ -11,4 +11,4 @@ DEFAULT_WORKER="machinen"
 
 WORKER_NAME="${1:-$DEFAULT_WORKER}"
 
-npx wrangler tail "$WORKER_NAME" --format=json 2>&1 | stdbuf -oL jq -r 'select(.event.rpcMethod == null)' | stdbuf -oL tee out.log
+npx wrangler tail "$WORKER_NAME" --format=json 2>&1 | stdbuf -oL jq -r 'select(.event.rpcMethod == null)' 2>&1 | stdbuf -oL grep -a . | stdbuf -oL tee out.log

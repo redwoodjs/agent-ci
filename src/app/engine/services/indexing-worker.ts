@@ -216,10 +216,7 @@ export async function processIndexingJob(
         return {
           id: vectorId,
           values: embedding,
-          // TEST 1: Inserting with only the documentId to isolate filtering issues.
-          metadata: {
-            documentId: chunk.metadata.documentId,
-          },
+          metadata: chunk.metadata,
         };
       })
     );

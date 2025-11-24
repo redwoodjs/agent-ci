@@ -313,7 +313,23 @@ export async function processIndexingJob(
           );
         });
 
-        await env.VECTORIZE_INDEX.insert(testVectors);
+        try {
+          const insertResult = await env.VECTORIZE_INDEX.insert(testVectors);
+          console.log(
+            `[indexing-worker] DEBUG - insert() call completed, result: ${JSON.stringify(
+              insertResult
+            )}`
+          );
+        } catch (insertError) {
+          console.error(
+            `[indexing-worker] DEBUG - insert() threw error: ${
+              insertError instanceof Error
+                ? insertError.message
+                : String(insertError)
+            }`
+          );
+          throw insertError;
+        }
 
         console.log(
           `[indexing-worker] DEBUG - Inserted test vectors with IDs: ${JSON.stringify(
@@ -424,7 +440,23 @@ export async function processIndexingJob(
         }
       }
 
-      await env.VECTORIZE_INDEX.insert(vectors);
+      try {
+        const insertResult = await env.VECTORIZE_INDEX.insert(vectors);
+        console.log(
+          `[indexing-worker] DEBUG - insert() call completed for ${
+            vectors.length
+          } vectors, result: ${JSON.stringify(insertResult)}`
+        );
+      } catch (insertError) {
+        console.error(
+          `[indexing-worker] ERROR - insert() threw error: ${
+            insertError instanceof Error
+              ? insertError.message
+              : String(insertError)
+          }`
+        );
+        throw insertError;
+      }
       const chunkIds = vectors.map((v) => v.id);
       console.log(
         `[indexing-worker] Step 5 complete: Successfully inserted ${vectors.length} chunks into Vectorize`

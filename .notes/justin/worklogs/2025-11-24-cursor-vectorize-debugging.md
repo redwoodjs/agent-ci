@@ -121,16 +121,44 @@ Cursor conversation data is being indexed into Vectorize, but when querying, Cur
 5. **Index/namespace issue**: Test vectors might be inserted into a different index or namespace than queries are searching
 6. **Vectorize API bug**: There might be a bug in Vectorize where `insert()` succeeds but vectors aren't persisted
 
+## Attempt 7: Verified Index Name and Discovered Vector Count Not Increasing
+
+**What we tried:**
+- Added logging to confirm which Vectorize index is being used
+- Verified index name from logs: `rag-index` (matches wrangler.jsonc)
+- Confirmed inserts return mutationIds successfully
+
+**Critical Finding:**
+- **Vector count in Vectorize dashboard has not increased in the last week**
+- This means inserts are being accepted (returning mutationIds) but vectors are **not actually persisting**
+- All test vectors inserted with mutationIds still fail to appear in queries
+
+**Findings:**
+- Index name confirmed: `rag-index` (from logs line 7024)
+- Insert mutationIds returned successfully:
+  - Test vectors: `480bda11-2fde-4546-8e14-ed87b3805146`
+  - Regular vectors: `64fbf501-36c1-4839-8d81-98d6d8dc653a`
+- No namespace usage found in code
+- Both insertion and querying use same `env.VECTORIZE_INDEX` binding
+
+**Hypothesis:**
+Since vector count isn't increasing despite successful mutationIds, possible causes:
+1. **Index dimension mismatch**: Index might be configured for different dimension than 768
+2. **Index limit reached**: Index might be at capacity and silently rejecting new inserts
+3. **Index configuration issue**: Index might have settings preventing inserts
+4. **Wrong account/environment**: Might be inserting into different account's index
+5. **Vectorize API bug**: Insert accepts but doesn't persist vectors
+
 ## Next Steps
 
+- Verify index configuration via `wrangler vectorize list` or Cloudflare dashboard
+- Check index dimension matches 768 (what we're sending)
+- Check if index has reached size limit
+- Verify we're deploying to the correct environment (default vs `rag-experiment-1`)
 - Try querying with much longer delay (30+ seconds or 1+ minute) to test eventual consistency hypothesis
 - Try querying by exact vector ID (if Vectorize supports direct ID lookup)
-- Verify if regular Cursor chunks (not test vectors) use the same ID format as GitHub chunks - check if they're hashed
-- Check if test vectors can be found by querying with a different embedding (maybe the exact same embedding causes issues?)
 - Check Vectorize documentation for:
-  - Metadata filtering requirements and limitations
-  - Eventual consistency guarantees
-  - Vector ID format restrictions
-  - Known issues with `insert()` API
-- Consider inserting a test vector with a hashed ID format (like GitHub chunks use) to see if ID format matters
+  - Index dimension requirements
+  - Index size limits
+  - Known issues with `insert()` API accepting but not persisting
 

@@ -263,6 +263,20 @@ export async function processIndexingJob(
             2
           )}`
         );
+        // Verify all vectors have same dimension
+        const dimensions = vectors.map((v) => v.values.length);
+        const uniqueDimensions = [...new Set(dimensions)];
+        if (uniqueDimensions.length > 1) {
+          console.error(
+            `[indexing-worker] ERROR - Vectors have inconsistent dimensions: ${JSON.stringify(
+              uniqueDimensions
+            )}`
+          );
+        } else {
+          console.log(
+            `[indexing-worker] DEBUG - All vectors have dimension: ${uniqueDimensions[0]} (expected: 768)`
+          );
+        }
       }
 
       // TEST: Insert multiple variations of metadata to test filtering
@@ -449,12 +463,30 @@ export async function processIndexingJob(
       }
 
       try {
+        console.log(
+          `[indexing-worker] DEBUG - About to insert ${vectors.length} vectors into Vectorize index 'rag-index'`
+        );
         const insertResult = await env.VECTORIZE_INDEX.insert(vectors);
         console.log(
           `[indexing-worker] DEBUG - insert() call completed for ${
             vectors.length
           } vectors, result: ${JSON.stringify(insertResult)}`
         );
+        if (
+          insertResult &&
+          typeof insertResult === "object" &&
+          "mutationId" in insertResult
+        ) {
+          console.log(
+            `[indexing-worker] DEBUG - Insert accepted with mutationId: ${insertResult.mutationId}`
+          );
+        } else {
+          console.warn(
+            `[indexing-worker] WARNING - insert() returned unexpected result format: ${JSON.stringify(
+              insertResult
+            )}`
+          );
+        }
       } catch (insertError) {
         console.error(
           `[indexing-worker] ERROR - insert() threw error: ${
@@ -463,6 +495,11 @@ export async function processIndexingJob(
               : String(insertError)
           }`
         );
+        if (insertError instanceof Error && insertError.stack) {
+          console.error(
+            `[indexing-worker] ERROR - Stack trace: ${insertError.stack}`
+          );
+        }
         throw insertError;
       }
       const chunkIds = vectors.map((v) => v.id);

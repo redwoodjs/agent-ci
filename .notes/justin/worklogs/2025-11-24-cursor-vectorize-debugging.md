@@ -149,16 +149,39 @@ Since vector count isn't increasing despite successful mutationIds, possible cau
 4. **Wrong account/environment**: Might be inserting into different account's index
 5. **Vectorize API bug**: Insert accepts but doesn't persist vectors
 
+## Attempt 8: Dashboard Verification - Silent Failure Confirmed
+
+**What we tried:**
+- Checked Cloudflare dashboard for index status and errors
+- Verified vector dimensions in code (all 768, matches expected)
+- Confirmed inserts return mutationIds successfully
+
+**Critical Finding:**
+- **Dashboard shows no errors or warnings**
+- **Vector count is NOT increasing** despite successful mutationIds
+- This confirms **silent failure**: inserts are accepted but vectors are not persisting
+
+**Findings:**
+- All vectors have correct dimension: 768 (verified in logs)
+- Index name confirmed: `rag-index`
+- Inserts return mutationIds successfully
+- No errors in dashboard or logs
+- Vector count remains unchanged
+
+**Hypothesis:**
+Based on Vectorize documentation, possible causes:
+1. **Index `processedUpToDatetime` is outdated**: Index might not be processing new insertions
+2. **Index at capacity**: Silent rejection when limit reached
+3. **Index configuration mismatch**: Dimension/metric mismatch causing silent rejection
+4. **Insert vs Upsert**: Using `insert()` might fail silently if IDs already exist (though we're using unique IDs)
+5. **Vectorize API bug**: Known issue where inserts are accepted but not persisted
+
 ## Next Steps
 
-- Verify index configuration via `wrangler vectorize list` or Cloudflare dashboard
-- Check index dimension matches 768 (what we're sending)
-- Check if index has reached size limit
-- Verify we're deploying to the correct environment (default vs `rag-experiment-1`)
-- Try querying with much longer delay (30+ seconds or 1+ minute) to test eventual consistency hypothesis
-- Try querying by exact vector ID (if Vectorize supports direct ID lookup)
-- Check Vectorize documentation for:
-  - Index dimension requirements
-  - Index size limits
-  - Known issues with `insert()` API accepting but not persisting
+- Check `processedUpToDatetime` in dashboard - if outdated, index might not be processing
+- Try using `upsert()` instead of `insert()` to see if that persists vectors
+- Verify index configuration (dimension=768, metric=cosine) matches what we're sending
+- Check if index has reached capacity limit
+- Consider creating a new test index to verify if issue is index-specific
+- Contact Cloudflare support if issue persists - this appears to be a Vectorize bug
 

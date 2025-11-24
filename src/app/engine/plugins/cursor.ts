@@ -184,7 +184,7 @@ export const cursorPlugin: Plugin = {
     // Get indices of generations that matched
     const matchedIndices = new Set<number>();
     documentChunks.forEach((chunk) => {
-      const match = chunk.metadata.jsonPath?.match(/generations\[(\d+)\]/);
+      const match = chunk.jsonPath?.match(/generations\[(\d+)\]/);
       if (match) {
         matchedIndices.add(parseInt(match[1], 10));
       }
@@ -212,7 +212,7 @@ export const cursorPlugin: Plugin = {
     return {
       content: sections.join("\n"),
       source: "cursor",
-      primaryMetadata: documentChunks[0].metadata,
+      primaryMetadata: documentChunks[0],
     };
   },
 };

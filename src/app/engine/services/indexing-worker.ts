@@ -355,11 +355,11 @@ export async function processIndexingJob(
             );
           } else {
             // For Test 0 (no metadata), try a similarity search without filter
-            // Use topK: 100 to see if our test vector appears further down
+            // Use topK: 50 (max with returnMetadata: true) to see if our test vector appears
             const queryBySimilarity = await env.VECTORIZE_INDEX.query(
               testEmbedding,
               {
-                topK: 100,
+                topK: 50,
                 returnMetadata: true,
               }
             );

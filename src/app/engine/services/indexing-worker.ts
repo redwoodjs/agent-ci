@@ -299,7 +299,7 @@ export async function processIndexingJob(
         const testVectors = testVariations.map((variation, idx) => ({
           id: `${testVectorId}-${idx}`,
           values: testEmbedding,
-          metadata: variation.metadata,
+          metadata: variation.metadata as any, // Cast to any to allow empty metadata for Test 0
         }));
 
         console.log(
@@ -355,10 +355,11 @@ export async function processIndexingJob(
             );
           } else {
             // For Test 0 (no metadata), try a similarity search without filter
+            // Use topK: 100 to see if our test vector appears further down
             const queryBySimilarity = await env.VECTORIZE_INDEX.query(
               testEmbedding,
               {
-                topK: 10,
+                topK: 100,
                 returnMetadata: true,
               }
             );
@@ -368,19 +369,37 @@ export async function processIndexingJob(
             );
 
             console.log(
-              `[indexing-worker] DEBUG -   Query by similarity (no filter): Found ${
+              `[indexing-worker] DEBUG -   Query by similarity (no filter, topK=100): Found ${
                 foundBySimilarity ? "YES" : "NO"
               } (total matches: ${queryBySimilarity.matches.length}, score: ${
                 foundBySimilarity?.score || "N/A"
+              }, rank: ${
+                foundBySimilarity
+                  ? queryBySimilarity.matches.indexOf(foundBySimilarity) + 1
+                  : "N/A"
               })`
             );
             console.log(
               `[indexing-worker] DEBUG -   Looking for vector ID: ${testVectorIdToFind}`
             );
             console.log(
-              `[indexing-worker] DEBUG -   Found vector IDs: ${JSON.stringify(
-                queryBySimilarity.matches.map((m) => m.id)
+              `[indexing-worker] DEBUG -   Top 10 vector IDs: ${JSON.stringify(
+                queryBySimilarity.matches.slice(0, 10).map((m) => ({
+                  id: m.id,
+                  score: m.score,
+                }))
               )}`
+            );
+            // Check if any test vector IDs appear in results
+            const testIdsInResults = queryBySimilarity.matches.filter((m) =>
+              m.id.startsWith("test-")
+            );
+            console.log(
+              `[indexing-worker] DEBUG -   Test vectors found in results: ${
+                testIdsInResults.length
+              } (IDs: ${JSON.stringify(
+                testIdsInResults.map((m) => ({ id: m.id, score: m.score }))
+              )})`
             );
           }
 

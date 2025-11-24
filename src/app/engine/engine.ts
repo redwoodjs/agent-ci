@@ -97,10 +97,6 @@ export async function query(
     (plugin) => plugin.buildVectorSearchFilter?.(queryContext)
   );
 
-  // TEMPORARY DEBUG: Force cursor-only filter
-  console.log(`[query] DEBUG MODE: Restricting to cursor source only`);
-  filterClauses.push({ source: "cursor" });
-
   console.log(`[query] Step 3: Performing vector search`);
   const searchResults = await performVectorSearch(
     processedQuery,
@@ -304,32 +300,6 @@ async function performVectorSearch(
       env.VECTORIZE_INDEX ? "exists" : "missing"
     }, type: ${typeof env.VECTORIZE_INDEX}`
   );
-  console.log(
-    `[query] DEBUG - Using Vectorize index: rag-index-v2 (from wrangler.jsonc binding)`
-  );
-
-  // DEBUG: Query without filter first to see if cursor chunks exist at all
-  const debugResponse = await env.VECTORIZE_INDEX.query(embedding, {
-    topK: 50,
-    returnMetadata: true,
-  });
-  const cursorChunksInResults = debugResponse.matches.filter(
-    (m) => m.metadata && (m.metadata as any).source === "cursor"
-  );
-  console.log(
-    `[query] DEBUG - Query without filter: Found ${debugResponse.matches.length} total matches, ${cursorChunksInResults.length} cursor chunks`
-  );
-  if (cursorChunksInResults.length > 0) {
-    console.log(
-      `[query] DEBUG - Sample cursor chunk metadata: ${JSON.stringify(
-        cursorChunksInResults[0].metadata as any
-      )}`
-    );
-    console.log(
-      `[query] DEBUG - Sample cursor chunk score: ${cursorChunksInResults[0].score}`
-    );
-  }
-
   const vectorizeResponse = await env.VECTORIZE_INDEX.query(embedding, {
     topK: 50,
     returnMetadata: true,

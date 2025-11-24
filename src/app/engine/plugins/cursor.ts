@@ -160,12 +160,15 @@ export const cursorPlugin: Plugin = {
   },
 
   async reconstructContext(
-    documentChunks: Chunk[],
+    documentChunks: ChunkMetadata[],
     sourceDocument: any, // This is the raw JSON
-    context: IndexingHookContext
+    context: QueryHookContext
   ) {
-    const { sourceMetadata } = documentChunks[0].metadata;
-    if (sourceMetadata?.type !== "cursor-conversation") {
+    if (!documentChunks[0]) {
+      return null;
+    }
+    const sourceMetadata = documentChunks[0].sourceMetadata;
+    if (!sourceMetadata || sourceMetadata.type !== "cursor-conversation") {
       return null;
     }
 

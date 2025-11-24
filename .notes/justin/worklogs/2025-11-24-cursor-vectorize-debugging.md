@@ -81,39 +81,56 @@ Cursor conversation data is being indexed into Vectorize, but when querying, Cur
 - Test vectors were inserted with IDs like `test-1763992258442-0` through `test-1763992258442-4`
 - Similarity search returned IDs like `e247965c46d06d86` (hashed IDs, likely GitHub chunks)
 
-## Attempt 6: Expanded Similarity Search to topK=100
+## Attempt 6: Expanded Similarity Search to topK=50 with returnMetadata
 
 **What we tried:**
-- Increased `topK` from 10 to 100 for Test 0 similarity search
+- Increased `topK` from 10 to 50 for Test 0 similarity search (Cloudflare Vectorize limit with metadata)
+- Changed `returnMetadata` to `true` (was considering `"indexed"` but kept as boolean)
 - Added logging to show:
   - Rank if test vector found
   - Top 10 vector IDs and scores
   - All test vector IDs found in results (not just the one being searched)
 
 **Findings:**
-- (Pending - waiting for next test run)
+- **All 5 test variations still failed**
+- Test 0 (no metadata): Similarity search returned 50 matches, but **none were test vectors**
+  - Looking for: `test-1764017097910-0`
+  - Top results were hashed IDs (e.g., `e247965c46d06d86`, `a8ab4b6dc568d173`) - likely GitHub chunks
+  - Test vectors found in results: **0**
+- Tests 1-4: All filtered queries returned **0 matches**
+  - Query by `documentId`: 0 matches
+  - Query by `source`: 0 matches
+- Insertion appeared successful: IDs logged as `["test-1764017097910-0","test-1764017097910-1","test-1764017097910-2","test-1764017097910-3","test-1764017097910-4"]`
+- No errors thrown during insertion
 
 ## Key Observations
 
-1. **Insertion appears successful**: No errors thrown, logs show "Successfully inserted X chunks"
-2. **Vectors not immediately queryable**: Even with 5-second delay, verification queries find nothing
-3. **Metadata filtering not working**: Queries with filters return 0 matches regardless of metadata structure
-4. **Similarity search finds other vectors**: When querying without filter, we get GitHub chunks but not our test/Cursor vectors
+1. **Insertion appears successful**: No errors thrown, logs show "Successfully inserted X chunks" and test vector IDs are logged
+2. **Vectors not queryable by any method**: Even with 5-second delay and topK=50, test vectors don't appear in similarity search results
+3. **Metadata filtering completely broken**: All filtered queries return 0 matches regardless of metadata structure (empty, documentId only, documentId+source, full metadata)
+4. **Similarity search finds other vectors**: When querying without filter, we get GitHub chunks (hashed IDs) but not our test/Cursor vectors
 5. **Vector IDs differ**: Test vectors use IDs like `test-{timestamp}-{idx}`, while similarity search returns hashed IDs like `e247965c46d06d86`
+6. **Same embedding doesn't match**: Test vectors inserted with the exact same embedding as the query vector don't appear in top 50 results
 
 ## Hypotheses
 
-1. **Eventual consistency delay**: Vectorize may need much longer than 5 seconds to make vectors searchable
-2. **Metadata indexing issue**: Metadata might not be indexed correctly, making filtered queries fail
-3. **Vector ID format issue**: Test vector IDs (`test-*`) might not be compatible with Vectorize's internal ID system
-4. **Silent insertion failure**: Insert might succeed but vectors aren't actually stored
-5. **Embedding similarity issue**: Cursor conversation text might embed differently than GitHub markdown, causing lower similarity scores
+1. **Silent insertion failure**: Insert might succeed (no errors) but vectors aren't actually stored in Vectorize
+2. **Eventual consistency delay**: Vectorize may need much longer than 5 seconds (possibly 30+ seconds or minutes) to make vectors searchable
+3. **Vector ID format issue**: Test vector IDs (`test-*`) might not be compatible with Vectorize's internal ID system or validation
+4. **Metadata indexing issue**: Metadata might not be indexed correctly, making filtered queries fail completely
+5. **Index/namespace issue**: Test vectors might be inserted into a different index or namespace than queries are searching
+6. **Vectorize API bug**: There might be a bug in Vectorize where `insert()` succeeds but vectors aren't persisted
 
 ## Next Steps
 
-- Check if test vectors appear in topK=100 results (current test running)
-- Try querying with much longer delay (30+ seconds)
-- Verify if regular Cursor chunks (not test vectors) use the same ID format as GitHub chunks
-- Check Vectorize documentation for metadata filtering requirements
-- Consider if there's a difference in how embeddings are generated for Cursor vs GitHub content
+- Try querying with much longer delay (30+ seconds or 1+ minute) to test eventual consistency hypothesis
+- Try querying by exact vector ID (if Vectorize supports direct ID lookup)
+- Verify if regular Cursor chunks (not test vectors) use the same ID format as GitHub chunks - check if they're hashed
+- Check if test vectors can be found by querying with a different embedding (maybe the exact same embedding causes issues?)
+- Check Vectorize documentation for:
+  - Metadata filtering requirements and limitations
+  - Eventual consistency guarantees
+  - Vector ID format restrictions
+  - Known issues with `insert()` API
+- Consider inserting a test vector with a hashed ID format (like GitHub chunks use) to see if ID format matters
 

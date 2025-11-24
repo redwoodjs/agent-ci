@@ -305,7 +305,7 @@ async function performVectorSearch(
     }, type: ${typeof env.VECTORIZE_INDEX}`
   );
   console.log(
-    `[query] DEBUG - Using Vectorize index: rag-index (from wrangler.jsonc binding)`
+    `[query] DEBUG - Using Vectorize index: rag-index-v2 (from wrangler.jsonc binding)`
   );
 
   // DEBUG: Query without filter first to see if cursor chunks exist at all

@@ -247,7 +247,7 @@ export async function processIndexingJob(
         }, type: ${typeof env.VECTORIZE_INDEX}`
       );
       console.log(
-        `[indexing-worker] DEBUG - Using Vectorize index: rag-index (from wrangler.jsonc binding)`
+        `[indexing-worker] DEBUG - Using Vectorize index: rag-index-v2 (from wrangler.jsonc binding)`
       );
 
       // DEBUG: Log sample vector metadata before insertion
@@ -464,7 +464,7 @@ export async function processIndexingJob(
 
       try {
         console.log(
-          `[indexing-worker] DEBUG - About to insert ${vectors.length} vectors into Vectorize index 'rag-index'`
+          `[indexing-worker] DEBUG - About to insert ${vectors.length} vectors into Vectorize index 'rag-index-v2'`
         );
         const insertResult = await env.VECTORIZE_INDEX.insert(vectors);
         console.log(

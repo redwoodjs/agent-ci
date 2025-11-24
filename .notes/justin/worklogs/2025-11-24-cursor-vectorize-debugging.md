@@ -185,3 +185,4 @@ Based on Vectorize documentation, possible causes:
 - Consider creating a new test index to verify if issue is index-specific
 - Contact Cloudflare support if issue persists - this appears to be a Vectorize bug
 
+

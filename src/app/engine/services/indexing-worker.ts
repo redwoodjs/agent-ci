@@ -307,13 +307,19 @@ export async function processIndexingJob(
         );
         testVectors.forEach((tv, idx) => {
           console.log(
-            `[indexing-worker] DEBUG -   ${testVariations[idx].name}: ${JSON.stringify(
-              tv.metadata
-            )}`
+            `[indexing-worker] DEBUG -   ${
+              testVariations[idx].name
+            }: ${JSON.stringify(tv.metadata)}`
           );
         });
 
         await env.VECTORIZE_INDEX.insert(testVectors);
+
+        console.log(
+          `[indexing-worker] DEBUG - Inserted test vectors with IDs: ${JSON.stringify(
+            testVectors.map((tv) => tv.id)
+          )}`
+        );
 
         console.log(
           `[indexing-worker] DEBUG - Waiting 5 seconds for eventual consistency...`
@@ -328,9 +334,7 @@ export async function processIndexingJob(
           const variation = testVariations[i];
           const testVectorIdToFind = `${testVectorId}-${i}`;
 
-          console.log(
-            `[indexing-worker] DEBUG - Testing ${variation.name}...`
-          );
+          console.log(`[indexing-worker] DEBUG - Testing ${variation.name}...`);
 
           // Try querying by documentId (skip for Test 0 which has no metadata)
           if (variation.metadata.documentId) {
@@ -345,7 +349,9 @@ export async function processIndexingJob(
             );
 
             console.log(
-              `[indexing-worker] DEBUG -   Query by documentId: Found ${foundById ? "YES" : "NO"} (total matches: ${queryByDocId.matches.length})`
+              `[indexing-worker] DEBUG -   Query by documentId: Found ${
+                foundById ? "YES" : "NO"
+              } (total matches: ${queryByDocId.matches.length})`
             );
           } else {
             // For Test 0 (no metadata), try a similarity search without filter
@@ -362,27 +368,38 @@ export async function processIndexingJob(
             );
 
             console.log(
-              `[indexing-worker] DEBUG -   Query by similarity (no filter): Found ${foundBySimilarity ? "YES" : "NO"} (total matches: ${queryBySimilarity.matches.length}, score: ${foundBySimilarity?.score || "N/A"})`
+              `[indexing-worker] DEBUG -   Query by similarity (no filter): Found ${
+                foundBySimilarity ? "YES" : "NO"
+              } (total matches: ${queryBySimilarity.matches.length}, score: ${
+                foundBySimilarity?.score || "N/A"
+              })`
+            );
+            console.log(
+              `[indexing-worker] DEBUG -   Looking for vector ID: ${testVectorIdToFind}`
+            );
+            console.log(
+              `[indexing-worker] DEBUG -   Found vector IDs: ${JSON.stringify(
+                queryBySimilarity.matches.map((m) => m.id)
+              )}`
             );
           }
 
           // If this variation has source, try querying by source
           if (variation.metadata.source) {
-            const queryBySource = await env.VECTORIZE_INDEX.query(
-              dummyVector,
-              {
-                topK: 10,
-                returnMetadata: true,
-                filter: { source: "cursor" } as any,
-              }
-            );
+            const queryBySource = await env.VECTORIZE_INDEX.query(dummyVector, {
+              topK: 10,
+              returnMetadata: true,
+              filter: { source: "cursor" } as any,
+            });
 
             const foundBySource = queryBySource.matches.find(
               (m) => m.id === testVectorIdToFind
             );
 
             console.log(
-              `[indexing-worker] DEBUG -   Query by source: Found ${foundBySource ? "YES" : "NO"} (total matches: ${queryBySource.matches.length})`
+              `[indexing-worker] DEBUG -   Query by source: Found ${
+                foundBySource ? "YES" : "NO"
+              } (total matches: ${queryBySource.matches.length})`
             );
           }
         }

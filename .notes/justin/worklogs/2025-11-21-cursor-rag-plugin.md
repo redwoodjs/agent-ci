@@ -120,29 +120,25 @@ Adds Cursor conversation support to the RAG engine. Follows the GitHub plugin pa
 
 ## PR Description
 
-**Title:** Add Cursor RAG Plugin
+**Title:** Fix Cursor RAG Plugin Search and Metadata Issues
 
 **Description:**
 
-Adds Cursor conversation support to the RAG engine. Follows the GitHub plugin pattern but adapted for conversation data.
+Fixes the Cursor RAG plugin so queries actually return Cursor conversation results. The plugin was already merged in an earlier PR, but search wasn't working.
 
-**Approach:**
-- Plugin chunks each generation (user prompt + assistant response) separately
-- Content formatted as `User: {prompt}\nAssistant: {response}` for better embedding quality
-- Uses `jsonPath` metadata to track generation position for context reconstruction
-- Reconstructs context by formatting matched generations as readable dialogue transcripts
+**What was already done (previous PR):**
+- Cursor ingestor refactored to save conversations as `latest.json` files
+- Initial Cursor RAG plugin implementation
+- Basic indexing pipeline working
 
-**Key differences from GitHub plugin:**
-- GitHub chunks by comment/body sections; Cursor chunks by conversation turns
-- GitHub has structured metadata (owner, repo, number); Cursor uses conversation-level metadata
-- Context reconstruction formats as dialogue rather than markdown sections
+**What this PR fixes:**
+- **Metadata insertion bug**: Vectors were only storing `documentId` instead of full chunk metadata, so `source: "cursor"` wasn't being stored and queries couldn't filter by source
+- **Index issue**: Old `rag-index` had silent insertion failures (vectors accepted but not persisting). Created `rag-index-v2` and updated configs
+- **Type issues**: Fixed cursor plugin `reconstructContext` using wrong types (`Chunk[]` instead of `ChunkMetadata[]`)
+- **Cleanup**: Removed all debug logging
 
-**Bug fixes:**
-- Fixed metadata insertion bug where only `documentId` was stored instead of full chunk metadata (prevented source filtering)
-- Created `rag-index-v2` to replace `rag-index` which had silent insertion failures
-- Fixed cursor plugin type issues in `reconstructContext` (was using `Chunk[]` instead of `ChunkMetadata[]`)
-
-**Testing:**
-- Verified cursor chunks are indexed and searchable
-- Confirmed queries return cursor conversation context correctly
+**Result:**
+- Cursor chunks are now properly indexed with full metadata
+- Queries successfully return Cursor conversation context
+- Search works end-to-end
 

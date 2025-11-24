@@ -161,54 +161,9 @@ export async function processIndexingJob(
       `[indexing-worker] Step 4: Generating embeddings for ${chunks.length} chunks`
     );
 
-    // DEBUG: Log content stats by source
-    const contentStats = chunks.reduce((acc, chunk) => {
-      const source = chunk.metadata.source || "unknown";
-      if (!acc[source]) {
-        acc[source] = {
-          count: 0,
-          totalLength: 0,
-          minLength: Infinity,
-          maxLength: 0,
-        };
-      }
-      acc[source].count++;
-      acc[source].totalLength += chunk.content.length;
-      acc[source].minLength = Math.min(
-        acc[source].minLength,
-        chunk.content.length
-      );
-      acc[source].maxLength = Math.max(
-        acc[source].maxLength,
-        chunk.content.length
-      );
-      return acc;
-    }, {} as Record<string, { count: number; totalLength: number; minLength: number; maxLength: number }>);
-    console.log(
-      `[indexing-worker] DEBUG - Content stats by source: ${JSON.stringify(
-        contentStats
-      )}`
-    );
     const vectors = await Promise.all(
       chunks.map(async (chunk, index) => {
-        console.log(
-          `[indexing-worker] Generating embedding ${index + 1}/${
-            chunks.length
-          } for chunk ${chunk.metadata.chunkId}`
-        );
-        console.log(
-          `[indexing-worker] DEBUG - Chunk content (first 200 chars): ${chunk.content.substring(
-            0,
-            200
-          )}`
-        );
-        console.log(
-          `[indexing-worker] DEBUG - Chunk content length: ${chunk.content.length}`
-        );
         const embedding = await generateEmbedding(chunk.content, env);
-        console.log(
-          `[indexing-worker] DEBUG - Generated embedding length: ${embedding.length}`
-        );
         const vectorId = await hashChunkId(chunk.metadata.chunkId);
         console.log(
           `[indexing-worker] Generated embedding for chunk ${chunk.metadata.chunkId}, vectorId: ${vectorId}`
@@ -235,32 +190,8 @@ export async function processIndexingJob(
         return;
       }
 
-      console.log(
-        `[indexing-worker] Calling VECTORIZE_INDEX.insert with ${vectors.length} vectors`
-      );
-      console.log(
-        `[indexing-worker] DEBUG - VECTORIZE_INDEX binding check: ${
-          env.VECTORIZE_INDEX ? "exists" : "missing"
-        }, type: ${typeof env.VECTORIZE_INDEX}`
-      );
-      console.log(
-        `[indexing-worker] DEBUG - Using Vectorize index: rag-index-v2 (from wrangler.jsonc binding)`
-      );
-
-      // DEBUG: Log sample vector metadata before insertion
+      // Verify all vectors have same dimension
       if (vectors.length > 0) {
-        console.log(
-          `[indexing-worker] DEBUG - Sample vector to insert: ${JSON.stringify(
-            {
-              id: vectors[0].id,
-              metadata: vectors[0].metadata,
-              valuesLength: vectors[0].values.length,
-            },
-            null,
-            2
-          )}`
-        );
-        // Verify all vectors have same dimension
         const dimensions = vectors.map((v) => v.values.length);
         const uniqueDimensions = [...new Set(dimensions)];
         if (uniqueDimensions.length > 1) {
@@ -269,38 +200,11 @@ export async function processIndexingJob(
               uniqueDimensions
             )}`
           );
-        } else {
-          console.log(
-            `[indexing-worker] DEBUG - All vectors have dimension: ${uniqueDimensions[0]} (expected: 768)`
-          );
         }
       }
 
       try {
-        console.log(
-          `[indexing-worker] DEBUG - About to insert ${vectors.length} vectors into Vectorize index 'rag-index-v2'`
-        );
-        const insertResult = await env.VECTORIZE_INDEX.insert(vectors);
-        console.log(
-          `[indexing-worker] DEBUG - insert() call completed for ${
-            vectors.length
-          } vectors, result: ${JSON.stringify(insertResult)}`
-        );
-        if (
-          insertResult &&
-          typeof insertResult === "object" &&
-          "mutationId" in insertResult
-        ) {
-          console.log(
-            `[indexing-worker] DEBUG - Insert accepted with mutationId: ${insertResult.mutationId}`
-          );
-        } else {
-          console.warn(
-            `[indexing-worker] WARNING - insert() returned unexpected result format: ${JSON.stringify(
-              insertResult
-            )}`
-          );
-        }
+        await env.VECTORIZE_INDEX.insert(vectors);
       } catch (insertError) {
         console.error(
           `[indexing-worker] ERROR - insert() threw error: ${

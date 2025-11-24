@@ -295,20 +295,12 @@ async function performVectorSearch(
   );
 
   console.log(`[query] Vector search filter:`, JSON.stringify(combinedFilter));
-  console.log(
-    `[query] DEBUG - VECTORIZE_INDEX binding check: ${
-      env.VECTORIZE_INDEX ? "exists" : "missing"
-    }, type: ${typeof env.VECTORIZE_INDEX}`
-  );
   const vectorizeResponse = await env.VECTORIZE_INDEX.query(embedding, {
     topK: 50,
     returnMetadata: true,
     filter: combinedFilter as any,
   });
 
-  console.log(
-    `[query] Vectorize returned ${vectorizeResponse.matches.length} matches`
-  );
   const results = vectorizeResponse.matches.map((match) => {
     if (!match.metadata) {
       throw new Error("Vectorize match missing metadata");
@@ -317,23 +309,6 @@ async function performVectorSearch(
     (metadata as any).score = match.score;
     return metadata;
   });
-  console.log(
-    `[query] Results by source: ${JSON.stringify({
-      github: results.filter((r) => r.source === "github").length,
-      cursor: results.filter((r) => r.source === "cursor").length,
-      discord: results.filter((r) => r.source === "discord").length,
-    })}`
-  );
-  console.log(
-    `[query] All results with sources and scores: ${JSON.stringify(
-      results.map((r, idx) => ({
-        rank: idx + 1,
-        source: r.source,
-        documentId: r.documentId,
-        score: (r as any).score,
-      }))
-    )}`
-  );
   return results;
 }
 

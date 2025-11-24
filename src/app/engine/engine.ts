@@ -299,6 +299,14 @@ async function performVectorSearch(
   );
 
   console.log(`[query] Vector search filter:`, JSON.stringify(combinedFilter));
+  console.log(
+    `[query] DEBUG - VECTORIZE_INDEX binding check: ${
+      env.VECTORIZE_INDEX ? "exists" : "missing"
+    }, type: ${typeof env.VECTORIZE_INDEX}`
+  );
+  console.log(
+    `[query] DEBUG - Using Vectorize index: rag-index (from wrangler.jsonc binding)`
+  );
 
   // DEBUG: Query without filter first to see if cursor chunks exist at all
   const debugResponse = await env.VECTORIZE_INDEX.query(embedding, {

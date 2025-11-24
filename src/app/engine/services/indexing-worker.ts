@@ -241,6 +241,14 @@ export async function processIndexingJob(
       console.log(
         `[indexing-worker] Calling VECTORIZE_INDEX.insert with ${vectors.length} vectors`
       );
+      console.log(
+        `[indexing-worker] DEBUG - VECTORIZE_INDEX binding check: ${
+          env.VECTORIZE_INDEX ? "exists" : "missing"
+        }, type: ${typeof env.VECTORIZE_INDEX}`
+      );
+      console.log(
+        `[indexing-worker] DEBUG - Using Vectorize index: rag-index (from wrangler.jsonc binding)`
+      );
 
       // DEBUG: Log sample vector metadata before insertion
       if (vectors.length > 0) {

@@ -11,8 +11,13 @@ We initially tried to add token counting logic to each source plugin (`GitHubPlu
 - **Problem**: `GitHubPlugin` only sees GitHub contexts. It doesn't know if `DiscordPlugin` also has content. If both used their "full" budget, we'd still overflow. Also, `runFirstMatchHook` means only one plugin typically composes the prompt, so the default plugin (which sees everything) was the only real place to do it, but it received pre-formatted strings from other plugins in the original design, making it hard to cut cleanly.
 - **Outcome**: Reverted this approach. It was messy and architecturally unsound.
 
+## Attempt 1.5: Default Plugin as Gatekeeper (Intermediate Idea)
+We briefly considered having the `DefaultPlugin` handle all token counting during `composeLlmPrompt` by having other plugins return raw data. However, this still conflated "formatting" with "budgeting" and felt like a hack.
+
 ## Attempt 2: Centralized Context Optimization (Current Plan)
-We realized we need a dedicated step in the pipeline *after* context reconstruction but *before* prompt composition.
+We pivoted based on the insight that we needed a "token reducer" step—a dedicated phase in the pipeline specifically for fitting content into the budget, separate from generating the content itself.
+
+We realized this step belongs *after* context reconstruction (so we have the full text to count) but *before* prompt composition (so we don't build a prompt that's too big).
 
 ### The Plan
 1.  **New Hook**: Introduce `optimizeContext(contexts, query, context)` to the `Plugin` interface.
@@ -35,3 +40,27 @@ We realized we need a dedicated step in the pipeline *after* context reconstruct
     *   `src/app/engine/types.ts`: Add `optimizeContext` to `Plugin`.
     *   `src/app/engine/engine.ts`: Add the hook call.
     *   `src/app/engine/plugins/default.ts`: Implement the token limiting logic.
+
+## Outcome
+The centralized `optimizeContext` hook worked perfectly. We successfully implemented it in the `DefaultPlugin`, where it now enforces the global token budget by selecting the most relevant contexts until the limit is reached. This solves the context window overflow issue without complicating individual source plugins.
+
+---
+
+## PR Title
+feat: cursor mcp integration & rag token optimization
+
+## PR Description
+
+This PR introduces the Cursor MCP integration POC and fixes the context window overflow issues in the RAG engine.
+
+### Cursor MCP Integration
+We've added a local Model Context Protocol (MCP) server that allows Cursor Chat to query Machinen directly.
+- **Local Server**: A standalone Node script that proxies requests to the Machinen Worker.
+- **Automated Setup**: New `scripts/setup-cursor.sh` bundles the server and configures `.cursor/mcp.json`.
+- **Pull-Based Context**: The LLM can now decide when to query the knowledge base for context on architecture or project history.
+
+### RAG Token Optimization
+To prevent `5021` context window errors on large queries, we've implemented a centralized token budgeting system.
+- **New `optimizeContext` Hook**: A dedicated pipeline step after context reconstruction but before prompt composition.
+- **Token Budgeting**: The `DefaultPlugin` now enforces a global token limit (~80k) by selecting relevant contexts until the budget is full.
+- **Cleanup**: Simplified source plugins by removing ad-hoc token counting attempts and fixed missing types in the Cursor plugin.

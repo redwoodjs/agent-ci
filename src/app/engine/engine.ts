@@ -256,7 +256,7 @@ async function reconstructContexts(
   const fetchStart = Date.now();
 
   const documentEntries = Array.from(chunksByDocument.entries());
-  const CONCURRENT_FETCH_LIMIT = 50;
+  const CONCURRENT_FETCH_LIMIT = 6;
   const fetchResults: Array<{
     documentId: string;
     documentChunks: ChunkMetadata[];

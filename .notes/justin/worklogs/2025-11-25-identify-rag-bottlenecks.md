@@ -83,24 +83,26 @@ After implementing parallel R2 fetches, encountered warning:
 
 ### Research Findings
 *   **R2 does NOT support batch fetches**: Each object must be fetched individually via `bucket.get()`
-*   **Cloudflare Workers limit**: ~50 concurrent subrequests (HTTP requests)
-*   **Issue**: Fetching 45 documents in parallel exceeded the limit, causing stalled requests
+*   **Cloudflare Workers limit**: **6 simultaneous open connections** per invocation (not 50!)
+*   **Subrequest limit**: 50-1000 depending on plan, but connection limit is the bottleneck
+*   **Issue**: Fetching 45 documents in parallel tried to open 45 connections, but limit is only 6, causing stalled requests
 
 ### Solution: Batched Parallel Fetches
-Implemented batching to respect the concurrent request limit:
-*   Process R2 fetches in batches of 50 (staying under the limit)
+Implemented batching to respect the simultaneous connection limit:
+*   Process R2 fetches in batches of 6 (staying under the connection limit)
 *   Each batch runs in parallel with `Promise.all()`
 *   Batches execute sequentially to avoid exceeding limits
 *   Added batch-level logging for monitoring
 
 ### Implementation
 *   Modified `reconstructContexts()` to batch fetches
-*   Batch size: 50 concurrent requests (CONCURRENT_FETCH_LIMIT)
-*   For 45 documents: 1 batch (all fit within limit)
-*   For larger result sets: multiple batches execute sequentially
+*   Batch size: 6 concurrent requests (CONCURRENT_FETCH_LIMIT)
+*   For 45 documents: 8 batches (45 ÷ 6 = 7.5, rounds to 8 batches)
+*   Each batch processes 6 documents in parallel, then moves to next batch
 
 ### Expected Impact
-*   Avoids deadlock warnings
-*   Maintains parallelization benefits (within limit)
-*   For 45 documents: Still ~300-400ms (single batch)
-*   For 100+ documents: Multiple batches, but still faster than sequential
+*   Avoids deadlock warnings by respecting 6-connection limit
+*   Still maintains parallelization benefits (6x faster than sequential per batch)
+*   For 45 documents: ~1.5-2s (8 batches × ~200-250ms per batch)
+*   Much faster than sequential (~10s), but slower than unlimited parallel (~300ms)
+*   This is the best we can do within Cloudflare Workers constraints

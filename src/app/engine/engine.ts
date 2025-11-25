@@ -255,21 +255,41 @@ async function reconstructContexts(
   const bucket = queryContext.env.MACHINEN_BUCKET;
   const fetchStart = Date.now();
 
-  const fetchPromises = Array.from(chunksByDocument.entries()).map(
-    async ([documentId, documentChunks]) => {
-      const r2Start = Date.now();
-      const object = await bucket.get(documentId);
-      const fetchTime = Date.now() - r2Start;
-      console.log(`[query] R2 fetch for ${documentId} took ${fetchTime}ms`);
-      return { documentId, documentChunks, object, fetchTime };
-    }
-  );
+  const documentEntries = Array.from(chunksByDocument.entries());
+  const CONCURRENT_FETCH_LIMIT = 50;
+  const fetchResults: Array<{
+    documentId: string;
+    documentChunks: ChunkMetadata[];
+    object: R2ObjectBody | null;
+    fetchTime: number;
+  }> = [];
 
-  const fetchResults = await Promise.all(fetchPromises);
+  for (let i = 0; i < documentEntries.length; i += CONCURRENT_FETCH_LIMIT) {
+    const batch = documentEntries.slice(i, i + CONCURRENT_FETCH_LIMIT);
+    const batchStart = Date.now();
+    const batchPromises = batch.map(
+      async ([documentId, documentChunks]) => {
+        const r2Start = Date.now();
+        const object = await bucket.get(documentId);
+        const fetchTime = Date.now() - r2Start;
+        console.log(`[query] R2 fetch for ${documentId} took ${fetchTime}ms`);
+        return { documentId, documentChunks, object, fetchTime };
+      }
+    );
+
+    const batchResults = await Promise.all(batchPromises);
+    fetchResults.push(...batchResults);
+    console.log(
+      `[query] Batch ${Math.floor(i / CONCURRENT_FETCH_LIMIT) + 1} completed in ${
+        Date.now() - batchStart
+      }ms (${batchResults.length} documents)`
+    );
+  }
+
   console.log(
     `[query] All R2 fetches completed in ${Date.now() - fetchStart}ms (${
       fetchResults.length
-    } documents)`
+    } documents in ${Math.ceil(documentEntries.length / CONCURRENT_FETCH_LIMIT)} batches)`
   );
 
   const reconstructedContexts: ReconstructedContext[] = [];

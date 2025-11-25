@@ -74,3 +74,33 @@ Based on benchmarks from [artificialanalysis.ai](https://artificialanalysis.ai/?
 *   Test with real queries to measure actual performance improvement
 *   Monitor response quality to ensure it meets requirements
 *   Compare against baseline metrics from out.log
+
+## R2 Concurrent Request Limit Issue
+
+### Problem
+After implementing parallel R2 fetches, encountered warning:
+> "A stalled HTTP response was canceled to prevent deadlock. This can happen when a Worker calls fetch() several times without reading the bodies of the returned Response objects. There is a limit on the number of concurrent HTTP requests that can be in-flight at one time."
+
+### Research Findings
+*   **R2 does NOT support batch fetches**: Each object must be fetched individually via `bucket.get()`
+*   **Cloudflare Workers limit**: ~50 concurrent subrequests (HTTP requests)
+*   **Issue**: Fetching 45 documents in parallel exceeded the limit, causing stalled requests
+
+### Solution: Batched Parallel Fetches
+Implemented batching to respect the concurrent request limit:
+*   Process R2 fetches in batches of 50 (staying under the limit)
+*   Each batch runs in parallel with `Promise.all()`
+*   Batches execute sequentially to avoid exceeding limits
+*   Added batch-level logging for monitoring
+
+### Implementation
+*   Modified `reconstructContexts()` to batch fetches
+*   Batch size: 50 concurrent requests (CONCURRENT_FETCH_LIMIT)
+*   For 45 documents: 1 batch (all fit within limit)
+*   For larger result sets: multiple batches execute sequentially
+
+### Expected Impact
+*   Avoids deadlock warnings
+*   Maintains parallelization benefits (within limit)
+*   For 45 documents: Still ~300-400ms (single batch)
+*   For 100+ documents: Multiple batches, but still faster than sequential

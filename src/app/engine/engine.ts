@@ -260,43 +260,26 @@ async function reconstructContexts(
   const fetchResults: Array<{
     documentId: string;
     documentChunks: ChunkMetadata[];
-    object: R2ObjectBody | null;
+    sourceDocument: any;
     fetchTime: number;
   }> = [];
 
-  for (let i = 0; i < documentEntries.length; i += CONCURRENT_FETCH_LIMIT) {
-    const batch = documentEntries.slice(i, i + CONCURRENT_FETCH_LIMIT);
-    const batchStart = Date.now();
-    const batchPromises = batch.map(
-      async ([documentId, documentChunks]) => {
-        const r2Start = Date.now();
-        const object = await bucket.get(documentId);
-        const fetchTime = Date.now() - r2Start;
-        console.log(`[query] R2 fetch for ${documentId} took ${fetchTime}ms`);
-        return { documentId, documentChunks, object, fetchTime };
-      }
-    );
+  async function fetchAndReadDocument(
+    documentId: string,
+    documentChunks: ChunkMetadata[]
+  ): Promise<{
+    documentId: string;
+    documentChunks: ChunkMetadata[];
+    sourceDocument: any;
+    fetchTime: number;
+  }> {
+    const r2Start = Date.now();
+    const object = await bucket.get(documentId);
+    const fetchTime = Date.now() - r2Start;
 
-    const batchResults = await Promise.all(batchPromises);
-    fetchResults.push(...batchResults);
-    console.log(
-      `[query] Batch ${Math.floor(i / CONCURRENT_FETCH_LIMIT) + 1} completed in ${
-        Date.now() - batchStart
-      }ms (${batchResults.length} documents)`
-    );
-  }
-
-  console.log(
-    `[query] All R2 fetches completed in ${Date.now() - fetchStart}ms (${
-      fetchResults.length
-    } documents in ${Math.ceil(documentEntries.length / CONCURRENT_FETCH_LIMIT)} batches)`
-  );
-
-  const reconstructedContexts: ReconstructedContext[] = [];
-
-  for (const { documentId, documentChunks, object } of fetchResults) {
     if (!object) {
-      continue;
+      console.log(`[query] R2 fetch for ${documentId} took ${fetchTime}ms (not found)`);
+      return { documentId, documentChunks, sourceDocument: null, fetchTime };
     }
 
     const jsonText = await object.text();
@@ -304,9 +287,43 @@ async function reconstructContexts(
     try {
       sourceDocument = JSON.parse(jsonText);
     } catch (error) {
-      // JSON parsing failed (e.g., for JSONL files), pass the raw text to plugins
-      // Plugins can handle non-JSON formats themselves
       sourceDocument = jsonText;
+    }
+
+    console.log(`[query] R2 fetch and read for ${documentId} took ${Date.now() - r2Start}ms`);
+    return { documentId, documentChunks, sourceDocument, fetchTime };
+  }
+
+  const inFlight = new Set<Promise<typeof fetchResults[0]>>();
+  let nextIndex = 0;
+
+  while (nextIndex < documentEntries.length || inFlight.size > 0) {
+    while (inFlight.size < CONCURRENT_FETCH_LIMIT && nextIndex < documentEntries.length) {
+      const [documentId, documentChunks] = documentEntries[nextIndex++];
+      const promise = fetchAndReadDocument(documentId, documentChunks);
+      promise.finally(() => {
+        inFlight.delete(promise);
+      });
+      inFlight.add(promise);
+    }
+
+    if (inFlight.size > 0) {
+      const result = await Promise.race(Array.from(inFlight));
+      fetchResults.push(result);
+    }
+  }
+
+  console.log(
+    `[query] All R2 fetches completed in ${Date.now() - fetchStart}ms (${
+      fetchResults.length
+    } documents, max ${CONCURRENT_FETCH_LIMIT} concurrent)`
+  );
+
+  const reconstructedContexts: ReconstructedContext[] = [];
+
+  for (const { documentId, documentChunks, sourceDocument } of fetchResults) {
+    if (!sourceDocument) {
+      continue;
     }
 
     const pluginStart = Date.now();

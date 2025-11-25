@@ -106,3 +106,33 @@ Implemented batching to respect the simultaneous connection limit:
 *   For 45 documents: ~1.5-2s (8 batches × ~200-250ms per batch)
 *   Much faster than sequential (~10s), but slower than unlimited parallel (~300ms)
 *   This is the best we can do within Cloudflare Workers constraints
+
+## Implementation: Immediate Body Reading + Keep-N-In-Flight Pattern
+
+### Problem
+Even with batching to 6, still getting warnings. The issue: we weren't reading response bodies immediately, so connections stayed open.
+
+### Solution
+Implemented two optimizations:
+1. **Immediate body reading**: Read `.text()` immediately after `bucket.get()` to consume connections right away
+2. **Keep-N-In-Flight pattern**: Instead of strict batching, keep exactly N requests in flight continuously
+   *   As soon as one completes, start the next
+   *   No idle time between batches
+   *   Maximizes throughput within connection limits
+
+### Implementation Details
+*   Created `fetchAndReadDocument()` helper that fetches AND reads body in one operation
+*   Uses `Promise.race()` to process completions as they happen
+*   Maintains exactly `CONCURRENT_FETCH_LIMIT` (currently 6) requests in flight
+*   Configurable limit - easy to test higher values (8, 10, etc.) if immediate reads allow it
+
+### Expected Impact
+*   Should eliminate connection warnings (bodies consumed immediately)
+*   Better throughput than strict batching (no gaps between batches)
+*   For 45 documents: Potentially ~1-1.5s (vs ~1.5-2s with strict batching)
+*   Can test increasing `CONCURRENT_FETCH_LIMIT` to 8-10 if no warnings appear
+
+### Next Steps
+*   Test with current limit (6) to verify warnings are gone
+*   If successful, incrementally test higher limits (8, 10) to find optimal concurrency
+*   Monitor logs for any connection-related warnings

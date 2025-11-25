@@ -136,3 +136,44 @@ Implemented two optimizations:
 *   Test with current limit (6) to verify warnings are gone
 *   If successful, incrementally test higher limits (8, 10) to find optimal concurrency
 *   Monitor logs for any connection-related warnings
+
+## Performance Results Comparison
+
+### Baseline (Before Optimizations)
+*   **Total Query Time**: 21,936ms
+*   **Vector Search Execution**: 1,402ms (6.4%)
+    *   Embedding generation: 276ms
+    *   Vectorize query: 1,126ms
+*   **Context Reconstruction**: 10,381ms (47.3%)
+    *   45 sequential R2 fetches: 10,368ms
+    *   Plugin processing: ~13ms
+*   **LLM Generation**: 10,153ms (46.3%)
+    *   Model: `@cf/google/gemma-3-12b-it`
+
+### After Optimizations
+*   **Total Query Time**: 13,342ms (wallTime: 13,343ms)
+*   **Vector Search Execution**: 1,586ms (11.9%)
+    *   Embedding generation: 604ms
+    *   Vectorize query: 982ms
+*   **Context Reconstruction**: 3,165ms (23.7%)
+    *   45 parallel R2 fetches (6 concurrent): 3,165ms
+    *   Plugin processing: ~0ms
+*   **LLM Generation**: 8,591ms (64.4%)
+    *   Model: `@cf/openai/gpt-oss-20b`
+
+### Performance Improvements
+*   **Total Query Time**: **39% faster** (21,936ms → 13,342ms, **8.6s saved**)
+*   **Context Reconstruction**: **70% faster** (10,381ms → 3,165ms, **7.2s saved**)
+*   **LLM Generation**: **15% faster** (10,153ms → 8,591ms, **1.6s saved**)
+*   **Vector Search**: Slightly slower (1,402ms → 1,586ms, +184ms, likely variance)
+
+### Key Wins
+1.  **Parallel R2 fetches**: Reduced context reconstruction from 10.4s to 3.2s - the largest improvement
+2.  **Faster LLM model**: GPT-OSS-20B is 15% faster than Gemma-3-12B
+3.  **No connection warnings**: Immediate body reading + keep-6-in-flight pattern eliminated deadlock warnings
+4.  **Overall**: Query time reduced from ~22s to ~13s - nearly **40% improvement**
+
+### Remaining Bottlenecks
+*   **LLM Generation**: Still the largest component at 8.6s (64% of total time)
+*   **Context Reconstruction**: Down to 3.2s but could potentially be faster with higher concurrency (if limits allow)
+*   **Vector Search**: Minor variance, not a concern

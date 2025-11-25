@@ -190,5 +190,18 @@ export async function updateIndexingState(
   }
 }
 
+export async function clearAllIndexingState(): Promise<void> {
+  console.log(`[db] clearAllIndexingState: Clearing all indexing state`);
+
+  const db = createDb<IndexingStateDatabase>(
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    "engine-indexing-state"
+  );
+
+  await db.deleteFrom("indexing_state").execute();
+  console.log(`[db] clearAllIndexingState: All indexing state cleared`);
+}
+
 export { EngineIndexingStateDO } from "./durableObject";
 export { indexingStateMigrations } from "./migrations";

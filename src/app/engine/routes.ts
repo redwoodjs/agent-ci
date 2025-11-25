@@ -12,6 +12,7 @@ import {
   scanForUnprocessedFiles,
   enqueueUnprocessedFiles,
 } from "./services/scanner-service";
+import { clearAllIndexingState } from "./db";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const queryText =
@@ -149,6 +150,30 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function clearIndexingStateHandler({ request, ctx }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  try {
+    console.log(`[admin] Clearing all indexing state`);
+    await clearAllIndexingState();
+    return Response.json({
+      success: true,
+      message: "All indexing state cleared. Files will be re-indexed on next scan.",
+    });
+  } catch (error) {
+    console.error(`[admin] Error clearing indexing state: ${error instanceof Error ? error.message : String(error)}`);
+    return Response.json(
+      {
+        error: "Failed to clear indexing state",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export const routes = [
   route("/query", {
     post: [
@@ -164,5 +189,8 @@ export const routes = [
   }),
   route("/admin/backfill", {
     post: [requireQueryApiKey, backfillHandler],
+  }),
+  route("/admin/clear-indexing-state", {
+    post: [requireQueryApiKey, clearIndexingStateHandler],
   }),
 ];

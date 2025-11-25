@@ -90,7 +90,7 @@ The setup script automatically builds and installs the MCP server and creates th
    cp dist/cursor/mcp-server.mjs ~/.cursor/hooks/machinen-mcp-server.mjs
    ```
 
-3. Create `.cursor/mcp.json` in your project root:
+3. Create `~/.cursor/mcp.json` in your home directory:
    ```json
    {
      "mcpServers": {

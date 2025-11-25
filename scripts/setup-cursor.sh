@@ -13,13 +13,11 @@ MCP_SERVER_NAME="machinen-mcp-server.mjs"
 MCP_SERVER_TARGET_PATH="$HOOKS_DIR/$MCP_SERVER_NAME"
 
 # MCP config paths
-PROJECT_MCP_CONFIG="$(pwd)/.cursor/mcp.json"
 GLOBAL_MCP_CONFIG="$CURSOR_CONFIG_DIR/mcp.json"
 
 # Create directories if they don't exist
 mkdir -p "$HOOKS_DIR"
 mkdir -p "$(pwd)/dist/cursor"
-mkdir -p "$(pwd)/.cursor"
 
 # Build the MCP server
 echo "Building MCP server..."
@@ -59,15 +57,15 @@ cat > "$HOOKS_JSON_FILE" << EOL
 }
 EOL
 
-# Create or update mcp.json (project-specific)
-if [ -f "$PROJECT_MCP_CONFIG" ]; then
-  cp "$PROJECT_MCP_CONFIG" "$PROJECT_MCP_CONFIG.bak"
-  echo "Backed up existing mcp.json to $PROJECT_MCP_CONFIG.bak"
+# Create or update mcp.json (global/user-wide)
+if [ -f "$GLOBAL_MCP_CONFIG" ]; then
+  cp "$GLOBAL_MCP_CONFIG" "$GLOBAL_MCP_CONFIG.bak"
+  echo "Backed up existing mcp.json to $GLOBAL_MCP_CONFIG.bak"
   
   # Merge machinen server into existing mcp.json
   node -e "
     const fs = require('fs');
-    const configPath = '$PROJECT_MCP_CONFIG';
+    const configPath = '$GLOBAL_MCP_CONFIG';
     let config = {};
     try {
       const content = fs.readFileSync(configPath, 'utf8');
@@ -96,7 +94,7 @@ if [ -f "$PROJECT_MCP_CONFIG" ]; then
   "
 else
   # Create new mcp.json
-  cat > "$PROJECT_MCP_CONFIG" << 'EOL'
+  cat > "$GLOBAL_MCP_CONFIG" << 'EOL'
 {
   "mcpServers": {
     "machinen": {
@@ -111,7 +109,7 @@ else
   }
 }
 EOL
-  echo "✓ Created MCP configuration at $PROJECT_MCP_CONFIG"
+  echo "✓ Created MCP configuration at $GLOBAL_MCP_CONFIG"
 fi
 
 echo ""
@@ -119,7 +117,7 @@ echo "✓ Cursor hooks for Machinen ingest have been set up."
 echo "✓ MCP server has been copied to $MCP_SERVER_TARGET_PATH"
 echo ""
 echo "Configuration:"
-echo "  - MCP config: $PROJECT_MCP_CONFIG (project-specific)"
+echo "  - MCP config: $GLOBAL_MCP_CONFIG (user-wide)"
 echo "  - MCP server: $MCP_SERVER_TARGET_PATH"
 echo ""
 echo "⚠ IMPORTANT: Set the MACHINEN_API_KEY environment variable:"

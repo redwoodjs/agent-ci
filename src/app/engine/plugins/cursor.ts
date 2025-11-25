@@ -1,4 +1,11 @@
-import { Plugin, IndexingHookContext, Document, Chunk } from "../../types";
+import {
+  Plugin,
+  IndexingHookContext,
+  Document,
+  Chunk,
+  ChunkMetadata,
+  QueryHookContext,
+} from "../types";
 
 interface CursorConversationLatestJson {
   id: string;
@@ -40,10 +47,13 @@ export const cursorPlugin: Plugin = {
     return {
       id: context.r2Key,
       source: "cursor",
+      type: "cursor-conversation",
       content: `Cursor conversation ${data.id} with ${data.generations.length} turns.`,
       metadata: {
         title: `Cursor Conversation ${data.id}`,
+        url: `cursor://conversation/${data.id}`,
         createdAt: new Date().toISOString(), // We could dig for a timestamp in events
+        author: "cursor-user",
         sourceMetadata: {
           type: "cursor-conversation",
           conversationId: data.id,

@@ -252,15 +252,29 @@ async function reconstructContexts(
     chunksByDocument.get(chunk.documentId)!.push(chunk);
   }
 
+  const bucket = queryContext.env.MACHINEN_BUCKET;
+  const fetchStart = Date.now();
+
+  const fetchPromises = Array.from(chunksByDocument.entries()).map(
+    async ([documentId, documentChunks]) => {
+      const r2Start = Date.now();
+      const object = await bucket.get(documentId);
+      const fetchTime = Date.now() - r2Start;
+      console.log(`[query] R2 fetch for ${documentId} took ${fetchTime}ms`);
+      return { documentId, documentChunks, object, fetchTime };
+    }
+  );
+
+  const fetchResults = await Promise.all(fetchPromises);
+  console.log(
+    `[query] All R2 fetches completed in ${Date.now() - fetchStart}ms (${
+      fetchResults.length
+    } documents)`
+  );
+
   const reconstructedContexts: ReconstructedContext[] = [];
 
-  for (const [documentId, documentChunks] of chunksByDocument) {
-    const bucket = queryContext.env.MACHINEN_BUCKET;
-    const r2Start = Date.now();
-    const object = await bucket.get(documentId);
-    console.log(
-      `[query] R2 fetch for ${documentId} took ${Date.now() - r2Start}ms`
-    );
+  for (const { documentId, documentChunks, object } of fetchResults) {
     if (!object) {
       continue;
     }

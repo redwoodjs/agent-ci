@@ -56,6 +56,23 @@ For a new application or to change the API key:
    export CURSOR_INGEST_URL=https://your-domain.com/ingestors/cursor
    ```
 
+## Knowledge Base Integration (MCP)
+
+You can also connect Cursor to the Machinen knowledge base to get relevant context while you chat. This uses the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+
+1. Go to **Cursor Settings** -> **Features** -> **MCP Servers**.
+2. Click **+ Add New MCP Server**.
+3. Enter the following details:
+   - **Name**: `machinen`
+   - **Type**: `stdio`
+   - **Command**: `node /absolute/path/to/machinen/scripts/mcp-server.ts`
+     *(Note: You must use the absolute path to the repo on your machine)*
+   - **Environment Variables**:
+     - `MACHINEN_API_KEY`: `your-secret-api-key`
+     - `MACHINEN_API_URL`: `https://machinen.redwoodjs.workers.dev` (optional, defaults to production)
+
+Once connected, the AI will automatically search the knowledge base when you ask questions about project history or architecture.
+
 ## How It Works
 
 1. Cursor hooks trigger the hook script (`hook.sh`) at various stages of the agent loop
@@ -75,4 +92,3 @@ curl http://localhost:5173/ingestors/cursor/test
 ```
 
 This will create a sample conversation and store it in R2.
-

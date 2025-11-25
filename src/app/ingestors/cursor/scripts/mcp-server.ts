@@ -6,6 +6,20 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { writeFileSync, appendFileSync } from "fs";
+
+const LOG_FILE = "/tmp/machinen-mcp-server.log";
+
+function log(message: string, data?: any) {
+  const timestamp = new Date().toISOString();
+  const logEntry = `[${timestamp}] ${message}${
+    data ? `\n${JSON.stringify(data, null, 2)}` : ""
+  }\n`;
+  appendFileSync(LOG_FILE, logEntry);
+}
+
+writeFileSync(LOG_FILE, `=== Machinen MCP Server Started ===\n`);
+log("Server initializing");
 
 // --- Configuration ---
 const API_KEY = process.env.MACHINEN_API_KEY;
@@ -13,9 +27,13 @@ const API_URL =
   process.env.MACHINEN_API_URL || "https://machinen.redwoodjs.workers.dev";
 
 if (!API_KEY) {
-  console.error("Error: MACHINEN_API_KEY environment variable is required.");
+  const error = "Error: MACHINEN_API_KEY environment variable is required.";
+  log("ERROR: Missing API key");
+  console.error(error);
   process.exit(1);
 }
+
+log("Configuration loaded", { API_URL, hasApiKey: !!API_KEY });
 
 // --- Server Setup ---
 const server = new Server(
@@ -32,12 +50,13 @@ const server = new Server(
 
 // --- Tool Definitions ---
 server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
+  log("ListTools request received");
+  const tools = {
     tools: [
       {
         name: "search_machinen",
         description:
-          "Search the internal Machinen knowledge base. Use this ONLY when the user asks about specific project history, architectural decisions, previous bugs, or internal discussions from GitHub/Discord. Do NOT use for general coding questions or generic syntax help.",
+          "Search the internal Machinen knowledge base for any information. Use this tool whenever you need to find context, documentation, or information about the project. Or if the user is debugging machinen itself, use it at all times.",
         inputSchema: zodToJsonSchema(
           z.object({
             query: z
@@ -48,14 +67,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
     ],
   };
+  log("Returning tools list", tools);
+  return tools;
 });
 
 // --- Tool Execution ---
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  log("CallTool request received", {
+    toolName: request.params.name,
+    arguments: request.params.arguments,
+  });
+
   if (request.params.name === "search_machinen") {
     const { query } = request.params.arguments as { query: string };
+    log("Executing search_machinen", { query });
 
     try {
+      log("Making API request", { url: `${API_URL}/query`, query });
       const response = await fetch(`${API_URL}/query`, {
         method: "POST",
         headers: {
@@ -65,8 +93,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         body: JSON.stringify({ query }),
       });
 
+      log("API response received", {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+      });
+
       if (!response.ok) {
         const errorText = await response.text();
+        log("API error response", { status: response.status, errorText });
         return {
           content: [
             {
@@ -79,6 +114,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       const data = (await response.json()) as { response: string };
+      log("API success response", {
+        responseLength: data.response?.length || 0,
+        responsePreview: data.response?.substring(0, 200),
+      });
 
       return {
         content: [
@@ -89,6 +128,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ],
       };
     } catch (error) {
+      log("Exception during tool execution", {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       return {
         content: [
           {
@@ -103,7 +146,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     }
   }
 
-  throw new Error(`Tool not found: ${request.params.name}`);
+  const error = `Tool not found: ${request.params.name}`;
+  log("ERROR: Unknown tool", { toolName: request.params.name });
+  throw new Error(error);
 });
 
 // --- Helpers ---
@@ -126,12 +171,19 @@ function zodToJsonSchema(schema: z.ZodType<any>): any {
 
 // --- Start Server ---
 async function run() {
+  log("Starting server transport");
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  log("Server connected and running on stdio");
   console.error("Machinen MCP Server running on stdio");
+  console.error(`Debug logs: ${LOG_FILE}`);
 }
 
 run().catch((error) => {
+  log("FATAL ERROR", {
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined,
+  });
   console.error("Fatal error running server:", error);
   process.exit(1);
 });

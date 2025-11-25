@@ -278,7 +278,9 @@ async function reconstructContexts(
     const fetchTime = Date.now() - r2Start;
 
     if (!object) {
-      console.log(`[query] R2 fetch for ${documentId} took ${fetchTime}ms (not found)`);
+      console.log(
+        `[query] R2 fetch for ${documentId} took ${fetchTime}ms (not found)`
+      );
       return { documentId, documentChunks, sourceDocument: null, fetchTime };
     }
 
@@ -290,15 +292,22 @@ async function reconstructContexts(
       sourceDocument = jsonText;
     }
 
-    console.log(`[query] R2 fetch and read for ${documentId} took ${Date.now() - r2Start}ms`);
+    console.log(
+      `[query] R2 fetch and read for ${documentId} took ${
+        Date.now() - r2Start
+      }ms`
+    );
     return { documentId, documentChunks, sourceDocument, fetchTime };
   }
 
-  const inFlight = new Set<Promise<typeof fetchResults[0]>>();
+  const inFlight = new Set<Promise<(typeof fetchResults)[0]>>();
   let nextIndex = 0;
 
   while (nextIndex < documentEntries.length || inFlight.size > 0) {
-    while (inFlight.size < CONCURRENT_FETCH_LIMIT && nextIndex < documentEntries.length) {
+    while (
+      inFlight.size < CONCURRENT_FETCH_LIMIT &&
+      nextIndex < documentEntries.length
+    ) {
       const [documentId, documentChunks] = documentEntries[nextIndex++];
       const promise = fetchAndReadDocument(documentId, documentChunks);
       promise.finally(() => {
@@ -469,14 +478,71 @@ async function generateEmbedding(
 
 async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
   const start = Date.now();
-  const response = (await (env.AI.run as any)("@cf/openai/gpt-oss-20b", {
-    input: prompt,
-  })) as { response: string };
-  console.log(`[query] AI.run(llm) took ${Date.now() - start}ms`);
-
-  if (!response || typeof response.response !== "string") {
-    throw new Error("Failed to get LLM response");
+  let response: any;
+  try {
+    response = await (env.AI.run as any)("@cf/openai/gpt-oss-20b", {
+      input: prompt,
+    });
+    console.log(`[query] AI.run(llm) took ${Date.now() - start}ms`);
+  } catch (error) {
+    console.error(`[query] AI.run(llm) error:`, error);
+    console.error(
+      `[query] Error type:`,
+      error instanceof Error ? error.constructor.name : typeof error
+    );
+    console.error(
+      `[query] Error message:`,
+      error instanceof Error ? error.message : String(error)
+    );
+    console.error(
+      `[query] Error stack:`,
+      error instanceof Error ? error.stack : "no stack"
+    );
+    throw error;
   }
 
-  return response.response;
+  console.log(`[query] LLM response type:`, typeof response);
+  console.log(
+    `[query] LLM response keys:`,
+    response && typeof response === "object"
+      ? Object.keys(response)
+      : "not an object"
+  );
+  console.log(
+    `[query] LLM response preview:`,
+    JSON.stringify(response).substring(0, 500)
+  );
+
+  if (!response) {
+    throw new Error(
+      `Failed to get LLM response: response is null or undefined`
+    );
+  }
+
+  if (typeof response === "string") {
+    return response;
+  }
+
+  if (typeof response === "object") {
+    if (typeof response.response === "string") {
+      return response.response;
+    }
+    if (typeof response.text === "string") {
+      return response.text;
+    }
+    if (typeof response.content === "string") {
+      return response.content;
+    }
+    throw new Error(
+      `Failed to get LLM response: unexpected response format. Response: ${JSON.stringify(
+        response
+      ).substring(0, 500)}`
+    );
+  }
+
+  throw new Error(
+    `Failed to get LLM response: unexpected response type ${typeof response}. Response: ${JSON.stringify(
+      response
+    ).substring(0, 500)}`
+  );
 }

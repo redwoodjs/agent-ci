@@ -13,9 +13,7 @@ const API_URL =
   process.env.MACHINEN_API_URL || "https://machinen.redwoodjs.workers.dev";
 
 if (!API_KEY) {
-  console.error(
-    "Error: MACHINEN_API_KEY environment variable is required."
-  );
+  console.error("Error: MACHINEN_API_KEY environment variable is required.");
   process.exit(1);
 }
 
@@ -137,4 +135,3 @@ run().catch((error) => {
   console.error("Fatal error running server:", error);
   process.exit(1);
 });
-

@@ -63,13 +63,34 @@ We already have a setup script (`src/app/ingestors/cursor/scripts/setup.sh`) for
 - **Update Documentation**: Add instructions to `src/app/ingestors/cursor/README.md` on how to add the MCP server in Cursor.
 
 ## Implementation Steps
-1.  [x] Create `scripts/mcp-server.ts` (Local MCP Server)
+1.  [x] Create `src/app/ingestors/cursor/scripts/mcp-server.ts` (Local MCP Server)
     -   Import `@modelcontextprotocol/sdk` and `zod`.
     -   Implement `machinen_search` tool.
     -   Configure stdio transport.
     -   Implement fetch to `MACHINEN_API_URL/query`.
-2.  [x] Update `package.json`
-    -   Verified `@modelcontextprotocol/sdk` and `zod` are already in dependencies (no changes needed).
-3.  [x] Update Documentation
-    -   Added "Knowledge Base Integration (MCP)" section to README.
-    -   Provided exact configuration instructions for Cursor.
+2.  [x] Create bundling infrastructure
+    -   Created `scripts/build-mcp-server.mjs` using esbuild to bundle dependencies.
+    -   Added `esbuild` to devDependencies.
+    -   Added `build:mcp-server` script to package.json.
+    -   Outputs to `dist/cursor/mcp-server.mjs` as a single executable bundle.
+3.  [x] Update setup script
+    -   Modified `src/app/ingestors/cursor/scripts/setup.sh` to build and copy the bundled MCP server.
+    -   Copies bundled file to `$HOME/.cursor/hooks/machinen-mcp-server.mjs`.
+    -   Prints setup instructions for Cursor configuration.
+4.  [x] Update Documentation
+    -   Updated "Knowledge Base Integration (MCP)" section in README.
+    -   Reflects new bundled approach (no need for repo clone or TS runtime).
+
+## Refinement: Bundling Approach
+
+The initial implementation assumed users would have the Machinen repo cloned and Node could run TypeScript directly. This had several issues:
+- Users might not have the repo (they just want to use the tool).
+- Node cannot run TypeScript without compilation.
+- Dependencies need to be bundled for a standalone executable.
+
+**Solution**: Use esbuild to create a single bundled `.mjs` file with all dependencies included. The setup script:
+1. Builds the bundle (`npm run build:mcp-server`).
+2. Copies it to `~/.cursor/hooks/`.
+3. Prints instructions for configuring it in Cursor.
+
+This makes the MCP server completely self-contained and deployable without requiring the full repo or TypeScript tooling.

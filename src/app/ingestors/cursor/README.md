@@ -60,13 +60,21 @@ For a new application or to change the API key:
 
 You can also connect Cursor to the Machinen knowledge base to get relevant context while you chat. This uses the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
-1. Go to **Cursor Settings** -> **Features** -> **MCP Servers**.
-2. Click **+ Add New MCP Server**.
-3. Enter the following details:
+The setup script automatically builds and installs the MCP server. After running the setup script, follow the instructions it prints to configure it in Cursor.
+
+**Manual Setup** (if needed):
+
+1. Build the MCP server:
+   ```bash
+   npm run build:mcp-server
+   ```
+
+2. Go to **Cursor Settings** -> **Features** -> **MCP Servers**.
+3. Click **+ Add New MCP Server**.
+4. Enter the following details:
    - **Name**: `machinen`
    - **Type**: `stdio`
-   - **Command**: `node /absolute/path/to/machinen/scripts/mcp-server.ts`
-     *(Note: You must use the absolute path to the repo on your machine)*
+   - **Command**: `node $HOME/.cursor/hooks/machinen-mcp-server.mjs`
    - **Environment Variables**:
      - `MACHINEN_API_KEY`: `your-secret-api-key`
      - `MACHINEN_API_URL`: `https://machinen.redwoodjs.workers.dev` (optional, defaults to production)

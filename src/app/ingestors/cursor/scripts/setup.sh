@@ -63,28 +63,37 @@ EOL
 if [ -f "$PROJECT_MCP_CONFIG" ]; then
   cp "$PROJECT_MCP_CONFIG" "$PROJECT_MCP_CONFIG.bak"
   echo "Backed up existing mcp.json to $PROJECT_MCP_CONFIG.bak"
-fi
-
-# Check if mcpServers already exists in the file
-if [ -f "$PROJECT_MCP_CONFIG" ] && grep -q '"mcpServers"' "$PROJECT_MCP_CONFIG"; then
-  echo ""
-  echo "⚠ mcp.json already exists with mcpServers configuration."
-  echo "   Please manually add the 'machinen' server to your mcp.json:"
-  echo ""
-  echo "   {"
-  echo "     \"mcpServers\": {"
-  echo "       \"machinen\": {"
-  echo "         \"type\": \"stdio\","
-  echo "         \"command\": \"node\","
-  echo "         \"args\": [\"\${userHome}/.cursor/hooks/machinen-mcp-server.mjs\"],"
-  echo "         \"env\": {"
-  echo "           \"MACHINEN_API_KEY\": \"\${env:MACHINEN_API_KEY}\","
-  echo "           \"MACHINEN_API_URL\": \"https://machinen.redwoodjs.workers.dev\""
-  echo "         }"
-  echo "       }"
-  echo "       ... existing servers ..."
-  echo "     }"
-  echo "   }"
+  
+  # Merge machinen server into existing mcp.json
+  node -e "
+    const fs = require('fs');
+    const configPath = '$PROJECT_MCP_CONFIG';
+    let config = {};
+    try {
+      const content = fs.readFileSync(configPath, 'utf8');
+      config = JSON.parse(content);
+    } catch (e) {
+      console.error('Error reading mcp.json:', e.message);
+      process.exit(1);
+    }
+    
+    if (!config.mcpServers) {
+      config.mcpServers = {};
+    }
+    
+    config.mcpServers.machinen = {
+      type: 'stdio',
+      command: 'node',
+      args: ['\${userHome}/.cursor/hooks/machinen-mcp-server.mjs'],
+      env: {
+        MACHINEN_API_KEY: '\${env:MACHINEN_API_KEY}',
+        MACHINEN_API_URL: 'https://machinen.redwoodjs.workers.dev'
+      }
+    };
+    
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + '\n');
+    console.log('✓ Updated MCP configuration at', configPath);
+  "
 else
   # Create new mcp.json
   cat > "$PROJECT_MCP_CONFIG" << 'EOL'

@@ -160,13 +160,13 @@ feat: cursor mcp integration & rag token optimization
 This PR introduces the Cursor MCP integration POC and fixes the context window overflow issues in the RAG engine.
 
 ### Cursor MCP Integration
-We've added a local Model Context Protocol (MCP) server that allows Cursor Chat to query Machinen directly.
+I've added a local Model Context Protocol (MCP) server that allows Cursor Chat to query Machinen directly.
 - **Local Server**: A standalone Node script that proxies requests to the Machinen Worker.
 - **Automated Setup**: New `scripts/setup-cursor.sh` bundles the server and configures `.cursor/mcp.json`.
 - **Pull-Based Context**: The LLM can now decide when to query the knowledge base for context on architecture or project history.
 
 ### RAG Token Optimization
-To prevent `5021` context window errors on large queries, we've implemented a centralized token budgeting system.
+To prevent `5021` context window errors on large queries, I've implemented a centralized token budgeting system.
 - **New `optimizeContext` Hook**: A dedicated pipeline step after context reconstruction but before prompt composition.
 - **Token Budgeting**: The `DefaultPlugin` now enforces a global token limit (~80k) by selecting relevant contexts until the budget is full.
 - **Cleanup**: Simplified source plugins by removing ad-hoc token counting attempts and fixed missing types in the Cursor plugin.

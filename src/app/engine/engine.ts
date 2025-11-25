@@ -145,17 +145,23 @@ export async function query(
   );
   console.log(`[query] Reconstructed ${reconstructedContexts.length} contexts`);
 
+  console.log(`[query] Step 5.5: Optimizing contexts`);
+  const optimizedContexts = await runWaterfallHook(
+    context.plugins,
+    "optimizeContext",
+    reconstructedContexts,
+    (contexts, plugin) =>
+      plugin.optimizeContext?.(contexts, processedQuery, queryContext)
+  );
+  console.log(`[query] Optimized to ${optimizedContexts.length} contexts`);
+
   console.log(`[query] Step 6: Composing LLM prompt`);
 
   const prompt = await runFirstMatchHook(
     [...context.plugins].reverse(),
     "composeLlmPrompt",
     (plugin) =>
-      plugin.composeLlmPrompt?.(
-        reconstructedContexts,
-        processedQuery,
-        queryContext
-      )
+      plugin.composeLlmPrompt?.(optimizedContexts, processedQuery, queryContext)
   );
 
   if (!prompt) {

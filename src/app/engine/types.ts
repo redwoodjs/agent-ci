@@ -76,6 +76,11 @@ export interface Plugin {
     sourceDocument: any,
     context: QueryHookContext
   ) => Promise<ReconstructedContext | null>;
+  optimizeContext?: (
+    contexts: ReconstructedContext[],
+    query: string,
+    context: QueryHookContext
+  ) => Promise<ReconstructedContext[]>;
   composeLlmPrompt?: (
     contexts: ReconstructedContext[],
     query: string,

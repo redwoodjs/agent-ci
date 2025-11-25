@@ -1,0 +1,37 @@
+# 2025-11-25: RAG Engine Token Management
+
+## Context
+We encountered a `5021` error from the AI gateway: "The estimated number of input and maximum output tokens (139704) exceeded this model context window limit (80000)."
+
+This happened because we were retrieving too many search results and reconstructing full document contexts for all of them, then passing them all to the LLM prompt without checking if they fit.
+
+## Attempt 1: Distributed Token Counting (Failed)
+We initially tried to add token counting logic to each source plugin (`GitHubPlugin`, `DiscordPlugin`) and the `DefaultPlugin`.
+- **Idea**: Each plugin would check a budget before returning its prompt section.
+- **Problem**: `GitHubPlugin` only sees GitHub contexts. It doesn't know if `DiscordPlugin` also has content. If both used their "full" budget, we'd still overflow. Also, `runFirstMatchHook` means only one plugin typically composes the prompt, so the default plugin (which sees everything) was the only real place to do it, but it received pre-formatted strings from other plugins in the original design, making it hard to cut cleanly.
+- **Outcome**: Reverted this approach. It was messy and architecturally unsound.
+
+## Attempt 2: Centralized Context Optimization (Current Plan)
+We realized we need a dedicated step in the pipeline *after* context reconstruction but *before* prompt composition.
+
+### The Plan
+1.  **New Hook**: Introduce `optimizeContext(contexts, query, context)` to the `Plugin` interface.
+2.  **Placement**: Call this hook in the engine after `reconstructContexts`.
+3.  **Logic**:
+    *   The hook receives the full list of `ReconstructedContext` objects.
+    *   These contexts are already implicitly ranked by relevance (because they come from ranked vector search results).
+    *   The `DefaultPlugin` will implement this hook to enforce a global token budget.
+    *   It will iterate through the contexts, estimating tokens, and selecting them until the budget (e.g., 80k - reserve) is full.
+4.  **Fairness**: By processing the list in its ranked order, we prioritize relevance. If we need source diversity later (e.g., "ensure at least one Discord result"), we can implement that logic in this single hook without changing the plugins.
+
+## Implementation Details
+- **Token Estimation**: Using a simple `char length / 4` heuristic.
+- **Budgeting**:
+    *   Max Tokens: ~80,000 (for Gemma/Llama 3.1 large context)
+    *   Output Reserve: 10,000
+    *   Prompt Overhead: 1,000
+    *   Effective Context Budget: ~69,000 tokens
+- **Files to Change**:
+    *   `src/app/engine/types.ts`: Add `optimizeContext` to `Plugin`.
+    *   `src/app/engine/engine.ts`: Add the hook call.
+    *   `src/app/engine/plugins/default.ts`: Implement the token limiting logic.

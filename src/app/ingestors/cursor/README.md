@@ -10,17 +10,17 @@ Add `INGEST_API_KEY` to your shell profile, then run the setup script:
 
 **zsh:**
 ```bash
-echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.zshrc && source ~/.zshrc && ./src/app/ingestors/cursor/scripts/setup.sh
+echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.zshrc && source ~/.zshrc && ./scripts/setup-cursor.sh
 ```
 
 **bash:**
 ```bash
-echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.bashrc && source ~/.bashrc && ./src/app/ingestors/cursor/scripts/setup.sh
+echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.bashrc && source ~/.bashrc && ./scripts/setup-cursor.sh
 ```
 
 **fish:**
 ```fish
-echo 'set -gx INGEST_API_KEY your-secret-api-key-here' >> ~/.config/fish/config.fish && source ~/.config/fish/config.fish && bash ./src/app/ingestors/cursor/scripts/setup.sh
+echo 'set -gx INGEST_API_KEY your-secret-api-key-here' >> ~/.config/fish/config.fish && source ~/.config/fish/config.fish && bash ./scripts/setup-cursor.sh
 ```
 
 By default, the hook sends data to `https://machinen.redwoodjs.workers.dev/ingestors/cursor`. To change this, set `CURSOR_INGEST_URL` in your shell profile (e.g., `export CURSOR_INGEST_URL=http://localhost:5173/ingestors/cursor`).
@@ -56,6 +56,59 @@ For a new application or to change the API key:
    export CURSOR_INGEST_URL=https://your-domain.com/ingestors/cursor
    ```
 
+## Knowledge Base Integration (MCP)
+
+You can also connect Cursor to the Machinen knowledge base to get relevant context while you chat. This uses the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+
+The setup script automatically builds and installs the MCP server and creates the MCP configuration file.
+
+**Setup:**
+
+1. Run the setup script:
+   ```bash
+   ./scripts/setup-cursor.sh
+   ```
+
+2. Set the `MACHINEN_API_KEY` environment variable:
+   ```bash
+   export MACHINEN_API_KEY='your-api-key-here'
+   ```
+   
+   Or add it to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) for persistence.
+
+3. Restart Cursor to load the MCP server.
+
+**Manual Setup** (if needed):
+
+1. Build the MCP server:
+   ```bash
+   npm run build:mcp-server
+   ```
+
+2. Copy the server to the hooks directory:
+   ```bash
+   cp dist/cursor/mcp-server.mjs ~/.cursor/hooks/machinen-mcp-server.mjs
+   ```
+
+3. Create `~/.cursor/mcp.json` in your home directory:
+   ```json
+   {
+     "mcpServers": {
+       "machinen": {
+         "type": "stdio",
+         "command": "node",
+         "args": ["${userHome}/.cursor/hooks/machinen-mcp-server.mjs"],
+         "env": {
+           "MACHINEN_API_KEY": "${env:MACHINEN_API_KEY}",
+           "MACHINEN_API_URL": "https://machinen.redwoodjs.workers.dev"
+         }
+       }
+     }
+   }
+   ```
+
+Once connected, the AI will automatically search the knowledge base when you ask questions about project history or architecture.
+
 ## How It Works
 
 1. Cursor hooks trigger the hook script (`hook.sh`) at various stages of the agent loop
@@ -75,4 +128,3 @@ curl http://localhost:5173/ingestors/cursor/test
 ```
 
 This will create a sample conversation and store it in R2.
-

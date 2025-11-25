@@ -1,7 +1,7 @@
 # 2025-11-25 - Identify RAG Engine Bottlenecks
 
 ## Problem
-The user wants to identify bottlenecks in the current RAG engine implementation. The system is built on Cloudflare Workers, utilizing R2 and Vectorize. We need a fast way to determine where the latency lies (e.g., vector search, LLM generation, data processing).
+I want to identify bottlenecks in the current RAG engine implementation. The system is built on Cloudflare Workers, utilizing R2 and Vectorize. We need a fast way to determine where the latency lies (e.g., vector search, LLM generation, data processing).
 
 ## Plan
 1.  **Analyze Existing Code**: Examine `src/app/engine/engine.ts` and related files to see if any performance logging or timing metrics already exist. [Completed]

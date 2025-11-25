@@ -94,3 +94,58 @@ The initial implementation assumed users would have the Machinen repo cloned and
 3. Prints instructions for configuring it in Cursor.
 
 This makes the MCP server completely self-contained and deployable without requiring the full repo or TypeScript tooling.
+
+## Recent Progress: MCP Server Fixes and Configuration
+
+### Fixed Server Startup Issues
+
+**Problem**: The MCP server wasn't starting, causing "No server info found" errors in Cursor. The bundled file had a shebang (`#!/usr/bin/env node`) that caused a syntax error when running with `node file.mjs`.
+
+**Solution**:
+- Removed shebang from source TypeScript file
+- Removed shebang banner from esbuild build script
+- Server now starts correctly
+
+### Fixed API Endpoint and Authentication
+
+**Problem**: The server was using incorrect API endpoint (`/query` instead of `/rag/query`) and wrong auth header format (`x-api-key` instead of `Authorization: Bearer`).
+
+**Solution**:
+- Updated endpoint to `/rag/query` (routes are mounted under `/rag` prefix)
+- Changed auth header from `x-api-key` to `Authorization: Bearer` format
+
+### Added Comprehensive Debugging
+
+**Added**:
+- Logging to `/tmp/machinen-mcp-server.log` with timestamps
+- Logs all server events: initialization, tool listing, tool calls, API requests/responses, errors
+- Error handling with fallback to stderr if log file operations fail
+- Made tool description permissive for debugging ("use it at all times")
+
+### Switched to mcp.json Configuration
+
+**Problem**: Initially tried manual UI configuration, but Cursor reads MCP servers from `mcp.json` files.
+
+**Solution**:
+- Updated setup script to create/update `.cursor/mcp.json` automatically
+- Uses proper `mcpServers` structure with `type: "stdio"`
+- Uses config interpolation variables (`${userHome}`, `${env:MACHINEN_API_KEY}`)
+- Automatically merges into existing `mcp.json` files (overwrites `machinen` key if exists)
+- Backs up existing configs before modifying
+
+### Centralized Scripts
+
+**Moved**:
+- `src/app/ingestors/cursor/scripts/setup.sh` → `scripts/setup-cursor.sh`
+- Updated all README references to new location
+- Scripts now in centralized `scripts/` directory for better organization
+
+### Current Status
+
+The MCP server should now:
+- Start correctly without syntax errors
+- Be discovered by Cursor via `.cursor/mcp.json`
+- Connect to the correct API endpoint with proper authentication
+- Log all activity to `/tmp/machinen-mcp-server.log` for debugging
+
+**Next Steps**: Test the integration end-to-end and verify tool calls work correctly.

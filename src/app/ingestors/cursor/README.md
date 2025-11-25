@@ -10,17 +10,17 @@ Add `INGEST_API_KEY` to your shell profile, then run the setup script:
 
 **zsh:**
 ```bash
-echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.zshrc && source ~/.zshrc && ./src/app/ingestors/cursor/scripts/setup.sh
+echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.zshrc && source ~/.zshrc && ./scripts/setup-cursor.sh
 ```
 
 **bash:**
 ```bash
-echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.bashrc && source ~/.bashrc && ./src/app/ingestors/cursor/scripts/setup.sh
+echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.bashrc && source ~/.bashrc && ./scripts/setup-cursor.sh
 ```
 
 **fish:**
 ```fish
-echo 'set -gx INGEST_API_KEY your-secret-api-key-here' >> ~/.config/fish/config.fish && source ~/.config/fish/config.fish && bash ./src/app/ingestors/cursor/scripts/setup.sh
+echo 'set -gx INGEST_API_KEY your-secret-api-key-here' >> ~/.config/fish/config.fish && source ~/.config/fish/config.fish && bash ./scripts/setup-cursor.sh
 ```
 
 By default, the hook sends data to `https://machinen.redwoodjs.workers.dev/ingestors/cursor`. To change this, set `CURSOR_INGEST_URL` in your shell profile (e.g., `export CURSOR_INGEST_URL=http://localhost:5173/ingestors/cursor`).
@@ -66,7 +66,7 @@ The setup script automatically builds and installs the MCP server and creates th
 
 1. Run the setup script:
    ```bash
-   ./src/app/ingestors/cursor/scripts/setup.sh
+   ./scripts/setup-cursor.sh
    ```
 
 2. Set the `MACHINEN_API_KEY` environment variable:

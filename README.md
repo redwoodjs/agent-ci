@@ -80,7 +80,7 @@ wrangler queues list
 ### Ingestors
 
 - **[GitHub Ingestor](./src/app/ingestors/github/README.md)**: Ingests issues, pull requests, comments, releases, and projects from GitHub
-- **[Cursor Ingestor](./src/app/ingestors/cursor/README.md)**: Captures Cursor conversation data via hooks
+- **[Cursor Ingestor](./src/app/ingestors/cursor/README.md)**: Captures Cursor conversation data via hooks and provides MCP server for knowledge base integration. Setup: `./scripts/setup-cursor.sh`
 - **[Discord Ingestor](./src/app/ingestors/discord/README.md)**: Fetches Discord messages and stores them in JSONL format
 
 ### RAG Engine

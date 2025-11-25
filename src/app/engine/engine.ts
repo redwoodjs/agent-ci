@@ -470,12 +470,7 @@ async function generateEmbedding(
 async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
   const start = Date.now();
   const response = (await (env.AI.run as any)("@cf/openai/gpt-oss-20b", {
-    messages: [
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
+    input: prompt,
   })) as { response: string };
   console.log(`[query] AI.run(llm) took ${Date.now() - start}ms`);
 

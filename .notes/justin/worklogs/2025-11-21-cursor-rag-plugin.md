@@ -142,3 +142,6 @@ Fixes the Cursor RAG plugin so queries actually return Cursor conversation resul
 - Queries successfully return Cursor conversation context
 - Search works end-to-end
 
+**Post-deployment note:**
+After switching to `rag-index-v2`, the `EngineIndexingStateDO` still contains etags from the old index. This causes the scanner to skip files that aren't actually in the new index. Added `/admin/clear-indexing-state` endpoint to clear the DO state and force re-indexing. Should be called after switching Vectorize indexes.
+

@@ -177,3 +177,25 @@ Implemented two optimizations:
 *   **LLM Generation**: Still the largest component at 8.6s (64% of total time)
 *   **Context Reconstruction**: Down to 3.2s but could potentially be faster with higher concurrency (if limits allow)
 *   **Vector Search**: Minor variance, not a concern
+
+## PR Description
+
+### Performance Instrumentation
+
+Added timing logs throughout the query and indexing pipelines. Each major step now logs its execution time, making it easy to spot bottlenecks. Logs include durations for vector search, embedding generation, R2 fetches, context reconstruction, LLM generation, and other pipeline stages.
+
+### Parallel R2 Fetches
+
+Refactored context reconstruction to fetch R2 documents in parallel instead of sequentially. Implemented a keep-6-in-flight pattern that maintains exactly 6 concurrent requests (respecting Cloudflare Workers' connection limit) and reads response bodies immediately to free connections. This cut context reconstruction time from 10.4s to 3.2s for 45 documents.
+
+### LLM Model Switch
+
+Switched from `@cf/google/gemma-3-12b-it` to `@cf/openai/gpt-oss-20b` based on benchmark data showing faster inference speeds. Updated the API call format to use `input` instead of `messages` and added response parsing for the nested `output[0].content[0].text` structure. This reduced LLM generation time from 10.2s to 8.6s.
+
+### Error Handling
+
+Enhanced error handling in the LLM call function to log detailed response structure information when parsing fails. This helps diagnose API format mismatches and response parsing issues more quickly.
+
+### Results
+
+Total query time reduced from 21.9s to 13.3s (39% improvement). Context reconstruction improved by 70% and LLM generation improved by 15%. No connection warnings observed after implementing immediate body reading.

@@ -63,13 +63,13 @@ We already have a setup script (`src/app/ingestors/cursor/scripts/setup.sh`) for
 - **Update Documentation**: Add instructions to `src/app/ingestors/cursor/README.md` on how to add the MCP server in Cursor.
 
 ## Implementation Steps
-1.  [ ] Create `scripts/mcp-server.ts` (Local MCP Server)
+1.  [x] Create `scripts/mcp-server.ts` (Local MCP Server)
     -   Import `@modelcontextprotocol/sdk` and `zod`.
     -   Implement `machinen_search` tool.
     -   Configure stdio transport.
     -   Implement fetch to `MACHINEN_API_URL/query`.
-2.  [ ] Update `package.json`
-    -   Add `@modelcontextprotocol/sdk` and `zod` to dependencies.
-3.  [ ] Update Documentation
-    -   Add "Setup Knowledge Base" section to README.
-    -   Provide exact configuration string for Cursor.
+2.  [x] Update `package.json`
+    -   Verified `@modelcontextprotocol/sdk` and `zod` are already in dependencies (no changes needed).
+3.  [x] Update Documentation
+    -   Added "Knowledge Base Integration (MCP)" section to README.
+    -   Provided exact configuration instructions for Cursor.

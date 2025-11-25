@@ -533,6 +533,15 @@ async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
     if (typeof response.content === "string") {
       return response.content;
     }
+    if (
+      Array.isArray(response.output) &&
+      response.output.length > 0 &&
+      Array.isArray(response.output[0].content) &&
+      response.output[0].content.length > 0 &&
+      typeof response.output[0].content[0].text === "string"
+    ) {
+      return response.output[0].content[0].text;
+    }
     throw new Error(
       `Failed to get LLM response: unexpected response format. Response: ${JSON.stringify(
         response

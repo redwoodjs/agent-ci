@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
@@ -15,11 +14,21 @@ function log(message: string, data?: any) {
   const logEntry = `[${timestamp}] ${message}${
     data ? `\n${JSON.stringify(data, null, 2)}` : ""
   }\n`;
-  appendFileSync(LOG_FILE, logEntry);
+  try {
+    appendFileSync(LOG_FILE, logEntry);
+  } catch (err) {
+    console.error(`[LOG ERROR] Failed to write to ${LOG_FILE}:`, err);
+    console.error(`[LOG] ${logEntry}`);
+  }
 }
 
-writeFileSync(LOG_FILE, `=== Machinen MCP Server Started ===\n`);
-log("Server initializing");
+try {
+  writeFileSync(LOG_FILE, `=== Machinen MCP Server Started ===\n`);
+  log("Server initializing");
+} catch (err) {
+  console.error(`[LOG ERROR] Failed to create log file ${LOG_FILE}:`, err);
+  console.error("[LOG] Server initializing (log file unavailable)");
+}
 
 // --- Configuration ---
 const API_KEY = process.env.MACHINEN_API_KEY;
@@ -169,21 +178,46 @@ function zodToJsonSchema(schema: z.ZodType<any>): any {
   };
 }
 
-// --- Start Server ---
-async function run() {
-  log("Starting server transport");
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  log("Server connected and running on stdio");
-  console.error("Machinen MCP Server running on stdio");
-  console.error(`Debug logs: ${LOG_FILE}`);
-}
-
-run().catch((error) => {
-  log("FATAL ERROR", {
+// --- Error Handler for Unhandled Requests ---
+server.onerror = (error) => {
+  log("Server error", {
     error: error instanceof Error ? error.message : String(error),
     stack: error instanceof Error ? error.stack : undefined,
   });
+  console.error("MCP Server error:", error);
+};
+
+// --- Start Server ---
+async function run() {
+  try {
+    log("Starting server transport");
+    const transport = new StdioServerTransport();
+    log("Connecting server to transport");
+    await server.connect(transport);
+    log("Server connected and running on stdio");
+    console.error("Machinen MCP Server running on stdio");
+    console.error(`Debug logs: ${LOG_FILE}`);
+  } catch (error) {
+    log("ERROR in run()", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
+  }
+}
+
+run().catch((error) => {
+  try {
+    log("FATAL ERROR", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+  } catch {
+    // If logging fails, at least log to stderr
+  }
   console.error("Fatal error running server:", error);
+  if (error instanceof Error && error.stack) {
+    console.error(error.stack);
+  }
   process.exit(1);
 });

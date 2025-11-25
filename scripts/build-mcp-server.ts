@@ -15,9 +15,6 @@ await build({
   format: "esm",
   outfile: join(repoRoot, "dist/cursor/mcp-server.mjs"),
   external: [],
-  banner: {
-    js: "#!/usr/bin/env node",
-  },
   minify: false,
   sourcemap: false,
   target: "node20",

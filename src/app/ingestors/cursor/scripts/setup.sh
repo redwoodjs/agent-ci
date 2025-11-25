@@ -12,9 +12,14 @@ TARGET_HOOK_SCRIPT_PATH="$HOOKS_DIR/$HOOK_SCRIPT_NAME"
 MCP_SERVER_NAME="machinen-mcp-server.mjs"
 MCP_SERVER_TARGET_PATH="$HOOKS_DIR/$MCP_SERVER_NAME"
 
+# MCP config paths
+PROJECT_MCP_CONFIG="$(pwd)/.cursor/mcp.json"
+GLOBAL_MCP_CONFIG="$CURSOR_CONFIG_DIR/mcp.json"
+
 # Create directories if they don't exist
 mkdir -p "$HOOKS_DIR"
 mkdir -p "$(pwd)/dist/cursor"
+mkdir -p "$(pwd)/.cursor"
 
 # Build the MCP server
 echo "Building MCP server..."
@@ -54,19 +59,63 @@ cat > "$HOOKS_JSON_FILE" << EOL
 }
 EOL
 
+# Create or update mcp.json (project-specific)
+if [ -f "$PROJECT_MCP_CONFIG" ]; then
+  cp "$PROJECT_MCP_CONFIG" "$PROJECT_MCP_CONFIG.bak"
+  echo "Backed up existing mcp.json to $PROJECT_MCP_CONFIG.bak"
+fi
+
+# Check if mcpServers already exists in the file
+if [ -f "$PROJECT_MCP_CONFIG" ] && grep -q '"mcpServers"' "$PROJECT_MCP_CONFIG"; then
+  echo ""
+  echo "⚠ mcp.json already exists with mcpServers configuration."
+  echo "   Please manually add the 'machinen' server to your mcp.json:"
+  echo ""
+  echo "   {"
+  echo "     \"mcpServers\": {"
+  echo "       \"machinen\": {"
+  echo "         \"type\": \"stdio\","
+  echo "         \"command\": \"node\","
+  echo "         \"args\": [\"\${userHome}/.cursor/hooks/machinen-mcp-server.mjs\"],"
+  echo "         \"env\": {"
+  echo "           \"MACHINEN_API_KEY\": \"\${env:MACHINEN_API_KEY}\","
+  echo "           \"MACHINEN_API_URL\": \"https://machinen.redwoodjs.workers.dev\""
+  echo "         }"
+  echo "       }"
+  echo "       ... existing servers ..."
+  echo "     }"
+  echo "   }"
+else
+  # Create new mcp.json
+  cat > "$PROJECT_MCP_CONFIG" << 'EOL'
+{
+  "mcpServers": {
+    "machinen": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${userHome}/.cursor/hooks/machinen-mcp-server.mjs"],
+      "env": {
+        "MACHINEN_API_KEY": "${env:MACHINEN_API_KEY}",
+        "MACHINEN_API_URL": "https://machinen.redwoodjs.workers.dev"
+      }
+    }
+  }
+}
+EOL
+  echo "✓ Created MCP configuration at $PROJECT_MCP_CONFIG"
+fi
+
 echo ""
 echo "✓ Cursor hooks for Machinen ingest have been set up."
 echo "✓ MCP server has been copied to $MCP_SERVER_TARGET_PATH"
 echo ""
-echo "To complete the setup, add the MCP server in Cursor:"
-echo "  1. Go to Cursor Settings -> Features -> MCP Servers"
-echo "  2. Click '+ Add New MCP Server'"
-echo "  3. Enter the following:"
-echo "     Name: machinen"
-echo "     Type: stdio"
-echo "     Command: node $MCP_SERVER_TARGET_PATH"
-echo "     Environment Variables:"
-echo "       MACHINEN_API_KEY: <your-api-key>"
-echo "       MACHINEN_API_URL: https://machinen.redwoodjs.workers.dev (optional)"
+echo "Configuration:"
+echo "  - MCP config: $PROJECT_MCP_CONFIG (project-specific)"
+echo "  - MCP server: $MCP_SERVER_TARGET_PATH"
+echo ""
+echo "⚠ IMPORTANT: Set the MACHINEN_API_KEY environment variable:"
+echo "   export MACHINEN_API_KEY='your-api-key-here'"
+echo ""
+echo "   Or add it to your shell profile (~/.zshrc, ~/.bashrc, etc.)"
 echo ""
 echo "Please restart Cursor to apply the changes."

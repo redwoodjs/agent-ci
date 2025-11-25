@@ -60,7 +60,23 @@ For a new application or to change the API key:
 
 You can also connect Cursor to the Machinen knowledge base to get relevant context while you chat. This uses the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
-The setup script automatically builds and installs the MCP server. After running the setup script, follow the instructions it prints to configure it in Cursor.
+The setup script automatically builds and installs the MCP server and creates the MCP configuration file.
+
+**Setup:**
+
+1. Run the setup script:
+   ```bash
+   ./src/app/ingestors/cursor/scripts/setup.sh
+   ```
+
+2. Set the `MACHINEN_API_KEY` environment variable:
+   ```bash
+   export MACHINEN_API_KEY='your-api-key-here'
+   ```
+   
+   Or add it to your shell profile (`~/.zshrc`, `~/.bashrc`, etc.) for persistence.
+
+3. Restart Cursor to load the MCP server.
 
 **Manual Setup** (if needed):
 
@@ -69,15 +85,27 @@ The setup script automatically builds and installs the MCP server. After running
    npm run build:mcp-server
    ```
 
-2. Go to **Cursor Settings** -> **Features** -> **MCP Servers**.
-3. Click **+ Add New MCP Server**.
-4. Enter the following details:
-   - **Name**: `machinen`
-   - **Type**: `stdio`
-   - **Command**: `node $HOME/.cursor/hooks/machinen-mcp-server.mjs`
-   - **Environment Variables**:
-     - `MACHINEN_API_KEY`: `your-secret-api-key`
-     - `MACHINEN_API_URL`: `https://machinen.redwoodjs.workers.dev` (optional, defaults to production)
+2. Copy the server to the hooks directory:
+   ```bash
+   cp dist/cursor/mcp-server.mjs ~/.cursor/hooks/machinen-mcp-server.mjs
+   ```
+
+3. Create `.cursor/mcp.json` in your project root:
+   ```json
+   {
+     "mcpServers": {
+       "machinen": {
+         "type": "stdio",
+         "command": "node",
+         "args": ["${userHome}/.cursor/hooks/machinen-mcp-server.mjs"],
+         "env": {
+           "MACHINEN_API_KEY": "${env:MACHINEN_API_KEY}",
+           "MACHINEN_API_URL": "https://machinen.redwoodjs.workers.dev"
+         }
+       }
+     }
+   }
+   ```
 
 Once connected, the AI will automatically search the knowledge base when you ask questions about project history or architecture.
 

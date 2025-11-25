@@ -61,3 +61,15 @@ We already have a setup script (`src/app/ingestors/cursor/scripts/setup.sh`) for
 - **Create `scripts/mcp-server.ts`**: A simple Node script using `@modelcontextprotocol/sdk`. It proxies requests to the Machinen Worker API.
 - **Update `package.json`**: Add the SDK dependency.
 - **Update Documentation**: Add instructions to `src/app/ingestors/cursor/README.md` on how to add the MCP server in Cursor.
+
+## Implementation Steps
+1.  [ ] Create `scripts/mcp-server.ts` (Local MCP Server)
+    -   Import `@modelcontextprotocol/sdk` and `zod`.
+    -   Implement `machinen_search` tool.
+    -   Configure stdio transport.
+    -   Implement fetch to `MACHINEN_API_URL/query`.
+2.  [ ] Update `package.json`
+    -   Add `@modelcontextprotocol/sdk` and `zod` to dependencies.
+3.  [ ] Update Documentation
+    -   Add "Setup Knowledge Base" section to README.
+    -   Provide exact configuration string for Cursor.

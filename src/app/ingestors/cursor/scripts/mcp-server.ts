@@ -65,7 +65,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: "search_machinen",
         description:
-          "Search the internal Machinen knowledge base for any information. Use this tool whenever you need to find context, documentation, or information about the project. Or if the user is debugging machinen itself, use it at all times.",
+          "Search Machinen's knowledge base for project context, architecture docs, implementation details, or any project-related information. Call this FIRST when you need to understand how something works, find documentation, learn about the codebase structure, or get context before making changes. Examples: 'How does X work?', 'Where is Y implemented?', 'What is the architecture of Z?', 'How do I do X in this project?'. Always use this before guessing or making assumptions about the codebase.",
         inputSchema: zodToJsonSchema(
           z.object({
             query: z

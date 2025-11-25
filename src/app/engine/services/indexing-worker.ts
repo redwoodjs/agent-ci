@@ -128,23 +128,26 @@ export async function processIndexingJob(
 
   try {
     console.log(
-      `[indexing-worker] Step 1: Deleting existing vectors for ${r2Key}`
+      `[indexing-worker] Deleting existing vectors for ${r2Key}...`
     );
+    const step1Start = Date.now();
     await deleteExistingVectors(r2Key, env);
     console.log(
-      `[indexing-worker] Step 1 complete: Finished deleting existing vectors`
+      `[indexing-worker] Vector deletion took ${Date.now() - step1Start}ms`
     );
 
-    console.log(`[indexing-worker] Step 2: Creating engine context`);
+    console.log(`[indexing-worker] Creating engine context...`);
+    const step2Start = Date.now();
     const context = createEngineContext(env, "indexing");
     console.log(
-      `[indexing-worker] Step 2 complete: Engine context created with ${context.plugins.length} plugins`
+      `[indexing-worker] Engine context creation took ${Date.now() - step2Start}ms (plugins: ${context.plugins.length})`
     );
 
-    console.log(`[indexing-worker] Step 3: Indexing document ${r2Key}`);
+    console.log(`[indexing-worker] Indexing document ${r2Key}...`);
+    const step3Start = Date.now();
     const chunks = await indexDocument(r2Key, context);
     console.log(
-      `[indexing-worker] Step 3 complete: Document indexed, got ${chunks.length} chunks`
+      `[indexing-worker] Document indexing took ${Date.now() - step3Start}ms (chunks: ${chunks.length})`
     );
 
     if (chunks.length > 0) {
@@ -158,9 +161,10 @@ export async function processIndexingJob(
     }
 
     console.log(
-      `[indexing-worker] Step 4: Generating embeddings for ${chunks.length} chunks`
+      `[indexing-worker] Generating embeddings for ${chunks.length} chunks...`
     );
 
+    const step4Start = Date.now();
     const vectors = await Promise.all(
       chunks.map(async (chunk, index) => {
         const embedding = await generateEmbedding(chunk.content, env);
@@ -176,13 +180,14 @@ export async function processIndexingJob(
       })
     );
     console.log(
-      `[indexing-worker] Step 4 complete: Generated ${vectors.length} vectors`
+      `[indexing-worker] Embedding generation took ${Date.now() - step4Start}ms (vectors: ${vectors.length})`
     );
 
     if (vectors.length > 0) {
       console.log(
-        `[indexing-worker] Step 5: Inserting ${vectors.length} vectors into Vectorize`
+        `[indexing-worker] Inserting ${vectors.length} vectors into Vectorize...`
       );
+      const step5Start = Date.now();
       if (!env.VECTORIZE_INDEX) {
         console.warn(
           `[indexing-worker] VECTORIZE_INDEX not available, skipping vector insertion. Generated ${vectors.length} vectors but cannot store them.`
@@ -222,7 +227,7 @@ export async function processIndexingJob(
       }
       const chunkIds = vectors.map((v) => v.id);
       console.log(
-        `[indexing-worker] Step 5 complete: Successfully inserted ${vectors.length} chunks into Vectorize`
+        `[indexing-worker] Vector insertion took ${Date.now() - step5Start}ms`
       );
       console.log(
         `[indexing-worker] About to call updateIndexingState: chunkIds type=${typeof chunkIds}, isArray=${Array.isArray(
@@ -232,14 +237,15 @@ export async function processIndexingJob(
         )}`
       );
 
-      console.log(`[indexing-worker] Step 6: Updating indexing state`);
+      console.log(`[indexing-worker] Updating indexing state...`);
+      const step6Start = Date.now();
       const object = await env.MACHINEN_BUCKET.head(r2Key);
       if (object) {
         // Note: We still pass chunkIds to updateIndexingState for now to keep the signature valid,
         // but we no longer rely on them for deletion.
         await updateIndexingState(r2Key, object.etag, chunkIds);
         console.log(
-          `[indexing-worker] Step 6 complete: Updated indexing state for ${r2Key} with etag ${object.etag}`
+          `[indexing-worker] Indexing state update took ${Date.now() - step6Start}ms (etag: ${object.etag})`
         );
       } else {
         console.warn(

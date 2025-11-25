@@ -222,6 +222,34 @@ const GitHubPlugin: Plugin = {
 };
 ```
 
+#### `optimizeContext`
+
+*   **Purpose**: To filter, truncate, or re-order the list of `ReconstructedContext` objects before they are assembled into the final prompt. This is used for enforcing token budgets.
+*   **Composition**: `Waterfall`
+
+```typescript
+const TokenBudgetPlugin: Plugin = {
+  name: "TokenBudgetPlugin",
+  optimizeContext: async (contexts, query, context) => {
+    const MAX_TOKENS = 80000;
+    const optimized: ReconstructedContext[] = [];
+    let tokenCount = 0;
+
+    for (const ctx of contexts) {
+      const ctxTokens = estimateTokens(ctx.content);
+      if (tokenCount + ctxTokens <= MAX_TOKENS) {
+        optimized.push(ctx);
+        tokenCount += ctxTokens;
+      } else {
+        break; // Budget full
+      }
+    }
+    return optimized;
+  },
+  // ...
+};
+```
+
 #### `composeLlmPrompt`
 
 *   **Purpose**: To aggregate the pre-formatted context blocks from multiple sources into the final prompt that will be sent to the LLM.

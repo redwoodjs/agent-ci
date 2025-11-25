@@ -51,3 +51,26 @@ Refactored `reconstructContexts()` to fetch all documents concurrently:
 *   Individual fetch timings still logged for monitoring
 
 Expected impact: Context reconstruction should drop from ~10.4s to ~300-400ms (limited by slowest individual fetch), reducing total query time from ~22s to ~12s.
+
+## LLM Model Switch: GPT-OSS-20B
+
+### Research Findings
+Based on benchmarks from [artificialanalysis.ai](https://artificialanalysis.ai/?models=gpt-oss-120b%2Cgpt-oss-20b%2Cllama-4-scout%2Cgemma-3-27b%2Cgemma-3-12b&speed=speed#output-speed):
+*   `@cf/openai/gpt-oss-20b` shows comparable speed to GPT 5.1
+*   Significantly faster than Gemma models
+*   Fraction of the cost of GPT 5.1
+*   20B parameters should be sufficient for RAG tasks (vs 120B)
+
+### Implementation
+*   Switched from `@cf/google/gemma-3-12b-it` to `@cf/openai/gpt-oss-20b`
+*   Model location: `src/app/engine/engine.ts:435`
+
+### Expected Impact
+*   Current LLM generation: 10,153ms (46% of total query time)
+*   With faster model: Potentially 30-50% reduction in generation time
+*   Combined with parallel R2 fetches: Total query time could drop from ~22s to ~7-9s
+
+### Next Steps
+*   Test with real queries to measure actual performance improvement
+*   Monitor response quality to ensure it meets requirements
+*   Compare against baseline metrics from out.log

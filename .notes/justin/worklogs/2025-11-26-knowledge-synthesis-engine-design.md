@@ -286,3 +286,32 @@ const MyPlugin: Plugin = {
 ```
 
 This structure ensures clarity and clean extensibility, allowing the two pipelines to evolve independently while keeping all the logic for a single data source consolidated in one plugin.
+
+## 12. Solidifying the "Murky" Areas
+
+With a solid high-level architecture defined, the final step was to address the remaining ambiguous or "murky" areas to ensure a concrete path to implementation.
+
+### The "Subject Engine" Implementation
+
+The technical implementation of the central engine was clarified:
+
+*   **Service vs. Collection:** The engine will be modeled as a **logical pipeline defined by plugin hooks** (e.g., `provideCorrelationHints`, `synthesizeNarrative`). This defers the decision of whether to implement it as a single monolithic service or a collection of microservices, making it a deployment detail rather than an architectural constraint.
+*   **LLM Job Management:** Asynchronous, long-running LLM tasks (like synthesis and promotion) will be **managed by plugins that interact with a queueing system** (e.g., Cloudflare Queues). This allows the system to handle these tasks without blocking the main ingestion flow.
+*   **Prompt Engineering:** The precise engineering of LLM prompts is **deferred until implementation**. The immediate goal is to define the data models and ensure the necessary data is available to the plugin hooks that will eventually generate the prompts.
+
+### The Mechanics of Subject Correlation
+
+The specific heuristics for how Subjects are created and managed were defined:
+
+*   **Subject Inception:** The system will **rely on an LLM-powered plugin hook for correlation decisions**. The fractal/hierarchical model acts as a "safety net"; if the LLM is overly aggressive in creating new "leaf" sub-subjects, the cost is low, as the context can be re-established during the parent-level synthesis and promotion step.
+*   **Lifecycle and Merging:** The implementation of Subject lifecycle states (e.g., `open`/`closed`) and the functionality to merge or split Subjects are **deferred**. These are considered non-essential features for the initial proof-of-concept.
+
+### Data Models and the Graph Implementation
+
+The most critical decision was clarifying the data models and the necessity of the graph architecture.
+
+*   **Bare-Minimum Schema:** It was agreed to start with a minimal schema based on first principles:
+    *   **`Artifact`**: A standardized object with `id`, `source`, `content`, and `metadata`.
+    *   **`Subject`**: The node in our graph, containing a unique ID, title, a list of its `artifactIds`, the synthesized narrative content, and pointers to its parent and children.
+*   **Necessity of the Graph:** The hierarchical "fractal" model is the core of the entire design. The relationships (edges) are as important as the content (nodes). Therefore, it was concluded that the **graph model is necessary, not overkill**. It is the only way to efficiently perform the "reverse vector search" (find a leaf, then traverse up to the root) required to assemble multi-level context.
+*   **Pragmatic Graph Implementation:** To avoid premature complexity, a dedicated graph database (e.g., Neo4j) will not be used initially. The system will start with a **pragmatic graph implementation**: Subjects will be stored in a standard database (e.g., Cloudflare D1 or Durable Objects), with each `Subject` document containing explicit `parentId` and `childIds` fields. The traversal logic will be implemented in application code. This provides the benefits of graph-thinking without the immediate operational overhead of a new database technology.

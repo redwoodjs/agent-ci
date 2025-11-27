@@ -279,6 +279,34 @@ If a backfill encounters an error:
 
 ## API Endpoints
 
+### POST /ingest/discord/webhook
+
+Receives Discord Gateway events and processes them in real-time.
+
+**Headers:**
+
+- `Authorization: Bearer <API_KEY>` (required)
+
+**Request Body:**
+Discord Gateway event payload (see [Discord Gateway Events](https://discord.com/developers/docs/topics/gateway-events))
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "message": "Webhook event processed"
+}
+```
+
+**Supported Event Types:**
+
+- `MESSAGE_CREATE`
+- `MESSAGE_UPDATE`
+- `MESSAGE_DELETE`
+- `THREAD_CREATE`
+- `THREAD_UPDATE`
+
 ### POST /ingest/discord/backfill
 
 Starts a backfill for a Discord channel.
@@ -350,6 +378,114 @@ Checks the status of a backfill.
 }
 ```
 
+## Live Webhook
+
+The Discord ingestor supports live webhook ingestion to receive and process Discord events in real-time, complementing the backfill system.
+
+### Configuration
+
+1. **Discord Bot Setup:**
+
+   - Enable Gateway Intents in Discord Developer Portal:
+     - `MESSAGE_CONTENT_INTENT` (required to receive message content)
+     - `GUILD_MESSAGES` (required for message events)
+     - `GUILDS` (required for guild/channel information)
+   - Configure your bot to send Gateway events to the webhook endpoint
+
+2. **Webhook Endpoint:**
+
+   - URL: `https://your-domain.workers.dev/ingest/discord/webhook`
+   - Method: `POST`
+   - Authentication: Bearer token (API key in `Authorization` header)
+
+3. **API Key Setup:**
+   - Set `INGEST_API_KEY` environment variable (same key used for other ingestors)
+   - Include in webhook requests: `Authorization: Bearer <your-api-key>`
+
+### Supported Events
+
+The webhook handles the following Discord Gateway events:
+
+- **MESSAGE_CREATE**: New messages are batched and appended to daily JSONL files
+- **MESSAGE_UPDATE**: Updates existing messages in-place in daily JSONL files
+- **MESSAGE_DELETE**: Removes messages in-place from daily JSONL files
+- **THREAD_CREATE**: Processes thread creation, fetches complete thread state
+- **THREAD_UPDATE**: Processes thread updates, updates `latest.json` with diffs
+
+### Message Batching
+
+MESSAGE_CREATE events are automatically batched to reduce R2 write operations:
+
+- Messages are accumulated in a Durable Object per daily file
+- Batches are flushed when:
+  - 100 messages accumulated, OR
+  - 60 seconds elapsed since first message in batch
+- MESSAGE_UPDATE and MESSAGE_DELETE events flush pending batches before processing
+
+### Example Webhook Request
+
+```bash
+curl -X POST https://your-domain.workers.dev/ingest/discord/webhook \
+  -H "Authorization: Bearer $INGEST_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "t": "MESSAGE_CREATE",
+    "d": {
+      "id": "1234567890",
+      "channel_id": "1307974274145062912",
+      "guild_id": "679514959968993311",
+      "content": "Hello, world!",
+      "timestamp": "2024-11-04T10:30:00.000Z",
+      "author": {
+        "id": "987654321",
+        "username": "alice",
+        "global_name": "Alice"
+      }
+    }
+  }'
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "message": "Webhook event processed"
+}
+```
+
+### Differences from Backfill
+
+- **Backfill**: Fetches complete historical state, regenerates daily JSONL files completely
+- **Webhook**: Appends new messages to existing files, updates/deletes messages in-place
+- **Threads**: Both systems use the same thread processor with diff tracking
+- **Indexing**: Webhook-ingested messages require manual indexing via `/rag/admin/index` endpoint
+
+### Testing
+
+You can test the webhook endpoint with sample Discord Gateway events:
+
+```bash
+# Test MESSAGE_CREATE
+curl -X POST http://localhost:5173/ingest/discord/webhook \
+  -H "Authorization: Bearer $INGEST_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "t": "MESSAGE_CREATE",
+    "d": {
+      "id": "123",
+      "channel_id": "456",
+      "guild_id": "789",
+      "content": "Test message",
+      "timestamp": "2024-11-04T10:30:00.000Z",
+      "author": {
+        "id": "111",
+        "username": "testuser"
+      }
+    }
+  }'
+```
+
 ## Rate Limiting
 
 The ingestor monitors Discord API rate limits:
@@ -367,9 +503,11 @@ The ingestor monitors Discord API rate limits:
 - `services/processor-service.ts`: Processor queue coordinator
 - `services/channel-processor.ts`: Channel entity processor (generates daily JSONL files)
 - `services/thread-processor.ts`: Thread entity processor (generates JSON with history)
+- `services/webhook-handler.ts`: Webhook event handler for live ingestion
 - `services/backfill-state.ts`: State management functions
 - `services/dlq-handler.ts`: Dead-letter queue handler
 - `db/backfill-durableObject.ts`: Durable Object for state persistence
+- `db/webhook-batcher-durableObject.ts`: Durable Object for message batching
 - `db/backfill-migrations.ts`: Database schema migrations
 - `utils/discord-api.ts`: Discord API client utilities
 - `utils/diff.ts`: Diff generation (used for threads only)

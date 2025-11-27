@@ -6,33 +6,13 @@ import {
   getBackfillState,
 } from "@/app/ingestors/discord/services/backfill-state";
 import type { SchedulerJobMessage } from "@/app/ingestors/discord/services/backfill-types";
+import { requireWebhookAuth, logDiscordRequest } from "./interruptors";
+import { handleWebhookEvent } from "./services/webhook-handler";
 
 const backfillRequestSchema = z.object({
   guildID: z.string().min(1),
   channelID: z.string().min(1),
 });
-
-async function logDiscordRequest({
-  request,
-  ctx,
-}: {
-  request: Request;
-  ctx: any;
-}) {
-  const start = Date.now();
-  const url = new URL(request.url);
-
-  console.log(`Discord API: ${request.method} ${url.pathname}`);
-
-  ctx.logCompletion = (response: Response) => {
-    const duration = Date.now() - start;
-    console.log(
-      `Discord API: ${request.method} ${url.pathname} - ${response.status} (${duration}ms)`
-    );
-  };
-
-  return ctx;
-}
 
 const backfillRoute = route("/backfill", [
   logDiscordRequest,
@@ -169,4 +149,50 @@ const statusRoute = route("/backfill/status", [
   },
 ]);
 
-export const routes = [backfillRoute, pauseBackfillRoute, statusRoute];
+const webhookRoute = route("/webhook", [
+  requireWebhookAuth,
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      const payload = await request.json();
+      const result = await handleWebhookEvent(payload);
+
+      if (!result.success) {
+        const errorResponse = Response.json(
+          {
+            success: false,
+            error: result.error || "Unknown error",
+          },
+          { status: 400 }
+        );
+        ctx.logCompletion?.(errorResponse);
+        return errorResponse;
+      }
+
+      const apiResponse = Response.json({
+        success: true,
+        message: "Webhook event processed",
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord webhook error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
+export const routes = [
+  backfillRoute,
+  pauseBackfillRoute,
+  statusRoute,
+  webhookRoute,
+];

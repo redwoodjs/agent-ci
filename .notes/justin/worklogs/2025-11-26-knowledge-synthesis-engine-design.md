@@ -223,3 +223,66 @@ The responsibility is clearly defined: the client is responsible for maintaining
 4.  **Interaction Flow:** The client sends its `clientId` with every request. The backend uses this ID to retrieve, use, and update the conversational state for each interaction, ensuring continuity.
 
 This model allows the backend to remain agnostic to the nature of the client, while empowering each client to define what constitutes a "session" according to its own logic.
+
+## 8. Clarifying the Role of the "Evidence Locker"
+
+A challenge was raised to the necessity of the "Evidence Locker" (the existing RAG index). If the Subjects in the Knowledge Graph contain backlinks to the original source documents in R2, an argument could be made to fetch these full documents at query time rather than maintaining a separate, pre-indexed vector store.
+
+This "backlinks only" approach was analyzed and determined to have critical flaws in precision and performance:
+
+*   **Precision:** Searching raw, full documents at query time would rely on clumsy keyword matching or slow, expensive, and unreliable retrieval by a large-context LLM.
+*   **Performance:** Fetching multiple full documents from R2 at query time would introduce significant latency before searching could even begin.
+
+The conclusion is that the **"Evidence Locker" is not redundant**. It serves a distinct and vital purpose as a pre-computed, semantic search index over the raw evidence. The two systems work in concert:
+
+*   The **Knowledge Graph** answers the "why" and tells you *which documents to look at*.
+*   The **"Evidence Locker"** answers the "what" and tells you the *exact, semantically relevant paragraph within those documents*.
+
+A concrete example involving a developer asking first "Why is this code here?" (answered by the Knowledge Graph) and then "What were the exact details of the issue?" (answered by the Evidence Locker) solidified this distinction.
+
+## 9. The Necessity of Stateful Conversations
+
+The concrete example also revealed a critical, implicit requirement: for the two-tiered system to be effective in an interactive setting (like a chat bot), conversations must be **stateful**.
+
+A stateless system would be unable to handle follow-up questions, as it would lose the context of the initial query. The **Subject** was identified as the natural unit of conversational state. When a user's query identifies a Subject, that Subject becomes the **"active context"** for the conversation. This state is then used to:
+
+1.  **Disambiguate** follow-up questions for the LLM.
+2.  **Constrain search** in the Evidence Locker by applying a powerful metadata filter (e.g., `WHERE subjectId = '...'`), dramatically improving speed and accuracy.
+
+## 10. Refining State Management to be Client-Agnostic
+
+The initial discussion on state management considered client-specific implementations (e.g., tying state to Discord threads or IDE UI state). This was refined to a more robust, decoupled architectural pattern based on a `clientId`.
+
+The responsibility is now clearly defined: **the client is responsible for maintaining its own identity for a conversation and presenting that identity to the stateful backend.**
+
+The backend will be a client-agnostic service that maps a given `clientId` to a `ConversationState` object containing the `activeSubjectId` and recent message history. This allows each client (Discord, Cursor, etc.) to define what constitutes a "session" by its own logic, without requiring any changes to the backend.
+
+## 11. Clarifying the Plugin API with Namespaces
+
+A concern was raised that as the system evolves to feed two distinct pipelines (Subjects and Evidence), the single list of hooks in the plugin API could become convoluted and unclear. A developer might not know which pipeline a given hook pertains to.
+
+To solve this, the plugin API will be restructured to use **namespaces**. This makes the separation of concerns explicit.
+
+```typescript
+const MyPlugin: Plugin = {
+  name: "MyPlugin",
+
+  // Shared, pipeline-agnostic entry point
+  prepareSourceDocument: async (r2Key, body) => { /* ... */ },
+
+  // Hooks ONLY for the Evidence Locker (RAG)
+  evidence: {
+    splitDocumentIntoChunks: async (document) => { /* ... */ },
+    reconstructContext: async (chunks) => { /* ... */ },
+    // ... other RAG-specific hooks
+  },
+
+  // Hooks ONLY for the Subjects Knowledge Graph
+  subjects: {
+    provideCorrelationHints: async (artifact) => { /* ... */ },
+    // ... other Subject-specific hooks
+  }
+};
+```
+
+This structure ensures clarity and clean extensibility, allowing the two pipelines to evolve independently while keeping all the logic for a single data source consolidated in one plugin.

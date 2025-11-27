@@ -210,3 +210,16 @@ A pragmatic approach is required to manage the complexity of this design: **Desi
 
 *   **Design for Provision:** The data structures and system boundaries will be designed to support advanced use cases (e.g., IDE-based code queries) from the start. Storing `commit SHA -> Subject ID` links is a key example of this.
 *   **Implement the Simplest Thing First:** The initial implementation will focus on delivering core value first. This likely means supporting PR-level questions via links in a chat environment, deferring the more complex client-side IDE integrations and backend Git services until the core Subject creation and synthesis engine is proven.
+
+### Client-Agnostic State Management via `clientId`
+
+To handle stateful conversations in a scalable and client-agnostic way, a `clientId`-based approach will be used. This decouples the core engine's state management from the specific implementation of any given client (Discord bot, Cursor extension, etc.).
+
+The responsibility is clearly defined: the client is responsible for maintaining its own identity for a conversation and presenting that identity to the stateful backend.
+
+1.  **Client-Generated ID:** Each client (Discord bot, Cursor extension) is responsible for generating and managing a unique identifier for each distinct conversational session (e.g., a Discord thread ID or a Cursor chat panel ID).
+2.  **Stateful Backend Service:** The backend will maintain a state store (e.g., Durable Objects, KV) that maps these `clientId`s to a `ConversationState` object.
+3.  **The State Object:** The state object will contain, at a minimum, the `activeSubjectId` for the conversation and a history of recent messages to provide context for follow-up queries.
+4.  **Interaction Flow:** The client sends its `clientId` with every request. The backend uses this ID to retrieve, use, and update the conversational state for each interaction, ensuring continuity.
+
+This model allows the backend to remain agnostic to the nature of the client, while empowering each client to define what constitutes a "session" according to its own logic.

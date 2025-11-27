@@ -315,3 +315,29 @@ The most critical decision was clarifying the data models and the necessity of t
     *   **`Subject`**: The node in our graph, containing a unique ID, title, a list of its `artifactIds`, the synthesized narrative content, and pointers to its parent and children.
 *   **Necessity of the Graph:** The hierarchical "fractal" model is the core of the entire design. The relationships (edges) are as important as the content (nodes). Therefore, it was concluded that the **graph model is necessary, not overkill**. It is the only way to efficiently perform the "reverse vector search" (find a leaf, then traverse up to the root) required to assemble multi-level context.
 *   **Pragmatic Graph Implementation:** To avoid premature complexity, a dedicated graph database (e.g., Neo4j) will not be used initially. The system will start with a **pragmatic graph implementation**: Subjects will be stored in a standard database (e.g., Cloudflare D1 or Durable Objects), with each `Subject` document containing explicit `parentId` and `childIds` fields. The traversal logic will be implemented in application code. This provides the benefits of graph-thinking without the immediate operational overhead of a new database technology.
+
+## 13. Revised MVP Implementation Plan
+
+Based on the finalized design, the following is a minimal, actionable plan to create a proof-of-concept that validates the core, end-to-end flow.
+
+### Phase 1: Foundations - Data Models & Storage (Unchanged)
+1.  **Define Core Data Models:** Create the TypeScript interfaces for `Artifact` and `Subject`. The `Subject` interface will include `parentId` and `childIds` to provision for the graph structure.
+2.  **Set Up Graph Storage:** Implement a Cloudflare Durable Object (`SubjectGraphDO`) to store and manage the state of all `Subject` nodes.
+
+### Phase 2: MVP Ingestion Pipeline (LLM-Powered)
+3.  **Standardize Artifact Creation:** Update the `prepareSourceDocument` hook in the GitHub, Discord, and Cursor plugins to produce the new, standardized `Artifact` type.
+4.  **Implement the Subject Engine:** Create the new engine component that is triggered when an `Artifact` is created.
+5.  **Implement LLM-based Correlation:** Instead of a simple rule, implement a new `subjects.correlateArtifact` plugin hook. This hook will be powered by an LLM to decide if a new `Artifact` belongs to an existing "active" Subject or should create a new one.
+6.  **Update the Graph:** The Subject Engine will use the output of the correlation hook to either create a new `Subject` or append the artifact to an existing one in the `SubjectGraphDO`.
+7.  **Link Evidence to Subjects:** Pass the resulting `subjectId` along with the `Artifact` to the `evidence` pipeline.
+8.  **Tag Chunks with `subjectId`:** Modify the `splitDocumentIntoChunks` hook to add the `subjectId` to every chunk's metadata before it is vectorized. This creates the critical link between the Subjects store and the Evidence Locker.
+
+### Phase 3: MVP Query Pipeline (Integrated)
+9.  **Modify Existing Query Endpoint:** Update the existing main query endpoint to implement the two-stage query logic.
+10. **Implement Stage 1 (Subject Identification):** For the POC, this will be a simple vector search against an index of `Subject` titles and summaries to find the most likely `subjectId` for a given query.
+11. **Implement Stage 2 (Information Extraction):** Once a `subjectId` is identified, perform a filtered vector search against the main Evidence Locker, using a metadata filter for that `subjectId`.
+12. **Assemble Response:** Use the results of the filtered search and the existing `reconstructContext` and `composeLlmPrompt` hooks to generate and return the final answer.
+
+### Phase 4: Testing
+13. **Create Ingestion Test Script:** A script to manually place sample data from GitHub, Discord, and Cursor into R2 to trigger the full ingestion pipeline.
+14. **Create Query Test Script:** A script to send a variety of queries to the main query endpoint to validate that the two-stage, context-aware retrieval is working correctly.

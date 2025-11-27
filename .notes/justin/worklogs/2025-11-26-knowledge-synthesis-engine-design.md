@@ -56,16 +56,35 @@ The output would be a structured object containing the narrative summary, title,
 
 This is the crucial step for answering the "Why is this code here?" question.
 
-The bridge between the world of discussion (GitHub, Discord) and the world of code is `git`.
+The bridge between the world of discussion (GitHub, Discord) and the world of code is `git`. The primary link is the **commit SHA**.
 
-When a PR is merged, we have a clear link: `Subject -> PR -> Commit SHA -> Files Changed`. We can store these file paths and even code snippets as part of the Subject's metadata.
+#### At Indexing Time
 
-To answer a user's query about a selection of code, the workflow would be:
+When a PR associated with a Subject is merged, the system will:
+1.  Extract the commit SHA(s) from the PR.
+2.  Store a direct association between each commit SHA and the Subject ID.
+3.  As part of the asynchronous code analysis, generate a natural-language summary of the diff. This summary, *not the raw code or file paths*, is stored as part of the Subject's narrative. This provides a scalable way to encapsulate the change.
 
-1.  Use `git blame` on the selected lines to get the commit SHA.
-2.  Look up that commit in our system to find the associated PR.
-3.  From the PR, find the parent Subject.
-4.  Return the synthesized "memory" for that Subject.
+#### At Query Time
+
+The workflow for answering a user's query about code depends on the environment from which the query originates.
+
+##### Scenario 1: Query from a Context-Rich Environment (e.g., IDE)
+1.  **User Action:** The user selects a block of code in their editor and asks a question.
+2.  **System Action (Client-side):** The editor plugin runs `git blame` locally on the user's file to retrieve the relevant commit SHA(s).
+3.  **System Lookup:** The plugin sends the commit SHA(s) to the backend, which looks them up in the Subjects store to find the associated Subject(s).
+4.  **System Response:** The system returns the synthesized "memory" for the found Subject(s).
+
+##### Scenario 2: Query from a Context-Poor Environment (e.g., Chat Bot)
+In this case, the user must provide the context, typically as a URL.
+*   **For questions about a PR (`<pr_url>`)**: The system uses the URL to look up the associated Subject directly. It relies on the pre-generated summary of the PR's diff that was created at indexing time.
+*   **For questions about a specific code snippet**: The user must provide a link to the code on a platform like GitHub.
+    1.  **User Action:** The user provides a URL to a file and line range.
+    2.  **System Action (Backend):** The backend receives the URL and uses a centralized **Git Service** to run `git blame` on the specified file and lines. This service maintains its own checkouts of the repositories.
+    3.  **System Lookup:** Once the Git Service returns the commit SHA(s), the backend looks them up in the Subjects store.
+    4.  **System Response:** The system returns the synthesized "memory" for the found Subject(s).
+
+If a user pastes a raw code snippet into the chat without a link, the system should respond by asking for a URL to provide the necessary context.
 
 ### 3.4 Architecture Overview
 
@@ -117,9 +136,9 @@ Several other challenges remain:
 *   **Historical Data:** How do you build this knowledge for a project's entire history? It would require a backfilling process to trawl through old commits and issues to reconstruct historical Subjects.
 *   **UI/Introspection:** How do you expose this? The idea of making Machinen's "understanding" introspectable is powerful. A simple UI that lists active Subjects and their timelines could be a great starting point and a compelling demo.
 
-## 3. Evolution of the "Subject" Model
+## 5. Evolution of the "Subject" Model
 
-The core of the design is the "Subject," an entity that groups and contextualizes related events. The model for this entity evolved through several stages of refinement.
+The core of the design is the "Subject," an entity that groups and contextualizes related events. The model for this entity evolved through several stages of refinement in response to the challenges identified.
 
 ### Stage 1: "Subjects" as Flat Timelines
 
@@ -143,7 +162,7 @@ The current model introduces a hierarchical, tree-like structure. This manages c
 
 This hierarchical model preserves granular detail for deep dives while ensuring the main narrative remains clean, concise, and focused on only the most significant milestones.
 
-## 5. Core Architectural Principles
+## 6. Core Architectural Principles
 
 After working through the challenges and refinements, several foundational architectural decisions were established:
 
@@ -160,3 +179,34 @@ After working through the challenges and refinements, several foundational archi
     1.  **Explicit Links:** High-confidence heuristics like PRs linking to issues, commit messages referencing issues, replies within threads.
     2.  **State & Context Awareness:** The system should maintain state for active subjects, giving higher relevance to activity from users known to be working on that subject.
     3.  **LLM as Correlation Judge:** As a fallback for artifacts without explicit links, an LLM can be prompted to determine if a new piece of information belongs to an existing active subject or represents a new one. This is more expensive but provides reasoning capabilities beyond simple similarity.
+
+## 7. Querying, The Knowledge Graph, and Pragmatic Implementation
+
+Further discussion clarified the nature of querying and the underlying data model, leading to a more sophisticated architectural view.
+
+### The Two-Stage Query Pipeline
+
+For the system to handle ambiguous, natural-language queries (especially from context-poor environments like chat), a two-stage query pipeline is necessary:
+
+1.  **Stage 1: Subject Identification.** The primary task is to use the user's query and any available conversational context to identify the most relevant **Subject(s)**. This provides the crucial "narrowing down" of the search space.
+2.  **Stage 2: Information Extraction.** Once a Subject context is established, a more focused search is performed *within that Subject's data* (its narrative, artifacts, and child subjects) to find the specific answer.
+
+Initial queries are assumed to be about a single subject. Handling queries that span multiple subjects is a more advanced case to be considered later.
+
+### The Fractal Model as a Knowledge Graph
+
+The "fractal" or hierarchical model of Subjects is best understood as a **Knowledge Graph**, not a simple vector store.
+
+*   **Storage:** Subjects (both parent and child) are **nodes** in a graph. Relationships like "child of" or "promoted from" are **edges**. The textual narratives and summaries associated with each node are what get vectorized.
+*   **Retrieval ("Reverse Vector Search"):** The retrieval process involves more than a simple vector lookup.
+    1.  A user's query is vectorized to find the most relevant **entry-point nodes** in the graph (often the detailed "leaf" subjects).
+    2.  The system then **traverses the graph** from these entry points upwards along the edges to their parents, gathering the full, multi-level context.
+
+This graph structure is what allows the system to understand the relationships between high-level goals and low-level details, and it provides a natural way to handle complex queries that might span different parts of the knowledge base.
+
+### A Pragmatic Approach to Implementation
+
+A pragmatic approach is required to manage the complexity of this design: **Design with the future in mind, but implement for the present.**
+
+*   **Design for Provision:** The data structures and system boundaries will be designed to support advanced use cases (e.g., IDE-based code queries) from the start. Storing `commit SHA -> Subject ID` links is a key example of this.
+*   **Implement the Simplest Thing First:** The initial implementation will focus on delivering core value first. This likely means supporting PR-level questions via links in a chat environment, deferring the more complex client-side IDE integrations and backend Git services until the core Subject creation and synthesis engine is proven.

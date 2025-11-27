@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { env } from "cloudflare:workers";
 
 // Validation schema for Discord messages
 const discordMessageSchema = z.object({
@@ -182,5 +183,43 @@ export async function rateLimitDiscord({
   }
 
   current.count++;
+  return ctx;
+}
+
+// Webhook authentication interruptor
+export async function requireWebhookAuth({
+  request,
+  ctx,
+}: {
+  request: Request;
+  ctx: any;
+}) {
+  const authHeader = request.headers.get("Authorization");
+  
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    return Response.json(
+      { success: false, error: "Missing or invalid Authorization header" },
+      { status: 401 }
+    );
+  }
+
+  const apiKey = authHeader.substring(7); // Remove "Bearer " prefix
+  const expectedKey = (env as any).INGEST_API_KEY as string | undefined;
+
+  if (!expectedKey) {
+    console.error("INGEST_API_KEY is not set");
+    return Response.json(
+      { success: false, error: "Server configuration error" },
+      { status: 500 }
+    );
+  }
+
+  if (apiKey !== expectedKey) {
+    return Response.json(
+      { success: false, error: "Invalid API key" },
+      { status: 401 }
+    );
+  }
+
   return ctx;
 }

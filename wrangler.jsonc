@@ -57,6 +57,10 @@
     {
       "tag": "v7",
       "new_sqlite_classes": ["DiscordBackfillStateDO"]
+    },
+    {
+      "tag": "v8",
+      "new_classes": ["DiscordWebhookBatcherDO"]
     }
   ],
   "durable_objects": {
@@ -76,6 +80,10 @@
       {
         "name": "DISCORD_BACKFILL_STATE",
         "class_name": "DiscordBackfillStateDO"
+      },
+      {
+        "name": "DISCORD_WEBHOOK_BATCHER",
+        "class_name": "DiscordWebhookBatcherDO"
       }
     ]
   },
@@ -260,6 +268,10 @@
           {
             "name": "DISCORD_BACKFILL_STATE",
             "class_name": "DiscordBackfillStateDO"
+          },
+          {
+            "name": "DISCORD_WEBHOOK_BATCHER",
+            "class_name": "DiscordWebhookBatcherDO"
           }
         ]
       },

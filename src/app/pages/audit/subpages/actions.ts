@@ -3,7 +3,7 @@
 import { env } from "cloudflare:workers";
 import { enqueueUnprocessedFiles } from "@/app/engine/services/scanner-service";
 import { query } from "@/app/engine/engine";
-import { githubPlugin, defaultPlugin } from "@/app/engine/plugins";
+import { githubPlugin, discordPlugin, defaultPlugin } from "@/app/engine/plugins";
 import type { EngineContext } from "@/app/engine/types";
 
 export async function enqueueFile(r2Key: string) {
@@ -101,7 +101,7 @@ export async function queryRag(queryText: string) {
     }
 
     const context: EngineContext = {
-      plugins: [githubPlugin, defaultPlugin],
+      plugins: [githubPlugin, discordPlugin, defaultPlugin],
       env: env as Cloudflare.Env,
     };
 

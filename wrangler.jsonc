@@ -25,6 +25,10 @@
       "binding": "VECTORIZE_INDEX",
       "index_name": "rag-index-v2",
       "remote": true
+    },
+    {
+      "binding": "SUBJECT_INDEX",
+      "index_name": "subject-index"
     }
   ],
 
@@ -76,6 +80,10 @@
       {
         "name": "DISCORD_BACKFILL_STATE",
         "class_name": "DiscordBackfillStateDO"
+      },
+      {
+        "name": "SUBJECT_GRAPH_DO",
+        "class_name": "SubjectGraphDO"
       }
     ]
   },

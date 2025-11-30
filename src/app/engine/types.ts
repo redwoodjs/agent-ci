@@ -1,4 +1,9 @@
-export type Source = "github" | "cursor" | "slack" | "meeting-notes" | "discord";
+export type Source =
+  | "github"
+  | "cursor"
+  | "slack"
+  | "meeting-notes"
+  | "discord";
 
 export interface Document {
   id: string;
@@ -13,6 +18,7 @@ export interface Document {
     sourceMetadata?: Record<string, any>;
     [key: string]: any;
   };
+  subjectId?: string;
 }
 
 export interface Chunk {
@@ -32,6 +38,7 @@ export interface ChunkMetadata {
   author: string;
   jsonPath: string;
   sourceMetadata?: Record<string, any>;
+  subjectId?: string;
   [key: string]: any;
 }
 
@@ -39,6 +46,20 @@ export type PluginCompositionStrategy =
   | "waterfall"
   | "first-match"
   | "collector";
+
+export interface Subject {
+  id: string;
+  title: string;
+  documentIds: string[];
+  parentId?: string;
+  childIds?: string[];
+  narrative?: string;
+}
+
+export interface SubjectSearchContext {
+  text: string;
+  env: Cloudflare.Env;
+}
 
 export interface IndexingHookContext {
   r2Key: string;
@@ -55,6 +76,9 @@ export interface Plugin {
   prepareSourceDocument?: (
     context: IndexingHookContext
   ) => Promise<Document | null>;
+  findSubjectForText?: (
+    context: SubjectSearchContext
+  ) => Promise<string | null>;
   splitDocumentIntoChunks?: (
     document: Document,
     context: IndexingHookContext

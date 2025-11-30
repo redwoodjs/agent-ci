@@ -216,33 +216,32 @@ export const githubPlugin: Plugin = {
 
       if (data.body) {
         chunks.push({
-          id: `${context.r2Key}#body`,
-          documentId: context.r2Key,
+          id: `${document.id}#body`,
+          documentId: document.id,
           source: "github",
           content: data.body,
           metadata: {
-            chunkId: `${context.r2Key}#body`,
-            documentId: context.r2Key,
+            ...document.metadata,
+            chunkId: `${document.id}#body`,
+            documentId: document.id,
             source: "github",
-            type:
-              parsed.type === "pull-requests"
-                ? "pull-request-body"
-                : "issue-body",
-            documentTitle: data.title,
-            author: data.author,
+            type: "issue-body",
+            documentTitle: document.metadata.title,
+            author: document.metadata.author,
             jsonPath: "$.body",
-            sourceMetadata: document.metadata.sourceMetadata,
+            subjectId: document.subjectId,
           },
         });
       } else if (data.title) {
         chunks.push({
-          id: `${context.r2Key}#title`,
-          documentId: context.r2Key,
+          id: `${document.id}#title`,
+          documentId: document.id,
           source: "github",
           content: data.title,
           metadata: {
-            chunkId: `${context.r2Key}#title`,
-            documentId: context.r2Key,
+            ...document.metadata,
+            chunkId: `${document.id}#title`,
+            documentId: document.id,
             source: "github",
             type:
               parsed.type === "pull-requests"
@@ -251,7 +250,7 @@ export const githubPlugin: Plugin = {
             documentTitle: data.title,
             author: data.author,
             jsonPath: "$.title",
-            sourceMetadata: document.metadata.sourceMetadata,
+            subjectId: document.subjectId,
           },
         });
       }
@@ -260,13 +259,14 @@ export const githubPlugin: Plugin = {
         for (let i = 0; i < data.comments.length; i++) {
           const comment = data.comments[i];
           chunks.push({
-            id: `${context.r2Key}#comment-${comment.id}`,
-            documentId: context.r2Key,
+            id: `${document.id}#comment-${comment.id}`,
+            documentId: document.id,
             source: "github",
             content: comment.body,
             metadata: {
-              chunkId: `${context.r2Key}#comment-${comment.id}`,
-              documentId: context.r2Key,
+              ...document.metadata,
+              chunkId: `${document.id}#comment-${comment.id}`,
+              documentId: document.id,
               source: "github",
               type:
                 parsed.type === "pull-requests"
@@ -275,7 +275,7 @@ export const githubPlugin: Plugin = {
               documentTitle: data.title,
               author: comment.author,
               jsonPath: `$.comments[${i}].body`,
-              sourceMetadata: document.metadata.sourceMetadata,
+              subjectId: document.subjectId,
             },
           });
         }
@@ -292,36 +292,38 @@ export const githubPlugin: Plugin = {
 
       if (data.body) {
         chunks.push({
-          id: `${context.r2Key}#body`,
-          documentId: context.r2Key,
+          id: `${document.id}#body`,
+          documentId: document.id,
           source: "github",
           content: data.body,
           metadata: {
-            chunkId: `${context.r2Key}#body`,
-            documentId: context.r2Key,
+            ...document.metadata,
+            chunkId: `${document.id}#body`,
+            documentId: document.id,
             source: "github",
             type: "project-body",
             documentTitle: data.title,
             author: data.owner,
             jsonPath: "$.body",
-            sourceMetadata: document.metadata.sourceMetadata,
+            subjectId: document.subjectId,
           },
         });
       } else if (data.title) {
         chunks.push({
-          id: `${context.r2Key}#title`,
-          documentId: context.r2Key,
+          id: `${document.id}#title`,
+          documentId: document.id,
           source: "github",
           content: data.title,
           metadata: {
-            chunkId: `${context.r2Key}#title`,
-            documentId: context.r2Key,
+            ...document.metadata,
+            chunkId: `${document.id}#title`,
+            documentId: document.id,
             source: "github",
             type: "project-title",
             documentTitle: data.title,
             author: data.owner,
             jsonPath: "$.title",
-            sourceMetadata: document.metadata.sourceMetadata,
+            subjectId: document.subjectId,
           },
         });
       }
@@ -340,19 +342,20 @@ export const githubPlugin: Plugin = {
               }${fieldValuesText ? ` - ${fieldValuesText}` : ""}`;
 
           chunks.push({
-            id: `${context.r2Key}#item-${item.id}`,
-            documentId: context.r2Key,
+            id: `${document.id}#item-${item.id}`,
+            documentId: document.id,
             source: "github",
             content,
             metadata: {
-              chunkId: `${context.r2Key}#item-${item.id}`,
-              documentId: context.r2Key,
+              ...document.metadata,
+              chunkId: `${document.id}#item-${item.id}`,
+              documentId: document.id,
               source: "github",
               type: "project-item",
               documentTitle: data.title,
               author: data.owner,
               jsonPath: `$.items[${i}]`,
-              sourceMetadata: document.metadata.sourceMetadata,
+              subjectId: document.subjectId,
             },
           });
         }

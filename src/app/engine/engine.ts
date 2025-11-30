@@ -7,6 +7,8 @@ import type {
   QueryHookContext,
   EngineContext,
   ReconstructedContext,
+  Subject,
+  SubjectSearchContext,
 } from "./types";
 
 export async function indexDocument(
@@ -32,6 +34,58 @@ export async function indexDocument(
   console.log(
     `[engine] Document prepared: ${document.metadata.title || r2Key}`
   );
+
+  // Find or create subject for this document
+  console.log(`[engine] Finding subject for document`);
+  const foundSubjectId = await runFirstMatchHook(
+    context.plugins,
+    "findSubjectForText",
+    (plugin) =>
+      plugin.findSubjectForText?.({
+        text: document.metadata.title || document.content.substring(0, 200),
+        env: context.env,
+      })
+  );
+
+  // If no subject found, create a new one
+  const subjectId = foundSubjectId || document.id;
+  document.subjectId = subjectId;
+
+  if (!foundSubjectId) {
+    console.log(`[engine] Creating new subject: ${subjectId}`);
+    // Create new subject in DO
+    const subjectStub = context.env.SUBJECT_GRAPH_DO.get(
+      context.env.SUBJECT_GRAPH_DO.idFromName(subjectId)
+    );
+    const newSubject: Subject = {
+      id: subjectId,
+      title: document.metadata.title || r2Key,
+      documentIds: [document.id],
+    };
+    await subjectStub.putSubject(newSubject);
+
+    // Index subject title in SUBJECT_INDEX
+    const embeddingResponse = (await context.env.AI.run(
+      "@cf/baai/bge-base-en-v1.5",
+      { text: [newSubject.title] }
+    )) as { data: number[][] };
+    await context.env.SUBJECT_INDEX.insert([
+      {
+        id: subjectId,
+        values: embeddingResponse.data[0],
+        metadata: {
+          title: newSubject.title,
+        },
+      },
+    ]);
+  } else {
+    console.log(`[engine] Found existing subject: ${subjectId}`);
+    // Update existing subject to include this document
+    const subjectStub = context.env.SUBJECT_GRAPH_DO.get(
+      context.env.SUBJECT_GRAPH_DO.idFromName(subjectId)
+    );
+    await subjectStub.updateSubjectDocumentIds(subjectId, document.id);
+  }
 
   // Try each plugin until we get non-empty chunks
   // Empty arrays are treated as "no match" to allow the correct plugin to handle it
@@ -90,14 +144,36 @@ export async function query(
     (query, plugin) => plugin.prepareSearchQuery?.(query, queryContext)
   );
 
-  console.log(`[query] Step 2: Building vector search filter`);
+  console.log(`[query] Step 2: Finding relevant subject`);
+  const subjectId = await runFirstMatchHook(
+    context.plugins,
+    "findSubjectForText",
+    (plugin) =>
+      plugin.findSubjectForText?.({
+        text: userQuery,
+        env: context.env,
+      })
+  );
+
+  if (subjectId) {
+    console.log(`[query] Found subject: ${subjectId}`);
+  } else {
+    console.log(`[query] No subject found for query`);
+  }
+
+  console.log(`[query] Step 3: Building vector search filter`);
   const filterClauses = await runCollectorHook(
     context.plugins,
     "buildVectorSearchFilter",
     (plugin) => plugin.buildVectorSearchFilter?.(queryContext)
   );
 
-  console.log(`[query] Step 3: Performing vector search`);
+  // Add subjectId filter if we found one
+  if (subjectId) {
+    filterClauses.push({ subjectId });
+  }
+
+  console.log(`[query] Step 4: Performing vector search`);
   const searchResults = await performVectorSearch(
     processedQuery,
     filterClauses,
@@ -129,7 +205,7 @@ export async function query(
     );
   }
 
-  console.log(`[query] Step 4: Reranking results`);
+  console.log(`[query] Step 5: Reranking results`);
   const rerankedResults = await runWaterfallHook(
     context.plugins,
     "rerankSearchResults",
@@ -137,7 +213,7 @@ export async function query(
     (results, plugin) => plugin.rerankSearchResults?.(results, queryContext)
   );
 
-  console.log(`[query] Step 5: Reconstructing contexts`);
+  console.log(`[query] Step 6: Reconstructing contexts`);
   const reconstructedContexts = await reconstructContexts(
     rerankedResults,
     context.plugins,
@@ -145,7 +221,7 @@ export async function query(
   );
   console.log(`[query] Reconstructed ${reconstructedContexts.length} contexts`);
 
-  console.log(`[query] Step 5.5: Optimizing contexts`);
+  console.log(`[query] Step 7: Optimizing contexts`);
   const optimizedContexts = await runWaterfallHook(
     context.plugins,
     "optimizeContext",
@@ -155,7 +231,7 @@ export async function query(
   );
   console.log(`[query] Optimized to ${optimizedContexts.length} contexts`);
 
-  console.log(`[query] Step 6: Composing LLM prompt`);
+  console.log(`[query] Step 8: Composing LLM prompt`);
 
   const prompt = await runFirstMatchHook(
     [...context.plugins].reverse(),
@@ -169,15 +245,15 @@ export async function query(
   }
 
   console.log(
-    `[query] Step 7: Calling LLM (prompt length: ${prompt.length} chars)`
+    `[query] Step 9: Calling LLM (prompt length: ${prompt.length} chars)`
   );
 
   const llmResponse = await callLlm(prompt, context.env);
   console.log(
-    `[query] Step 8: LLM response received (length: ${llmResponse.length} chars)`
+    `[query] Step 10: LLM response received (length: ${llmResponse.length} chars)`
   );
 
-  console.log(`[query] Step 9: Formatting final response`);
+  console.log(`[query] Step 11: Formatting final response`);
   const formattedResponse = await runWaterfallHook(
     context.plugins,
     "formatFinalResponse",

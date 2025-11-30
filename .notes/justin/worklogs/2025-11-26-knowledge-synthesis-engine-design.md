@@ -371,3 +371,37 @@ This shift in perspective has concrete consequences for the implementation of th
 3.  **Storytelling Prompts:** The final LLM prompt is no longer for simple extraction but for narrative synthesis. The prompt will provide the full, ordered path of nodes (from specific to general) and ask the LLM to weave them into a coherent story that answers the user's question.
 
 4.  **New Plugin Hook:** To handle this, a new hook will be added to the plugin API, such as `subjects.synthesizeAnswerFromPath`, which will be responsible for receiving the traversed path and generating the final storytelling prompt.
+
+## 15. Final Iterative Implementation Plan ("Skateboard -> Bicycle -> Car -> Jet")
+
+The implementation will follow a four-stage iterative plan. Each stage delivers a complete, testable piece of functionality, progressively "decrapifying" the system from a simple prototype into a sophisticated engine.
+
+### Iteration 1: The Skateboard (End-to-End Flat Graph)
+*   **Goal:** Build the thinnest, end-to-end slice of the system. It will ingest documents, use a simple LLM to create a single-level "Subject," tag evidence, and answer queries with a simple filtered search via the main query endpoint.
+*   **Tasks:**
+    1.  **Foundations:** Define `Artifact` and `Subject` models, set up `SubjectGraphDO`.
+    2.  **Ingestion:** Update all plugins to produce `Artifact`s.
+    3.  **"Skateboard" Correlation:** Implement a simple, single-level `correlateArtifact` hook using a basic LLM prompt.
+    4.  **Linking:** Tag evidence chunks with the resulting `subjectId`.
+    5.  **Query:** Implement the simple two-stage query (identify by title, then filtered search) on the main query endpoint.
+*   **Validation:** A working, end-to-end system. Ingesting two related documents correctly groups them, and a query provides a better, context-rich answer.
+
+### Iteration 2: The Bicycle (Build the Hierarchy)
+*   **Goal:** Evolve the ingestion pipeline to build a hierarchical graph and add the ability to introspect it.
+*   **Tasks:**
+    1.  **Refine `correlateArtifact`:** The LLM hook is updated to establish parent/child relationships.
+    2.  **Store the Hierarchy:** The Subject Engine will now create Subjects with `parentId` and `childIds` links, persisting the graph structure.
+    3.  **Implement Introspection Endpoint:** Create a `GET /subjects` endpoint to return a JSON representation of a Subject and its relatives.
+*   **Validation:** A call to the introspection endpoint for a child subject returns a JSON object that shows the correct parent/child relationships. This proves the graph structure is being built correctly.
+
+### Iteration 3: The Car (Enrich the Hierarchy with Summaries)
+*   **Goal:** With the hierarchy in place, add the synthesis and promotion logic to enrich the graph with high-level summaries.
+*   **Tasks:**
+    1.  **Implement Synthesis & Promotion Hook:** Create a hook that triggers when a Child Subject is "complete." It uses an LLM to generate a summary of the child's content and appends that summary to the `narrative` field of the Parent Subject.
+*   **Validation:** The introspection endpoint for a parent subject now shows a new piece of text in its narrative: the LLM-generated summary of its child's content. This proves the graph is being successfully enriched.
+
+### Iteration 4: The Jet (Sophisticated Querying)
+*   **Goal:** Upgrade the main query endpoint to take full advantage of the rich, hierarchical, and summarized graph.
+*   **Tasks:**
+    1.  **Upgrade Query Endpoint:** Replace the simple two-stage query logic with the full, three-stage "find, traverse, and synthesize" pipeline.
+*   **Validation:** A query to the main endpoint that targets a child subject now returns a sophisticated, narrative answer that synthesizes information from the full graph path, including the promoted summary on the parent. This proves the user-facing query experience is complete.

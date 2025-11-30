@@ -316,92 +316,31 @@ The most critical decision was clarifying the data models and the necessity of t
 *   **Necessity of the Graph:** The hierarchical "fractal" model is the core of the entire design. The relationships (edges) are as important as the content (nodes). Therefore, it was concluded that the **graph model is necessary, not overkill**. It is the only way to efficiently perform the "reverse vector search" (find a leaf, then traverse up to the root) required to assemble multi-level context.
 *   **Pragmatic Graph Implementation:** To avoid premature complexity, a dedicated graph database (e.g., Neo4j) will not be used initially. The system will start with a **pragmatic graph implementation**: Subjects will be stored in a standard database (e.g., Cloudflare D1 or Durable Objects), with each `Subject` document containing explicit `parentId` and `childIds` fields. The traversal logic will be implemented in application code. This provides the benefits of graph-thinking without the immediate operational overhead of a new database technology.
 
-## 13. Revised MVP Implementation Plan
+## 15. Final Iterative Implementation Plan (Unified Logic)
 
-Based on the finalized design, the following is a minimal, actionable plan to create a proof-of-concept that validates the core, end-to-end flow.
+The implementation will follow a three-stage iterative "skateboard -> bicycle -> car" model, based on a "crappy-first, then decrapify" philosophy. It standardizes on the term `Document` and uses a single, unified logic for both correlating new documents and finding subjects for queries.
 
-### Phase 1: Foundations - Data Models & Storage (Unchanged)
-1.  **Define Core Data Models:** Create the TypeScript interfaces for `Artifact` and `Subject`. The `Subject` interface will include `parentId` and `childIds` to provision for the graph structure.
-2.  **Set Up Graph Storage:** Implement a Cloudflare Durable Object (`SubjectGraphDO`) to store and manage the state of all `Subject` nodes.
-
-### Phase 2: MVP Ingestion Pipeline (LLM-Powered)
-3.  **Standardize Artifact Creation:** Update the `prepareSourceDocument` hook in the GitHub, Discord, and Cursor plugins to produce the new, standardized `Artifact` type.
-4.  **Implement the Subject Engine:** Create the new engine component that is triggered when an `Artifact` is created.
-5.  **Implement LLM-based Correlation:** Instead of a simple rule, implement a new `subjects.correlateArtifact` plugin hook. This hook will be powered by an LLM to decide if a new `Artifact` belongs to an existing "active" Subject or should create a new one.
-6.  **Update the Graph:** The Subject Engine will use the output of the correlation hook to either create a new `Subject` or append the artifact to an existing one in the `SubjectGraphDO`.
-7.  **Link Evidence to Subjects:** Pass the resulting `subjectId` along with the `Artifact` to the `evidence` pipeline.
-8.  **Tag Chunks with `subjectId`:** Modify the `splitDocumentIntoChunks` hook to add the `subjectId` to every chunk's metadata before it is vectorized. This creates the critical link between the Subjects store and the Evidence Locker.
-
-### Phase 3: MVP Query Pipeline (Integrated)
-9.  **Modify Existing Query Endpoint:** Update the existing main query endpoint to implement the two-stage query logic.
-10. **Implement Stage 1 (Subject Identification):** For the POC, this will be a simple vector search against an index of `Subject` titles and summaries to find the most likely `subjectId` for a given query.
-11. **Implement Stage 2 (Information Extraction):** Once a `subjectId` is identified, perform a filtered vector search against the main Evidence Locker, using a metadata filter for that `subjectId`.
-12. **Assemble Response:** Use the results of the filtered search and the existing `reconstructContext` and `composeLlmPrompt` hooks to generate and return the final answer.
-
-### Phase 4: Testing
-13. **Create Ingestion Test Script:** A script to manually place sample data from GitHub, Discord, and Cursor into R2 to trigger the full ingestion pipeline.
-14. **Create Query Test Script:** A script to send a variety of queries to the main query endpoint to validate that the two-stage, context-aware retrieval is working correctly.
-
-## 14. Refining the Query Model: Spreading Activation and Path Traversal
-
-A final refinement to the query model was made based on the analogy of the Knowledge Graph to theories of human cognition, specifically the concept of "spreading activation" or "lighting up paths of connected concepts."
-
-This reframes the goal of a query. The system's job is not just to retrieve a single, static document, but to **reconstruct a trace of reasoning** by traversing the graph.
-
-### The "Spreading Activation" Model
-
-The mental model for querying is as follows:
-1.  A user's query provides an initial "spark" that lights up the most relevant "leaf" nodes in the graph via vector search.
-2.  This activation then "spreads" up the graph along the edges, illuminating a path of parent Subjects all the way to the root.
-3.  The final "answer" is the story told by describing this illuminated path.
-
-The "synthesis and promotion" mechanism's purpose is to create efficient "highways" in this graph, strengthening the connections that matter most and allowing for faster traversal of high-level concepts.
-
-### Tangible Implementation Changes
-
-This shift in perspective has concrete consequences for the implementation of the query pipeline:
-
-1.  **Graph Structure is Non-Negotiable:** The pragmatic graph implementation (using `parentId` and `childIds`) is no longer a provision for the future; it is a core, non-negotiable requirement for the MVP, as the traversal logic depends on it.
-
-2.  **A New Three-Stage Query Pipeline:** The query logic is refined from a two-stage to a three-stage process:
-    1.  **Stage 1: Entry Point Identification:** A vector search finds the initial "leaf" node(s). (Unchanged)
-    2.  **Stage 2: Graph Traversal (New):** Application logic must be written to recursively walk up the graph from the entry point(s), collecting all the nodes on the "lit-up path."
-    3.  **Stage 3: Narrative Synthesis:** The system synthesizes a final answer from the *entire path*, not just a single piece of information.
-
-3.  **Storytelling Prompts:** The final LLM prompt is no longer for simple extraction but for narrative synthesis. The prompt will provide the full, ordered path of nodes (from specific to general) and ask the LLM to weave them into a coherent story that answers the user's question.
-
-4.  **New Plugin Hook:** To handle this, a new hook will be added to the plugin API, such as `subjects.synthesizeAnswerFromPath`, which will be responsible for receiving the traversed path and generating the final storytelling prompt.
-
-## 15. Final Iterative Implementation Plan ("Skateboard -> Bicycle -> Car -> Jet")
-
-The implementation will follow a four-stage iterative plan. Each stage delivers a complete, testable piece of functionality, progressively "decrapifying" the system from a simple prototype into a sophisticated engine.
-
-### Iteration 1: The Skateboard (End-to-End Flat Graph)
-*   **Goal:** Build the thinnest, end-to-end slice of the system. It will ingest documents, use a simple LLM to create a single-level "Subject," tag evidence, and answer queries with a simple filtered search via the main query endpoint.
+### Iteration 1: The Skateboard (End-to-End Flat Graph with Unified Logic)
+*   **Goal:** Build the thinnest, end-to-end slice of the system with unified logic for search and correlation.
 *   **Tasks:**
-    1.  **Foundations:** Define `Artifact` and `Subject` models, set up `SubjectGraphDO`.
-    2.  **Ingestion:** Update all plugins to produce `Artifact`s.
-    3.  **"Skateboard" Correlation:** Implement a simple, single-level `correlateArtifact` hook using a basic LLM prompt.
-    4.  **Linking:** Tag evidence chunks with the resulting `subjectId`.
-    5.  **Query:** Implement the simple two-stage query (identify by title, then filtered search) on the main query endpoint.
+    1.  **Foundations:** Define the `Subject` model. Modify the existing `Document` and `ChunkMetadata` types to include an optional `subjectId`. Set up the `SubjectGraphDO`.
+    2.  **Unified Search/Correlation Logic:** Create a new, reusable hook: `subjects.findSubjectForText`. For the skateboard, this will be a simple vector search over an index of Subject titles/summaries.
+    3.  **Ingestion:** When a new `Document` is processed, call `findSubjectForText`. The initial rule will be simple: if no subject is found with a high enough score, create a new root Subject (using the `Document`'s own ID as the `subjectId`).
+    4.  **Linking:** Tag evidence chunks in the Evidence Locker with the `subjectId`.
+    5.  **Query:** The main query endpoint will call the *same* `findSubjectForText` hook to identify the relevant `subjectId` for the query, then perform a simple filtered search on the Evidence Locker.
 *   **Validation:** A working, end-to-end system. Ingesting two related documents correctly groups them, and a query provides a better, context-rich answer.
 
-### Iteration 2: The Bicycle (Build the Hierarchy)
-*   **Goal:** Evolve the ingestion pipeline to build a hierarchical graph and add the ability to introspect it.
+### Iteration 2: The Bicycle (Build and Enrich the Hierarchy)
+*   **Goal:** Evolve the unified logic to handle a hierarchical graph and enrich it with synthesized summaries.
 *   **Tasks:**
-    1.  **Refine `correlateArtifact`:** The LLM hook is updated to establish parent/child relationships.
-    2.  **Store the Hierarchy:** The Subject Engine will now create Subjects with `parentId` and `childIds` links, persisting the graph structure.
-    3.  **Implement Introspection Endpoint:** Create a `GET /subjects` endpoint to return a JSON representation of a Subject and its relatives.
-*   **Validation:** A call to the introspection endpoint for a child subject returns a JSON object that shows the correct parent/child relationships. This proves the graph structure is being built correctly.
+    1.  **Upgrade `findSubjectForText`:** Enhance the hook with LLM reasoning to now be able to establish parent/child relationships when processing a new `Document`.
+    2.  **Implement Synthesis & Promotion:** Create a hook that synthesizes a Child Subject's contents and promotes a summary to its Parent's narrative.
+*   **Validation:** We can ingest documents and see a correct parent/child graph structure being built in the DO. We can also see that the parent's narrative is being enriched with summaries from its children by inspecting the DO's state.
 
-### Iteration 3: The Car (Enrich the Hierarchy with Summaries)
-*   **Goal:** With the hierarchy in place, add the synthesis and promotion logic to enrich the graph with high-level summaries.
+### Iteration 3: The Car (Sophisticated, Intent-Driven Querying)
+*   **Goal:** Upgrade the query endpoint to its final, sophisticated form, capable of handling different user intents.
 *   **Tasks:**
-    1.  **Implement Synthesis & Promotion Hook:** Create a hook that triggers when a Child Subject is "complete." It uses an LLM to generate a summary of the child's content and appends that summary to the `narrative` field of the Parent Subject.
-*   **Validation:** The introspection endpoint for a parent subject now shows a new piece of text in its narrative: the LLM-generated summary of its child's content. This proves the graph is being successfully enriched.
-
-### Iteration 4: The Jet (Sophisticated Querying)
-*   **Goal:** Upgrade the main query endpoint to take full advantage of the rich, hierarchical, and summarized graph.
-*   **Tasks:**
-    1.  **Upgrade Query Endpoint:** Replace the simple two-stage query logic with the full, three-stage "find, traverse, and synthesize" pipeline.
-*   **Validation:** A query to the main endpoint that targets a child subject now returns a sophisticated, narrative answer that synthesizes information from the full graph path, including the promoted summary on the parent. This proves the user-facing query experience is complete.
+    1.  **Implement Intent Detection:** Add a preliminary LLM-based intent detection step (`search` vs. `introspect`) to the main query endpoint.
+    2.  **Handle `introspect` Intent:** If the intent is to introspect, the endpoint will use `findSubjectForText` to find the relevant Subject and then return the full graph data as JSON.
+    3.  **Implement "Spreading Activation" for `search` Intent:** If the intent is to search, replace the simple two-stage query with the full, three-stage "find, traverse, and synthesize" pipeline.
+*   **Validation:** The main query endpoint can now handle both narrative questions (returning a synthesized story) and introspection questions (returning raw graph data), demonstrating the complete vision.

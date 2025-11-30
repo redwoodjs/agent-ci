@@ -8,6 +8,11 @@ import {
 import type { SchedulerJobMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { requireWebhookAuth, logDiscordRequest } from "./interruptors";
 import { handleWebhookEvent } from "./services/webhook-handler";
+import {
+  startGateway,
+  stopGateway,
+  getGatewayStatus,
+} from "./services/gateway-service";
 
 const backfillRequestSchema = z.object({
   guildID: z.string().min(1),
@@ -190,9 +195,93 @@ const webhookRoute = route("/webhook", [
   },
 ]);
 
+const gatewayStartRoute = route("/gateway/start", [
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      await startGateway();
+
+      const apiResponse = Response.json({
+        success: true,
+        message: "Gateway connection started",
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord Gateway start error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
+const gatewayStopRoute = route("/gateway/stop", [
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      await stopGateway();
+
+      const apiResponse = Response.json({
+        success: true,
+        message: "Gateway connection stopped",
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord Gateway stop error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
+const gatewayStatusRoute = route("/gateway/status", [
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      const status = await getGatewayStatus();
+
+      const apiResponse = Response.json({
+        success: true,
+        status,
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord Gateway status error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
 export const routes = [
   backfillRoute,
   pauseBackfillRoute,
   statusRoute,
   webhookRoute,
+  gatewayStartRoute,
+  gatewayStopRoute,
+  gatewayStatusRoute,
 ];

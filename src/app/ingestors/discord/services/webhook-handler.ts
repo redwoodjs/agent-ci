@@ -77,12 +77,57 @@ const threadUpdateSchema = z.object({
   }),
 });
 
+const threadDeleteSchema = z.object({
+  t: z.literal("THREAD_DELETE"),
+  d: z.object({
+    id: z.string(),
+    guild_id: z.string(),
+    parent_id: z.string(),
+  }),
+});
+
+const threadListSyncSchema = z.object({
+  t: z.literal("THREAD_LIST_SYNC"),
+  d: z.object({
+    guild_id: z.string(),
+    channel_ids: z.array(z.string()).optional(),
+    threads: z.array(z.any()),
+    members: z.array(z.any()),
+  }),
+});
+
+const threadMemberUpdateSchema = z.object({
+  t: z.literal("THREAD_MEMBER_UPDATE"),
+  d: z.object({
+    id: z.string(),
+    user_id: z.string(),
+    guild_id: z.string(),
+    join_timestamp: z.string().optional(),
+    flags: z.number().optional(),
+  }),
+});
+
+const threadMembersUpdateSchema = z.object({
+  t: z.literal("THREAD_MEMBERS_UPDATE"),
+  d: z.object({
+    id: z.string(),
+    guild_id: z.string(),
+    member_count: z.number(),
+    added_members: z.array(z.any()).optional(),
+    removed_member_ids: z.array(z.string()).optional(),
+  }),
+});
+
 const discordWebhookEventSchema = z.discriminatedUnion("t", [
   messageCreateSchema,
   messageUpdateSchema,
   messageDeleteSchema,
   threadCreateSchema,
   threadUpdateSchema,
+  threadDeleteSchema,
+  threadListSyncSchema,
+  threadMemberUpdateSchema,
+  threadMembersUpdateSchema,
 ]);
 
 type DiscordWebhookEvent = z.infer<typeof discordWebhookEventSchema>;
@@ -252,7 +297,7 @@ export async function handleMessageDelete(event: {
 }
 
 export async function handleThreadEvent(event: {
-  t: "THREAD_CREATE" | "THREAD_UPDATE";
+  t: "THREAD_CREATE" | "THREAD_UPDATE" | "THREAD_DELETE";
   d: any;
 }): Promise<void> {
   const { d: thread } = event;
@@ -264,12 +309,90 @@ export async function handleThreadEvent(event: {
     return;
   }
 
+  if (event.t === "THREAD_DELETE") {
+    // For thread deletion, we could mark the thread as deleted in R2
+    // For now, we'll just log it - the thread processor will handle it on next sync
+    console.log(
+      `[webhook-handler] THREAD_DELETE for thread ${thread.id} in channel ${thread.parent_id}`
+    );
+    return;
+  }
+
   // Process thread using existing thread processor
   // This will fetch the complete thread state and update latest.json
   await processThreadEvent(thread.guild_id, thread.parent_id, thread.id);
 
   console.log(
     `[webhook-handler] Processed ${event.t} for thread ${thread.id} in channel ${thread.parent_id}`
+  );
+}
+
+export async function handleThreadListSync(event: {
+  t: "THREAD_LIST_SYNC";
+  d: any;
+}): Promise<void> {
+  const { d: data } = event;
+
+  if (!data.guild_id) {
+    console.warn(
+      "[webhook-handler] THREAD_LIST_SYNC missing guild_id, skipping"
+    );
+    return;
+  }
+
+  // Process all threads in the sync
+  if (data.threads && Array.isArray(data.threads)) {
+    for (const thread of data.threads) {
+      if (thread.id && thread.parent_id) {
+        await processThreadEvent(data.guild_id, thread.parent_id, thread.id);
+      }
+    }
+  }
+
+  console.log(
+    `[webhook-handler] Processed THREAD_LIST_SYNC for guild ${data.guild_id}, ${
+      data.threads?.length || 0
+    } threads`
+  );
+}
+
+export async function handleThreadMemberUpdate(event: {
+  t: "THREAD_MEMBER_UPDATE";
+  d: any;
+}): Promise<void> {
+  const { d: data } = event;
+
+  if (!data.guild_id || !data.id) {
+    console.warn(
+      "[webhook-handler] THREAD_MEMBER_UPDATE missing guild_id or thread id, skipping"
+    );
+    return;
+  }
+
+  // Thread member updates don't require full thread reprocessing
+  // We'll just log it for now
+  console.log(
+    `[webhook-handler] THREAD_MEMBER_UPDATE for thread ${data.id} in guild ${data.guild_id}`
+  );
+}
+
+export async function handleThreadMembersUpdate(event: {
+  t: "THREAD_MEMBERS_UPDATE";
+  d: any;
+}): Promise<void> {
+  const { d: data } = event;
+
+  if (!data.guild_id || !data.id) {
+    console.warn(
+      "[webhook-handler] THREAD_MEMBERS_UPDATE missing guild_id or thread id, skipping"
+    );
+    return;
+  }
+
+  // Thread members updates don't require full thread reprocessing
+  // We'll just log it for now
+  console.log(
+    `[webhook-handler] THREAD_MEMBERS_UPDATE for thread ${data.id} in guild ${data.guild_id}, member_count: ${data.member_count}`
   );
 }
 
@@ -291,7 +414,17 @@ export async function handleWebhookEvent(
         break;
       case "THREAD_CREATE":
       case "THREAD_UPDATE":
+      case "THREAD_DELETE":
         await handleThreadEvent(event);
+        break;
+      case "THREAD_LIST_SYNC":
+        await handleThreadListSync(event);
+        break;
+      case "THREAD_MEMBER_UPDATE":
+        await handleThreadMemberUpdate(event);
+        break;
+      case "THREAD_MEMBERS_UPDATE":
+        await handleThreadMembersUpdate(event);
         break;
       default:
         console.warn(

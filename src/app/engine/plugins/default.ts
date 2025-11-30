@@ -1,16 +1,15 @@
-import type { Plugin, ReconstructedContext, QueryHookContext } from "../types";
+import type {
+  Plugin,
+  ReconstructedContext,
+  QueryHookContext,
+  SubjectSearchContext,
+} from "../types";
+import { Chunk, Document, IndexingHookContext } from "../types";
 import {
   estimateTokens,
   createTokenBudget,
   getAvailableInputTokens,
 } from "../utils/token-counter";
-import {
-  Chunk,
-  Document,
-  Plugin,
-  ReconstructedContext,
-  SubjectSearchContext,
-} from "../types";
 
 export const defaultPlugin: Plugin = {
   name: "default",
@@ -19,11 +18,11 @@ export const defaultPlugin: Plugin = {
     context: SubjectSearchContext
   ): Promise<string | null> {
     const { text, env } = context;
-    const { data: embedding } = await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+    const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
       text: [text],
-    });
+    })) as { data: number[][] };
 
-    const vectors = embedding[0];
+    const vectors = embeddingResponse.data[0];
 
     const searchResults = await env.SUBJECT_INDEX.query(vectors, {
       topK: 1,
@@ -41,20 +40,35 @@ export const defaultPlugin: Plugin = {
     return null;
   },
 
-  async splitDocumentIntoChunks(document: Document): Promise<Chunk[]> {
+  async splitDocumentIntoChunks(
+    document: Document,
+    context: IndexingHookContext
+  ): Promise<Chunk[]> {
     // This is a naive chunking strategy that just splits by newline.
     // In a real-world scenario, you'd want a more sophisticated strategy.
     const chunks: Chunk[] = [];
     const lines = document.content.split("\n");
     let currentChunk: string[] = [];
+    const CHUNK_SIZE = 1000; // characters per chunk
 
     for (const line of lines) {
-      if (currentChunk.length + line.length + 1 > document.chunkSize) {
+      if (currentChunk.length + line.length + 1 > CHUNK_SIZE) {
+        const chunkId = `${document.id}-${chunks.length}`;
         chunks.push({
-          id: `${document.id}-${chunks.length}`,
+          id: chunkId,
           documentId: document.id,
+          source: document.source,
           content: currentChunk.join("\n"),
-          metadata: document.metadata,
+          metadata: {
+            ...document.metadata,
+            chunkId,
+            documentId: document.id,
+            source: document.source,
+            type: document.type,
+            documentTitle: document.metadata.title,
+            jsonPath: "$.content",
+            subjectId: document.subjectId,
+          },
         });
         currentChunk = [];
       }
@@ -62,11 +76,22 @@ export const defaultPlugin: Plugin = {
     }
 
     if (currentChunk.length > 0) {
+      const chunkId = `${document.id}-${chunks.length}`;
       chunks.push({
-        id: `${document.id}-${chunks.length}`,
+        id: chunkId,
         documentId: document.id,
+        source: document.source,
         content: currentChunk.join("\n"),
-        metadata: document.metadata,
+        metadata: {
+          ...document.metadata,
+          chunkId,
+          documentId: document.id,
+          source: document.source,
+          type: document.type,
+          documentTitle: document.metadata.title,
+          jsonPath: "$.content",
+          subjectId: document.subjectId,
+        },
       });
     }
 

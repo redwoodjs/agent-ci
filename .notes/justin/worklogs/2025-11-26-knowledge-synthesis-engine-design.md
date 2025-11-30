@@ -341,3 +341,33 @@ Based on the finalized design, the following is a minimal, actionable plan to cr
 ### Phase 4: Testing
 13. **Create Ingestion Test Script:** A script to manually place sample data from GitHub, Discord, and Cursor into R2 to trigger the full ingestion pipeline.
 14. **Create Query Test Script:** A script to send a variety of queries to the main query endpoint to validate that the two-stage, context-aware retrieval is working correctly.
+
+## 14. Refining the Query Model: Spreading Activation and Path Traversal
+
+A final refinement to the query model was made based on the analogy of the Knowledge Graph to theories of human cognition, specifically the concept of "spreading activation" or "lighting up paths of connected concepts."
+
+This reframes the goal of a query. The system's job is not just to retrieve a single, static document, but to **reconstruct a trace of reasoning** by traversing the graph.
+
+### The "Spreading Activation" Model
+
+The mental model for querying is as follows:
+1.  A user's query provides an initial "spark" that lights up the most relevant "leaf" nodes in the graph via vector search.
+2.  This activation then "spreads" up the graph along the edges, illuminating a path of parent Subjects all the way to the root.
+3.  The final "answer" is the story told by describing this illuminated path.
+
+The "synthesis and promotion" mechanism's purpose is to create efficient "highways" in this graph, strengthening the connections that matter most and allowing for faster traversal of high-level concepts.
+
+### Tangible Implementation Changes
+
+This shift in perspective has concrete consequences for the implementation of the query pipeline:
+
+1.  **Graph Structure is Non-Negotiable:** The pragmatic graph implementation (using `parentId` and `childIds`) is no longer a provision for the future; it is a core, non-negotiable requirement for the MVP, as the traversal logic depends on it.
+
+2.  **A New Three-Stage Query Pipeline:** The query logic is refined from a two-stage to a three-stage process:
+    1.  **Stage 1: Entry Point Identification:** A vector search finds the initial "leaf" node(s). (Unchanged)
+    2.  **Stage 2: Graph Traversal (New):** Application logic must be written to recursively walk up the graph from the entry point(s), collecting all the nodes on the "lit-up path."
+    3.  **Stage 3: Narrative Synthesis:** The system synthesizes a final answer from the *entire path*, not just a single piece of information.
+
+3.  **Storytelling Prompts:** The final LLM prompt is no longer for simple extraction but for narrative synthesis. The prompt will provide the full, ordered path of nodes (from specific to general) and ask the LLM to weave them into a coherent story that answers the user's question.
+
+4.  **New Plugin Hook:** To handle this, a new hook will be added to the plugin API, such as `subjects.synthesizeAnswerFromPath`, which will be responsible for receiving the traversed path and generating the final storytelling prompt.

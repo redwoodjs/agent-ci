@@ -12,7 +12,11 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Load MACHINEN_ENV from .dev.vars
 if [ -f "$PROJECT_ROOT/.dev.vars" ]; then
   set -a
-  source <(grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep '=')
+  # Create a temp file with filtered vars and source it
+  TEMP_VARS=$(mktemp)
+  grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep '=' > "$TEMP_VARS"
+  source "$TEMP_VARS"
+  rm "$TEMP_VARS"
   set +a
 fi
 
@@ -35,10 +39,11 @@ else
   WORKER_NAME="machinen"
 fi
 
-echo "Tailing logs for $WORKER_NAME in environment ${CLOUDFLARE_ENV:-}"
+echo "Tailing logs for $WORKER_NAME (MACHINEN_ENV=${MACHINEN_ENV:-not set})" >&2
 
 # Tail logs and format them nicely
-npx wrangler tail "$WORKER_NAME" --format=json --env "${CLOUDFLARE_ENV:-}" 2>&1 | \
+# Note: Don't use --env flag, the worker name already includes the environment
+npx wrangler tail "$WORKER_NAME" --format=json 2>&1 | \
   stdbuf -oL jq -r '
     select(.event.rpcMethod == null) |
     .logs[]? |

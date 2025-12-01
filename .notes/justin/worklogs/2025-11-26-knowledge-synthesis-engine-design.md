@@ -413,3 +413,23 @@ To address this, the decision was made to enrich the data used for vector search
     3.  **Future Scalability:** This design anticipates a future need for summarization. As the `narrative` grows, a summarization step can be introduced to keep the corpus size manageable and embedding costs low, without losing the semantic essence of the subject.
 
 This change significantly improves the foundation for correlation, making the system more likely to identify correct relationships between pieces of information before we even introduce explicit hierarchical logic.
+
+## 18. Realization: Source-Specific Subject Determination
+
+A further realization was made regarding the nature of subject creation. The generic, content-based correlation at the chunk level provides a good fallback, but the definition of what constitutes a "subject" is often highly dependent on the data source.
+
+*   **Cursor:** A conversation is a natural boundary for a single subject.
+*   **GitHub:** An issue or a pull request is a clear root subject, while its comments and commits are events within that subject's timeline. A significant comment might even spawn a new child subject.
+*   **Discord:** A thread serves as a strong candidate for a subject boundary.
+
+This insight leads to a more refined architectural approach where source-specific plugins can implement more intelligent, domain-aware logic for subject creation, rather than relying solely on the generic, bottom-up, chunk-by-chunk analysis.
+
+*   **Proposed Solution:**
+    1.  **Introduce `SubjectDescription`:** Define a new type, `SubjectDescription`, with properties like `{ title: string; narrative: string; contentHash: string; chunks: Chunk[] }`. The `contentHash` provides a stable identifier for the conceptual subject, derived from the content that defines it.
+    2.  **Introduce a `determineSubjectsForDocument` hook:** This optional plugin hook will analyze a full `Document` and return an array of `SubjectDescription` objects.
+    3.  **Separate Identification from Execution:**
+        *   **Plugin's Role (Identification):** A source-specific plugin (e.g., `githubPlugin`) could implement this hook to perform a top-down analysis. It will identify the conceptual subjects within the document (e.g., one for the main PR, maybe others for significant comment threads) and return them as a list of `SubjectDescription` objects, along with the chunks that belong to each.
+        *   **Engine's Role (Execution):** The core `indexDocument` function will receive this array. For each `SubjectDescription`, the engine will handle the core logic: checking if a subject with that `contentHash` already exists, creating or updating it in the database, embedding the `narrative`, upserting the vector to `SUBJECT_INDEX`, and linking the associated chunks.
+    4.  **Engine Fallback:** If a plugin does not implement this hook, the engine will fall back to its default, generic behavior of analyzing each chunk independently to find or create subjects.
+
+This layered approach allows the system to leverage domain-specific heuristics for sources like GitHub while keeping the core persistence and indexing logic centralized and consistent. It cleanly separates the act of identifying subjects from the mechanics of storing them.

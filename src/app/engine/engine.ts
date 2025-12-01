@@ -59,7 +59,7 @@ export async function indexDocument(
       context.plugins,
       "findSubjectForText",
       (plugin) =>
-        plugin.findSubjectForText?.({
+        plugin.subjects?.findSubjectForText?.({
           text: document.metadata.title || document.content.substring(0, 200),
           env: context.env,
         })
@@ -114,8 +114,8 @@ export async function indexDocument(
   // Empty arrays are treated as "no match" to allow the correct plugin to handle it
   let chunks: Chunk[] | null = null;
   for (const plugin of context.plugins) {
-    if (plugin.splitDocumentIntoChunks) {
-      const result = await plugin.splitDocumentIntoChunks(
+    if (plugin.evidence?.splitDocumentIntoChunks) {
+      const result = await plugin.evidence.splitDocumentIntoChunks(
         document,
         indexingContext
       );
@@ -137,8 +137,11 @@ export async function indexDocument(
   for (const chunk of chunks) {
     let enrichedChunk = chunk;
     for (const plugin of context.plugins) {
-      if (plugin.enrichChunk) {
-        const result = await plugin.enrichChunk(enrichedChunk, indexingContext);
+      if (plugin.evidence?.enrichChunk) {
+        const result = await plugin.evidence.enrichChunk(
+          enrichedChunk,
+          indexingContext
+        );
         if (result) {
           enrichedChunk = result;
         }
@@ -164,7 +167,8 @@ export async function query(
     context.plugins,
     "prepareSearchQuery",
     userQuery,
-    (query, plugin) => plugin.prepareSearchQuery?.(query, queryContext)
+    (query, plugin) =>
+      plugin.evidence?.prepareSearchQuery?.(query, queryContext)
   );
 
   console.log(`[query] Step 2: Finding relevant subject`);
@@ -172,7 +176,7 @@ export async function query(
     context.plugins,
     "findSubjectForText",
     (plugin) =>
-      plugin.findSubjectForText?.({
+      plugin.subjects?.findSubjectForText?.({
         text: userQuery,
         env: context.env,
       })
@@ -188,7 +192,7 @@ export async function query(
   const filterClauses = await runCollectorHook(
     context.plugins,
     "buildVectorSearchFilter",
-    (plugin) => plugin.buildVectorSearchFilter?.(queryContext)
+    (plugin) => plugin.evidence?.buildVectorSearchFilter?.(queryContext)
   );
 
   // Add subjectId filter if we found one
@@ -233,7 +237,8 @@ export async function query(
     context.plugins,
     "rerankSearchResults",
     searchResults,
-    (results, plugin) => plugin.rerankSearchResults?.(results, queryContext)
+    (results, plugin) =>
+      plugin.evidence?.rerankSearchResults?.(results, queryContext)
   );
 
   console.log(`[query] Step 6: Reconstructing contexts`);
@@ -250,7 +255,7 @@ export async function query(
     "optimizeContext",
     reconstructedContexts,
     (contexts, plugin) =>
-      plugin.optimizeContext?.(contexts, processedQuery, queryContext)
+      plugin.evidence?.optimizeContext?.(contexts, processedQuery, queryContext)
   );
   console.log(`[query] Optimized to ${optimizedContexts.length} contexts`);
 
@@ -260,7 +265,11 @@ export async function query(
     [...context.plugins].reverse(),
     "composeLlmPrompt",
     (plugin) =>
-      plugin.composeLlmPrompt?.(optimizedContexts, processedQuery, queryContext)
+      plugin.evidence?.composeLlmPrompt?.(
+        optimizedContexts,
+        processedQuery,
+        queryContext
+      )
   );
 
   if (!prompt) {
@@ -282,7 +291,11 @@ export async function query(
     "formatFinalResponse",
     llmResponse,
     (response, plugin) =>
-      plugin.formatFinalResponse?.(response, rerankedResults, queryContext)
+      plugin.evidence?.formatFinalResponse?.(
+        response,
+        rerankedResults,
+        queryContext
+      )
   );
 
   return formattedResponse;
@@ -328,7 +341,7 @@ async function reconstructContexts(
       plugins,
       "reconstructContext",
       (plugin) =>
-        plugin.reconstructContext?.(
+        plugin.evidence?.reconstructContext?.(
           documentChunks,
           sourceDocument,
           queryContext

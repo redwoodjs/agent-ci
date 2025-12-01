@@ -191,10 +191,11 @@ export const githubPlugin: Plugin = {
     }
   },
 
-  async splitDocumentIntoChunks(
-    document: Document,
-    context: IndexingHookContext
-  ): Promise<Chunk[]> {
+  evidence: {
+    async splitDocumentIntoChunks(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<Chunk[]> {
     if (document.source !== "github") {
       return [];
     }
@@ -362,16 +363,16 @@ export const githubPlugin: Plugin = {
       }
     }
 
-    return chunks;
-  },
+      return chunks;
+    },
 
-  async buildVectorSearchFilter(
-    context: QueryHookContext
-  ): Promise<Record<string, unknown> | null> {
-    return null;
-  },
+    async buildVectorSearchFilter(
+      context: QueryHookContext
+    ): Promise<Record<string, unknown> | null> {
+      return null;
+    },
 
-  async reconstructContext(
+    async reconstructContext(
     documentChunks: ChunkMetadata[],
     sourceDocument: GitHubLatestJson | GitHubProjectLatestJson,
     context: QueryHookContext
@@ -471,28 +472,29 @@ export const githubPlugin: Plugin = {
 
     const content = docSections.join("\n");
 
-    return {
-      content,
-      source: "github",
-      primaryMetadata: firstChunk,
-    };
-  },
+      return {
+        content,
+        source: "github",
+        primaryMetadata: firstChunk,
+      };
+    },
 
-  async composeLlmPrompt(
-    contexts: ReconstructedContext[],
-    query: string,
-    context: QueryHookContext
-  ): Promise<string> {
-    const githubContexts = contexts.filter((ctx) => ctx.source === "github");
-    if (githubContexts.length === 0) {
-      return "";
-    }
+    async composeLlmPrompt(
+      contexts: ReconstructedContext[],
+      query: string,
+      context: QueryHookContext
+    ): Promise<string> {
+      const githubContexts = contexts.filter((ctx) => ctx.source === "github");
+      if (githubContexts.length === 0) {
+        return "";
+      }
 
-    const contextSection = githubContexts
-      .map((ctx) => ctx.content)
-      .join("\n\n---\n\n");
+      const contextSection = githubContexts
+        .map((ctx) => ctx.content)
+        .join("\n\n---\n\n");
 
-    return `## GitHub Context\n\n${contextSection}`;
+      return `## GitHub Context\n\n${contextSection}`;
+    },
   },
 };
 

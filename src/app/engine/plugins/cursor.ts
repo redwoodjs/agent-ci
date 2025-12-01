@@ -62,10 +62,11 @@ export const cursorPlugin: Plugin = {
     };
   },
 
-  async splitDocumentIntoChunks(
-    document: Document,
-    context: IndexingHookContext
-  ): Promise<Chunk[]> {
+  evidence: {
+    async splitDocumentIntoChunks(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<Chunk[]> {
     if (document.source !== "cursor") {
       return []; // Not handled by this plugin
     }
@@ -166,14 +167,14 @@ export const cursorPlugin: Plugin = {
       );
     }
 
-    return chunks;
-  },
+      return chunks;
+    },
 
-  async reconstructContext(
-    documentChunks: ChunkMetadata[],
-    sourceDocument: any, // This is the raw JSON
-    context: QueryHookContext
-  ) {
+    async reconstructContext(
+      documentChunks: ChunkMetadata[],
+      sourceDocument: any, // This is the raw JSON
+      context: QueryHookContext
+    ) {
     if (!documentChunks[0]) {
       return null;
     }
@@ -219,10 +220,11 @@ export const cursorPlugin: Plugin = {
       sections.push("```\n");
     });
 
-    return {
-      content: sections.join("\n"),
-      source: "cursor",
-      primaryMetadata: documentChunks[0],
-    };
+      return {
+        content: sections.join("\n"),
+        source: "cursor",
+        primaryMetadata: documentChunks[0],
+      };
+    },
   },
 };

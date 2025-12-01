@@ -23,7 +23,6 @@ Files are stored in R2 with this hybrid structure:
 ```
 discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl
 discord/{guildID}/{channelID}/threads/{threadID}/latest.json
-discord/{guildID}/{channelID}/threads/{threadID}/history/{timestamp}.json
 ```
 
 ### Channel Messages (Daily JSONL)
@@ -50,10 +49,6 @@ Each thread's `latest.json` contains:
 - Metadata (guild ID, channel ID, thread ID, timestamps, version hash)
 - Starter message from parent channel
 - Complete array of thread replies sorted chronologically
-
-### History Diffs (Threads Only)
-
-History files contain JSON diffs showing what changed between thread versions, creating an audit trail. Channel messages do not have history tracking.
 
 ## Vectorization
 
@@ -290,34 +285,6 @@ If a backfill encounters an error:
 
 ## API Endpoints
 
-### POST /ingest/discord/webhook
-
-Receives Discord Gateway events and processes them in real-time.
-
-**Headers:**
-
-- `Authorization: Bearer <API_KEY>` (required)
-
-**Request Body:**
-Discord Gateway event payload (see [Discord Gateway Events](https://discord.com/developers/docs/topics/gateway-events))
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "message": "Webhook event processed"
-}
-```
-
-**Supported Event Types:**
-
-- `MESSAGE_CREATE`
-- `MESSAGE_UPDATE`
-- `MESSAGE_DELETE`
-- `THREAD_CREATE`
-- `THREAD_UPDATE`
-
 ### POST /ingest/discord/backfill
 
 Starts a backfill for a Discord channel.
@@ -391,7 +358,7 @@ Checks the status of a backfill.
 
 ## Gateway WebSocket Connection
 
-The Discord ingestor supports a direct Gateway WebSocket connection to receive Discord events in real-time. This provides a native integration with Discord's Gateway protocol, automatically handling connection management, heartbeats, and reconnections.
+The Discord ingestor supports a direct Gateway WebSocket connection to receive Discord events in real-time. This provides a native integration with Discord's Gateway protocol, automatically handling connection management, heartbeats, and reconnections. All live Discord events are ingested exclusively via this Gateway connection.
 
 ### Configuration
 
@@ -465,172 +432,6 @@ MESSAGE_CREATE events are automatically batched to reduce R2 write operations:
   - 100 messages accumulated, OR
   - 60 seconds elapsed since first message in batch
 - MESSAGE_UPDATE and MESSAGE_DELETE events flush pending batches before processing
-
-## Live Webhook
-
-The Discord ingestor supports live webhook ingestion to receive and process Discord events in real-time, complementing the backfill system. This endpoint accepts Discord Gateway events from a proxy or intermediary service that forwards events from Discord's Gateway WebSocket connection.
-
-### Setup Instructions
-
-#### 1. Configure API Key
-
-Set the `INGEST_API_KEY` environment variable to secure your webhook endpoint:
-
-**Development** (`.dev.vars`):
-
-```
-INGEST_API_KEY=your_secret_api_key_here
-```
-
-**Production**:
-
-```bash
-wrangler secret put INGEST_API_KEY
-```
-
-This API key must be included in all webhook requests as a Bearer token in the `Authorization` header.
-
-#### 2. Discord Bot Setup
-
-1. Go to [Discord Developer Portal](https://discord.com/developers/applications)
-2. Select your bot application
-3. Navigate to the "Bot" section
-4. Under "Privileged Gateway Intents", enable:
-   - **MESSAGE_CONTENT_INTENT** (required to receive message content)
-   - **GUILD_MESSAGES** (required for message events)
-   - **GUILDS** (required for guild/channel information)
-   - **GUILD_MEMBERS** (optional, for thread member updates)
-
-#### 3. Configure Webhook Endpoint
-
-The webhook endpoint accepts Discord Gateway events in the standard Gateway event format:
-
-- **URL**: `https://your-domain.workers.dev/ingest/discord/webhook`
-- **Method**: `POST`
-- **Authentication**: `Authorization: Bearer <INGEST_API_KEY>`
-- **Content-Type**: `application/json`
-
-**Note**: Discord does not natively support webhooks for Gateway events. You'll need to use a proxy service or intermediary that:
-
-- Connects to Discord's Gateway WebSocket
-- Receives Gateway events
-- Forwards them to this webhook endpoint with the proper authentication
-
-Alternatively, you can use the built-in Gateway connection (see [Gateway WebSocket Connection](#gateway-websocket-connection) section) which handles this automatically.
-
-### Supported Events
-
-The webhook handles the following Discord Gateway events:
-
-**Message Events:**
-
-- **MESSAGE_CREATE**: New messages are batched and appended to daily JSONL files
-- **MESSAGE_UPDATE**: Updates existing messages in-place in daily JSONL files
-- **MESSAGE_DELETE**: Removes messages in-place from daily JSONL files
-
-**Thread Events:**
-
-- **THREAD_CREATE**: Processes thread creation, fetches complete thread state
-- **THREAD_UPDATE**: Processes thread updates, updates `latest.json` with diffs
-- **THREAD_DELETE**: Logs thread deletion
-- **THREAD_LIST_SYNC**: Processes all threads in the sync event
-- **THREAD_MEMBER_UPDATE**: Logs thread member updates
-- **THREAD_MEMBERS_UPDATE**: Logs thread members updates
-
-### Message Batching
-
-MESSAGE_CREATE events are automatically batched to reduce R2 write operations:
-
-- Messages are accumulated in a Durable Object per daily file
-- Batches are flushed when:
-  - 100 messages accumulated, OR
-  - 60 seconds elapsed since first message in batch
-- MESSAGE_UPDATE and MESSAGE_DELETE events flush pending batches before processing
-
-### Example Webhook Request
-
-```bash
-curl -X POST https://your-domain.workers.dev/ingest/discord/webhook \
-  -H "Authorization: Bearer $INGEST_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "t": "MESSAGE_CREATE",
-    "d": {
-      "id": "1234567890",
-      "channel_id": "1307974274145062912",
-      "guild_id": "679514959968993311",
-      "content": "Hello, world!",
-      "timestamp": "2024-11-04T10:30:00.000Z",
-      "author": {
-        "id": "987654321",
-        "username": "alice",
-        "global_name": "Alice"
-      }
-    }
-  }'
-```
-
-Response:
-
-```json
-{
-  "success": true,
-  "message": "Webhook event processed"
-}
-```
-
-### Differences from Backfill
-
-- **Backfill**: Fetches complete historical state, regenerates daily JSONL files completely
-- **Webhook**: Appends new messages to existing files, updates/deletes messages in-place
-- **Threads**: Both systems use the same thread processor with diff tracking
-- **Indexing**: Webhook-ingested messages require manual indexing via `/rag/admin/index` endpoint
-
-#### 4. Verify Webhook Setup
-
-Test that your webhook endpoint is properly configured:
-
-```bash
-# Test MESSAGE_CREATE event
-curl -X POST http://localhost:5173/ingest/discord/webhook \
-  -H "Authorization: Bearer $INGEST_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "t": "MESSAGE_CREATE",
-    "d": {
-      "id": "123",
-      "channel_id": "1307974274145062912",
-      "guild_id": "679514959968993311",
-      "content": "Test message",
-      "timestamp": "2024-11-04T10:30:00.000Z",
-      "author": {
-        "id": "111",
-        "username": "testuser"
-      }
-    }
-  }'
-```
-
-Expected response:
-
-```json
-{
-  "success": true,
-  "message": "Webhook event processed"
-}
-```
-
-If you receive a `401 Unauthorized` error, verify that:
-
-- The `INGEST_API_KEY` environment variable is set correctly
-- The `Authorization` header includes `Bearer ` prefix followed by your API key
-- The API key matches the value set in your environment
-
-If you receive a `400 Bad Request` error, verify that:
-
-- The request body matches the Discord Gateway event format
-- Required fields (`t`, `d`, `id`, `channel_id`, `guild_id`, etc.) are present
-- The event type is one of the supported types
 
 ## Rate Limiting
 

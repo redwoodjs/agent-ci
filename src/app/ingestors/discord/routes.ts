@@ -6,8 +6,7 @@ import {
   getBackfillState,
 } from "@/app/ingestors/discord/services/backfill-state";
 import type { SchedulerJobMessage } from "@/app/ingestors/discord/services/backfill-types";
-import { requireWebhookAuth, logDiscordRequest } from "./interruptors";
-import { handleWebhookEvent } from "./services/webhook-handler";
+import { logDiscordRequest } from "./interruptors";
 import {
   startGateway,
   stopGateway,
@@ -154,47 +153,6 @@ const statusRoute = route("/backfill/status", [
   },
 ]);
 
-const webhookRoute = route("/webhook", [
-  requireWebhookAuth,
-  logDiscordRequest,
-  async ({ request, ctx }: { request: Request; ctx: any }) => {
-    try {
-      const payload = await request.json();
-      const result = await handleWebhookEvent(payload);
-
-      if (!result.success) {
-        const errorResponse = Response.json(
-          {
-            success: false,
-            error: result.error || "Unknown error",
-          },
-          { status: 400 }
-        );
-        ctx.logCompletion?.(errorResponse);
-        return errorResponse;
-      }
-
-      const apiResponse = Response.json({
-        success: true,
-        message: "Webhook event processed",
-      });
-      ctx.logCompletion?.(apiResponse);
-      return apiResponse;
-    } catch (error) {
-      console.error("Discord webhook error:", error);
-      const errorResponse = Response.json(
-        {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        },
-        { status: 500 }
-      );
-      ctx.logCompletion?.(errorResponse);
-      return errorResponse;
-    }
-  },
-]);
-
 const gatewayStartRoute = route("/gateway/start", [
   logDiscordRequest,
   async ({ request, ctx }: { request: Request; ctx: any }) => {
@@ -280,7 +238,6 @@ export const routes = [
   backfillRoute,
   pauseBackfillRoute,
   statusRoute,
-  webhookRoute,
   gatewayStartRoute,
   gatewayStopRoute,
   gatewayStatusRoute,

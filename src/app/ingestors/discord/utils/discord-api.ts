@@ -192,7 +192,29 @@ export async function fetchThreadMessages(
   );
 }
 
+// Returns the Gateway URL used by the DiscordGatewayDO.
+// We now route the Gateway connection through an external proxy
+// (see https://wsproxy-xx5hi.ondigitalocean.app/), which speaks
+// the Discord Gateway protocol on our behalf.
+//
+// The rest of the ingestor still talks directly to the Discord
+// HTTP API; only the WebSocket Gateway connection is proxied.
 export async function fetchGatewayURL(): Promise<GatewayBotResponse> {
-  const url = "https://discord.com/api/v10/gateway/bot";
-  return await fetchDiscordEntity<GatewayBotResponse>(url);
+  // The proxy exposes a WebSocket-compatible endpoint; we return a
+  // WSS URL here so the Durable Object can connect directly to it.
+  const proxyGatewayUrl = "wss://wsproxy-xx5hi.ondigitalocean.app/";
+
+  // We fabricate a minimal GatewayBotResponse compatible object.
+  // The session_start_limit values are placeholders; the proxy is
+  // responsible for enforcing any real Discord limits.
+  return {
+    url: proxyGatewayUrl,
+    shards: 1,
+    session_start_limit: {
+      max_concurrency: 1,
+      remaining: 1,
+      total: 1,
+      reset_after: 0,
+    },
+  };
 }

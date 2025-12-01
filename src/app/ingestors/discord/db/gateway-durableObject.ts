@@ -145,6 +145,7 @@ export class DiscordGatewayDO {
       // Cloudflare Workers support WebSocket connections from Durable Objects
       const wsURL = `${gatewayURL}?v=10&encoding=json`;
       await this.debugGatewayHttp(wsURL);
+
       console.log(`[gateway] Creating WebSocket connection to ${wsURL}`);
       const ws = new WebSocket(wsURL);
 

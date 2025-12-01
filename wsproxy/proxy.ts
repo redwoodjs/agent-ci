@@ -107,5 +107,3 @@ const server = Bun.serve<ClientData>({
 console.log(
   `[proxy] Bun Discord Gateway proxy listening on ws://localhost:${server.port}/gateway`
 );
-
-

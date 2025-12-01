@@ -143,7 +143,9 @@ export class DiscordGatewayDO {
     try {
       // Create WebSocket connection
       // Cloudflare Workers support WebSocket connections from Durable Objects
-      const wsURL = `${gatewayURL}?v=10&encoding=json`;
+      // fetchGatewayURL() already returns a fully-formed WebSocket URL,
+      // including the correct path and query string, so we use it as-is.
+      const wsURL = gatewayURL;
       await this.debugGatewayHttp(wsURL);
 
       console.log(`[gateway] Creating WebSocket connection to ${wsURL}`);
@@ -197,7 +199,10 @@ export class DiscordGatewayDO {
   }
 
   private async debugGatewayHttp(url: string): Promise<void> {
-    const res = await fetch(url);
+    // If we get a WebSocket URL, convert it to an HTTP(S) URL for fetch().
+    const debugUrl = url.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+
+    const res = await fetch(debugUrl);
     const text = await res.text();
     console.log("[gateway-debug] HTTP gateway test", {
       status: res.status,

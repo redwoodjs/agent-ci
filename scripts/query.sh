@@ -52,9 +52,15 @@ if [[ "$1" == "--env" && -n "$2" ]]; then
 fi
 
 
+# Check for subcommand
+MODE="query"
+if [[ "$1" == "subjects" ]]; then
+  MODE="subjects"
+  shift
+fi
+
 # Parse positional arguments
-# The query can be a string for a POST request, or a path for a GET request
-QUERY_OR_PATH="${1:-}"
+QUERY="${1:-}"
 # Detect if second argument is URL/port or API key
 # Matches: http(s)://..., localhost:..., or :1234
 if [[ "${2:-}" =~ ^(https?://|localhost|:[0-9]+) ]]; then
@@ -94,10 +100,9 @@ elif [[ "$WORKER_URL" =~ ^localhost:[0-9]+$ ]]; then
 fi
 
 # Check required args
-if [ -z "$QUERY_OR_PATH" ]; then
-  echo "Error: Query or Path is required"
-  echo "Usage: $0 \"your query\" [api-key] [worker-url]"
-  echo "   or: $0 \"/rag/subjects?query=...\" [api-key] [worker-url]"
+if [ -z "$QUERY" ]; then
+  echo "Error: Query is required"
+  echo "Usage: $0 [subjects] \"your query\" [api-key] [worker-url]"
   exit 1
 fi
 
@@ -109,13 +114,14 @@ if [ -z "$API_KEY" ]; then
 fi
 
 echo "Querying environment: $MACHINEN_ENV ($WORKER_URL)"
-echo "Request: $QUERY_OR_PATH"
+echo "Mode: $MODE"
+echo "Query: $QUERY"
 echo ""
 
-# Determine if it's a GET or POST based on whether the query starts with a "/"
-if [[ "$QUERY_OR_PATH" == /* ]]; then
-  # It's a GET request to a specific path
-  ENDPOINT_URL="$WORKER_URL$QUERY_OR_PATH"
+if [[ "$MODE" == "subjects" ]]; then
+  # It's a GET request to the subjects endpoint
+  ENCODED_QUERY=$(echo "$QUERY" | jq -sRr @uri)
+  ENDPOINT_URL="$WORKER_URL/rag/subjects?query=$ENCODED_QUERY"
   RESPONSE=$(curl -s -X GET \
     -H "Authorization: Bearer $API_KEY" \
     "$ENDPOINT_URL")
@@ -125,25 +131,10 @@ else
   RESPONSE=$(curl -s -X POST \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
-    -d "{\"query\": $(echo "$QUERY_OR_PATH" | jq -R .)}" \
+    -d "{\"query\": $(echo "$QUERY" | jq -R .)}" \
     "$ENDPOINT_URL")
 fi
 
-# Try to extract .response, but if jq returns null or fails, show raw response
-# For subject graph, we want the whole JSON, so we just check for .response field existence
-if echo "$RESPONSE" | jq -e '.response' >/dev/null 2>&1; then
-  # It's a standard query response, extract the .response field
-  EXTRACTED=$(echo "$RESPONSE" | jq -r '.response // empty' 2>/dev/null)
-else
-  # It's likely a subject graph response or an error, show the whole thing
-  EXTRACTED="$RESPONSE"
-fi
-
-
-if [ -z "$EXTRACTED" ] || [ "$EXTRACTED" = "null" ]; then
-  # If jq extraction failed or returned null, show the raw response
-  echo "$RESPONSE" | jq .
-else
-  echo "$EXTRACTED"
-fi
+# Pretty-print the JSON response
+echo "$RESPONSE" | jq .
 

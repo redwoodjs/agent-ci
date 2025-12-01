@@ -21,7 +21,7 @@ const app = defineApp([
 
   render(Document, [route("/", [HomePage]), prefix("/audit", auditRoutes)]),
 
-  prefix("/ingest/discord", discordRoutes),
+  prefix("/ingestors/discord", discordRoutes),
   prefix("/ingestors/cursor", cursorIngestorRoutes),
   prefix("/ingestors/github", githubIngestorRoutes),
   prefix("/rag", ragRoutes),
@@ -45,10 +45,7 @@ import { processProcessorJob as processDiscordProcessorJob } from "@/app/ingesto
 import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app/ingestors/discord/services/dlq-handler";
 import { processIndexingJob } from "@/app/engine/services/indexing-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
-import type {
-  QueueMessage,
-  ProcessorJobMessage,
-} from "@/app/ingestors/github/services/backfill-types";
+import type { QueueMessage } from "@/app/ingestors/github/services/backfill-types";
 import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
 

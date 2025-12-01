@@ -139,7 +139,7 @@ upload_to_r2() {
   echo "$content" > "$temp_file"
   
   # Upload using wrangler
-  if npx wrangler r2 object put "${R2_BUCKET}/${r2_key}" --file "$temp_file" > /dev/null 2>&1; then
+  if npx wrangler r2 object put "${R2_BUCKET}/${r2_key}" --file "$temp_file" --remote > /dev/null 2>&1; then
     log_info "✓ Uploaded successfully"
     rm "$temp_file"
     return 0
@@ -155,7 +155,7 @@ delete_from_r2() {
   
   log_info "Deleting from R2: $r2_key"
   
-  if npx wrangler r2 object delete "${R2_BUCKET}/${r2_key}" > /dev/null 2>&1; then
+  if npx wrangler r2 object delete "${R2_BUCKET}/${r2_key}" --remote > /dev/null 2>&1; then
     log_info "✓ Deleted successfully"
     return 0
   else

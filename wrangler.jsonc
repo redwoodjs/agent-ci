@@ -70,10 +70,6 @@
     {
       "tag": "v9",
       "new_sqlite_classes": ["SubjectGraphDO"]
-    },
-    {
-      "tag": "v9",
-      "new_sqlite_classes": ["SubjectGraphDO"]
     }
   ],
   "durable_objects": {

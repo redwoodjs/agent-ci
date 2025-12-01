@@ -65,6 +65,12 @@
     },
     {
       "tag": "v8",
+      "renamed_classes": [
+        {
+          "from": "SubjectGraphDO",
+          "to": "SubjectDO"
+        }
+      ],
       "new_sqlite_classes": ["SubjectDO"]
     }
   ],

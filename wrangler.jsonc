@@ -70,7 +70,10 @@
           "from": "SubjectGraphDO",
           "to": "SubjectDO"
         }
-      ],
+      ]
+    },
+    {
+      "tag": "v9",
       "new_sqlite_classes": ["SubjectDO"]
     }
   ],

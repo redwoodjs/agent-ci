@@ -1,4 +1,4 @@
-export { indexDocument, query } from "./engine";
+export { indexDocument, query, getSubjectGraphForQuery } from "./engine";
 export type {
   Source,
   Document,

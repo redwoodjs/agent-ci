@@ -71,7 +71,6 @@ export const defaultPlugin: Plugin = {
               author: document.metadata.author,
               jsonPath: "$.content",
               sourceMetadata: document.metadata.sourceMetadata,
-              subjectId: document.subjectId,
             },
           });
           currentChunk = [];
@@ -95,7 +94,6 @@ export const defaultPlugin: Plugin = {
             author: document.metadata.author,
             jsonPath: "$.content",
             sourceMetadata: document.metadata.sourceMetadata,
-            subjectId: document.subjectId,
           },
         });
       }

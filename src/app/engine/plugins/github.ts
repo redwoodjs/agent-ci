@@ -230,7 +230,6 @@ export const githubPlugin: Plugin = {
               author: document.metadata.author,
               jsonPath: "$.body",
               sourceMetadata: document.metadata.sourceMetadata,
-              subjectId: document.subjectId,
             },
           });
         } else if (data.title) {
@@ -251,7 +250,6 @@ export const githubPlugin: Plugin = {
               author: data.author,
               jsonPath: "$.title",
               sourceMetadata: document.metadata.sourceMetadata,
-              subjectId: document.subjectId,
             },
           });
         }
@@ -276,7 +274,6 @@ export const githubPlugin: Plugin = {
                 author: comment.author,
                 jsonPath: `$.comments[${i}].body`,
                 sourceMetadata: document.metadata.sourceMetadata,
-                subjectId: document.subjectId,
               },
             });
           }
@@ -306,7 +303,6 @@ export const githubPlugin: Plugin = {
               author: data.owner,
               jsonPath: "$.body",
               sourceMetadata: document.metadata.sourceMetadata,
-              subjectId: document.subjectId,
             },
           });
         } else if (data.title) {
@@ -323,7 +319,6 @@ export const githubPlugin: Plugin = {
               documentTitle: data.title,
               author: data.owner,
               jsonPath: "$.title",
-              subjectId: document.subjectId,
             },
           });
         }
@@ -355,7 +350,6 @@ export const githubPlugin: Plugin = {
                 author: data.owner,
                 jsonPath: `$.items[${i}]`,
                 sourceMetadata: document.metadata.sourceMetadata,
-                subjectId: document.subjectId,
               },
             });
           }

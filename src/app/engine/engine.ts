@@ -39,83 +39,7 @@ export async function indexDocument(
     `[engine] Document prepared: ${document.metadata.title || r2Key}`
   );
 
-  // Find or create subject for this document
-  console.log(`[engine] Finding subject for document`);
-
-  type SubjectDatabase = Database<typeof subjectMigrations>;
-  const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
-    "subject-graph"
-  );
-
-  // Check if this is an update: look for existing subject with this document ID
-  // For the Skateboard, we check if a subject exists with ID = document.id
-  // (since we use document.id as fallback subjectId)
-  const existingSubject = await getSubject(subjectDb, document.id);
-
-  let subjectId: string;
-  if (existingSubject && existingSubject.documentIds.includes(document.id)) {
-    // Document update: reuse the existing subject
-    subjectId = existingSubject.id;
-    console.log(
-      `[engine] Document update detected, reusing subject: ${subjectId}`
-    );
-  } else {
-    // New document: search for relevant subject or create new one
-    const foundSubjectId = await runFirstMatchHook(
-      context.plugins,
-      "findSubjectForText",
-      (plugin) =>
-        plugin.subjects?.findSubjectForText?.({
-          text: document.metadata.title || document.content.substring(0, 200),
-          env: context.env,
-        })
-    );
-
-    // If no subject found, create a new one using document.id as subjectId
-    subjectId = foundSubjectId || document.id;
-    console.log(
-      `[engine] ${foundSubjectId ? "Found" : "Creating"} subject: ${subjectId}`
-    );
-  }
-
-  document.subjectId = subjectId;
-
-  // Get or create the subject
-  const currentSubject = await getSubject(subjectDb, subjectId);
-
-  if (!currentSubject) {
-    // Create new subject in DO
-    const newSubject: Subject = {
-      id: subjectId,
-      title: document.metadata.title || r2Key,
-      documentIds: [document.id],
-    };
-    await putSubject(subjectDb, newSubject);
-
-    // Index subject title in SUBJECT_INDEX
-    const embeddingResponse = (await context.env.AI.run(
-      "@cf/baai/bge-base-en-v1.5",
-      { text: [newSubject.title] }
-    )) as { data: number[][] };
-    await context.env.SUBJECT_INDEX.insert([
-      {
-        id: subjectId,
-        values: embeddingResponse.data[0],
-        metadata: {
-          title: newSubject.title,
-        },
-      },
-    ]);
-  } else {
-    // Update existing subject to include this document (if not already present)
-    if (!currentSubject.documentIds.includes(document.id)) {
-      await updateSubjectDocumentIds(subjectDb, subjectId, document.id);
-    }
-  }
-
-  // Try each plugin until we get non-empty chunks
-  // Empty arrays are treated as "no match" to allow the correct plugin to handle it
+  // 1. Split document into chunks BEFORE subject correlation
   let chunks: Chunk[] | null = null;
   for (const plugin of context.plugins) {
     if (plugin.evidence?.splitDocumentIntoChunks) {
@@ -123,7 +47,6 @@ export async function indexDocument(
         document,
         indexingContext
       );
-      // Treat empty arrays as "no match" - continue to next plugin
       if (result && result.length > 0) {
         chunks = result;
         break;
@@ -137,6 +60,76 @@ export async function indexDocument(
 
   console.log(`[engine] Document split into ${chunks.length} chunks`);
 
+  // 2. Find or create a subject for EACH chunk
+  type SubjectDatabase = Database<typeof subjectMigrations>;
+  const subjectDb = createDb<SubjectDatabase>(
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    "subject-graph"
+  );
+
+  let documentLevelSubjectId: string | null = null; // Fallback for chunks without a match
+
+  for (const chunk of chunks) {
+    const foundSubjectId = await runFirstMatchHook(
+      context.plugins,
+      "findSubjectForText",
+      (plugin) =>
+        plugin.subjects?.findSubjectForText?.({
+          text: chunk.content, // Use chunk content for correlation
+          env: context.env,
+        })
+    );
+
+    let subjectId: string;
+
+    if (foundSubjectId) {
+      subjectId = foundSubjectId;
+    } else {
+      // If no specific subject is found, create a default one for the document
+      if (!documentLevelSubjectId) {
+        documentLevelSubjectId = document.id;
+      }
+      subjectId = documentLevelSubjectId;
+    }
+
+    console.log(`[engine] Chunk ${chunk.id} assigned to subject: ${subjectId}`);
+
+    // Assign the determined subjectId to the chunk's metadata
+    chunk.metadata.subjectId = subjectId;
+
+    // Get or create the subject in the database
+    const currentSubject = await getSubject(subjectDb, subjectId);
+
+    if (!currentSubject) {
+      // Create new subject
+      const newSubject: Subject = {
+        id: subjectId,
+        title: document.metadata.title || r2Key, // Use document title for new subjects
+        documentIds: [document.id],
+      };
+      await putSubject(subjectDb, newSubject);
+
+      // Index the new subject's title for future lookups
+      const embeddingResponse = (await context.env.AI.run(
+        "@cf/baai/bge-base-en-v1.5",
+        { text: [newSubject.title] }
+      )) as { data: number[][] };
+      await context.env.SUBJECT_INDEX.insert([
+        {
+          id: subjectId,
+          values: embeddingResponse.data[0],
+          metadata: { title: newSubject.title },
+        },
+      ]);
+    } else {
+      // If subject exists, ensure this document is linked
+      if (!currentSubject.documentIds.includes(document.id)) {
+        await updateSubjectDocumentIds(subjectDb, subjectId, document.id);
+      }
+    }
+  }
+
+  // 3. Enrich chunks (optional, original logic)
   const enrichedChunks: Chunk[] = [];
   for (const chunk of chunks) {
     let enrichedChunk = chunk;

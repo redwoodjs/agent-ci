@@ -138,7 +138,6 @@ export const cursorPlugin: Plugin = {
               author: "cursor-user", // Cursor conversations don't have a specific author
               jsonPath: `$.generations[${index}]`,
               sourceMetadata: document.metadata.sourceMetadata,
-              subjectId: document.subjectId,
             },
           });
         } else {

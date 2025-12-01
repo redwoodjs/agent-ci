@@ -18,7 +18,8 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [ -f "$PROJECT_ROOT/.dev.vars" ]; then
   set -a
-  source <(grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep '=')
+  # Source the file after removing comments and blank lines
+  source <(grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep -v '^$')
   set +a
 fi
 

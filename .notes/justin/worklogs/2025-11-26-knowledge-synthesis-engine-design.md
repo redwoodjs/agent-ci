@@ -389,3 +389,28 @@ The implementation will follow a four-stage iterative plan. Each stage delivers 
     1.  The main query endpoint handles both `search` and `introspect` intents correctly.
     2.  Narrative (`search`) queries produce a coherent, chronologically ordered story.
     3.  Frequently accessed subjects are demonstrably preferred in search results.
+
+## 16. Refining Granularity: From Document-Level to Chunk-Level Correlation
+
+A critical limitation was identified in the "Skateboard" implementation: the assumption of a 1-to-1 mapping between a `Document` (an entire file from R2) and a `Subject`. This model is too coarse and fails to capture the reality of the source data.
+
+For example, a single GitHub issue's `latest.json` file is not one monolithic entity. It contains multiple distinct semantic units:
+
+*   The main issue description.
+*   A series of comments, each of which could represent a different sub-topic, a dead-end investigation, or a pivotal new idea.
+
+Treating the entire document as a single unit for subject classification forces all of these distinct parts to belong to the same subject, which is incorrect and loses valuable nuance.
+
+### The Refined Approach: Chunk-Level Correlation
+
+To solve this, subject correlation must be performed at a more granular level: the **chunk**. The ingestion pipeline will be modified so that subject identification happens *after* a document is split into chunks.
+
+The workflow becomes:
+
+1.  A `Document` is prepared from a source file (e.g., GitHub issue JSON).
+2.  The `evidence.splitDocumentIntoChunks` hook breaks the `Document` into multiple `Chunk`s (e.g., one for the issue body, one for each comment).
+3.  **For each `Chunk`**, the engine calls the `subjects.findSubjectForText` hook.
+4.  Each chunk is individually assigned a `subjectId`.
+5.  The `Subject` object is updated to include the `documentId` of the chunk's parent document.
+
+This means a single `Document` can now contain chunks belonging to **multiple different Subjects**, accurately reflecting the flow of a complex conversation. This change is a natural progression toward the hierarchical "Bicycle" model, where different comments might logically form the basis for new child subjects.

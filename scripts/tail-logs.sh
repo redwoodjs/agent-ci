@@ -43,11 +43,13 @@ echo "Tailing logs for $WORKER_NAME (MACHINEN_ENV=${MACHINEN_ENV:-not set})" >&2
 
 # Tail logs and format them nicely
 # Note: Don't use --env flag, the worker name already includes the environment
-npx wrangler tail "$WORKER_NAME" --format=json 2>&1 | \
+# Redirect stderr to /dev/null to avoid binary/progress output from wrangler
+npx wrangler tail "$WORKER_NAME" --format=json 2>/dev/null | \
   stdbuf -oL jq -r '
     select(.event.rpcMethod == null) |
     .logs[]? |
     "[" + (if .timestamp then (.timestamp / 1000 | strftime("%Y-%m-%d %H:%M:%S")) else "unknown" end) + "] [" + (.level // "log") + "] " + 
     (.message | map(if type == "object" then (. | tojson) else . end) | join(" "))
   ' 2>&1 | \
+  stdbuf -oL grep -a . | \
   stdbuf -oL tee out.log

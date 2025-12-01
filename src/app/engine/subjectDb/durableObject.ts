@@ -1,7 +1,6 @@
 import { SqliteDurableObject } from "rwsdk/db";
 import { subjectMigrations } from "./migrations";
 
-export class SubjectGraphDO extends SqliteDurableObject {
+export class SubjectDO extends SqliteDurableObject {
   migrations = subjectMigrations;
 }
-

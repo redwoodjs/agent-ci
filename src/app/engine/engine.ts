@@ -11,7 +11,7 @@ import type {
   SubjectSearchContext,
 } from "./types";
 import { createDb, type Database } from "rwsdk/db";
-import type { SubjectGraphDO } from "./subjectDb/durableObject";
+import type { SubjectDO } from "./subjectDb/durableObject";
 import { getSubject, putSubject, updateSubjectDocumentIds } from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
 
@@ -44,7 +44,7 @@ export async function indexDocument(
 
   type SubjectDatabase = Database<typeof subjectMigrations>;
   const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectGraphDO>,
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
     "subject-graph"
   );
 

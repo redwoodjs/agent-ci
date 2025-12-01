@@ -65,11 +65,7 @@
     },
     {
       "tag": "v8",
-      "deleted_classes": ["SubjectGraphDO"]
-    },
-    {
-      "tag": "v9",
-      "new_sqlite_classes": ["SubjectGraphDO"]
+      "new_sqlite_classes": ["SubjectDO"]
     }
   ],
   "durable_objects": {
@@ -92,7 +88,7 @@
       },
       {
         "name": "SUBJECT_GRAPH_DO",
-        "class_name": "SubjectGraphDO"
+        "class_name": "SubjectDO"
       }
     ]
   },

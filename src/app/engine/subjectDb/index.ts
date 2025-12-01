@@ -1,9 +1,9 @@
-import { SubjectGraphDO } from "./durableObject";
+import { SubjectDO } from "./durableObject";
 import type { Subject } from "../types";
 import { type Database, createDb } from "rwsdk/db";
 import { type subjectMigrations } from "./migrations";
 
-export { SubjectGraphDO };
+export { SubjectDO };
 
 type SubjectDatabase = Database<typeof subjectMigrations>;
 type SubjectDb = ReturnType<typeof createDb<SubjectDatabase>>;

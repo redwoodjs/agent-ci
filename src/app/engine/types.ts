@@ -54,6 +54,7 @@ export interface Subject {
   parentId?: string;
   childIds?: string[];
   narrative?: string;
+  access_weight?: number;
 }
 
 export interface SubjectSearchContext {

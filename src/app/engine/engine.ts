@@ -10,6 +10,10 @@ import type {
   Subject,
   SubjectSearchContext,
 } from "./types";
+import { createDb, type Database } from "rwsdk/db";
+import type { SubjectGraphDO } from "./subjectDb/durableObject";
+import { getSubject, putSubject, updateSubjectDocumentIds } from "./subjectDb";
+import { type subjectMigrations } from "./subjectDb/migrations";
 
 export async function indexDocument(
   r2Key: string,
@@ -38,13 +42,16 @@ export async function indexDocument(
   // Find or create subject for this document
   console.log(`[engine] Finding subject for document`);
 
+  type SubjectDatabase = Database<typeof subjectMigrations>;
+  const subjectDb = createDb<SubjectDatabase>(
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectGraphDO>,
+    "subject-graph"
+  );
+
   // Check if this is an update: look for existing subject with this document ID
   // For the Skateboard, we check if a subject exists with ID = document.id
   // (since we use document.id as fallback subjectId)
-  const fallbackSubjectStub = context.env.SUBJECT_GRAPH_DO.get(
-    context.env.SUBJECT_GRAPH_DO.idFromName(document.id)
-  );
-  const existingSubject = await fallbackSubjectStub.getSubject(document.id);
+  const existingSubject = await getSubject(subjectDb, document.id);
 
   let subjectId: string;
   if (existingSubject && existingSubject.documentIds.includes(document.id)) {
@@ -75,10 +82,7 @@ export async function indexDocument(
   document.subjectId = subjectId;
 
   // Get or create the subject
-  const subjectStub = context.env.SUBJECT_GRAPH_DO.get(
-    context.env.SUBJECT_GRAPH_DO.idFromName(subjectId)
-  );
-  const currentSubject = await subjectStub.getSubject(subjectId);
+  const currentSubject = await getSubject(subjectDb, subjectId);
 
   if (!currentSubject) {
     // Create new subject in DO
@@ -87,7 +91,7 @@ export async function indexDocument(
       title: document.metadata.title || r2Key,
       documentIds: [document.id],
     };
-    await subjectStub.putSubject(newSubject);
+    await putSubject(subjectDb, newSubject);
 
     // Index subject title in SUBJECT_INDEX
     const embeddingResponse = (await context.env.AI.run(
@@ -106,7 +110,7 @@ export async function indexDocument(
   } else {
     // Update existing subject to include this document (if not already present)
     if (!currentSubject.documentIds.includes(document.id)) {
-      await subjectStub.updateSubjectDocumentIds(subjectId, document.id);
+      await updateSubjectDocumentIds(subjectDb, subjectId, document.id);
     }
   }
 

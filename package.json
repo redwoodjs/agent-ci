@@ -16,7 +16,7 @@
     "worker:run": "rw-scripts worker-run",
     "clean": "npm run clean:vite",
     "clean:vite": "rm -rf ./node_modules/.vite",
-    "release": "rw-scripts ensure-deploy-env && npm run clean && RWSDK_DEPLOY=1 npm run build && wrangler deploy",
+    "release": "bash -c 'set -a && [ -f .dev.vars ] && source <(grep -v \"^#\" .dev.vars | grep \"=\") && set +a; rw-scripts ensure-deploy-env && npm run clean && RWSDK_DEPLOY=1 npm run build && wrangler deploy'",
     "generate": "rw-scripts ensure-env && wrangler types && npm run generate:discord-types",
     "fetch:discord-openapi": "node scripts/fetch-discord-openapi.mjs",
     "generate:discord-types": "npm run fetch:discord-openapi && openapi-typescript src/app/ingestors/discord/openapi.json -o src/app/ingestors/discord/discord-api-types.ts",

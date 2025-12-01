@@ -383,7 +383,7 @@
           },
           {
             "name": "SUBJECT_GRAPH_DO",
-            "class_name": "SubjectGraphDO"
+            "class_name": "SubjectDO"
           }
         ]
       },

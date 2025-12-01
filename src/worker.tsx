@@ -34,6 +34,7 @@ export { GitHubRepoDurableObject } from "@/app/ingestors/github/db/durableObject
 export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durableObject";
 export { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
 export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
+export { SubjectGraphDO } from "@/app/engine/db/subject-graph-do";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";

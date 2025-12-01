@@ -48,12 +48,12 @@ export async function putSubject(db: SubjectDb, subject: Subject) {
       .set({
         title: subject.title,
         document_ids: JSON.stringify(subject.documentIds),
-        parent_id: subject.parentId,
-        child_ids: subject.childIds
+        parent_id: (subject.parentId ?? null) as any,
+        child_ids: (subject.childIds
           ? JSON.stringify(subject.childIds)
-          : undefined,
-        narrative: subject.narrative,
-        access_weight: subject.access_weight,
+          : null) as any,
+        narrative: (subject.narrative ?? null) as any,
+        access_weight: (subject.access_weight ?? null) as any,
       })
       .where("id", "=", subject.id)
       .execute();
@@ -64,12 +64,12 @@ export async function putSubject(db: SubjectDb, subject: Subject) {
         id: subject.id,
         title: subject.title,
         document_ids: JSON.stringify(subject.documentIds),
-        parent_id: subject.parentId,
-        child_ids: subject.childIds
+        parent_id: (subject.parentId ?? null) as any,
+        child_ids: (subject.childIds
           ? JSON.stringify(subject.childIds)
-          : undefined,
-        narrative: subject.narrative,
-        access_weight: subject.access_weight,
+          : null) as any,
+        narrative: (subject.narrative ?? null) as any,
+        access_weight: (subject.access_weight ?? null) as any,
       })
       .execute();
   }

@@ -21,6 +21,17 @@ import {
 } from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
 
+async function hashChunkId(chunkId: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(chunkId);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hashHex.substring(0, 16);
+}
+
 export async function indexDocument(
   r2Key: string,
   context: EngineContext
@@ -91,11 +102,9 @@ export async function indexDocument(
     if (foundSubjectId) {
       subjectId = foundSubjectId;
     } else {
-      // If no specific subject is found, create a default one for the document
-      if (!documentLevelSubjectId) {
-        documentLevelSubjectId = document.id;
-      }
-      subjectId = documentLevelSubjectId;
+      // If no specific subject is found for this chunk, create a new one.
+      // Generate a unique ID for the new subject based on the document and chunk.
+      subjectId = await hashChunkId(`subject:${document.id}:${chunk.id}`);
     }
 
     console.log(`[engine] Chunk ${chunk.id} assigned to subject: ${subjectId}`);
@@ -108,30 +117,94 @@ export async function indexDocument(
 
     if (!currentSubject) {
       // Create new subject
+      console.log(
+        `[engine] No subject found for chunk ${chunk.id}. Creating a new one.`
+      );
+
+      // Use plugin hook to generate a title from the chunk content
+      const newTitle = await runFirstMatchHook(
+        context.plugins,
+        "generateSubjectTitle",
+        (plugin) =>
+          plugin.subjects?.generateSubjectTitle?.({
+            text: chunk.content,
+            env: context.env,
+          })
+      );
+
+      if (!newTitle) {
+        console.error(
+          `[engine] No plugin could generate a title for new subject from chunk ${chunk.id}. Skipping subject creation for this chunk.`
+        );
+        // The chunk will still be indexed, but not associated with a new, specific subject.
+        // It will just have its own unique subjectId that points to nothing in the subject DB.
+        continue;
+      }
+
+      console.log(`[engine] Generated title for new subject: "${newTitle}"`);
+
       const newSubject: Subject = {
         id: subjectId,
-        title: document.metadata.title || r2Key, // Use document title for new subjects
+        title: newTitle,
         documentIds: [document.id],
+        narrative: chunk.content, // Initialize narrative with the first chunk's content
       };
       await putSubject(subjectDb, newSubject);
+      console.log(
+        `[engine] New subject ${subjectId} ("${newTitle}") created and stored.`
+      );
 
-      // Index the new subject's title for future lookups
+      // Index the new subject's narrative for future lookups
+      console.log(`[engine] Indexing new subject narrative in SUBJECT_INDEX.`);
       const embeddingResponse = (await context.env.AI.run(
         "@cf/baai/bge-base-en-v1.5",
-        { text: [newSubject.title] }
+        { text: [newSubject.narrative!] } // Embed the narrative
       )) as { data: number[][] };
       await context.env.SUBJECT_INDEX.insert([
         {
           id: subjectId,
           values: embeddingResponse.data[0],
-          metadata: { title: newSubject.title },
+          metadata: { title: newSubject.title }, // Keep title for readability
         },
       ]);
+      console.log(`[engine] Successfully indexed new subject ${subjectId}.`);
     } else {
-      // If subject exists, ensure this document is linked
+      console.log(
+        `[engine] Found existing subject for chunk ${chunk.id}: ${currentSubject.id} ("${currentSubject.title}")`
+      );
+      // If subject exists, append chunk content to its narrative and update vector
+      const updatedNarrative = `${currentSubject.narrative || ""}\n\n---\n\n${
+        chunk.content
+      }`;
+      currentSubject.narrative = updatedNarrative;
+
+      // Link document if not already linked
       if (!currentSubject.documentIds.includes(document.id)) {
-        await updateSubjectDocumentIds(subjectDb, subjectId, document.id);
+        currentSubject.documentIds.push(document.id);
+        console.log(
+          `[engine] Linking document ${document.id} to existing subject ${currentSubject.id}.`
+        );
       }
+
+      await putSubject(subjectDb, currentSubject);
+      console.log(`[engine] Updated subject ${currentSubject.id} in database.`);
+
+      // Re-embed and update the vector in the index
+      console.log(`[engine] Updating vector for subject ${currentSubject.id}.`);
+      const embeddingResponse = (await context.env.AI.run(
+        "@cf/baai/bge-base-en-v1.5",
+        { text: [updatedNarrative] }
+      )) as { data: number[][] };
+      await context.env.SUBJECT_INDEX.upsert([
+        {
+          id: currentSubject.id,
+          values: embeddingResponse.data[0],
+          metadata: { title: currentSubject.title },
+        },
+      ]);
+      console.log(
+        `[engine] Successfully updated vector for subject ${currentSubject.id}.`
+      );
     }
   }
 

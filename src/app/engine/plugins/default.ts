@@ -20,7 +20,7 @@ export const defaultPlugin: Plugin = {
     ): Promise<string | null> {
       const { text, env } = context;
       const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
-        text: [text],
+        text: [text], // We search using the new chunk's content
       })) as { data: number[][] };
 
       const vectors = embeddingResponse.data[0];
@@ -32,13 +32,27 @@ export const defaultPlugin: Plugin = {
 
       if (searchResults.matches.length > 0) {
         const topMatch = searchResults.matches[0];
-        if (topMatch.score > 0.8) {
-          // We have a confident match
+        // Increase threshold to require a stronger match, encouraging creation of new subjects.
+        if (topMatch.score > 0.85) {
           return topMatch.id;
         }
       }
 
       return null;
+    },
+    async generateSubjectTitle(context: SubjectSearchContext): Promise<string> {
+      const { text, env } = context;
+      const titlePrompt = `Analyze the following text from a document and generate a short, concise title (less than 10 words) that summarizes its core subject. Examples: "Bug: User login fails", "Feature: Add dark mode", "Refactor: API authentication". Do not include quotes in the title. Text: "${text.substring(
+        0,
+        1000
+      )}"`;
+
+      const titleResponse = (await env.AI.run("@cf/meta/llama-3-8b-instruct", {
+        prompt: titlePrompt,
+      })) as { response: string };
+
+      const newTitle = titleResponse.response.trim().replace(/"/g, "");
+      return newTitle;
     },
   },
 

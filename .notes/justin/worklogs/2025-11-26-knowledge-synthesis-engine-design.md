@@ -336,59 +336,44 @@ The implementation will follow a four-stage iterative plan. Each stage delivers 
 ### Iteration 1: The Skateboard (End-to-End Flat Graph)
 *   **Goal:** Build the thinnest, end-to-end slice of the system with unified logic for search and correlation.
 *   **Tasks:**
-    1.  **Foundations:** Define `Subject` model, modify `Document` & `ChunkMetadata` to include `subjectId`, set up `SubjectGraphDO`.
+    1.  **Foundations:** Define `Subject` model, modify `Document` & `ChunkMetadata` to include `subjectId`, set up `SubjectGraphDO` (now `SubjectDO`).
     2.  **Unified Logic:** Create a `subjects.findSubjectForText` hook (simple vector search).
-    3.  **Ingestion:** Use the hook to create single-level root Subjects.
+    3.  **Ingestion:** Use the hook to create single-level root Subjects. In this initial stage, if no subject is found, a new one is created using the document's ID as the subject's ID and the document's title as the subject's title.
     4.  **Linking:** Tag evidence chunks with `subjectId`.
-    5.  **Query:** Implement a simple two-stage filtered search on the main query endpoint.
-*   **Validation:** A working end-to-end system. Ingesting related documents correctly groups them. The `subjectId` for a query can be observed in worker logs, providing basic introspection.
-*   **Test Script:** `scripts/test-subjects-iteration1.sh`
-    *   **Fully automated E2E test:** Generates test data, uploads to R2, indexes, tests queries, and cleans up automatically.
-    *   **Usage:**
-        ```bash
-        # Just run it - no configuration needed!
-        ./scripts/test-subjects-iteration1.sh
-        ```
-    *   **What it does:**
-        1.  **Generates test data:** Creates three GitHub-format JSON files:
-            *   Related Issue: "Fix authentication bug in login flow"
-            *   Related PR: References the issue and closes it
-            *   Unrelated Issue: "Add dark mode theme support"
-        2.  **Uploads to R2:** Uses `wrangler r2 object put` to upload test files
-        3.  **Indexes documents:** Calls the indexing API for all three documents
-        4.  **Tests queries:** Runs queries to verify subject filtering
-        5.  **Cleans up:** Automatically deletes test files from R2
-    *   **What it validates:**
-        *   Related documents (issue + PR) are grouped under the same subject
-        *   Unrelated document gets a different subject
-        *   Query filtering by subjectId works correctly
-        *   Provides a validation checklist for manual log inspection
-    *   **Requirements:** `wrangler` CLI, `jq`, `API_KEY` in `.dev.vars`
+    5.  **Basic Introspection:** Add a `/rag/subjects` endpoint that can find a subject and return its basic data.
+*   **Validation:** Indexing a document creates a single corresponding subject. Querying the `/rag/subjects` endpoint with the document's title returns the created subject's data. Querying the main `/rag/query` endpoint correctly filters chunks by this subject ID.
 
-### Iteration 2: The Bicycle (Build the Hierarchy & Introspection)
-*   **Goal:** Evolve the ingestion pipeline to build a hierarchical graph and add a formal way to introspect it.
+### Iteration 2: The Bicycle (Content-Aware Subject Correlation)
+*   **Goal:** Evolve from a simple "one document, one subject" model to a content-aware system. The engine will now analyze incoming text to decide if it belongs to an existing subject or if a new one should be created, all without building a hierarchy yet.
 *   **Tasks:**
-    1.  **Upgrade Correlation:** Enhance the `findSubjectForText` hook with LLM reasoning to establish parent/child relationships.
-    2.  **Store Hierarchy:** Persist the `parentId`/`childIds` structure in the `SubjectGraphDO`.
-    3.  **Implement Introspection Endpoint:** Create a `GET /subjects` endpoint that takes a query, finds the relevant Subject, and returns the full graph data (ancestors, children) as JSON.
-*   **Validation:** Calling the introspection endpoint returns a JSON object showing the correct parent/child graph structure.
+    1.  **LLM-Powered Titles:** When `findSubjectForText` does not find a suitable existing subject for a chunk, use an LLM to generate a concise, descriptive title for a *new* subject based on that chunk's content.
+    2.  **Update Subject Creation:** The `indexDocument` logic will be modified to call the LLM for title generation when creating a new subject.
+    3.  **Update Subject Indexing:** The new, LLM-generated title will be embedded and inserted into the `SUBJECT_INDEX`, making future correlations more accurate.
+*   **Validation:**
+    *   Index a document about "user profile pages." A new subject should be created with an LLM-generated title like "Feature: User Profile Page."
+    *   Index a second, separate document about a "bug with profile pictures." The system should create a *second* distinct subject with a title like "Bug: Profile Picture Loading Issue."
+    *   The `/rag/subjects` endpoint should be able to find both new subjects based on their content.
 
-### Iteration 3: The Car (Enrich the Hierarchy with Summaries)
-*   **Goal:** With the hierarchy in place, add the "synthesis and promotion" logic to enrich the graph with high-level, AI-generated summaries.
+### Iteration 3: The Car (Build the Hierarchy)
+*   **Goal:** Evolve the ingestion pipeline to build a hierarchical graph.
+*   **Tasks:**
+    1.  **Upgrade Correlation:** Enhance the `findSubjectForText` hook with LLM reasoning to establish parent/child relationships when creating a new subject.
+    2.  **Store Hierarchy:** Persist the `parentId`/`childIds` structure in the `SubjectDO`.
+    3.  **Upgrade Introspection:** The `/rag/subjects` endpoint will now return the full graph data, including ancestors and children, by traversing the stored relationships.
+*   **Validation:** Calling the introspection endpoint for a child subject returns a JSON object showing the correct parent in its `ancestors` list.
+
+### Iteration 4: The Jet (Enrich the Hierarchy with Summaries & Advanced Querying)
+*   **Goal:** With the hierarchy in place, add "synthesis and promotion" logic and upgrade the query endpoint to its final form, capable of telling a chronological story and dynamically learning.
 *   **Tasks:**
     1.  **Implement Synthesis & Promotion Hook:** Create a hook that triggers when a Child Subject is "complete." It uses an LLM to generate a summary of the child's content and appends it to the `narrative` field of the Parent Subject.
-*   **Validation:** The introspection endpoint for a parent subject now shows a new piece of text in its narrative: the LLM-generated summary of its child's content.
-
-### Iteration 4: The Jet (Sophisticated, Dynamic, and Narrative Querying)
-*   **Goal:** Upgrade the main query endpoint to its final form, capable of telling a chronological story and dynamically learning from user interaction.
-*   **Tasks:**
-    1.  **Implement Intent Detection:** Add the `search` vs. `introspect` intent detection to the main query endpoint (which can now internally call the introspection logic from the Bicycle).
-    2.  **Implement "Spreading Activation" for `search`:** Implement the full three-stage "find, traverse, and synthesize" pipeline. The synthesis step must sort the path chronologically to create a timeline-based narrative.
-    3.  **Implement "Strengthening Pathways":** Add an `access_weight` property to Subjects and the logic to increment it on access. Use this weight in a `rerank` step to boost frequently used Subjects.
+    2.  **Implement Intent Detection:** Add `search` vs. `introspect` intent detection to the main query endpoint.
+    3.  **Implement "Spreading Activation" for `search`:** Implement the full "find, traverse, and synthesize" pipeline.
+    4.  **Implement "Strengthening Pathways":** Add an `access_weight` property to Subjects and the logic to increment it on access, using it to boost search results.
 *   **Validation:**
-    1.  The main query endpoint handles both `search` and `introspect` intents correctly.
-    2.  Narrative (`search`) queries produce a coherent, chronologically ordered story.
-    3.  Frequently accessed subjects are demonstrably preferred in search results.
+    1.  The introspection endpoint for a parent subject shows an LLM-generated summary from its child.
+    2.  The main query endpoint handles both `search` and `introspect` intents correctly.
+    3.  Narrative (`search`) queries produce a coherent, chronologically ordered story.
+    4.  Frequently accessed subjects are demonstrably preferred in search results.
 
 ## 16. Refining Granularity: From Document-Level to Chunk-Level Correlation
 
@@ -414,3 +399,17 @@ The workflow becomes:
 5.  The `Subject` object is updated to include the `documentId` of the chunk's parent document.
 
 This means a single `Document` can now contain chunks belonging to **multiple different Subjects**, accurately reflecting the flow of a complex conversation. This change is a natural progression toward the hierarchical "Bicycle" model, where different comments might logically form the basis for new child subjects.
+
+## 17. Architectural Refinement: Using a Narrative Corpus for Subject Correlation
+
+A key limitation was identified in the initial "Bicycle" design. The plan was to perform vector searches against the LLM-generated `title` of a subject. This approach is problematic because a short title is a very sparse signal for semantic search. It works for direct, obvious matches but is likely to fail when trying to correlate nuanced or indirectly related content. The signal-to-noise ratio is too low.
+
+To address this, the decision was made to enrich the data used for vector search.
+
+*   **Problem:** Subject `titles` alone are insufficient for accurate semantic correlation.
+*   **Solution:** Introduce a `narrative` field to the `Subject` model.
+    1.  **Corpus Building:** This field will store a continuously updated corpus of the subject's content. When a new chunk is assigned to a subject, its content is appended to the `narrative`.
+    2.  **Richer Vectors:** The vector search performed by `findSubjectForText` will now operate on embeddings of this rich `narrative` instead of just the title. The `title` is retained as human-readable metadata.
+    3.  **Future Scalability:** This design anticipates a future need for summarization. As the `narrative` grows, a summarization step can be introduced to keep the corpus size manageable and embedding costs low, without losing the semantic essence of the subject.
+
+This change significantly improves the foundation for correlation, making the system more likely to identify correct relationships between pieces of information before we even introduce explicit hierarchical logic.

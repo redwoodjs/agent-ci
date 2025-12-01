@@ -51,9 +51,9 @@ export interface Subject {
   id: string;
   title: string;
   documentIds: string[];
+  narrative?: string;
   parentId?: string;
   childIds?: string[];
-  narrative?: string;
   access_weight?: number;
 }
 
@@ -122,6 +122,7 @@ export interface Plugin {
     findSubjectForText?: (
       context: SubjectSearchContext
     ) => Promise<string | null>;
+    generateSubjectTitle?: (context: SubjectSearchContext) => Promise<string>;
   };
 }
 

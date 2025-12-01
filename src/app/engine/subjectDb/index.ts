@@ -27,20 +27,19 @@ export async function getSubject(
     title: row.title,
     documentIds: (row.document_ids as unknown as string[]) || [],
     parentId: row.parent_id || undefined,
-    childIds: (row.child_ids as unknown as string[] | undefined) || undefined,
-    narrative: row.narrative || undefined,
-    access_weight: row.access_weight || undefined,
+    childIds: (row.child_ids ? JSON.parse(row.child_ids) : undefined) as
+      | string[]
+      | undefined,
+    narrative: row.narrative ?? undefined,
+    access_weight: row.access_weight ?? undefined,
   };
 }
 
-export async function putSubject(
-  db: SubjectDb,
-  subject: Subject
-): Promise<void> {
+export async function putSubject(db: SubjectDb, subject: Subject) {
   const existing = await db
     .selectFrom("subjects")
-    .selectAll()
     .where("id", "=", subject.id)
+    .selectAll()
     .executeTakeFirst();
 
   if (existing) {
@@ -49,11 +48,13 @@ export async function putSubject(
       .set({
         title: subject.title,
         document_ids: JSON.stringify(subject.documentIds),
-        parent_id: subject.parentId || null,
-        child_ids: subject.childIds ? JSON.stringify(subject.childIds) : null,
-        narrative: subject.narrative || null,
-        access_weight: subject.access_weight || null,
-      } as any)
+        parent_id: subject.parentId,
+        child_ids: subject.childIds
+          ? JSON.stringify(subject.childIds)
+          : undefined,
+        narrative: subject.narrative,
+        access_weight: subject.access_weight,
+      })
       .where("id", "=", subject.id)
       .execute();
   } else {
@@ -63,11 +64,13 @@ export async function putSubject(
         id: subject.id,
         title: subject.title,
         document_ids: JSON.stringify(subject.documentIds),
-        parent_id: subject.parentId || null,
-        child_ids: subject.childIds ? JSON.stringify(subject.childIds) : null,
-        narrative: subject.narrative || null,
-        access_weight: subject.access_weight || null,
-      } as any)
+        parent_id: subject.parentId,
+        child_ids: subject.childIds
+          ? JSON.stringify(subject.childIds)
+          : undefined,
+        narrative: subject.narrative,
+        access_weight: subject.access_weight,
+      })
       .execute();
   }
 }
@@ -75,12 +78,18 @@ export async function putSubject(
 export async function updateSubjectDocumentIds(
   db: SubjectDb,
   subjectId: string,
-  documentId: string
-): Promise<void> {
+  newDocumentId: string
+) {
   const subject = await getSubject(db, subjectId);
-  if (subject && !subject.documentIds.includes(documentId)) {
-    subject.documentIds.push(documentId);
-    await putSubject(db, subject);
+  if (subject) {
+    const updatedDocumentIds = Array.from(
+      new Set([...subject.documentIds, newDocumentId])
+    );
+    await db
+      .updateTable("subjects")
+      .set({ document_ids: JSON.stringify(updatedDocumentIds) })
+      .where("id", "=", subjectId)
+      .execute();
   }
 }
 

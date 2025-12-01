@@ -316,31 +316,41 @@ The most critical decision was clarifying the data models and the necessity of t
 *   **Necessity of the Graph:** The hierarchical "fractal" model is the core of the entire design. The relationships (edges) are as important as the content (nodes). Therefore, it was concluded that the **graph model is necessary, not overkill**. It is the only way to efficiently perform the "reverse vector search" (find a leaf, then traverse up to the root) required to assemble multi-level context.
 *   **Pragmatic Graph Implementation:** To avoid premature complexity, a dedicated graph database (e.g., Neo4j) will not be used initially. The system will start with a **pragmatic graph implementation**: Subjects will be stored in a standard database (e.g., Cloudflare D1 or Durable Objects), with each `Subject` document containing explicit `parentId` and `childIds` fields. The traversal logic will be implemented in application code. This provides the benefits of graph-thinking without the immediate operational overhead of a new database technology.
 
-## 15. Final Iterative Implementation Plan (Unified Logic)
+## 15. Final Iterative Implementation Plan ("Skateboard -> Bicycle -> Car -> Jet")
 
-The implementation will follow a three-stage iterative "skateboard -> bicycle -> car" model, based on a "crappy-first, then decrapify" philosophy. It standardizes on the term `Document` and uses a single, unified logic for both correlating new documents and finding subjects for queries.
+The implementation will follow a four-stage iterative plan. Each stage delivers a complete, testable piece of functionality, progressively evolving the system from a simple prototype into a sophisticated engine.
 
-### Iteration 1: The Skateboard (End-to-End Flat Graph with Unified Logic)
+### Iteration 1: The Skateboard (End-to-End Flat Graph)
 *   **Goal:** Build the thinnest, end-to-end slice of the system with unified logic for search and correlation.
 *   **Tasks:**
-    1.  **Foundations:** Define the `Subject` model. Modify the existing `Document` and `ChunkMetadata` types to include an optional `subjectId`. Set up the `SubjectGraphDO`.
-    2.  **Unified Search/Correlation Logic:** Create a new, reusable hook: `subjects.findSubjectForText`. For the skateboard, this will be a simple vector search over an index of Subject titles/summaries.
-    3.  **Ingestion:** When a new `Document` is processed, call `findSubjectForText`. The initial rule will be simple: if no subject is found with a high enough score, create a new root Subject (using the `Document`'s own ID as the `subjectId`).
-    4.  **Linking:** Tag evidence chunks in the Evidence Locker with the `subjctId`.
-    5.  **Query:** The main query endpoint will call the *same* `findSubjectForText` hook to identify the relevant `subjectId` for the query, then perform a simple filtered search on the Evidence Locker.
-*   **Validation:** A working, end-to-end system. Ingesting two related documents correctly groups them, and a query provides a better, context-rich answer.
+    1.  **Foundations:** Define `Subject` model, modify `Document` & `ChunkMetadata` to include `subjectId`, set up `SubjectGraphDO`.
+    2.  **Unified Logic:** Create a `subjects.findSubjectForText` hook (simple vector search).
+    3.  **Ingestion:** Use the hook to create single-level root Subjects.
+    4.  **Linking:** Tag evidence chunks with `subjectId`.
+    5.  **Query:** Implement a simple two-stage filtered search on the main query endpoint.
+*   **Validation:** A working end-to-end system. Ingesting related documents correctly groups them. The `subjectId` for a query can be observed in worker logs, providing basic introspection.
 
-### Iteration 2: The Bicycle (Build and Enrich the Hierarchy)
-*   **Goal:** Evolve the unified logic to handle a hierarchical graph and enrich it with synthesized summaries.
+### Iteration 2: The Bicycle (Build the Hierarchy & Introspection)
+*   **Goal:** Evolve the ingestion pipeline to build a hierarchical graph and add a formal way to introspect it.
 *   **Tasks:**
-    1.  **Upgrade `findSubjectForText`:** Enhance the hook with LLM reasoning to now be able to establish parent/child relationships when processing a new `Document`.
-    2.  **Implement Synthesis & Promotion:** Create a hook that synthesizes a Child Subject's contents and promotes a summary to its Parent's narrative.
-*   **Validation:** We can ingest documents and see a correct parent/child graph structure being built in the DO. We can also see that the parent's narrative is being enriched with summaries from its children by inspecting the DO's state.
+    1.  **Upgrade Correlation:** Enhance the `findSubjectForText` hook with LLM reasoning to establish parent/child relationships.
+    2.  **Store Hierarchy:** Persist the `parentId`/`childIds` structure in the `SubjectGraphDO`.
+    3.  **Implement Introspection Endpoint:** Create a `GET /subjects` endpoint that takes a query, finds the relevant Subject, and returns the full graph data (ancestors, children) as JSON.
+*   **Validation:** Calling the introspection endpoint returns a JSON object showing the correct parent/child graph structure.
 
-### Iteration 3: The Car (Sophisticated, Intent-Driven Querying)
-*   **Goal:** Upgrade the query endpoint to its final, sophisticated form, capable of handling different user intents.
+### Iteration 3: The Car (Enrich the Hierarchy with Summaries)
+*   **Goal:** With the hierarchy in place, add the "synthesis and promotion" logic to enrich the graph with high-level, AI-generated summaries.
 *   **Tasks:**
-    1.  **Implement Intent Detection:** Add a preliminary LLM-based intent detection step (`search` vs. `introspect`) to the main query endpoint.
-    2.  **Handle `introspect` Intent:** If the intent is to introspect, the endpoint will use `findSubjectForText` to find the relevant Subject and then return the full graph data as JSON.
-    3.  **Implement "Spreading Activation" for `search` Intent:** If the intent is to search, replace the simple two-stage query with the full, three-stage "find, traverse, and synthesize" pipeline.
-*   **Validation:** The main query endpoint can now handle both narrative questions (returning a synthesized story) and introspection questions (returning raw graph data), demonstrating the complete vision.
+    1.  **Implement Synthesis & Promotion Hook:** Create a hook that triggers when a Child Subject is "complete." It uses an LLM to generate a summary of the child's content and appends it to the `narrative` field of the Parent Subject.
+*   **Validation:** The introspection endpoint for a parent subject now shows a new piece of text in its narrative: the LLM-generated summary of its child's content.
+
+### Iteration 4: The Jet (Sophisticated, Dynamic, and Narrative Querying)
+*   **Goal:** Upgrade the main query endpoint to its final form, capable of telling a chronological story and dynamically learning from user interaction.
+*   **Tasks:**
+    1.  **Implement Intent Detection:** Add the `search` vs. `introspect` intent detection to the main query endpoint (which can now internally call the introspection logic from the Bicycle).
+    2.  **Implement "Spreading Activation" for `search`:** Implement the full three-stage "find, traverse, and synthesize" pipeline. The synthesis step must sort the path chronologically to create a timeline-based narrative.
+    3.  **Implement "Strengthening Pathways":** Add an `access_weight` property to Subjects and the logic to increment it on access. Use this weight in a `rerank` step to boost frequently used Subjects.
+*   **Validation:**
+    1.  The main query endpoint handles both `search` and `introspect` intents correctly.
+    2.  Narrative (`search`) queries produce a coherent, chronologically ordered story.
+    3.  Frequently accessed subjects are demonstrably preferred in search results.

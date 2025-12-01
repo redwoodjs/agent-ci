@@ -63,13 +63,14 @@ export const defaultPlugin: Plugin = {
             source: document.source,
             content: currentChunk.join("\n"),
             metadata: {
-              ...document.metadata,
               chunkId,
               documentId: document.id,
               source: document.source,
               type: document.type,
               documentTitle: document.metadata.title,
+              author: document.metadata.author,
               jsonPath: "$.content",
+              sourceMetadata: document.metadata.sourceMetadata,
               subjectId: document.subjectId,
             },
           });
@@ -86,13 +87,14 @@ export const defaultPlugin: Plugin = {
           source: document.source,
           content: currentChunk.join("\n"),
           metadata: {
-            ...document.metadata,
             chunkId,
             documentId: document.id,
             source: document.source,
             type: document.type,
             documentTitle: document.metadata.title,
+            author: document.metadata.author,
             jsonPath: "$.content",
+            sourceMetadata: document.metadata.sourceMetadata,
             subjectId: document.subjectId,
           },
         });

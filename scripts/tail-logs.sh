@@ -35,6 +35,8 @@ else
   WORKER_NAME="machinen"
 fi
 
+echo "Tailing logs for $WORKER_NAME in environment ${CLOUDFLARE_ENV:-}"
+
 # Tail logs and format them nicely
 npx wrangler tail "$WORKER_NAME" --format=json --env "${CLOUDFLARE_ENV:-}" 2>&1 | \
   stdbuf -oL jq -r '

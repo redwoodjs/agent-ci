@@ -122,6 +122,11 @@ export class DiscordGatewayDO {
     try {
       // Fetch Gateway URL
       const gatewayInfo = await fetchGatewayURL();
+      console.log("[gateway-debug] gatewayInfo", gatewayInfo);
+      console.log(
+        "[gateway-debug] DO token prefix",
+        this.env.DISCORD_BOT_TOKEN?.slice(0, 10)
+      );
       const gatewayURL = gatewayInfo.url;
 
       // Connect to Gateway WebSocket
@@ -139,6 +144,7 @@ export class DiscordGatewayDO {
       // Create WebSocket connection
       // Cloudflare Workers support WebSocket connections from Durable Objects
       const wsURL = `${gatewayURL}?v=10&encoding=json`;
+      await this.debugGatewayHttp(wsURL);
       console.log(`[gateway] Creating WebSocket connection to ${wsURL}`);
       const ws = new WebSocket(wsURL);
 
@@ -187,6 +193,16 @@ export class DiscordGatewayDO {
       await this.saveState();
       throw error;
     }
+  }
+
+  private async debugGatewayHttp(url: string): Promise<void> {
+    const res = await fetch(url);
+    const text = await res.text();
+    console.log("[gateway-debug] HTTP gateway test", {
+      status: res.status,
+      statusText: res.statusText,
+      body: text,
+    });
   }
 
   private async handleMessage(data: string): Promise<void> {

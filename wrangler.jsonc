@@ -65,7 +65,7 @@
     },
     {
       "tag": "v8",
-      "new_classes": ["SubjectGraphDO"]
+      "new_sqlite_classes": ["SubjectGraphDO"]
     }
   ],
   "durable_objects": {

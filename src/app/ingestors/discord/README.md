@@ -106,14 +106,19 @@ wrangler secret put DISCORD_BOT_TOKEN
 
 ### 2. Configure Gateway Intents
 
-The Gateway connection requires specific intents to receive message and thread events. Enable the following intents in the [Discord Developer Portal](https://discord.com/developers/applications):
+The Gateway connection requires specific intents to receive message and thread events. Conceptually, the ingestor uses the following Gateway intents:
 
-- **GUILDS** (1 << 0): Required for guild/channel/thread information
-- **GUILD_MESSAGES** (1 << 9): Required for message events
-- **MESSAGE_CONTENT_INTENT** (1 << 15): Required to receive message content
-- **GUILD_MEMBERS** (1 << 1): Optional, for thread member updates
+- **GUILDS** (`1 << 0`): Required for guild/channel/thread information
+- **GUILD_MEMBERS** (`1 << 1`): Optional, for thread member updates
+- **GUILD_MESSAGES** (`1 << 9`): Required for message events
+- **MESSAGE_CONTENT** (`1 << 15`): Required to receive message content (shown in the UI as **Message Content Intent**)
 
-These intents are automatically configured in the Gateway connection code.
+In the [Discord Developer Portal](https://discord.com/developers/applications) under **Bot → Privileged Gateway Intents**, you should:
+
+- Turn **Message Content Intent** **ON** (maps to `MESSAGE_CONTENT`)
+- Optionally turn **Server Members Intent** **ON** if you want member / thread member updates (maps to `GUILD_MEMBERS`)
+
+These intents are automatically configured in the Gateway connection code; you only need to ensure the required privileged intents are enabled in the portal.
 
 ### 3. Start Backfill
 
@@ -364,11 +369,15 @@ The Discord ingestor supports a direct Gateway WebSocket connection to receive D
 
 1. **Discord Bot Setup:**
 
-   - Enable Gateway Intents in Discord Developer Portal:
-     - `MESSAGE_CONTENT_INTENT` (required to receive message content)
-     - `GUILD_MESSAGES` (required for message events)
-     - `GUILDS` (required for guild/channel information)
-     - `GUILD_MEMBERS` (optional, for thread member updates)
+   - In the [Discord Developer Portal](https://discord.com/developers/applications):
+     1. Open your application and go to **"Bot"** in the left sidebar.
+     2. Scroll down to the **"Privileged Gateway Intents"** section.
+     3. Under **Privileged Gateway Intents**, toggle:
+        - **Message Content Intent** – **must be ON** (this corresponds to the `MESSAGE_CONTENT` intent and is required for the ingestor to see message text).
+        - **Server Members Intent** – optional, turn **ON** if you want detailed member / thread member updates (this corresponds to the `GUILD_MEMBERS` intent).
+        - **Presence Intent** – generally **not required** for the Discord ingestor; leave **OFF** unless you specifically need presence updates.
+          The non-privileged gateway intents such as `GUILDS` and `GUILD_MESSAGES` do not appear here as toggles; they are enabled automatically when your bot connects.
+     4. Click **"Save Changes"** at the bottom of the page.
 
 2. **Environment Variables:**
    - `DISCORD_BOT_TOKEN`: Your Discord bot token (required)

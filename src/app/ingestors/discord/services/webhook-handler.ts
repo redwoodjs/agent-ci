@@ -130,6 +130,24 @@ const discordWebhookEventSchema = z.discriminatedUnion("t", [
   threadMembersUpdateSchema,
 ]);
 
+// Lightweight schema to detect basic Discord Gateway / webhook envelopes
+const baseDiscordEventSchema = z.object({
+  t: z.string().nullable(),
+  d: z.any(),
+});
+
+const SUPPORTED_EVENT_TYPES = new Set([
+  "MESSAGE_CREATE",
+  "MESSAGE_UPDATE",
+  "MESSAGE_DELETE",
+  "THREAD_CREATE",
+  "THREAD_UPDATE",
+  "THREAD_DELETE",
+  "THREAD_LIST_SYNC",
+  "THREAD_MEMBER_UPDATE",
+  "THREAD_MEMBERS_UPDATE",
+]);
+
 type DiscordWebhookEvent = z.infer<typeof discordWebhookEventSchema>;
 
 function getDailyR2Key(
@@ -400,7 +418,35 @@ export async function handleWebhookEvent(
   payload: unknown
 ): Promise<{ success: boolean; error?: string }> {
   try {
-    const event = discordWebhookEventSchema.parse(payload);
+    // First, make sure this looks like a Discord event and inspect the type
+    const base = baseDiscordEventSchema.safeParse(payload);
+
+    if (!base.success) {
+      console.warn(
+        "[webhook-handler] Received payload without valid Discord envelope, ignoring"
+      );
+      return { success: false, error: "Invalid Discord event envelope" };
+    }
+
+    const { t, d } = base.data;
+
+    if (!t) {
+      console.warn(
+        "[webhook-handler] Received Discord event without type 't', ignoring"
+      );
+      return { success: false, error: "Missing event type 't'" };
+    }
+
+    if (!SUPPORTED_EVENT_TYPES.has(t)) {
+      // This is expected for many Gateway events (e.g. GUILD_CREATE, PRESENCE_UPDATE, etc.)
+      console.log(
+        `[webhook-handler] Ignoring unsupported Discord event type: ${t}`
+      );
+      return { success: true };
+    }
+
+    // Now that we know it's a supported type, run full validation
+    const event = discordWebhookEventSchema.parse({ t, d });
 
     switch (event.t) {
       case "MESSAGE_CREATE":

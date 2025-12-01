@@ -23,8 +23,7 @@
     "check": "npm run generate && npm run types",
     "types": "tsc",
     "prepare": "vibe-rules install cursor",
-    "build:mcp-server": "tsx scripts/build-mcp-server.ts",
-    "deploy": "rw-scripts ensure-deploy-env && npm run clean && RWSDK_DEPLOY=1 npm run build && wrangler deploy"
+    "build:mcp-server": "tsx scripts/build-mcp-server.ts"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.38",

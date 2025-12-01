@@ -17,26 +17,31 @@ See the [worklog](../.notes/justin/worklogs/2025-11-09-rag-engine-poc-design.md)
 
 By default, all scripts and commands target production. To use a personal development environment:
 
-1. **Set `MACHINEN_ENV` in `.dev.vars`:**
+1. **Set `CLOUDFLARE_ENV` in `.dev.vars` for deployment:**
+   ```bash
+   CLOUDFLARE_ENV="dev-justin"
+   ```
+
+2. **Set `MACHINEN_ENV` in `.dev.vars` for scripts:**
    ```bash
    MACHINEN_ENV="dev-justin"
    ```
 
-2. **Deploy to your personal environment:**
+3. **Deploy to your personal environment:**
    ```bash
-   npm run deploy -- --env dev-justin
+   pnpm release
+   # Uses CLOUDFLARE_ENV from .dev.vars
    ```
 
-3. **Query your environment:**
+4. **Query your environment:**
    ```bash
    ./scripts/query.sh "your query"
    # Automatically uses the environment from MACHINEN_ENV
    ```
 
 **Supported values:**
-- `local`: (Default) Targets `http://localhost:8787` for local development
-- `dev-<name>`: Targets your personal staging worker (e.g., `dev-justin`)
-- `production`: Targets the production worker
+- `CLOUDFLARE_ENV`: Matches environment names in `wrangler.jsonc` (e.g., `dev-justin`, `production`)
+- `MACHINEN_ENV`: `local` (default, targets localhost), `dev-<name>`, or `production`
 
 **R2 Event Fan-out:** Configure the production R2 bucket to send event notifications to all developer environments. This allows each developer's staging environment to receive live data for end-to-end testing.
 

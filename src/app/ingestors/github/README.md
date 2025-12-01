@@ -73,7 +73,8 @@ The GitHub ingestor includes a backfill mechanism to ingest historical data from
 
    **Note**: Deploy to your personal environment using:
    ```bash
-   npm run deploy -- --env dev-justin
+   # Set CLOUDFLARE_ENV="dev-justin" in .dev.vars
+   pnpm release
    ```
 
 ### Usage

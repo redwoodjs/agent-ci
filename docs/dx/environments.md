@@ -24,11 +24,11 @@ name = "machinen"
 
 To add a new developer, simply add a new `[env.dev-yourname]` section.
 
-## 2. The `MACHINEN_ENV` Convention
+## 2. The `MACHINEN_ENV` Convention (for Scripts)
 
-All local scripts and deployment commands are controlled by the `MACHINEN_ENV` environment variable.
+Local scripts (like `query.sh`) use `MACHINEN_ENV` to determine which worker URL to target.
 
-- **Set it in `.dev.vars`:** This is the primary way to set your default target environment.
+- **Set it in `.dev.vars`:**
   ```.dev.vars
   MACHINEN_ENV="dev-justin"
   ```
@@ -37,22 +37,42 @@ All local scripts and deployment commands are controlled by the `MACHINEN_ENV` e
   - `dev-<name>`: Targets your personal staging worker (e.g., `dev-justin`).
   - `production`: Targets the production worker.
 
-## 3. How to Deploy
+## 3. The `CLOUDFLARE_ENV` Convention (for Deployment)
 
-The `deploy` script in `package.json` uses the `--env` flag to target a specific environment defined in `wrangler.jsonc`.
+Deployment targets are controlled by the `CLOUDFLARE_ENV` environment variable, which is used by Cloudflare's RedwoodSDK plugin.
+
+- **Set it in `.dev.vars`:** This is the primary way to set your default target environment.
+  ```.dev.vars
+  CLOUDFLARE_ENV="dev-justin"
+  ```
+- **Supported Values:** Match the environment names in `wrangler.jsonc`:
+  - `dev-justin`: Targets your personal staging worker
+  - `production`: Targets the production worker
+  - (omitted): Uses default/base configuration
+
+## 4. How to Deploy
+
+The `release` script in `package.json` uses `CLOUDFLARE_ENV` to target a specific environment defined in `wrangler.jsonc`.
 
 - **Deploy to your personal environment:**
   ```bash
-  npm run deploy -- --env dev-justin
+  # Set in .dev.vars: CLOUDFLARE_ENV="dev-justin"
+  pnpm release
   ```
 
 - **Deploy to production:**
   ```bash
-  npm run deploy -- --env production
+  # Set in .dev.vars: CLOUDFLARE_ENV="production"
+  pnpm release
   ```
   *(Note: This should be done with care, likely via a CI/CD pipeline in the future).*
 
-## 4. How to Query
+- **Override for one-off deployments:**
+  ```bash
+  CLOUDFLARE_ENV="dev-justin" pnpm release
+  ```
+
+## 5. How to Query
 
 The `scripts/query.sh` script now automatically targets the environment specified by `MACHINEN_ENV`.
 
@@ -73,7 +93,7 @@ The `scripts/query.sh` script now automatically targets the environment specifie
   # Query: is the system stable?
   ```
 
-## 5. R2 Event Notifications (Fan-out)
+## 6. R2 Event Notifications (Fan-out)
 
 The final piece is to configure the production R2 bucket to send event notifications to **all** active developer environments.
 

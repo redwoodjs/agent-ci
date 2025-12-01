@@ -12,7 +12,13 @@ import type {
 } from "./types";
 import { createDb, type Database } from "rwsdk/db";
 import type { SubjectDO } from "./subjectDb/durableObject";
-import { getSubject, putSubject, updateSubjectDocumentIds } from "./subjectDb";
+import {
+  getSubject,
+  putSubject,
+  updateSubjectDocumentIds,
+  getSubjectAncestors,
+  getSubjectChildren,
+} from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
 
 export async function indexDocument(
@@ -195,9 +201,14 @@ export async function query(
   // Add subjectId filter if we found one
   if (subjectId) {
     filterClauses.push({ subjectId });
+    console.log(`[query] Added subjectId filter: ${subjectId}`);
   }
 
-  console.log(`[query] Step 4: Performing vector search`);
+  console.log(
+    `[query] Step 4: Performing vector search with filters: ${JSON.stringify(
+      filterClauses
+    )}`
+  );
   const searchResults = await performVectorSearch(
     processedQuery,
     filterClauses,
@@ -296,6 +307,61 @@ export async function query(
   );
 
   return formattedResponse;
+}
+
+export async function findSubjectByQuery(
+  queryText: string,
+  context: EngineContext
+): Promise<Subject | null> {
+  const subjectId = await runFirstMatchHook(
+    context.plugins,
+    "findSubjectForText",
+    (plugin) =>
+      plugin.subjects?.findSubjectForText?.({
+        text: queryText,
+        env: context.env,
+      })
+  );
+
+  if (!subjectId) {
+    return null;
+  }
+
+  type SubjectDatabase = Database<typeof subjectMigrations>;
+  const subjectDb = createDb<SubjectDatabase>(
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    "subject-graph"
+  );
+
+  return await getSubject(subjectDb, subjectId);
+}
+
+export async function getSubjectGraphForQuery(
+  queryText: string,
+  context: EngineContext
+) {
+  const subject = await findSubjectByQuery(queryText, context);
+
+  if (!subject) {
+    return null;
+  }
+
+  type SubjectDatabase = Database<typeof subjectMigrations>;
+  const subjectDb = createDb<SubjectDatabase>(
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    "subject-graph"
+  );
+
+  const [ancestors, children] = await Promise.all([
+    getSubjectAncestors(subjectDb, subject.id),
+    getSubjectChildren(subjectDb, subject.id),
+  ]);
+
+  return {
+    subject,
+    ancestors,
+    children,
+  };
 }
 
 async function reconstructContexts(

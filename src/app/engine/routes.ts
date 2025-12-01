@@ -6,7 +6,7 @@ import {
   rateLimitQuery,
   validateQueryInput,
 } from "./interruptors";
-import { query, createEngineContext } from "./index";
+import { query, getSubjectGraphForQuery, createEngineContext } from "./index";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
@@ -39,6 +39,36 @@ async function queryHandler({ request, ctx }: RequestInfo) {
     return Response.json(
       {
         error: "Failed to process query",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function getSubjectGraphHandler({ request, ctx }: RequestInfo) {
+  const queryText = new URL(request.url).searchParams.get("query");
+  if (!queryText) {
+    return Response.json({ error: "Missing 'query' parameter" }, { status: 400 });
+  }
+
+  const context = createEngineContext(env as Cloudflare.Env, "querying");
+  try {
+    console.log(`[subjects] Getting subject graph for query: "${queryText}"`);
+    const graph = await getSubjectGraphForQuery(queryText, context);
+    if (!graph) {
+      return Response.json({ error: "Subject not found" }, { status: 404 });
+    }
+    console.log(`[subjects] Subject graph found successfully`);
+    return Response.json(graph);
+  } catch (error) {
+    console.error(
+      `[subjects] Error getting subject graph: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return Response.json(
+      {
+        error: "Failed to get subject graph",
       },
       { status: 500 }
     );
@@ -183,6 +213,9 @@ export const routes = [
       queryHandler,
     ],
     get: [requireQueryApiKey, rateLimitQuery, validateQueryInput, queryHandler],
+  }),
+  route("/subjects", {
+    get: [requireQueryApiKey, getSubjectGraphHandler],
   }),
   route("/admin/index", {
     post: [requireQueryApiKey, indexHandler],

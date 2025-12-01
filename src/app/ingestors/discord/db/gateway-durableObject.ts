@@ -139,6 +139,7 @@ export class DiscordGatewayDO {
       // Create WebSocket connection
       // Cloudflare Workers support WebSocket connections from Durable Objects
       const wsURL = `${gatewayURL}?v=10&encoding=json`;
+      console.log(`[gateway] Creating WebSocket connection to ${wsURL}`);
       const ws = new WebSocket(wsURL);
 
       // Set up event handlers before assigning to this.ws
@@ -156,8 +157,18 @@ export class DiscordGatewayDO {
         }
       });
 
-      ws.addEventListener("error", (error) => {
-        console.error("[gateway] WebSocket error:", error);
+      ws.addEventListener("error", (event) => {
+        const target = event.target as WebSocket | null;
+        const anyEvent = event as any;
+
+        console.error("[gateway] WebSocket error", {
+          type: event.type,
+          url: wsURL,
+          readyState: target?.readyState,
+          // Some runtimes put a message/error on the event
+          message: anyEvent?.message,
+          error: anyEvent?.error,
+        });
         this.handleDisconnect();
       });
 

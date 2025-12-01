@@ -341,18 +341,97 @@
           }
         ]
       }
+    },
+    "dev-justin": {
+      "name": "machinen-dev-justin",
+      "vectorize": [
+        {
+          "binding": "VECTORIZE_INDEX",
+          "index_name": "rag-index-dev-justin",
+          "remote": true
+        },
+        {
+          "binding": "SUBJECT_INDEX",
+          "index_name": "subject-index-dev-justin"
+        }
+      ],
+      "queues": {
+        "producers": [
+          {
+            "queue": "github-scheduler-queue-dev-justin",
+            "binding": "SCHEDULER_QUEUE"
+          },
+          {
+            "queue": "github-processor-queue-dev-justin",
+            "binding": "PROCESSOR_QUEUE"
+          },
+          {
+            "queue": "engine-indexing-queue-dev-justin",
+            "binding": "ENGINE_INDEXING_QUEUE"
+          },
+          {
+            "queue": "r2-file-update-queue-dev-justin",
+            "binding": "R2_FILE_UPDATE_QUEUE"
+          },
+          {
+            "queue": "discord-scheduler-queue-dev-justin",
+            "binding": "DISCORD_SCHEDULER_QUEUE"
+          },
+          {
+            "queue": "discord-processor-queue-dev-justin",
+            "binding": "DISCORD_PROCESSOR_QUEUE"
+          }
+        ],
+        "consumers": [
+          {
+            "queue": "github-scheduler-queue-dev-justin",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "github-processor-queue-dev-justin",
+            "max_batch_size": 100,
+            "max_batch_timeout": 30,
+            "dead_letter_queue": "github-processor-queue-dev-justin-dlq",
+            "max_retries": 3
+          },
+          {
+            "queue": "github-processor-queue-dev-justin-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "engine-indexing-queue-dev-justin",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "r2-file-update-queue-dev-justin",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "discord-scheduler-queue-dev-justin",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "discord-processor-queue-dev-justin",
+            "max_batch_size": 100,
+            "max_batch_timeout": 30,
+            "dead_letter_queue": "discord-processor-queue-dev-justin-dlq",
+            "max_retries": 3
+          },
+          {
+            "queue": "discord-processor-queue-dev-justin-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          }
+        ]
+      }
+    },
+    "production": {
+      "name": "machinen"
     }
-  },
-  "do_bindings": [
-    {
-      "binding": "SUBJECT_GRAPH_DO",
-      "class_name": "SubjectGraphDO"
-    }
-  ]
+  }
 }
-
-[env.dev-justin]
-name = "machinen-dev-justin"
-
-[env.production]
-name = "machinen"

@@ -13,6 +13,35 @@ See the [worklog](../.notes/justin/worklogs/2025-11-09-rag-engine-poc-design.md)
 
 ## Setup
 
+### 0. Development Environments
+
+By default, all scripts and commands target production. To use a personal development environment:
+
+1. **Set `MACHINEN_ENV` in `.dev.vars`:**
+   ```bash
+   MACHINEN_ENV="dev-justin"
+   ```
+
+2. **Deploy to your personal environment:**
+   ```bash
+   npm run deploy -- --env dev-justin
+   ```
+
+3. **Query your environment:**
+   ```bash
+   ./scripts/query.sh "your query"
+   # Automatically uses the environment from MACHINEN_ENV
+   ```
+
+**Supported values:**
+- `local`: (Default) Targets `http://localhost:8787` for local development
+- `dev-<name>`: Targets your personal staging worker (e.g., `dev-justin`)
+- `production`: Targets the production worker
+
+**R2 Event Fan-out:** Configure the production R2 bucket to send event notifications to all developer environments. This allows each developer's staging environment to receive live data for end-to-end testing.
+
+See `docs/dx/environments.md` for detailed information on the multi-environment setup.
+
 ### 1. Configure Vectorize Index
 
 Create a Vectorize index with the appropriate dimensions for your embedding model:
@@ -161,6 +190,16 @@ await env.ENGINE_INDEXING_QUEUE.send({
 You can manually trigger indexing for a single file using the `/admin/index` endpoint:
 
 ```bash
+# Uses the environment from MACHINEN_ENV (or defaults to local)
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
+  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/index"
+```
+
+Or use the full URL directly:
+```bash
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
@@ -234,7 +273,13 @@ The backfill process:
 
 ### Querying
 
-Query the RAG engine via the `/rag/query` endpoint:
+Query the RAG engine via the `/rag/query` endpoint. The `scripts/query.sh` script automatically uses your `MACHINEN_ENV` setting:
+
+```bash
+./scripts/query.sh "your query"
+```
+
+Or use curl directly:
 
 **GET request:**
 

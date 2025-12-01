@@ -113,8 +113,19 @@ wrangler secret put DISCORD_BOT_TOKEN
 
 Trigger a backfill for a Discord channel:
 
+**For local development:**
 ```bash
 curl -X POST http://localhost:5173/ingest/discord/backfill \
+  -H "Content-Type: application/json" \
+  -d '{
+    "guildID": "679514959968993311",
+    "channelID": "1307974274145062912"
+  }'
+```
+
+**For production or personal dev environment:**
+```bash
+curl -X POST https://machinen.redwoodjs.workers.dev/ingestors/discord/backfill \
   -H "Content-Type: application/json" \
   -d '{
     "guildID": "679514959968993311",
@@ -137,7 +148,11 @@ Response:
 Query the backfill status:
 
 ```bash
+# Local development
 curl "http://localhost:5173/ingest/discord/backfill/status?guildID=679514959968993311&channelID=1307974274145062912"
+
+# Production or personal dev environment
+curl "https://machinen.redwoodjs.workers.dev/ingestors/discord/backfill/status?guildID=679514959968993311&channelID=1307974274145062912"
 ```
 
 Response:
@@ -169,7 +184,16 @@ Status values:
 Manually pause a running backfill:
 
 ```bash
+# Local development
 curl -X POST http://localhost:5173/ingest/discord/backfill/pause \
+  -H "Content-Type: application/json" \
+  -d '{
+    "guildID": "679514959968993311",
+    "channelID": "1307974274145062912"
+  }'
+
+# Production or personal dev environment
+curl -X POST https://machinen.redwoodjs.workers.dev/ingestors/discord/backfill/pause \
   -H "Content-Type: application/json" \
   -d '{
     "guildID": "679514959968993311",
@@ -189,7 +213,7 @@ Response:
 
 ### 5. Manually Index a Discord File
 
-To manually trigger vectorization for a specific Discord file:
+To manually trigger vectorization for a specific Discord file, use the RAG engine's indexing endpoint:
 
 ```bash
 # Index a channel's daily messages
@@ -197,15 +221,17 @@ curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/679514959968993311/1307974274145062912/2024-11-04.jsonl"}' \
-  "http://localhost:5173/rag/admin/index"
+  "https://machinen.redwoodjs.workers.dev/rag/admin/index"
 
 # Index a thread
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/679514959968993311/1307974274145062912/threads/111222333/latest.json"}' \
-  "http://localhost:5173/rag/admin/index"
+  "https://machinen.redwoodjs.workers.dev/rag/admin/index"
 ```
+
+See the [Engine README](../engine/README.md) for information on using personal development environments.
 
 Response:
 

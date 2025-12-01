@@ -31,6 +31,23 @@ if [ -f "$PROJECT_ROOT/.dev.vars" ]; then
   fi
 fi
 
+# ==============================================================================
+# Environment Configuration
+# ==============================================================================
+# Determine target environment from MACHINEN_ENV
+# Precedence: CLI arg -> MACHINEN_ENV -> default (local)
+
+# Default to local if not set
+MACHINEN_ENV="${MACHINEN_ENV:-local}"
+
+# Allow overriding with a command-line argument for one-off commands
+if [[ "$1" == "--env" && -n "$2" ]]; then
+  MACHINEN_ENV="$2"
+  # Shift arguments so the rest of the script sees the query etc.
+  shift 2
+fi
+
+
 # Parse positional arguments
 QUERY="${1:-}"
 # Detect if second argument is URL/port or API key
@@ -45,7 +62,22 @@ else
 fi
 
 API_KEY="${CLI_API_KEY:-${API_KEY}}"
-WORKER_URL="${CLI_WORKER_URL:-${WORKER_URL:-https://machinen.redwoodjs.workers.dev}}"
+
+# Set WORKER_URL based on MACHINEN_ENV, unless overridden by CLI arg
+case "$MACHINEN_ENV" in
+  "dev-justin")
+    WORKER_URL_ENV="https://machinen-dev-justin.redwoodjs.workers.dev"
+    ;;
+  "production")
+    WORKER_URL_ENV="https://machinen.redwoodjs.workers.dev"
+    ;;
+  "local"|*)
+    WORKER_URL_ENV="http://localhost:8787"
+    ;;
+esac
+
+# CLI-provided URL always takes precedence
+WORKER_URL="${CLI_WORKER_URL:-${WORKER_URL_ENV}}"
 
 # Normalize WORKER_URL shorthand
 if [[ "$WORKER_URL" =~ ^:[0-9]+$ ]]; then
@@ -70,7 +102,8 @@ if [ -z "$API_KEY" ]; then
   exit 1
 fi
 
-echo "Querying: $QUERY"
+echo "Querying environment: $MACHINEN_ENV ($WORKER_URL)"
+echo "Query: $QUERY"
 echo ""
 
 RESPONSE=$(curl -s -X POST \

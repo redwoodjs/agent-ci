@@ -48,8 +48,6 @@ The data uses a hybrid storage approach optimized for different use cases:
 
 - **Thread Pages**: Each thread maintains its own `latest.json` file containing the starter message followed by all thread replies in chronological order. This represents the complete thread conversation as a single, denormalized document suitable for RAG system ingestion.
 
-- **History Tracking (Threads Only)**: Versioning is handled by storing diffs for threads only. For each thread, a `history/` subdirectory is maintained. When an update occurs, the system generates a JSON diff of the changes and stores it as a timestamped file, creating an audit trail of thread modifications.
-
 ### 2. A "Latest State" Ingestion Model
 
 The system fetches the full, current state of each channel or thread from the Discord API when processing.
@@ -75,7 +73,6 @@ The R2 storage structure uses a hybrid approach:
 ```
 discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl
 discord/{guildID}/{channelID}/threads/{threadID}/latest.json
-discord/{guildID}/{channelID}/threads/{threadID}/history/{timestamp}.json
 ```
 
 **Channel JSONL files** (one per day):
@@ -93,12 +90,6 @@ discord/{guildID}/{channelID}/threads/{threadID}/history/{timestamp}.json
 - Complete chronologically-ordered thread reply array
 - Each message includes: ID, timestamp, author, content, attachments, reactions
 
-**Thread history diff files**:
-
-- Timestamp of the change
-- Structured diff showing what changed between previous and current state
-- Only created when actual changes are detected in threads
-
 ## Backfill Process
 
 The backfill process for a Discord channel proceeds as follows:
@@ -112,10 +103,10 @@ The backfill process for a Discord channel proceeds as follows:
    - Enqueues thread processor jobs for each thread
 4. Processor queue consumes jobs:
    - Channel processor: Fetches all messages, groups by day, generates daily JSONL files
-   - Thread processor: Fetches thread messages including starter, generates `latest.json`, stores diffs
+   - Thread processor: Fetches thread messages including starter, generates `latest.json`
 5. On completion, backfill state updates to `completed`
 6. On error after retries, job moves to DLQ and backfill pauses
 
 The system can be paused and resumed at any point, continuing from the last recorded cursor position.
 
-**Note**: Channel daily JSONL files are completely regenerated on each backfill. Only thread `latest.json` files track incremental changes with history diffs.
+**Note**: Channel daily JSONL files and thread `latest.json` files are completely regenerated on each backfill based on the latest state from Discord.

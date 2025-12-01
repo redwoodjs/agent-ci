@@ -35,6 +35,7 @@ export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durabl
 export { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
 export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
 export { DiscordWebhookBatcherDO } from "@/app/ingestors/discord/db/webhook-batcher-durableObject";
+export { DiscordGatewayDO } from "@/app/ingestors/discord/db/gateway-durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";

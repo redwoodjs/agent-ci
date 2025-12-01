@@ -1,8 +1,7 @@
 import { env } from "cloudflare:workers";
 import type { components } from "../discord-api-types";
 import { fetchThreadMessages, fetchDiscordEntity } from "../utils/discord-api";
-import { threadToJson, parseThreadFromJson } from "../utils/thread-to-json";
-import { generateDiff } from "../utils/diff";
+import { threadToJson } from "../utils/thread-to-json";
 
 type DiscordMessage = components["schemas"]["MessageResponse"];
 
@@ -12,15 +11,6 @@ function getLatestR2Key(
   threadID: string
 ): string {
   return `discord/${guildID}/${channelID}/threads/${threadID}/latest.json`;
-}
-
-function getHistoryR2Key(
-  guildID: string,
-  channelID: string,
-  threadID: string,
-  timestampForFilename: string
-): string {
-  return `discord/${guildID}/${channelID}/threads/${threadID}/history/${timestampForFilename}.json`;
 }
 
 export async function processThreadEvent(
@@ -70,20 +60,6 @@ export async function processThreadEvent(
 
   const now = new Date().toISOString();
 
-  const existingLatestJson = await env.MACHINEN_BUCKET.get(latestR2Key);
-  let oldThread: { starterMessage: DiscordMessage; messages: DiscordMessage[] } | null = null;
-
-  if (existingLatestJson) {
-    const jsonText = await existingLatestJson.text();
-    oldThread = await parseThreadFromJson(jsonText);
-  }
-
-  const diff = generateDiff(
-    oldThread as unknown as Record<string, unknown> | null,
-    { starterMessage, messages: threadMessages } as unknown as Record<string, unknown>
-  );
-  const hasChanges = diff !== null && Object.keys(diff.changes).length > 0;
-
   const versionHash = `${threadID}-${now}-${threadMessages.length}`;
   const encoder = new TextEncoder();
   const hashBuffer = await crypto.subtle.digest(
@@ -113,17 +89,6 @@ export async function processThreadEvent(
   );
 
   await env.MACHINEN_BUCKET.put(latestR2Key, JSON.stringify(json, null, 2));
-
-  if (hasChanges && diff) {
-    const historyR2Key = getHistoryR2Key(
-      guildID,
-      channelID,
-      threadID,
-      diff.timestampForFilename
-    );
-    await env.MACHINEN_BUCKET.put(historyR2Key, JSON.stringify(diff, null, 2));
-    console.log(`[thread-processor] Stored history diff for thread ${threadID}`);
-  }
 
   console.log(
     `[thread-processor] Processed thread ${threadID}: ${threadMessages.length} messages`

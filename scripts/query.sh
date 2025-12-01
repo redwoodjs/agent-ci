@@ -15,14 +15,18 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Load MACHINEN_ENV and API_KEY from .dev.vars
 if [ -f "$PROJECT_ROOT/.dev.vars" ]; then
   # Preserve existing environment variables before sourcing .dev.vars
   # Save API_KEY if it exists
   SAVED_API_KEY="${API_KEY:-}"
   
   set -a
-  # Filter out comments and lines without =
-  source <(grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep '=')
+  # Create a temp file with filtered vars and source it (same method as tail-logs.sh)
+  TEMP_VARS=$(mktemp)
+  grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep '=' > "$TEMP_VARS"
+  source "$TEMP_VARS"
+  rm "$TEMP_VARS"
   set +a
   
   # Restore API_KEY if it was set in the environment before sourcing

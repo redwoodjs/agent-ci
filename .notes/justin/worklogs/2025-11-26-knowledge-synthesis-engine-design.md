@@ -326,7 +326,7 @@ The implementation will follow a three-stage iterative "skateboard -> bicycle ->
     1.  **Foundations:** Define the `Subject` model. Modify the existing `Document` and `ChunkMetadata` types to include an optional `subjectId`. Set up the `SubjectGraphDO`.
     2.  **Unified Search/Correlation Logic:** Create a new, reusable hook: `subjects.findSubjectForText`. For the skateboard, this will be a simple vector search over an index of Subject titles/summaries.
     3.  **Ingestion:** When a new `Document` is processed, call `findSubjectForText`. The initial rule will be simple: if no subject is found with a high enough score, create a new root Subject (using the `Document`'s own ID as the `subjectId`).
-    4.  **Linking:** Tag evidence chunks in the Evidence Locker with the `subjectId`.
+    4.  **Linking:** Tag evidence chunks in the Evidence Locker with the `subjctId`.
     5.  **Query:** The main query endpoint will call the *same* `findSubjectForText` hook to identify the relevant `subjectId` for the query, then perform a simple filtered search on the Evidence Locker.
 *   **Validation:** A working, end-to-end system. Ingesting two related documents correctly groups them, and a query provides a better, context-rich answer.
 

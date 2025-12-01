@@ -37,26 +37,51 @@ export async function indexDocument(
 
   // Find or create subject for this document
   console.log(`[engine] Finding subject for document`);
-  const foundSubjectId = await runFirstMatchHook(
-    context.plugins,
-    "findSubjectForText",
-    (plugin) =>
-      plugin.findSubjectForText?.({
-        text: document.metadata.title || document.content.substring(0, 200),
-        env: context.env,
-      })
-  );
 
-  // If no subject found, create a new one
-  const subjectId = foundSubjectId || document.id;
+  // Check if this is an update: look for existing subject with this document ID
+  // For the Skateboard, we check if a subject exists with ID = document.id
+  // (since we use document.id as fallback subjectId)
+  const fallbackSubjectStub = context.env.SUBJECT_GRAPH_DO.get(
+    context.env.SUBJECT_GRAPH_DO.idFromName(document.id)
+  );
+  const existingSubject = await fallbackSubjectStub.getSubject(document.id);
+
+  let subjectId: string;
+  if (existingSubject && existingSubject.documentIds.includes(document.id)) {
+    // Document update: reuse the existing subject
+    subjectId = existingSubject.id;
+    console.log(
+      `[engine] Document update detected, reusing subject: ${subjectId}`
+    );
+  } else {
+    // New document: search for relevant subject or create new one
+    const foundSubjectId = await runFirstMatchHook(
+      context.plugins,
+      "findSubjectForText",
+      (plugin) =>
+        plugin.findSubjectForText?.({
+          text: document.metadata.title || document.content.substring(0, 200),
+          env: context.env,
+        })
+    );
+
+    // If no subject found, create a new one using document.id as subjectId
+    subjectId = foundSubjectId || document.id;
+    console.log(
+      `[engine] ${foundSubjectId ? "Found" : "Creating"} subject: ${subjectId}`
+    );
+  }
+
   document.subjectId = subjectId;
 
-  if (!foundSubjectId) {
-    console.log(`[engine] Creating new subject: ${subjectId}`);
+  // Get or create the subject
+  const subjectStub = context.env.SUBJECT_GRAPH_DO.get(
+    context.env.SUBJECT_GRAPH_DO.idFromName(subjectId)
+  );
+  const currentSubject = await subjectStub.getSubject(subjectId);
+
+  if (!currentSubject) {
     // Create new subject in DO
-    const subjectStub = context.env.SUBJECT_GRAPH_DO.get(
-      context.env.SUBJECT_GRAPH_DO.idFromName(subjectId)
-    );
     const newSubject: Subject = {
       id: subjectId,
       title: document.metadata.title || r2Key,
@@ -79,12 +104,10 @@ export async function indexDocument(
       },
     ]);
   } else {
-    console.log(`[engine] Found existing subject: ${subjectId}`);
-    // Update existing subject to include this document
-    const subjectStub = context.env.SUBJECT_GRAPH_DO.get(
-      context.env.SUBJECT_GRAPH_DO.idFromName(subjectId)
-    );
-    await subjectStub.updateSubjectDocumentIds(subjectId, document.id);
+    // Update existing subject to include this document (if not already present)
+    if (!currentSubject.documentIds.includes(document.id)) {
+      await subjectStub.updateSubjectDocumentIds(subjectId, document.id);
+    }
   }
 
   // Try each plugin until we get non-empty chunks

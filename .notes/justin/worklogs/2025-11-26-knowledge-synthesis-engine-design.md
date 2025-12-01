@@ -316,6 +316,19 @@ The most critical decision was clarifying the data models and the necessity of t
 *   **Necessity of the Graph:** The hierarchical "fractal" model is the core of the entire design. The relationships (edges) are as important as the content (nodes). Therefore, it was concluded that the **graph model is necessary, not overkill**. It is the only way to efficiently perform the "reverse vector search" (find a leaf, then traverse up to the root) required to assemble multi-level context.
 *   **Pragmatic Graph Implementation:** To avoid premature complexity, a dedicated graph database (e.g., Neo4j) will not be used initially. The system will start with a **pragmatic graph implementation**: Subjects will be stored in a standard database (e.g., Cloudflare D1 or Durable Objects), with each `Subject` document containing explicit `parentId` and `childIds` fields. The traversal logic will be implemented in application code. This provides the benefits of graph-thinking without the immediate operational overhead of a new database technology.
 
+## 14. Testing Strategy
+
+Each iteration requires a test script to validate functionality end-to-end. The test scripts follow a consistent pattern:
+
+*   **Setup:** Configure test data (R2 keys for documents, or create test entities)
+*   **Execute:** Run the indexing and query operations
+*   **Validate:** Check logs, inspect stores, verify expected behavior
+*   **Cleanup:** Remove test data to allow fresh runs
+
+Test scripts are stored in `scripts/test-subjects-iteration<N>.sh` and are documented as part of each iteration's validation criteria. They can be manual (requiring human verification) or automated (with assertions), depending on what's feasible for that iteration.
+
+**Note:** For now, tests focus on GitHub data sources. Discord testing will be added once real-time ingestion is available.
+
 ## 15. Final Iterative Implementation Plan ("Skateboard -> Bicycle -> Car -> Jet")
 
 The implementation will follow a four-stage iterative plan. Each stage delivers a complete, testable piece of functionality, progressively evolving the system from a simple prototype into a sophisticated engine.
@@ -329,6 +342,28 @@ The implementation will follow a four-stage iterative plan. Each stage delivers 
     4.  **Linking:** Tag evidence chunks with `subjectId`.
     5.  **Query:** Implement a simple two-stage filtered search on the main query endpoint.
 *   **Validation:** A working end-to-end system. Ingesting related documents correctly groups them. The `subjectId` for a query can be observed in worker logs, providing basic introspection.
+*   **Test Script:** `scripts/test-subjects-iteration1.sh`
+    *   **Fully automated E2E test:** Generates test data, uploads to R2, indexes, tests queries, and cleans up automatically.
+    *   **Usage:**
+        ```bash
+        # Just run it - no configuration needed!
+        ./scripts/test-subjects-iteration1.sh
+        ```
+    *   **What it does:**
+        1.  **Generates test data:** Creates three GitHub-format JSON files:
+            *   Related Issue: "Fix authentication bug in login flow"
+            *   Related PR: References the issue and closes it
+            *   Unrelated Issue: "Add dark mode theme support"
+        2.  **Uploads to R2:** Uses `wrangler r2 object put` to upload test files
+        3.  **Indexes documents:** Calls the indexing API for all three documents
+        4.  **Tests queries:** Runs queries to verify subject filtering
+        5.  **Cleans up:** Automatically deletes test files from R2
+    *   **What it validates:**
+        *   Related documents (issue + PR) are grouped under the same subject
+        *   Unrelated document gets a different subject
+        *   Query filtering by subjectId works correctly
+        *   Provides a validation checklist for manual log inspection
+    *   **Requirements:** `wrangler` CLI, `jq`, `API_KEY` in `.dev.vars`
 
 ### Iteration 2: The Bicycle (Build the Hierarchy & Introspection)
 *   **Goal:** Evolve the ingestion pipeline to build a hierarchical graph and add a formal way to introspect it.

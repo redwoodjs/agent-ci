@@ -35,6 +35,8 @@ export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durabl
 export { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
 export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
 export { SubjectDO } from "@/app/engine/subjectDb/durableObject";
+// Temporary export for migration - will be removed after v8 migration completes
+export { SubjectDO as SubjectGraphDO } from "@/app/engine/subjectDb/durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";

@@ -25,9 +25,9 @@ export async function getSubject(
   return {
     id: row.id,
     title: row.title,
-    documentIds: (row.document_ids as string[]) || [],
+    documentIds: (row.document_ids as unknown as string[]) || [],
     parentId: row.parent_id || undefined,
-    childIds: (row.child_ids as string[] | undefined) || undefined,
+    childIds: (row.child_ids as unknown as string[] | undefined) || undefined,
     narrative: row.narrative || undefined,
     access_weight: row.access_weight || undefined,
   };

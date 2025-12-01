@@ -62,6 +62,10 @@
     {
       "tag": "v7",
       "new_sqlite_classes": ["DiscordBackfillStateDO"]
+    },
+    {
+      "tag": "v8",
+      "new_classes": ["SubjectGraphDO"]
     }
   ],
   "durable_objects": {

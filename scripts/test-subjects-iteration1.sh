@@ -75,8 +75,8 @@ check_prerequisites() {
     exit 1
   fi
 
-  if ! command -v wrangler &> /dev/null; then
-    log_error "wrangler CLI is required. Install it: npm install -g wrangler"
+  if ! command -v npx &> /dev/null; then
+    log_error "npx is required. Install Node.js"
     exit 1
   fi
 
@@ -139,7 +139,7 @@ upload_to_r2() {
   echo "$content" > "$temp_file"
   
   # Upload using wrangler
-  if wrangler r2 object put "$r2_key" --file "$temp_file" --bucket "$R2_BUCKET" > /dev/null 2>&1; then
+  if npx wrangler r2 object put "${R2_BUCKET}/${r2_key}" --file "$temp_file" > /dev/null 2>&1; then
     log_info "✓ Uploaded successfully"
     rm "$temp_file"
     return 0
@@ -155,7 +155,7 @@ delete_from_r2() {
   
   log_info "Deleting from R2: $r2_key"
   
-  if wrangler r2 object delete "$r2_key" --bucket "$R2_BUCKET" > /dev/null 2>&1; then
+  if npx wrangler r2 object delete "${R2_BUCKET}/${r2_key}" > /dev/null 2>&1; then
     log_info "✓ Deleted successfully"
     return 0
   else
@@ -234,8 +234,8 @@ main() {
   
   # Generate timestamps
   TIMESTAMP_ISSUE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-  TIMESTAMP_PR=$(date -u +"%Y-%m-%dT%H:%M:%SZ" -d "+1 hour")
-  TIMESTAMP_UNRELATED=$(date -u +"%Y-%m-%dT%H:%M:%SZ" -d "+2 hours")
+  TIMESTAMP_PR=$(date -u -v+1H +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+1 hour" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
+  TIMESTAMP_UNRELATED=$(date -u -v+2H +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -d "+2 hours" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u +"%Y-%m-%dT%H:%M:%SZ")
   
   # Step 1: Generate and upload test data
   log_step "Step 1: Generating and uploading test data"

@@ -89,6 +89,7 @@ export default {
         } else if (
           queueName === "engine-indexing-queue" ||
           queueName === "engine-indexing-queue-prod" ||
+          queueName === "engine-indexing-queue-dev-justin" ||
           queueName === "engine-indexing-queue-rag-experiment-1" ||
           queueName === "ENGINE_INDEXING_QUEUE"
         ) {

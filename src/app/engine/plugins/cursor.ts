@@ -121,9 +121,14 @@ export const cursorPlugin: Plugin = {
         content += `Assistant: ${assistantResponse}`;
       }
 
-      // Fallback: if we couldn't extract structured text, stringify the events
+      // Fallback: If we couldn't extract structured text, "explode violently" as requested.
+      // We want to know about these cases so we can fix the extraction logic.
       if (!content.trim()) {
-        content = JSON.stringify(gen.events);
+        const errorMsg = `[cursor-plugin] Failed to extract content for generation ${
+          index + 1
+        } (id: ${gen.id}). Raw events: ${JSON.stringify(gen.events)}`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
       }
 
       if (content.trim()) {

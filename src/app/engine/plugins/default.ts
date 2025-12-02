@@ -43,17 +43,43 @@ export const defaultPlugin: Plugin = {
     },
     async generateSubjectTitle(context: SubjectSearchContext): Promise<string> {
       const { text, env } = context;
-      const titlePrompt = `Analyze the following text from a document and generate a short, concise title (less than 10 words) that summarizes its core subject. Examples: "Bug: User login fails", "Feature: Add dark mode", "Refactor: API authentication". Do not include quotes in the title. Text: "${text.substring(
-        0,
-        1000
-      )}"`;
+      const truncatedText = text.substring(0, 1000);
+      console.log(
+        `[default-plugin] Generating title for text length: ${text.length} (truncated to 1000)`
+      );
 
-      const titleResponse = (await env.AI.run("@cf/meta/llama-3-8b-instruct", {
-        prompt: titlePrompt,
-      })) as { response: string };
+      try {
+        const titlePrompt = `Analyze the following text from a document and generate a short, concise title (less than 10 words) that summarizes its core subject. Examples: "Bug: User login fails", "Feature: Add dark mode", "Refactor: API authentication". Do not include quotes in the title. Text: "${truncatedText}"`;
 
-      const newTitle = titleResponse.response.trim().replace(/"/g, "");
-      return newTitle;
+        const titleResponse = (await env.AI.run(
+          "@cf/meta/llama-3-8b-instruct",
+          {
+            prompt: titlePrompt,
+          }
+        )) as { response: string };
+
+        if (!titleResponse || !titleResponse.response) {
+          console.warn(
+            "[default-plugin] AI returned empty response for title generation"
+          );
+          return "Untitled Subject";
+        }
+
+        const newTitle = titleResponse.response.trim().replace(/"/g, "");
+        if (!newTitle) {
+          console.warn("[default-plugin] AI generated empty title string");
+          return "Untitled Subject";
+        }
+
+        return newTitle;
+      } catch (error) {
+        console.error(
+          "[default-plugin] Error generating subject title:",
+          error
+        );
+        // Fallback to a safe title so we don't drop the subject
+        return "Untitled Subject";
+      }
     },
     async determineSubjectsForDocument(
       document: Document,

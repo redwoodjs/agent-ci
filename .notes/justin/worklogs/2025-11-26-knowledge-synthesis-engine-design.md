@@ -316,120 +316,31 @@ The most critical decision was clarifying the data models and the necessity of t
 *   **Necessity of the Graph:** The hierarchical "fractal" model is the core of the entire design. The relationships (edges) are as important as the content (nodes). Therefore, it was concluded that the **graph model is necessary, not overkill**. It is the only way to efficiently perform the "reverse vector search" (find a leaf, then traverse up to the root) required to assemble multi-level context.
 *   **Pragmatic Graph Implementation:** To avoid premature complexity, a dedicated graph database (e.g., Neo4j) will not be used initially. The system will start with a **pragmatic graph implementation**: Subjects will be stored in a standard database (e.g., Cloudflare D1 or Durable Objects), with each `Subject` document containing explicit `parentId` and `childIds` fields. The traversal logic will be implemented in application code. This provides the benefits of graph-thinking without the immediate operational overhead of a new database technology.
 
-## 14. Testing Strategy
+## 15. Final Iterative Implementation Plan (Unified Logic)
 
-Each iteration requires a test script to validate functionality end-to-end. The test scripts follow a consistent pattern:
+The implementation will follow a three-stage iterative "skateboard -> bicycle -> car" model, based on a "crappy-first, then decrapify" philosophy. It standardizes on the term `Document` and uses a single, unified logic for both correlating new documents and finding subjects for queries.
 
-*   **Setup:** Configure test data (R2 keys for documents, or create test entities)
-*   **Execute:** Run the indexing and query operations
-*   **Validate:** Check logs, inspect stores, verify expected behavior
-*   **Cleanup:** Remove test data to allow fresh runs
-
-Test scripts are stored in `scripts/test-subjects-iteration<N>.sh` and are documented as part of each iteration's validation criteria. They can be manual (requiring human verification) or automated (with assertions), depending on what's feasible for that iteration.
-
-**Note:** For now, tests focus on GitHub data sources. Discord testing will be added once real-time ingestion is available.
-
-## 15. Final Iterative Implementation Plan ("Skateboard -> Bicycle -> Car -> Jet")
-
-The implementation will follow a four-stage iterative plan. Each stage delivers a complete, testable piece of functionality, progressively evolving the system from a simple prototype into a sophisticated engine.
-
-### Iteration 1: The Skateboard (End-to-End Flat Graph)
+### Iteration 1: The Skateboard (End-to-End Flat Graph with Unified Logic)
 *   **Goal:** Build the thinnest, end-to-end slice of the system with unified logic for search and correlation.
 *   **Tasks:**
-    1.  **Foundations:** Define `Subject` model, modify `Document` & `ChunkMetadata` to include `subjectId`, set up `SubjectGraphDO` (now `SubjectDO`).
-    2.  **Unified Logic:** Create a `subjects.findSubjectForText` hook (simple vector search).
-    3.  **Ingestion:** Use the hook to create single-level root Subjects. In this initial stage, if no subject is found, a new one is created using the document's ID as the subject's ID and the document's title as the subject's title.
-    4.  **Linking:** Tag evidence chunks with `subjectId`.
-    5.  **Basic Introspection:** Add a `/rag/subjects` endpoint that can find a subject and return its basic data.
-*   **Validation:** Indexing a document creates a single corresponding subject. Querying the `/rag/subjects` endpoint with the document's title returns the created subject's data. Querying the main `/rag/query` endpoint correctly filters chunks by this subject ID.
+    1.  **Foundations:** Define the `Subject` model. Modify the existing `Document` and `ChunkMetadata` types to include an optional `subjectId`. Set up the `SubjectGraphDO`.
+    2.  **Unified Search/Correlation Logic:** Create a new, reusable hook: `subjects.findSubjectForText`. For the skateboard, this will be a simple vector search over an index of Subject titles/summaries.
+    3.  **Ingestion:** When a new `Document` is processed, call `findSubjectForText`. The initial rule will be simple: if no subject is found with a high enough score, create a new root Subject (using the `Document`'s own ID as the `subjectId`).
+    4.  **Linking:** Tag evidence chunks in the Evidence Locker with the `subjctId`.
+    5.  **Query:** The main query endpoint will call the *same* `findSubjectForText` hook to identify the relevant `subjectId` for the query, then perform a simple filtered search on the Evidence Locker.
+*   **Validation:** A working, end-to-end system. Ingesting two related documents correctly groups them, and a query provides a better, context-rich answer.
 
-### Iteration 2: The Bicycle (Content-Aware Subject Correlation)
-*   **Goal:** Evolve from a simple "one document, one subject" model to a content-aware system. The engine will now analyze incoming text to decide if it belongs to an existing subject or if a new one should be created, all without building a hierarchy yet.
+### Iteration 2: The Bicycle (Build and Enrich the Hierarchy)
+*   **Goal:** Evolve the unified logic to handle a hierarchical graph and enrich it with synthesized summaries.
 *   **Tasks:**
-    1.  **LLM-Powered Titles:** When `findSubjectForText` does not find a suitable existing subject for a chunk, use an LLM to generate a concise, descriptive title for a *new* subject based on that chunk's content.
-    2.  **Update Subject Creation:** The `indexDocument` logic will be modified to call the LLM for title generation when creating a new subject.
-    3.  **Update Subject Indexing:** The new, LLM-generated title will be embedded and inserted into the `SUBJECT_INDEX`, making future correlations more accurate.
-*   **Validation:**
-    *   Index a document about "user profile pages." A new subject should be created with an LLM-generated title like "Feature: User Profile Page."
-    *   Index a second, separate document about a "bug with profile pictures." The system should create a *second* distinct subject with a title like "Bug: Profile Picture Loading Issue."
-    *   The `/rag/subjects` endpoint should be able to find both new subjects based on their content.
+    1.  **Upgrade `findSubjectForText`:** Enhance the hook with LLM reasoning to now be able to establish parent/child relationships when processing a new `Document`.
+    2.  **Implement Synthesis & Promotion:** Create a hook that synthesizes a Child Subject's contents and promotes a summary to its Parent's narrative.
+*   **Validation:** We can ingest documents and see a correct parent/child graph structure being built in the DO. We can also see that the parent's narrative is being enriched with summaries from its children by inspecting the DO's state.
 
-### Iteration 3: The Car (Build the Hierarchy)
-*   **Goal:** Evolve the ingestion pipeline to build a hierarchical graph.
+### Iteration 3: The Car (Sophisticated, Intent-Driven Querying)
+*   **Goal:** Upgrade the query endpoint to its final, sophisticated form, capable of handling different user intents.
 *   **Tasks:**
-    1.  **Upgrade Correlation:** Enhance the `findSubjectForText` hook with LLM reasoning to establish parent/child relationships when creating a new subject.
-    2.  **Store Hierarchy:** Persist the `parentId`/`childIds` structure in the `SubjectDO`.
-    3.  **Upgrade Introspection:** The `/rag/subjects` endpoint will now return the full graph data, including ancestors and children, by traversing the stored relationships.
-*   **Validation:** Calling the introspection endpoint for a child subject returns a JSON object showing the correct parent in its `ancestors` list.
-
-### Iteration 4: The Jet (Enrich the Hierarchy with Summaries & Advanced Querying)
-*   **Goal:** With the hierarchy in place, add "synthesis and promotion" logic and upgrade the query endpoint to its final form, capable of telling a chronological story and dynamically learning.
-*   **Tasks:**
-    1.  **Implement Synthesis & Promotion Hook:** Create a hook that triggers when a Child Subject is "complete." It uses an LLM to generate a summary of the child's content and appends it to the `narrative` field of the Parent Subject.
-    2.  **Implement Intent Detection:** Add `search` vs. `introspect` intent detection to the main query endpoint.
-    3.  **Implement "Spreading Activation" for `search`:** Implement the full "find, traverse, and synthesize" pipeline.
-    4.  **Implement "Strengthening Pathways":** Add an `access_weight` property to Subjects and the logic to increment it on access, using it to boost search results.
-*   **Validation:**
-    1.  The introspection endpoint for a parent subject shows an LLM-generated summary from its child.
-    2.  The main query endpoint handles both `search` and `introspect` intents correctly.
-    3.  Narrative (`search`) queries produce a coherent, chronologically ordered story.
-    4.  Frequently accessed subjects are demonstrably preferred in search results.
-
-## 16. Refining Granularity: From Document-Level to Chunk-Level Correlation
-
-A critical limitation was identified in the "Skateboard" implementation: the assumption of a 1-to-1 mapping between a `Document` (an entire file from R2) and a `Subject`. This model is too coarse and fails to capture the reality of the source data.
-
-For example, a single GitHub issue's `latest.json` file is not one monolithic entity. It contains multiple distinct semantic units:
-
-*   The main issue description.
-*   A series of comments, each of which could represent a different sub-topic, a dead-end investigation, or a pivotal new idea.
-
-Treating the entire document as a single unit for subject classification forces all of these distinct parts to belong to the same subject, which is incorrect and loses valuable nuance.
-
-### The Refined Approach: Chunk-Level Correlation
-
-To solve this, subject correlation must be performed at a more granular level: the **chunk**. The ingestion pipeline will be modified so that subject identification happens *after* a document is split into chunks.
-
-The workflow becomes:
-
-1.  A `Document` is prepared from a source file (e.g., GitHub issue JSON).
-2.  The `evidence.splitDocumentIntoChunks` hook breaks the `Document` into multiple `Chunk`s (e.g., one for the issue body, one for each comment).
-3.  **For each `Chunk`**, the engine calls the `subjects.findSubjectForText` hook.
-4.  Each chunk is individually assigned a `subjectId`.
-5.  The `Subject` object is updated to include the `documentId` of the chunk's parent document.
-
-This means a single `Document` can now contain chunks belonging to **multiple different Subjects**, accurately reflecting the flow of a complex conversation. This change is a natural progression toward the hierarchical "Bicycle" model, where different comments might logically form the basis for new child subjects.
-
-## 17. Architectural Refinement: Using a Narrative Corpus for Subject Correlation
-
-A key limitation was identified in the initial "Bicycle" design. The plan was to perform vector searches against the LLM-generated `title` of a subject. This approach is problematic because a short title is a very sparse signal for semantic search. It works for direct, obvious matches but is likely to fail when trying to correlate nuanced or indirectly related content. The signal-to-noise ratio is too low.
-
-To address this, the decision was made to enrich the data used for vector search.
-
-*   **Problem:** Subject `titles` alone are insufficient for accurate semantic correlation.
-*   **Solution:** Introduce a `narrative` field to the `Subject` model.
-    1.  **Corpus Building:** This field will store a continuously updated corpus of the subject's content. When a new chunk is assigned to a subject, its content is appended to the `narrative`.
-    2.  **Richer Vectors:** The vector search performed by `findSubjectForText` will now operate on embeddings of this rich `narrative` instead of just the title. The `title` is retained as human-readable metadata.
-    3.  **Future Scalability:** This design anticipates a future need for summarization. As the `narrative` grows, a summarization step can be introduced to keep the corpus size manageable and embedding costs low, without losing the semantic essence of the subject.
-
-This change significantly improves the foundation for correlation, making the system more likely to identify correct relationships between pieces of information before we even introduce explicit hierarchical logic.
-
-## 18. Realization: Source-Specific Subject Determination
-
-A further realization was made regarding the nature of subject creation. The generic, content-based correlation at the chunk level provides a good fallback, but the definition of what constitutes a "subject" is often highly dependent on the data source.
-
-*   **Cursor:** A conversation is a natural boundary for a single subject.
-*   **GitHub:** An issue or a pull request is a clear root subject, while its comments and commits are events within that subject's timeline. A significant comment might even spawn a new child subject.
-*   **Discord:** A thread serves as a strong candidate for a subject boundary.
-
-This insight leads to a more refined architectural approach where source-specific plugins can implement more intelligent, domain-aware logic for subject creation, rather than relying solely on the generic, bottom-up, chunk-by-chunk analysis.
-
-*   **Proposed Solution:**
-    1.  **Introduce `SubjectDescription`:** Define a new type, `SubjectDescription`, with properties like `{ title: string; narrative: string; contentHash: string; chunks: Chunk[] }`. The `contentHash` provides a stable identifier for the conceptual subject, derived from the content that defines it.
-    2.  **Introduce a `determineSubjectsForDocument` hook:** This optional plugin hook will analyze a full `Document` and return an array of `SubjectDescription` objects.
-    3.  **Separate Identification from Execution:**
-        *   **Plugin's Role (Identification):** A source-specific plugin (e.g., `githubPlugin`) could implement this hook to perform a top-down analysis. It will identify the conceptual subjects within the document (e.g., one for the main PR, maybe others for significant comment threads) and return them as a list of `SubjectDescription` objects, along with the chunks that belong to each.
-        *   **Engine's Role (Execution):** The core `indexDocument` function will receive this array. For each `SubjectDescription`, the engine will handle the core logic: checking if a subject with that `contentHash` already exists, creating or updating it in the database, embedding the `narrative`, upserting the vector to `SUBJECT_INDEX`, and linking the associated chunks.
-    4.  **Engine Fallback:** If a plugin does not implement this hook, the engine will fall back to its default, generic behavior of analyzing each chunk independently to find or create subjects.
-
-This layered approach allows the system to leverage domain-specific heuristics for sources like GitHub while keeping the core persistence and indexing logic centralized and consistent. It cleanly separates the act of identifying subjects from the mechanics of storing them.
+    1.  **Implement Intent Detection:** Add a preliminary LLM-based intent detection step (`search` vs. `introspect`) to the main query endpoint.
+    2.  **Handle `introspect` Intent:** If the intent is to introspect, the endpoint will use `findSubjectForText` to find the relevant Subject and then return the full graph data as JSON.
+    3.  **Implement "Spreading Activation" for `search` Intent:** If the intent is to search, replace the simple two-stage query with the full, three-stage "find, traverse, and synthesize" pipeline.
+*   **Validation:** The main query endpoint can now handle both narrative questions (returning a synthesized story) and introspection questions (returning raw graph data), demonstrating the complete vision.

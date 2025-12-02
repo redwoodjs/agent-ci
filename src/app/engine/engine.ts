@@ -18,6 +18,7 @@ import {
   updateSubjectDocumentIds,
   getSubjectAncestors,
   getSubjectChildren,
+  getSubjectByIdempotencyKey,
 } from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
 
@@ -77,134 +78,143 @@ export async function indexDocument(
 
   console.log(`[engine] Document split into ${chunks.length} chunks`);
 
-  // 2. Find or create a subject for EACH chunk
+  // 2. Determine subjects for the document
   type SubjectDatabase = Database<typeof subjectMigrations>;
   const subjectDb = createDb<SubjectDatabase>(
     context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
     "subject-graph"
   );
 
-  let documentLevelSubjectId: string | null = null; // Fallback for chunks without a match
+  // Attempt to use the top-down, source-aware hook first
+  const subjectDescriptions = await runFirstMatchHook(
+    context.plugins,
+    "determineSubjectsForDocument",
+    (plugin) =>
+      plugin.subjects?.determineSubjectsForDocument?.(
+        document,
+        chunks!,
+        indexingContext
+      )
+  );
 
-  for (const chunk of chunks) {
-    const foundSubjectId = await runFirstMatchHook(
-      context.plugins,
-      "findSubjectForText",
-      (plugin) =>
-        plugin.subjects?.findSubjectForText?.({
-          text: chunk.content, // Use chunk content for correlation
-          env: context.env,
-        })
+  if (subjectDescriptions && subjectDescriptions.length > 0) {
+    console.log(
+      `[engine] Plugin provided ${subjectDescriptions.length} subject descriptions. Processing them now.`
     );
-
-    let subjectId: string;
-
-    if (foundSubjectId) {
-      subjectId = foundSubjectId;
-    } else {
-      // If no specific subject is found for this chunk, create a new one.
-      // Generate a unique ID for the new subject based on the document and chunk.
-      subjectId = await hashChunkId(`subject:${document.id}:${chunk.id}`);
-    }
-
-    console.log(`[engine] Chunk ${chunk.id} assigned to subject: ${subjectId}`);
-
-    // Assign the determined subjectId to the chunk's metadata
-    chunk.metadata.subjectId = subjectId;
-
-    // Get or create the subject in the database
-    const currentSubject = await getSubject(subjectDb, subjectId);
-
-    if (!currentSubject) {
-      // Create new subject
-      console.log(
-        `[engine] No subject found for chunk ${chunk.id}. Creating a new one.`
+    for (const description of subjectDescriptions) {
+      // Find existing subject by idempotency key
+      let subject = await getSubjectByIdempotencyKey(
+        subjectDb,
+        description.idempotency_key
       );
 
-      // Use plugin hook to generate a title from the chunk content
-      const newTitle = await runFirstMatchHook(
+      if (subject) {
+        console.log(
+          `[engine] Found existing subject "${subject.title}" (${subject.id}) by idempotency key.`
+        );
+        // Potentially update title or narrative if they've changed
+        subject.title = description.title;
+        subject.narrative = `${subject.narrative || ""}\n\n---\n\n${
+          description.narrative
+        }`;
+      } else {
+        // Create a new subject
+        const subjectId = await hashChunkId(
+          `subject:${document.id}:${description.idempotency_key}`
+        );
+        console.log(
+          `[engine] Creating new subject "${description.title}" (${subjectId}) with idempotency key.`
+        );
+        subject = {
+          id: subjectId,
+          title: description.title,
+          documentIds: [document.id],
+          narrative: description.narrative,
+          idempotency_key: description.idempotency_key,
+        };
+      }
+
+      // Link all associated chunks to this subject
+      for (const chunk of description.chunks) {
+        chunk.metadata.subjectId = subject.id;
+      }
+
+      // Save subject and update its vector
+      await putSubject(subjectDb, subject);
+      await upsertSubjectVector(subject, context.env);
+    }
+  } else {
+    // FALLBACK: If no plugin provides top-down subjects, revert to chunk-by-chunk correlation
+    console.log(
+      `[engine] No plugin provided subject descriptions. Falling back to chunk-by-chunk correlation.`
+    );
+    for (const chunk of chunks) {
+      const foundSubjectId = await runFirstMatchHook(
         context.plugins,
-        "generateSubjectTitle",
+        "findSubjectForText",
         (plugin) =>
-          plugin.subjects?.generateSubjectTitle?.({
-            text: chunk.content,
+          plugin.subjects?.findSubjectForText?.({
+            text: chunk.content, // Use chunk content for correlation
             env: context.env,
           })
       );
 
-      if (!newTitle) {
-        console.error(
-          `[engine] No plugin could generate a title for new subject from chunk ${chunk.id}. Skipping subject creation for this chunk.`
-        );
-        // The chunk will still be indexed, but not associated with a new, specific subject.
-        // It will just have its own unique subjectId that points to nothing in the subject DB.
-        continue;
+      let subjectId: string;
+
+      if (foundSubjectId) {
+        subjectId = foundSubjectId;
+      } else {
+        // If no specific subject is found for this chunk, create a new one.
+        subjectId = await hashChunkId(`subject:${document.id}:${chunk.id}`);
       }
 
-      console.log(`[engine] Generated title for new subject: "${newTitle}"`);
-
-      const newSubject: Subject = {
-        id: subjectId,
-        title: newTitle,
-        documentIds: [document.id],
-        narrative: chunk.content, // Initialize narrative with the first chunk's content
-      };
-      await putSubject(subjectDb, newSubject);
       console.log(
-        `[engine] New subject ${subjectId} ("${newTitle}") created and stored.`
+        `[engine] Chunk ${chunk.id} assigned to subject: ${subjectId}`
       );
+      chunk.metadata.subjectId = subjectId;
 
-      // Index the new subject's narrative for future lookups
-      console.log(`[engine] Indexing new subject narrative in SUBJECT_INDEX.`);
-      const embeddingResponse = (await context.env.AI.run(
-        "@cf/baai/bge-base-en-v1.5",
-        { text: [newSubject.narrative!] } // Embed the narrative
-      )) as { data: number[][] };
-      await context.env.SUBJECT_INDEX.insert([
-        {
+      const currentSubject = await getSubject(subjectDb, subjectId);
+
+      if (!currentSubject) {
+        const newTitle = await runFirstMatchHook(
+          context.plugins,
+          "generateSubjectTitle",
+          (plugin) =>
+            plugin.subjects?.generateSubjectTitle?.({
+              text: chunk.content,
+              env: context.env,
+            })
+        );
+
+        if (!newTitle) {
+          console.error(
+            `[engine] No plugin could generate a title for new subject from chunk ${chunk.id}. Skipping.`
+          );
+          continue;
+        }
+
+        console.log(`[engine] Generated title for new subject: "${newTitle}"`);
+        const newSubject: Subject = {
           id: subjectId,
-          values: embeddingResponse.data[0],
-          metadata: { title: newSubject.title }, // Keep title for readability
-        },
-      ]);
-      console.log(`[engine] Successfully indexed new subject ${subjectId}.`);
-    } else {
-      console.log(
-        `[engine] Found existing subject for chunk ${chunk.id}: ${currentSubject.id} ("${currentSubject.title}")`
-      );
-      // If subject exists, append chunk content to its narrative and update vector
-      const updatedNarrative = `${currentSubject.narrative || ""}\n\n---\n\n${
-        chunk.content
-      }`;
-      currentSubject.narrative = updatedNarrative;
+          title: newTitle,
+          documentIds: [document.id],
+          narrative: chunk.content,
+        };
+        await putSubject(subjectDb, newSubject);
+        await upsertSubjectVector(newSubject, context.env);
+      } else {
+        const updatedNarrative = `${
+          currentSubject.narrative || ""
+        }\n\n---\n\n${chunk.content}`;
+        currentSubject.narrative = updatedNarrative;
 
-      // Link document if not already linked
-      if (!currentSubject.documentIds.includes(document.id)) {
-        currentSubject.documentIds.push(document.id);
-        console.log(
-          `[engine] Linking document ${document.id} to existing subject ${currentSubject.id}.`
-        );
+        if (!currentSubject.documentIds.includes(document.id)) {
+          currentSubject.documentIds.push(document.id);
+        }
+
+        await putSubject(subjectDb, currentSubject);
+        await upsertSubjectVector(currentSubject, context.env);
       }
-
-      await putSubject(subjectDb, currentSubject);
-      console.log(`[engine] Updated subject ${currentSubject.id} in database.`);
-
-      // Re-embed and update the vector in the index
-      console.log(`[engine] Updating vector for subject ${currentSubject.id}.`);
-      const embeddingResponse = (await context.env.AI.run(
-        "@cf/baai/bge-base-en-v1.5",
-        { text: [updatedNarrative] }
-      )) as { data: number[][] };
-      await context.env.SUBJECT_INDEX.upsert([
-        {
-          id: currentSubject.id,
-          values: embeddingResponse.data[0],
-          metadata: { title: currentSubject.title },
-        },
-      ]);
-      console.log(
-        `[engine] Successfully updated vector for subject ${currentSubject.id}.`
-      );
     }
   }
 
@@ -435,6 +445,27 @@ export async function getSubjectGraphForQuery(
     ancestors,
     children,
   };
+}
+
+async function upsertSubjectVector(subject: Subject, env: Cloudflare.Env) {
+  if (!subject.narrative) {
+    console.log(`[engine] Subject ${subject.id} has no narrative to index.`);
+    return;
+  }
+
+  console.log(`[engine] Upserting vector for subject ${subject.id}.`);
+  const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+    text: [subject.narrative],
+  })) as { data: number[][] };
+
+  await env.SUBJECT_INDEX.upsert([
+    {
+      id: subject.id,
+      values: embeddingResponse.data[0],
+      metadata: { title: subject.title },
+    },
+  ]);
+  console.log(`[engine] Successfully upserted vector for subject ${subject.id}.`);
 }
 
 async function reconstructContexts(

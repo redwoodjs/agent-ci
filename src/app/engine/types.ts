@@ -55,6 +55,14 @@ export interface Subject {
   parentId?: string;
   childIds?: string[];
   access_weight?: number;
+  idempotency_key?: string;
+}
+
+export interface SubjectDescription {
+  title: string;
+  narrative: string;
+  idempotency_key: string;
+  chunks: Chunk[];
 }
 
 export interface SubjectSearchContext {
@@ -123,6 +131,11 @@ export interface Plugin {
       context: SubjectSearchContext
     ) => Promise<string | null>;
     generateSubjectTitle?: (context: SubjectSearchContext) => Promise<string>;
+    determineSubjectsForDocument?: (
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ) => Promise<SubjectDescription[] | null>;
   };
 }
 

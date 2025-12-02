@@ -13,6 +13,7 @@ export const subjectMigrations = {
           .addColumn("child_ids", "text")
           .addColumn("narrative", "text")
           .addColumn("access_weight", "real")
+          .addColumn("idempotency_key", "text", (col) => col.unique())
           .execute(),
         await db.schema
           .createIndex("subjects_parent_id_idx")
@@ -26,4 +27,3 @@ export const subjectMigrations = {
     },
   },
 } satisfies Migrations;
-

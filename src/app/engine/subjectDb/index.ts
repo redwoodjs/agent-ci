@@ -32,6 +32,35 @@ export async function getSubject(
       | undefined,
     narrative: row.narrative ?? undefined,
     access_weight: row.access_weight ?? undefined,
+    idempotency_key: row.idempotency_key ?? undefined,
+  };
+}
+
+export async function getSubjectByIdempotencyKey(
+  db: SubjectDb,
+  idempotencyKey: string
+): Promise<Subject | null> {
+  const row = await db
+    .selectFrom("subjects")
+    .selectAll()
+    .where("idempotency_key", "=", idempotencyKey)
+    .executeTakeFirst();
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    title: row.title,
+    documentIds: (row.document_ids as unknown as string[]) || [],
+    parentId: row.parent_id || undefined,
+    childIds: (row.child_ids ? JSON.parse(row.child_ids) : undefined) as
+      | string[]
+      | undefined,
+    narrative: row.narrative ?? undefined,
+    access_weight: row.access_weight ?? undefined,
+    idempotency_key: row.idempotency_key ?? undefined,
   };
 }
 
@@ -54,6 +83,7 @@ export async function putSubject(db: SubjectDb, subject: Subject) {
           : null) as any,
         narrative: (subject.narrative ?? null) as any,
         access_weight: (subject.access_weight ?? null) as any,
+        idempotency_key: (subject.idempotency_key ?? null) as any,
       })
       .where("id", "=", subject.id)
       .execute();
@@ -70,6 +100,7 @@ export async function putSubject(db: SubjectDb, subject: Subject) {
           : null) as any,
         narrative: (subject.narrative ?? null) as any,
         access_weight: (subject.access_weight ?? null) as any,
+        idempotency_key: (subject.idempotency_key ?? null) as any,
       })
       .execute();
   }
@@ -134,5 +165,6 @@ export async function getSubjectChildren(
     childIds: (row.child_ids as unknown as string[] | undefined) || undefined,
     narrative: row.narrative || undefined,
     access_weight: row.access_weight || undefined,
+    idempotency_key: row.idempotency_key || undefined,
   }));
 }

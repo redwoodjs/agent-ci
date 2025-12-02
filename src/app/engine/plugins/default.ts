@@ -10,6 +10,7 @@ import {
   createTokenBudget,
   getAvailableInputTokens,
 } from "../utils/token-counter";
+import { SubjectDescription } from "../types";
 
 export const defaultPlugin: Plugin = {
   name: "default",
@@ -53,6 +54,35 @@ export const defaultPlugin: Plugin = {
 
       const newTitle = titleResponse.response.trim().replace(/"/g, "");
       return newTitle;
+    },
+    async determineSubjectsForDocument(
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ): Promise<SubjectDescription[] | null> {
+      // Default behavior: treat the entire document as a single subject.
+      // A more specific plugin (e.g., for GitHub) would implement more nuanced logic.
+      if (chunks.length === 0) {
+        return null;
+      }
+
+      // Use a SHA-256 hash of the document ID as the stable content identifier
+      const encoder = new TextEncoder();
+      const data = encoder.encode(document.id);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const idempotencyKey = hashArray
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      const description: SubjectDescription = {
+        title: document.metadata.title,
+        narrative: document.content, // Use the whole document content as the initial narrative
+        idempotency_key: idempotencyKey,
+        chunks: chunks, // Associate all chunks with this single subject
+      };
+
+      return [description];
     },
   },
 

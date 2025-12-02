@@ -40,6 +40,7 @@ export async function indexDocument(
   r2Key: string,
   context: EngineContext
 ): Promise<Chunk[]> {
+  let subjectId: string | undefined;
   console.log(`[engine] Starting indexDocument for: ${r2Key}`);
   const indexingContext: IndexingHookContext = {
     r2Key,

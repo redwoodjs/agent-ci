@@ -19,6 +19,7 @@ import {
   getSubjectAncestors,
   getSubjectChildren,
   getSubjectByIdempotencyKey,
+  listSubjects,
 } from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
@@ -405,6 +406,20 @@ export async function getSubjectGraphForQuery(
     ancestors,
     children,
   };
+}
+
+export async function listAllSubjects(
+  context: EngineContext,
+  limit: number = 50,
+  offset: number = 0
+) {
+  type SubjectDatabase = Database<typeof subjectMigrations>;
+  const subjectDb = createDb<SubjectDatabase>(
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    "subject-graph"
+  );
+
+  return await listSubjects(subjectDb, limit, offset);
 }
 
 async function upsertSubjectVector(subject: Subject, env: Cloudflare.Env) {

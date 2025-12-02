@@ -77,4 +77,3 @@ export async function callLLM(
   console.error(`[llm] Invalid response structure:`, JSON.stringify(response));
   throw new Error("Failed to parse LLM response");
 }
-

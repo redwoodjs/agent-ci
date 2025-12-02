@@ -168,3 +168,39 @@ export async function getSubjectChildren(
     idempotency_key: row.idempotency_key || undefined,
   }));
 }
+
+export async function listSubjects(
+  db: SubjectDb,
+  limit: number = 50,
+  offset: number = 0
+): Promise<{ subjects: Subject[]; total: number }> {
+  const rows = await db
+    .selectFrom("subjects")
+    .selectAll()
+    .limit(limit)
+    .offset(offset)
+    .execute();
+
+  const totalResult = await db
+    .selectFrom("subjects")
+    .select((eb) => eb.fn.count<number>("id").as("count"))
+    .executeTakeFirst();
+
+  const subjects = rows.map((row) => ({
+    id: row.id,
+    title: row.title,
+    documentIds: (row.document_ids as unknown as string[]) || [],
+    parentId: row.parent_id || undefined,
+    childIds: (row.child_ids ? JSON.parse(row.child_ids) : undefined) as
+      | string[]
+      | undefined,
+    narrative: row.narrative ?? undefined,
+    access_weight: row.access_weight ?? undefined,
+    idempotency_key: row.idempotency_key ?? undefined,
+  }));
+
+  return {
+    subjects,
+    total: totalResult?.count ?? 0,
+  };
+}

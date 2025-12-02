@@ -5,7 +5,6 @@ import { AuditDashboardPage } from "./subpages/audit-dashboard-page";
 import { IngestionListPage } from "./subpages/ingestion-list-page";
 import { IndexingStatusPage } from "./subpages/indexing-status-page";
 import { QueryPage } from "./subpages/query-page";
-import { GatewayAuditPage } from "./subpages/gateway-audit-page";
 import { requireBasicAuth } from "@/app/ingestors/interruptors";
 
 export const auditRoutes = [
@@ -15,6 +14,5 @@ export const auditRoutes = [
     route("/ingestion", IngestionListPage),
     route("/indexing", IndexingStatusPage),
     route("/query", QueryPage),
-    route("/gateway", GatewayAuditPage),
   ]),
 ];

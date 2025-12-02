@@ -122,6 +122,7 @@ API_KEY="your-key" ./scripts/query.sh "your query"
 **URL Shorthand:**
 
 The script supports shorthand formats for the worker URL:
+
 - `:5173` → `http://localhost:5173`
 - `localhost:5173` → `http://localhost:5173`
 - Full URLs work as-is: `https://machinen.redwoodjs.workers.dev`

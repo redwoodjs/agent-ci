@@ -65,6 +65,10 @@
     {
       "tag": "v9",
       "new_classes": ["DiscordGatewayDO"]
+    },
+    {
+      "tag": "v10",
+      "deleted_classes": ["DiscordGatewayDO"]
     }
   ],
   "durable_objects": {
@@ -88,10 +92,6 @@
       {
         "name": "DISCORD_WEBHOOK_BATCHER",
         "class_name": "DiscordWebhookBatcherDO"
-      },
-      {
-        "name": "DISCORD_GATEWAY",
-        "class_name": "DiscordGatewayDO"
       }
     ]
   },
@@ -280,10 +280,6 @@
           {
             "name": "DISCORD_WEBHOOK_BATCHER",
             "class_name": "DiscordWebhookBatcherDO"
-          },
-          {
-            "name": "DISCORD_GATEWAY",
-            "class_name": "DiscordGatewayDO"
           }
         ]
       },

@@ -592,6 +592,7 @@ export class DiscordGatewayDO {
     await this.saveState();
 
     // Reset counter if connection was stable for more than 1 hour
+    // Only reset once per disconnect event by clearing lastConnectedAt after reset
     const now = Date.now();
     if (
       this.gatewayState.lastConnectedAt !== null &&
@@ -601,6 +602,7 @@ export class DiscordGatewayDO {
         `[gateway] Connection was stable for more than 1 hour, resetting reconnect counter`
       );
       this.gatewayState.reconnectAttempts = 0;
+      this.gatewayState.lastConnectedAt = null; // Clear to prevent repeated resets
       await this.saveState();
     }
 

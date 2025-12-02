@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { env } from "cloudflare:workers";
 
 // Validation schema for Discord messages
 const discordMessageSchema = z.object({
@@ -182,5 +183,37 @@ export async function rateLimitDiscord({
   }
 
   current.count++;
+  return ctx;
+}
+
+// Authentication interruptor for Discord Gateway events
+// Validates Bearer token from external gateway service
+export async function requireGatewayAuth({
+  request,
+  ctx,
+}: {
+  request: Request;
+  ctx: any;
+}) {
+  const apiKey = (env as any).API_KEY as string | undefined;
+
+  // If no API key is configured, skip authentication
+  // (useful for development, but should be set in production)
+  if (!apiKey) {
+    console.warn(
+      "[gateway-auth] API_KEY not configured, skipping authentication"
+    );
+    return ctx;
+  }
+
+  const authHeader = request.headers.get("Authorization");
+  const providedToken = authHeader?.startsWith("Bearer ")
+    ? authHeader.slice(7)
+    : null;
+
+  if (!providedToken || providedToken !== apiKey) {
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   return ctx;
 }

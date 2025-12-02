@@ -5,14 +5,11 @@ import {
   updateBackfillState,
   getBackfillState,
 } from "@/app/ingestors/discord/services/backfill-state";
-import type { SchedulerJobMessage } from "@/app/ingestors/discord/services/backfill-types";
-import { logDiscordRequest } from "./interruptors";
-import {
-  startGateway,
-  stopGateway,
-  getGatewayStatus,
-  getGatewayAudit,
-} from "./services/gateway-service";
+import type {
+  SchedulerJobMessage,
+  GatewayEventMessage,
+} from "@/app/ingestors/discord/services/backfill-types";
+import { logDiscordRequest, requireGatewayAuth } from "./interruptors";
 
 const backfillRequestSchema = z.object({
   guildID: z.string().min(1),
@@ -154,113 +151,62 @@ const statusRoute = route("/backfill/status", [
   },
 ]);
 
-const gatewayStartRoute = route("/gateway/start", [
+// Gateway event endpoint - receives events from external gateway service
+const gatewayEventsRoute = route("/events", [
+  requireGatewayAuth,
   logDiscordRequest,
   async ({ request, ctx }: { request: Request; ctx: any }) => {
     try {
-      await startGateway();
+      // Parse the Discord Gateway event payload
+      const body = await request.json();
+
+      // Validate the event structure (op, t, s, d)
+      const eventSchema = z.object({
+        op: z.number(),
+        t: z.string().nullable(),
+        s: z.number().nullable(),
+        d: z.any(),
+      });
+
+      const event = eventSchema.parse(body);
+
+      // Only process dispatch events (op 0) with event types
+      if (event.op !== 0 || !event.t) {
+        // Non-dispatch events (heartbeat, identify, etc.) are not processed
+        const apiResponse = Response.json({
+          success: true,
+          message: "Event ignored (not a dispatch event)",
+        });
+        ctx.logCompletion?.(apiResponse);
+        return apiResponse;
+      }
+
+      // Queue the event for processing
+      const gatewayEventsQueue = (env as any)
+        .DISCORD_GATEWAY_EVENTS_QUEUE as Queue<GatewayEventMessage>;
+
+      await gatewayEventsQueue.send({
+        type: "gateway_event",
+        op: event.op,
+        t: event.t,
+        s: event.s,
+        d: event.d,
+      });
 
       const apiResponse = Response.json({
         success: true,
-        message: "Gateway connection started",
+        message: "Event queued for processing",
       });
       ctx.logCompletion?.(apiResponse);
       return apiResponse;
     } catch (error) {
-      console.error("Discord Gateway start error:", error);
+      console.error("Discord Gateway event error:", error);
       const errorResponse = Response.json(
         {
           success: false,
           error: error instanceof Error ? error.message : "Unknown error",
         },
-        { status: 500 }
-      );
-      ctx.logCompletion?.(errorResponse);
-      return errorResponse;
-    }
-  },
-]);
-
-const gatewayStopRoute = route("/gateway/stop", [
-  logDiscordRequest,
-  async ({ request, ctx }: { request: Request; ctx: any }) => {
-    try {
-      await stopGateway();
-
-      const apiResponse = Response.json({
-        success: true,
-        message: "Gateway connection stopped",
-      });
-      ctx.logCompletion?.(apiResponse);
-      return apiResponse;
-    } catch (error) {
-      console.error("Discord Gateway stop error:", error);
-      const errorResponse = Response.json(
-        {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        },
-        { status: 500 }
-      );
-      ctx.logCompletion?.(errorResponse);
-      return errorResponse;
-    }
-  },
-]);
-
-const gatewayStatusRoute = route("/gateway/status", [
-  logDiscordRequest,
-  async ({ request, ctx }: { request: Request; ctx: any }) => {
-    try {
-      const status = await getGatewayStatus();
-
-      const apiResponse = Response.json({
-        success: true,
-        status,
-      });
-      ctx.logCompletion?.(apiResponse);
-      return apiResponse;
-    } catch (error) {
-      console.error("Discord Gateway status error:", error);
-      const errorResponse = Response.json(
-        {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        },
-        { status: 500 }
-      );
-      ctx.logCompletion?.(errorResponse);
-      return errorResponse;
-    }
-  },
-]);
-
-const gatewayAuditRoute = route("/gateway/audit", [
-  logDiscordRequest,
-  async ({ request, ctx }: { request: Request; ctx: any }) => {
-    try {
-      const url = new URL(request.url);
-      const limitParam = Number(url.searchParams.get("limit") ?? "100");
-      const limit = Number.isFinite(limitParam)
-        ? Math.min(Math.max(limitParam, 1), 500)
-        : 100;
-
-      const entries = await getGatewayAudit(limit);
-
-      const apiResponse = Response.json({
-        success: true,
-        entries,
-      });
-      ctx.logCompletion?.(apiResponse);
-      return apiResponse;
-    } catch (error) {
-      console.error("Discord Gateway audit error:", error);
-      const errorResponse = Response.json(
-        {
-          success: false,
-          error: error instanceof Error ? error.message : "Unknown error",
-        },
-        { status: 500 }
+        { status: 400 }
       );
       ctx.logCompletion?.(errorResponse);
       return errorResponse;
@@ -272,8 +218,5 @@ export const routes = [
   backfillRoute,
   pauseBackfillRoute,
   statusRoute,
-  gatewayStartRoute,
-  gatewayStopRoute,
-  gatewayStatusRoute,
-  gatewayAuditRoute,
+  gatewayEventsRoute,
 ];

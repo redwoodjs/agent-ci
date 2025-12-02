@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/app/components/ui/button";
 import { enqueueFile, enqueueFiles, deleteFile, deleteFiles } from "./actions";
+import { useTableSort } from "./use-table-sort";
 
 type File = {
   key: string;
@@ -11,6 +12,19 @@ type File = {
   etag: string;
   indexed: boolean;
   indexedAt?: string;
+  indexedEtag?: string;
+  chunkCount: number;
+  needsReindex: boolean;
+  isValid: boolean;
+};
+
+type SortableFile = {
+  key: string;
+  size: number;
+  uploaded: Date;
+  etag: string;
+  indexed: boolean;
+  indexedAt: Date | null;
   indexedEtag?: string;
   chunkCount: number;
   needsReindex: boolean;
@@ -26,6 +40,23 @@ export function IndexingTable({ files }: { files: File[] }) {
     text: string;
   } | null>(null);
 
+  // Normalize files for sorting (convert uploaded and indexedAt to Date objects)
+  const normalizedFiles = useMemo<SortableFile[]>(() => {
+    return files.map((file) => ({
+      ...file,
+      uploaded:
+        typeof file.uploaded === "string"
+          ? new Date(file.uploaded)
+          : file.uploaded,
+      indexedAt: file.indexedAt ? new Date(file.indexedAt) : null,
+    }));
+  }, [files]);
+
+  const { sortedData, sortConfig, handleSort } = useTableSort<SortableFile>(
+    normalizedFiles,
+    { key: "uploaded", direction: "desc" } // Default: newest first by Last Modified
+  );
+
   const toggleSelection = (key: string) => {
     const newSelected = new Set(selectedKeys);
     if (newSelected.has(key)) {
@@ -37,10 +68,10 @@ export function IndexingTable({ files }: { files: File[] }) {
   };
 
   const toggleSelectAll = () => {
-    if (selectedKeys.size === files.length) {
+    if (selectedKeys.size === sortedData.length) {
       setSelectedKeys(new Set());
     } else {
-      setSelectedKeys(new Set(files.map((f) => f.key)));
+      setSelectedKeys(new Set(sortedData.map((f) => f.key)));
     }
   };
 
@@ -231,26 +262,76 @@ export function IndexingTable({ files }: { files: File[] }) {
                 <input
                   type="checkbox"
                   checked={
-                    selectedKeys.size === files.length && files.length > 0
+                    selectedKeys.size === sortedData.length && sortedData.length > 0
                   }
                   onChange={toggleSelectAll}
                   className="cursor-pointer"
                 />
               </th>
-              <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                Key
+              <th
+                className="text-left py-3 px-4 font-medium text-sm text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                onClick={() => handleSort("key")}
+              >
+                <div className="flex items-center gap-1">
+                  Key
+                  {sortConfig.key === "key" && (
+                    <span className="text-xs">
+                      {sortConfig.direction === "asc" ? "↑" : "↓"}
+                    </span>
+                  )}
+                </div>
               </th>
-              <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                Status
+              <th
+                className="text-left py-3 px-4 font-medium text-sm text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                onClick={() => handleSort("indexed")}
+              >
+                <div className="flex items-center gap-1">
+                  Status
+                  {sortConfig.key === "indexed" && (
+                    <span className="text-xs">
+                      {sortConfig.direction === "asc" ? "↑" : "↓"}
+                    </span>
+                  )}
+                </div>
               </th>
-              <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                Chunks
+              <th
+                className="text-left py-3 px-4 font-medium text-sm text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                onClick={() => handleSort("chunkCount")}
+              >
+                <div className="flex items-center gap-1">
+                  Chunks
+                  {sortConfig.key === "chunkCount" && (
+                    <span className="text-xs">
+                      {sortConfig.direction === "asc" ? "↑" : "↓"}
+                    </span>
+                  )}
+                </div>
               </th>
-              <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                Indexed At
+              <th
+                className="text-left py-3 px-4 font-medium text-sm text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                onClick={() => handleSort("indexedAt")}
+              >
+                <div className="flex items-center gap-1">
+                  Indexed At
+                  {sortConfig.key === "indexedAt" && (
+                    <span className="text-xs">
+                      {sortConfig.direction === "asc" ? "↑" : "↓"}
+                    </span>
+                  )}
+                </div>
               </th>
-              <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                Last Modified
+              <th
+                className="text-left py-3 px-4 font-medium text-sm text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+                onClick={() => handleSort("uploaded")}
+              >
+                <div className="flex items-center gap-1">
+                  Last Modified
+                  {sortConfig.key === "uploaded" && (
+                    <span className="text-xs">
+                      {sortConfig.direction === "asc" ? "↑" : "↓"}
+                    </span>
+                  )}
+                </div>
               </th>
               <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
                 Actions
@@ -258,7 +339,7 @@ export function IndexingTable({ files }: { files: File[] }) {
             </tr>
           </thead>
           <tbody>
-            {files.map((file) => (
+            {sortedData.map((file) => (
               <tr key={file.key} className="border-b hover:bg-gray-50">
                 <td className="py-3 px-4">
                   <input
@@ -292,14 +373,10 @@ export function IndexingTable({ files }: { files: File[] }) {
                 </td>
                 <td className="py-3 px-4 text-sm">{file.chunkCount}</td>
                 <td className="py-3 px-4 text-sm text-gray-500">
-                  {file.indexedAt
-                    ? new Date(file.indexedAt).toLocaleString()
-                    : "-"}
+                  {file.indexedAt ? file.indexedAt.toLocaleString() : "-"}
                 </td>
                 <td className="py-3 px-4 text-sm text-gray-500">
-                  {typeof file.uploaded === "string"
-                    ? new Date(file.uploaded).toLocaleString()
-                    : file.uploaded.toLocaleString()}
+                  {file.uploaded.toLocaleString()}
                 </td>
                 <td className="py-3 px-4">
                   <div className="flex gap-2">

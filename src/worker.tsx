@@ -35,7 +35,6 @@ export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durabl
 export { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
 export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
 export { DiscordWebhookBatcherDO } from "@/app/ingestors/discord/db/webhook-batcher-durableObject";
-export { DiscordGatewayDO } from "@/app/ingestors/discord/db/gateway-durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";
@@ -43,6 +42,7 @@ import { handleDeadLetterMessage } from "@/app/ingestors/github/services/dlq-han
 import { processSchedulerJob as processDiscordSchedulerJob } from "@/app/ingestors/discord/services/scheduler-service";
 import { processProcessorJob as processDiscordProcessorJob } from "@/app/ingestors/discord/services/processor-service";
 import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app/ingestors/discord/services/dlq-handler";
+import { handleWebhookEvent } from "@/app/ingestors/discord/services/webhook-handler";
 import { processIndexingJob } from "@/app/engine/services/indexing-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
 import type { QueueMessage } from "@/app/ingestors/github/services/backfill-types";
@@ -159,6 +159,76 @@ export default {
             );
             message.ack();
           }
+        } else if (
+          queueName.startsWith("discord-gateway-events-queue") &&
+          !queueName.includes("-dlq")
+        ) {
+          const gatewayMessage = queueMessage as unknown as DiscordQueueMessage;
+          if (gatewayMessage.type === "gateway_event") {
+            try {
+              // Extract the event type and data from the gateway message
+              // The webhook handler expects { t, d } format
+              const eventType = (gatewayMessage as any).t;
+              const eventData = (gatewayMessage as any).d;
+
+              const result = await handleWebhookEvent({
+                t: eventType,
+                d: eventData,
+              });
+
+              if (!result.success) {
+                console.error(
+                  formatLog("[queue] Failed to process gateway event:", {
+                    queueName,
+                    eventType: eventType,
+                    error: result.error,
+                  })
+                );
+                // Retry on failure
+                message.retry();
+              } else {
+                console.log(
+                  `[queue] Successfully processed gateway event: ${eventType}`
+                );
+                message.ack();
+              }
+            } catch (error) {
+              const errorMsg =
+                error instanceof Error ? error.message : String(error);
+              const eventType = (gatewayMessage as any).t;
+              console.error(
+                formatLog("[queue] Error processing gateway event:", {
+                  queueName,
+                  eventType: eventType,
+                  error: errorMsg,
+                })
+              );
+              message.retry();
+            }
+          } else {
+            console.error(
+              formatLog("[queue] Invalid Discord gateway event message type:", {
+                queueName,
+                message: gatewayMessage,
+              })
+            );
+            message.ack();
+          }
+        } else if (
+          queueName.includes("discord-gateway-events-queue") &&
+          queueName.includes("-dlq")
+        ) {
+          const gatewayMessage = queueMessage as unknown as DiscordQueueMessage;
+          const eventType = (gatewayMessage as any).t;
+          console.error(
+            formatLog("[queue] Gateway event in DLQ:", {
+              queueName,
+              eventType: eventType,
+              message: gatewayMessage,
+            })
+          );
+          // For now, just log DLQ events - could add specific handling later
+          message.ack();
         } else if (queueName.startsWith("r2-file-update-queue-")) {
           const r2Event = queueMessage as unknown as {
             action: string;

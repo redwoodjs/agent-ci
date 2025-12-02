@@ -6,6 +6,7 @@ import {
   CardTitle,
   CardContent,
 } from "@/app/components/ui/card";
+import { IngestionTable } from "./ingestion-table";
 
 export function IngestionListPage({ request }: { request: Request }) {
   const url = new URL(request.url);
@@ -100,42 +101,7 @@ async function FilesTable({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="border-b">
-              <tr>
-                <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                  Key
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                  Size
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                  Last Modified
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                  ETag
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.objects.map((obj) => (
-                <tr key={obj.key} className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-sm font-mono">{obj.key}</td>
-                  <td className="py-3 px-4 text-sm">
-                    {formatBytes(obj.size)}
-                  </td>
-                  <td className="py-3 px-4 text-sm">
-                    {obj.uploaded.toLocaleString()}
-                  </td>
-                  <td className="py-3 px-4 font-mono text-xs text-gray-500">
-                    {obj.etag.substring(0, 16)}...
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <IngestionTable objects={list.objects} />
 
         {list.truncated && (
           <div className="mt-4 flex justify-between items-center">
@@ -207,12 +173,4 @@ function FilesTableSkeleton({ prefix }: { prefix: string }) {
       </CardContent>
     </Card>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 Bytes";
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }

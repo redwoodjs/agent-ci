@@ -9,6 +9,7 @@ import {
   fetchGatewayURL,
 } from "../utils/discord-api";
 import { handleWebhookEvent } from "../services/webhook-handler";
+import type { GatewayAuditEntry } from "./gateway-audit-types";
 
 declare module "rwsdk/worker" {
   interface WorkerEnv {
@@ -31,6 +32,8 @@ interface GatewayState {
   reconnectAttempts: number;
 }
 
+const MAX_AUDIT_ENTRIES = 1000;
+
 export class DiscordGatewayDO {
   private state: DurableObjectState;
   private env: GatewayEnv;
@@ -47,6 +50,38 @@ export class DiscordGatewayDO {
   private heartbeatAlarmId: number | null = null;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private readonly RECONNECT_DELAY_MS = 5000;
+
+  private async appendAudit(
+    entry: Omit<GatewayAuditEntry, "ts">
+  ): Promise<void> {
+    const now = Date.now();
+    const key = `audit:${now}:${Math.random().toString(16).slice(2)}`;
+    const record: GatewayAuditEntry = { ts: now, ...entry };
+
+    await this.state.storage.put(key, record);
+
+    // Best-effort trim of old entries to keep storage bounded
+    const all = await this.state.storage.list<GatewayAuditEntry>({
+      prefix: "audit:",
+      reverse: true,
+    });
+    const entries = Array.from(all.entries());
+    if (entries.length > MAX_AUDIT_ENTRIES) {
+      const toDelete = entries
+        .slice(MAX_AUDIT_ENTRIES)
+        .map(([storageKey]) => storageKey);
+      await this.state.storage.delete(toDelete);
+    }
+  }
+
+  private async listAudit(limit = 100): Promise<GatewayAuditEntry[]> {
+    const list = await this.state.storage.list<GatewayAuditEntry>({
+      prefix: "audit:",
+      limit,
+      reverse: true,
+    });
+    return Array.from(list.values());
+  }
 
   constructor(state: DurableObjectState, env: GatewayEnv) {
     this.state = state;
@@ -81,6 +116,21 @@ export class DiscordGatewayDO {
         {
           headers: { "Content-Type": "application/json" },
         }
+      );
+    } else if (action === "/audit" && request.method === "GET") {
+      const limitParam = Number(url.searchParams.get("limit") ?? "100");
+      const limit = Number.isFinite(limitParam)
+        ? Math.min(Math.max(limitParam, 1), 500)
+        : 100;
+
+      const entries = await this.listAudit(limit);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          entries,
+        }),
+        { headers: { "Content-Type": "application/json" } }
       );
     } else if (
       action === "/connect" &&
@@ -215,6 +265,14 @@ export class DiscordGatewayDO {
     try {
       const message: GatewayMessage = JSON.parse(data);
 
+      await this.appendAudit({
+        kind: "gateway",
+        op: message.op,
+        sequence: message.s ?? null,
+        status: "received",
+        eventType: (message.t as string | null) ?? null,
+      });
+
       switch (message.op) {
         case GatewayOpCode.DISPATCH:
           await this.handleDispatch(message);
@@ -236,6 +294,14 @@ export class DiscordGatewayDO {
       }
     } catch (error) {
       console.error("[gateway] Error handling message:", error);
+      await this.appendAudit({
+        kind: "error",
+        status: "error",
+        error:
+          error instanceof Error
+            ? error.message
+            : "Unknown error in handleMessage",
+      });
     }
   }
 
@@ -268,12 +334,72 @@ export class DiscordGatewayDO {
 
     // Handle other events
     if (eventType) {
-      const eventData = message.d;
+      const eventData = message.d as any;
+
+      const guildId: string | null = eventData?.guild_id ?? null;
+      const channelId: string | null =
+        eventData?.channel_id ?? eventData?.parent_id ?? null;
+      const threadId: string | null =
+        eventData?.thread_id ?? eventData?.id ?? null;
+
+      let fileKey: string | undefined;
+      let r2Key: string | undefined;
+
+      if (
+        (eventType === "MESSAGE_CREATE" || eventType === "MESSAGE_UPDATE") &&
+        guildId &&
+        channelId &&
+        eventData?.timestamp
+      ) {
+        const date = String(eventData.timestamp).split("T")[0];
+        fileKey = `${guildId}/${channelId}/${date}`;
+        r2Key = `discord/${fileKey}.jsonl`;
+      } else if (eventType === "MESSAGE_DELETE" && guildId && channelId) {
+        const today = new Date().toISOString().split("T")[0];
+        fileKey = `${guildId}/${channelId}/${today}`;
+        r2Key = `discord/${fileKey}.jsonl`;
+      } else if (
+        (eventType === "THREAD_CREATE" ||
+          eventType === "THREAD_UPDATE" ||
+          eventType === "THREAD_DELETE") &&
+        guildId &&
+        channelId &&
+        threadId
+      ) {
+        r2Key = `discord/${guildId}/${channelId}/threads/${threadId}/latest.json`;
+      }
+
+      await this.appendAudit({
+        kind: "dispatch",
+        op: message.op,
+        sequence: message.s ?? null,
+        eventType,
+        status: "forwarding",
+        guildId,
+        channelId,
+        threadId,
+        fileKey,
+        r2Key,
+      });
 
       // Forward to webhook handler (which handles both webhook and Gateway events)
-      await handleWebhookEvent({
+      const result = await handleWebhookEvent({
         t: eventType,
         d: eventData,
+      });
+
+      await this.appendAudit({
+        kind: "dispatch",
+        op: message.op,
+        sequence: message.s ?? null,
+        eventType,
+        status: result.success ? "handled" : "failed",
+        error: result.error,
+        guildId,
+        channelId,
+        threadId,
+        fileKey,
+        r2Key,
       });
     }
   }

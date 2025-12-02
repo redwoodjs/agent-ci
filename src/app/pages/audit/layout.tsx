@@ -45,6 +45,12 @@ export function AuditLayout({ children }: LayoutProps) {
                 >
                   Query
                 </a>
+                <a
+                  href="/audit/gateway"
+                  className={getNavLinkClass("/audit/gateway")}
+                >
+                  Gateway
+                </a>
               </div>
             </div>
           </div>

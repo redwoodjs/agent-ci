@@ -82,7 +82,15 @@ export const cursorPlugin: Plugin = {
 
     const chunks: Chunk[] = [];
 
-    data.generations.forEach((gen, index) => {
+    const encoder = new TextEncoder();
+    async function hashContent(content: string): Promise<string> {
+      const data = encoder.encode(content);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    for (const [index, gen] of data.generations.entries()) {
       const userPrompt =
         gen.events.find(
           (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
@@ -120,11 +128,13 @@ export const cursorPlugin: Plugin = {
 
       if (content.trim()) {
         const chunkId = `${document.id}#gen-${gen.id}`;
+        const trimmedContent = content.trim();
         chunks.push({
           id: chunkId,
           documentId: document.id,
           source: "cursor",
-          content: content.trim(),
+          content: trimmedContent,
+          contentHash: await hashContent(trimmedContent),
           metadata: {
               chunkId: chunkId,
               documentId: document.id,
@@ -148,7 +158,7 @@ export const cursorPlugin: Plugin = {
           JSON.stringify(gen.events)
         );
       }
-    });
+    }
 
     console.log(
       `[cursor-plugin] Created ${chunks.length} chunks from ${data.generations.length} generations`

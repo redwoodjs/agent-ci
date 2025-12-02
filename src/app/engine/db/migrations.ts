@@ -41,4 +41,24 @@ export const indexingStateMigrations = {
         .execute();
     },
   },
+  "003_add_processed_chunks_table": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("processed_chunks")
+          .addColumn("r2_key", "text", (col) =>
+            col.references("indexing_state.r2_key")
+          )
+          .addColumn("chunk_hash", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("processed_chunks_pk", [
+            "r2_key",
+            "chunk_hash",
+          ])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("processed_chunks").execute();
+    },
+  },
 } satisfies Migrations;

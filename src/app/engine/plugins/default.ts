@@ -95,17 +95,30 @@ export const defaultPlugin: Plugin = {
       // In a real-world scenario, you'd want a more sophisticated strategy.
       const chunks: Chunk[] = [];
       const lines = document.content.split("\n");
-      let currentChunk: string[] = [];
+      let currentChunkContent: string[] = [];
       const CHUNK_SIZE = 1000; // characters per chunk
 
+      const encoder = new TextEncoder();
+      async function hashContent(content: string): Promise<string> {
+        const data = encoder.encode(content);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+      }
+
       for (const line of lines) {
-        if (currentChunk.length + line.length + 1 > CHUNK_SIZE) {
+        if (
+          currentChunkContent.join("\n").length + line.length + 1 >
+          CHUNK_SIZE
+        ) {
           const chunkId = `${document.id}-${chunks.length}`;
+          const content = currentChunkContent.join("\n");
           chunks.push({
             id: chunkId,
             documentId: document.id,
             source: document.source,
-            content: currentChunk.join("\n"),
+            content: content,
+            contentHash: await hashContent(content),
             metadata: {
               chunkId,
               documentId: document.id,
@@ -117,18 +130,20 @@ export const defaultPlugin: Plugin = {
               sourceMetadata: document.metadata.sourceMetadata,
             },
           });
-          currentChunk = [];
+          currentChunkContent = [];
         }
-        currentChunk.push(line);
+        currentChunkContent.push(line);
       }
 
-      if (currentChunk.length > 0) {
+      if (currentChunkContent.length > 0) {
         const chunkId = `${document.id}-${chunks.length}`;
+        const content = currentChunkContent.join("\n");
         chunks.push({
           id: chunkId,
           documentId: document.id,
           source: document.source,
-          content: currentChunk.join("\n"),
+          content: content,
+          contentHash: await hashContent(content),
           metadata: {
             chunkId,
             documentId: document.id,

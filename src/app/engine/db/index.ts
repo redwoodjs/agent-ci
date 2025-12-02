@@ -190,6 +190,53 @@ export async function updateIndexingState(
   }
 }
 
+export async function getProcessedChunkHashes(
+  r2Key: string
+): Promise<string[]> {
+  const db = createDb<IndexingStateDatabase>(
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    "engine-indexing-state"
+  );
+
+  const rows = await db
+    .selectFrom("processed_chunks")
+    .select("chunk_hash")
+    .where("r2_key", "=", r2Key)
+    .execute();
+
+  return rows.map((row) => row.chunk_hash);
+}
+
+export async function setProcessedChunkHashes(
+  r2Key: string,
+  chunkHashes: string[]
+): Promise<void> {
+  const db = createDb<IndexingStateDatabase>(
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    "engine-indexing-state"
+  );
+
+  // Use a transaction to ensure atomicity
+  await db.transaction().execute(async (trx) => {
+    // Delete old hashes for this r2_key
+    await trx
+      .deleteFrom("processed_chunks")
+      .where("r2_key", "=", r2Key)
+      .execute();
+
+    // Insert new hashes if there are any
+    if (chunkHashes.length > 0) {
+      const values = chunkHashes.map((hash) => ({
+        r2_key: r2Key,
+        chunk_hash: hash,
+      }));
+      await trx.insertInto("processed_chunks").values(values).execute();
+    }
+  });
+}
+
 export async function clearAllIndexingState(): Promise<void> {
   console.log(`[db] clearAllIndexingState: Clearing all indexing state`);
 
@@ -200,6 +247,7 @@ export async function clearAllIndexingState(): Promise<void> {
   );
 
   await db.deleteFrom("indexing_state").execute();
+  await db.deleteFrom("processed_chunks").execute();
   console.log(`[db] clearAllIndexingState: All indexing state cleared`);
 }
 

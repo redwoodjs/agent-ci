@@ -21,6 +21,10 @@ import {
   getSubjectByIdempotencyKey,
 } from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
+import {
+  getProcessedChunkHashes,
+  setProcessedChunkHashes,
+} from "./db";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -78,7 +82,26 @@ export async function indexDocument(
 
   console.log(`[engine] Document split into ${chunks.length} chunks`);
 
-  // 2. Determine subjects for the document
+  // 2. Diff against previously processed chunks to avoid redundant work
+  const oldChunkHashes = await getProcessedChunkHashes(document.id);
+  const oldChunkHashSet = new Set(oldChunkHashes);
+
+  const newChunks = chunks.filter(
+    (chunk) => !oldChunkHashSet.has(chunk.contentHash!)
+  );
+
+  console.log(
+    `[engine] Found ${newChunks.length} new or modified chunks to process out of ${chunks.length} total.`
+  );
+
+  if (newChunks.length === 0) {
+    console.log(
+      `[engine] No new chunks found for document ${document.id}. Indexing is up-to-date.`
+    );
+    return []; // Nothing more to do
+  }
+
+  // 3. Determine subjects for the document (using only new chunks for correlation if needed)
   type SubjectDatabase = Database<typeof subjectMigrations>;
   const subjectDb = createDb<SubjectDatabase>(
     context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
@@ -92,7 +115,7 @@ export async function indexDocument(
     (plugin) =>
       plugin.subjects?.determineSubjectsForDocument?.(
         document,
-        chunks!,
+        newChunks, // Pass only new chunks to the hook
         indexingContext
       )
   );
@@ -148,7 +171,7 @@ export async function indexDocument(
     console.log(
       `[engine] No plugin provided subject descriptions. Falling back to chunk-by-chunk correlation.`
     );
-    for (const chunk of chunks) {
+    for (const chunk of newChunks) { // Only process new chunks
       const foundSubjectId = await runFirstMatchHook(
         context.plugins,
         "findSubjectForText",
@@ -218,9 +241,9 @@ export async function indexDocument(
     }
   }
 
-  // 3. Enrich chunks (optional, original logic)
+  // 4. Enrich chunks (optional, original logic for the new chunks)
   const enrichedChunks: Chunk[] = [];
-  for (const chunk of chunks) {
+  for (const chunk of newChunks) {
     let enrichedChunk = chunk;
     for (const plugin of context.plugins) {
       if (plugin.evidence?.enrichChunk) {
@@ -235,6 +258,13 @@ export async function indexDocument(
     }
     enrichedChunks.push(enrichedChunk);
   }
+
+  // 5. After successful processing, update the state with the hashes of *all* current chunks
+  const allCurrentChunkHashes = chunks.map((c) => c.contentHash!);
+  await setProcessedChunkHashes(document.id, allCurrentChunkHashes);
+  console.log(
+    `[engine] Successfully updated processed chunk state for ${document.id}.`
+  );
 
   return enrichedChunks;
 }

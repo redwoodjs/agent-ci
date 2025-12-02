@@ -344,3 +344,30 @@ The implementation will follow a three-stage iterative "skateboard -> bicycle ->
     2.  **Handle `introspect` Intent:** If the intent is to introspect, the endpoint will use `findSubjectForText` to find the relevant Subject and then return the full graph data as JSON.
     3.  **Implement "Spreading Activation" for `search` Intent:** If the intent is to search, replace the simple two-stage query with the full, three-stage "find, traverse, and synthesize" pipeline.
 *   **Validation:** The main query endpoint can now handle both narrative questions (returning a synthesized story) and introspection questions (returning raw graph data), demonstrating the complete vision.
+
+## 19. Realization: The "Whale" Problem and Redundant Processing
+
+A significant scaling issue was identified in the indexing pipeline, particularly concerning large, frequently updated documents like long-running Cursor conversations.
+
+*   **The Problem:** The current indexing process is stateless at the chunk level. When a source document is updated (e.g., a new message is added to a long conversation), the entire document is fetched from R2 and re-processed. This means every single chunk from that document, including all the old, unchanged ones, is sent to the indexing queue again.
+*   **The Impact:** A single, small update to a large "whale" document can flood the queue with thousands of redundant chunk-processing tasks. This creates severe backpressure on the system, causing legitimate new tasks for other documents to be delayed. It also leads to operational issues, such as exceeding log rate limits on the Cloudflare platform, which results in log sampling and loss of observability.
+*   **The Root Cause:** The system lacks a mechanism to understand *what has already been processed*. It treats every indexing run as if it's seeing the document for the first time, leading to massive inefficiency.
+*   **The Need:** We need to move from a stateless, "process everything" model to a stateful, incremental indexing model. The system must be able to "diff" an updated document against its last known state and process *only the new or changed chunks*.
+
+### The Proposed Solution: Extending the `EngineIndexingStateDO`
+
+The existing `EngineIndexingStateDO` provides a foundation for this solution. Currently, it functions as a file-level ETag cache, preventing re-processing of entirely unchanged files. However, it does not solve the problem for large files that receive small, incremental updates.
+
+The plan is to extend this durable object to manage state at a more granular, chunk-level.
+
+1.  **Content-Addressable Chunks:** The chunking process will be modified. For each chunk generated from a document, a deterministic content hash will be calculated. This hash serves as a unique identifier for that specific piece of content.
+2.  **Extend the DO Schema:** The schema for the `EngineIndexingStateDO` will be updated to store not just the file-level `etag`, but also a list of the content hashes for every chunk successfully indexed for that file.
+3.  **Implement "Diff-and-Queue" Logic:** The core `indexDocument` function will be modified to perform the following stateful check:
+    *   First, check the document's `etag`. If it's unchanged, skip processing entirely (current behavior).
+    *   If the `etag` has changed, proceed to split the document into chunks and calculate their content hashes.
+    *   Fetch the list of previously indexed chunk hashes from the `EngineIndexingStateDO`.
+    *   Compare the new list of hashes with the stored list.
+    *   **Only send chunks whose hashes are not present in the stored list to the indexing queue.**
+4.  **Update State on Success:** Once the new chunks are successfully processed, the `EngineIndexingStateDO` will be updated with the new, complete set of chunk hashes for the document.
+
+This approach directly solves the "whale" problem by ensuring that only genuinely new or modified content is ever sent for processing, drastically reducing redundant work and system backpressure.

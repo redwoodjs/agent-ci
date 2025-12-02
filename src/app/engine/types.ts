@@ -27,6 +27,7 @@ export interface Chunk {
   source: Source;
   content: string;
   metadata: ChunkMetadata;
+  contentHash?: string;
 }
 
 export interface ChunkMetadata {

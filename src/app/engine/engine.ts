@@ -164,79 +164,11 @@ export async function indexDocument(
       await upsertSubjectVector(subject, context.env);
     }
   } else {
-    // FALLBACK: If no plugin provides top-down subjects, revert to chunk-by-chunk correlation
-    console.log(
-      `[engine] No plugin provided subject descriptions. Falling back to chunk-by-chunk correlation.`
+    // NO FALLBACK: If no plugin provides top-down subjects, we must throw.
+    // This indicates a configuration or plugin logic error that needs to be fixed.
+    throw new Error(
+      `[engine] No plugin provided subject descriptions for document: ${document.id}. This is a fatal error.`
     );
-    for (const chunk of newChunks) {
-      // Only process new chunks
-      const foundSubjectId = await runFirstMatchHook(
-        context.plugins,
-        "findSubjectForText",
-        (plugin) =>
-          plugin.subjects?.findSubjectForText?.({
-            text: chunk.content, // Use chunk content for correlation
-            env: context.env,
-          })
-      );
-
-      let subjectId: string;
-
-      if (foundSubjectId) {
-        subjectId = foundSubjectId;
-      } else {
-        // If no specific subject is found for this chunk, create a new one.
-        subjectId = await hashChunkId(`subject:${document.id}:${chunk.id}`);
-      }
-
-      console.log(
-        `[engine] Chunk ${chunk.id} assigned to subject: ${subjectId}`
-      );
-      chunk.metadata.subjectId = subjectId;
-
-      const currentSubject = await getSubject(subjectDb, subjectId);
-
-      if (!currentSubject) {
-        const newTitle = await runFirstMatchHook(
-          context.plugins,
-          "generateSubjectTitle",
-          (plugin) =>
-            plugin.subjects?.generateSubjectTitle?.({
-              text: chunk.content,
-              env: context.env,
-            })
-        );
-
-        if (!newTitle) {
-          console.error(
-            `[engine] No plugin could generate a title for new subject from chunk ${chunk.id}. Skipping.`
-          );
-          continue;
-        }
-
-        console.log(`[engine] Generated title for new subject: "${newTitle}"`);
-        const newSubject: Subject = {
-          id: subjectId,
-          title: newTitle,
-          documentIds: [document.id],
-          narrative: chunk.content,
-        };
-        await putSubject(subjectDb, newSubject);
-        await upsertSubjectVector(newSubject, context.env);
-      } else {
-        const updatedNarrative = `${currentSubject.narrative || ""}\n\n---\n\n${
-          chunk.content
-        }`;
-        currentSubject.narrative = updatedNarrative;
-
-        if (!currentSubject.documentIds.includes(document.id)) {
-          currentSubject.documentIds.push(document.id);
-        }
-
-        await putSubject(subjectDb, currentSubject);
-        await upsertSubjectVector(currentSubject, context.env);
-      }
-    }
   }
 
   // 4. Enrich chunks (optional, original logic for the new chunks)

@@ -49,6 +49,16 @@ Modified `src/app/engine/db/index.ts` in `setProcessedChunkHashes`:
 *   **Action:** Before inserting into `processed_chunks`, check if an `indexing_state` row exists. If not, fetch the R2 object's ETag and create the row.
 *   **Result:** Ensures the foreign key constraint is satisfied before inserting child records.
 
+### 3.4. Removed Chunk-by-Chunk Correlation Fallback
+Modified `src/app/engine/engine.ts`:
+*   **Problem:** The engine was falling back to a "chunk-by-chunk" correlation logic if no plugin provided a top-down subject description, adding complexity and hiding configuration issues.
+*   **Action:** Removed the fallback logic entirely. If no plugin's `determineSubjectsForDocument` hook returns a description, the engine now throws a fatal error.
+
+### 3.5. Implemented `determineSubjectsForDocument` for Cursor
+Modified `src/app/engine/plugins/cursor.ts`:
+*   **Problem:** The `cursorPlugin` was not implementing the `determineSubjectsForDocument` hook, causing the engine to hit the (now removed) fallback.
+*   **Action:** Implemented the hook to treat each entire Cursor conversation as a single subject. This provides the necessary top-down description and prevents chunk-by-chunk processing for cursor conversations.
+
 ## 4. Next Steps
 *   Monitor logs for `[cursor-plugin] Failed to extract content` errors. These will point to new event types we need to handle.
 *   Monitor logs for title generation failures. If these are frequent, we must address the root cause (AI stability, prompts) rather than masking them.

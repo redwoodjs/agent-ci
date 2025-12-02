@@ -217,22 +217,16 @@ export async function setProcessedChunkHashes(
   );
 
   // Use a transaction to ensure atomicity
-  await db.transaction().execute(async (trx) => {
-    // Delete old hashes for this r2_key
-    await trx
-      .deleteFrom("processed_chunks")
-      .where("r2_key", "=", r2Key)
-      .execute();
+  await db.deleteFrom("processed_chunks").where("r2_key", "=", r2Key).execute();
 
-    // Insert new hashes if there are any
-    if (chunkHashes.length > 0) {
-      const values = chunkHashes.map((hash) => ({
-        r2_key: r2Key,
-        chunk_hash: hash,
-      }));
-      await trx.insertInto("processed_chunks").values(values).execute();
-    }
-  });
+  // Insert new hashes if there are any
+  if (chunkHashes.length > 0) {
+    const values = chunkHashes.map((hash) => ({
+      r2_key: r2Key,
+      chunk_hash: hash,
+    }));
+    await db.insertInto("processed_chunks").values(values).execute();
+  }
 }
 
 export async function clearAllIndexingState(): Promise<void> {

@@ -432,6 +432,10 @@
           {
             "queue": "discord-processor-queue-dev-justin",
             "binding": "DISCORD_PROCESSOR_QUEUE"
+          },
+          {
+            "queue": "chunk-processing-queue-dev-justin",
+            "binding": "CHUNK_PROCESSING_QUEUE"
           }
         ],
         "consumers": [
@@ -477,6 +481,11 @@
           {
             "queue": "discord-processor-queue-dev-justin-dlq",
             "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "chunk-processing-queue-dev-justin",
+            "max_batch_size": 100,
             "max_batch_timeout": 30
           }
         ]

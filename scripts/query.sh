@@ -100,28 +100,38 @@ elif [[ "$WORKER_URL" =~ ^localhost:[0-9]+$ ]]; then
 fi
 
 # Check required args
-if [ -z "$QUERY" ]; then
-  echo "Error: Query is required"
-  echo "Usage: $0 [subjects] \"your query\" [api-key] [worker-url]"
+if [[ "$MODE" == "query" && -z "$QUERY" ]]; then
+  echo "Error: Query is required for query mode"
+  echo "Usage: $0 \"your query\" [api-key] [worker-url]"
   exit 1
 fi
 
 if [ -z "$API_KEY" ]; then
   echo "Error: API key is required"
-  echo "Usage: $0 \"your query\" \"your-api-key\" [worker-url]"
+  echo "Usage: $0 [subjects] [\"your query\"] [api-key] [worker-url]"
   echo "Or set API_KEY environment variable"
   exit 1
 fi
 
 echo "Querying environment: $MACHINEN_ENV ($WORKER_URL)"
 echo "Mode: $MODE"
-echo "Query: $QUERY"
+if [ -n "$QUERY" ]; then
+  echo "Query: $QUERY"
+else
+  echo "Listing all subjects"
+fi
 echo ""
 
 if [[ "$MODE" == "subjects" ]]; then
   # It's a GET request to the subjects endpoint
-  ENCODED_QUERY=$(echo "$QUERY" | jq -sRr @uri)
-  ENDPOINT_URL="$WORKER_URL/rag/subjects?query=$ENCODED_QUERY"
+  if [ -n "$QUERY" ]; then
+    # Search for a specific subject
+    ENCODED_QUERY=$(echo "$QUERY" | jq -sRr @uri)
+    ENDPOINT_URL="$WORKER_URL/rag/subjects?query=$ENCODED_QUERY"
+  else
+    # List all subjects
+    ENDPOINT_URL="$WORKER_URL/rag/subjects"
+  fi
   RESPONSE=$(curl -s -X GET \
     -H "Authorization: Bearer $API_KEY" \
     "$ENDPOINT_URL")

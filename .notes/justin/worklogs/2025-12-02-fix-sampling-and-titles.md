@@ -65,7 +65,46 @@ Modified `src/app/engine/plugins/github.ts` and `src/app/engine/plugins/discord.
 *   **Action:** Implemented the hook in both plugins. For GitHub, each PR, Issue, or Project is a subject. For Discord, each thread or daily channel log is a subject.
 *   **Result:** All source-specific plugins now provide top-down subject descriptions, completely removing the need for the chunk-by-chunk fallback logic.
 
-## 4. Next Steps
+## 5. Decision: Synchronous vs. Asynchronous Title Generation
+
+A key observation was that subject titles were not descriptive (e.g., "Cursor Conversation <UUID>"). To provide meaningful, user-facing titles, an LLM call is needed. This led to a design decision about *when* to make this call.
+
+### 5.1. The Options
+
+1.  **Synchronous (Current Approach):** When a new subject is first created, make a blocking call to an LLM to generate a title. The indexing process for that subject waits for the title.
+2.  **Asynchronous (Alternative):** Create the subject immediately with a placeholder title. Add a job to a queue for a separate worker to process, which calls the LLM and updates the title out-of-band.
+
+### 5.2. Analysis & Decision
+
+| Aspect | Synchronous | Asynchronous |
+| :--- | :--- | :--- |
+| **Complexity** | **Low**. A simple, direct function call. | **High**. Requires a queue, a worker, state management for "pending" titles, and retry logic. |
+| **Data Integrity** | **High**. Subjects *always* have a meaningful title from the moment they are created. | **Low**. Subjects exist in an inconsistent, intermediate state with placeholder titles until the worker completes. |
+| **Failure Mode** | **Immediate & Loud**. If title generation fails, the entire indexing job fails, aligning with the "explode violently" principle. | **Delayed & Quieter**. A failure in a background worker is less visible and could lead to silent data quality issues. |
+| **Performance** | **Slower initial creation**. Adds latency to the creation of a *new* subject. | **Faster initial creation**. The critical path is not blocked by the LLM call. |
+
+**Decision:** We will proceed with the **synchronous** approach.
+
+The one-time performance cost of a blocking LLM call during subject creation is a worthwhile trade-off for the significant benefits in architectural simplicity, data integrity, and immediate, clear failure detection. The complexity of the asynchronous model introduces too many moving parts and potential for silent failures.
+
+### 5.3. Implementation: Semantic Title Generation
+
+*   **Action:**
+    1.  Created a new centralized utility `src/app/engine/utils/summarize.ts` with a `generateTitleForText` function.
+    2.  Modified the `determineSubjectsForDocument` hook in the `cursor` and `discord` plugins to call this utility, using the first chunk's content to generate a semantic title.
+    3.  The `github` plugin will continue to use the high-quality titles from Issues and PRs directly.
+*   **Result:** All new subjects will now have meaningful, LLM-generated titles upon creation, improving their utility for user-facing features and introspection.
+
+### 5.4. Model Selection for Title Generation
+
+*   **Problem**: Title generation is a high-volume, synchronous task. Using the powerful but expensive `gpt-oss-20b` model for this is inefficient.
+*   **Decision**: After weighing the token costs vs. latency, a smaller, faster model is preferable for the synchronous title generation step. We will use `@cf/meta/llama-3.1-8b-instruct` as it prioritizes low latency, which is critical for a blocking operation in the indexing pipeline.
+*   **Action**:
+    1.  Updated `src/app/engine/utils/llm.ts` to use `@cf/meta/llama-3.1-8b-instruct` when the `"gpt-oss-20b-cheap"` model type is requested.
+    2.  The `summarize.ts` utility already requests the `"gpt-oss-20b-cheap"` model, so no changes were needed there.
+*   **Result**: This maintains the architectural separation of a fast/cheap model and a powerful/slow model, while selecting the most appropriate modern model for the high-volume, latency-sensitive task.
+
+## 6. Next Steps
 *   Monitor logs for `[cursor-plugin] Failed to extract content` errors. These will point to new event types we need to handle.
 *   Monitor logs for title generation failures. If these are frequent, we must address the root cause (AI stability, prompts) rather than masking them.
 *   Monitor logs to verify that "whale" documents (large Cursor chats) are now being correctly diffed and skipped (assuming extraction succeeds).

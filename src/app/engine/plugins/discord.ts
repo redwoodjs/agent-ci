@@ -10,6 +10,7 @@ import type {
 } from "../types";
 import type { components } from "../../ingestors/discord/discord-api-types";
 import type { ThreadPage } from "../../ingestors/discord/utils/thread-to-json";
+import { generateTitleForText } from "../utils/summarize";
 
 type DiscordMessage = components["schemas"]["MessageResponse"];
 
@@ -119,6 +120,10 @@ export const discordPlugin: Plugin = {
         return null;
       }
 
+      // Use the document content to generate a title.
+      // For threads, this is the starter message. For channels, the first message of the day.
+      const title = await generateTitleForText(document.content, context.env);
+
       // Treat each thread or daily channel log as a single subject.
       const encoder = new TextEncoder();
       const data = encoder.encode(document.id);
@@ -129,7 +134,7 @@ export const discordPlugin: Plugin = {
         .join("");
 
       const description: SubjectDescription = {
-        title: document.metadata.title,
+        title: title,
         narrative: document.content,
         idempotency_key: idempotencyKey,
         chunks: chunks,

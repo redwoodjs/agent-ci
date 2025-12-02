@@ -7,6 +7,7 @@ import {
   QueryHookContext,
   SubjectDescription,
 } from "../types";
+import { generateTitleForText } from "../utils/summarize";
 
 interface CursorConversationLatestJson {
   id: string;
@@ -76,6 +77,16 @@ export const cursorPlugin: Plugin = {
         return null;
       }
 
+      // Use the first chunk to generate a title, as it's often the most descriptive.
+      const firstChunkContent = chunks[0]?.content;
+      if (!firstChunkContent) {
+        // This can happen if the document is empty or chunking produced nothing.
+        // It's not a subject, so we return null.
+        return null;
+      }
+
+      const title = await generateTitleForText(firstChunkContent, context.env);
+
       // Treat the entire conversation as a single subject.
       const encoder = new TextEncoder();
       const data = encoder.encode(document.id);
@@ -86,7 +97,7 @@ export const cursorPlugin: Plugin = {
         .join("");
 
       const description: SubjectDescription = {
-        title: document.metadata.title,
+        title: title,
         narrative: document.content,
         idempotency_key: idempotencyKey,
         chunks: chunks,

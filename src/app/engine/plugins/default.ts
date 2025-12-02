@@ -11,6 +11,7 @@ import {
   getAvailableInputTokens,
 } from "../utils/token-counter";
 import { SubjectDescription } from "../types";
+import { generateTitleForText } from "../utils/summarize";
 
 export const defaultPlugin: Plugin = {
   name: "default",
@@ -42,41 +43,7 @@ export const defaultPlugin: Plugin = {
       return null;
     },
     async generateSubjectTitle(context: SubjectSearchContext): Promise<string> {
-      const { text, env } = context;
-      const truncatedText = text.substring(0, 1000);
-      console.log(
-        `[default-plugin] Generating title for text length: ${text.length} (truncated to 1000)`
-      );
-
-      try {
-        const titlePrompt = `Analyze the following text from a document and generate a short, concise title (less than 10 words) that summarizes its core subject. Examples: "Bug: User login fails", "Feature: Add dark mode", "Refactor: API authentication". Do not include quotes in the title. Text: "${truncatedText}"`;
-
-        const { callLLM } = await import("../utils/llm");
-        const titleResponse = await callLLM(titlePrompt, env);
-
-        if (!titleResponse || typeof titleResponse !== "string") {
-          const errorMsg =
-            "[default-plugin] AI returned empty or invalid response for title generation";
-          console.error(errorMsg);
-          throw new Error(errorMsg);
-        }
-
-        const newTitle = titleResponse.trim().replace(/"/g, "");
-        if (!newTitle) {
-          const errorMsg = "[default-plugin] AI generated empty title string";
-          console.error(errorMsg);
-          throw new Error(errorMsg);
-        }
-
-        return newTitle;
-      } catch (error) {
-        console.error(
-          "[default-plugin] Error generating subject title:",
-          error
-        );
-        // Explode violently on failure as requested, do not fallback.
-        throw error;
-      }
+      return generateTitleForText(context.text, context.env);
     },
     async determineSubjectsForDocument(
       document: Document,

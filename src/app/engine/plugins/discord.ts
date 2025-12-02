@@ -212,10 +212,10 @@ export const discordPlugin: Plugin = {
   },
 
   evidence: {
-    async splitDocumentIntoChunks(
-      document: Document,
-      context: IndexingHookContext
-    ): Promise<Chunk[]> {
+  async splitDocumentIntoChunks(
+    document: Document,
+    context: IndexingHookContext
+  ): Promise<Chunk[]> {
     if (document.source !== "discord") {
       return [];
     }
@@ -321,16 +321,16 @@ export const discordPlugin: Plugin = {
       }
     }
 
-      return chunks;
-    },
+    return chunks;
+  },
 
-    async buildVectorSearchFilter(
-      context: QueryHookContext
-    ): Promise<Record<string, unknown> | null> {
-      return null;
-    },
+  async buildVectorSearchFilter(
+    context: QueryHookContext
+  ): Promise<Record<string, unknown> | null> {
+    return null;
+  },
 
-    async reconstructContext(
+  async reconstructContext(
     documentChunks: ChunkMetadata[],
     sourceDocument:
       | ThreadPage
@@ -491,28 +491,28 @@ export const discordPlugin: Plugin = {
 
     const content = docSections.join("\n");
 
-      return {
-        content,
-        source: "discord",
-        primaryMetadata: firstChunk,
-      };
-    },
+    return {
+      content,
+      source: "discord",
+      primaryMetadata: firstChunk,
+    };
+  },
 
-    async composeLlmPrompt(
-      contexts: ReconstructedContext[],
-      query: string,
-      context: QueryHookContext
-    ): Promise<string> {
-      const discordContexts = contexts.filter((ctx) => ctx.source === "discord");
-      if (discordContexts.length === 0) {
-        return "";
-      }
+  async composeLlmPrompt(
+    contexts: ReconstructedContext[],
+    query: string,
+    context: QueryHookContext
+  ): Promise<string> {
+    const discordContexts = contexts.filter((ctx) => ctx.source === "discord");
+    if (discordContexts.length === 0) {
+      return "";
+    }
 
-      const contextSection = discordContexts
-        .map((ctx) => ctx.content)
-        .join("\n\n---\n\n");
+    const contextSection = discordContexts
+      .map((ctx) => ctx.content)
+      .join("\n\n---\n\n");
 
-      return `## Discord Context\n\n${contextSection}`;
+    return `## Discord Context\n\n${contextSection}`;
     },
   },
 };

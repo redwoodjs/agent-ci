@@ -128,10 +128,10 @@ if [[ "$MODE" == "subjects" ]]; then
 else
   # It's a POST request to the default /rag/query endpoint
   ENDPOINT_URL="$WORKER_URL/rag/query"
-  RESPONSE=$(curl -s -X POST \
-    -H "Authorization: Bearer $API_KEY" \
-    -H "Content-Type: application/json" \
-    -d "{\"query\": $(echo "$QUERY" | jq -R .)}" \
+RESPONSE=$(curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"query\": $(echo "$QUERY" | jq -R .)}" \
     "$ENDPOINT_URL")
 fi
 

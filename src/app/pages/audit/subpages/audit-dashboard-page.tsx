@@ -210,7 +210,7 @@ function RecentActivity({
   indexedEntries,
 }: {
   recentFiles: Array<{ key: string; size: number; uploaded: Date }>;
-  indexedEntries: Array<[string, { indexed_at: string; chunk_ids?: string[] }]>;
+  indexedEntries: Array<[string, { indexed_at: string; chunk_count: number }]>;
 }) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -256,7 +256,7 @@ function RecentActivity({
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate">{key}</div>
                   <div className="text-xs text-gray-500">
-                    {state.chunk_ids?.length || 0} chunks
+                    {state.chunk_count} chunks
                   </div>
                 </div>
                 <div className="text-xs text-gray-500 ml-2 whitespace-nowrap">

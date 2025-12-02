@@ -70,7 +70,7 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
       r2_key: string;
       etag: string;
       indexed_at: string;
-      chunk_ids: string[] | null;
+      chunk_count: number;
     }
   >
 > {
@@ -92,40 +92,38 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
       r2_key: string;
       etag: string;
       indexed_at: string;
-      chunk_ids: string[] | null;
+      chunk_count: number;
     }
   >();
 
   const maxBatchSize = 100;
   for (let i = 0; i < r2Keys.length; i += maxBatchSize) {
     const batch = r2Keys.slice(i, i + maxBatchSize);
+
     const states = await db
       .selectFrom("indexing_state")
-      .selectAll()
-      .where("r2_key", "in", batch)
+      .leftJoin(
+        "processed_chunks",
+        "indexing_state.r2_key",
+        "processed_chunks.r2_key"
+      )
+      .select([
+        "indexing_state.r2_key",
+        "indexing_state.etag",
+        "indexing_state.indexed_at",
+        (eb) => eb.fn.count("processed_chunks.chunk_hash").as("chunk_count"),
+      ])
+      .where("indexing_state.r2_key", "in", batch)
+      .groupBy("indexing_state.r2_key")
       .execute();
 
     for (const state of states) {
-      let chunkIds: string[] | null = null;
-      if (state.chunk_ids) {
-        if (Array.isArray(state.chunk_ids)) {
-          chunkIds = state.chunk_ids;
-        } else {
-          console.warn(
-            `[db] Invalid chunk_ids for ${
-              state.r2_key
-            }: expected array (already parsed by ParseJSONResultsPlugin), got ${typeof state.chunk_ids}. Value: ${JSON.stringify(
-              state.chunk_ids
-            ).substring(0, 200)}`
-          );
-        }
-      }
-
       result.set(state.r2_key, {
         r2_key: state.r2_key,
         etag: state.etag,
         indexed_at: state.indexed_at,
-        chunk_ids: chunkIds,
+        // Kysely with COUNT returns a bigint when it might be 0, so we coerce.
+        chunk_count: Number(state.chunk_count),
       });
     }
   }

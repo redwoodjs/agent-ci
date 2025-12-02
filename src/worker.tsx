@@ -44,7 +44,8 @@ import { handleDeadLetterMessage } from "@/app/ingestors/github/services/dlq-han
 import { processSchedulerJob as processDiscordSchedulerJob } from "@/app/ingestors/discord/services/scheduler-service";
 import { processProcessorJob as processDiscordProcessorJob } from "@/app/ingestors/discord/services/processor-service";
 import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app/ingestors/discord/services/dlq-handler";
-import { processIndexingJob } from "@/app/engine/services/indexing-worker";
+import { processIndexingJob } from "@/app/engine/services/indexing-scheduler-worker";
+import { processChunkJob } from "@/app/engine/services/chunk-processor-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
 import type {
   QueueMessage,
@@ -52,6 +53,7 @@ import type {
 } from "@/app/ingestors/github/services/backfill-types";
 import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
+import { Chunk } from "./app/engine/types";
 
 export default {
   fetch: app.fetch,
@@ -115,6 +117,13 @@ export default {
             continue;
           }
           await processIndexingJob({ r2Key }, env as Cloudflare.Env);
+          message.ack();
+        } else if (
+          queueName === "chunk-processing-queue" ||
+          queueName === "CHUNK_PROCESSING_QUEUE"
+        ) {
+          const chunk = queueMessage as unknown as Chunk;
+          await processChunkJob(chunk, env as Cloudflare.Env);
           message.ack();
         } else if (queueName.startsWith("discord-scheduler-queue")) {
           const discordMessage = queueMessage as unknown as DiscordQueueMessage;

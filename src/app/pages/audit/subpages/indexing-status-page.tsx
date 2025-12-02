@@ -77,7 +77,7 @@ async function IndexingContent({
       indexed: !!indexingState,
       indexedAt: indexingState?.indexed_at,
       indexedEtag: indexingState?.etag,
-      chunkCount: indexingState?.chunk_ids?.length || 0,
+      chunkCount: indexingState?.chunk_count || 0,
       needsReindex: indexingState ? indexingState.etag !== obj.etag : false,
       isValid,
     };

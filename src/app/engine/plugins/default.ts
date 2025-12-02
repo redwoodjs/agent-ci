@@ -51,21 +51,17 @@ export const defaultPlugin: Plugin = {
       try {
         const titlePrompt = `Analyze the following text from a document and generate a short, concise title (less than 10 words) that summarizes its core subject. Examples: "Bug: User login fails", "Feature: Add dark mode", "Refactor: API authentication". Do not include quotes in the title. Text: "${truncatedText}"`;
 
-        const titleResponse = (await env.AI.run(
-          "@cf/meta/llama-3-8b-instruct",
-          {
-            prompt: titlePrompt,
-          }
-        )) as { response: string };
+        const { callLLM } = await import("../utils/llm");
+        const titleResponse = await callLLM(titlePrompt, env);
 
-        if (!titleResponse || !titleResponse.response) {
+        if (!titleResponse || typeof titleResponse !== "string") {
           const errorMsg =
-            "[default-plugin] AI returned empty response for title generation";
+            "[default-plugin] AI returned empty or invalid response for title generation";
           console.error(errorMsg);
           throw new Error(errorMsg);
         }
 
-        const newTitle = titleResponse.response.trim().replace(/"/g, "");
+        const newTitle = titleResponse.trim().replace(/"/g, "");
         if (!newTitle) {
           const errorMsg = "[default-plugin] AI generated empty title string";
           console.error(errorMsg);

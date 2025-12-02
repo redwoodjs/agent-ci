@@ -21,10 +21,7 @@ import {
   getSubjectByIdempotencyKey,
 } from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
-import {
-  getProcessedChunkHashes,
-  setProcessedChunkHashes,
-} from "./db";
+import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -171,7 +168,8 @@ export async function indexDocument(
     console.log(
       `[engine] No plugin provided subject descriptions. Falling back to chunk-by-chunk correlation.`
     );
-    for (const chunk of newChunks) { // Only process new chunks
+    for (const chunk of newChunks) {
+      // Only process new chunks
       const foundSubjectId = await runFirstMatchHook(
         context.plugins,
         "findSubjectForText",
@@ -226,9 +224,9 @@ export async function indexDocument(
         await putSubject(subjectDb, newSubject);
         await upsertSubjectVector(newSubject, context.env);
       } else {
-        const updatedNarrative = `${
-          currentSubject.narrative || ""
-        }\n\n---\n\n${chunk.content}`;
+        const updatedNarrative = `${currentSubject.narrative || ""}\n\n---\n\n${
+          chunk.content
+        }`;
         currentSubject.narrative = updatedNarrative;
 
         if (!currentSubject.documentIds.includes(document.id)) {
@@ -495,7 +493,9 @@ async function upsertSubjectVector(subject: Subject, env: Cloudflare.Env) {
       metadata: { title: subject.title },
     },
   ]);
-  console.log(`[engine] Successfully upserted vector for subject ${subject.id}.`);
+  console.log(
+    `[engine] Successfully upserted vector for subject ${subject.id}.`
+  );
 }
 
 async function reconstructContexts(
@@ -662,19 +662,8 @@ async function generateEmbedding(
   return response.data[0];
 }
 
+import { callLLM } from "./utils/llm";
+
 async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
-  const response = (await (env.AI.run as any)("@cf/google/gemma-3-12b-it", {
-    messages: [
-      {
-        role: "user",
-        content: prompt,
-      },
-    ],
-  })) as { response: string };
-
-  if (!response || typeof response.response !== "string") {
-    throw new Error("Failed to get LLM response");
-  }
-
-  return response.response;
+  return callLLM(prompt, env);
 }

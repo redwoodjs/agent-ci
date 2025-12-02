@@ -38,13 +38,12 @@ Modified `src/app/engine/plugins/cursor.ts` to **remove the JSON fallback**.
 *   **Action:** If the plugin fails to extract structured text (user prompt/assistant response), it now **throws an error immediately**.
 *   **Rationale:** "Explode violently" policy. Rather than silently falling back to a potentially unstable JSON dump (which causes re-indexing storms), we want to fail hard so we can identify and fix the missing event types in the extraction logic.
 
-### 3.2. Robust Title Generation with Fallback
+### 3.2. Strict Title Generation (No Fallbacks)
 Modified `src/app/engine/plugins/default.ts`:
-*   **Logging:** Added logs to show text length being sent to AI.
-*   **Fallback:** If AI fails or returns empty, return `"Untitled Subject"` instead of throwing/returning empty.
-*   **Result:** Prevents the "No plugin could generate a title" error loop and ensures chunks are assigned to a subject (even if untitled) rather than being dropped.
+*   **Action:** Removed the `"Untitled Subject"` fallback. If AI generation fails, it now **throws an error immediately**.
+*   **Rationale:** "Explode violently" policy. We prefer to fail index jobs explicitly rather than accumulating low-quality data ("Untitled Subject") that silently hides underlying issues with the AI service or prompts.
 
 ## 4. Next Steps
 *   Monitor logs for `[cursor-plugin] Failed to extract content` errors. These will point to new event types we need to handle.
+*   Monitor logs for title generation failures. If these are frequent, we must address the root cause (AI stability, prompts) rather than masking them.
 *   Monitor logs to verify that "whale" documents (large Cursor chats) are now being correctly diffed and skipped (assuming extraction succeeds).
-*   Verify that "Untitled Subject" entries are not overwhelming the system.

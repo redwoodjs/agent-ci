@@ -59,16 +59,17 @@ export const defaultPlugin: Plugin = {
         )) as { response: string };
 
         if (!titleResponse || !titleResponse.response) {
-          console.warn(
-            "[default-plugin] AI returned empty response for title generation"
-          );
-          return "Untitled Subject";
+          const errorMsg =
+            "[default-plugin] AI returned empty response for title generation";
+          console.error(errorMsg);
+          throw new Error(errorMsg);
         }
 
         const newTitle = titleResponse.response.trim().replace(/"/g, "");
         if (!newTitle) {
-          console.warn("[default-plugin] AI generated empty title string");
-          return "Untitled Subject";
+          const errorMsg = "[default-plugin] AI generated empty title string";
+          console.error(errorMsg);
+          throw new Error(errorMsg);
         }
 
         return newTitle;
@@ -77,8 +78,8 @@ export const defaultPlugin: Plugin = {
           "[default-plugin] Error generating subject title:",
           error
         );
-        // Fallback to a safe title so we don't drop the subject
-        return "Untitled Subject";
+        // Explode violently on failure as requested, do not fallback.
+        throw error;
       }
     },
     async determineSubjectsForDocument(

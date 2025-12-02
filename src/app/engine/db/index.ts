@@ -220,12 +220,18 @@ export async function setProcessedChunkHashes(
   await db.deleteFrom("processed_chunks").where("r2_key", "=", r2Key).execute();
 
   // Insert new hashes if there are any
+  // Batch inserts to avoid SQLite's variable limit (~999 variables)
+  // Each insert uses 2 variables (r2_key, chunk_hash), so we can safely insert ~400 at a time
   if (chunkHashes.length > 0) {
-    const values = chunkHashes.map((hash) => ({
-      r2_key: r2Key,
-      chunk_hash: hash,
-    }));
-    await db.insertInto("processed_chunks").values(values).execute();
+    const BATCH_SIZE = 400;
+    for (let i = 0; i < chunkHashes.length; i += BATCH_SIZE) {
+      const batch = chunkHashes.slice(i, i + BATCH_SIZE);
+      const values = batch.map((hash) => ({
+        r2_key: r2Key,
+        chunk_hash: hash,
+      }));
+      await db.insertInto("processed_chunks").values(values).execute();
+    }
   }
 }
 

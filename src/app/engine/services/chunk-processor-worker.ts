@@ -40,11 +40,6 @@ export async function processChunkJob(
   env: Cloudflare.Env
 ): Promise<void> {
   try {
-    console.log(
-      `[chunk-processor] Starting job for chunk: ${chunk.id} from doc: ${chunk.documentId}`
-    );
-
-    // 1. Update the Knowledge Graph (SubjectDO)
     if (chunk.metadata.subjectId) {
       type SubjectDatabase = Database<typeof subjectMigrations>;
       const subjectDb = createDb<SubjectDatabase>(
@@ -59,30 +54,19 @@ export async function processChunkJob(
         }`;
         subject.narrative = updatedNarrative;
         await putSubject(subjectDb, subject);
-        console.log(`[chunk-processor] Updated narrative for subject ${subject.id}`);
-      } else {
-        // This case should ideally not be hit if the scheduler created the subject,
-        // but as a fallback, we log a warning.
-        console.warn(
-          `[chunk-processor] Subject ${chunk.metadata.subjectId} not found for chunk ${chunk.id}. Cannot update narrative.`
-        );
       }
     }
 
-    // 2. Update the Evidence Locker (Vectorize)
     const embedding = await generateEmbedding(chunk.content, env);
     const vectorId = await hashChunkId(chunk.metadata.chunkId);
 
-    const vector = {
-      id: vectorId,
-      values: embedding,
-      metadata: chunk.metadata,
-    };
-
-    await env.VECTORIZE_INDEX.insert([vector]);
-    console.log(
-      `[chunk-processor] Successfully inserted vector ${vectorId} for chunk ${chunk.id} into Vectorize.`
-    );
+    await env.VECTORIZE_INDEX.insert([
+      {
+        id: vectorId,
+        values: embedding,
+        metadata: chunk.metadata,
+      },
+    ]);
   } catch (error) {
     console.error(
       `[chunk-processor] Error processing chunk ${chunk.id}: ${

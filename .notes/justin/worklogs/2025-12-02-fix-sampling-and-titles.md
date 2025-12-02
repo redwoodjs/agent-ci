@@ -59,6 +59,12 @@ Modified `src/app/engine/plugins/cursor.ts`:
 *   **Problem:** The `cursorPlugin` was not implementing the `determineSubjectsForDocument` hook, causing the engine to hit the (now removed) fallback.
 *   **Action:** Implemented the hook to treat each entire Cursor conversation as a single subject. This provides the necessary top-down description and prevents chunk-by-chunk processing for cursor conversations.
 
+### 3.6. Implemented `determineSubjectsForDocument` for GitHub and Discord
+Modified `src/app/engine/plugins/github.ts` and `src/app/engine/plugins/discord.ts`:
+*   **Problem:** The `githubPlugin` and `discordPlugin` were also missing the `determineSubjectsForDocument` hook.
+*   **Action:** Implemented the hook in both plugins. For GitHub, each PR, Issue, or Project is a subject. For Discord, each thread or daily channel log is a subject.
+*   **Result:** All source-specific plugins now provide top-down subject descriptions, completely removing the need for the chunk-by-chunk fallback logic.
+
 ## 4. Next Steps
 *   Monitor logs for `[cursor-plugin] Failed to extract content` errors. These will point to new event types we need to handle.
 *   Monitor logs for title generation failures. If these are frequent, we must address the root cause (AI stability, prompts) rather than masking them.

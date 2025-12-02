@@ -113,14 +113,15 @@ if [ -z "$API_KEY" ]; then
   exit 1
 fi
 
-echo "Querying environment: $MACHINEN_ENV ($WORKER_URL)"
-echo "Mode: $MODE"
+# Only output non-JSON text to stderr so it doesn't interfere with piping
+echo "Querying environment: $MACHINEN_ENV ($WORKER_URL)" >&2
+echo "Mode: $MODE" >&2
 if [ -n "$QUERY" ]; then
-  echo "Query: $QUERY"
+  echo "Query: $QUERY" >&2
 else
-  echo "Listing all subjects"
+  echo "Listing all subjects" >&2
 fi
-echo ""
+echo "" >&2
 
 if [[ "$MODE" == "subjects" ]]; then
   # It's a GET request to the subjects endpoint

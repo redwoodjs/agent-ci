@@ -186,11 +186,12 @@ export const cursorPlugin: Plugin = {
         // Fallback: If we couldn't extract structured text, "explode violently" as requested.
         // We want to know about these cases so we can fix the extraction logic.
         if (!content.trim()) {
-          const errorMsg = `[cursor-plugin] Failed to extract content for generation ${
-            index + 1
-          } (id: ${gen.id}). Raw events: ${JSON.stringify(gen.events)}`;
-          console.error(errorMsg);
-          throw new Error(errorMsg);
+          console.warn(
+            `[cursor-plugin] SKIPPING: No content extracted for generation ${
+              index + 1
+            } (id: ${gen.id}). Raw events: ${JSON.stringify(gen.events)}`
+          );
+          continue; // Skip this chunk if no content
         }
 
         if (content.trim()) {

@@ -43,7 +43,14 @@ Modified `src/app/engine/plugins/default.ts`:
 *   **Action:** Removed the `"Untitled Subject"` fallback. If AI generation fails, it now **throws an error immediately**.
 *   **Rationale:** "Explode violently" policy. We prefer to fail index jobs explicitly rather than accumulating low-quality data ("Untitled Subject") that silently hides underlying issues with the AI service or prompts.
 
+### 3.3. Foreign Key Constraint Fix
+Modified `src/app/engine/db/index.ts` in `setProcessedChunkHashes`:
+*   **Problem:** The `processed_chunks` table has a foreign key constraint referencing `indexing_state.r2_key`. When inserting chunk hashes, if no `indexing_state` row exists, the foreign key constraint fails.
+*   **Action:** Before inserting into `processed_chunks`, check if an `indexing_state` row exists. If not, fetch the R2 object's ETag and create the row.
+*   **Result:** Ensures the foreign key constraint is satisfied before inserting child records.
+
 ## 4. Next Steps
 *   Monitor logs for `[cursor-plugin] Failed to extract content` errors. These will point to new event types we need to handle.
 *   Monitor logs for title generation failures. If these are frequent, we must address the root cause (AI stability, prompts) rather than masking them.
 *   Monitor logs to verify that "whale" documents (large Cursor chats) are now being correctly diffed and skipped (assuming extraction succeeds).
+*   Verify that FOREIGN KEY constraint errors no longer occur during indexing.

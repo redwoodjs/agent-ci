@@ -216,6 +216,34 @@ export async function setProcessedChunkHashes(
     "engine-indexing-state"
   );
 
+  // Ensure indexing_state row exists (required for foreign key constraint)
+  const existingState = await db
+    .selectFrom("indexing_state")
+    .selectAll()
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  if (!existingState) {
+    // Fetch ETag from R2 to create the indexing_state row
+    const bucket = (env as any).MACHINEN_BUCKET;
+    const object = await bucket.head(r2Key);
+    const etag = object?.etag || "unknown";
+    const now = new Date().toISOString();
+
+    console.log(
+      `[db] setProcessedChunkHashes: Creating indexing_state row for ${r2Key} with etag ${etag}`
+    );
+    await db
+      .insertInto("indexing_state")
+      .values({
+        r2_key: r2Key,
+        etag,
+        indexed_at: now,
+        chunk_ids: null,
+      })
+      .execute();
+  }
+
   // Use a transaction to ensure atomicity
   await db.deleteFrom("processed_chunks").where("r2_key", "=", r2Key).execute();
 

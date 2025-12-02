@@ -11,6 +11,7 @@ import {
   startGateway,
   stopGateway,
   getGatewayStatus,
+  getGatewayAudit,
 } from "./services/gateway-service";
 
 const backfillRequestSchema = z.object({
@@ -234,6 +235,39 @@ const gatewayStatusRoute = route("/gateway/status", [
   },
 ]);
 
+const gatewayAuditRoute = route("/gateway/audit", [
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      const url = new URL(request.url);
+      const limitParam = Number(url.searchParams.get("limit") ?? "100");
+      const limit = Number.isFinite(limitParam)
+        ? Math.min(Math.max(limitParam, 1), 500)
+        : 100;
+
+      const entries = await getGatewayAudit(limit);
+
+      const apiResponse = Response.json({
+        success: true,
+        entries,
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord Gateway audit error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
 export const routes = [
   backfillRoute,
   pauseBackfillRoute,
@@ -241,4 +275,5 @@ export const routes = [
   gatewayStartRoute,
   gatewayStopRoute,
   gatewayStatusRoute,
+  gatewayAuditRoute,
 ];

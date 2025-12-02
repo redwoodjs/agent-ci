@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import type { GatewayAuditEntry } from "../db/gateway-audit-types";
 
 declare module "rwsdk/worker" {
   interface WorkerEnv {
@@ -12,11 +13,15 @@ interface GatewayEnv {
 
 const GATEWAY_DO_ID = "discord-gateway";
 
-export async function startGateway(): Promise<void> {
+function getGatewayStub(): DurableObjectStub {
   const gatewayEnv = env as unknown as GatewayEnv;
   const namespace = gatewayEnv.DISCORD_GATEWAY;
   const id = namespace.idFromName(GATEWAY_DO_ID);
-  const stub = namespace.get(id);
+  return namespace.get(id);
+}
+
+export async function startGateway(): Promise<void> {
+  const stub = getGatewayStub();
 
   const response = await stub.fetch("http://internal/start", {
     method: "POST",
@@ -29,10 +34,7 @@ export async function startGateway(): Promise<void> {
 }
 
 export async function stopGateway(): Promise<void> {
-  const gatewayEnv = env as unknown as GatewayEnv;
-  const namespace = gatewayEnv.DISCORD_GATEWAY;
-  const id = namespace.idFromName(GATEWAY_DO_ID);
-  const stub = namespace.get(id);
+  const stub = getGatewayStub();
 
   const response = await stub.fetch("http://internal/stop", {
     method: "POST",
@@ -50,10 +52,7 @@ export async function getGatewayStatus(): Promise<{
   sequenceNumber: number | null;
   reconnectAttempts: number;
 }> {
-  const gatewayEnv = env as unknown as GatewayEnv;
-  const namespace = gatewayEnv.DISCORD_GATEWAY;
-  const id = namespace.idFromName(GATEWAY_DO_ID);
-  const stub = namespace.get(id);
+  const stub = getGatewayStub();
 
   const response = await stub.fetch("http://internal/status", {
     method: "GET",
@@ -65,4 +64,24 @@ export async function getGatewayStatus(): Promise<{
   }
 
   return await response.json();
+}
+
+export async function getGatewayAudit(
+  limit = 100
+): Promise<GatewayAuditEntry[]> {
+  const stub = getGatewayStub();
+  const url = new URL("http://internal/audit");
+  url.searchParams.set("limit", String(limit));
+
+  const response = await stub.fetch(url.toString(), {
+    method: "GET",
+  });
+
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`Failed to get Gateway audit log: ${error}`);
+  }
+
+  const json = await response.json();
+  return (json.entries as GatewayAuditEntry[]) ?? [];
 }

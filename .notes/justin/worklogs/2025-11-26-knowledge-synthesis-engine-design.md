@@ -371,3 +371,30 @@ The plan is to extend this durable object to manage state at a more granular, ch
 4.  **Update State on Success:** Once the new chunks are successfully processed, the `EngineIndexingStateDO` will be updated with the new, complete set of chunk hashes for the document.
 
 This approach directly solves the "whale" problem by ensuring that only genuinely new or modified content is ever sent for processing, drastically reducing redundant work and system backpressure.
+
+## 20. Vector Compression for Cursor Conversation Narratives
+
+A problem was identified with the Cursor plugin's subject creation: the narrative field used for vector search was too generic (e.g., "Cursor conversation xyz with 5 turns"), causing duplicate subjects to be created when similar conversations occurred.
+
+The solution is to use vector compression to find the most representative part of the conversation. Instead of summarizing natural language (which requires expensive LLM calls), we work directly with embeddings:
+
+1. **Extract & Embed:** Extract all user prompts from the conversation and generate embeddings for each.
+2. **Calculate Mean Vector:** Average all individual prompt embeddings to get a semantic centroid representing the overall topic.
+3. **Find Best Match:** Compare the mean vector against all individual prompt vectors using cosine similarity. The prompt most similar to the mean is the most representative.
+4. **Use as Narrative:** The text of that single, most representative prompt becomes the narrative for the Subject.
+
+This approach is cheap and fast (batch embedding calls + vector math), produces high-signal narratives perfect for vector search, and avoids the noise of overly long concatenated text. It fits cleanly into the existing architecture by producing a simple string for the `narrative` field.
+
+## 21. Centralized Narrative Processing in the Engine
+
+To make the vector compression logic reusable across all plugins, the architecture was refactored to centralize the summarization responsibility within the core engine, keeping the plugins "dumb."
+
+Previously, plugins were responsible for creating a final `narrative` string. The system now supports a dual approach:
+
+1.  **`narrative` (The Simple Path):** For sources where the content is already concise (e.g., a GitHub issue title), a plugin can provide a single, pre-summarized string in the `narrative` field. The engine will use this value directly.
+
+2.  **`narrativeComponents` (The "Dumb" Path):** For complex, verbose sources like Cursor conversations, a plugin can now provide an array of raw text strings in the `narrativeComponents` field. The `cursor` plugin, for example, now simply extracts every user prompt and passes them in this array.
+
+The core engine in `src/app/engine/engine.ts` contains the logic to handle both cases. It checks if `narrativeComponents` exists and, if so, calls the `summarizeNumerically` utility to perform the vector compression. If not, it falls back to using the provided `narrative`.
+
+This design makes the powerful vector summarization a core capability of the engine, available to any plugin without requiring them to implement any complex logic. Plugins are now only responsible for extracting content, not for summarizing it.

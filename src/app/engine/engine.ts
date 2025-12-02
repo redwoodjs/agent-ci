@@ -23,6 +23,7 @@ import {
 } from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
+import { summarizeNumerically } from "./utils/vector-summary";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -123,6 +124,28 @@ export async function indexDocument(
       `[engine] Plugin provided ${subjectDescriptions.length} subject descriptions. Processing them now.`
     );
     for (const description of subjectDescriptions) {
+      if (!description) {
+        continue;
+      }
+
+      let narrative = description.narrative;
+      if (
+        description.narrativeComponents &&
+        description.narrativeComponents.length > 0
+      ) {
+        narrative = await summarizeNumerically(
+          description.narrativeComponents,
+          context.env
+        );
+      }
+
+      if (!narrative) {
+        console.warn(
+          `[engine] Subject description for idempotency key ${description.idempotency_key} has no narrative. Falling back to title.`
+        );
+        narrative = description.title;
+      }
+
       // Find existing subject by idempotency key
       let subject = await getSubjectByIdempotencyKey(
         subjectDb,
@@ -135,9 +158,7 @@ export async function indexDocument(
         );
         // Potentially update title or narrative if they've changed
         subject.title = description.title;
-        subject.narrative = `${subject.narrative || ""}\n\n---\n\n${
-          description.narrative
-        }`;
+        subject.narrative = narrative;
       } else {
         // Create a new subject
         const subjectId = await hashChunkId(
@@ -146,13 +167,14 @@ export async function indexDocument(
         console.log(
           `[engine] Creating new subject "${description.title}" (${subjectId}) with idempotency key.`
         );
-        subject = {
+        const newSubject: Subject = {
           id: subjectId,
           title: description.title,
-          documentIds: [document.id],
-          narrative: description.narrative,
+          narrative: narrative,
+          documentIds: [],
           idempotency_key: description.idempotency_key,
         };
+        subject = newSubject;
       }
 
       // Link all associated chunks to this subject

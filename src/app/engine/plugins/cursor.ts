@@ -17,6 +17,20 @@ interface CursorConversationLatestJson {
   }[];
 }
 
+function extractUserPrompts(data: CursorConversationLatestJson): string[] {
+  const prompts: string[] = [];
+  for (const gen of data.generations) {
+    const userPrompt =
+      gen.events.find(
+        (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+      )?.prompt || "";
+    if (userPrompt.trim()) {
+      prompts.push(userPrompt.trim());
+    }
+  }
+  return prompts;
+}
+
 export const cursorPlugin: Plugin = {
   name: "cursor",
 
@@ -87,10 +101,20 @@ export const cursorPlugin: Plugin = {
 
       const title = await generateTitleForText(firstChunkContent, context.env);
 
+      // Fetch the conversation data to extract prompts
+      const bucket = context.env.MACHINEN_BUCKET;
+      const object = await bucket.get(document.id);
+      if (!object) {
+        throw new Error(`R2 object not found: ${document.id}`);
+      }
+      const jsonText = await object.text();
+      const data = JSON.parse(jsonText) as CursorConversationLatestJson;
+      const narrativeComponents = extractUserPrompts(data);
+
       // Treat the entire conversation as a single subject.
       const encoder = new TextEncoder();
-      const data = encoder.encode(document.id);
-      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const idData = encoder.encode(document.id);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", idData);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const idempotencyKey = hashArray
         .map((b) => b.toString(16).padStart(2, "0"))
@@ -98,7 +122,10 @@ export const cursorPlugin: Plugin = {
 
       const description: SubjectDescription = {
         title: title,
-        narrative: document.content,
+        narrativeComponents:
+          narrativeComponents.length > 0
+            ? narrativeComponents
+            : [document.content],
         idempotency_key: idempotencyKey,
         chunks: chunks,
       };

@@ -28,17 +28,30 @@ export const subjectMigrations = {
   "002_add_idempotency_key": {
     async up(db) {
       return [
+        // SQLite doesn't support adding UNIQUE columns directly, so add the column first
         await db.schema
           .alterTable("subjects")
-          .addColumn("idempotency_key", "text", (col) => col.unique())
+          .addColumn("idempotency_key", "text")
+          .execute(),
+        // Then create a unique index on it
+        await db.schema
+          .createIndex("subjects_idempotency_key_unique_idx")
+          .on("subjects")
+          .column("idempotency_key")
+          .unique()
           .execute(),
       ];
     },
     async down(db) {
-      await db.schema
-        .alterTable("subjects")
-        .dropColumn("idempotency_key")
-        .execute();
+      return [
+        await db.schema
+          .dropIndex("subjects_idempotency_key_unique_idx")
+          .execute(),
+        await db.schema
+          .alterTable("subjects")
+          .dropColumn("idempotency_key")
+          .execute(),
+      ];
     },
   },
 } satisfies Migrations;

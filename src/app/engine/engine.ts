@@ -141,12 +141,35 @@ export async function indexDocument(
 
       if (!narrative) {
         console.warn(
-          `[engine] Subject description for idempotency key ${description.idempotency_key} has no narrative. Falling back to title.`
+          `[engine] Subject description for document ${document.id} has no narrative. Falling back to title.`
         );
         narrative = description.title;
       }
 
-      // Find existing subject by idempotency key
+      // **Step 1: Prioritize Semantic Search**
+      const existingSubjectId = await runFirstMatchHook(
+        context.plugins,
+        "findSubjectForText",
+        (plugin) =>
+          plugin.subjects?.findSubjectForText?.({
+            text: narrative!,
+            env: context.env,
+          })
+      );
+
+      if (existingSubjectId) {
+        console.log(
+          `[engine] Found existing subject ${existingSubjectId} via semantic search.`
+        );
+        // Append document to existing subject
+        await updateSubjectDocumentIds(subjectDb, existingSubjectId, [
+          document.id,
+        ]);
+        subjectId = existingSubjectId;
+        break; // Move to chunking
+      }
+
+      // **Step 2: Fallback to Idempotency Key**
       let subject = await getSubjectByIdempotencyKey(
         subjectDb,
         description.idempotency_key
@@ -154,37 +177,32 @@ export async function indexDocument(
 
       if (subject) {
         console.log(
-          `[engine] Found existing subject "${subject.title}" (${subject.id}) by idempotency key.`
+          `[engine] Found existing subject ${subject.id} via idempotency key.`
         );
-        // Potentially update title or narrative if they've changed
         subject.title = description.title;
         subject.narrative = narrative;
+        await updateSubjectDocumentIds(subjectDb, subject.id, [document.id]);
+        await putSubject(subjectDb, subject);
+        await upsertSubjectVector(subject, context.env);
+        subjectId = subject.id;
       } else {
-        // Create a new subject
-        const subjectId = await hashChunkId(
-          `subject:${document.id}:${description.idempotency_key}`
-        );
-        console.log(
-          `[engine] Creating new subject "${description.title}" (${subjectId}) with idempotency key.`
-        );
+        // **Step 3: Create New Subject**
+        console.log(`[engine] No existing subject found. Creating a new one.`);
+        subjectId = crypto.randomUUID();
         const newSubject: Subject = {
           id: subjectId,
           title: description.title,
           narrative: narrative,
-          documentIds: [],
+          documentIds: [document.id],
           idempotency_key: description.idempotency_key,
         };
-        subject = newSubject;
+        await putSubject(subjectDb, newSubject);
+        await upsertSubjectVector(newSubject, context.env);
+        console.log(
+          `[engine] Created new subject ${subjectId} for document ${document.id}`
+        );
       }
-
-      // Link all associated chunks to this subject
-      for (const chunk of description.chunks) {
-        chunk.metadata.subjectId = subject.id;
-      }
-
-      // Save subject and update its vector
-      await putSubject(subjectDb, subject);
-      await upsertSubjectVector(subject, context.env);
+      break; // We assume one subject per document for now
     }
   } else {
     // NO FALLBACK: If no plugin provides top-down subjects, we must throw.

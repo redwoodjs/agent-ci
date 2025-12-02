@@ -111,22 +111,12 @@ export const cursorPlugin: Plugin = {
       const data = JSON.parse(jsonText) as CursorConversationLatestJson;
       const narrativeComponents = extractUserPrompts(data);
 
-      // Treat the entire conversation as a single subject.
-      const encoder = new TextEncoder();
-      const idData = encoder.encode(document.id);
-      const hashBuffer = await crypto.subtle.digest("SHA-256", idData);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const idempotencyKey = hashArray
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-
       const description: SubjectDescription = {
         title: title,
         narrativeComponents:
           narrativeComponents.length > 0
             ? narrativeComponents
             : [document.content],
-        idempotency_key: idempotencyKey,
         chunks: chunks,
       };
 

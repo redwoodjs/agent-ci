@@ -63,7 +63,7 @@ export interface SubjectDescription {
   title: string;
   narrative?: string;
   narrativeComponents?: string[];
-  idempotency_key: string;
+  idempotency_key?: string;
   chunks: Chunk[];
 }
 

@@ -109,19 +109,27 @@ export async function putSubject(db: SubjectDb, subject: Subject) {
 export async function updateSubjectDocumentIds(
   db: SubjectDb,
   subjectId: string,
-  newDocumentId: string
+  documentIds: string[]
 ) {
   const subject = await getSubject(db, subjectId);
-  if (subject) {
-    const updatedDocumentIds = Array.from(
-      new Set([...subject.documentIds, newDocumentId])
+  if (!subject) {
+    console.warn(
+      `[subjectDb] updateSubjectDocumentIds: Subject ${subjectId} not found.`
     );
-    await db
-      .updateTable("subjects")
-      .set({ document_ids: JSON.stringify(updatedDocumentIds) })
-      .where("id", "=", subjectId)
-      .execute();
+    return;
   }
+
+  const existingDocIds = new Set(subject.documentIds || []);
+  for (const docId of documentIds) {
+    existingDocIds.add(docId);
+  }
+
+  subject.documentIds = Array.from(existingDocIds);
+
+  await putSubject(db, subject);
+  console.log(
+    `[subjectDb] Updated subject ${subjectId} with new document IDs. Total: ${subject.documentIds.length}`
+  );
 }
 
 export async function getSubjectAncestors(

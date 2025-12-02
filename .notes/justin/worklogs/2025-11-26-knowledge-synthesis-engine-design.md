@@ -398,3 +398,23 @@ Previously, plugins were responsible for creating a final `narrative` string. Th
 The core engine in `src/app/engine/engine.ts` contains the logic to handle both cases. It checks if `narrativeComponents` exists and, if so, calls the `summarizeNumerically` utility to perform the vector compression. If not, it falls back to using the provided `narrative`.
 
 This design makes the powerful vector summarization a core capability of the engine, available to any plugin without requiring them to implement any complex logic. Plugins are now only responsible for extracting content, not for summarizing it.
+
+## 22. Refining the Engine Logic for Better Deduplication
+
+A critical issue was identified where semantically similar conversations were not being correctly deduplicated. The root cause was an issue in the engine's operational sequence: it was relying on a unique `idempotency_key` (a hash of the document's filename) to find existing Subjects, which guaranteed that every new document would create a new Subject, bypassing any semantic similarity checks.
+
+The engine's logic has been refactored to prioritize semantic correlation for any source that provides rich, unstructured content.
+
+The new sequence inside the `indexDocument` function is as follows:
+
+1.  **Get Raw Content "Hints":** The engine first calls `determineSubjectsForDocument` to get `SubjectDescription` objects from the relevant plugin. For a Cursor conversation, this object contains the raw user prompts in the `narrativeComponents` field.
+
+2.  **Engine Creates the "Smart Narrative":** The engine inspects the description. If `narrativeComponents` are present, it takes responsibility for calling `summarizeNumerically` to generate the single, high-signal, semantically representative narrative.
+
+3.  **Prioritize Semantic Search:** The engine now uses this "smart narrative" to perform a vector search for similar, pre-existing Subjects by calling `findSubjectForText`.
+
+4.  **Link or Create (The Smart Way):**
+    *   **If a match is found:** The engine links the new document to the existing Subject by appending its ID to the `documentIds` array. This correctly groups related conversations.
+    *   **If no match is found:** Only then does the engine fall back to using the `idempotency_key` to either find or create a new Subject.
+
+This change ensures that our vector compression and semantic search capabilities are the primary mechanism for deduplication, with the idempotency key now serving as a fallback. This correctly implements the desired "smart engine, dumb plugins" architecture.

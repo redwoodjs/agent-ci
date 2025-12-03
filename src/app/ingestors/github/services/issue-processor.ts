@@ -68,6 +68,11 @@ export async function processIssueEvent(
   eventType: "opened" | "edited" | "closed" | "reopened" | "deleted",
   repository: { owner: { login: string }; name: string }
 ): Promise<void> {
+  console.log("[issue-processor] Starting processIssueEvent:", {
+    eventType,
+    issueNumber: partialIssue.number,
+    repo: `${repository.owner.login}/${repository.name}`,
+  });
   const repoOwner = repository.owner.login;
   const repoName = repository.name;
   const repoKey = getRepositoryKey(repoOwner, repoName);
@@ -181,10 +186,12 @@ export async function processIssueEvent(
     url
   );
 
+  console.log("[issue-processor] Uploading issue to R2:", { latestR2Key });
   await env.MACHINEN_BUCKET.put(
     latestR2Key,
     JSON.stringify(json, null, 2)
   );
+  console.log("[issue-processor] Issue uploaded to R2 successfully");
 
   if (hasChanges && diff) {
     const historyR2Key = getHistoryR2Key(

@@ -218,22 +218,8 @@ async function generateEmbedding(
   return response.data[0];
 }
 
+import { callLLM } from "../engine/utils/llm";
+
 async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
-  const response = (await (env.AI.run as any)(
-    "@cf/meta/llama-3.1-8b-instruct",
-    {
-      messages: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-    }
-  )) as { response: string };
-
-  if (!response || typeof response.response !== "string") {
-    throw new Error("Failed to get LLM response");
-  }
-
-  return response.response;
+  return callLLM(prompt, env);
 }

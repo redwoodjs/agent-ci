@@ -23,7 +23,17 @@ echo 'export INGEST_API_KEY=your-secret-api-key-here' >> ~/.bashrc && source ~/.
 echo 'set -gx INGEST_API_KEY your-secret-api-key-here' >> ~/.config/fish/config.fish && source ~/.config/fish/config.fish && bash ./scripts/setup-cursor.sh
 ```
 
-By default, the hook sends data to `https://machinen.redwoodjs.workers.dev/ingestors/cursor`. To change this, set `CURSOR_INGEST_URL` in your shell profile (e.g., `export CURSOR_INGEST_URL=http://localhost:5173/ingestors/cursor`).
+By default, the hook sends data to `https://machinen.redwoodjs.workers.dev/ingestors/cursor` (production). To change this, set `CURSOR_INGEST_URL` in your shell profile.
+
+**For local development:**
+```bash
+export CURSOR_INGEST_URL=http://localhost:5173/ingestors/cursor
+```
+
+**For a personal development environment:**
+```bash
+export CURSOR_INGEST_URL=https://machinen-dev-justin.redwoodjs.workers.dev/ingestors/cursor
+```
 
 Restart Cursor after running the setup script.
 
@@ -33,9 +43,7 @@ Restart Cursor after running the setup script.
 
 If you're using the existing production deployment, just follow the Quick Start above. The hook will send data to `https://machinen.redwoodjs.workers.dev/ingestors/cursor` by default.
 
-#### Setting up a new deployment
-
-For a new application or to change the API key:
+#### Setting up a personal development environment
 
 1. **Set the API key in your Cloudflare Worker:**
 
@@ -44,17 +52,19 @@ For a new application or to change the API key:
    INGEST_API_KEY=your-secret-api-key-here
    ```
 
-   Set it as a Cloudflare Worker secret for production:
+   Set it as a Cloudflare Worker secret for your dev environment:
    ```bash
-   npx wrangler secret put INGEST_API_KEY
+   npx wrangler secret put INGEST_API_KEY --env dev-justin
    ```
 
 2. **Change the endpoint URL:**
 
    Set `CURSOR_INGEST_URL` in your shell profile to point to your deployment:
    ```bash
-   export CURSOR_INGEST_URL=https://your-domain.com/ingestors/cursor
+   export CURSOR_INGEST_URL=https://machinen-dev-justin.redwoodjs.workers.dev/ingestors/cursor
    ```
+
+See the [Engine README](../engine/README.md) for information on the multi-environment setup.
 
 ## Knowledge Base Integration (MCP)
 

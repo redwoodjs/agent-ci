@@ -34,6 +34,9 @@ export { GitHubRepoDurableObject } from "@/app/ingestors/github/db/durableObject
 export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durableObject";
 export { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
 export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
+export { SubjectDO } from "@/app/engine/subjectDb/durableObject";
+// Temporary export for migration - will be removed after v8 migration completes
+export { SubjectDO as SubjectGraphDO } from "@/app/engine/subjectDb/durableObject";
 export { DiscordWebhookBatcherDO } from "@/app/ingestors/discord/db/webhook-batcher-durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
@@ -43,11 +46,13 @@ import { processSchedulerJob as processDiscordSchedulerJob } from "@/app/ingesto
 import { processProcessorJob as processDiscordProcessorJob } from "@/app/ingestors/discord/services/processor-service";
 import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app/ingestors/discord/services/dlq-handler";
 import { handleWebhookEvent } from "@/app/ingestors/discord/services/webhook-handler";
-import { processIndexingJob } from "@/app/engine/services/indexing-worker";
+import { processIndexingJob } from "@/app/engine/services/indexing-scheduler-worker";
+import { processChunkJob } from "@/app/engine/services/chunk-processor-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
 import type { QueueMessage } from "@/app/ingestors/github/services/backfill-types";
 import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
+import { Chunk } from "./app/engine/types";
 
 export default {
   fetch: app.fetch,
@@ -87,6 +92,7 @@ export default {
         } else if (
           queueName === "engine-indexing-queue" ||
           queueName === "engine-indexing-queue-prod" ||
+          queueName === "engine-indexing-queue-dev-justin" ||
           queueName === "engine-indexing-queue-rag-experiment-1" ||
           queueName === "ENGINE_INDEXING_QUEUE"
         ) {
@@ -110,6 +116,13 @@ export default {
             continue;
           }
           await processIndexingJob({ r2Key }, env as Cloudflare.Env);
+          message.ack();
+        } else if (
+          queueName === "chunk-processing-queue" ||
+          queueName === "CHUNK_PROCESSING_QUEUE"
+        ) {
+          const chunk = queueMessage as unknown as Chunk;
+          await processChunkJob(chunk, env as Cloudflare.Env);
           message.ack();
         } else if (queueName.startsWith("discord-scheduler-queue")) {
           const discordMessage = queueMessage as unknown as DiscordQueueMessage;

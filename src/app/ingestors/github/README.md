@@ -25,12 +25,16 @@ wrangler secret put INGEST_API_KEY
 
 - Go to your organization settings → Webhooks
 - Create or edit a webhook
-- Set the webhook URL to: `https://your-domain.workers.dev/ingestors/github/webhook`
+- Set the webhook URL to your deployment:
+  - **Production**: `https://machinen.redwoodjs.workers.dev/ingestors/github/webhook`
+  - **Personal dev**: `https://machinen-dev-justin.redwoodjs.workers.dev/ingestors/github/webhook`
 - Set the content type to: `application/json`
 - Select the events you want to receive (issues, pull_requests, etc.)
 - In the "Secret" field, enter the **same value** as your `INGEST_API_KEY`
 
 The endpoint will verify all incoming webhook requests using HMAC-SHA256 signature verification. Requests with missing or invalid signatures will be rejected with `401 Unauthorized`.
+
+**Note:** For personal development environments, you may want to configure webhooks to point to your personal worker URL. See the [Engine README](../engine/README.md) for information on the multi-environment setup.
 
 ## Backfilling Historical Data
 
@@ -50,30 +54,27 @@ The GitHub ingestor includes a backfill mechanism to ingest historical data from
    - `read:org` (for accessing organization-level data)
    - `read:project` (for accessing Projects v2 data via GraphQL API)
 
-2. **Create Queues**: The backfill system uses Cloudflare Queues. These must be created manually before deployment. Each environment (test/production) needs its own set of queues.
+2. **Create Queues**: The backfill system uses Cloudflare Queues. These must be created manually before deployment. Each environment needs its own set of queues.
 
-   **For production (default) environment:**
+   **For production:**
    ```bash
    npx wrangler queues create github-scheduler-queue-prod
    npx wrangler queues create github-processor-queue-prod
    npx wrangler queues create github-processor-queue-prod-dlq
    ```
 
-   **For test environment:**
-   ```bash
-   npx wrangler queues create github-scheduler-queue
-   npx wrangler queues create github-processor-queue
-   npx wrangler queues create github-processor-queue-dlq
-   ```
+   **For personal development environments:**
+   Create queues with environment-specific names (e.g., `github-scheduler-queue-dev-justin`).
 
    You can verify they exist:
    ```bash
    wrangler queues list
    ```
 
-   **Note**: When deploying to test, use the `--env test` flag:
+   **Note**: Deploy to your personal environment using:
    ```bash
-CLOUDFLARE_ENV=test pnpm release
+   # Set CLOUDFLARE_ENV="dev-justin" in .dev.vars
+   pnpm release
    ```
 
 ### Usage
@@ -82,7 +83,8 @@ To start a backfill for a repository, make a POST request to the backfill endpoi
 
 ```bash
 source .dev.vars
-curl -X POST https://your-domain.workers.dev/ingestors/github/backfill \
+# Uses production by default, or set MACHINEN_ENV for your dev environment
+curl -X POST https://machinen.redwoodjs.workers.dev/ingestors/github/backfill \
   -H "Authorization: Bearer $INGEST_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"owner": "octocat", "repo": "Hello-World"}'

@@ -6,6 +6,7 @@ import type {
   IndexingHookContext,
   QueryHookContext,
   ReconstructedContext,
+  SubjectDescription,
 } from "../types";
 
 interface GitHubLatestJson {
@@ -191,6 +192,40 @@ export const githubPlugin: Plugin = {
     }
   },
 
+  subjects: {
+    async determineSubjectsForDocument(
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ): Promise<SubjectDescription[] | null> {
+      if (document.source !== "github") {
+        return null;
+      }
+      if (chunks.length === 0) {
+        return null;
+      }
+
+      // Treat the entire PR/Issue/Project as a single subject.
+      const encoder = new TextEncoder();
+      const data = encoder.encode(document.id);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const idempotencyKey = hashArray
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      const description: SubjectDescription = {
+        title: document.metadata.title,
+        narrative: document.content,
+        idempotency_key: idempotencyKey,
+        chunks: chunks,
+      };
+
+      return [description];
+    },
+  },
+
+  evidence: {
   async splitDocumentIntoChunks(
     document: Document,
     context: IndexingHookContext
@@ -216,33 +251,30 @@ export const githubPlugin: Plugin = {
 
       if (data.body) {
         chunks.push({
-          id: `${context.r2Key}#body`,
-          documentId: context.r2Key,
+            id: `${document.id}#body`,
+            documentId: document.id,
           source: "github",
           content: data.body,
           metadata: {
-            chunkId: `${context.r2Key}#body`,
-            documentId: context.r2Key,
+              chunkId: `${document.id}#body`,
+              documentId: document.id,
             source: "github",
-            type:
-              parsed.type === "pull-requests"
-                ? "pull-request-body"
-                : "issue-body",
-            documentTitle: data.title,
-            author: data.author,
+              type: "issue-body",
+              documentTitle: document.metadata.title,
+              author: document.metadata.author,
             jsonPath: "$.body",
             sourceMetadata: document.metadata.sourceMetadata,
           },
         });
       } else if (data.title) {
         chunks.push({
-          id: `${context.r2Key}#title`,
-          documentId: context.r2Key,
+            id: `${document.id}#title`,
+            documentId: document.id,
           source: "github",
           content: data.title,
           metadata: {
-            chunkId: `${context.r2Key}#title`,
-            documentId: context.r2Key,
+              chunkId: `${document.id}#title`,
+              documentId: document.id,
             source: "github",
             type:
               parsed.type === "pull-requests"
@@ -260,13 +292,13 @@ export const githubPlugin: Plugin = {
         for (let i = 0; i < data.comments.length; i++) {
           const comment = data.comments[i];
           chunks.push({
-            id: `${context.r2Key}#comment-${comment.id}`,
-            documentId: context.r2Key,
+              id: `${document.id}#comment-${comment.id}`,
+              documentId: document.id,
             source: "github",
             content: comment.body,
             metadata: {
-              chunkId: `${context.r2Key}#comment-${comment.id}`,
-              documentId: context.r2Key,
+                chunkId: `${document.id}#comment-${comment.id}`,
+                documentId: document.id,
               source: "github",
               type:
                 parsed.type === "pull-requests"
@@ -292,13 +324,13 @@ export const githubPlugin: Plugin = {
 
       if (data.body) {
         chunks.push({
-          id: `${context.r2Key}#body`,
-          documentId: context.r2Key,
+            id: `${document.id}#body`,
+            documentId: document.id,
           source: "github",
           content: data.body,
           metadata: {
-            chunkId: `${context.r2Key}#body`,
-            documentId: context.r2Key,
+              chunkId: `${document.id}#body`,
+              documentId: document.id,
             source: "github",
             type: "project-body",
             documentTitle: data.title,
@@ -309,19 +341,18 @@ export const githubPlugin: Plugin = {
         });
       } else if (data.title) {
         chunks.push({
-          id: `${context.r2Key}#title`,
-          documentId: context.r2Key,
+            id: `${document.id}#title`,
+            documentId: document.id,
           source: "github",
           content: data.title,
           metadata: {
-            chunkId: `${context.r2Key}#title`,
-            documentId: context.r2Key,
+              chunkId: `${document.id}#title`,
+              documentId: document.id,
             source: "github",
             type: "project-title",
             documentTitle: data.title,
             author: data.owner,
             jsonPath: "$.title",
-            sourceMetadata: document.metadata.sourceMetadata,
           },
         });
       }
@@ -340,13 +371,13 @@ export const githubPlugin: Plugin = {
               }${fieldValuesText ? ` - ${fieldValuesText}` : ""}`;
 
           chunks.push({
-            id: `${context.r2Key}#item-${item.id}`,
-            documentId: context.r2Key,
+              id: `${document.id}#item-${item.id}`,
+              documentId: document.id,
             source: "github",
             content,
             metadata: {
-              chunkId: `${context.r2Key}#item-${item.id}`,
-              documentId: context.r2Key,
+                chunkId: `${document.id}#item-${item.id}`,
+                documentId: document.id,
               source: "github",
               type: "project-item",
               documentTitle: data.title,
@@ -418,7 +449,9 @@ export const githubPlugin: Plugin = {
             chunk.type === "issue-comment"
           ) {
             const commentAuthor = chunk.author || "unknown";
-            docSections.push(`\n**Comment by @${commentAuthor}:**\n${content}`);
+              docSections.push(
+                `\n**Comment by @${commentAuthor}:**\n${content}`
+              );
           }
         }
       }
@@ -490,6 +523,7 @@ export const githubPlugin: Plugin = {
       .join("\n\n---\n\n");
 
     return `## GitHub Context\n\n${contextSection}`;
+    },
   },
 };
 

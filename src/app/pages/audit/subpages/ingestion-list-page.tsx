@@ -93,14 +93,28 @@ async function FilesTable({
 
   const list = await bucket.list(listOptions);
 
+  // Sort on the server by last modified (uploaded) so newest files are first.
+  const sortedObjects = [...list.objects].sort((a, b) => {
+    const aTime =
+      a.uploaded instanceof Date
+        ? a.uploaded.getTime()
+        : new Date(a.uploaded as any).getTime();
+    const bTime =
+      b.uploaded instanceof Date
+        ? b.uploaded.getTime()
+        : new Date(b.uploaded as any).getTime();
+    return bTime - aTime;
+  });
+
   // Serialize Date objects to ISO strings for client component
-  const serializedObjects = list.objects.map((obj) => ({
+  const serializedObjects = sortedObjects.map((obj) => ({
     ...obj,
-    uploaded: obj.uploaded instanceof Date 
-      ? obj.uploaded.toISOString() 
-      : typeof obj.uploaded === 'string' 
-        ? obj.uploaded 
-        : new Date(obj.uploaded).toISOString(),
+    uploaded:
+      obj.uploaded instanceof Date
+        ? obj.uploaded.toISOString()
+        : typeof obj.uploaded === "string"
+        ? obj.uploaded
+        : new Date(obj.uploaded as any).toISOString(),
   }));
 
   return (

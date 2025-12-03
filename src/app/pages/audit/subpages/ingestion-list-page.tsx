@@ -93,6 +93,16 @@ async function FilesTable({
 
   const list = await bucket.list(listOptions);
 
+  // Serialize Date objects to ISO strings for client component
+  const serializedObjects = list.objects.map((obj) => ({
+    ...obj,
+    uploaded: obj.uploaded instanceof Date 
+      ? obj.uploaded.toISOString() 
+      : typeof obj.uploaded === 'string' 
+        ? obj.uploaded 
+        : new Date(obj.uploaded).toISOString(),
+  }));
+
   return (
     <Card>
       <CardHeader>
@@ -101,7 +111,7 @@ async function FilesTable({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <IngestionTable objects={list.objects} />
+        <IngestionTable objects={serializedObjects} />
 
         {list.truncated && (
           <div className="mt-4 flex justify-between items-center">

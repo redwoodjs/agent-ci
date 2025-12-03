@@ -6,7 +6,7 @@ import { useTableSort } from "./use-table-sort";
 type R2Object = {
   key: string;
   size: number;
-  uploaded: Date;
+  uploaded: Date | string;
   etag: string;
 };
 

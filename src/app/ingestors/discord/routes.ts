@@ -157,8 +157,53 @@ const gatewayEventsRoute = route("/events", [
   logDiscordRequest,
   async ({ request, ctx }: { request: Request; ctx: any }) => {
     try {
+      // Check if request has a body
+      const contentType = request.headers.get("Content-Type");
+      if (!contentType || !contentType.includes("application/json")) {
+        const errorResponse = Response.json(
+          {
+            success: false,
+            error: "Content-Type must be application/json",
+            received: contentType || "none",
+          },
+          { status: 400 }
+        );
+        ctx.logCompletion?.(errorResponse);
+        return errorResponse;
+      }
+
       // Parse the Discord Gateway event payload
-      const body = await request.json();
+      let body: any;
+      try {
+        const bodyText = await request.text();
+        if (!bodyText || bodyText.trim().length === 0) {
+          const errorResponse = Response.json(
+            {
+              success: false,
+              error: "Request body is empty",
+            },
+            { status: 400 }
+          );
+          ctx.logCompletion?.(errorResponse);
+          return errorResponse;
+        }
+        body = JSON.parse(bodyText);
+      } catch (parseError) {
+        console.error("JSON parse error:", parseError);
+        const errorResponse = Response.json(
+          {
+            success: false,
+            error: "Invalid JSON in request body",
+            details:
+              parseError instanceof Error
+                ? parseError.message
+                : "Unknown parse error",
+          },
+          { status: 400 }
+        );
+        ctx.logCompletion?.(errorResponse);
+        return errorResponse;
+      }
 
       // Validate the event structure (op, t, s, d)
       const eventSchema = z.object({
@@ -168,7 +213,26 @@ const gatewayEventsRoute = route("/events", [
         d: z.any(),
       });
 
-      const event = eventSchema.parse(body);
+      let event: z.infer<typeof eventSchema>;
+      try {
+        event = eventSchema.parse(body);
+      } catch (validationError) {
+        console.error("Schema validation error:", validationError);
+        if (validationError instanceof z.ZodError) {
+          const errorResponse = Response.json(
+            {
+              success: false,
+              error: "Event validation failed",
+              details: validationError.issues,
+              received: body,
+            },
+            { status: 400 }
+          );
+          ctx.logCompletion?.(errorResponse);
+          return errorResponse;
+        }
+        throw validationError;
+      }
 
       // Only process dispatch events (op 0) with event types
       if (event.op !== 0 || !event.t) {
@@ -182,8 +246,26 @@ const gatewayEventsRoute = route("/events", [
       }
 
       // Queue the event for processing
-      const gatewayEventsQueue = (env as any)
-        .DISCORD_GATEWAY_EVENTS_QUEUE as Queue<GatewayEventMessage>;
+      const gatewayEventsQueue = (env as any).DISCORD_GATEWAY_EVENTS_QUEUE as
+        | Queue<GatewayEventMessage>
+        | undefined;
+
+      if (!gatewayEventsQueue) {
+        console.error(
+          "DISCORD_GATEWAY_EVENTS_QUEUE is not configured in environment"
+        );
+        const errorResponse = Response.json(
+          {
+            success: false,
+            error: "Gateway events queue not configured",
+            message:
+              "DISCORD_GATEWAY_EVENTS_QUEUE binding is missing. Please check wrangler.jsonc configuration.",
+          },
+          { status: 500 }
+        );
+        ctx.logCompletion?.(errorResponse);
+        return errorResponse;
+      }
 
       await gatewayEventsQueue.send({
         type: "gateway_event",
@@ -205,8 +287,9 @@ const gatewayEventsRoute = route("/events", [
         {
           success: false,
           error: error instanceof Error ? error.message : "Unknown error",
+          type: error instanceof Error ? error.constructor.name : typeof error,
         },
-        { status: 400 }
+        { status: 500 }
       );
       ctx.logCompletion?.(errorResponse);
       return errorResponse;

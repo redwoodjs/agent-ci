@@ -120,6 +120,10 @@
       {
         "queue": "discord-processor-queue-prod",
         "binding": "DISCORD_PROCESSOR_QUEUE"
+      },
+      {
+        "queue": "discord-gateway-events-queue-prod",
+        "binding": "DISCORD_GATEWAY_EVENTS_QUEUE"
       }
     ],
     "consumers": [
@@ -166,6 +170,18 @@
         "queue": "discord-processor-queue-prod-dlq",
         "max_batch_size": 10,
         "max_batch_timeout": 30
+      },
+      {
+        "queue": "discord-gateway-events-queue-prod",
+        "max_batch_size": 100,
+        "max_batch_timeout": 30,
+        "dead_letter_queue": "discord-gateway-events-queue-prod-dlq",
+        "max_retries": 3
+      },
+      {
+        "queue": "discord-gateway-events-queue-prod-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30
       }
     ]
   },
@@ -192,6 +208,10 @@
           {
             "queue": "discord-processor-queue",
             "binding": "DISCORD_PROCESSOR_QUEUE"
+          },
+          {
+            "queue": "discord-gateway-events-queue",
+            "binding": "DISCORD_GATEWAY_EVENTS_QUEUE"
           }
         ],
         "consumers": [
@@ -231,6 +251,18 @@
           },
           {
             "queue": "discord-processor-queue-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "discord-gateway-events-queue",
+            "max_batch_size": 100,
+            "max_batch_timeout": 30,
+            "dead_letter_queue": "discord-gateway-events-queue-dlq",
+            "max_retries": 3
+          },
+          {
+            "queue": "discord-gateway-events-queue-dlq",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           }
@@ -304,6 +336,10 @@
           {
             "queue": "discord-processor-queue-rag-experiment-1",
             "binding": "DISCORD_PROCESSOR_QUEUE"
+          },
+          {
+            "queue": "discord-gateway-events-queue-rag-experiment-1",
+            "binding": "DISCORD_GATEWAY_EVENTS_QUEUE"
           }
         ],
         "consumers": [
@@ -348,6 +384,18 @@
           },
           {
             "queue": "discord-processor-queue-rag-experiment-1-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30
+          },
+          {
+            "queue": "discord-gateway-events-queue-rag-experiment-1",
+            "max_batch_size": 100,
+            "max_batch_timeout": 30,
+            "dead_letter_queue": "discord-gateway-events-queue-rag-experiment-1-dlq",
+            "max_retries": 3
+          },
+          {
+            "queue": "discord-gateway-events-queue-rag-experiment-1-dlq",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           }

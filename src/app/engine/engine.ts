@@ -40,6 +40,7 @@ export async function indexDocument(
   r2Key: string,
   context: EngineContext
 ): Promise<Chunk[]> {
+  const totalStart = Date.now();
   let subjectId: string | undefined;
   console.log(`[engine] Starting indexDocument for: ${r2Key}`);
   const indexingContext: IndexingHookContext = {
@@ -47,10 +48,14 @@ export async function indexDocument(
     env: context.env,
   };
 
+  const step1Start = Date.now();
   const document = await runFirstMatchHook(
     context.plugins,
     "prepareSourceDocument",
     (plugin) => plugin.prepareSourceDocument?.(indexingContext)
+  );
+  console.log(
+    `[engine] prepareSourceDocument took ${Date.now() - step1Start}ms`
   );
 
   if (!document) {
@@ -63,6 +68,7 @@ export async function indexDocument(
 
   // 1. Split document into chunks BEFORE subject correlation
   let chunks: Chunk[] | null = null;
+  const step2Start = Date.now();
   for (const plugin of context.plugins) {
     if (plugin.evidence?.splitDocumentIntoChunks) {
       const result = await plugin.evidence.splitDocumentIntoChunks(
@@ -75,6 +81,9 @@ export async function indexDocument(
       }
     }
   }
+  console.log(
+    `[engine] splitDocumentIntoChunks took ${Date.now() - step2Start}ms`
+  );
 
   if (!chunks || chunks.length === 0) {
     throw new Error(`No plugin could split document into chunks: ${r2Key}`);
@@ -214,6 +223,7 @@ export async function indexDocument(
   }
 
   // 4. Enrich chunks (optional, original logic for the new chunks)
+  const step3Start = Date.now();
   const enrichedChunks: Chunk[] = [];
   for (const chunk of newChunks) {
     let enrichedChunk = chunk;
@@ -230,6 +240,9 @@ export async function indexDocument(
     }
     enrichedChunks.push(enrichedChunk);
   }
+  console.log(
+    `[engine] enrichChunks (all chunks) took ${Date.now() - step3Start}ms`
+  );
 
   // 5. After successful processing, update the state with the hashes of *all* current chunks
   const allCurrentChunkHashes = chunks.map((c) => c.contentHash!);
@@ -238,6 +251,7 @@ export async function indexDocument(
     `[engine] Successfully updated processed chunk state for ${document.id}.`
   );
 
+  console.log(`[engine] indexDocument total took ${Date.now() - totalStart}ms`);
   return enrichedChunks;
 }
 
@@ -245,18 +259,23 @@ export async function query(
   userQuery: string,
   context: EngineContext
 ): Promise<string> {
+  const totalStart = Date.now();
   const queryContext: QueryHookContext = {
     query: userQuery,
     env: context.env,
   };
 
-  console.log(`[query] Step 1: Preparing search query`);
+  console.log(`[query] Preparing search query...`);
+  const step1Start = Date.now();
   const processedQuery = await runWaterfallHook(
     context.plugins,
     "prepareSearchQuery",
     userQuery,
     (query, plugin) =>
       plugin.evidence?.prepareSearchQuery?.(query, queryContext)
+  );
+  console.log(
+    `[query] Search query preparation took ${Date.now() - step1Start}ms`
   );
 
   console.log(`[query] Step 2: Finding relevant subject`);
@@ -277,10 +296,14 @@ export async function query(
   }
 
   console.log(`[query] Step 3: Building vector search filter`);
+  const step2Start = Date.now();
   const filterClauses = await runCollectorHook(
     context.plugins,
     "buildVectorSearchFilter",
     (plugin) => plugin.evidence?.buildVectorSearchFilter?.(queryContext)
+  );
+  console.log(
+    `[query] Vector search filter build took ${Date.now() - step2Start}ms`
   );
 
   // Add subjectId filter if we found one
@@ -294,10 +317,14 @@ export async function query(
       filterClauses
     )}`
   );
+  const step3Start = Date.now();
   const searchResults = await performVectorSearch(
     processedQuery,
     filterClauses,
     context.env
+  );
+  console.log(
+    `[query] Vector search execution took ${Date.now() - step3Start}ms`
   );
   console.log(`[query] Found ${searchResults.length} search results`);
 
@@ -326,6 +353,7 @@ export async function query(
   }
 
   console.log(`[query] Step 5: Reranking results`);
+  const step4Start = Date.now();
   const rerankedResults = await runWaterfallHook(
     context.plugins,
     "rerankSearchResults",
@@ -333,16 +361,22 @@ export async function query(
     (results, plugin) =>
       plugin.evidence?.rerankSearchResults?.(results, queryContext)
   );
+  console.log(`[query] Result reranking took ${Date.now() - step4Start}ms`);
 
   console.log(`[query] Step 6: Reconstructing contexts`);
+  const step5Start = Date.now();
   const reconstructedContexts = await reconstructContexts(
     rerankedResults,
     context.plugins,
     queryContext
   );
+  console.log(
+    `[query] Context reconstruction took ${Date.now() - step5Start}ms`
+  );
   console.log(`[query] Reconstructed ${reconstructedContexts.length} contexts`);
 
   console.log(`[query] Step 7: Optimizing contexts`);
+  const step55Start = Date.now();
   const optimizedContexts = await runWaterfallHook(
     context.plugins,
     "optimizeContext",
@@ -350,10 +384,13 @@ export async function query(
     (contexts, plugin) =>
       plugin.evidence?.optimizeContext?.(contexts, processedQuery, queryContext)
   );
+  console.log(
+    `[query] Context optimization took ${Date.now() - step55Start}ms`
+  );
   console.log(`[query] Optimized to ${optimizedContexts.length} contexts`);
 
   console.log(`[query] Step 8: Composing LLM prompt`);
-
+  const step6Start = Date.now();
   const prompt = await runFirstMatchHook(
     [...context.plugins].reverse(),
     "composeLlmPrompt",
@@ -364,6 +401,9 @@ export async function query(
         queryContext
       )
   );
+  console.log(
+    `[query] LLM prompt composition took ${Date.now() - step6Start}ms`
+  );
 
   if (!prompt) {
     throw new Error("No plugin could compose LLM prompt");
@@ -372,13 +412,15 @@ export async function query(
   console.log(
     `[query] Step 9: Calling LLM (prompt length: ${prompt.length} chars)`
   );
-
+  const step7Start = Date.now();
   const llmResponse = await callLlm(prompt, context.env);
+  console.log(`[query] LLM generation took ${Date.now() - step7Start}ms`);
   console.log(
     `[query] Step 10: LLM response received (length: ${llmResponse.length} chars)`
   );
 
   console.log(`[query] Step 11: Formatting final response`);
+  const step9Start = Date.now();
   const formattedResponse = await runWaterfallHook(
     context.plugins,
     "formatFinalResponse",
@@ -390,7 +432,11 @@ export async function query(
         queryContext
       )
   );
+  console.log(
+    `[query] Final response formatting took ${Date.now() - step9Start}ms`
+  );
 
+  console.log(`[query] Total query time took ${Date.now() - totalStart}ms`);
   return formattedResponse;
 }
 
@@ -491,6 +537,7 @@ async function reconstructContexts(
   plugins: Plugin[],
   queryContext: QueryHookContext
 ): Promise<ReconstructedContext[]> {
+  const start = Date.now();
   const chunksByDocument = new Map<string, ChunkMetadata[]>();
 
   for (const chunk of chunks) {
@@ -503,13 +550,36 @@ async function reconstructContexts(
     chunksByDocument.get(chunk.documentId)!.push(chunk);
   }
 
-  const reconstructedContexts: ReconstructedContext[] = [];
+  const bucket = queryContext.env.MACHINEN_BUCKET;
+  const fetchStart = Date.now();
 
-  for (const [documentId, documentChunks] of chunksByDocument) {
-    const bucket = queryContext.env.MACHINEN_BUCKET;
+  const documentEntries = Array.from(chunksByDocument.entries());
+  const CONCURRENT_FETCH_LIMIT = 6;
+  const fetchResults: Array<{
+    documentId: string;
+    documentChunks: ChunkMetadata[];
+    sourceDocument: any;
+    fetchTime: number;
+  }> = [];
+
+  async function fetchAndReadDocument(
+    documentId: string,
+    documentChunks: ChunkMetadata[]
+  ): Promise<{
+    documentId: string;
+    documentChunks: ChunkMetadata[];
+    sourceDocument: any;
+    fetchTime: number;
+  }> {
+    const r2Start = Date.now();
     const object = await bucket.get(documentId);
+    const fetchTime = Date.now() - r2Start;
+
     if (!object) {
-      continue;
+      console.log(
+        `[query] R2 fetch for ${documentId} took ${fetchTime}ms (not found)`
+      );
+      return { documentId, documentChunks, sourceDocument: null, fetchTime };
     }
 
     const jsonText = await object.text();
@@ -517,11 +587,53 @@ async function reconstructContexts(
     try {
       sourceDocument = JSON.parse(jsonText);
     } catch (error) {
-      // JSON parsing failed (e.g., for JSONL files), pass the raw text to plugins
-      // Plugins can handle non-JSON formats themselves
       sourceDocument = jsonText;
     }
 
+    console.log(
+      `[query] R2 fetch and read for ${documentId} took ${
+        Date.now() - r2Start
+      }ms`
+    );
+    return { documentId, documentChunks, sourceDocument, fetchTime };
+  }
+
+  const inFlight = new Set<Promise<(typeof fetchResults)[0]>>();
+  let nextIndex = 0;
+
+  while (nextIndex < documentEntries.length || inFlight.size > 0) {
+    while (
+      inFlight.size < CONCURRENT_FETCH_LIMIT &&
+      nextIndex < documentEntries.length
+    ) {
+      const [documentId, documentChunks] = documentEntries[nextIndex++];
+      const promise = fetchAndReadDocument(documentId, documentChunks);
+      promise.finally(() => {
+        inFlight.delete(promise);
+      });
+      inFlight.add(promise);
+    }
+
+    if (inFlight.size > 0) {
+      const result = await Promise.race(Array.from(inFlight));
+      fetchResults.push(result);
+    }
+  }
+
+  console.log(
+    `[query] All R2 fetches completed in ${Date.now() - fetchStart}ms (${
+      fetchResults.length
+    } documents, max ${CONCURRENT_FETCH_LIMIT} concurrent)`
+  );
+
+  const reconstructedContexts: ReconstructedContext[] = [];
+
+  for (const { documentId, documentChunks, sourceDocument } of fetchResults) {
+    if (!sourceDocument) {
+      continue;
+    }
+
+    const pluginStart = Date.now();
     const reconstructed = await runFirstMatchHook(
       plugins,
       "reconstructContext",
@@ -532,12 +644,18 @@ async function reconstructContexts(
           queryContext
         )
     );
+    console.log(
+      `[query] reconstructContext hook for ${documentId} took ${
+        Date.now() - pluginStart
+      }ms`
+    );
 
     if (reconstructed) {
       reconstructedContexts.push(reconstructed);
     }
   }
 
+  console.log(`[query] reconstructContexts total took ${Date.now() - start}ms`);
   return reconstructedContexts;
 }
 
@@ -591,18 +709,22 @@ async function performVectorSearch(
   filterClauses: Record<string, unknown>[],
   env: Cloudflare.Env
 ): Promise<ChunkMetadata[]> {
+  const embedStart = Date.now();
   const embedding = await generateEmbedding(query, env);
+  console.log(`[query] Embedding generation took ${Date.now() - embedStart}ms`);
 
   const combinedFilter = combineFilterClauses(
     filterClauses as Record<string, unknown>[]
   );
 
   console.log(`[query] Vector search filter:`, JSON.stringify(combinedFilter));
+  const vecStart = Date.now();
   const vectorizeResponse = await env.VECTORIZE_INDEX.query(embedding, {
     topK: 50,
     returnMetadata: true,
     filter: combinedFilter as any,
   });
+  console.log(`[query] Vectorize query took ${Date.now() - vecStart}ms`);
 
   const results = vectorizeResponse.matches.map((match) => {
     if (!match.metadata) {
@@ -635,9 +757,11 @@ async function generateEmbedding(
   text: string,
   env: Cloudflare.Env
 ): Promise<number[]> {
+  const start = Date.now();
   const response = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
     text: [text],
   })) as { data: number[][] };
+  console.log(`[query] AI.run(embedding) took ${Date.now() - start}ms`);
 
   if (
     !response ||

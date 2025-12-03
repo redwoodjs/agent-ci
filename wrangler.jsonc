@@ -70,11 +70,13 @@
           "from": "SubjectGraphDO",
           "to": "SubjectDO"
         }
-      ]
+      ],
+      "new_classes": ["DiscordWebhookBatcherDO"]
     },
     {
       "tag": "v9",
-      "new_sqlite_classes": ["SubjectDO"]
+      "new_sqlite_classes": ["SubjectDO"],
+      "new_classes": ["DiscordGatewayDO"]
     }
   ],
   "durable_objects": {
@@ -98,6 +100,14 @@
       {
         "name": "SUBJECT_GRAPH_DO",
         "class_name": "SubjectDO"
+      },
+      {
+        "name": "DISCORD_WEBHOOK_BATCHER",
+        "class_name": "DiscordWebhookBatcherDO"
+      },
+      {
+        "name": "DISCORD_GATEWAY",
+        "class_name": "DiscordGatewayDO"
       }
     ]
   },
@@ -282,6 +292,14 @@
           {
             "name": "DISCORD_BACKFILL_STATE",
             "class_name": "DiscordBackfillStateDO"
+          },
+          {
+            "name": "DISCORD_WEBHOOK_BATCHER",
+            "class_name": "DiscordWebhookBatcherDO"
+          },
+          {
+            "name": "DISCORD_GATEWAY",
+            "class_name": "DiscordGatewayDO"
           }
         ]
       },

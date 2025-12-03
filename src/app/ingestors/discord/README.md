@@ -23,7 +23,6 @@ Files are stored in R2 with this hybrid structure:
 ```
 discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl
 discord/{guildID}/{channelID}/threads/{threadID}/latest.json
-discord/{guildID}/{channelID}/threads/{threadID}/history/{timestamp}.json
 ```
 
 ### Channel Messages (Daily JSONL)
@@ -50,10 +49,6 @@ Each thread's `latest.json` contains:
 - Metadata (guild ID, channel ID, thread ID, timestamps, version hash)
 - Starter message from parent channel
 - Complete array of thread replies sorted chronologically
-
-### History Diffs (Threads Only)
-
-History files contain JSON diffs showing what changed between thread versions, creating an audit trail. Channel messages do not have history tracking.
 
 ## Vectorization
 
@@ -109,7 +104,23 @@ DISCORD_BOT_TOKEN=your_bot_token_here
 wrangler secret put DISCORD_BOT_TOKEN
 ```
 
-### 2. Start Backfill
+### 2. Configure Gateway Intents
+
+The Gateway connection requires specific intents to receive message and thread events. Conceptually, the ingestor uses the following Gateway intents:
+
+- **GUILDS** (`1 << 0`): Required for guild/channel/thread information
+- **GUILD_MEMBERS** (`1 << 1`): Optional, for thread member updates
+- **GUILD_MESSAGES** (`1 << 9`): Required for message events
+- **MESSAGE_CONTENT** (`1 << 15`): Required to receive message content (shown in the UI as **Message Content Intent**)
+
+In the [Discord Developer Portal](https://discord.com/developers/applications) under **Bot → Privileged Gateway Intents**, you should:
+
+- Turn **Message Content Intent** **ON** (maps to `MESSAGE_CONTENT`)
+- Optionally turn **Server Members Intent** **ON** if you want member / thread member updates (maps to `GUILD_MEMBERS`)
+
+These intents are automatically configured in the Gateway connection code; you only need to ensure the required privileged intents are enabled in the portal.
+
+### 3. Start Backfill
 
 Trigger a backfill for a Discord channel:
 
@@ -376,6 +387,87 @@ Checks the status of a backfill.
 }
 ```
 
+## Gateway WebSocket Connection
+
+The Discord ingestor supports a direct Gateway WebSocket connection to receive Discord events in real-time. This provides a native integration with Discord's Gateway protocol, automatically handling connection management, heartbeats, and reconnections. All live Discord events are ingested exclusively via this Gateway connection.
+
+### Configuration
+
+1. **Discord Bot Setup:**
+
+   - In the [Discord Developer Portal](https://discord.com/developers/applications):
+     1. Open your application and go to **"Bot"** in the left sidebar.
+     2. Scroll down to the **"Privileged Gateway Intents"** section.
+     3. Under **Privileged Gateway Intents**, toggle:
+        - **Message Content Intent** – **must be ON** (this corresponds to the `MESSAGE_CONTENT` intent and is required for the ingestor to see message text).
+        - **Server Members Intent** – optional, turn **ON** if you want detailed member / thread member updates (this corresponds to the `GUILD_MEMBERS` intent).
+        - **Presence Intent** – generally **not required** for the Discord ingestor; leave **OFF** unless you specifically need presence updates.
+          The non-privileged gateway intents such as `GUILDS` and `GUILD_MESSAGES` do not appear here as toggles; they are enabled automatically when your bot connects.
+     4. Click **"Save Changes"** at the bottom of the page.
+
+2. **Environment Variables:**
+   - `DISCORD_BOT_TOKEN`: Your Discord bot token (required)
+   - The Gateway connection automatically uses the configured intents
+
+### Starting the Gateway Connection
+
+Start the Gateway connection:
+
+```bash
+curl -X POST https://your-domain.workers.dev/ingest/discord/gateway/start
+```
+
+Check connection status:
+
+```bash
+curl https://your-domain.workers.dev/ingest/discord/gateway/status
+```
+
+Stop the Gateway connection:
+
+```bash
+curl -X POST https://your-domain.workers.dev/ingest/discord/gateway/stop
+```
+
+### Supported Events
+
+The Gateway connection handles the following Discord Gateway events:
+
+**Message Events:**
+
+- **MESSAGE_CREATE**: New messages are batched and appended to daily JSONL files
+- **MESSAGE_UPDATE**: Updates existing messages in-place in daily JSONL files
+- **MESSAGE_DELETE**: Removes messages in-place from daily JSONL files
+
+**Thread Events:**
+
+- **THREAD_CREATE**: Processes thread creation, fetches complete thread state
+- **THREAD_UPDATE**: Processes thread updates, updates `latest.json` with diffs
+- **THREAD_DELETE**: Logs thread deletion (thread processor handles cleanup on next sync)
+- **THREAD_LIST_SYNC**: Processes all threads in the sync event
+- **THREAD_MEMBER_UPDATE**: Logs thread member updates
+- **THREAD_MEMBERS_UPDATE**: Logs thread members updates
+
+### Connection Management
+
+The Gateway connection is managed by a Durable Object (`DiscordGatewayDO`) that:
+
+- Automatically handles WebSocket connection lifecycle
+- Sends periodic heartbeats to maintain connection
+- Handles reconnection on disconnect (up to 5 attempts)
+- Resumes sessions when possible using stored session ID and sequence number
+- Forwards all events to the same handlers used by the webhook endpoint
+
+### Message Batching
+
+MESSAGE_CREATE events are automatically batched to reduce R2 write operations:
+
+- Messages are accumulated in a Durable Object per daily file
+- Batches are flushed when:
+  - 100 messages accumulated, OR
+  - 60 seconds elapsed since first message in batch
+- MESSAGE_UPDATE and MESSAGE_DELETE events flush pending batches before processing
+
 ## Rate Limiting
 
 The ingestor monitors Discord API rate limits:
@@ -393,9 +485,11 @@ The ingestor monitors Discord API rate limits:
 - `services/processor-service.ts`: Processor queue coordinator
 - `services/channel-processor.ts`: Channel entity processor (generates daily JSONL files)
 - `services/thread-processor.ts`: Thread entity processor (generates JSON with history)
+- `services/webhook-handler.ts`: Webhook event handler for live ingestion
 - `services/backfill-state.ts`: State management functions
 - `services/dlq-handler.ts`: Dead-letter queue handler
 - `db/backfill-durableObject.ts`: Durable Object for state persistence
+- `db/webhook-batcher-durableObject.ts`: Durable Object for message batching
 - `db/backfill-migrations.ts`: Database schema migrations
 - `utils/discord-api.ts`: Discord API client utilities
 - `utils/diff.ts`: Diff generation (used for threads only)

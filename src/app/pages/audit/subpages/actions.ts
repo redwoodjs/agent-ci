@@ -3,8 +3,14 @@
 import { env } from "cloudflare:workers";
 import { enqueueUnprocessedFiles } from "@/app/engine/services/scanner-service";
 import { query } from "@/app/engine/engine";
-import { githubPlugin, defaultPlugin } from "@/app/engine/plugins";
+import {
+  githubPlugin,
+  discordPlugin,
+  defaultPlugin,
+} from "@/app/engine/plugins";
 import type { EngineContext } from "@/app/engine/types";
+import { getGatewayAudit } from "@/app/ingestors/discord/services/gateway-service";
+import type { GatewayAuditEntry } from "@/app/ingestors/discord/db/gateway-audit-types";
 
 export async function enqueueFile(r2Key: string) {
   try {
@@ -101,7 +107,7 @@ export async function queryRag(queryText: string) {
     }
 
     const context: EngineContext = {
-      plugins: [githubPlugin, defaultPlugin],
+      plugins: [githubPlugin, discordPlugin, defaultPlugin],
       env: env as Cloudflare.Env,
     };
 
@@ -119,6 +125,27 @@ export async function queryRag(queryText: string) {
       success: false,
       error: "Failed to query RAG engine",
       details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getGatewayAuditLog(
+  limit = 200
+): Promise<
+  | { success: true; entries: GatewayAuditEntry[] }
+  | { success: false; error: string }
+> {
+  try {
+    const entries = await getGatewayAudit(limit);
+    return { success: true, entries };
+  } catch (error) {
+    console.error("[actions] Error fetching gateway audit:", error);
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Failed to fetch gateway audit log",
     };
   }
 }

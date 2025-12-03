@@ -21,7 +21,7 @@ const app = defineApp([
 
   render(Document, [route("/", [HomePage]), prefix("/audit", auditRoutes)]),
 
-  prefix("/ingest/discord", discordRoutes),
+  prefix("/ingestors/discord", discordRoutes),
   prefix("/ingestors/cursor", cursorIngestorRoutes),
   prefix("/ingestors/github", githubIngestorRoutes),
   prefix("/rag", ragRoutes),
@@ -37,6 +37,8 @@ export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-dura
 export { SubjectDO } from "@/app/engine/subjectDb/durableObject";
 // Temporary export for migration - will be removed after v8 migration completes
 export { SubjectDO as SubjectGraphDO } from "@/app/engine/subjectDb/durableObject";
+export { DiscordWebhookBatcherDO } from "@/app/ingestors/discord/db/webhook-batcher-durableObject";
+export { DiscordGatewayDO } from "@/app/ingestors/discord/db/gateway-durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";
@@ -47,10 +49,7 @@ import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app
 import { processIndexingJob } from "@/app/engine/services/indexing-scheduler-worker";
 import { processChunkJob } from "@/app/engine/services/chunk-processor-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
-import type {
-  QueueMessage,
-  ProcessorJobMessage,
-} from "@/app/ingestors/github/services/backfill-types";
+import type { QueueMessage } from "@/app/ingestors/github/services/backfill-types";
 import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
 import { Chunk } from "./app/engine/types";

@@ -6,33 +6,18 @@ import {
   getBackfillState,
 } from "@/app/ingestors/discord/services/backfill-state";
 import type { SchedulerJobMessage } from "@/app/ingestors/discord/services/backfill-types";
+import { logDiscordRequest } from "./interruptors";
+import {
+  startGateway,
+  stopGateway,
+  getGatewayStatus,
+  getGatewayAudit,
+} from "./services/gateway-service";
 
 const backfillRequestSchema = z.object({
   guildID: z.string().min(1),
   channelID: z.string().min(1),
 });
-
-async function logDiscordRequest({
-  request,
-  ctx,
-}: {
-  request: Request;
-  ctx: any;
-}) {
-  const start = Date.now();
-  const url = new URL(request.url);
-
-  console.log(`Discord API: ${request.method} ${url.pathname}`);
-
-  ctx.logCompletion = (response: Response) => {
-    const duration = Date.now() - start;
-    console.log(
-      `Discord API: ${request.method} ${url.pathname} - ${response.status} (${duration}ms)`
-    );
-  };
-
-  return ctx;
-}
 
 const backfillRoute = route("/backfill", [
   logDiscordRequest,
@@ -169,4 +154,126 @@ const statusRoute = route("/backfill/status", [
   },
 ]);
 
-export const routes = [backfillRoute, pauseBackfillRoute, statusRoute];
+const gatewayStartRoute = route("/gateway/start", [
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      await startGateway();
+
+      const apiResponse = Response.json({
+        success: true,
+        message: "Gateway connection started",
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord Gateway start error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
+const gatewayStopRoute = route("/gateway/stop", [
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      await stopGateway();
+
+      const apiResponse = Response.json({
+        success: true,
+        message: "Gateway connection stopped",
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord Gateway stop error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
+const gatewayStatusRoute = route("/gateway/status", [
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      const status = await getGatewayStatus();
+
+      const apiResponse = Response.json({
+        success: true,
+        status,
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord Gateway status error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
+const gatewayAuditRoute = route("/gateway/audit", [
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      const url = new URL(request.url);
+      const limitParam = Number(url.searchParams.get("limit") ?? "100");
+      const limit = Number.isFinite(limitParam)
+        ? Math.min(Math.max(limitParam, 1), 500)
+        : 100;
+
+      const entries = await getGatewayAudit(limit);
+
+      const apiResponse = Response.json({
+        success: true,
+        entries,
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord Gateway audit error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
+export const routes = [
+  backfillRoute,
+  pauseBackfillRoute,
+  statusRoute,
+  gatewayStartRoute,
+  gatewayStopRoute,
+  gatewayStatusRoute,
+  gatewayAuditRoute,
+];

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo } from "react";
-import { useTableSort } from "./use-table-sort";
 
 type R2Object = {
   key: string;
@@ -10,7 +9,7 @@ type R2Object = {
   etag: string;
 };
 
-type SortableR2Object = {
+type NormalizedR2Object = {
   key: string;
   size: number;
   uploaded: Date;
@@ -18,8 +17,8 @@ type SortableR2Object = {
 };
 
 export function IngestionTable({ objects }: { objects: R2Object[] }) {
-  // Normalize objects for sorting (ensure uploaded is a Date object)
-  const normalizedObjects = useMemo<SortableR2Object[]>(() => {
+  // Normalize objects but preserve the order from the server.
+  const normalizedObjects = useMemo<NormalizedR2Object[]>(() => {
     return objects.map((obj) => ({
       ...obj,
       uploaded:
@@ -27,72 +26,43 @@ export function IngestionTable({ objects }: { objects: R2Object[] }) {
     }));
   }, [objects]);
 
-  const { sortedData, sortConfig, handleSort } = useTableSort<SortableR2Object>(
-    normalizedObjects,
-    { key: "uploaded", direction: "desc" } // Default: newest first
-  );
-
   return (
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead className="border-b">
           <tr>
             <th
-              className="text-left py-3 px-4 font-medium text-sm text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-              onClick={() => handleSort("key")}
+              className="text-left py-3 px-4 font-medium text-sm text-gray-500 select-none"
             >
               <div className="flex items-center gap-1">
                 Key
-                {sortConfig.key === "key" && (
-                  <span className="text-xs">
-                    {sortConfig.direction === "asc" ? "↑" : "↓"}
-                  </span>
-                )}
               </div>
             </th>
             <th
-              className="text-left py-3 px-4 font-medium text-sm text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-              onClick={() => handleSort("size")}
+              className="text-left py-3 px-4 font-medium text-sm text-gray-500 select-none"
             >
               <div className="flex items-center gap-1">
                 Size
-                {sortConfig.key === "size" && (
-                  <span className="text-xs">
-                    {sortConfig.direction === "asc" ? "↑" : "↓"}
-                  </span>
-                )}
               </div>
             </th>
             <th
-              className="text-left py-3 px-4 font-medium text-sm text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-              onClick={() => handleSort("uploaded")}
+              className="text-left py-3 px-4 font-medium text-sm text-gray-500 select-none"
             >
               <div className="flex items-center gap-1">
                 Last Modified
-                {sortConfig.key === "uploaded" && (
-                  <span className="text-xs">
-                    {sortConfig.direction === "asc" ? "↑" : "↓"}
-                  </span>
-                )}
               </div>
             </th>
             <th
-              className="text-left py-3 px-4 font-medium text-sm text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-              onClick={() => handleSort("etag")}
+              className="text-left py-3 px-4 font-medium text-sm text-gray-500 select-none"
             >
               <div className="flex items-center gap-1">
                 ETag
-                {sortConfig.key === "etag" && (
-                  <span className="text-xs">
-                    {sortConfig.direction === "asc" ? "↑" : "↓"}
-                  </span>
-                )}
               </div>
             </th>
           </tr>
         </thead>
         <tbody>
-          {sortedData.map((obj) => (
+          {normalizedObjects.map((obj) => (
             <tr key={obj.key} className="border-b hover:bg-gray-50">
               <td className="py-3 px-4 text-sm font-mono">
                 <a

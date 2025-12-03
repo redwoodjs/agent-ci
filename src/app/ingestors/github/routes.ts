@@ -101,7 +101,13 @@ async function githubWebhookHandler({ request }: RequestInfo) {
       action === "deleted"
     ) {
       try {
+        console.log("[github ingest] Processing issue event:", {
+          action,
+          issueNumber: issue?.number,
+          repo: repository?.full_name || `${repository?.owner?.login}/${repository?.name}`,
+        });
         await processIssueEvent(issue as GitHubIssue, action, repository);
+        console.log("[github ingest] Issue event processed successfully");
         return new Response("Issue processed", { status: 202 });
       } catch (error) {
         console.error("[github ingest] Error processing issue:", error);

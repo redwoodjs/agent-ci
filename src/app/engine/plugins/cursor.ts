@@ -5,7 +5,9 @@ import {
   Chunk,
   ChunkMetadata,
   QueryHookContext,
+  SubjectDescription,
 } from "../types";
+import { generateTitleForText } from "../utils/summarize";
 
 interface CursorConversationLatestJson {
   id: string;
@@ -13,6 +15,20 @@ interface CursorConversationLatestJson {
     id: string;
     events: any[];
   }[];
+}
+
+function extractUserPrompts(data: CursorConversationLatestJson): string[] {
+  const prompts: string[] = [];
+  for (const gen of data.generations) {
+    const userPrompt =
+      gen.events.find(
+        (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+      )?.prompt || "";
+    if (userPrompt.trim()) {
+      prompts.push(userPrompt.trim());
+    }
+  }
+  return prompts;
 }
 
 export const cursorPlugin: Plugin = {
@@ -62,167 +78,231 @@ export const cursorPlugin: Plugin = {
     };
   },
 
-  async splitDocumentIntoChunks(
-    document: Document,
-    context: IndexingHookContext
-  ): Promise<Chunk[]> {
-    if (document.source !== "cursor") {
-      return []; // Not handled by this plugin
-    }
-
-    const bucket = context.env.MACHINEN_BUCKET;
-    const object = await bucket.get(document.id);
-    if (!object) {
-      throw new Error(`R2 object not found during chunking: ${document.id}`);
-    }
-
-    const jsonText = await object.text();
-    const data = JSON.parse(jsonText) as CursorConversationLatestJson;
-
-    const chunks: Chunk[] = [];
-
-    data.generations.forEach((gen, index) => {
-      const userPrompt =
-        gen.events.find(
-          (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
-        )?.prompt || "";
-      const assistantResponse =
-        gen.events.find(
-          (e) => e.hook_event_name === "afterAgentResponse" && e.text
-        )?.text || "";
-
-      console.log(
-        `[cursor-plugin] Processing generation ${index + 1}/${
-          data.generations.length
-        }`
-      );
-      console.log(
-        `[cursor-plugin]   - Extracted User Prompt (length): ${userPrompt.length}`
-      );
-      console.log(
-        `[cursor-plugin]   - Extracted Assistant Response (length): ${assistantResponse.length}`
-      );
-
-      let content = "";
-      if (userPrompt) {
-        content += `User: ${userPrompt}\n`;
+  subjects: {
+    async determineSubjectsForDocument(
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ): Promise<SubjectDescription[] | null> {
+      if (document.source !== "cursor") {
+        return null;
+      }
+      if (chunks.length === 0) {
+        return null;
       }
 
-      if (assistantResponse) {
-        content += `Assistant: ${assistantResponse}`;
+      // Use the first chunk to generate a title, as it's often the most descriptive.
+      const firstChunkContent = chunks[0]?.content;
+      if (!firstChunkContent) {
+        // This can happen if the document is empty or chunking produced nothing.
+        // It's not a subject, so we return null.
+        return null;
       }
 
-      // Fallback: if we couldn't extract structured text, stringify the events
-      if (!content.trim()) {
-        content = JSON.stringify(gen.events);
+      const title = await generateTitleForText(firstChunkContent, context.env);
+
+      // Fetch the conversation data to extract prompts
+      const bucket = context.env.MACHINEN_BUCKET;
+      const object = await bucket.get(document.id);
+      if (!object) {
+        throw new Error(`R2 object not found: ${document.id}`);
       }
+      const jsonText = await object.text();
+      const data = JSON.parse(jsonText) as CursorConversationLatestJson;
+      const narrativeComponents = extractUserPrompts(data);
 
-      if (content.trim()) {
-        const chunkId = `${document.id}#gen-${gen.id}`;
-        chunks.push({
-          id: chunkId,
-          documentId: document.id,
-          source: "cursor",
-          content: content.trim(),
-          metadata: {
-            ...document.metadata,
-            source: "cursor",
-            type: "cursor-generation",
-            chunkId: chunkId,
-            jsonPath: `$.generations[${index}]`,
-            documentId: document.id,
-            documentTitle:
-              document.metadata.title ||
-              `Cursor Conversation ${
-                document.metadata.sourceMetadata?.conversationId || "unknown"
-              }`,
-            author: "cursor-user", // Cursor conversations don't have a specific author
-          },
-        });
-      } else {
-        console.log(
-          `[cursor-plugin]   - SKIPPED: No content extracted for generation ${
-            index + 1
-          }. Raw events:`,
-          JSON.stringify(gen.events)
-        );
-      }
-    });
+      const description: SubjectDescription = {
+        title: title,
+        narrativeComponents:
+          narrativeComponents.length > 0
+            ? narrativeComponents
+            : [document.content],
+        chunks: chunks,
+      };
 
-    console.log(
-      `[cursor-plugin] Created ${chunks.length} chunks from ${data.generations.length} generations`
-    );
-    if (chunks.length > 0) {
-      console.log(
-        `[cursor-plugin] Sample chunk content (first 200 chars): ${chunks[0].content.substring(
-          0,
-          200
-        )}`
-      );
-      console.log(
-        `[cursor-plugin] Sample chunk content (last chunk, first 200 chars): ${chunks[
-          chunks.length - 1
-        ].content.substring(0, 200)}`
-      );
-    }
-
-    return chunks;
+      return [description];
+    },
   },
 
-  async reconstructContext(
-    documentChunks: ChunkMetadata[],
-    sourceDocument: any, // This is the raw JSON
-    context: QueryHookContext
-  ) {
-    if (!documentChunks[0]) {
-      return null;
-    }
-    const sourceMetadata = documentChunks[0].sourceMetadata;
-    if (!sourceMetadata || sourceMetadata.type !== "cursor-conversation") {
-      return null;
-    }
-
-    const data = sourceDocument as CursorConversationLatestJson;
-    const sections: string[] = [];
-
-    sections.push(`# Cursor Conversation ${data.id}\n`);
-
-    // For each chunk found, we want to format its corresponding generation.
-    // We can use the jsonPath to identify which generation it is.
-    // Format: "$.generations[0]"
-
-    // Get indices of generations that matched
-    const matchedIndices = new Set<number>();
-    documentChunks.forEach((chunk) => {
-      const match = chunk.jsonPath?.match(/generations\[(\d+)\]/);
-      if (match) {
-        matchedIndices.add(parseInt(match[1], 10));
+  evidence: {
+    async splitDocumentIntoChunks(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<Chunk[]> {
+      if (document.source !== "cursor") {
+        return []; // Not handled by this plugin
       }
-    });
 
-    // We want to show the conversation in order, but maybe only the relevant parts?
-    // Or should we show the surrounding context?
-    // For now, let's just show the matched generations.
+      const bucket = context.env.MACHINEN_BUCKET;
+      const object = await bucket.get(document.id);
+      if (!object) {
+        throw new Error(`R2 object not found during chunking: ${document.id}`);
+      }
 
-    // Sort indices
-    const sortedIndices = Array.from(matchedIndices).sort((a, b) => a - b);
+      const jsonText = await object.text();
+      const data = JSON.parse(jsonText) as CursorConversationLatestJson;
 
-    sortedIndices.forEach((index) => {
-      const gen = data.generations[index];
-      sections.push(`## Turn ${index + 1}`);
+      const chunks: Chunk[] = [];
 
-      // Attempt to format nicely
-      // Since we don't know the exact event schema, we'll do a best-effort dump
-      // formatted as a code block for readability.
-      sections.push("```json");
-      sections.push(JSON.stringify(gen.events, null, 2));
-      sections.push("```\n");
-    });
+      const encoder = new TextEncoder();
+      async function hashContent(content: string): Promise<string> {
+        const data = encoder.encode(content);
+        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+      }
 
-    return {
-      content: sections.join("\n"),
-      source: "cursor",
-      primaryMetadata: documentChunks[0],
-    };
+      for (const [index, gen] of data.generations.entries()) {
+        const userPrompt =
+          gen.events.find(
+            (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+          )?.prompt || "";
+        const assistantResponse =
+          gen.events.find(
+            (e) => e.hook_event_name === "afterAgentResponse" && e.text
+          )?.text || "";
+
+        console.log(
+          `[cursor-plugin] Processing generation ${index + 1}/${
+            data.generations.length
+          }`
+        );
+        console.log(
+          `[cursor-plugin]   - Extracted User Prompt (length): ${userPrompt.length}`
+        );
+        console.log(
+          `[cursor-plugin]   - Extracted Assistant Response (length): ${assistantResponse.length}`
+        );
+
+        let content = "";
+        if (userPrompt) {
+          content += `User: ${userPrompt}\n`;
+        }
+
+        if (assistantResponse) {
+          content += `Assistant: ${assistantResponse}`;
+        }
+
+        // Fallback: If we couldn't extract structured text, "explode violently" as requested.
+        // We want to know about these cases so we can fix the extraction logic.
+        if (!content.trim()) {
+          console.warn(
+            `[cursor-plugin] SKIPPING: No content extracted for generation ${
+              index + 1
+            } (id: ${gen.id}). Raw events: ${JSON.stringify(gen.events)}`
+          );
+          continue; // Skip this chunk if no content
+        }
+
+        if (content.trim()) {
+          const chunkId = `${document.id}#gen-${gen.id}`;
+          const trimmedContent = content.trim();
+          chunks.push({
+            id: chunkId,
+            documentId: document.id,
+            source: "cursor",
+            content: trimmedContent,
+            contentHash: await hashContent(trimmedContent),
+            metadata: {
+              chunkId: chunkId,
+              documentId: document.id,
+              source: "cursor",
+              type: "cursor-generation",
+              documentTitle:
+                document.metadata.title ||
+                `Cursor Conversation ${
+                  document.metadata.sourceMetadata?.conversationId || "unknown"
+                }`,
+              author: "cursor-user", // Cursor conversations don't have a specific author
+              jsonPath: `$.generations[${index}]`,
+              sourceMetadata: document.metadata.sourceMetadata,
+            },
+          });
+        } else {
+          console.log(
+            `[cursor-plugin]   - SKIPPED: No content extracted for generation ${
+              index + 1
+            }. Raw events:`,
+            JSON.stringify(gen.events)
+          );
+        }
+      }
+
+      console.log(
+        `[cursor-plugin] Created ${chunks.length} chunks from ${data.generations.length} generations`
+      );
+      if (chunks.length > 0) {
+        console.log(
+          `[cursor-plugin] Sample chunk content (first 200 chars): ${chunks[0].content.substring(
+            0,
+            200
+          )}`
+        );
+        console.log(
+          `[cursor-plugin] Sample chunk content (last chunk, first 200 chars): ${chunks[
+            chunks.length - 1
+          ].content.substring(0, 200)}`
+        );
+      }
+
+      return chunks;
+    },
+
+    async reconstructContext(
+      documentChunks: ChunkMetadata[],
+      sourceDocument: any, // This is the raw JSON
+      context: QueryHookContext
+    ) {
+      if (!documentChunks[0]) {
+        return null;
+      }
+      const sourceMetadata = documentChunks[0].sourceMetadata;
+      if (!sourceMetadata || sourceMetadata.type !== "cursor-conversation") {
+        return null;
+      }
+
+      const data = sourceDocument as CursorConversationLatestJson;
+      const sections: string[] = [];
+
+      sections.push(`# Cursor Conversation ${data.id}\n`);
+
+      // For each chunk found, we want to format its corresponding generation.
+      // We can use the jsonPath to identify which generation it is.
+      // Format: "$.generations[0]"
+
+      // Get indices of generations that matched
+      const matchedIndices = new Set<number>();
+      documentChunks.forEach((chunk) => {
+        const match = chunk.jsonPath?.match(/generations\[(\d+)\]/);
+        if (match) {
+          matchedIndices.add(parseInt(match[1], 10));
+        }
+      });
+
+      // We want to show the conversation in order, but maybe only the relevant parts?
+      // Or should we show the surrounding context?
+      // For now, let's just show the matched generations.
+
+      // Sort indices
+      const sortedIndices = Array.from(matchedIndices).sort((a, b) => a - b);
+
+      sortedIndices.forEach((index) => {
+        const gen = data.generations[index];
+        sections.push(`## Turn ${index + 1}`);
+
+        // Attempt to format nicely
+        // Since we don't know the exact event schema, we'll do a best-effort dump
+        // formatted as a code block for readability.
+        sections.push("```json");
+        sections.push(JSON.stringify(gen.events, null, 2));
+        sections.push("```\n");
+      });
+
+      return {
+        content: sections.join("\n"),
+        source: "cursor",
+        primaryMetadata: documentChunks[0],
+      };
+    },
   },
 };

@@ -42,6 +42,8 @@ To address the needs of the RAG system, the data is stored in a denormalized, "p
 
 *   **History Diffs**: Versioning is handled by storing diffs. For each primary entity, a `history/` subdirectory is maintained. When an update occurs, the system generates a JSON "diff" of the changes between the new and previous states and stores it as a timestamped file. This creates a machine-readable audit trail of all changes.
 
+This denormalized file serves as the primary input artifact for the RAG Engine's indexing pipeline.
+
 ### 2. A "Latest State" Ingestion Model
 
 To address the problem of data completeness, the system treats all incoming events (from webhooks or backfills) as **triggers**, not as sources of content.

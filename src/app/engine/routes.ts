@@ -6,7 +6,12 @@ import {
   rateLimitQuery,
   validateQueryInput,
 } from "./interruptors";
-import { query, createEngineContext } from "./index";
+import {
+  query,
+  getSubjectGraphForQuery,
+  listAllSubjects,
+  createEngineContext,
+} from "./index";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
@@ -39,6 +44,61 @@ async function queryHandler({ request, ctx }: RequestInfo) {
     return Response.json(
       {
         error: "Failed to process query",
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function getSubjectGraphHandler({ request, ctx }: RequestInfo) {
+  const url = new URL(request.url);
+  const queryText = url.searchParams.get("query");
+
+  // If no query parameter, list all subjects instead
+  if (!queryText) {
+    const limit = parseInt(url.searchParams.get("limit") || "50", 10);
+    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
+
+    const context = createEngineContext(env as Cloudflare.Env, "querying");
+    try {
+      console.log(`[subjects] Listing subjects (limit: ${limit}, offset: ${offset})`);
+      const result = await listAllSubjects(context, limit, offset);
+      console.log(`[subjects] Found ${result.subjects.length} subjects (total: ${result.total})`);
+      return Response.json(result);
+    } catch (error) {
+      console.error(
+        `[subjects] Error listing subjects: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+      return Response.json(
+        {
+          error: "Failed to list subjects",
+        },
+        { status: 500 }
+      );
+    }
+  }
+
+  // Otherwise, search for a specific subject by query
+  const context = createEngineContext(env as Cloudflare.Env, "querying");
+  try {
+    console.log(`[subjects] Getting subject graph for query: "${queryText}"`);
+    const graph = await getSubjectGraphForQuery(queryText, context);
+    if (!graph) {
+      return Response.json({ error: "Subject not found" }, { status: 404 });
+    }
+    console.log(`[subjects] Subject graph found successfully`);
+    return Response.json(graph);
+  } catch (error) {
+    console.error(
+      `[subjects] Error getting subject graph: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return Response.json(
+      {
+        error: "Failed to get subject graph",
       },
       { status: 500 }
     );
@@ -183,6 +243,9 @@ export const routes = [
       queryHandler,
     ],
     get: [requireQueryApiKey, rateLimitQuery, validateQueryInput, queryHandler],
+  }),
+  route("/subjects", {
+    get: [requireQueryApiKey, getSubjectGraphHandler],
   }),
   route("/admin/index", {
     post: [requireQueryApiKey, indexHandler],

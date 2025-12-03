@@ -15,20 +15,48 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# Load MACHINEN_ENV and API_KEY from .dev.vars
 if [ -f "$PROJECT_ROOT/.dev.vars" ]; then
   # Preserve existing environment variables before sourcing .dev.vars
   # Save API_KEY if it exists
   SAVED_API_KEY="${API_KEY:-}"
   
   set -a
-  # Filter out comments and lines without =
-  source <(grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep '=')
+  # Create a temp file with filtered vars and source it (same method as tail-logs.sh)
+  TEMP_VARS=$(mktemp)
+  grep -v '^#' "$PROJECT_ROOT/.dev.vars" | grep '=' > "$TEMP_VARS"
+  source "$TEMP_VARS"
+  rm "$TEMP_VARS"
   set +a
   
   # Restore API_KEY if it was set in the environment before sourcing
   if [ -n "$SAVED_API_KEY" ]; then
     export API_KEY="$SAVED_API_KEY"
   fi
+fi
+
+# ==============================================================================
+# Environment Configuration
+# ==============================================================================
+# Determine target environment from MACHINEN_ENV
+# Precedence: CLI arg -> MACHINEN_ENV -> default (local)
+
+# Default to local if not set
+MACHINEN_ENV="${MACHINEN_ENV:-local}"
+
+# Allow overriding with a command-line argument for one-off commands
+if [[ "$1" == "--env" && -n "$2" ]]; then
+  MACHINEN_ENV="$2"
+  # Shift arguments so the rest of the script sees the query etc.
+  shift 2
+fi
+
+
+# Check for subcommand
+MODE="query"
+if [[ "$1" == "subjects" ]]; then
+  MODE="subjects"
+  shift
 fi
 
 # Parse positional arguments
@@ -45,7 +73,22 @@ else
 fi
 
 API_KEY="${CLI_API_KEY:-${API_KEY}}"
-WORKER_URL="${CLI_WORKER_URL:-${WORKER_URL:-https://machinen.redwoodjs.workers.dev}}"
+
+# Set WORKER_URL based on MACHINEN_ENV, unless overridden by CLI arg
+case "$MACHINEN_ENV" in
+  "dev-justin")
+    WORKER_URL_ENV="https://machinen-dev-justin.redwoodjs.workers.dev"
+    ;;
+  "production")
+    WORKER_URL_ENV="https://machinen.redwoodjs.workers.dev"
+    ;;
+  "local"|*)
+    WORKER_URL_ENV="http://localhost:8787"
+    ;;
+esac
+
+# CLI-provided URL always takes precedence
+WORKER_URL="${CLI_WORKER_URL:-${WORKER_URL_ENV}}"
 
 # Normalize WORKER_URL shorthand
 if [[ "$WORKER_URL" =~ ^:[0-9]+$ ]]; then
@@ -57,35 +100,52 @@ elif [[ "$WORKER_URL" =~ ^localhost:[0-9]+$ ]]; then
 fi
 
 # Check required args
-if [ -z "$QUERY" ]; then
-  echo "Error: Query is required"
+if [[ "$MODE" == "query" && -z "$QUERY" ]]; then
+  echo "Error: Query is required for query mode"
   echo "Usage: $0 \"your query\" [api-key] [worker-url]"
   exit 1
 fi
 
 if [ -z "$API_KEY" ]; then
   echo "Error: API key is required"
-  echo "Usage: $0 \"your query\" \"your-api-key\" [worker-url]"
+  echo "Usage: $0 [subjects] [\"your query\"] [api-key] [worker-url]"
   echo "Or set API_KEY environment variable"
   exit 1
 fi
 
-echo "Querying: $QUERY"
-echo ""
+# Only output non-JSON text to stderr so it doesn't interfere with piping
+echo "Querying environment: $MACHINEN_ENV ($WORKER_URL)" >&2
+echo "Mode: $MODE" >&2
+if [ -n "$QUERY" ]; then
+  echo "Query: $QUERY" >&2
+else
+  echo "Listing all subjects" >&2
+fi
+echo "" >&2
 
+if [[ "$MODE" == "subjects" ]]; then
+  # It's a GET request to the subjects endpoint
+  if [ -n "$QUERY" ]; then
+    # Search for a specific subject
+    ENCODED_QUERY=$(echo "$QUERY" | jq -sRr @uri)
+    ENDPOINT_URL="$WORKER_URL/rag/subjects?query=$ENCODED_QUERY"
+  else
+    # List all subjects
+    ENDPOINT_URL="$WORKER_URL/rag/subjects"
+  fi
+  RESPONSE=$(curl -s -X GET \
+    -H "Authorization: Bearer $API_KEY" \
+    "$ENDPOINT_URL")
+else
+  # It's a POST request to the default /rag/query endpoint
+  ENDPOINT_URL="$WORKER_URL/rag/query"
 RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"query\": $(echo "$QUERY" | jq -R .)}" \
-  "$WORKER_URL/rag/query")
-
-# Try to extract .response, but if jq returns null or fails, show raw response
-EXTRACTED=$(echo "$RESPONSE" | jq -r '.response // empty' 2>/dev/null)
-
-if [ -z "$EXTRACTED" ] || [ "$EXTRACTED" = "null" ]; then
-  # If jq extraction failed or returned null, show the raw response
-  echo "$RESPONSE"
-else
-  echo "$EXTRACTED"
+    "$ENDPOINT_URL")
 fi
+
+# Pretty-print the JSON response
+echo "$RESPONSE" | jq .
 

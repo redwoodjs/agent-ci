@@ -70,7 +70,7 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
       r2_key: string;
       etag: string;
       indexed_at: string;
-      chunk_ids: string[] | null;
+      chunk_count: number;
     }
   >
 > {
@@ -92,40 +92,38 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
       r2_key: string;
       etag: string;
       indexed_at: string;
-      chunk_ids: string[] | null;
+      chunk_count: number;
     }
   >();
 
   const maxBatchSize = 100;
   for (let i = 0; i < r2Keys.length; i += maxBatchSize) {
     const batch = r2Keys.slice(i, i + maxBatchSize);
+
     const states = await db
       .selectFrom("indexing_state")
-      .selectAll()
-      .where("r2_key", "in", batch)
+      .leftJoin(
+        "processed_chunks",
+        "indexing_state.r2_key",
+        "processed_chunks.r2_key"
+      )
+      .select([
+        "indexing_state.r2_key",
+        "indexing_state.etag",
+        "indexing_state.indexed_at",
+        (eb) => eb.fn.count("processed_chunks.chunk_hash").as("chunk_count"),
+      ])
+      .where("indexing_state.r2_key", "in", batch)
+      .groupBy("indexing_state.r2_key")
       .execute();
 
     for (const state of states) {
-      let chunkIds: string[] | null = null;
-      if (state.chunk_ids) {
-        if (Array.isArray(state.chunk_ids)) {
-          chunkIds = state.chunk_ids;
-        } else {
-          console.warn(
-            `[db] Invalid chunk_ids for ${
-              state.r2_key
-            }: expected array (already parsed by ParseJSONResultsPlugin), got ${typeof state.chunk_ids}. Value: ${JSON.stringify(
-              state.chunk_ids
-            ).substring(0, 200)}`
-          );
-        }
-      }
-
       result.set(state.r2_key, {
         r2_key: state.r2_key,
         etag: state.etag,
         indexed_at: state.indexed_at,
-        chunk_ids: chunkIds,
+        // Kysely with COUNT returns a bigint when it might be 0, so we coerce.
+        chunk_count: Number(state.chunk_count),
       });
     }
   }
@@ -190,6 +188,82 @@ export async function updateIndexingState(
   }
 }
 
+export async function getProcessedChunkHashes(
+  r2Key: string
+): Promise<string[]> {
+  const db = createDb<IndexingStateDatabase>(
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    "engine-indexing-state"
+  );
+
+  const rows = await db
+    .selectFrom("processed_chunks")
+    .select("chunk_hash")
+    .where("r2_key", "=", r2Key)
+    .execute();
+
+  return rows.map((row) => row.chunk_hash);
+}
+
+export async function setProcessedChunkHashes(
+  r2Key: string,
+  chunkHashes: string[]
+): Promise<void> {
+  const db = createDb<IndexingStateDatabase>(
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    "engine-indexing-state"
+  );
+
+  // Ensure indexing_state row exists (required for foreign key constraint)
+  const existingState = await db
+    .selectFrom("indexing_state")
+    .selectAll()
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  if (!existingState) {
+    // Fetch ETag from R2 to create the indexing_state row
+    const bucket = (env as any).MACHINEN_BUCKET;
+    const object = await bucket.head(r2Key);
+    const etag = object?.etag || "unknown";
+    const now = new Date().toISOString();
+
+    console.log(
+      `[db] setProcessedChunkHashes: Creating indexing_state row for ${r2Key} with etag ${etag}`
+    );
+    await db
+      .insertInto("indexing_state")
+      .values({
+        r2_key: r2Key,
+        etag,
+        indexed_at: now,
+        chunk_ids: null,
+      })
+      .execute();
+  }
+
+  // Use a transaction to ensure atomicity
+  await db.deleteFrom("processed_chunks").where("r2_key", "=", r2Key).execute();
+
+  // Insert new hashes if there are any
+  // Batch inserts to avoid SQLite's variable limit (~999 variables)
+  // Each insert uses 2 variables (r2_key, chunk_hash), so we can safely insert ~200 at a time
+  // Using a conservative batch size to leave headroom
+  if (chunkHashes.length > 0) {
+    const BATCH_SIZE = 200;
+    for (let i = 0; i < chunkHashes.length; i += BATCH_SIZE) {
+      const batch = chunkHashes.slice(i, i + BATCH_SIZE);
+      const values = batch.map((hash) => ({
+        r2_key: r2Key,
+        chunk_hash: hash,
+      }));
+      await db.insertInto("processed_chunks").values(values).execute();
+    }
+  }
+}
+
 export async function clearAllIndexingState(): Promise<void> {
   console.log(`[db] clearAllIndexingState: Clearing all indexing state`);
 
@@ -200,6 +274,7 @@ export async function clearAllIndexingState(): Promise<void> {
   );
 
   await db.deleteFrom("indexing_state").execute();
+  await db.deleteFrom("processed_chunks").execute();
   console.log(`[db] clearAllIndexingState: All indexing state cleared`);
 }
 

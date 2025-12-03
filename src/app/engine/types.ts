@@ -1,4 +1,9 @@
-export type Source = "github" | "cursor" | "slack" | "meeting-notes" | "discord";
+export type Source =
+  | "github"
+  | "cursor"
+  | "slack"
+  | "meeting-notes"
+  | "discord";
 
 export interface Document {
   id: string;
@@ -13,6 +18,7 @@ export interface Document {
     sourceMetadata?: Record<string, any>;
     [key: string]: any;
   };
+  subjectId?: string;
 }
 
 export interface Chunk {
@@ -21,6 +27,7 @@ export interface Chunk {
   source: Source;
   content: string;
   metadata: ChunkMetadata;
+  contentHash?: string;
 }
 
 export interface ChunkMetadata {
@@ -32,6 +39,7 @@ export interface ChunkMetadata {
   author: string;
   jsonPath: string;
   sourceMetadata?: Record<string, any>;
+  subjectId?: string;
   [key: string]: any;
 }
 
@@ -39,6 +47,30 @@ export type PluginCompositionStrategy =
   | "waterfall"
   | "first-match"
   | "collector";
+
+export interface Subject {
+  id: string;
+  title: string;
+  documentIds: string[];
+  narrative?: string;
+  parentId?: string;
+  childIds?: string[];
+  access_weight?: number;
+  idempotency_key?: string;
+}
+
+export interface SubjectDescription {
+  title: string;
+  narrative?: string;
+  narrativeComponents?: string[];
+  idempotency_key?: string;
+  chunks: Chunk[];
+}
+
+export interface SubjectSearchContext {
+  text: string;
+  env: Cloudflare.Env;
+}
 
 export interface IndexingHookContext {
   r2Key: string;
@@ -55,42 +87,58 @@ export interface Plugin {
   prepareSourceDocument?: (
     context: IndexingHookContext
   ) => Promise<Document | null>;
-  splitDocumentIntoChunks?: (
-    document: Document,
-    context: IndexingHookContext
-  ) => Promise<Chunk[]>;
-  enrichChunk?: (chunk: Chunk, context: IndexingHookContext) => Promise<Chunk>;
-  prepareSearchQuery?: (
-    query: string,
-    context: QueryHookContext
-  ) => Promise<string>;
-  buildVectorSearchFilter?: (
-    context: QueryHookContext
-  ) => Promise<Record<string, unknown> | null>;
-  rerankSearchResults?: (
-    results: ChunkMetadata[],
-    context: QueryHookContext
-  ) => Promise<ChunkMetadata[]>;
-  reconstructContext?: (
-    documentChunks: ChunkMetadata[],
-    sourceDocument: any,
-    context: QueryHookContext
-  ) => Promise<ReconstructedContext | null>;
-  optimizeContext?: (
-    contexts: ReconstructedContext[],
-    query: string,
-    context: QueryHookContext
-  ) => Promise<ReconstructedContext[]>;
-  composeLlmPrompt?: (
-    contexts: ReconstructedContext[],
-    query: string,
-    context: QueryHookContext
-  ) => Promise<string>;
-  formatFinalResponse?: (
-    response: string,
-    chunks: ChunkMetadata[],
-    context: QueryHookContext
-  ) => Promise<string>;
+  evidence?: {
+    splitDocumentIntoChunks?: (
+      document: Document,
+      context: IndexingHookContext
+    ) => Promise<Chunk[]>;
+    enrichChunk?: (
+      chunk: Chunk,
+      context: IndexingHookContext
+    ) => Promise<Chunk>;
+    prepareSearchQuery?: (
+      query: string,
+      context: QueryHookContext
+    ) => Promise<string>;
+    buildVectorSearchFilter?: (
+      context: QueryHookContext
+    ) => Promise<Record<string, unknown> | null>;
+    rerankSearchResults?: (
+      results: ChunkMetadata[],
+      context: QueryHookContext
+    ) => Promise<ChunkMetadata[]>;
+    reconstructContext?: (
+      documentChunks: ChunkMetadata[],
+      sourceDocument: any,
+      context: QueryHookContext
+    ) => Promise<ReconstructedContext | null>;
+    optimizeContext?: (
+      contexts: ReconstructedContext[],
+      query: string,
+      context: QueryHookContext
+    ) => Promise<ReconstructedContext[]>;
+    composeLlmPrompt?: (
+      contexts: ReconstructedContext[],
+      query: string,
+      context: QueryHookContext
+    ) => Promise<string>;
+    formatFinalResponse?: (
+      response: string,
+      chunks: ChunkMetadata[],
+      context: QueryHookContext
+    ) => Promise<string>;
+  };
+  subjects?: {
+    findSubjectForText?: (
+      context: SubjectSearchContext
+    ) => Promise<string | null>;
+    generateSubjectTitle?: (context: SubjectSearchContext) => Promise<string>;
+    determineSubjectsForDocument?: (
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ) => Promise<SubjectDescription[] | null>;
+  };
 }
 
 export interface ReconstructedContext {

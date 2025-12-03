@@ -7,13 +7,41 @@ import type {
   QueryHookContext,
   EngineContext,
   ReconstructedContext,
+  Subject,
+  SubjectSearchContext,
 } from "./types";
+import { createDb, type Database } from "rwsdk/db";
+import type { SubjectDO } from "./subjectDb/durableObject";
+import {
+  getSubject,
+  putSubject,
+  updateSubjectDocumentIds,
+  getSubjectAncestors,
+  getSubjectChildren,
+  getSubjectByIdempotencyKey,
+  listSubjects,
+} from "./subjectDb";
+import { type subjectMigrations } from "./subjectDb/migrations";
+import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
+import { summarizeNumerically } from "./utils/vector-summary";
+
+async function hashChunkId(chunkId: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(chunkId);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  return hashHex.substring(0, 16);
+}
 
 export async function indexDocument(
   r2Key: string,
   context: EngineContext
 ): Promise<Chunk[]> {
   const totalStart = Date.now();
+  let subjectId: string | undefined;
   console.log(`[engine] Starting indexDocument for: ${r2Key}`);
   const indexingContext: IndexingHookContext = {
     r2Key,
@@ -38,17 +66,15 @@ export async function indexDocument(
     `[engine] Document prepared: ${document.metadata.title || r2Key}`
   );
 
-  // Try each plugin until we get non-empty chunks
-  // Empty arrays are treated as "no match" to allow the correct plugin to handle it
+  // 1. Split document into chunks BEFORE subject correlation
   let chunks: Chunk[] | null = null;
   const step2Start = Date.now();
   for (const plugin of context.plugins) {
-    if (plugin.splitDocumentIntoChunks) {
-      const result = await plugin.splitDocumentIntoChunks(
+    if (plugin.evidence?.splitDocumentIntoChunks) {
+      const result = await plugin.evidence.splitDocumentIntoChunks(
         document,
         indexingContext
       );
-      // Treat empty arrays as "no match" - continue to next plugin
       if (result && result.length > 0) {
         chunks = result;
         break;
@@ -65,13 +91,148 @@ export async function indexDocument(
 
   console.log(`[engine] Document split into ${chunks.length} chunks`);
 
+  // 2. Diff against previously processed chunks to avoid redundant work
+  const oldChunkHashes = await getProcessedChunkHashes(document.id);
+  const oldChunkHashSet = new Set(oldChunkHashes);
+
+  const newChunks = chunks.filter(
+    (chunk) => !oldChunkHashSet.has(chunk.contentHash!)
+  );
+
+  console.log(
+    `[engine] Found ${newChunks.length} new or modified chunks to process out of ${chunks.length} total.`
+  );
+
+  if (newChunks.length === 0) {
+    console.log(
+      `[engine] No new chunks found for document ${document.id}. Indexing is up-to-date.`
+    );
+    return []; // Nothing more to do
+  }
+
+  // 3. Determine subjects for the document (using only new chunks for correlation if needed)
+  type SubjectDatabase = Database<typeof subjectMigrations>;
+  const subjectDb = createDb<SubjectDatabase>(
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    "subject-graph"
+  );
+
+  // Attempt to use the top-down, source-aware hook first
+  const subjectDescriptions = await runFirstMatchHook(
+    context.plugins,
+    "determineSubjectsForDocument",
+    (plugin) =>
+      plugin.subjects?.determineSubjectsForDocument?.(
+        document,
+        newChunks, // Pass only new chunks to the hook
+        indexingContext
+      )
+  );
+
+  if (subjectDescriptions && subjectDescriptions.length > 0) {
+    console.log(
+      `[engine] Plugin provided ${subjectDescriptions.length} subject descriptions. Processing them now.`
+    );
+    for (const description of subjectDescriptions) {
+      if (!description) {
+        continue;
+      }
+
+      let narrative = description.narrative;
+      if (
+        description.narrativeComponents &&
+        description.narrativeComponents.length > 0
+      ) {
+        narrative = await summarizeNumerically(
+          description.narrativeComponents,
+          context.env
+        );
+      }
+
+      if (!narrative) {
+        console.warn(
+          `[engine] Subject description for document ${document.id} has no narrative. Falling back to title.`
+        );
+        narrative = description.title;
+      }
+
+      // **Step 1: Prioritize Semantic Search**
+      const existingSubjectId = await runFirstMatchHook(
+        context.plugins,
+        "findSubjectForText",
+        (plugin) =>
+          plugin.subjects?.findSubjectForText?.({
+            text: narrative!,
+            env: context.env,
+          })
+      );
+
+      if (existingSubjectId) {
+        console.log(
+          `[engine] Found existing subject ${existingSubjectId} via semantic search.`
+        );
+        // Append document to existing subject
+        await updateSubjectDocumentIds(subjectDb, existingSubjectId, [
+          document.id,
+        ]);
+        subjectId = existingSubjectId;
+        break; // Move to chunking
+      }
+
+      // **Step 2: Fallback to Idempotency Key**
+      let subject = await getSubjectByIdempotencyKey(
+        subjectDb,
+        description.idempotency_key
+      );
+
+      if (subject) {
+        console.log(
+          `[engine] Found existing subject ${subject.id} via idempotency key.`
+        );
+        subject.title = description.title;
+        subject.narrative = narrative;
+        await updateSubjectDocumentIds(subjectDb, subject.id, [document.id]);
+        await putSubject(subjectDb, subject);
+        await upsertSubjectVector(subject, context.env);
+        subjectId = subject.id;
+      } else {
+        // **Step 3: Create New Subject**
+        console.log(`[engine] No existing subject found. Creating a new one.`);
+        subjectId = crypto.randomUUID();
+        const newSubject: Subject = {
+          id: subjectId,
+          title: description.title,
+          narrative: narrative,
+          documentIds: [document.id],
+          idempotency_key: description.idempotency_key,
+        };
+        await putSubject(subjectDb, newSubject);
+        await upsertSubjectVector(newSubject, context.env);
+        console.log(
+          `[engine] Created new subject ${subjectId} for document ${document.id}`
+        );
+      }
+      break; // We assume one subject per document for now
+    }
+  } else {
+    // NO FALLBACK: If no plugin provides top-down subjects, we must throw.
+    // This indicates a configuration or plugin logic error that needs to be fixed.
+    throw new Error(
+      `[engine] No plugin provided subject descriptions for document: ${document.id}. This is a fatal error.`
+    );
+  }
+
+  // 4. Enrich chunks (optional, original logic for the new chunks)
   const step3Start = Date.now();
   const enrichedChunks: Chunk[] = [];
-  for (const chunk of chunks) {
+  for (const chunk of newChunks) {
     let enrichedChunk = chunk;
     for (const plugin of context.plugins) {
-      if (plugin.enrichChunk) {
-        const result = await plugin.enrichChunk(enrichedChunk, indexingContext);
+      if (plugin.evidence?.enrichChunk) {
+        const result = await plugin.evidence.enrichChunk(
+          enrichedChunk,
+          indexingContext
+        );
         if (result) {
           enrichedChunk = result;
         }
@@ -81,6 +242,13 @@ export async function indexDocument(
   }
   console.log(
     `[engine] enrichChunks (all chunks) took ${Date.now() - step3Start}ms`
+  );
+
+  // 5. After successful processing, update the state with the hashes of *all* current chunks
+  const allCurrentChunkHashes = chunks.map((c) => c.contentHash!);
+  await setProcessedChunkHashes(document.id, allCurrentChunkHashes);
+  console.log(
+    `[engine] Successfully updated processed chunk state for ${document.id}.`
   );
 
   console.log(`[engine] indexDocument total took ${Date.now() - totalStart}ms`);
@@ -103,24 +271,52 @@ export async function query(
     context.plugins,
     "prepareSearchQuery",
     userQuery,
-    (query, plugin) => plugin.prepareSearchQuery?.(query, queryContext)
+    (query, plugin) =>
+      plugin.evidence?.prepareSearchQuery?.(query, queryContext)
   );
   console.log(
     `[query] Search query preparation took ${Date.now() - step1Start}ms`
   );
 
-  console.log(`[query] Building vector search filter...`);
+  console.log(`[query] Step 2: Finding relevant subject`);
+  const subjectId = await runFirstMatchHook(
+    context.plugins,
+    "findSubjectForText",
+    (plugin) =>
+      plugin.subjects?.findSubjectForText?.({
+        text: userQuery,
+        env: context.env,
+      })
+  );
+
+  if (subjectId) {
+    console.log(`[query] Found subject: ${subjectId}`);
+  } else {
+    console.log(`[query] No subject found for query`);
+  }
+
+  console.log(`[query] Step 3: Building vector search filter`);
   const step2Start = Date.now();
   const filterClauses = await runCollectorHook(
     context.plugins,
     "buildVectorSearchFilter",
-    (plugin) => plugin.buildVectorSearchFilter?.(queryContext)
+    (plugin) => plugin.evidence?.buildVectorSearchFilter?.(queryContext)
   );
   console.log(
     `[query] Vector search filter build took ${Date.now() - step2Start}ms`
   );
 
-  console.log(`[query] Performing vector search...`);
+  // Add subjectId filter if we found one
+  if (subjectId) {
+    filterClauses.push({ subjectId });
+    console.log(`[query] Added subjectId filter: ${subjectId}`);
+  }
+
+  console.log(
+    `[query] Step 4: Performing vector search with filters: ${JSON.stringify(
+      filterClauses
+    )}`
+  );
   const step3Start = Date.now();
   const searchResults = await performVectorSearch(
     processedQuery,
@@ -156,17 +352,18 @@ export async function query(
     );
   }
 
-  console.log(`[query] Reranking results...`);
+  console.log(`[query] Step 5: Reranking results`);
   const step4Start = Date.now();
   const rerankedResults = await runWaterfallHook(
     context.plugins,
     "rerankSearchResults",
     searchResults,
-    (results, plugin) => plugin.rerankSearchResults?.(results, queryContext)
+    (results, plugin) =>
+      plugin.evidence?.rerankSearchResults?.(results, queryContext)
   );
   console.log(`[query] Result reranking took ${Date.now() - step4Start}ms`);
 
-  console.log(`[query] Reconstructing contexts...`);
+  console.log(`[query] Step 6: Reconstructing contexts`);
   const step5Start = Date.now();
   const reconstructedContexts = await reconstructContexts(
     rerankedResults,
@@ -178,27 +375,31 @@ export async function query(
   );
   console.log(`[query] Reconstructed ${reconstructedContexts.length} contexts`);
 
-  console.log(`[query] Optimizing contexts...`);
+  console.log(`[query] Step 7: Optimizing contexts`);
   const step55Start = Date.now();
   const optimizedContexts = await runWaterfallHook(
     context.plugins,
     "optimizeContext",
     reconstructedContexts,
     (contexts, plugin) =>
-      plugin.optimizeContext?.(contexts, processedQuery, queryContext)
+      plugin.evidence?.optimizeContext?.(contexts, processedQuery, queryContext)
   );
   console.log(
     `[query] Context optimization took ${Date.now() - step55Start}ms`
   );
   console.log(`[query] Optimized to ${optimizedContexts.length} contexts`);
 
-  console.log(`[query] Composing LLM prompt...`);
+  console.log(`[query] Step 8: Composing LLM prompt`);
   const step6Start = Date.now();
   const prompt = await runFirstMatchHook(
     [...context.plugins].reverse(),
     "composeLlmPrompt",
     (plugin) =>
-      plugin.composeLlmPrompt?.(optimizedContexts, processedQuery, queryContext)
+      plugin.evidence?.composeLlmPrompt?.(
+        optimizedContexts,
+        processedQuery,
+        queryContext
+      )
   );
   console.log(
     `[query] LLM prompt composition took ${Date.now() - step6Start}ms`
@@ -208,23 +409,28 @@ export async function query(
     throw new Error("No plugin could compose LLM prompt");
   }
 
-  console.log(`[query] Calling LLM (prompt length: ${prompt.length} chars)...`);
-
+  console.log(
+    `[query] Step 9: Calling LLM (prompt length: ${prompt.length} chars)`
+  );
   const step7Start = Date.now();
   const llmResponse = await callLlm(prompt, context.env);
   console.log(`[query] LLM generation took ${Date.now() - step7Start}ms`);
   console.log(
-    `[query] LLM response received (length: ${llmResponse.length} chars)`
+    `[query] Step 10: LLM response received (length: ${llmResponse.length} chars)`
   );
 
-  console.log(`[query] Formatting final response...`);
+  console.log(`[query] Step 11: Formatting final response`);
   const step9Start = Date.now();
   const formattedResponse = await runWaterfallHook(
     context.plugins,
     "formatFinalResponse",
     llmResponse,
     (response, plugin) =>
-      plugin.formatFinalResponse?.(response, rerankedResults, queryContext)
+      plugin.evidence?.formatFinalResponse?.(
+        response,
+        rerankedResults,
+        queryContext
+      )
   );
   console.log(
     `[query] Final response formatting took ${Date.now() - step9Start}ms`
@@ -232,6 +438,98 @@ export async function query(
 
   console.log(`[query] Total query time took ${Date.now() - totalStart}ms`);
   return formattedResponse;
+}
+
+export async function findSubjectByQuery(
+  queryText: string,
+  context: EngineContext
+): Promise<Subject | null> {
+  const subjectId = await runFirstMatchHook(
+    context.plugins,
+    "findSubjectForText",
+    (plugin) =>
+      plugin.subjects?.findSubjectForText?.({
+        text: queryText,
+        env: context.env,
+      })
+  );
+
+  if (!subjectId) {
+    return null;
+  }
+
+  type SubjectDatabase = Database<typeof subjectMigrations>;
+  const subjectDb = createDb<SubjectDatabase>(
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    "subject-graph"
+  );
+
+  return await getSubject(subjectDb, subjectId);
+}
+
+export async function getSubjectGraphForQuery(
+  queryText: string,
+  context: EngineContext
+) {
+  const subject = await findSubjectByQuery(queryText, context);
+
+  if (!subject) {
+    return null;
+  }
+
+  type SubjectDatabase = Database<typeof subjectMigrations>;
+  const subjectDb = createDb<SubjectDatabase>(
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    "subject-graph"
+  );
+
+  const [ancestors, children] = await Promise.all([
+    getSubjectAncestors(subjectDb, subject.id),
+    getSubjectChildren(subjectDb, subject.id),
+  ]);
+
+  return {
+    subject,
+    ancestors,
+    children,
+  };
+}
+
+export async function listAllSubjects(
+  context: EngineContext,
+  limit: number = 50,
+  offset: number = 0
+) {
+  type SubjectDatabase = Database<typeof subjectMigrations>;
+  const subjectDb = createDb<SubjectDatabase>(
+    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    "subject-graph"
+  );
+
+  return await listSubjects(subjectDb, limit, offset);
+}
+
+async function upsertSubjectVector(subject: Subject, env: Cloudflare.Env) {
+  if (!subject.narrative) {
+    console.log(`[engine] Subject ${subject.id} has no narrative to index.`);
+    return;
+  }
+
+  console.log(`[engine] Upserting vector for subject ${subject.id}.`);
+  const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+    text: [subject.narrative],
+  })) as { data: number[][] };
+
+  await env.SUBJECT_INDEX.upsert([
+    {
+      id: subject.id,
+      values: embeddingResponse.data[0],
+      metadata: { title: subject.title },
+    },
+  ]);
+  console.log(
+    `[engine] Successfully upserted vector for subject ${subject.id}.`
+  );
 }
 
 async function reconstructContexts(
@@ -340,7 +638,7 @@ async function reconstructContexts(
       plugins,
       "reconstructContext",
       (plugin) =>
-        plugin.reconstructContext?.(
+        plugin.evidence?.reconstructContext?.(
           documentChunks,
           sourceDocument,
           queryContext
@@ -476,82 +774,8 @@ async function generateEmbedding(
   return response.data[0];
 }
 
+import { callLLM } from "./utils/llm";
+
 async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
-  const start = Date.now();
-  let response: any;
-  try {
-    response = await (env.AI.run as any)("@cf/openai/gpt-oss-20b", {
-      input: prompt,
-    });
-    console.log(`[query] AI.run(llm) took ${Date.now() - start}ms`);
-  } catch (error) {
-    console.error(`[query] AI.run(llm) error:`, error);
-    console.error(
-      `[query] Error type:`,
-      error instanceof Error ? error.constructor.name : typeof error
-    );
-    console.error(
-      `[query] Error message:`,
-      error instanceof Error ? error.message : String(error)
-    );
-    console.error(
-      `[query] Error stack:`,
-      error instanceof Error ? error.stack : "no stack"
-    );
-    throw error;
-  }
-
-  console.log(`[query] LLM response type:`, typeof response);
-  console.log(
-    `[query] LLM response keys:`,
-    response && typeof response === "object"
-      ? Object.keys(response)
-      : "not an object"
-  );
-  console.log(
-    `[query] LLM response preview:`,
-    JSON.stringify(response).substring(0, 500)
-  );
-
-  if (!response) {
-    throw new Error(
-      `Failed to get LLM response: response is null or undefined`
-    );
-  }
-
-  if (typeof response === "string") {
-    return response;
-  }
-
-  if (typeof response === "object") {
-    if (typeof response.response === "string") {
-      return response.response;
-    }
-    if (typeof response.text === "string") {
-      return response.text;
-    }
-    if (typeof response.content === "string") {
-      return response.content;
-    }
-    if (
-      Array.isArray(response.output) &&
-      response.output.length > 0 &&
-      Array.isArray(response.output[0].content) &&
-      response.output[0].content.length > 0 &&
-      typeof response.output[0].content[0].text === "string"
-    ) {
-      return response.output[0].content[0].text;
-    }
-    throw new Error(
-      `Failed to get LLM response: unexpected response format. Response: ${JSON.stringify(
-        response
-      ).substring(0, 500)}`
-    );
-  }
-
-  throw new Error(
-    `Failed to get LLM response: unexpected response type ${typeof response}. Response: ${JSON.stringify(
-      response
-    ).substring(0, 500)}`
-  );
+  return callLLM(prompt, env);
 }

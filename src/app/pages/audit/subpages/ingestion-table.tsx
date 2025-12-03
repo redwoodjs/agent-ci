@@ -94,7 +94,14 @@ export function IngestionTable({ objects }: { objects: R2Object[] }) {
         <tbody>
           {sortedData.map((obj) => (
             <tr key={obj.key} className="border-b hover:bg-gray-50">
-              <td className="py-3 px-4 text-sm font-mono">{obj.key}</td>
+              <td className="py-3 px-4 text-sm font-mono">
+                <a
+                  href={`/audit/ingestion/file/${encodeURIComponent(obj.key)}`}
+                  className="text-blue-600 hover:text-blue-800 hover:underline break-all"
+                >
+                  {obj.key}
+                </a>
+              </td>
               <td className="py-3 px-4 text-sm">{formatBytes(obj.size)}</td>
               <td className="py-3 px-4 text-sm">
                 {obj.uploaded.toLocaleString()}

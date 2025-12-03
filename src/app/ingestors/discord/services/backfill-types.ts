@@ -24,6 +24,14 @@ export interface ProcessorJobMessage {
   event_type: string;
 }
 
-export type QueueMessage = SchedulerJobMessage | ProcessorJobMessage;
+export interface GatewayEventMessage {
+  type: "gateway_event";
+  op: number;
+  t: string | null;
+  s: number | null;
+  d: any;
+}
+
+export type QueueMessage = SchedulerJobMessage | ProcessorJobMessage | GatewayEventMessage;
 
 

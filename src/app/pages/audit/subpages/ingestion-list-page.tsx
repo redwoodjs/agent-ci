@@ -6,11 +6,13 @@ import {
   CardTitle,
   CardContent,
 } from "@/app/components/ui/card";
+import { IngestionTable } from "./ingestion-table";
 
 export function IngestionListPage({ request }: { request: Request }) {
   const url = new URL(request.url);
   const source = url.searchParams.get("source") || "all";
-  const cursor = url.searchParams.get("cursor") || undefined;
+  const pageParam = url.searchParams.get("page") || "1";
+  const page = Math.max(1, Number.parseInt(pageParam, 10) || 1);
 
   let prefix = "";
   if (source === "discord") prefix = "discord/";
@@ -67,7 +69,7 @@ export function IngestionListPage({ request }: { request: Request }) {
       </div>
 
       <Suspense fallback={<FilesTableSkeleton prefix={prefix} />}>
-        <FilesTable source={source} cursor={cursor} prefix={prefix} />
+        <FilesTable source={source} prefix={prefix} page={page} pageSize={50} />
       </Suspense>
     </div>
   );
@@ -75,22 +77,64 @@ export function IngestionListPage({ request }: { request: Request }) {
 
 async function FilesTable({
   source,
-  cursor,
   prefix,
+  page,
+  pageSize,
 }: {
   source: string;
-  cursor?: string;
   prefix: string;
+  page: number;
+  pageSize: number;
 }) {
   const bucket = env.MACHINEN_BUCKET;
 
-  const listOptions: any = {
-    limit: 100,
+  // Load all objects for the current prefix by following cursors.
+  const baseListOptions: any = {
     ...(prefix && { prefix }),
-    ...(cursor && { cursor }),
   };
 
-  const list = await bucket.list(listOptions);
+  const allObjects: any[] = [];
+  let cursor: string | undefined = undefined;
+  do {
+    const list = await bucket.list({
+      ...baseListOptions,
+      cursor,
+    } as any);
+
+    allObjects.push(...list.objects);
+    cursor = list.truncated ? list.cursor : undefined;
+  } while (cursor);
+
+  // Sort on the server by last modified (uploaded) so newest files are first.
+  const sortedObjects = [...allObjects].sort((a, b) => {
+    const aTime =
+      a.uploaded instanceof Date
+        ? a.uploaded.getTime()
+        : new Date(a.uploaded as any).getTime();
+    const bTime =
+      b.uploaded instanceof Date
+        ? b.uploaded.getTime()
+        : new Date(b.uploaded as any).getTime();
+    return bTime - aTime;
+  });
+
+  // Serialize Date objects to ISO strings for client component
+  const serializedObjects = sortedObjects.map((obj) => ({
+    ...obj,
+    uploaded:
+      obj.uploaded instanceof Date
+        ? obj.uploaded.toISOString()
+        : typeof obj.uploaded === "string"
+        ? obj.uploaded
+        : new Date(obj.uploaded as any).toISOString(),
+  }));
+
+  const totalItems = serializedObjects.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalItems);
+  const pageObjects = serializedObjects.slice(startIndex, endIndex);
 
   return (
     <Card>
@@ -100,64 +144,45 @@ async function FilesTable({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="border-b">
-              <tr>
-                <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                  Key
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                  Size
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                  Last Modified
-                </th>
-                <th className="text-left py-3 px-4 font-medium text-sm text-gray-500">
-                  ETag
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {list.objects.map((obj) => (
-                <tr key={obj.key} className="border-b hover:bg-gray-50">
-                  <td className="py-3 px-4 text-sm font-mono">{obj.key}</td>
-                  <td className="py-3 px-4 text-sm">
-                    {formatBytes(obj.size)}
-                  </td>
-                  <td className="py-3 px-4 text-sm">
-                    {obj.uploaded.toLocaleString()}
-                  </td>
-                  <td className="py-3 px-4 font-mono text-xs text-gray-500">
-                    {obj.etag.substring(0, 16)}...
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <IngestionTable objects={pageObjects} />
+
+        {totalItems > 0 && (
+          <div className="mt-4 text-sm text-gray-500">
+            Showing {startIndex + 1}
+            {"–"}
+            {endIndex} of {totalItems} files
+          </div>
+        )}
+
+        <div className="mt-4 flex justify-between items-center">
+          <div className="text-sm text-gray-500">
+            Page {currentPage} of {totalPages}
+          </div>
+          <div className="flex gap-2">
+            {currentPage > 1 && (
+              <a
+                href={`/audit/ingestion?source=${source}&page=${
+                  currentPage - 1
+                }`}
+                className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+              >
+                Previous
+              </a>
+            )}
+            {currentPage < totalPages && (
+              <a
+                href={`/audit/ingestion?source=${source}&page=${
+                  currentPage + 1
+                }`}
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Next
+              </a>
+            )}
+          </div>
         </div>
 
-        {list.truncated && (
-          <div className="mt-4 flex justify-between items-center">
-            <div className="text-sm text-gray-500">
-              Showing {list.objects.length} files
-            </div>
-            <a
-              href={`/audit/ingestion?source=${source}&cursor=${list.cursor}`}
-              className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              Load More
-            </a>
-          </div>
-        )}
-
-        {!list.truncated && list.objects.length > 0 && (
-          <div className="mt-4 text-sm text-gray-500">
-            Showing all {list.objects.length} files
-          </div>
-        )}
-
-        {list.objects.length === 0 && (
+        {totalItems === 0 && (
           <div className="text-center py-8 text-gray-500">
             No files found
             {prefix && ` with prefix "${prefix}"`}
@@ -207,12 +232,4 @@ function FilesTableSkeleton({ prefix }: { prefix: string }) {
       </CardContent>
     </Card>
   );
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 Bytes";
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + " " + sizes[i];
 }

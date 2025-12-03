@@ -51,6 +51,7 @@ export async function getGatewayStatus(): Promise<{
   sessionId: string | null;
   sequenceNumber: number | null;
   reconnectAttempts: number;
+  lastConnectedAt: number | null;
 }> {
   const stub = getGatewayStub();
 

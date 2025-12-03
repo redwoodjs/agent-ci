@@ -30,6 +30,7 @@ interface GatewayState {
   connectionStatus: "disconnected" | "connecting" | "connected" | "resuming";
   lastHeartbeatAck: number | null;
   reconnectAttempts: number;
+  lastConnectedAt: number | null;
 }
 
 const MAX_AUDIT_ENTRIES = 1000;
@@ -46,10 +47,13 @@ export class DiscordGatewayDO {
     connectionStatus: "disconnected",
     lastHeartbeatAck: null,
     reconnectAttempts: 0,
+    lastConnectedAt: null,
   };
   private heartbeatAlarmId: number | null = null;
   private readonly MAX_RECONNECT_ATTEMPTS = 5;
   private readonly RECONNECT_DELAY_MS = 5000;
+  private readonly MAX_RECONNECT_DELAY_MS = 60000;
+  private readonly STABLE_CONNECTION_RESET_MS = 3600000; // 1 hour
 
   private async appendAudit(
     entry: Omit<GatewayAuditEntry, "ts">
@@ -112,6 +116,7 @@ export class DiscordGatewayDO {
           sessionId: this.gatewayState.sessionId,
           sequenceNumber: this.gatewayState.sequenceNumber,
           reconnectAttempts: this.gatewayState.reconnectAttempts,
+          lastConnectedAt: this.gatewayState.lastConnectedAt,
         }),
         {
           headers: { "Content-Type": "application/json" },
@@ -320,12 +325,15 @@ export class DiscordGatewayDO {
         this.gatewayState.sessionId = readyData.session_id;
         this.gatewayState.connectionStatus = "connected";
         this.gatewayState.reconnectAttempts = 0; // Reset on successful connection
+        this.gatewayState.lastConnectedAt = Date.now();
         await this.saveState();
         console.log(
           `[gateway] READY received, session ID: ${readyData.session_id}`
         );
       } else if (eventType === "RESUMED") {
         this.gatewayState.connectionStatus = "connected";
+        this.gatewayState.reconnectAttempts = 0; // Reset on successful connection
+        this.gatewayState.lastConnectedAt = Date.now();
         await this.saveState();
         console.log("[gateway] RESUMED successfully");
       }
@@ -583,18 +591,38 @@ export class DiscordGatewayDO {
     this.gatewayState.connectionStatus = "disconnected";
     await this.saveState();
 
+    // Reset counter if connection was stable for more than 1 hour
+    // Only reset once per disconnect event by clearing lastConnectedAt after reset
+    const now = Date.now();
+    if (
+      this.gatewayState.lastConnectedAt !== null &&
+      now - this.gatewayState.lastConnectedAt > this.STABLE_CONNECTION_RESET_MS
+    ) {
+      console.log(
+        `[gateway] Connection was stable for more than 1 hour, resetting reconnect counter`
+      );
+      this.gatewayState.reconnectAttempts = 0;
+      this.gatewayState.lastConnectedAt = null; // Clear to prevent repeated resets
+      await this.saveState();
+    }
+
     // Attempt reconnection if we haven't exceeded max attempts
     if (this.gatewayState.reconnectAttempts < this.MAX_RECONNECT_ATTEMPTS) {
       this.gatewayState.reconnectAttempts++;
       await this.saveState();
 
-      console.log(
-        `[gateway] Attempting reconnect (${this.gatewayState.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS})`
+      // Calculate exponential backoff delay
+      const delay = Math.min(
+        this.RECONNECT_DELAY_MS *
+          Math.pow(2, this.gatewayState.reconnectAttempts - 1),
+        this.MAX_RECONNECT_DELAY_MS
       );
 
-      await new Promise((resolve) =>
-        setTimeout(resolve, this.RECONNECT_DELAY_MS)
+      console.log(
+        `[gateway] Attempting reconnect (${this.gatewayState.reconnectAttempts}/${this.MAX_RECONNECT_ATTEMPTS}) after ${delay}ms`
       );
+
+      await new Promise((resolve) => setTimeout(resolve, delay));
 
       try {
         const gatewayInfo = await fetchGatewayURL();

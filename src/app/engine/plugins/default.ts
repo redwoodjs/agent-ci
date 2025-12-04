@@ -20,64 +20,91 @@ export const defaultPlugin: Plugin = {
     async findSubjectForText(
       context: SubjectSearchContext
     ): Promise<string | null> {
-      const { text, env } = context;
-      const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
-        text: [text], // We search using the new chunk's content
-      })) as { data: number[][] };
+      try {
+        const { text, env } = context;
+        const embeddingResponse = (await env.AI.run(
+          "@cf/baai/bge-base-en-v1.5",
+          {
+            text: [text], // We search using the new chunk's content
+          }
+        )) as { data: number[][] };
 
-      const vectors = embeddingResponse.data[0];
-
-      console.log(
-        `[default-plugin:dedup-debug] Search text (length: ${text.length}): ${JSON.stringify(text)}`
-      );
-      console.log(
-        `[default-plugin:dedup-debug] Generated embedding (dimension: ${vectors.length})`
-      );
-
-      const searchResults = await env.SUBJECT_INDEX.query(vectors, {
-        topK: 5, // Increase to see more matches for debugging
-        returnMetadata: true,
-      });
-
-      console.log(
-        `[default-plugin:dedup-debug] Vector search found ${searchResults.matches.length} matches`
-      );
-      
-      if (searchResults.matches.length > 0) {
-        console.log(
-          `[default-plugin:dedup-debug] All matches: ${JSON.stringify(
-            searchResults.matches.map((m) => ({
-              id: m.id,
-              score: m.score.toFixed(4),
-              title: m.metadata?.title,
-            }))
-          )}`
-        );
-      }
-
-      if (searchResults.matches.length > 0) {
-        const topMatch = searchResults.matches[0];
-        console.log(
-          `[default-plugin:dedup-debug] Top match: subjectId=${topMatch.id}, score=${topMatch.score.toFixed(4)}, threshold=0.85`
-        );
-        // Increase threshold to require a stronger match, encouraging creation of new subjects.
-        if (topMatch.score > 0.85) {
-          console.log(
-            `[default-plugin:dedup-debug] Match PASSED threshold, returning subjectId: ${topMatch.id}`
+        if (!embeddingResponse.data || embeddingResponse.data.length === 0) {
+          console.error(
+            `[default-plugin:dedup-debug] AI.run for embedding returned no data for text: ${text.substring(
+              0,
+              100
+            )}...`
           );
-          return topMatch.id;
-        } else {
+          return null;
+        }
+
+        const vectors = embeddingResponse.data[0];
+
+        console.log(
+          `[default-plugin:dedup-debug] Search text (length: ${
+            text.length
+          }): ${JSON.stringify(text)}`
+        );
+        console.log(
+          `[default-plugin:dedup-debug] Generated embedding (dimension: ${vectors.length})`
+        );
+
+        const searchResults = await env.SUBJECT_INDEX.query(vectors, {
+          topK: 5, // Increase to see more matches for debugging
+          returnMetadata: true,
+        });
+
+        console.log(
+          `[default-plugin:dedup-debug] Vector search found ${searchResults.matches.length} matches`
+        );
+
+        if (searchResults.matches.length > 0) {
           console.log(
-            `[default-plugin:dedup-debug] Match FAILED threshold (${topMatch.score.toFixed(4)} <= 0.85), returning null`
+            `[default-plugin:dedup-debug] All matches: ${JSON.stringify(
+              searchResults.matches.map((m) => ({
+                id: m.id,
+                score: m.score.toFixed(4),
+                title: m.metadata?.title,
+              }))
+            )}`
           );
         }
-      } else {
-        console.log(
-          `[default-plugin:dedup-debug] No matches found, returning null`
-        );
-      }
 
-      return null;
+        if (searchResults.matches.length > 0) {
+          const topMatch = searchResults.matches[0];
+          console.log(
+            `[default-plugin:dedup-debug] Top match: subjectId=${
+              topMatch.id
+            }, score=${topMatch.score.toFixed(4)}, threshold=0.85`
+          );
+          // Increase threshold to require a stronger match, encouraging creation of new subjects.
+          if (topMatch.score > 0.85) {
+            console.log(
+              `[default-plugin:dedup-debug] Match PASSED threshold, returning subjectId: ${topMatch.id}`
+            );
+            return topMatch.id;
+          } else {
+            console.log(
+              `[default-plugin:dedup-debug] Match FAILED threshold (${topMatch.score.toFixed(
+                4
+              )} <= 0.85), returning null`
+            );
+          }
+        } else {
+          console.log(
+            `[default-plugin:dedup-debug] No matches found, returning null`
+          );
+        }
+
+        return null;
+      } catch (error) {
+        console.error(
+          `[default-plugin:dedup-debug] CRITICAL: Error inside findSubjectForText hook:`,
+          error
+        );
+        return null; // Return null to prevent crashing the whole indexing job
+      }
     },
     async generateSubjectTitle(context: SubjectSearchContext): Promise<string> {
       return generateTitleForText(context.text, context.env);

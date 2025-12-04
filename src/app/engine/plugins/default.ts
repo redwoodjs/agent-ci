@@ -32,12 +32,33 @@ export const defaultPlugin: Plugin = {
         returnMetadata: true,
       });
 
+      console.log(
+        `[default-plugin:dedup-debug] Search text (length: ${text.length}): ${JSON.stringify(text)}`
+      );
+      console.log(
+        `[default-plugin:dedup-debug] Vector search found ${searchResults.matches.length} matches`
+      );
+
       if (searchResults.matches.length > 0) {
         const topMatch = searchResults.matches[0];
+        console.log(
+          `[default-plugin:dedup-debug] Top match: subjectId=${topMatch.id}, score=${topMatch.score.toFixed(4)}, threshold=0.85`
+        );
         // Increase threshold to require a stronger match, encouraging creation of new subjects.
         if (topMatch.score > 0.85) {
+          console.log(
+            `[default-plugin:dedup-debug] Match PASSED threshold, returning subjectId: ${topMatch.id}`
+          );
           return topMatch.id;
+        } else {
+          console.log(
+            `[default-plugin:dedup-debug] Match FAILED threshold (${topMatch.score.toFixed(4)} <= 0.85), returning null`
+          );
         }
+      } else {
+        console.log(
+          `[default-plugin:dedup-debug] No matches found, returning null`
+        );
       }
 
       return null;

@@ -138,14 +138,33 @@ export async function indexDocument(
         continue;
       }
 
+      console.log(
+        `[engine:dedup-debug] Processing subject description for document: ${document.id}`
+      );
+      console.log(
+        `[engine:dedup-debug] Description title: ${description.title}`
+      );
+      console.log(
+        `[engine:dedup-debug] Has narrativeComponents: ${!!description.narrativeComponents}, count: ${description.narrativeComponents?.length || 0}`
+      );
+      console.log(
+        `[engine:dedup-debug] Has narrative: ${!!description.narrative}`
+      );
+
       let narrative = description.narrative;
       if (
         description.narrativeComponents &&
         description.narrativeComponents.length > 0
       ) {
+        console.log(
+          `[engine:dedup-debug] Calling summarizeNumerically with ${description.narrativeComponents.length} components`
+        );
         narrative = await summarizeNumerically(
           description.narrativeComponents,
           context.env
+        );
+        console.log(
+          `[engine:dedup-debug] summarizeNumerically returned narrative (length: ${narrative.length})`
         );
       }
 
@@ -156,7 +175,14 @@ export async function indexDocument(
         narrative = description.title;
       }
 
+      console.log(
+        `[engine:dedup-debug] Final narrative to search with (length: ${narrative.length}): ${JSON.stringify(narrative)}`
+      );
+
       // **Step 1: Prioritize Semantic Search**
+      console.log(
+        `[engine:dedup-debug] Calling findSubjectForText with narrative`
+      );
       const existingSubjectId = await runFirstMatchHook(
         context.plugins,
         "findSubjectForText",
@@ -169,7 +195,7 @@ export async function indexDocument(
 
       if (existingSubjectId) {
         console.log(
-          `[engine] Found existing subject ${existingSubjectId} via semantic search.`
+          `[engine:dedup-debug] DECISION: Found existing subject ${existingSubjectId} via semantic search. Linking document ${document.id} to existing subject.`
         );
         // Append document to existing subject
         await updateSubjectDocumentIds(subjectDb, existingSubjectId, [
@@ -177,9 +203,16 @@ export async function indexDocument(
         ]);
         subjectId = existingSubjectId;
         break; // Move to chunking
+      } else {
+        console.log(
+          `[engine:dedup-debug] DECISION: No existing subject found via semantic search. Will check idempotency key or create new subject.`
+        );
       }
 
       // **Step 2: Fallback to Idempotency Key**
+      console.log(
+        `[engine:dedup-debug] Checking idempotency key: ${description.idempotency_key}`
+      );
       let subject = await getSubjectByIdempotencyKey(
         subjectDb,
         description.idempotency_key
@@ -187,7 +220,7 @@ export async function indexDocument(
 
       if (subject) {
         console.log(
-          `[engine] Found existing subject ${subject.id} via idempotency key.`
+          `[engine:dedup-debug] DECISION: Found existing subject ${subject.id} via idempotency key. Linking document ${document.id} to existing subject.`
         );
         subject.title = description.title;
         subject.narrative = narrative;
@@ -197,8 +230,13 @@ export async function indexDocument(
         subjectId = subject.id;
       } else {
         // **Step 3: Create New Subject**
-        console.log(`[engine] No existing subject found. Creating a new one.`);
         subjectId = crypto.randomUUID();
+        console.log(
+          `[engine:dedup-debug] DECISION: No existing subject found. Creating NEW subject ${subjectId} for document ${document.id}`
+        );
+        console.log(
+          `[engine:dedup-debug] New subject details: title="${description.title}", idempotency_key="${description.idempotency_key}"`
+        );
         const newSubject: Subject = {
           id: subjectId,
           title: description.title,

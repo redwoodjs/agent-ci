@@ -23,7 +23,11 @@
  * this script will attempt to read them from your rclone config (~/.config/rclone/rclone.conf)
  */
 
-import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  ListObjectsV2Command,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -207,6 +211,50 @@ function matchesFilter(key, filterType) {
   return true;
 }
 
+// Extract title from Cursor conversation
+function extractCursorTitle(data) {
+  try {
+    if (!data.generations || data.generations.length === 0) {
+      return `Conversation ${data.id || "unknown"}`;
+    }
+
+    // Find first user prompt
+    for (const gen of data.generations) {
+      const userPrompt = gen.events?.find(
+        (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+      )?.prompt;
+      if (userPrompt && userPrompt.trim()) {
+        // Truncate to 60 chars for display
+        const truncated = userPrompt.trim().substring(0, 60);
+        return truncated + (userPrompt.length > 60 ? "..." : "");
+      }
+    }
+
+    return `Conversation ${data.id || "unknown"} (${
+      data.generations.length
+    } turns)`;
+  } catch (error) {
+    return "Error extracting title";
+  }
+}
+
+// Fetch and parse a Cursor conversation file
+async function fetchCursorTitle(key) {
+  try {
+    const command = new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+    });
+
+    const response = await s3Client.send(command);
+    const text = await response.Body.transformToString();
+    const data = JSON.parse(text);
+    return extractCursorTitle(data);
+  } catch (error) {
+    return null; // Return null on error, we'll fall back to key
+  }
+}
+
 // Fetch latest files from R2
 async function fetchLatestFiles(prefix, filterType) {
   console.log("Fetching latest files from R2 bucket...");
@@ -215,7 +263,11 @@ async function fetchLatestFiles(prefix, filterType) {
   }
   if (filterType) {
     console.log(
-      `Filter: ${filterType === "threads" ? "Discord threads only" : "Discord daily messages only"}`
+      `Filter: ${
+        filterType === "threads"
+          ? "Discord threads only"
+          : "Discord daily messages only"
+      }`
     );
   }
   console.log("");
@@ -234,14 +286,27 @@ async function fetchLatestFiles(prefix, filterType) {
     }
 
     // Convert to our format, filter, and sort by last modified (newest first)
-    const files = response.Contents.map((obj) => ({
+    let files = response.Contents.map((obj) => ({
       key: obj.Key,
       size: obj.Size || 0,
       lastModified: obj.LastModified || new Date(),
+      title: null, // Will be populated for cursor conversations
     }))
       .filter((file) => matchesFilter(file.key, filterType))
       .sort((a, b) => b.lastModified - a.lastModified)
       .slice(0, 10);
+
+    // Fetch titles for Cursor conversations
+    console.log("Fetching conversation titles...");
+    const isCursorPrefix = prefix && prefix.startsWith("cursor/conversations/");
+    if (isCursorPrefix) {
+      for (const file of files) {
+        const title = await fetchCursorTitle(file.key);
+        if (title) {
+          file.title = title;
+        }
+      }
+    }
 
     return files;
   } catch (error) {
@@ -278,10 +343,20 @@ async function selectFile(files) {
 
   files.forEach((file, index) => {
     const num = String(index + 1).padStart(2, " ");
-    const key = file.key.padEnd(60, " ");
     const datetime = formatDate(file.lastModified);
     const size = formatSize(file.size);
-    console.log(`${num}) ${key}  ${datetime}  ${size}`);
+
+    if (file.title) {
+      // Show title for Cursor conversations
+      const title = file.title.padEnd(70, " ");
+      console.log(`${num}) ${title}  ${datetime}  ${size}`);
+      // Show key on next line indented
+      console.log(`    ${file.key}`);
+    } else {
+      // Show key for other files
+      const key = file.key.padEnd(70, " ");
+      console.log(`${num}) ${key}  ${datetime}  ${size}`);
+    }
   });
 
   console.log("");

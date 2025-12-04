@@ -111,6 +111,20 @@ export const cursorPlugin: Plugin = {
       const data = JSON.parse(jsonText) as CursorConversationLatestJson;
       const narrativeComponents = extractUserPrompts(data);
 
+      console.log(`[cursor-plugin:dedup-debug] Document: ${document.id}`);
+      console.log(
+        `[cursor-plugin:dedup-debug] Extracted ${narrativeComponents.length} narrative components`
+      );
+      console.log(
+        `[cursor-plugin:dedup-debug] Narrative components: ${JSON.stringify(
+          narrativeComponents.map((text, idx) => ({
+            index: idx,
+            length: text.length,
+            preview: text.substring(0, 100),
+          }))
+        )}`
+      );
+
       const description: SubjectDescription = {
         title: title,
         narrativeComponents:

@@ -27,17 +27,33 @@ export const defaultPlugin: Plugin = {
 
       const vectors = embeddingResponse.data[0];
 
-      const searchResults = await env.SUBJECT_INDEX.query(vectors, {
-        topK: 1,
-        returnMetadata: true,
-      });
-
       console.log(
         `[default-plugin:dedup-debug] Search text (length: ${text.length}): ${JSON.stringify(text)}`
       );
       console.log(
+        `[default-plugin:dedup-debug] Generated embedding (dimension: ${vectors.length})`
+      );
+
+      const searchResults = await env.SUBJECT_INDEX.query(vectors, {
+        topK: 5, // Increase to see more matches for debugging
+        returnMetadata: true,
+      });
+
+      console.log(
         `[default-plugin:dedup-debug] Vector search found ${searchResults.matches.length} matches`
       );
+      
+      if (searchResults.matches.length > 0) {
+        console.log(
+          `[default-plugin:dedup-debug] All matches: ${JSON.stringify(
+            searchResults.matches.map((m) => ({
+              id: m.id,
+              score: m.score.toFixed(4),
+              title: m.metadata?.title,
+            }))
+          )}`
+        );
+      }
 
       if (searchResults.matches.length > 0) {
         const topMatch = searchResults.matches[0];

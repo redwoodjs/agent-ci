@@ -549,25 +549,42 @@ export async function listAllSubjects(
 
 async function upsertSubjectVector(subject: Subject, env: Cloudflare.Env) {
   if (!subject.narrative) {
-    console.log(`[engine] Subject ${subject.id} has no narrative to index.`);
+    console.log(`[engine:dedup-debug] Subject ${subject.id} has no narrative to index.`);
     return;
   }
 
-  console.log(`[engine] Upserting vector for subject ${subject.id}.`);
-  const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
-    text: [subject.narrative],
-  })) as { data: number[][] };
-
-  await env.SUBJECT_INDEX.upsert([
-    {
-      id: subject.id,
-      values: embeddingResponse.data[0],
-      metadata: { title: subject.title },
-    },
-  ]);
+  console.log(`[engine:dedup-debug] Upserting vector for subject ${subject.id}.`);
   console.log(
-    `[engine] Successfully upserted vector for subject ${subject.id}.`
+    `[engine:dedup-debug] Narrative being indexed (length: ${subject.narrative.length}): ${JSON.stringify(subject.narrative)}`
   );
+  
+  try {
+    const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+      text: [subject.narrative],
+    })) as { data: number[][] };
+
+    if (!embeddingResponse || !embeddingResponse.data || embeddingResponse.data.length === 0) {
+      console.error(`[engine:dedup-debug] Failed to generate embedding for subject ${subject.id}`);
+      return;
+    }
+
+    await env.SUBJECT_INDEX.upsert([
+      {
+        id: subject.id,
+        values: embeddingResponse.data[0],
+        metadata: { title: subject.title },
+      },
+    ]);
+    console.log(
+      `[engine:dedup-debug] Successfully upserted vector for subject ${subject.id} (embedding dimension: ${embeddingResponse.data[0].length})`
+    );
+  } catch (error) {
+    console.error(
+      `[engine:dedup-debug] Error upserting vector for subject ${subject.id}:`,
+      error
+    );
+    throw error;
+  }
 }
 
 async function reconstructContexts(

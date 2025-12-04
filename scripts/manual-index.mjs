@@ -13,11 +13,12 @@
  *
  * Environment variables:
  *   API_KEY - Required for authentication
+ *   CLOUDFLARE_ENV - Optional (determines worker URL, e.g., "dev-justin", "production")
  *   R2_ACCOUNT_ID - Optional (reads from rclone config if not set)
  *   R2_ACCESS_KEY_ID - Optional (reads from rclone config if not set)
  *   R2_SECRET_ACCESS_KEY - Optional (reads from rclone config if not set)
  *   R2_BUCKET_NAME - Optional (defaults to "machinen")
- *   WORKER_URL - Worker endpoint (defaults to production)
+ *   WORKER_URL - Optional (overrides CLOUDFLARE_ENV-based URL if set)
  *
  * Note: If R2 credentials aren't set in environment variables,
  * this script will attempt to read them from your rclone config (~/.config/rclone/rclone.conf)
@@ -144,8 +145,23 @@ const R2_ACCESS_KEY_ID =
 const R2_SECRET_ACCESS_KEY =
   process.env.R2_SECRET_ACCESS_KEY || rcloneConfig?.secret_access_key || null;
 const BUCKET_NAME = process.env.R2_BUCKET_NAME || "machinen";
-const WORKER_URL =
-  process.env.WORKER_URL || "https://machinen.redwoodjs.workers.dev";
+
+// Determine worker URL from CLOUDFLARE_ENV, unless WORKER_URL is explicitly set
+const CLOUDFLARE_ENV = process.env.CLOUDFLARE_ENV;
+let WORKER_URL = process.env.WORKER_URL;
+
+if (!WORKER_URL) {
+  if (CLOUDFLARE_ENV === "production") {
+    WORKER_URL = "https://machinen.redwoodjs.workers.dev";
+  } else if (CLOUDFLARE_ENV && CLOUDFLARE_ENV.startsWith("dev-")) {
+    // dev-justin -> machinen-dev-justin.redwoodjs.workers.dev
+    const envName = CLOUDFLARE_ENV.replace("dev-", "");
+    WORKER_URL = `https://machinen-dev-${envName}.redwoodjs.workers.dev`;
+  } else {
+    // Default to production if CLOUDFLARE_ENV is not set or unrecognized
+    WORKER_URL = "https://machinen.redwoodjs.workers.dev";
+  }
+}
 
 // Validation
 if (!API_KEY) {
@@ -182,6 +198,14 @@ if (rcloneConfig && !process.env.R2_ACCOUNT_ID) {
   console.log("📝 Using R2 credentials from rclone config");
   console.log("");
 }
+
+// Show which environment/worker URL is being used
+if (CLOUDFLARE_ENV) {
+  console.log(`🌍 Using environment: ${CLOUDFLARE_ENV} (${WORKER_URL})`);
+} else {
+  console.log(`🌍 Using default worker: ${WORKER_URL}`);
+}
+console.log("");
 
 // Create S3 client configured for R2
 const s3Client = new S3Client({

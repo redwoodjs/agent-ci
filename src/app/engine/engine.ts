@@ -222,11 +222,9 @@ export async function indexDocument(
         console.log(
           `[engine:dedup-debug] DECISION: Found existing subject ${subject.id} via idempotency key. Linking document ${document.id} to existing subject.`
         );
-        subject.title = description.title;
-        subject.narrative = narrative;
+        // DO NOT overwrite the title or narrative of an existing subject.
+        // Its semantic identity should be stable.
         await updateSubjectDocumentIds(subjectDb, subject.id, [document.id]);
-        await putSubject(subjectDb, subject);
-        await upsertSubjectVector(subject, context.env);
         subjectId = subject.id;
       } else {
         // **Step 3: Create New Subject**

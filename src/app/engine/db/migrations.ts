@@ -61,4 +61,36 @@ export const indexingStateMigrations = {
       await db.schema.dropTable("processed_chunks").execute();
     },
   },
+  "004_refactor_processed_chunks_to_json": {
+    async up(db) {
+      // Step 1: Add the new JSON column to the indexing_state table.
+      await db.schema
+        .alterTable("indexing_state")
+        .addColumn("processed_chunk_hashes_json", "text")
+        .execute();
+
+      // Step 2: Drop the old processed_chunks table.
+      await db.schema.dropTable("processed_chunks").execute();
+    },
+    async down(db) {
+      // Recreate the old processed_chunks table on rollback.
+      await db.schema
+        .createTable("processed_chunks")
+        .addColumn("r2_key", "text", (col) =>
+          col.references("indexing_state.r2_key")
+        )
+        .addColumn("chunk_hash", "text", (col) => col.notNull())
+        .addPrimaryKeyConstraint("processed_chunks_pk", [
+          "r2_key",
+          "chunk_hash",
+        ])
+        .execute();
+
+      // Drop the new JSON column.
+      await db.schema
+        .alterTable("indexing_state")
+        .dropColumn("processed_chunk_hashes_json")
+        .execute();
+    },
+  },
 } satisfies Migrations;

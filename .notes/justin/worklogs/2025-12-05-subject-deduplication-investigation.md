@@ -92,3 +92,17 @@ This suggests that Cloudflare Vectorize has very low latency for index updates, 
 3. Index the first "Sentient Refactor" conversation
 4. Index the second "Sentient Refactor" conversation
 5. Verify that the second conversation correctly finds and links to the first via semantic search
+
+## Issue 5: Brittle SQL Batching for Processed Chunks
+
+During testing, the `setProcessedChunkHashes` operation failed with a `SQLITE_ERROR: too many SQL variables` error for large documents. This indicated that the existing batching logic for inserting chunk hashes was not robust enough.
+
+The initial fix involved inserting hashes one by one within a transaction. While correct, a better architectural solution was proposed: remodel the storage of processed chunks to better fit the access pattern.
+
+The `processed_chunks` table was being used as a simple list of hashes for a given document. It did not require the overhead of a relational model.
+
+**Fix**: Remodeled the schema to be a key-value store.
+1.  **Migration**: Dropped the `processed_chunks` table and added a single `processed_chunk_hashes_json` TEXT column to the `indexing_state` table.
+2.  **DB Logic**: Refactored `setProcessedChunkHashes` to perform a single `UPSERT` operation, writing a JSON-stringified array of all chunk hashes into the new column. `getProcessedChunkHashes` now reads and parses this JSON blob.
+
+This change simplifies the logic, removes the need for complex batching, and completely resolves the `SQLITE_ERROR`.

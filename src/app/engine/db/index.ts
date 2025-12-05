@@ -189,93 +189,66 @@ export async function updateIndexingState(
 }
 
 export async function getProcessedChunkHashes(
+  db: Kysely<IndexingStateDb>,
   r2Key: string
 ): Promise<string[]> {
-  const db = createDb<IndexingStateDatabase>(
-    (env as any)
-      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
-    "engine-indexing-state"
-  );
-
-  const rows = await db
-    .selectFrom("processed_chunks")
-    .select("chunk_hash")
-    .where("r2_key", "=", r2Key)
-    .execute();
-
-  return rows.map((row) => row.chunk_hash);
-}
-
-export async function setProcessedChunkHashes(
-  r2Key: string,
-  chunkHashes: string[]
-): Promise<void> {
-  const db = createDb<IndexingStateDatabase>(
-    (env as any)
-      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
-    "engine-indexing-state"
-  );
-
-  // Ensure indexing_state row exists (required for foreign key constraint)
-  const existingState = await db
+  const result = await db
     .selectFrom("indexing_state")
-    .selectAll()
+    .select("processed_chunk_hashes_json")
     .where("r2_key", "=", r2Key)
     .executeTakeFirst();
 
-  if (!existingState) {
-    // Fetch ETag from R2 to create the indexing_state row
-    const bucket = (env as any).MACHINEN_BUCKET;
-    const object = await bucket.head(r2Key);
-    const etag = object?.etag || "unknown";
-    const now = new Date().toISOString();
+  if (result?.processed_chunk_hashes_json) {
+    try {
+      return JSON.parse(result.processed_chunk_hashes_json);
+    } catch (e) {
+      console.error(
+        `Failed to parse processed_chunk_hashes_json for r2Key ${r2Key}:`,
+        e
+      );
+      return [];
+    }
+  }
 
-    console.log(
-      `[db] setProcessedChunkHashes: Creating indexing_state row for ${r2Key} with etag ${etag}`
-    );
+  return [];
+}
+
+export async function setProcessedChunkHashes(
+  db: Kysely<IndexingStateDb>,
+  r2Key: string,
+  etag: string,
+  chunkHashes: string[]
+): Promise<void> {
+  const now = new Date().toISOString();
+  const hashesJson = JSON.stringify(chunkHashes);
+
+  const result = await db
+    .updateTable("indexing_state")
+    .set({
+      etag: etag,
+      indexed_at: now,
+      processed_chunk_hashes_json: hashesJson,
+    })
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  if (result.numUpdatedRows === 0n) {
+    // If no row was updated, it means the r2_key doesn't exist yet. Insert it.
     await db
       .insertInto("indexing_state")
       .values({
         r2_key: r2Key,
         etag,
         indexed_at: now,
-        chunk_ids: null,
+        chunk_ids: null as any,
+        processed_chunk_hashes_json: hashesJson,
       })
       .execute();
-  }
-
-  // Use a transaction to ensure atomicity
-  await db.deleteFrom("processed_chunks").where("r2_key", "=", r2Key).execute();
-
-  // Insert new hashes if there are any
-  // Batch inserts to avoid SQLite's variable limit (~999 variables)
-  // Each insert uses 2 variables (r2_key, chunk_hash), so we can safely insert ~200 at a time
-  // Using a conservative batch size to leave headroom
-  if (chunkHashes.length > 0) {
-    const BATCH_SIZE = 200;
-    for (let i = 0; i < chunkHashes.length; i += BATCH_SIZE) {
-      const batch = chunkHashes.slice(i, i + BATCH_SIZE);
-      const values = batch.map((hash) => ({
-        r2_key: r2Key,
-        chunk_hash: hash,
-      }));
-      await db.insertInto("processed_chunks").values(values).execute();
-    }
   }
 }
 
 export async function clearAllIndexingState(): Promise<void> {
-  console.log(`[db] clearAllIndexingState: Clearing all indexing state`);
-
-  const db = createDb<IndexingStateDatabase>(
-    (env as any)
-      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
-    "engine-indexing-state"
-  );
-
-  await db.deleteFrom("indexing_state").execute();
-  await db.deleteFrom("processed_chunks").execute();
-  console.log(`[db] clearAllIndexingState: All indexing state cleared`);
+  throw new Error("clearAllIndexingState is not implemented for DO");
 }
 
 export { EngineIndexingStateDO } from "./durableObject";

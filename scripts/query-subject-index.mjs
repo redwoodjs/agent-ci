@@ -24,21 +24,21 @@ const PROJECT_ROOT = join(__dirname, "..");
 function loadEnvVars() {
   try {
     const envPath = join(PROJECT_ROOT, ".dev.vars");
-    if (existsSync(envPath)) {
-      const content = readFileSync(envPath, "utf-8");
-      content.split("\n").forEach((line) => {
-        const trimmed = line.trim();
-        if (trimmed && !trimmed.startsWith("#")) {
-          const [key, ...valueParts] = trimmed.split("=");
-          const value = valueParts.join("=").trim();
-          if (key && value) {
-            process.env[key.trim()] = value;
+    const content = readFileSync(envPath, "utf-8");
+    content.split("\n").forEach((line) => {
+      const trimmed = line.trim();
+      if (trimmed && !trimmed.startsWith("#")) {
+        const [key, ...valueParts] = trimmed.split("=");
+        if (key && valueParts.length > 0) {
+          const value = valueParts.join("=").replace(/^["']|["']$/g, "");
+          if (!process.env[key]) {
+            process.env[key] = value;
           }
         }
-      });
-    }
+      }
+    });
   } catch (error) {
-    // Ignore errors loading .dev.vars
+    // .dev.vars doesn't exist, that's okay
   }
 }
 
@@ -49,6 +49,7 @@ const API_KEY = process.env.API_KEY;
 
 if (!API_KEY) {
   console.error("Error: API_KEY environment variable is required");
+  console.error("Make sure .dev.vars exists and contains API_KEY=...");
   process.exit(1);
 }
 
@@ -78,7 +79,7 @@ async function querySubjectIndex(searchText) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-API-Key": API_KEY,
+        "Authorization": `Bearer ${API_KEY}`,
       },
       body: JSON.stringify({
         query: searchText,

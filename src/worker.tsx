@@ -118,8 +118,8 @@ export default {
           await processIndexingJob({ r2Key }, env as Cloudflare.Env);
           message.ack();
         } else if (
-          queueName === "chunk-processing-queue" ||
-          queueName === "CHUNK_PROCESSING_QUEUE"
+          queueName === "chunk-processing-queue-dev-justin" ||
+          queueName === "chunk-processing-queue"
         ) {
           const chunk = queueMessage as unknown as Chunk;
           await processChunkJob(chunk, env as Cloudflare.Env);

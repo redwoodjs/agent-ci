@@ -102,28 +102,20 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
 
     const states = await db
       .selectFrom("indexing_state")
-      .leftJoin(
-        "processed_chunks",
-        "indexing_state.r2_key",
-        "processed_chunks.r2_key"
-      )
-      .select([
-        "indexing_state.r2_key",
-        "indexing_state.etag",
-        "indexing_state.indexed_at",
-        (eb) => eb.fn.count("processed_chunks.chunk_hash").as("chunk_count"),
-      ])
-      .where("indexing_state.r2_key", "in", batch)
-      .groupBy("indexing_state.r2_key")
+      .select(["r2_key", "etag", "indexed_at", "processed_chunk_hashes_json"])
+      .where("r2_key", "in", batch)
       .execute();
 
     for (const state of states) {
+      // Kysely plugin auto-parses JSON fields, so this is already an array
+      const chunkCount = Array.isArray(state.processed_chunk_hashes_json)
+        ? state.processed_chunk_hashes_json.length
+        : 0;
       result.set(state.r2_key, {
         r2_key: state.r2_key,
         etag: state.etag,
         indexed_at: state.indexed_at,
-        // Kysely with COUNT returns a bigint when it might be 0, so we coerce.
-        chunk_count: Number(state.chunk_count),
+        chunk_count: chunkCount,
       });
     }
   }
@@ -182,6 +174,7 @@ export async function updateIndexingState(
         etag,
         indexed_at: now,
         chunk_ids: chunkIdsJson,
+        processed_chunk_hashes_json: "[]",
       })
       .execute();
     console.log(`[db] updateIndexingState: insert complete for ${r2Key}`);
@@ -197,13 +190,19 @@ export async function getProcessedChunkHashes(
     "engine-indexing-state"
   );
 
-  const rows = await db
-    .selectFrom("processed_chunks")
-    .select("chunk_hash")
+  const result = await db
+    .selectFrom("indexing_state")
+    .select("processed_chunk_hashes_json")
     .where("r2_key", "=", r2Key)
-    .execute();
+    .executeTakeFirst();
 
-  return rows.map((row) => row.chunk_hash);
+  if (result?.processed_chunk_hashes_json) {
+    // Kysely plugin auto-parses JSON fields, so this is already an array
+    const hashes = result.processed_chunk_hashes_json;
+    return Array.isArray(hashes) ? hashes : [];
+  }
+
+  return [];
 }
 
 export async function setProcessedChunkHashes(
@@ -216,66 +215,45 @@ export async function setProcessedChunkHashes(
     "engine-indexing-state"
   );
 
-  // Ensure indexing_state row exists (required for foreign key constraint)
-  const existingState = await db
+  const now = new Date().toISOString();
+  const hashesJson = JSON.stringify(chunkHashes);
+
+  // Get the current etag from the indexing state, or use a placeholder if it doesn't exist
+  const currentState = await db
     .selectFrom("indexing_state")
-    .selectAll()
+    .select("etag")
     .where("r2_key", "=", r2Key)
     .executeTakeFirst();
 
-  if (!existingState) {
-    // Fetch ETag from R2 to create the indexing_state row
-    const bucket = (env as any).MACHINEN_BUCKET;
-    const object = await bucket.head(r2Key);
-    const etag = object?.etag || "unknown";
-    const now = new Date().toISOString();
+  const etag = currentState?.etag || "unknown";
 
-    console.log(
-      `[db] setProcessedChunkHashes: Creating indexing_state row for ${r2Key} with etag ${etag}`
-    );
+  const result = await db
+    .updateTable("indexing_state")
+    .set({
+      etag: etag,
+      indexed_at: now,
+      processed_chunk_hashes_json: hashesJson,
+    })
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  if (result.numUpdatedRows === 0n) {
+    // If no row was updated, it means the r2_key doesn't exist yet. Insert it.
     await db
       .insertInto("indexing_state")
       .values({
         r2_key: r2Key,
         etag,
         indexed_at: now,
-        chunk_ids: null,
+        chunk_ids: null as any,
+        processed_chunk_hashes_json: hashesJson,
       })
       .execute();
-  }
-
-  // Use a transaction to ensure atomicity
-  await db.deleteFrom("processed_chunks").where("r2_key", "=", r2Key).execute();
-
-  // Insert new hashes if there are any
-  // Batch inserts to avoid SQLite's variable limit (~999 variables)
-  // Each insert uses 2 variables (r2_key, chunk_hash), so we can safely insert ~200 at a time
-  // Using a conservative batch size to leave headroom
-  if (chunkHashes.length > 0) {
-    const BATCH_SIZE = 200;
-    for (let i = 0; i < chunkHashes.length; i += BATCH_SIZE) {
-      const batch = chunkHashes.slice(i, i + BATCH_SIZE);
-      const values = batch.map((hash) => ({
-        r2_key: r2Key,
-        chunk_hash: hash,
-      }));
-      await db.insertInto("processed_chunks").values(values).execute();
-    }
   }
 }
 
 export async function clearAllIndexingState(): Promise<void> {
-  console.log(`[db] clearAllIndexingState: Clearing all indexing state`);
-
-  const db = createDb<IndexingStateDatabase>(
-    (env as any)
-      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
-    "engine-indexing-state"
-  );
-
-  await db.deleteFrom("indexing_state").execute();
-  await db.deleteFrom("processed_chunks").execute();
-  console.log(`[db] clearAllIndexingState: All indexing state cleared`);
+  throw new Error("clearAllIndexingState is not implemented for DO");
 }
 
 export { EngineIndexingStateDO } from "./durableObject";

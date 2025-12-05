@@ -88,9 +88,13 @@ export async function summarizeNumerically(
     }
   }
 
+  const selectedText = texts[bestIndex];
   console.log(
-    `[vector-summary] Selected text ${bestIndex + 1}/${texts.length} as most representative (similarity: ${bestSimilarity.toFixed(4)})`
+    `[vector-summary:dedup-debug] Selected text ${bestIndex + 1}/${texts.length} as most representative (similarity: ${bestSimilarity.toFixed(4)})`
+  );
+  console.log(
+    `[vector-summary:dedup-debug] Selected narrative text (length: ${selectedText.length}): ${JSON.stringify(selectedText)}`
   );
 
-  return texts[bestIndex];
+  return selectedText;
 }

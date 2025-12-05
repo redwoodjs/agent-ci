@@ -13,17 +13,22 @@
  *
  * Environment variables:
  *   API_KEY - Required for authentication
+ *   CLOUDFLARE_ENV - Optional (determines worker URL, e.g., "dev-justin", "production")
  *   R2_ACCOUNT_ID - Optional (reads from rclone config if not set)
  *   R2_ACCESS_KEY_ID - Optional (reads from rclone config if not set)
  *   R2_SECRET_ACCESS_KEY - Optional (reads from rclone config if not set)
  *   R2_BUCKET_NAME - Optional (defaults to "machinen")
- *   WORKER_URL - Worker endpoint (defaults to production)
+ *   WORKER_URL - Optional (overrides CLOUDFLARE_ENV-based URL if set)
  *
  * Note: If R2 credentials aren't set in environment variables,
  * this script will attempt to read them from your rclone config (~/.config/rclone/rclone.conf)
  */
 
-import { S3Client, ListObjectsV2Command } from "@aws-sdk/client-s3";
+import {
+  S3Client,
+  ListObjectsV2Command,
+  GetObjectCommand,
+} from "@aws-sdk/client-s3";
 import { readFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
@@ -140,8 +145,23 @@ const R2_ACCESS_KEY_ID =
 const R2_SECRET_ACCESS_KEY =
   process.env.R2_SECRET_ACCESS_KEY || rcloneConfig?.secret_access_key || null;
 const BUCKET_NAME = process.env.R2_BUCKET_NAME || "machinen";
-const WORKER_URL =
-  process.env.WORKER_URL || "https://machinen.redwoodjs.workers.dev";
+
+// Determine worker URL from CLOUDFLARE_ENV, unless WORKER_URL is explicitly set
+const CLOUDFLARE_ENV = process.env.CLOUDFLARE_ENV;
+let WORKER_URL = process.env.WORKER_URL;
+
+if (!WORKER_URL) {
+  if (CLOUDFLARE_ENV === "production") {
+    WORKER_URL = "https://machinen.redwoodjs.workers.dev";
+  } else if (CLOUDFLARE_ENV && CLOUDFLARE_ENV.startsWith("dev-")) {
+    // dev-justin -> machinen-dev-justin.redwoodjs.workers.dev
+    const envName = CLOUDFLARE_ENV.replace("dev-", "");
+    WORKER_URL = `https://machinen-dev-${envName}.redwoodjs.workers.dev`;
+  } else {
+    // Default to production if CLOUDFLARE_ENV is not set or unrecognized
+    WORKER_URL = "https://machinen.redwoodjs.workers.dev";
+  }
+}
 
 // Validation
 if (!API_KEY) {
@@ -179,6 +199,14 @@ if (rcloneConfig && !process.env.R2_ACCOUNT_ID) {
   console.log("");
 }
 
+// Show which environment/worker URL is being used
+if (CLOUDFLARE_ENV) {
+  console.log(`🌍 Using environment: ${CLOUDFLARE_ENV} (${WORKER_URL})`);
+} else {
+  console.log(`🌍 Using default worker: ${WORKER_URL}`);
+}
+console.log("");
+
 // Create S3 client configured for R2
 const s3Client = new S3Client({
   region: "auto",
@@ -207,6 +235,50 @@ function matchesFilter(key, filterType) {
   return true;
 }
 
+// Extract title from Cursor conversation
+function extractCursorTitle(data) {
+  try {
+    if (!data.generations || data.generations.length === 0) {
+      return `Conversation ${data.id || "unknown"}`;
+    }
+
+    // Find first user prompt
+    for (const gen of data.generations) {
+      const userPrompt = gen.events?.find(
+        (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+      )?.prompt;
+      if (userPrompt && userPrompt.trim()) {
+        // Truncate to 60 chars for display
+        const truncated = userPrompt.trim().substring(0, 60);
+        return truncated + (userPrompt.length > 60 ? "..." : "");
+      }
+    }
+
+    return `Conversation ${data.id || "unknown"} (${
+      data.generations.length
+    } turns)`;
+  } catch (error) {
+    return "Error extracting title";
+  }
+}
+
+// Fetch and parse a Cursor conversation file
+async function fetchCursorTitle(key) {
+  try {
+    const command = new GetObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: key,
+    });
+
+    const response = await s3Client.send(command);
+    const text = await response.Body.transformToString();
+    const data = JSON.parse(text);
+    return extractCursorTitle(data);
+  } catch (error) {
+    return null; // Return null on error, we'll fall back to key
+  }
+}
+
 // Fetch latest files from R2
 async function fetchLatestFiles(prefix, filterType) {
   console.log("Fetching latest files from R2 bucket...");
@@ -215,7 +287,11 @@ async function fetchLatestFiles(prefix, filterType) {
   }
   if (filterType) {
     console.log(
-      `Filter: ${filterType === "threads" ? "Discord threads only" : "Discord daily messages only"}`
+      `Filter: ${
+        filterType === "threads"
+          ? "Discord threads only"
+          : "Discord daily messages only"
+      }`
     );
   }
   console.log("");
@@ -234,14 +310,27 @@ async function fetchLatestFiles(prefix, filterType) {
     }
 
     // Convert to our format, filter, and sort by last modified (newest first)
-    const files = response.Contents.map((obj) => ({
+    let files = response.Contents.map((obj) => ({
       key: obj.Key,
       size: obj.Size || 0,
       lastModified: obj.LastModified || new Date(),
+      title: null, // Will be populated for cursor conversations
     }))
       .filter((file) => matchesFilter(file.key, filterType))
       .sort((a, b) => b.lastModified - a.lastModified)
       .slice(0, 10);
+
+    // Fetch titles for Cursor conversations
+    console.log("Fetching conversation titles...");
+    const isCursorPrefix = prefix && prefix.startsWith("cursor/conversations/");
+    if (isCursorPrefix) {
+      for (const file of files) {
+        const title = await fetchCursorTitle(file.key);
+        if (title) {
+          file.title = title;
+        }
+      }
+    }
 
     return files;
   } catch (error) {
@@ -278,10 +367,20 @@ async function selectFile(files) {
 
   files.forEach((file, index) => {
     const num = String(index + 1).padStart(2, " ");
-    const key = file.key.padEnd(60, " ");
     const datetime = formatDate(file.lastModified);
     const size = formatSize(file.size);
+
+    if (file.title) {
+      // Show title for Cursor conversations
+      const title = file.title.padEnd(70, " ");
+      console.log(`${num}) ${title}  ${datetime}  ${size}`);
+      // Show key on next line indented
+      console.log(`    ${file.key}`);
+    } else {
+      // Show key for other files
+      const key = file.key.padEnd(70, " ");
     console.log(`${num}) ${key}  ${datetime}  ${size}`);
+    }
   });
 
   console.log("");

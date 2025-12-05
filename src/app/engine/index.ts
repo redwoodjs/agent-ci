@@ -26,13 +26,6 @@ export function createEngineContext(
   env: Cloudflare.Env,
   mode: "indexing" | "querying"
 ): EngineContext {
-  if (mode === "indexing") {
-    return {
-      plugins: [githubPlugin, discordPlugin, cursorPlugin],
-      env,
-    };
-  }
-
   return {
     plugins: [githubPlugin, discordPlugin, cursorPlugin, defaultPlugin],
     env,

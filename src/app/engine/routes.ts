@@ -40,7 +40,11 @@ async function queryHandler({ request, ctx }: RequestInfo) {
     console.log(`[query] Query completed successfully`);
     return Response.json({ response });
   } catch (error) {
-    console.error(`[query] Error processing query: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `[query] Error processing query: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
     return Response.json(
       {
         error: "Failed to process query",
@@ -61,9 +65,13 @@ async function getSubjectGraphHandler({ request, ctx }: RequestInfo) {
 
     const context = createEngineContext(env as Cloudflare.Env, "querying");
     try {
-      console.log(`[subjects] Listing subjects (limit: ${limit}, offset: ${offset})`);
+      console.log(
+        `[subjects] Listing subjects (limit: ${limit}, offset: ${offset})`
+      );
       const result = await listAllSubjects(context, limit, offset);
-      console.log(`[subjects] Found ${result.subjects.length} subjects (total: ${result.total})`);
+      console.log(
+        `[subjects] Found ${result.subjects.length} subjects (total: ${result.total})`
+      );
       return Response.json(result);
     } catch (error) {
       console.error(
@@ -136,7 +144,11 @@ async function indexHandler({ request, ctx }: RequestInfo) {
       r2Key: body.r2Key,
     });
   } catch (error) {
-    console.error(`[index] Error indexing file: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `[index] Error indexing file: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
     return Response.json(
       {
         error: "Failed to index file",
@@ -200,7 +212,11 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
       });
     }
   } catch (error) {
-    console.error(`[backfill] Error starting backfill: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `[backfill] Error starting backfill: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
     return Response.json(
       {
         error: "Failed to start backfill",
@@ -220,13 +236,97 @@ async function clearIndexingStateHandler({ request, ctx }: RequestInfo) {
     await clearAllIndexingState();
     return Response.json({
       success: true,
-      message: "All indexing state cleared. Files will be re-indexed on next scan.",
+      message:
+        "All indexing state cleared. Files will be re-indexed on next scan.",
     });
   } catch (error) {
-    console.error(`[admin] Error clearing indexing state: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(
+      `[admin] Error clearing indexing state: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
     return Response.json(
       {
         error: "Failed to clear indexing state",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+
+async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  try {
+    const body = (await request.json()) as { query?: string };
+    const queryText = body.query;
+
+    if (!queryText || typeof queryText !== "string") {
+      return Response.json(
+        { error: "Missing or invalid 'query' parameter" },
+        { status: 400 }
+      );
+    }
+
+    const envCloudflare = env as Cloudflare.Env;
+
+    console.log(`[debug] Querying SUBJECT_INDEX for: "${queryText}"`);
+
+    // Generate embedding using the same model as the production code
+    const embeddingResponse = (await envCloudflare.AI.run(
+      "@cf/baai/bge-base-en-v1.5",
+      {
+        text: [queryText],
+      }
+    )) as { data: number[][] };
+
+    if (!embeddingResponse.data || embeddingResponse.data.length === 0) {
+      return Response.json(
+        { error: "Failed to generate embedding" },
+        { status: 500 }
+      );
+    }
+
+    const vectors = embeddingResponse.data[0];
+    console.log(`[debug] Generated embedding (dimension: ${vectors.length})`);
+
+    // Query the SUBJECT_INDEX
+    const searchResults = await envCloudflare.SUBJECT_INDEX.query(vectors, {
+      topK: 10,
+      returnMetadata: true,
+    });
+
+    console.log(
+      `[debug] Vector search found ${searchResults.matches.length} matches`
+    );
+
+    const matches = searchResults.matches.map((m) => ({
+      id: m.id,
+      score: m.score,
+      title: m.metadata?.title,
+    }));
+
+    return Response.json({
+      query: queryText,
+      embeddingDimension: vectors.length,
+      matches: matches,
+      debug: {
+        totalMatches: searchResults.matches.length,
+        topK: 10,
+      },
+    });
+  } catch (error) {
+    console.error(
+      `[debug] Error querying SUBJECT_INDEX: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return Response.json(
+      {
+        error: "Failed to query SUBJECT_INDEX",
         details: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
@@ -255,5 +355,8 @@ export const routes = [
   }),
   route("/admin/clear-indexing-state", {
     post: [requireQueryApiKey, clearIndexingStateHandler],
+  }),
+  route("/debug/query-subject-index", {
+    post: [requireQueryApiKey, querySubjectIndexHandler],
   }),
 ];

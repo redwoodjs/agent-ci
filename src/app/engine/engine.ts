@@ -92,7 +92,7 @@ export async function indexDocument(
   console.log(`[engine] Document split into ${chunks.length} chunks`);
 
   // 2. Diff against previously processed chunks to avoid redundant work
-  const oldChunkHashes = await getProcessedChunkHashes(document.id);
+  const oldChunkHashes = await getProcessedChunkHashes(r2Key);
   const oldChunkHashSet = new Set(oldChunkHashes);
 
   const newChunks = chunks.filter(
@@ -138,14 +138,35 @@ export async function indexDocument(
         continue;
       }
 
+      console.log(
+        `[engine:dedup-debug] Processing subject description for document: ${document.id}`
+      );
+      console.log(
+        `[engine:dedup-debug] Description title: ${description.title}`
+      );
+      console.log(
+        `[engine:dedup-debug] Has narrativeComponents: ${!!description.narrativeComponents}, count: ${
+          description.narrativeComponents?.length || 0
+        }`
+      );
+      console.log(
+        `[engine:dedup-debug] Has narrative: ${!!description.narrative}`
+      );
+
       let narrative = description.narrative;
       if (
         description.narrativeComponents &&
         description.narrativeComponents.length > 0
       ) {
+        console.log(
+          `[engine:dedup-debug] Calling summarizeNumerically with ${description.narrativeComponents.length} components`
+        );
         narrative = await summarizeNumerically(
           description.narrativeComponents,
           context.env
+        );
+        console.log(
+          `[engine:dedup-debug] summarizeNumerically returned narrative (length: ${narrative.length})`
         );
       }
 
@@ -156,7 +177,16 @@ export async function indexDocument(
         narrative = description.title;
       }
 
+      console.log(
+        `[engine:dedup-debug] Final narrative to search with (length: ${
+          narrative.length
+        }): ${JSON.stringify(narrative)}`
+      );
+
       // **Step 1: Prioritize Semantic Search**
+      console.log(
+        `[engine:dedup-debug] Calling findSubjectForText with narrative`
+      );
       const existingSubjectId = await runFirstMatchHook(
         context.plugins,
         "findSubjectForText",
@@ -169,7 +199,7 @@ export async function indexDocument(
 
       if (existingSubjectId) {
         console.log(
-          `[engine] Found existing subject ${existingSubjectId} via semantic search.`
+          `[engine:dedup-debug] DECISION: Found existing subject ${existingSubjectId} via semantic search. Linking document ${document.id} to existing subject.`
         );
         // Append document to existing subject
         await updateSubjectDocumentIds(subjectDb, existingSubjectId, [
@@ -177,28 +207,40 @@ export async function indexDocument(
         ]);
         subjectId = existingSubjectId;
         break; // Move to chunking
+      } else {
+        console.log(
+          `[engine:dedup-debug] DECISION: No existing subject found via semantic search. Will check idempotency key or create new subject.`
+        );
       }
 
       // **Step 2: Fallback to Idempotency Key**
-      let subject = await getSubjectByIdempotencyKey(
-        subjectDb,
-        description.idempotency_key
+      console.log(
+        `[engine:dedup-debug] Checking idempotency key: ${description.idempotency_key}`
       );
+      let subject = description.idempotency_key
+        ? await getSubjectByIdempotencyKey(
+            subjectDb,
+            description.idempotency_key
+          )
+        : null;
 
       if (subject) {
         console.log(
-          `[engine] Found existing subject ${subject.id} via idempotency key.`
+          `[engine:dedup-debug] DECISION: Found existing subject ${subject.id} via idempotency key. Linking document ${document.id} to existing subject.`
         );
-        subject.title = description.title;
-        subject.narrative = narrative;
+        // DO NOT overwrite the title or narrative of an existing subject.
+        // Its semantic identity should be stable.
         await updateSubjectDocumentIds(subjectDb, subject.id, [document.id]);
-        await putSubject(subjectDb, subject);
-        await upsertSubjectVector(subject, context.env);
         subjectId = subject.id;
       } else {
         // **Step 3: Create New Subject**
-        console.log(`[engine] No existing subject found. Creating a new one.`);
         subjectId = crypto.randomUUID();
+        console.log(
+          `[engine:dedup-debug] DECISION: No existing subject found. Creating NEW subject ${subjectId} for document ${document.id}`
+        );
+        console.log(
+          `[engine:dedup-debug] New subject details: title="${description.title}", idempotency_key="${description.idempotency_key}"`
+        );
         const newSubject: Subject = {
           id: subjectId,
           title: description.title,
@@ -246,7 +288,7 @@ export async function indexDocument(
 
   // 5. After successful processing, update the state with the hashes of *all* current chunks
   const allCurrentChunkHashes = chunks.map((c) => c.contentHash!);
-  await setProcessedChunkHashes(document.id, allCurrentChunkHashes);
+  await setProcessedChunkHashes(r2Key, allCurrentChunkHashes);
   console.log(
     `[engine] Successfully updated processed chunk state for ${document.id}.`
   );
@@ -511,25 +553,54 @@ export async function listAllSubjects(
 
 async function upsertSubjectVector(subject: Subject, env: Cloudflare.Env) {
   if (!subject.narrative) {
-    console.log(`[engine] Subject ${subject.id} has no narrative to index.`);
+    console.log(
+      `[engine:dedup-debug] Subject ${subject.id} has no narrative to index.`
+    );
     return;
   }
 
-  console.log(`[engine] Upserting vector for subject ${subject.id}.`);
-  const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
-    text: [subject.narrative],
-  })) as { data: number[][] };
-
-  await env.SUBJECT_INDEX.upsert([
-    {
-      id: subject.id,
-      values: embeddingResponse.data[0],
-      metadata: { title: subject.title },
-    },
-  ]);
   console.log(
-    `[engine] Successfully upserted vector for subject ${subject.id}.`
+    `[engine:dedup-debug] Upserting vector for subject ${subject.id}.`
   );
+  console.log(
+    `[engine:dedup-debug] Narrative being indexed (length: ${
+      subject.narrative.length
+    }): ${JSON.stringify(subject.narrative)}`
+  );
+
+  try {
+    const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
+      text: [subject.narrative],
+    })) as { data: number[][] };
+
+    if (
+      !embeddingResponse ||
+      !embeddingResponse.data ||
+      embeddingResponse.data.length === 0
+    ) {
+      console.error(
+        `[engine:dedup-debug] Failed to generate embedding for subject ${subject.id}`
+      );
+      return;
+    }
+
+    await env.SUBJECT_INDEX.upsert([
+      {
+        id: subject.id,
+        values: embeddingResponse.data[0],
+        metadata: { title: subject.title },
+      },
+    ]);
+    console.log(
+      `[engine:dedup-debug] Successfully upserted vector for subject ${subject.id} (embedding dimension: ${embeddingResponse.data[0].length})`
+    );
+  } catch (error) {
+    console.error(
+      `[engine:dedup-debug] Error upserting vector for subject ${subject.id}:`,
+      error
+    );
+    throw error;
+  }
 }
 
 async function reconstructContexts(

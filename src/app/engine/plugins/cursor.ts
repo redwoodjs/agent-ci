@@ -111,12 +111,39 @@ export const cursorPlugin: Plugin = {
       const data = JSON.parse(jsonText) as CursorConversationLatestJson;
       const narrativeComponents = extractUserPrompts(data);
 
+      // Use a SHA-256 hash of the document ID as the stable content identifier
+      const encoder = new TextEncoder();
+      const dataBytes = encoder.encode(document.id);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", dataBytes);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const idempotencyKey = hashArray
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+
+      console.log(`[cursor-plugin:dedup-debug] Document: ${document.id}`);
+      console.log(
+        `[cursor-plugin:dedup-debug] Extracted ${narrativeComponents.length} narrative components`
+      );
+      console.log(
+        `[cursor-plugin:dedup-debug] Idempotency key: ${idempotencyKey}`
+      );
+      console.log(
+        `[cursor-plugin:dedup-debug] Narrative components: ${JSON.stringify(
+          narrativeComponents.map((text, idx) => ({
+            index: idx,
+            length: text.length,
+            preview: text.substring(0, 100),
+          }))
+        )}`
+      );
+
       const description: SubjectDescription = {
         title: title,
         narrativeComponents:
           narrativeComponents.length > 0
             ? narrativeComponents
             : [document.content],
+        idempotency_key: idempotencyKey,
         chunks: chunks,
       };
 

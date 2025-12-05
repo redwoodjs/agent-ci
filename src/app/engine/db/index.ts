@@ -102,28 +102,20 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
 
     const states = await db
       .selectFrom("indexing_state")
-      .leftJoin(
-        "processed_chunks",
-        "indexing_state.r2_key",
-        "processed_chunks.r2_key"
-      )
-      .select([
-        "indexing_state.r2_key",
-        "indexing_state.etag",
-        "indexing_state.indexed_at",
-        (eb) => eb.fn.count("processed_chunks.chunk_hash").as("chunk_count"),
-      ])
-      .where("indexing_state.r2_key", "in", batch)
-      .groupBy("indexing_state.r2_key")
+      .select(["r2_key", "etag", "indexed_at", "processed_chunk_hashes_json"])
+      .where("r2_key", "in", batch)
       .execute();
 
     for (const state of states) {
+      // Kysely plugin auto-parses JSON fields, so this is already an array
+      const chunkCount = Array.isArray(state.processed_chunk_hashes_json)
+        ? state.processed_chunk_hashes_json.length
+        : 0;
       result.set(state.r2_key, {
         r2_key: state.r2_key,
         etag: state.etag,
         indexed_at: state.indexed_at,
-        // Kysely with COUNT returns a bigint when it might be 0, so we coerce.
-        chunk_count: Number(state.chunk_count),
+        chunk_count: chunkCount,
       });
     }
   }
@@ -182,6 +174,7 @@ export async function updateIndexingState(
         etag,
         indexed_at: now,
         chunk_ids: chunkIdsJson,
+        processed_chunk_hashes_json: "[]",
       })
       .execute();
     console.log(`[db] updateIndexingState: insert complete for ${r2Key}`);
@@ -199,21 +192,14 @@ export async function getProcessedChunkHashes(
 
   const result = await db
     .selectFrom("indexing_state")
-    .selectAll()
+    .select("processed_chunk_hashes_json")
     .where("r2_key", "=", r2Key)
     .executeTakeFirst();
 
-  const hashesJson = (result as any)?.processed_chunk_hashes_json;
-  if (hashesJson) {
-    try {
-      return JSON.parse(hashesJson);
-    } catch (e) {
-      console.error(
-        `Failed to parse processed_chunk_hashes_json for r2Key ${r2Key}:`,
-        e
-      );
-      return [];
-    }
+  if (result?.processed_chunk_hashes_json) {
+    // Kysely plugin auto-parses JSON fields, so this is already an array
+    const hashes = result.processed_chunk_hashes_json;
+    return Array.isArray(hashes) ? hashes : [];
   }
 
   return [];
@@ -247,7 +233,7 @@ export async function setProcessedChunkHashes(
       etag: etag,
       indexed_at: now,
       processed_chunk_hashes_json: hashesJson,
-    } as any)
+    })
     .where("r2_key", "=", r2Key)
     .executeTakeFirst();
 
@@ -261,7 +247,7 @@ export async function setProcessedChunkHashes(
         indexed_at: now,
         chunk_ids: null as any,
         processed_chunk_hashes_json: hashesJson,
-      } as any)
+      })
       .execute();
   }
 }

@@ -418,3 +418,56 @@ The new sequence inside the `indexDocument` function is as follows:
     *   **If no match is found:** Only then does the engine fall back to using the `idempotency_key` to either find or create a new Subject.
 
 This change ensures that our vector compression and semantic search capabilities are the primary mechanism for deduplication, with the idempotency key now serving as a fallback. This correctly implements the desired "smart engine, dumb plugins" architecture.
+
+## 23. Simplification: The Moment Graph
+
+After refining the deduplication logic, a final, major simplification of the core model was proposed. The "fractal" and "chronicle" models, while useful steps, still contained a level of complexity that could be removed. This section documents the evolution of the model to its current, most streamlined form.
+
+### Evolution of the Subject Model
+
+The journey to the current architecture involved several distinct stages of thinking, each refining the approach to managing complexity and narrative.
+
+1.  **Stage 1: Hierarchical "Fractal" Subjects:** The initial design proposed a tree-like structure of Parent and Child Subjects. The goal was to separate the high-level narrative (Parent) from low-level details (Children). The key insight was that this was fundamentally a graph problem. However, it introduced complexity by requiring two distinct types of entities or states for a `Subject`, making the model feel heavy.
+
+2.  **Stage 2: The "Chronicle" Model (`Subject -> Chronicle -> Moment`):** The next iteration simplified this into a two-tier model. A `Subject` became a simple container, and all the events within it were homogenous `Moments`, organized in a `Chronicle`. This was a major improvement, as it unified the low-level entities. However, the `Subject` still existed as a separate "box" that held the `Moments`, and the `Chronicle` felt like a slightly redundant concept if the `Moments` themselves were already timestamped and linked.
+
+3.  **Stage 3 (Current Plan): The Moment Graph:** This is the ultimate simplification. It was realized that the `Subject` container itself is unnecessary. If `Moments` can link to each other to form a graph, then a "Subject" is simply the concept that represents a single, connected tree of `Moments`. The root `Moment` of that tree serves as the entry point to the Subject. This model reduces the architecture to its absolute essentials: the nodes (`Moment`) and the relationships between them. The timeline is implicit in the graph structure and the `Moment` timestamps.
+
+### Revised Plan: A Graph of Moments
+
+The new plan abandons a formal `Subject` entity in favor of a more elegant, graph-centric model.
+
+*   **Core Concept:** The entire knowledge base is a graph (a forest of trees) where every node is a `Moment`.
+*   **The `Moment` Data Model:** A `Moment` is the single, fundamental entity. Its schema will include:
+    *   `id`: A unique identifier.
+    *   `parentMomentId`: A nullable reference to another `Moment`'s ID. A null parent indicates this is a root `Moment`, the start of a new Subject.
+    *   `sourceData`: Content, metadata, and source information (e.g., from a GitHub PR, Cursor chat).
+    *   `timestamp`: When the event occurred.
+*   **The "Subject" as a Concept:** A "Subject" is no longer a database table. It is a conceptual grouping, identified by the ID of a root `Moment`. The entire narrative and context of a Subject is discovered by traversing the graph from that root `Moment`.
+*   **Ingestion & Correlation Logic:**
+    1.  When a new document is ingested, it is processed into a new `Moment`.
+    2.  The engine performs a semantic search against all *existing `Moments`* in the graph to find the most relevant potential parent.
+    3.  If a suitable parent `Moment` is found (passing a similarity threshold), the new `Moment` is linked to it by setting its `parentMomentId`.
+    4.  If no-one suitable parent is found, the new `Moment`'s `parentMomentId` is left `null`. It becomes the root of a new tree, effectively creating a new "Subject."
+*   **Querying:** When a user asks a question, the system searches all `Moments` to find the best entry point. From there, it can traverse up to the root to understand the full Subject context, or traverse down to explore all related sub-narratives.
+
+This approach is simpler, more flexible, and embraces the graph-based nature of the problem from the ground up.
+
+## 24. Revised plan
+
+The implementation will follow a three-stage iterative "skateboard -> bicycle -> car" model. The initial "skateboard" phase is complete, and the subsequent phases have been reworked to reflect the architectural shift from a `Subject`-centric model to a `Moment Graph`.
+
+### Iteration 1: The Skateboard (End-to-End Flat Graph with Unified Logic)
+
+*   **Status: Complete**, see prev plan above
+
+### Iteration 2: The Bicycle (Refactor to Moment Graph)
+
+*   **Goal:** Refactor the existing "Skateboard" implementation to the new `Moment Graph` architecture. The primary objective is to replace the `Subject` entity with `Moment`s as the core of the knowledge graph.
+*   **Tasks:** TODO
+
+### Iteration 3: The Car (Sophisticated Narrative Synthesis)
+
+*   **Goal:** Build upon the functioning `Moment Graph` to deliver the core user value: rich, synthesized narratives and powerful introspection capabilities.
+
+*   **Tasks:** TODO

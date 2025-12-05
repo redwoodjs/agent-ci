@@ -75,12 +75,7 @@
     },
     {
       "tag": "v9",
-      "new_sqlite_classes": ["SubjectDO"],
-      "new_classes": ["DiscordGatewayDO"]
-    },
-    {
-      "tag": "v10",
-      "deleted_classes": ["DiscordGatewayDO"]
+      "new_sqlite_classes": ["SubjectDO"]
     }
   ],
   "durable_objects": {

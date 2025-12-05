@@ -189,18 +189,24 @@ export async function updateIndexingState(
 }
 
 export async function getProcessedChunkHashes(
-  db: Kysely<IndexingStateDb>,
   r2Key: string
 ): Promise<string[]> {
+  const db = createDb<IndexingStateDatabase>(
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    "engine-indexing-state"
+  );
+
   const result = await db
     .selectFrom("indexing_state")
-    .select("processed_chunk_hashes_json")
+    .selectAll()
     .where("r2_key", "=", r2Key)
     .executeTakeFirst();
 
-  if (result?.processed_chunk_hashes_json) {
+  const hashesJson = (result as any)?.processed_chunk_hashes_json;
+  if (hashesJson) {
     try {
-      return JSON.parse(result.processed_chunk_hashes_json);
+      return JSON.parse(hashesJson);
     } catch (e) {
       console.error(
         `Failed to parse processed_chunk_hashes_json for r2Key ${r2Key}:`,
@@ -214,13 +220,26 @@ export async function getProcessedChunkHashes(
 }
 
 export async function setProcessedChunkHashes(
-  db: Kysely<IndexingStateDb>,
   r2Key: string,
-  etag: string,
   chunkHashes: string[]
 ): Promise<void> {
+  const db = createDb<IndexingStateDatabase>(
+    (env as any)
+      .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
+    "engine-indexing-state"
+  );
+
   const now = new Date().toISOString();
   const hashesJson = JSON.stringify(chunkHashes);
+
+  // Get the current etag from the indexing state, or use a placeholder if it doesn't exist
+  const currentState = await db
+    .selectFrom("indexing_state")
+    .select("etag")
+    .where("r2_key", "=", r2Key)
+    .executeTakeFirst();
+
+  const etag = currentState?.etag || "unknown";
 
   const result = await db
     .updateTable("indexing_state")
@@ -228,7 +247,7 @@ export async function setProcessedChunkHashes(
       etag: etag,
       indexed_at: now,
       processed_chunk_hashes_json: hashesJson,
-    })
+    } as any)
     .where("r2_key", "=", r2Key)
     .executeTakeFirst();
 
@@ -242,7 +261,7 @@ export async function setProcessedChunkHashes(
         indexed_at: now,
         chunk_ids: null as any,
         processed_chunk_hashes_json: hashesJson,
-      })
+      } as any)
       .execute();
   }
 }

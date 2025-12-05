@@ -92,7 +92,7 @@ export async function indexDocument(
   console.log(`[engine] Document split into ${chunks.length} chunks`);
 
   // 2. Diff against previously processed chunks to avoid redundant work
-  const oldChunkHashes = await getProcessedChunkHashes(document.id);
+  const oldChunkHashes = await getProcessedChunkHashes(r2Key);
   const oldChunkHashSet = new Set(oldChunkHashes);
 
   const newChunks = chunks.filter(
@@ -145,7 +145,9 @@ export async function indexDocument(
         `[engine:dedup-debug] Description title: ${description.title}`
       );
       console.log(
-        `[engine:dedup-debug] Has narrativeComponents: ${!!description.narrativeComponents}, count: ${description.narrativeComponents?.length || 0}`
+        `[engine:dedup-debug] Has narrativeComponents: ${!!description.narrativeComponents}, count: ${
+          description.narrativeComponents?.length || 0
+        }`
       );
       console.log(
         `[engine:dedup-debug] Has narrative: ${!!description.narrative}`
@@ -176,7 +178,9 @@ export async function indexDocument(
       }
 
       console.log(
-        `[engine:dedup-debug] Final narrative to search with (length: ${narrative.length}): ${JSON.stringify(narrative)}`
+        `[engine:dedup-debug] Final narrative to search with (length: ${
+          narrative.length
+        }): ${JSON.stringify(narrative)}`
       );
 
       // **Step 1: Prioritize Semantic Search**
@@ -213,10 +217,12 @@ export async function indexDocument(
       console.log(
         `[engine:dedup-debug] Checking idempotency key: ${description.idempotency_key}`
       );
-      let subject = await getSubjectByIdempotencyKey(
-        subjectDb,
-        description.idempotency_key
-      );
+      let subject = description.idempotency_key
+        ? await getSubjectByIdempotencyKey(
+            subjectDb,
+            description.idempotency_key
+          )
+        : null;
 
       if (subject) {
         console.log(
@@ -282,7 +288,7 @@ export async function indexDocument(
 
   // 5. After successful processing, update the state with the hashes of *all* current chunks
   const allCurrentChunkHashes = chunks.map((c) => c.contentHash!);
-  await setProcessedChunkHashes(document.id, allCurrentChunkHashes);
+  await setProcessedChunkHashes(r2Key, allCurrentChunkHashes);
   console.log(
     `[engine] Successfully updated processed chunk state for ${document.id}.`
   );
@@ -547,22 +553,34 @@ export async function listAllSubjects(
 
 async function upsertSubjectVector(subject: Subject, env: Cloudflare.Env) {
   if (!subject.narrative) {
-    console.log(`[engine:dedup-debug] Subject ${subject.id} has no narrative to index.`);
+    console.log(
+      `[engine:dedup-debug] Subject ${subject.id} has no narrative to index.`
+    );
     return;
   }
 
-  console.log(`[engine:dedup-debug] Upserting vector for subject ${subject.id}.`);
   console.log(
-    `[engine:dedup-debug] Narrative being indexed (length: ${subject.narrative.length}): ${JSON.stringify(subject.narrative)}`
+    `[engine:dedup-debug] Upserting vector for subject ${subject.id}.`
   );
-  
+  console.log(
+    `[engine:dedup-debug] Narrative being indexed (length: ${
+      subject.narrative.length
+    }): ${JSON.stringify(subject.narrative)}`
+  );
+
   try {
     const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
       text: [subject.narrative],
     })) as { data: number[][] };
 
-    if (!embeddingResponse || !embeddingResponse.data || embeddingResponse.data.length === 0) {
-      console.error(`[engine:dedup-debug] Failed to generate embedding for subject ${subject.id}`);
+    if (
+      !embeddingResponse ||
+      !embeddingResponse.data ||
+      embeddingResponse.data.length === 0
+    ) {
+      console.error(
+        `[engine:dedup-debug] Failed to generate embedding for subject ${subject.id}`
+      );
       return;
     }
 

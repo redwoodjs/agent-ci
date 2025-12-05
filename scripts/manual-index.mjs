@@ -379,7 +379,7 @@ async function selectFile(files) {
     } else {
       // Show key for other files
       const key = file.key.padEnd(70, " ");
-      console.log(`${num}) ${key}  ${datetime}  ${size}`);
+    console.log(`${num}) ${key}  ${datetime}  ${size}`);
     }
   });
 

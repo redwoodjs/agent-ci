@@ -51,7 +51,7 @@ export const defaultPlugin: Plugin = {
         );
 
         const searchResults = await env.SUBJECT_INDEX.query(vectors, {
-          topK: 5, // Increase to see more matches for debugging
+          topK: 10, // Increase to see more matches for debugging
           returnMetadata: true,
         });
 

@@ -736,8 +736,14 @@ async function runFirstMatchHook<T>(
   fn: (plugin: Plugin) => Promise<T | null | undefined> | undefined
 ): Promise<T | null> {
   for (const plugin of plugins) {
+    console.log(
+      `[engine-hook] Running hook "${hookName}" for plugin: ${plugin.name}`
+    );
     const result = await fn(plugin);
     if (result !== null && result !== undefined) {
+      console.log(
+        `[engine-hook] Hook "${hookName}" returned a value from plugin: ${plugin.name}. Halting execution.`
+      );
       return result;
     }
   }

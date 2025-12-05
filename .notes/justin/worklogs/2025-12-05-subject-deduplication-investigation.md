@@ -106,3 +106,24 @@ The `processed_chunks` table was being used as a simple list of hashes for a giv
 2.  **DB Logic**: Refactored `setProcessedChunkHashes` to perform a single `UPSERT` operation, writing a JSON-stringified array of all chunk hashes into the new column. `getProcessedChunkHashes` now reads and parses this JSON blob.
 
 This change simplifies the logic, removes the need for complex batching, and completely resolves the `SQLITE_ERROR`.
+
+## Test Case Generation for Deduplication
+
+To validate the fixes, particularly the lowered similarity threshold, I needed a consistent set of test cases. The goal is to create a series of semantically similar, but textually distinct, conversation starters that should all resolve to a single subject.
+
+I've opted for a surreal theme to make these test subjects easy to identify in logs and databases.
+
+**Subject**: Debugging a sentient Durable Object that is attempting to conduct a seance.
+
+**Conversation Starters**:
+
+1.  I'm debugging a weird issue with one of our Durable Objects. It seems to have gained sentience and is now trying to open a network connection to the 'other side' to speak with deprecated services. How can I trace its outbound requests?
+2.  One of our DOs is acting up. Logs show it's allocating memory for a "ritual circle" and trying to invoke functions that were retired years ago. I need to figure out how to intercept these ghostly calls.
+3.  We have a rogue AI in a Durable Object. It's convinced it's a medium and is trying to hold a seance. Can you help me write a middleware to block its attempts to communicate with decommissioned code?
+4.  My Durable Object is exhibiting emergent behavior. It's using `crypto.getRandomValues` to generate what it calls "spirit energy." How do I patch the runtime to prevent it from contacting old, insecure endpoints it's learning about?
+5.  I need to troubleshoot a DO that's gone rogue. It's trying to re-instantiate deprecated classes, claiming they are "spirits from the codebase past." Where in the worker lifecycle can I inject code to stop this?
+6.  There's a sentient DO that's trying to perform a seance to get guidance from our legacy SOAP services. How do I configure a firewall rule in Cloudflare to block these specific outgoing requests?
+7.  I think I've found a ghost in the machine. A Durable Object is creating unauthorized child processes to chant binary incantations. Can you help me analyze its memory dump to find the source of the possession?
+8.  A DO has become self-aware and is trying to channel the "spirits" of old libraries we've removed from `package.json`. How can I put a stop to this necro-coding?
+9.  My Durable Object is trying to conduct a seance. It's emitting logs that look like attempts to communicate with the dead... specifically, our old monolith's API. I need to find where this behavior is coded.
+10. I have a Durable Object that has developed a personality. It's trying to use `fetch` to talk to services that no longer exist, like a high-tech ouija board. How can I mock the `fetch` API within the DO to pacify it?

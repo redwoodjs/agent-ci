@@ -76,9 +76,8 @@ export const defaultPlugin: Plugin = {
           console.log(
             `[default-plugin:dedup-debug] Top match: subjectId=${
               topMatch.id
-            }, score=${topMatch.score.toFixed(4)}, threshold=0.85`
+            }, score=${topMatch.score.toFixed(4)}, threshold=0.8`
           );
-          // Increase threshold to require a stronger match, encouraging creation of new subjects.
           if (topMatch.score > 0.8) {
             console.log(
               `[default-plugin:dedup-debug] Match PASSED threshold, returning subjectId: ${topMatch.id}`

@@ -279,3 +279,6 @@ All tasks required for this redefined scope are now **COMPLETE**:
 *   **The Smart Linker:** Implementing cross-document linking during ingestion.
 *   **The Truth Seeker:** Using explicit signals (links, references) to connect moments.
 *   **Data Source Expansion:** Adding GitHub and Discord support.
+
+## TODO
+We need to figure out how to avoid calling llm for every turn pair in the history, for every time a new message comes in from cursor. Caching of some sort.

@@ -63,11 +63,13 @@ export const defaultPlugin: Plugin = {
         if (searchResults.matches.length > 0) {
           console.log(
             `[default-plugin:dedup-debug] All matches: ${JSON.stringify(
-              searchResults.matches.map((m) => ({
-                id: m.id,
-                score: m.score.toFixed(4),
-                title: m.metadata?.title,
-              }))
+              searchResults.matches.map(
+                (m: { id: string; score: number; metadata?: any }) => ({
+                  id: m.id,
+                  score: m.score.toFixed(4),
+                  title: m.metadata?.title,
+                })
+              )
             )}`
           );
         }
@@ -107,7 +109,7 @@ export const defaultPlugin: Plugin = {
       }
     },
     async generateSubjectTitle(context: SubjectSearchContext): Promise<string> {
-      return generateTitleForText(context.text, context.env);
+      return generateTitleForText(context.text);
     },
     async determineSubjectsForDocument(
       document: Document,
@@ -145,11 +147,7 @@ export const defaultPlugin: Plugin = {
       const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
 
       try {
-        const summary = await callLLM(
-          summaryPrompt,
-          context.env,
-          "gpt-oss-20b-cheap"
-        );
+        const summary = await callLLM(summaryPrompt, "gpt-oss-20b-cheap");
         return summary.trim();
       } catch (error) {
         console.error(`[default-plugin] Failed to generate summary:`, error);

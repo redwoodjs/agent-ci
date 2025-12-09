@@ -1,3 +1,9 @@
+declare namespace Cloudflare {
+  interface Env {
+    [key: string]: any;
+  }
+}
+
 export type Source =
   | "github"
   | "cursor"
@@ -197,4 +203,12 @@ export interface VectorizeIndex {
   insert(
     vectors: Array<{ id: string; values: number[]; metadata: ChunkMetadata }>
   ): Promise<void>;
+}
+
+export interface CursorConversationLatestJson {
+  id: string;
+  generations: {
+    id: string;
+    events: any[];
+  }[];
 }

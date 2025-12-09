@@ -251,7 +251,7 @@ export async function indexDocument(
           idempotency_key: description.idempotency_key,
         };
         await putSubject(subjectDb, newSubject);
-        await upsertSubjectVector(newSubject, context.env);
+        await upsertSubjectVector(newSubject);
         console.log(
           `[engine] Created new subject ${subjectId} for document ${document.id}`
         );
@@ -316,7 +316,7 @@ export async function indexDocument(
         sourceMetadata: description.sourceMetadata,
       };
 
-      await addMoment(context.env, moment);
+      await addMoment(moment);
 
       console.log(
         `[engine] Created moment ${momentId} (parent: ${
@@ -430,8 +430,7 @@ export async function query(
   const step3Start = Date.now();
   const searchResults = await performVectorSearch(
     processedQuery,
-    filterClauses,
-    context.env
+    filterClauses
   );
   console.log(
     `[query] Vector search execution took ${Date.now() - step3Start}ms`
@@ -523,7 +522,7 @@ export async function query(
     `[query] Step 9: Calling LLM (prompt length: ${prompt.length} chars)`
   );
   const step7Start = Date.now();
-  const llmResponse = await callLlm(prompt, context.env);
+  const llmResponse = await callLlm(prompt);
   console.log(`[query] LLM generation took ${Date.now() - step7Start}ms`);
   console.log(
     `[query] Step 10: LLM response received (length: ${llmResponse.length} chars)`
@@ -619,7 +618,7 @@ export async function listAllSubjects(
   return await listSubjects(subjectDb, limit, offset);
 }
 
-async function upsertSubjectVector(subject: Subject, env: Cloudflare.Env) {
+async function upsertSubjectVector(subject: Subject) {
   if (!subject.narrative) {
     console.log(
       `[engine:dedup-debug] Subject ${subject.id} has no narrative to index.`
@@ -845,11 +844,10 @@ async function runCollectorHook<T>(
 
 async function performVectorSearch(
   query: string,
-  filterClauses: Record<string, unknown>[],
-  env: Cloudflare.Env
+  filterClauses: Record<string, unknown>[]
 ): Promise<ChunkMetadata[]> {
   const embedStart = Date.now();
-  const embedding = await generateEmbedding(query, env);
+  const embedding = await generateEmbedding(query);
   console.log(`[query] Embedding generation took ${Date.now() - embedStart}ms`);
 
   const combinedFilter = combineFilterClauses(
@@ -892,10 +890,7 @@ function combineFilterClauses(
   };
 }
 
-async function generateEmbedding(
-  text: string,
-  env: Cloudflare.Env
-): Promise<number[]> {
+async function generateEmbedding(text: string): Promise<number[]> {
   const start = Date.now();
   const response = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
     text: [text],
@@ -913,8 +908,9 @@ async function generateEmbedding(
   return response.data[0];
 }
 
+import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
 
-async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
-  return callLLM(prompt, env);
+async function callLlm(prompt: string): Promise<string> {
+  return callLLM(prompt);
 }

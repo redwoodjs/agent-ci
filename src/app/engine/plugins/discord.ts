@@ -122,7 +122,7 @@ export const discordPlugin: Plugin = {
 
       // Use the document content to generate a title.
       // For threads, this is the starter message. For channels, the first message of the day.
-      const title = await generateTitleForText(document.content, context.env);
+      const title = await generateTitleForText(document.content);
 
       // Treat each thread or daily channel log as a single subject.
       const encoder = new TextEncoder();
@@ -169,8 +169,10 @@ export const discordPlugin: Plugin = {
       const lines = jsonlText
         .trim()
         .split("\n")
-        .filter((line) => line.trim());
-      const messages: DiscordMessage[] = lines.map((line) => JSON.parse(line));
+        .filter((line: string) => line.trim());
+      const messages: DiscordMessage[] = lines.map((line: string) =>
+        JSON.parse(line)
+      );
 
       if (messages.length === 0) {
         return null;
@@ -425,8 +427,8 @@ export const discordPlugin: Plugin = {
           const lines = text
             .trim()
             .split("\n")
-            .filter((line) => line.trim());
-          const messages: DiscordMessage[] = lines.map((line) =>
+            .filter((line: string) => line.trim());
+          const messages: DiscordMessage[] = lines.map((line: string) =>
             JSON.parse(line)
           );
           const parsed = parseDiscordR2Key(documentId);

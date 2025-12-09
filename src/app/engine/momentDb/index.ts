@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import { MomentGraphDO } from "./durableObject";
 import type { Moment } from "../types";
 import { type Database, createDb } from "rwsdk/db";
@@ -7,18 +8,15 @@ export { MomentGraphDO };
 
 type MomentDatabase = Database<typeof momentMigrations>;
 
-function getMomentDb(env: Cloudflare.Env) {
+function getMomentDb() {
   return createDb<MomentDatabase>(
     env.MOMENT_GRAPH_DO as DurableObjectNamespace<MomentGraphDO>,
     "moment-graph"
   );
 }
 
-export async function addMoment(
-  env: Cloudflare.Env,
-  moment: Moment
-): Promise<void> {
-  const db = getMomentDb(env);
+export async function addMoment(moment: Moment): Promise<void> {
+  const db = getMomentDb();
   const existing = await db
     .selectFrom("moments")
     .where("id", "=", moment.id)
@@ -60,11 +58,8 @@ export async function addMoment(
   }
 }
 
-export async function getMoment(
-  env: Cloudflare.Env,
-  id: string
-): Promise<Moment | null> {
-  const db = getMomentDb(env);
+export async function getMoment(id: string): Promise<Moment | null> {
+  const db = getMomentDb();
   const row = await db
     .selectFrom("moments")
     .selectAll()
@@ -89,15 +84,12 @@ export async function getMoment(
   };
 }
 
-export async function findAncestors(
-  env: Cloudflare.Env,
-  momentId: string
-): Promise<Moment[]> {
+export async function findAncestors(momentId: string): Promise<Moment[]> {
   const ancestors: Moment[] = [];
   let currentMomentId: string | undefined = momentId;
 
   while (currentMomentId) {
-    const moment = await getMoment(env, currentMomentId);
+    const moment = await getMoment(currentMomentId);
     if (moment) {
       ancestors.unshift(moment);
       currentMomentId = moment.parentId;
@@ -110,10 +102,9 @@ export async function findAncestors(
 }
 
 export async function findLastMomentForDocument(
-  env: Cloudflare.Env,
   documentId: string
 ): Promise<Moment | null> {
-  const db = getMomentDb(env);
+  const db = getMomentDb();
   const rows = await db
     .selectFrom("moments")
     .selectAll()

@@ -129,9 +129,9 @@ After revisiting the original architecture document (see `2025-11-26-knowledge-s
 
 **The Knowledge Graph and Evidence Locker serve different purposes:**
 
-1. **Knowledge Graph (Moment Graph):** Contains **summaries** of what happened. It's optimized for fast semantic search to find the *story* and answer "why" questions. It provides high-level narratives.
+1.  **Knowledge Graph (Moment Graph):** Contains **summaries** of what happened. It's optimized for fast semantic search to find the *story* and answer "why" questions. It provides high-level narratives.
 
-2. **Evidence Locker (RAG Index):** Contains **verbatim chunks** of the original content. It's optimized for filtered, high-fidelity retrieval to find the *exact details* and answer "what" questions.
+2.  **Evidence Locker (RAG Index):** Contains **verbatim chunks** of the original content. It's optimized for filtered, high-fidelity retrieval to find the *exact details* and answer "what" questions.
 
 **Query Flow:**
 - **First Question:** "How did we solve the tree-shaking problem?" → The system searches the Knowledge Graph (summaries) to find the relevant moments and constructs a high-level narrative timeline. This answers the "why" and "how" at a conceptual level.
@@ -145,28 +145,28 @@ After revisiting the original architecture document (see `2025-11-26-knowledge-s
 
 **Implementation Changes:**
 
-1. **Refactor `Moment` Type:**
-   - Change `content: string` to `summary: string`
-   - The summary is a concise, LLM-generated description of what happened in this moment
+1.  **Refactor `Moment` Type:**
+    -   Change `content: string` to `summary: string`
+    -   The summary is a concise, LLM-generated description of what happened in this moment
 
-2. **Update Plugin Hook:**
-   - The `extractMomentsFromDocument` hook will be responsible for generating summaries
-   - For each moment identified, the plugin will make a cheap LLM call to generate a summary
-   - The Cursor plugin will be the first implementation: for each generation, it will send the content to the cheap LLM and store the resulting summary
+2.  **Update Plugin Hook:**
+    -   The `extractMomentsFromDocument` hook will be responsible for generating summaries
+    -   For each moment identified, the plugin will make a cheap LLM call to generate a summary
+    -   The Cursor plugin will be the first implementation: for each generation, it will send the content to the cheap LLM and store the resulting summary
 
-3. **Update Ingestion:**
-   - The `indexDocument` function stores summary-based moments
-   - No changes to the chaining logic (sequential parent-child relationships remain the same)
+3.  **Update Ingestion:**
+    -   The `indexDocument` function stores summary-based moments
+    -   No changes to the chaining logic (sequential parent-child relationships remain the same)
 
-4. **Update Querying:**
-   - The `/timeline` endpoint returns moments with their summaries
-   - No "rehydration" step from R2
-   - The timeline provides the high-level narrative story
+4.  **Update Querying:**
+    -   The `/timeline` endpoint returns moments with their summaries
+    -   No "rehydration" step from R2
+    -   The timeline provides the high-level narrative story
 
-5. **Defer Drill-Down:**
-   - The ability to retrieve full content for detailed follow-ups is deferred to a future iteration
-   - This will involve linking moments to chunks in the Evidence Locker (via `momentId` in `ChunkMetadata`)
-   - For now, the system focuses on building the summary-based Knowledge Graph
+5.  **Defer Drill-Down:**
+    -   The ability to retrieve full content for detailed follow-ups is deferred to a future iteration
+    -   This will involve linking moments to chunks in the Evidence Locker (via `momentId` in `ChunkMetadata`)
+    -   For now, the system focuses on building the summary-based Knowledge Graph
 
 **Benefits:**
 - Aligns with the original two-tiered architecture (Knowledge Graph vs Evidence Locker)
@@ -177,7 +177,42 @@ After revisiting the original architecture document (see `2025-11-26-knowledge-s
 
 ---
 
-## 5. Revised Implementation Plan
+## 5. Realization: Refining Moment Segmentation for Cursor Conversations
+
+During implementation of the Cursor plugin, it became clear that the initial heuristic—one moment per user/assistant exchange—was too fine-grained and would produce a noisy, unhelpful timeline. A single logical "moment" (e.g., "Attempting to fix a bug") might span several back-and-forth exchanges.
+
+### The Problem with One-to-One Mapping
+
+-   **Low Signal-to-Noise:** The timeline would be cluttered with minor conversational turns.
+-   **Misses the Narrative Arc:** It fails to group related exchanges into a single, coherent event.
+-   **Useless for the User:** A timeline of every single prompt and response is not a useful summary of a development journey.
+
+### A More Sophisticated Approach: Semantic Grouping
+
+To create more meaningful moments, a more intelligent segmentation strategy is required. The key insight is to use the *summary* of each exchange as a proxy for its semantic content, and then group consecutive exchanges that are semantically similar.
+
+**Revised Implementation Plan for Cursor Plugin:**
+
+1.  **First Pass: Summarize Each Exchange:**
+    *   Iterate through the conversation and generate a concise summary for each individual user/assistant exchange using a cheap LLM.
+
+2.  **Second Pass: Embed the Summaries:**
+    *   Generate a vector embedding for each of the summaries. This converts the semantic meaning of each summary into a numerical representation.
+
+3.  **Third Pass: Group by Similarity:**
+    *   Iterate through the exchanges and calculate the cosine similarity between the summary embedding of one turn and the next.
+    *   If the similarity is above a certain threshold (e.g., > 0.9), the exchanges are considered part of the same ongoing moment.
+    *   A significant drop in similarity indicates a topic shift and thus a "breakpoint" for a new moment.
+
+4.  **Final Pass: Consolidate Moments:**
+    *   Merge the raw content of all exchanges within a group into a single block. This consolidated text becomes the `content` for a single, high-level `MomentDescription`.
+    - The title for this consolidated moment can be generated by summarizing the combined content.
+
+This hybrid approach leverages the efficiency of embeddings for segmentation and the nuance of LLMs for summarization, resulting in a much more meaningful and useful timeline.
+
+---
+
+## 6. Revised Implementation Plan
 
 ### Iteration 1: The Basic Chain (Cursor Only) - REVISED
 
@@ -189,11 +224,8 @@ After revisiting the original architecture document (see `2025-11-26-knowledge-s
     2.  **Create `momentDb` Module:**
         *   Create the `MomentGraphDO` as an internal implementation detail.
         *   Create a `momentDb` module that exports **static, functional methods** for interacting with the DO (e.g., `addMoment(db, moment)`, `findAncestors(db, momentId)`).
-    3.  **Update Plugin API:** In `types.ts`, add `subjects.extractMomentsFromDocument` hook that returns `MomentDescription[]` with summaries.
-    4.  **Implement Cursor Plugin:** The Cursor plugin will implement `extractMomentsFromDocument` to:
-        *   Extract moments from each generation (user prompt + assistant response)
-        *   For each moment, make a cheap LLM call to generate a summary
-        *   Return moments with `title`, `summary`, `author`, `createdAt`, and `sourceMetadata`
+    3.  **Update Plugin API:** In `types.ts`, add `subjects.extractMomentsFromDocument` hook that returns `MomentDescription[]`.
+    4.  **Implement Cursor Plugin:** The Cursor plugin will implement `extractMomentsFromDocument` using the **Semantic Grouping** strategy outlined above.
     5.  **Implement Simplified Ingestion:** The `indexDocument` function will call the new plugin hook. For the list of moments returned from a single document, it will chain them together sequentially (the first becomes a root, the second is a child of the first, etc.).
     6.  **Implement Basic Querying:** Implement the `/timeline` endpoint. The handler will find the *last* moment associated with a document and call `findAncestors` to retrieve the full chain. Returns moments with summaries (no content rehydration).
-*   **Validation:** Ingest a single Cursor conversation with multiple generations. A query about that conversation must return a single, ordered timeline of moments with summaries: `[Generation 1 Summary] -> [Generation 2 Summary] -> [Generation 3 Summary]`.
+*   **Validation:** Ingest a single Cursor conversation with multiple generations. A query about that conversation must return a single, ordered timeline of semantically-grouped moments with summaries.

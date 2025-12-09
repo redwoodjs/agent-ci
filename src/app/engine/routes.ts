@@ -272,10 +272,7 @@ async function timelineHandler({ request, ctx }: RequestInfo) {
   try {
     console.log(`[timeline] Getting timeline for document: ${documentId}`);
 
-    const lastMoment = await findLastMomentForDocument(
-      envCloudflare,
-      documentId
-    );
+    const lastMoment = await findLastMomentForDocument(documentId);
 
     if (!lastMoment) {
       return Response.json(
@@ -284,7 +281,7 @@ async function timelineHandler({ request, ctx }: RequestInfo) {
       );
     }
 
-    const timeline = await findAncestors(envCloudflare, lastMoment.id);
+    const timeline = await findAncestors(lastMoment.id);
 
     console.log(
       `[timeline] Found timeline with ${timeline.length} moments for document ${documentId}`

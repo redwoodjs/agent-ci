@@ -7,15 +7,17 @@ import {
   QueryHookContext,
   SubjectDescription,
   MomentDescription,
+  CursorConversationLatestJson,
 } from "../types";
 import { generateTitleForText } from "../utils/summarize";
+import { callLLM } from "../utils/llm";
+import { getEmbedding, cosineSimilarity } from "../utils/vector";
 
-interface CursorConversationLatestJson {
-  id: string;
-  generations: {
-    id: string;
-    events: any[];
-  }[];
+interface CursorEvent {
+  hook_event_name: string;
+  prompt?: string;
+  text?: string;
+  [key: string]: any;
 }
 
 function extractUserPrompts(data: CursorConversationLatestJson): string[] {
@@ -23,13 +25,23 @@ function extractUserPrompts(data: CursorConversationLatestJson): string[] {
   for (const gen of data.generations) {
     const userPrompt =
       gen.events.find(
-        (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+        (e: CursorEvent) =>
+          e.hook_event_name === "beforeSubmitPrompt" && e.prompt
       )?.prompt || "";
     if (userPrompt.trim()) {
       prompts.push(userPrompt.trim());
     }
   }
   return prompts;
+}
+
+// Define a type for an exchange with its summary and embedding
+interface Exchange {
+  content: string;
+  summary: string;
+  embedding: number[];
+  createdAt: string;
+  author: string;
 }
 
 export const cursorPlugin: Plugin = {
@@ -58,9 +70,6 @@ export const cursorPlugin: Plugin = {
       `[cursor-plugin] Loaded conversation with ${data.generations.length} generations`
     );
 
-    // For the document content, we'll use a summary or the full text.
-    // Since this is for the 'document' level, let's just say it's a conversation.
-    // The chunks are what matter for search.
     return {
       id: context.r2Key,
       source: "cursor",
@@ -69,7 +78,7 @@ export const cursorPlugin: Plugin = {
       metadata: {
         title: `Cursor Conversation ${data.id}`,
         url: `cursor://conversation/${data.id}`,
-        createdAt: new Date().toISOString(), // We could dig for a timestamp in events
+        createdAt: new Date().toISOString(),
         author: "cursor-user",
         sourceMetadata: {
           type: "cursor-conversation",
@@ -92,17 +101,13 @@ export const cursorPlugin: Plugin = {
         return null;
       }
 
-      // Use the first chunk to generate a title, as it's often the most descriptive.
       const firstChunkContent = chunks[0]?.content;
       if (!firstChunkContent) {
-        // This can happen if the document is empty or chunking produced nothing.
-        // It's not a subject, so we return null.
         return null;
       }
 
-      const title = await generateTitleForText(firstChunkContent, context.env);
+      const title = await generateTitleForText(firstChunkContent);
 
-      // Fetch the conversation data to extract prompts
       const bucket = context.env.MACHINEN_BUCKET;
       const object = await bucket.get(document.id);
       if (!object) {
@@ -112,7 +117,6 @@ export const cursorPlugin: Plugin = {
       const data = JSON.parse(jsonText) as CursorConversationLatestJson;
       const narrativeComponents = extractUserPrompts(data);
 
-      // Use a SHA-256 hash of the document ID as the stable content identifier
       const encoder = new TextEncoder();
       const dataBytes = encoder.encode(document.id);
       const hashBuffer = await crypto.subtle.digest("SHA-256", dataBytes);
@@ -120,23 +124,6 @@ export const cursorPlugin: Plugin = {
       const idempotencyKey = hashArray
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
-
-      console.log(`[cursor-plugin:dedup-debug] Document: ${document.id}`);
-      console.log(
-        `[cursor-plugin:dedup-debug] Extracted ${narrativeComponents.length} narrative components`
-      );
-      console.log(
-        `[cursor-plugin:dedup-debug] Idempotency key: ${idempotencyKey}`
-      );
-      console.log(
-        `[cursor-plugin:dedup-debug] Narrative components: ${JSON.stringify(
-          narrativeComponents.map((text, idx) => ({
-            index: idx,
-            length: text.length,
-            preview: text.substring(0, 100),
-          }))
-        )}`
-      );
 
       const description: SubjectDescription = {
         title: title,
@@ -163,20 +150,22 @@ export const cursorPlugin: Plugin = {
       if (!object) {
         throw new Error(`R2 object not found: ${document.id}`);
       }
-
       const jsonText = await object.text();
       const data = JSON.parse(jsonText) as CursorConversationLatestJson;
 
-      const moments: MomentDescription[] = [];
+      const exchanges: Exchange[] = [];
 
+      // 1. First Pass: Summarize and embed each exchange
       for (const gen of data.generations) {
         const userPrompt =
           gen.events.find(
-            (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+            (e: CursorEvent) =>
+              e.hook_event_name === "beforeSubmitPrompt" && e.prompt
           )?.prompt || "";
         const assistantResponse =
           gen.events.find(
-            (e) => e.hook_event_name === "afterAgentResponse" && e.text
+            (e: CursorEvent) =>
+              e.hook_event_name === "afterAgentResponse" && e.text
           )?.text || "";
 
         if (!userPrompt.trim() && !assistantResponse.trim()) {
@@ -184,22 +173,77 @@ export const cursorPlugin: Plugin = {
         }
 
         let content = "";
-        if (userPrompt) {
-          content += `User: ${userPrompt}\n`;
-        }
-        if (assistantResponse) {
-          content += `Assistant: ${assistantResponse}`;
-        }
+        if (userPrompt) content += `User: ${userPrompt}\n`;
+        if (assistantResponse) content += `Assistant: ${assistantResponse}`;
 
-        if (content.trim()) {
+        const summary = await callLLM(
+          `Summarize this exchange in one sentence: ${content}`,
+          "gpt-oss-20b-cheap"
+        );
+        const embedding = await getEmbedding(summary);
+
+        exchanges.push({
+          content: content.trim(),
+          summary,
+          embedding,
+          createdAt: new Date().toISOString(),
+          author: "cursor-user",
+        });
+      }
+
+      if (exchanges.length === 0) {
+        return null;
+      }
+
+      // 2. Second Pass: Group exchanges by similarity
+      const moments: MomentDescription[] = [];
+      let currentMomentExchanges: Exchange[] = [exchanges[0]];
+      const SIMILARITY_THRESHOLD = 0.9;
+
+      for (let i = 1; i < exchanges.length; i++) {
+        const prevEmbedding = exchanges[i - 1].embedding;
+        const currentEmbedding = exchanges[i].embedding;
+        const similarity = cosineSimilarity(prevEmbedding, currentEmbedding);
+
+        if (similarity >= SIMILARITY_THRESHOLD) {
+          currentMomentExchanges.push(exchanges[i]);
+        } else {
+          // Consolidate the completed moment
+          const momentContent = currentMomentExchanges
+            .map((e) => e.content)
+            .join("\n\n---\n\n");
+          const momentTitle = await generateTitleForText(
+            currentMomentExchanges.map((e) => e.summary).join(" ")
+          );
+
           moments.push({
-            title: `Generation ${gen.id}`,
-            content: content.trim(),
-            author: "cursor-user",
-            createdAt: new Date().toISOString(),
+            title: momentTitle,
+            content: momentContent,
+            author: currentMomentExchanges[0].author,
+            createdAt: currentMomentExchanges[0].createdAt,
             sourceMetadata: document.metadata.sourceMetadata,
           });
+
+          // Start a new moment
+          currentMomentExchanges = [exchanges[i]];
         }
+      }
+
+      // Consolidate the last moment
+      if (currentMomentExchanges.length > 0) {
+        const momentContent = currentMomentExchanges
+          .map((e) => e.content)
+          .join("\n\n---\n\n");
+        const momentTitle = await generateTitleForText(
+          currentMomentExchanges.map((e) => e.summary).join(" ")
+        );
+        moments.push({
+          title: momentTitle,
+          content: momentContent,
+          author: currentMomentExchanges[0].author,
+          createdAt: currentMomentExchanges[0].createdAt,
+          sourceMetadata: document.metadata.sourceMetadata,
+        });
       }
 
       return moments.length > 0 ? moments : null;
@@ -212,7 +256,7 @@ export const cursorPlugin: Plugin = {
       context: IndexingHookContext
     ): Promise<Chunk[]> {
       if (document.source !== "cursor") {
-        return []; // Not handled by this plugin
+        return [];
       }
 
       const bucket = context.env.MACHINEN_BUCKET;
@@ -237,24 +281,14 @@ export const cursorPlugin: Plugin = {
       for (const [index, gen] of data.generations.entries()) {
         const userPrompt =
           gen.events.find(
-            (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+            (e: CursorEvent) =>
+              e.hook_event_name === "beforeSubmitPrompt" && e.prompt
           )?.prompt || "";
         const assistantResponse =
           gen.events.find(
-            (e) => e.hook_event_name === "afterAgentResponse" && e.text
+            (e: CursorEvent) =>
+              e.hook_event_name === "afterAgentResponse" && e.text
           )?.text || "";
-
-        console.log(
-          `[cursor-plugin] Processing generation ${index + 1}/${
-            data.generations.length
-          }`
-        );
-        console.log(
-          `[cursor-plugin]   - Extracted User Prompt (length): ${userPrompt.length}`
-        );
-        console.log(
-          `[cursor-plugin]   - Extracted Assistant Response (length): ${assistantResponse.length}`
-        );
 
         let content = "";
         if (userPrompt) {
@@ -265,15 +299,8 @@ export const cursorPlugin: Plugin = {
           content += `Assistant: ${assistantResponse}`;
         }
 
-        // Fallback: If we couldn't extract structured text, "explode violently" as requested.
-        // We want to know about these cases so we can fix the extraction logic.
         if (!content.trim()) {
-          console.warn(
-            `[cursor-plugin] SKIPPING: No content extracted for generation ${
-              index + 1
-            } (id: ${gen.id}). Raw events: ${JSON.stringify(gen.events)}`
-          );
-          continue; // Skip this chunk if no content
+          continue;
         }
 
         if (content.trim()) {
@@ -295,36 +322,12 @@ export const cursorPlugin: Plugin = {
                 `Cursor Conversation ${
                   document.metadata.sourceMetadata?.conversationId || "unknown"
                 }`,
-              author: "cursor-user", // Cursor conversations don't have a specific author
+              author: "cursor-user",
               jsonPath: `$.generations[${index}]`,
               sourceMetadata: document.metadata.sourceMetadata,
             },
           });
-        } else {
-          console.log(
-            `[cursor-plugin]   - SKIPPED: No content extracted for generation ${
-              index + 1
-            }. Raw events:`,
-            JSON.stringify(gen.events)
-          );
         }
-      }
-
-      console.log(
-        `[cursor-plugin] Created ${chunks.length} chunks from ${data.generations.length} generations`
-      );
-      if (chunks.length > 0) {
-        console.log(
-          `[cursor-plugin] Sample chunk content (first 200 chars): ${chunks[0].content.substring(
-            0,
-            200
-          )}`
-        );
-        console.log(
-          `[cursor-plugin] Sample chunk content (last chunk, first 200 chars): ${chunks[
-            chunks.length - 1
-          ].content.substring(0, 200)}`
-        );
       }
 
       return chunks;
@@ -332,7 +335,7 @@ export const cursorPlugin: Plugin = {
 
     async reconstructContext(
       documentChunks: ChunkMetadata[],
-      sourceDocument: any, // This is the raw JSON
+      sourceDocument: any,
       context: QueryHookContext
     ) {
       if (!documentChunks[0]) {
@@ -348,11 +351,6 @@ export const cursorPlugin: Plugin = {
 
       sections.push(`# Cursor Conversation ${data.id}\n`);
 
-      // For each chunk found, we want to format its corresponding generation.
-      // We can use the jsonPath to identify which generation it is.
-      // Format: "$.generations[0]"
-
-      // Get indices of generations that matched
       const matchedIndices = new Set<number>();
       documentChunks.forEach((chunk) => {
         const match = chunk.jsonPath?.match(/generations\[(\d+)\]/);
@@ -361,20 +359,11 @@ export const cursorPlugin: Plugin = {
         }
       });
 
-      // We want to show the conversation in order, but maybe only the relevant parts?
-      // Or should we show the surrounding context?
-      // For now, let's just show the matched generations.
-
-      // Sort indices
       const sortedIndices = Array.from(matchedIndices).sort((a, b) => a - b);
 
       sortedIndices.forEach((index) => {
         const gen = data.generations[index];
         sections.push(`## Turn ${index + 1}`);
-
-        // Attempt to format nicely
-        // Since we don't know the exact event schema, we'll do a best-effort dump
-        // formatted as a code block for readability.
         sections.push("```json");
         sections.push(JSON.stringify(gen.events, null, 2));
         sections.push("```\n");

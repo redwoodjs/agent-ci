@@ -1,5 +1,4 @@
-import type { Cloudflare } from "rwsdk/types";
-
+import { env } from "cloudflare:workers";
 export type LLMModel = "gpt-oss-20b" | "gpt-oss-20b-cheap";
 
 interface GPTOSSResponse {
@@ -12,7 +11,6 @@ interface GPTOSSResponse {
 
 export async function callLLM(
   prompt: string,
-  env: Cloudflare.Env,
   model: LLMModel = "gpt-oss-20b"
 ): Promise<string> {
   const modelId =

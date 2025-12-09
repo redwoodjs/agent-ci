@@ -14,7 +14,7 @@ The refactoring will be executed in three distinct, end-to-end functional steps.
 
 ---
 
-### Step 1: The Basic Chain
+### Iteration 1: The Basic Chain
 
 *   **Goal:** Establish the minimum viable `Moment Graph`. The focus is on getting the new data structures, database module, and pipeline in place, proving we can build and retrieve a simple, linear chain of moments from a **single document**.
 *   **Correlation Strategy:** A simplified version of **Layer 2 (Contextual Affinity)**. We will assume all moments extracted from one document during a single indexing run are causally linked in sequence.
@@ -30,7 +30,7 @@ The refactoring will be executed in three distinct, end-to-end functional steps.
 
 ---
 
-### Step 2: The Smart Linker
+### Iteration 2: The Smart Linker
 
 *   **Goal:** Introduce intelligent, **cross-document linking** using semantic search. This step solves the core "tree-shaking -> barrel files" problem where two documents are related by topic but not by explicit reference.
 *   **Correlation Strategy:** Implement **Layer 3 (Semantic Search)** as the primary method for finding parent moments.
@@ -42,7 +42,7 @@ The refactoring will be executed in three distinct, end-to-end functional steps.
 
 ---
 
-### Step 3: The Truth Seeker
+### Iteration 3: The Truth Seeker
 
 *   **Goal:** Add the highest-confidence correlation signal: **explicit, programmatic links**. This makes the graph more accurate and less reliant on fuzzy semantic similarity.
 *   **Correlation Strategy:** Implement **Layer 1 (Explicit Links)**, making it the highest-priority signal in the correlation cascade.

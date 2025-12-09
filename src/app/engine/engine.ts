@@ -375,22 +375,25 @@ export async function query(
     env: context.env,
   };
 
-  // Narrative Query Path: Try to answer using Moment Graph first
-  console.log(`[query] Step 0: Attempting narrative query via Moment Graph...`);
+  // Narrative Query Path: Try to answer using Subject (root moment) first
+  console.log(
+    `[query] Step 0: Attempting narrative query via Subject Graph...`
+  );
   try {
     const queryEmbedding = await generateEmbedding(userQuery);
-    const similarMoments = await findSimilarMoments(queryEmbedding, 1);
+    const { findSimilarSubjects, findDescendants } = await import("./momentDb");
+    const similarSubjects = await findSimilarSubjects(queryEmbedding, 1);
 
-    if (similarMoments.length > 0) {
-      const entryMoment = similarMoments[0];
+    if (similarSubjects.length > 0) {
+      const subjectMoment = similarSubjects[0];
       console.log(
-        `[query] Found relevant moment: ${entryMoment.id} (${entryMoment.title})`
+        `[query] Found relevant Subject: ${subjectMoment.id} (${subjectMoment.title})`
       );
 
-      // Traverse the graph to get the full narrative timeline
-      const timeline = await findAncestors(entryMoment.id);
+      // Get the full narrative timeline (root moment + all descendants)
+      const timeline = await findDescendants(subjectMoment.id);
       console.log(
-        `[query] Reconstructed timeline with ${timeline.length} moments`
+        `[query] Reconstructed Subject timeline with ${timeline.length} moments`
       );
 
       if (timeline.length > 0) {
@@ -401,7 +404,10 @@ export async function query(
           )
           .join("\n\n");
 
-        const narrativePrompt = `Based on the following timeline of events, answer the user's question. The timeline represents a sequence of related moments in chronological order.
+        const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
+
+## Subject
+${subjectMoment.title}: ${subjectMoment.summary}
 
 ## Timeline
 ${narrativeContext}
@@ -410,7 +416,7 @@ ${narrativeContext}
 ${userQuery}
 
 ## Instructions
-Provide a clear, narrative answer that explains the story and causal relationships between events. Focus on answering "why" and "how" questions based on the sequence of events in the timeline.`;
+Provide a clear, narrative answer that explains the story and causal relationships between events. Focus on answering "why" and "how" questions based on the Subject and the sequence of events in its timeline.`;
 
         const narrativeAnswer = await callLlm(narrativePrompt);
         console.log(

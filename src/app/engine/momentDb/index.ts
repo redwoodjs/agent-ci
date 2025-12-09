@@ -43,6 +43,25 @@ export async function addMoment(moment: Moment): Promise<void> {
     console.log(
       `[momentDb] Indexed moment ${moment.id} in vector index (summary length: ${moment.summary.length})`
     );
+
+    // If this is a root moment (no parent), also index it as a Subject
+    if (!moment.parentId) {
+      await env.SUBJECT_INDEX.upsert([
+        {
+          id: moment.id,
+          values: embedding,
+          metadata: {
+            title: moment.title,
+            summary: moment.summary,
+            documentId: moment.documentId,
+            type: "subject",
+          },
+        },
+      ]);
+      console.log(
+        `[momentDb] Indexed root moment ${moment.id} as Subject in SUBJECT_INDEX`
+      );
+    }
   } catch (error) {
     console.error(
       `[momentDb] Failed to generate/insert embedding for moment ${moment.id}:`,
@@ -152,6 +171,68 @@ export async function findAncestors(momentId: string): Promise<Moment[]> {
   }
 
   return ancestors;
+}
+
+export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
+  const descendants: Moment[] = [];
+  const rootMoment = await getMoment(rootMomentId);
+  if (!rootMoment) {
+    return descendants;
+  }
+
+  // Start with the root moment
+  descendants.push(rootMoment);
+
+  // Recursively find all children
+  const db = getMomentDb();
+  const findChildren = async (parentId: string): Promise<void> => {
+    const children = await db
+      .selectFrom("moments")
+      .selectAll()
+      .where("parent_id", "=", parentId)
+      .orderBy("created_at", "asc")
+      .execute();
+
+    for (const row of children) {
+      const childMoment: Moment = {
+        id: row.id,
+        documentId: row.document_id,
+        summary: row.summary,
+        title: row.title,
+        parentId: row.parent_id || undefined,
+        createdAt: row.created_at,
+        author: row.author,
+        sourceMetadata: row.source_metadata
+          ? (JSON.parse(row.source_metadata) as Record<string, any>)
+          : undefined,
+      };
+      descendants.push(childMoment);
+      // Recursively find children of this child
+      await findChildren(row.id);
+    }
+  };
+
+  await findChildren(rootMomentId);
+  return descendants;
+}
+
+export async function findSimilarSubjects(
+  vector: number[],
+  limit: number = 5
+): Promise<Moment[]> {
+  const searchResults = await env.SUBJECT_INDEX.query(vector, {
+    topK: limit,
+    returnMetadata: true,
+  });
+
+  const subjects: Moment[] = [];
+  for (const match of searchResults.matches) {
+    const moment = await getMoment(match.id);
+    if (moment) {
+      subjects.push(moment);
+    }
+  }
+  return subjects;
 }
 
 export async function findLastMomentForDocument(

@@ -415,3 +415,61 @@ This ensures we only do expensive work when necessary, while correctly handling 
 ## 11. Refinement: Moving Exchange Cache to Cursor-Specific DB
 
 After initial implementation, realized that `exchange_cache` is cursor-specific and shouldn't live in the general `MomentGraphDO`. Moved it to `CursorEventsDurableObject` instead, creating a new cursor-specific DB module (`src/app/engine/cursorDb/index.ts`) as a sibling to `momentDb` for cache operations. The `document_structure_hash` remains in `MomentGraphDO` since it's document-level and could potentially be reused for other data sources. The exchange cache is cursor-specific and lives in the cursor DB, while the structure hash is document-level and lives in the moment DB.
+
+---
+
+## 12. Realization: Re-Centering Subjects as Primary Query Entry Point
+
+During implementation, realized that we had lost sight of the original concept: **Subjects are the primary entry point for understanding narratives**. The current query implementation searches moments directly, but this misses the higher-level organization.
+
+### The Problem
+
+The current narrative query path:
+1. Searches `MOMENT_INDEX` for any moment matching the query
+2. Uses `findAncestors` to build a timeline backwards from that moment
+3. This treats all moments equally, missing the concept that **root moments represent Subjects**
+
+This means we're querying at the detail level (moments) rather than the topic level (subjects). The moments are the details, but the subject is the main topic.
+
+### The Solution: Subject-First Query Architecture
+
+Re-center the query architecture around Subjects:
+
+1.  **Index Root Moments as Subjects:**
+    *   When a moment is created with no `parentId` (a root moment), it represents a Subject.
+    *   Index root moments in `SUBJECT_INDEX` (in addition to `MOMENT_INDEX`).
+    *   This promotes root moments to queryable "Subjects."
+
+2.  **Query Subjects First:**
+    *   Change the narrative query path to search `SUBJECT_INDEX` first.
+    *   Find the most relevant Subject (root moment) that matches the user's question.
+
+3.  **Retrieve Full Narrative Timeline:**
+    *   Once the Subject is identified, retrieve all its **descendant moments** (forward from root).
+    *   Add a `findDescendants` function that traverses the parent-child relationships forward.
+
+4.  **Synthesize Answer:**
+    *   With the full Subject timeline (root moment + all descendants), the LLM can synthesize a comprehensive answer.
+    *   This creates a two-step process: find the right Subject (chapter), then read the full chapter (all moments).
+
+### Implementation
+
+1.  **Updated `momentDb/index.ts` `addMoment` function:**
+    *   Checks if `moment.parentId` is null/undefined (root moment).
+    *   If root moment, also inserts into `SUBJECT_INDEX` with the same embedding and metadata.
+
+2.  **Added `findDescendants` function to `momentDb/index.ts`:**
+    *   Takes a root moment ID.
+    *   Recursively finds all moments that have this moment as an ancestor.
+    *   Returns moments in chronological order (root first, then descendants).
+
+3.  **Added `findSimilarSubjects` function to `momentDb/index.ts`:**
+    *   Queries `SUBJECT_INDEX` with a query vector.
+    *   Returns the most relevant Subjects (root moments).
+
+4.  **Updated `engine.ts` query function:**
+    *   Changed narrative query path to search `SUBJECT_INDEX` instead of `MOMENT_INDEX`.
+    *   Uses `findDescendants` instead of `findAncestors` to get the full timeline forward from the Subject.
+    *   Updated the prompt to reflect that we're answering based on a Subject and its timeline.
+
+This ensures Subjects are the primary entry point, with moments providing the detailed narrative context.

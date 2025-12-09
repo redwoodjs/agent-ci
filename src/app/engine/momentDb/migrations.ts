@@ -1,7 +1,5 @@
 import { type Migrations } from "rwsdk/db";
 
-import { type Migrations } from "rwsdk/db";
-
 export const momentMigrations = {
   "001_initial_schema": {
     async up(db) {

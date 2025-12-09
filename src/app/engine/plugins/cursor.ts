@@ -12,6 +12,11 @@ import {
 import { generateTitleForText } from "../utils/summarize";
 import { callLLM } from "../utils/llm";
 import { getEmbedding, cosineSimilarity } from "../utils/vector";
+import {
+  getDocumentStructureHash,
+  setDocumentStructureHash,
+} from "../momentDb";
+import { getExchangeCache, setExchangeCache } from "../cursorDb";
 
 interface CursorEvent {
   hook_event_name: string;
@@ -153,9 +158,43 @@ export const cursorPlugin: Plugin = {
       const jsonText = await object.text();
       const data = JSON.parse(jsonText) as CursorConversationLatestJson;
 
-      const exchanges: Exchange[] = [];
+      // Compute structure hash from all generation IDs
+      const generationIds = data.generations.map((gen) => gen.id);
+      const structureHashInput = generationIds.join(":");
+      const encoder = new TextEncoder();
+      const hashData = encoder.encode(structureHashInput);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", hashData);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const structureHash = hashArray
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
 
-      // 1. First Pass: Summarize and embed each exchange
+      // Check if conversation structure is unchanged
+      const storedHash = await getDocumentStructureHash(document.id);
+      if (storedHash === structureHash) {
+        console.log(
+          `[cursor-plugin] Conversation structure unchanged (hash: ${structureHash.substring(
+            0,
+            8
+          )}...). Skipping moment extraction.`
+        );
+        return null;
+      }
+
+      // Bulk-fetch cached exchanges
+      const cachedExchanges = await getExchangeCache(generationIds);
+      console.log(
+        `[cursor-plugin] Found ${cachedExchanges.size}/${generationIds.length} cached exchanges`
+      );
+
+      const exchanges: Exchange[] = [];
+      const newCacheEntries: Array<{
+        generationId: string;
+        summary: string;
+        embedding: number[];
+      }> = [];
+
+      // 1. First Pass: Summarize and embed each exchange (using cache when available)
       for (const gen of data.generations) {
         const userPrompt =
           gen.events.find(
@@ -176,11 +215,39 @@ export const cursorPlugin: Plugin = {
         if (userPrompt) content += `User: ${userPrompt}\n`;
         if (assistantResponse) content += `Assistant: ${assistantResponse}`;
 
-        const summary = await callLLM(
-          `Summarize this exchange in one sentence: ${content}`,
-          "gpt-oss-20b-cheap"
-        );
-        const embedding = await getEmbedding(summary);
+        if (!content.trim()) {
+          continue;
+        }
+
+        // Check cache first
+        const cached = cachedExchanges.get(gen.id);
+        let summary: string;
+        let embedding: number[];
+
+        if (cached) {
+          summary = cached.summary;
+          embedding = cached.embedding;
+          console.log(
+            `[cursor-plugin] Using cached summary/embedding for generation ${gen.id}`
+          );
+        } else {
+          // Generate new summary and embedding
+          summary = await callLLM(
+            `Summarize this exchange in one sentence: ${content}`,
+            "gpt-oss-20b-cheap"
+          );
+          embedding = await getEmbedding(summary);
+
+          // Add to cache entries for bulk write
+          newCacheEntries.push({
+            generationId: gen.id,
+            summary,
+            embedding,
+          });
+          console.log(
+            `[cursor-plugin] Generated new summary/embedding for generation ${gen.id}`
+          );
+        }
 
         exchanges.push({
           content: content.trim(),
@@ -190,6 +257,17 @@ export const cursorPlugin: Plugin = {
           author: "cursor-user",
         });
       }
+
+      // Bulk-write new cache entries
+      if (newCacheEntries.length > 0) {
+        await setExchangeCache(newCacheEntries);
+        console.log(
+          `[cursor-plugin] Cached ${newCacheEntries.length} new exchanges`
+        );
+      }
+
+      // Update structure hash
+      await setDocumentStructureHash(document.id, structureHash);
 
       if (exchanges.length === 0) {
         return null;

@@ -1,5 +1,7 @@
 import { type Migrations } from "rwsdk/db";
 
+import { type Migrations } from "rwsdk/db";
+
 export const momentMigrations = {
   "001_initial_schema": {
     async up(db) {
@@ -29,6 +31,21 @@ export const momentMigrations = {
     },
     async down(db) {
       await db.schema.dropTable("moments").execute();
+    },
+  },
+  "002_add_document_structure_hash": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("document_structure_hash")
+          .addColumn("document_id", "text", (col) => col.primaryKey())
+          .addColumn("structure_hash", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("document_structure_hash").execute();
     },
   },
 } satisfies Migrations;

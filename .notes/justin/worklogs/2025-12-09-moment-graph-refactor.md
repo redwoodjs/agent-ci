@@ -280,5 +280,138 @@ All tasks required for this redefined scope are now **COMPLETE**:
 *   **The Truth Seeker:** Using explicit signals (links, references) to connect moments.
 *   **Data Source Expansion:** Adding GitHub and Discord support.
 
-## TODO
-We need to figure out how to avoid calling llm for every turn pair in the history, for every time a new message comes in from cursor. Caching of some sort.
+---
+
+## 9. Realization: Caching Exchange Summaries and Embeddings
+
+During implementation, it became clear that the current approach would re-calculate summaries and embeddings for every exchange on every indexing run, even if the conversation hadn't changed. This is wasteful and expensive.
+
+### The Problem
+
+Every time a Cursor conversation is indexed (even if it hasn't changed), we:
+1. Generate a summary for each exchange using an LLM call
+2. Generate an embedding for each summary
+3. Process all exchanges to group them into moments
+
+For a conversation with 50 exchanges, that's 50 LLM calls and 50 embedding generations on every single indexing run, even if nothing changed.
+
+### The Solution: Hybrid Caching with Structure Hash
+
+A two-tier caching strategy:
+
+1.  **Structure Hash (Fast Path):**
+    *   After processing a conversation, compute a hash of all `generation.id`s in order (e.g., `"gen-A:gen-B:gen-C"`).
+    *   Store this hash keyed by `document.id`.
+    *   On the next indexing run, compute the hash again and compare.
+    *   **If hashes match:** The conversation structure is unchanged. Skip all processing immediately.
+
+2.  **Per-Generation Cache (Robust Path):**
+    *   When the structure hash doesn't match (conversation changed), fall back to per-generation caching.
+    *   Store `{ generationId, summary, embedding }` tuples in a cache table.
+    *   For each generation in the conversation:
+        *   Check if it exists in the cache.
+        *   **If cached:** Use the cached summary and embedding.
+        *   **If not cached:** Generate them and add to cache.
+    *   This handles edits, reverts, and deletions correctly—we only regenerate what's actually new or changed.
+
+### Implementation Plan
+
+1.  **Add `exchange_cache` table** to `CursorEventsDurableObject` migrations (cursor-specific):
+    *   `generation_id TEXT PRIMARY KEY`
+    *   `summary TEXT`
+    *   `embedding TEXT` (JSON array)
+    *   `created_at TEXT`
+
+2.  **Add `document_structure_hash` table** to `MomentGraphDO` migrations (document-level, could be reused for other sources):
+    *   `document_id TEXT PRIMARY KEY`
+    *   `structure_hash TEXT`
+    *   `updated_at TEXT`
+
+3.  **Create cursor-specific DB module** (`src/app/engine/cursorDb/index.ts`):
+    *   `getExchangeCache(generationIds: string[]): Promise<Map<string, { summary: string; embedding: number[] }>>`
+    *   `setExchangeCache(entries: Array<{ generationId: string; summary: string; embedding: number[] }>): Promise<void>`
+
+4.  **Add structure hash functions** to `momentDb/index.ts`:
+    *   `getDocumentStructureHash(documentId: string): Promise<string | null>`
+    *   `setDocumentStructureHash(documentId: string, hash: string): Promise<void>`
+
+5.  **Update `cursor.ts` plugin:**
+    *   Compute structure hash from all `generation.id`s.
+    *   Check against stored hash—if match, return early.
+    *   If no match, bulk-fetch all cached exchanges from cursor DB.
+    *   Process each generation, using cache when available.
+    *   Bulk-write new cache entries to cursor DB.
+    *   Update structure hash in moment DB.
+
+This ensures we only do expensive work when necessary, while correctly handling all edge cases including history rewrites. The exchange cache is cursor-specific and lives in the cursor DB, while the structure hash is document-level and lives in the moment DB.
+
+---
+
+## 10. Refinement: Moving Exchange Cache to Cursor-Specific DB
+
+After initial implementation, realized that `exchange_cache` is cursor-specific and shouldn't live in the general `MomentGraphDO`. Moved it to `CursorEventsDurableObject` instead, creating a new cursor-specific DB module (`src/app/engine/cursorDb/index.ts`) as a sibling to `momentDb` for cache operations. The `document_structure_hash` remains in `MomentGraphDO` since it's document-level and could potentially be reused for other data sources.
+
+During implementation, it became clear that the current approach would re-calculate summaries and embeddings for every exchange on every indexing run, even if the conversation hadn't changed. This is wasteful and expensive.
+
+### The Problem
+
+Every time a Cursor conversation is indexed (even if it hasn't changed), we:
+1. Generate a summary for each exchange using an LLM call
+2. Generate an embedding for each summary
+3. Process all exchanges to group them into moments
+
+For a conversation with 50 exchanges, that's 50 LLM calls and 50 embedding generations on every single indexing run, even if nothing changed.
+
+### The Solution: Hybrid Caching with Structure Hash
+
+A two-tier caching strategy:
+
+1.  **Structure Hash (Fast Path):**
+    *   After processing a conversation, compute a hash of all `generation.id`s in order (e.g., `"gen-A:gen-B:gen-C"`).
+    *   Store this hash keyed by `document.id`.
+    *   On the next indexing run, compute the hash again and compare.
+    *   **If hashes match:** The conversation structure is unchanged. Skip all processing immediately.
+
+2.  **Per-Generation Cache (Robust Path):**
+    *   When the structure hash doesn't match (conversation changed), fall back to per-generation caching.
+    *   Store `{ generationId, summary, embedding }` tuples in a cache table.
+    *   For each generation in the conversation:
+        *   Check if it exists in the cache.
+        *   **If cached:** Use the cached summary and embedding.
+        *   **If not cached:** Generate them and add to cache.
+    *   This handles edits, reverts, and deletions correctly—we only regenerate what's actually new or changed.
+
+### Implementation Plan
+
+1.  **Add `exchange_cache` table** to `MomentGraphDO` migrations:
+    *   `generation_id TEXT PRIMARY KEY`
+    *   `summary TEXT`
+    *   `embedding TEXT` (JSON array)
+    *   `created_at TEXT`
+
+2.  **Add `document_structure_hash` table** to `MomentGraphDO` migrations:
+    *   `document_id TEXT PRIMARY KEY`
+    *   `structure_hash TEXT`
+    *   `updated_at TEXT`
+
+3.  **Add cache functions** to `momentDb/index.ts`:
+    *   `getExchangeCache(generationIds: string[]): Promise<Map<string, { summary: string; embedding: number[] }>>`
+    *   `setExchangeCache(entries: Array<{ generationId: string; summary: string; embedding: number[] }>): Promise<void>`
+    *   `getDocumentStructureHash(documentId: string): Promise<string | null>`
+    *   `setDocumentStructureHash(documentId: string, hash: string): Promise<void>`
+
+4.  **Update `cursor.ts` plugin:**
+    *   Compute structure hash from all `generation.id`s.
+    *   Check against stored hash—if match, return early.
+    *   If no match, bulk-fetch all cached exchanges.
+    *   Process each generation, using cache when available.
+    *   Bulk-write new cache entries.
+    *   Update structure hash.
+
+This ensures we only do expensive work when necessary, while correctly handling all edge cases including history rewrites.
+
+---
+
+## 11. Refinement: Moving Exchange Cache to Cursor-Specific DB
+
+After initial implementation, realized that `exchange_cache` is cursor-specific and shouldn't live in the general `MomentGraphDO`. Moved it to `CursorEventsDurableObject` instead, creating a new cursor-specific DB module (`src/app/engine/cursorDb/index.ts`) as a sibling to `momentDb` for cache operations. The `document_structure_hash` remains in `MomentGraphDO` since it's document-level and could potentially be reused for other data sources. The exchange cache is cursor-specific and lives in the cursor DB, while the structure hash is document-level and lives in the moment DB.

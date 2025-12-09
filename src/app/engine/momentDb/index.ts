@@ -184,3 +184,39 @@ export async function findLastMomentForDocument(
       : undefined,
   };
 }
+
+export async function getDocumentStructureHash(
+  documentId: string
+): Promise<string | null> {
+  const db = getMomentDb();
+  const row = await db
+    .selectFrom("document_structure_hash")
+    .selectAll()
+    .where("document_id", "=", documentId)
+    .executeTakeFirst();
+
+  return row?.structure_hash || null;
+}
+
+export async function setDocumentStructureHash(
+  documentId: string,
+  hash: string
+): Promise<void> {
+  const db = getMomentDb();
+  const now = new Date().toISOString();
+
+  await db
+    .insertInto("document_structure_hash")
+    .values({
+      document_id: documentId,
+      structure_hash: hash,
+      updated_at: now,
+    })
+    .onConflict((oc) =>
+      oc.column("document_id").doUpdateSet({
+        structure_hash: hash,
+        updated_at: now,
+      })
+    )
+    .execute();
+}

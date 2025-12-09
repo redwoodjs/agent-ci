@@ -263,7 +263,7 @@ To make the "Bicycle" iteration functional and valuable, we must implement a que
 
 The "Bicycle" iteration is now defined as: **Building a complete, end-to-end Narrative Query Engine for a single data source (Cursor).**
 
-The features originally planned for Iteration 2 (Cross-Document Linking) and subsequent plugin iterations (GitHub, Discord) are formally **deferred** to future iterations (e.g., "Motorcycle," "Car"). This allows us to ship a fully functional, high-value feature now without scope creep.
+The features originally planned for Iteration 2 (Cross-Document Linking) and subsequent plugin iterations (GitHub, Discord) are formally **deferred** to future iterations ("Car"). This allows us to ship a fully functional, high-value feature now without scope creep.
 
 ### Final Status of the Bicycle Iteration
 

@@ -25,7 +25,7 @@ import {
 import { type subjectMigrations } from "./subjectDb/migrations";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
 import { summarizeNumerically } from "./utils/vector-summary";
-import { addMoment } from "./momentDb";
+import { addMoment, findSimilarMoments, findAncestors } from "./momentDb";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -374,6 +374,60 @@ export async function query(
     query: userQuery,
     env: context.env,
   };
+
+  // Narrative Query Path: Try to answer using Moment Graph first
+  console.log(`[query] Step 0: Attempting narrative query via Moment Graph...`);
+  try {
+    const queryEmbedding = await generateEmbedding(userQuery);
+    const similarMoments = await findSimilarMoments(queryEmbedding, 1);
+
+    if (similarMoments.length > 0) {
+      const entryMoment = similarMoments[0];
+      console.log(
+        `[query] Found relevant moment: ${entryMoment.id} (${entryMoment.title})`
+      );
+
+      // Traverse the graph to get the full narrative timeline
+      const timeline = await findAncestors(entryMoment.id);
+      console.log(
+        `[query] Reconstructed timeline with ${timeline.length} moments`
+      );
+
+      if (timeline.length > 0) {
+        // Build narrative context from moment summaries
+        const narrativeContext = timeline
+          .map(
+            (moment, idx) => `${idx + 1}. ${moment.title}: ${moment.summary}`
+          )
+          .join("\n\n");
+
+        const narrativePrompt = `Based on the following timeline of events, answer the user's question. The timeline represents a sequence of related moments in chronological order.
+
+## Timeline
+${narrativeContext}
+
+## User Question
+${userQuery}
+
+## Instructions
+Provide a clear, narrative answer that explains the story and causal relationships between events. Focus on answering "why" and "how" questions based on the sequence of events in the timeline.`;
+
+        const narrativeAnswer = await callLlm(narrativePrompt);
+        console.log(
+          `[query] Narrative query path succeeded. Total time: ${
+            Date.now() - totalStart
+          }ms`
+        );
+        return narrativeAnswer;
+      }
+    }
+  } catch (error) {
+    console.error(
+      `[query] Narrative query path failed, falling back to chunk-based RAG:`,
+      error
+    );
+    // Fall through to the existing chunk-based RAG system
+  }
 
   console.log(`[query] Preparing search query...`);
   const step1Start = Date.now();

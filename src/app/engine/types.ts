@@ -1,9 +1,3 @@
-declare namespace Cloudflare {
-  interface Env {
-    [key: string]: any;
-  }
-}
-
 export type Source =
   | "github"
   | "cursor"

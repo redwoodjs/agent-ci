@@ -47,12 +47,20 @@ By default, all scripts and commands target production. To use a personal develo
 
 See `docs/dx/environments.md` for detailed information on the multi-environment setup.
 
-### 1. Configure Vectorize Index
+### 1. Configure Vectorize Indexes
 
-Create a Vectorize index with the appropriate dimensions for your embedding model:
+Create Vectorize indexes with the appropriate dimensions for your embedding model (default: @cf/baai/bge-base-en-v1.5, 768 dimensions).
 
+**RAG Index (for raw content chunks):**
 ```bash
 npx wrangler vectorize create rag-index \
+  --dimensions=768 \
+  --metric=cosine
+```
+
+**Moment Index (for moment summaries):**
+```bash
+npx wrangler vectorize create moment-index \
   --dimensions=768 \
   --metric=cosine
 ```
@@ -340,7 +348,8 @@ See `types.ts` for the complete plugin interface.
 
 - `API_KEY`: API key for query and admin endpoint authentication
 - `MACHINEN_BUCKET`: R2 bucket binding (configured in wrangler.jsonc)
-- `VECTORIZE_INDEX`: Vectorize index binding (configured in wrangler.jsonc)
+- `VECTORIZE_INDEX`: Vectorize index binding for raw chunks (configured in wrangler.jsonc)
+- `MOMENT_INDEX`: Vectorize index binding for moment summaries (configured in wrangler.jsonc)
 - `AI`: Cloudflare AI binding (configured in wrangler.jsonc)
 
 ## Queue Configuration

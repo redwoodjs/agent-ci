@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
 import { MomentGraphDO } from "./durableObject";
-import type { Moment } from "../types";
+import type { Moment, ChunkMetadata } from "../types";
 import { type Database, createDb } from "rwsdk/db";
 import { type momentMigrations } from "./migrations";
+import { getEmbedding } from "../utils/vector";
 
 export { MomentGraphDO };
 
@@ -17,6 +18,39 @@ function getMomentDb() {
 
 export async function addMoment(moment: Moment): Promise<void> {
   const db = getMomentDb();
+
+  // Generate embedding for the moment summary
+  try {
+    const embedding = await getEmbedding(moment.summary);
+    // Index the moment in Vectorize
+    await env.MOMENT_INDEX.insert([
+      {
+        id: moment.id,
+        values: embedding,
+        metadata: {
+          chunkId: moment.id, // Using moment ID as chunk ID for consistency
+          documentId: moment.documentId,
+          source: "moment-graph",
+          type: "moment",
+          documentTitle: moment.title,
+          author: moment.author,
+          jsonPath: "$", // Root of the moment
+          sourceMetadata: moment.sourceMetadata,
+          summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
+        } as unknown as ChunkMetadata,
+      },
+    ]);
+    console.log(
+      `[momentDb] Indexed moment ${moment.id} in vector index (summary length: ${moment.summary.length})`
+    );
+  } catch (error) {
+    console.error(
+      `[momentDb] Failed to generate/insert embedding for moment ${moment.id}:`,
+      error
+    );
+    // We continue to save to DB even if vector indexing fails
+  }
+
   const existing = await db
     .selectFrom("moments")
     .where("id", "=", moment.id)
@@ -82,6 +116,25 @@ export async function getMoment(id: string): Promise<Moment | null> {
       ? (JSON.parse(row.source_metadata) as Record<string, any>)
       : undefined,
   };
+}
+
+export async function findSimilarMoments(
+  vector: number[],
+  limit: number = 5
+): Promise<Moment[]> {
+  const searchResults = await env.MOMENT_INDEX.query(vector, {
+    topK: limit,
+    returnMetadata: true,
+  });
+
+  const moments: Moment[] = [];
+  for (const match of searchResults.matches) {
+    const moment = await getMoment(match.id);
+    if (moment) {
+      moments.push(moment);
+    }
+  }
+  return moments;
 }
 
 export async function findAncestors(momentId: string): Promise<Moment[]> {

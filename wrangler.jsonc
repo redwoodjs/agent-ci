@@ -30,6 +30,10 @@
     {
       "binding": "SUBJECT_INDEX",
       "index_name": "subject-index"
+    },
+    {
+      "binding": "MOMENT_INDEX",
+      "index_name": "moment-index"
     }
   ],
 
@@ -308,6 +312,11 @@
           "binding": "VECTORIZE_INDEX",
           "index_name": "rag-index-v2",
           "remote": true
+        },
+        {
+          "binding": "MOMENT_INDEX",
+          "index_name": "moment-index-rag-experiment-1",
+          "remote": true
         }
       ],
       "durable_objects": {
@@ -473,6 +482,11 @@
         {
           "binding": "SUBJECT_INDEX",
           "index_name": "subject-index-dev-justin"
+        },
+        {
+          "binding": "MOMENT_INDEX",
+          "index_name": "moment-index-dev-justin",
+          "remote": true
         }
       ],
       "queues": {

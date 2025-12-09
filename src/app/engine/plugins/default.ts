@@ -12,6 +12,7 @@ import {
 } from "../utils/token-counter";
 import { SubjectDescription } from "../types";
 import { generateTitleForText } from "../utils/summarize";
+import { callLLM } from "../utils/llm";
 
 export const defaultPlugin: Plugin = {
   name: "default",
@@ -136,6 +137,24 @@ export const defaultPlugin: Plugin = {
       };
 
       return [description];
+    },
+    async summarizeMomentContent(
+      content: string,
+      context: IndexingHookContext
+    ): Promise<string> {
+      const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
+
+      try {
+        const summary = await callLLM(
+          summaryPrompt,
+          context.env,
+          "gpt-oss-20b-cheap"
+        );
+        return summary.trim();
+      } catch (error) {
+        console.error(`[default-plugin] Failed to generate summary:`, error);
+        return `Content about: ${content.substring(0, 100)}...`;
+      }
     },
   },
 

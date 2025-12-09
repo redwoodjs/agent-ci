@@ -37,6 +37,7 @@ export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-dura
 export { SubjectDO } from "@/app/engine/subjectDb/durableObject";
 // Temporary export for migration - will be removed after v8 migration completes
 export { SubjectDO as SubjectGraphDO } from "@/app/engine/subjectDb/durableObject";
+export { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
 export { DiscordWebhookBatcherDO } from "@/app/ingestors/discord/db/webhook-batcher-durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";

@@ -48,6 +48,25 @@ export type PluginCompositionStrategy =
   | "first-match"
   | "collector";
 
+export interface Moment {
+  id: string;
+  documentId: string;
+  summary: string;
+  title: string;
+  parentId?: string;
+  createdAt: string;
+  author: string;
+  sourceMetadata?: Record<string, any>;
+}
+
+export interface MomentDescription {
+  title: string;
+  content: string;
+  author: string;
+  createdAt: string;
+  sourceMetadata?: Record<string, any>;
+}
+
 export interface Subject {
   id: string;
   title: string;
@@ -138,6 +157,14 @@ export interface Plugin {
       chunks: Chunk[],
       context: IndexingHookContext
     ) => Promise<SubjectDescription[] | null>;
+    extractMomentsFromDocument?: (
+      document: Document,
+      context: IndexingHookContext
+    ) => Promise<MomentDescription[] | null>;
+    summarizeMomentContent?: (
+      content: string,
+      context: IndexingHookContext
+    ) => Promise<string>;
   };
 }
 

@@ -6,6 +6,7 @@ import {
   ChunkMetadata,
   QueryHookContext,
   SubjectDescription,
+  MomentDescription,
 } from "../types";
 import { generateTitleForText } from "../utils/summarize";
 
@@ -148,6 +149,60 @@ export const cursorPlugin: Plugin = {
       };
 
       return [description];
+    },
+    async extractMomentsFromDocument(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<MomentDescription[] | null> {
+      if (document.source !== "cursor") {
+        return null;
+      }
+
+      const bucket = context.env.MACHINEN_BUCKET;
+      const object = await bucket.get(document.id);
+      if (!object) {
+        throw new Error(`R2 object not found: ${document.id}`);
+      }
+
+      const jsonText = await object.text();
+      const data = JSON.parse(jsonText) as CursorConversationLatestJson;
+
+      const moments: MomentDescription[] = [];
+
+      for (const gen of data.generations) {
+        const userPrompt =
+          gen.events.find(
+            (e) => e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+          )?.prompt || "";
+        const assistantResponse =
+          gen.events.find(
+            (e) => e.hook_event_name === "afterAgentResponse" && e.text
+          )?.text || "";
+
+        if (!userPrompt.trim() && !assistantResponse.trim()) {
+          continue;
+        }
+
+        let content = "";
+        if (userPrompt) {
+          content += `User: ${userPrompt}\n`;
+        }
+        if (assistantResponse) {
+          content += `Assistant: ${assistantResponse}`;
+        }
+
+        if (content.trim()) {
+          moments.push({
+            title: `Generation ${gen.id}`,
+            content: content.trim(),
+            author: "cursor-user",
+            createdAt: new Date().toISOString(),
+            sourceMetadata: document.metadata.sourceMetadata,
+          });
+        }
+      }
+
+      return moments.length > 0 ? moments : null;
     },
   },
 

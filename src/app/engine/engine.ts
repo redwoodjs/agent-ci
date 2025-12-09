@@ -9,6 +9,7 @@ import type {
   ReconstructedContext,
   Subject,
   SubjectSearchContext,
+  Moment,
 } from "./types";
 import { createDb, type Database } from "rwsdk/db";
 import type { SubjectDO } from "./subjectDb/durableObject";
@@ -24,6 +25,7 @@ import {
 import { type subjectMigrations } from "./subjectDb/migrations";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
 import { summarizeNumerically } from "./utils/vector-summary";
+import { addMoment } from "./momentDb";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -261,6 +263,72 @@ export async function indexDocument(
     // This indicates a configuration or plugin logic error that needs to be fixed.
     throw new Error(
       `[engine] No plugin provided subject descriptions for document: ${document.id}. This is a fatal error.`
+    );
+  }
+
+  // 3.5. Extract moments from the document
+  const momentDescriptions = await runFirstMatchHook(
+    context.plugins,
+    "extractMomentsFromDocument",
+    (plugin) =>
+      plugin.subjects?.extractMomentsFromDocument?.(document, indexingContext)
+  );
+
+  if (momentDescriptions && momentDescriptions.length > 0) {
+    console.log(
+      `[engine] Plugin provided ${momentDescriptions.length} moment descriptions. Processing them now.`
+    );
+
+    let previousMomentId: string | undefined = undefined;
+
+    for (let i = 0; i < momentDescriptions.length; i++) {
+      const description = momentDescriptions[i];
+      if (!description) {
+        continue;
+      }
+
+      const summary = await runFirstMatchHook(
+        context.plugins,
+        "summarizeMomentContent",
+        (plugin) =>
+          plugin.subjects?.summarizeMomentContent?.(
+            description.content,
+            indexingContext
+          )
+      );
+
+      if (!summary) {
+        console.warn(
+          `[engine] No plugin provided summary for moment ${i + 1}. Skipping.`
+        );
+        continue;
+      }
+
+      const momentId = crypto.randomUUID();
+      const moment: Moment = {
+        id: momentId,
+        documentId: document.id,
+        summary: summary,
+        title: description.title,
+        parentId: previousMomentId,
+        createdAt: description.createdAt,
+        author: description.author,
+        sourceMetadata: description.sourceMetadata,
+      };
+
+      await addMoment(context.env, moment);
+
+      console.log(
+        `[engine] Created moment ${momentId} (parent: ${
+          previousMomentId || "root"
+        })`
+      );
+
+      previousMomentId = momentId;
+    }
+  } else {
+    console.log(
+      `[engine] No plugin provided moment descriptions for document: ${document.id}. Skipping moment extraction.`
     );
   }
 

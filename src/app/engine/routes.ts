@@ -12,6 +12,7 @@ import {
   listAllSubjects,
   createEngineContext,
 } from "./index";
+import { findAncestors, findLastMomentForDocument } from "./momentDb";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
@@ -255,6 +256,57 @@ async function clearIndexingStateHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function timelineHandler({ request, ctx }: RequestInfo) {
+  const url = new URL(request.url);
+  const documentId = url.searchParams.get("documentId");
+
+  if (!documentId) {
+    return Response.json(
+      { error: "Missing 'documentId' parameter" },
+      { status: 400 }
+    );
+  }
+
+  const envCloudflare = env as Cloudflare.Env;
+
+  try {
+    console.log(`[timeline] Getting timeline for document: ${documentId}`);
+
+    const lastMoment = await findLastMomentForDocument(
+      envCloudflare,
+      documentId
+    );
+
+    if (!lastMoment) {
+      return Response.json(
+        { error: "No moments found for document" },
+        { status: 404 }
+      );
+    }
+
+    const timeline = await findAncestors(envCloudflare, lastMoment.id);
+
+    console.log(
+      `[timeline] Found timeline with ${timeline.length} moments for document ${documentId}`
+    );
+
+    return Response.json({ timeline });
+  } catch (error) {
+    console.error(
+      `[timeline] Error getting timeline: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return Response.json(
+      {
+        error: "Failed to get timeline",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+
 async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -358,5 +410,8 @@ export const routes = [
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],
+  }),
+  route("/timeline", {
+    get: [requireQueryApiKey, timelineHandler],
   }),
 ];

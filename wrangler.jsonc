@@ -82,6 +82,10 @@
     {
       "tag": "v11",
       "new_sqlite_classes": ["SubjectDO"]
+    },
+    {
+      "tag": "v12",
+      "new_sqlite_classes": ["MomentGraphDO"]
     }
   ],
   "durable_objects": {
@@ -105,6 +109,10 @@
       {
         "name": "SUBJECT_GRAPH_DO",
         "class_name": "SubjectDO"
+      },
+      {
+        "name": "MOMENT_GRAPH_DO",
+        "class_name": "MomentGraphDO"
       },
       {
         "name": "DISCORD_WEBHOOK_BATCHER",
@@ -435,6 +443,54 @@
     },
     "dev-justin": {
       "name": "machinen-dev-justin",
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_classes": ["RealtimeDurableObject"],
+          "new_sqlite_classes": ["Database"]
+        },
+        {
+          "tag": "v2",
+          "deleted_classes": []
+        },
+        {
+          "tag": "v3",
+          "new_sqlite_classes": ["CursorEventsDurableObject"]
+        },
+        {
+          "tag": "v4",
+          "new_sqlite_classes": ["GitHubRepoDurableObject"]
+        },
+        {
+          "tag": "v5",
+          "new_sqlite_classes": ["GitHubBackfillStateDO"]
+        },
+        {
+          "tag": "v6",
+          "new_sqlite_classes": ["EngineIndexingStateDO"]
+        },
+        {
+          "tag": "v7",
+          "new_sqlite_classes": ["DiscordBackfillStateDO"]
+        },
+        {
+          "tag": "v8",
+          "new_classes": ["DiscordWebhookBatcherDO"],
+          "new_sqlite_classes": ["SubjectDO"]
+        },
+        {
+          "tag": "v9",
+          "new_classes": ["DiscordGatewayDO"]
+        },
+        {
+          "tag": "v10",
+          "deleted_classes": ["DiscordGatewayDO"]
+        },
+        {
+          "tag": "v12",
+          "new_sqlite_classes": ["MomentGraphDO"]
+        }
+      ],
       "r2_buckets": [
         {
           "binding": "MACHINEN_BUCKET",
@@ -470,6 +526,10 @@
           {
             "name": "SUBJECT_GRAPH_DO",
             "class_name": "SubjectDO"
+          },
+          {
+            "name": "MOMENT_GRAPH_DO",
+            "class_name": "MomentGraphDO"
           }
         ]
       },

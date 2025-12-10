@@ -357,6 +357,7 @@ See `types.ts` for the complete plugin interface.
 - `MACHINEN_BUCKET`: R2 bucket binding (configured in wrangler.jsonc)
 - `VECTORIZE_INDEX`: Vectorize index binding for raw chunks (configured in wrangler.jsonc)
 - `MOMENT_INDEX`: Vectorize index binding for moment summaries (configured in wrangler.jsonc)
+- `SUBJECT_INDEX`: Vectorize index binding for root moments representing Subjects (configured in wrangler.jsonc)
 - `AI`: Cloudflare AI binding (configured in wrangler.jsonc)
 
 ## Queue Configuration

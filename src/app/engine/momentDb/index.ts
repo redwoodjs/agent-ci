@@ -429,7 +429,7 @@ export async function getMoment(
 ): Promise<Moment | null> {
   const db = getMomentDb();
   const row = await db
-    .selectFrom("moments")
+    .selectFrom("raw_moments")
     .selectAll()
     .where("document_id", "=", documentId)
     .where("path", "=", path)
@@ -471,7 +471,7 @@ export async function upsertMoment(
   const now = new Date().toISOString();
 
   await db
-    .insertInto("moments")
+    .insertInto("raw_moments")
     .values({
       id,
       document_id: documentId,
@@ -504,7 +504,7 @@ export async function getMomentsForDocument(
 ): Promise<Moment[]> {
   const db = getMomentDb();
   const rows = await db
-    .selectFrom("moments")
+    .selectFrom("raw_moments")
     .selectAll()
     .where("document_id", "=", documentId)
     .orderBy("created_at", "asc")

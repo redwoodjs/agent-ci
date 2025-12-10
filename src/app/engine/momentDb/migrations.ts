@@ -82,11 +82,11 @@ export const momentMigrations = {
       return [];
     },
   },
-  "004_add_moments": {
+  "004_add_raw_moments": {
     async up(db) {
       return [
         await db.schema
-          .createTable("moments")
+          .createTable("raw_moments")
           .addColumn("id", "text", (col) => col.primaryKey())
           .addColumn("document_id", "text", (col) => col.notNull())
           .addColumn("path", "text", (col) => col.notNull())
@@ -98,20 +98,20 @@ export const momentMigrations = {
           .addColumn("source_metadata", "text")
           .execute(),
         await db.schema
-          .createIndex("moments_document_path_idx")
-          .on("moments")
+          .createIndex("raw_moments_document_path_idx")
+          .on("raw_moments")
           .columns(["document_id", "path"])
           .unique()
           .execute(),
         await db.schema
-          .createIndex("moments_document_id_idx")
-          .on("moments")
+          .createIndex("raw_moments_document_id_idx")
+          .on("raw_moments")
           .column("document_id")
           .execute(),
       ];
     },
     async down(db) {
-      await db.schema.dropTable("moments").execute();
+      await db.schema.dropTable("raw_moments").execute();
     },
   },
 } satisfies Migrations;

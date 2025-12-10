@@ -483,7 +483,7 @@ export async function upsertMoment(
       author: moment.author,
       source_metadata: moment.sourceMetadata
         ? JSON.stringify(moment.sourceMetadata)
-        : null,
+        : (undefined as any),
     })
     .onConflict((oc) =>
       oc.columns(["document_id", "path"]).doUpdateSet({
@@ -493,7 +493,7 @@ export async function upsertMoment(
         author: moment.author,
         source_metadata: moment.sourceMetadata
           ? JSON.stringify(moment.sourceMetadata)
-          : null,
+          : (undefined as any),
       })
     )
     .execute();

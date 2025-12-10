@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import type {
   Plugin,
   Document,
@@ -153,7 +154,7 @@ export async function indexDocument(
   console.log(`[engine] Starting indexDocument for: ${r2Key}`);
   const indexingContext: IndexingHookContext = {
     r2Key,
-    env: context.env,
+    env: env,
   };
 
   const step1Start = Date.now();
@@ -405,7 +406,7 @@ export async function query(
   const totalStart = Date.now();
   const queryContext: QueryHookContext = {
     query: userQuery,
-    env: context.env,
+    env: env,
   };
 
   // Narrative Query Path: Try to answer using Subject (root moment) first
@@ -432,47 +433,46 @@ export async function query(
     );
 
     if (similarSubjects.length > 0) {
-      const subjectMilestone = similarSubjects[0];
+      const subjectMoment = similarSubjects[0];
       console.log(
-        `[query:narrative] ✓ Found relevant Subject: ${subjectMilestone.id} (${subjectMilestone.title})`
+        `[query:narrative] ✓ Found relevant Subject: ${subjectMoment.id} (${subjectMoment.title})`
       );
       console.log(
-        `[query:narrative] Subject summary: "${subjectMilestone.summary.substring(
+        `[query:narrative] Subject summary: "${subjectMoment.summary.substring(
           0,
           100
         )}..."`
       );
 
-      // Get the full narrative timeline (root milestone + all descendants)
+      // Get the full narrative timeline (root moment + all descendants)
       const timelineStart = Date.now();
-      const timeline = await findDescendants(subjectMilestone.id);
+      const timeline = await findDescendants(subjectMoment.id);
       console.log(
         `[query:narrative] Timeline retrieval completed in ${
           Date.now() - timelineStart
         }ms`
       );
       console.log(
-        `[query:narrative] ✓ Reconstructed Subject timeline with ${timeline.length} milestones:`
+        `[query:narrative] ✓ Reconstructed Subject timeline with ${timeline.length} moments:`
       );
-      timeline.forEach((milestone, idx) => {
+      timeline.forEach((moment, idx) => {
         console.log(
-          `[query:narrative]   ${idx + 1}. ${milestone.title} (${milestone.id})`
+          `[query:narrative]   ${idx + 1}. ${moment.title} (${moment.id})`
         );
       });
 
       if (timeline.length > 0) {
-        // Build narrative context from milestone summaries
+        // Build narrative context from moment summaries
         const narrativeContext = timeline
           .map(
-            (milestone, idx) =>
-              `${idx + 1}. ${milestone.title}: ${milestone.summary}`
+            (moment, idx) => `${idx + 1}. ${moment.title}: ${moment.summary}`
           )
           .join("\n\n");
 
-        const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related milestones in chronological order.
+        const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
 ## Subject
-${subjectMilestone.title}: ${subjectMilestone.summary}
+${subjectMoment.title}: ${subjectMoment.summary}
 
 ## Timeline
 ${narrativeContext}
@@ -535,7 +535,7 @@ Provide a clear, narrative answer that explains the story and causal relationshi
     (plugin) =>
       plugin.subjects?.findSubjectForText?.({
         text: userQuery,
-        env: context.env,
+        env: env,
       })
   );
 
@@ -699,7 +699,7 @@ export async function findSubjectByQuery(
     (plugin) =>
       plugin.subjects?.findSubjectForText?.({
         text: queryText,
-        env: context.env,
+        env: env,
       })
   );
 
@@ -709,7 +709,7 @@ export async function findSubjectByQuery(
 
   type SubjectDatabase = Database<typeof subjectMigrations>;
   const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
     "subject-graph"
   );
 
@@ -728,7 +728,7 @@ export async function getSubjectGraphForQuery(
 
   type SubjectDatabase = Database<typeof subjectMigrations>;
   const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
     "subject-graph"
   );
 
@@ -751,7 +751,7 @@ export async function listAllSubjects(
 ) {
   type SubjectDatabase = Database<typeof subjectMigrations>;
   const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
+    env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
     "subject-graph"
   );
 
@@ -776,7 +776,7 @@ async function reconstructContexts(
     chunksByDocument.get(chunk.documentId)!.push(chunk);
   }
 
-  const bucket = queryContext.env.MACHINEN_BUCKET;
+  const bucket = env.MACHINEN_BUCKET;
   const fetchStart = Date.now();
 
   const documentEntries = Array.from(chunksByDocument.entries());
@@ -951,7 +951,7 @@ async function performVectorSearch(
   });
   console.log(`[query] Vectorize query took ${Date.now() - vecStart}ms`);
 
-  const results = vectorizeResponse.matches.map((match) => {
+  const results = vectorizeResponse.matches.map((match: any) => {
     if (!match.metadata) {
       throw new Error("Vectorize match missing metadata");
     }
@@ -995,9 +995,6 @@ async function generateEmbedding(text: string): Promise<number[]> {
 
   return response.data[0];
 }
-
-import { env } from "cloudflare:workers";
-import { callLLM } from "./utils/llm";
 
 async function callLlm(prompt: string): Promise<string> {
   return callLLM(prompt);

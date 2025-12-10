@@ -71,10 +71,7 @@ async function synthesizeMicroMoments(
     )
     .join("\n---\n\n");
 
-  const synthesisPrompt = `You are a data formatter. Your task is to group micro-moments into macro-moments. For each macro-moment, write a title and a summary that is self-contained and provides a high-level view of what happened and why it's significant to the project.
-
-DO NOT write any reasoning, explanation, or discussion. ONLY output the formatted blocks.
-
+  const synthesisPrompt = `You are a data formatter. Your task is to consolidate micro-moments into macro-moments. For each macro-moment, write a title and a summary that is self-contained and provides a high-level view of what happened and why it's significant to the project. The summary should read like a record of what happened.
 
 Output format:
 

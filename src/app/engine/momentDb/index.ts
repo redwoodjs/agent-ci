@@ -170,11 +170,7 @@ export async function getMoment(id: string): Promise<Moment | null> {
     parentId: row.parent_id || undefined,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata: row.source_metadata
-      ? typeof row.source_metadata === "string"
-        ? (JSON.parse(row.source_metadata) as Record<string, any>)
-        : (row.source_metadata as Record<string, any>)
-      : undefined,
+    sourceMetadata: row.source_metadata as Record<string, any> | undefined,
   };
 }
 
@@ -262,13 +258,17 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
         parentId: row.parent_id || undefined,
         createdAt: row.created_at,
         author: row.author,
-        sourceMetadata: row.source_metadata
-          ? (JSON.parse(row.source_metadata) as Record<string, any>)
-          : undefined,
+        sourceMetadata: row.source_metadata as Record<string, any> | undefined,
       };
       descendants.push(childMoment);
       console.log(
         `[momentDb:findDescendants] Added descendant at depth ${depth}: ${childMoment.id} (${childMoment.title})`
+      );
+      console.log(
+        `[momentDb:findDescendants]   Child summary: "${childMoment.summary.substring(
+          0,
+          100
+        )}..."`
       );
       // Recursively find children of this child
       await findChildren(row.id, depth + 1);
@@ -352,11 +352,7 @@ export async function findLastMomentForDocument(
     parentId: row.parent_id || undefined,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata: row.source_metadata
-      ? typeof row.source_metadata === "string"
-        ? (JSON.parse(row.source_metadata) as Record<string, any>)
-        : (row.source_metadata as Record<string, any>)
-      : undefined,
+    sourceMetadata: row.source_metadata as Record<string, any> | undefined,
   };
 }
 
@@ -451,11 +447,7 @@ export async function getMicroMoment(
       : null,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata: row.source_metadata
-      ? typeof row.source_metadata === "string"
-        ? (JSON.parse(row.source_metadata) as Record<string, any>)
-        : (row.source_metadata as Record<string, any>)
-      : undefined,
+    sourceMetadata: row.source_metadata as Record<string, any> | undefined,
   };
 }
 
@@ -522,10 +514,6 @@ export async function getMicroMomentsForDocument(
       : null,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata: row.source_metadata
-      ? typeof row.source_metadata === "string"
-        ? (JSON.parse(row.source_metadata) as Record<string, any>)
-        : (row.source_metadata as Record<string, any>)
-      : undefined,
+    sourceMetadata: row.source_metadata as Record<string, any> | undefined,
   }));
 }

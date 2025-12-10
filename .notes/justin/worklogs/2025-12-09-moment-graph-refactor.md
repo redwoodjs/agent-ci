@@ -1,3 +1,4 @@
+
 # Work Log: Moment Graph Refactor (Bicycle Iteration)
 
 **Date:** 2025-12-09
@@ -489,3 +490,46 @@ After testing with a 93-exchange conversation, the initial `SIMILARITY_THRESHOLD
 Lowered `SIMILARITY_THRESHOLD` from `0.9` to `0.7` in `src/app/engine/plugins/cursor.ts`. This should allow exchanges with moderate semantic similarity (0.7-0.9 range) to be grouped together, creating fewer, more meaningful moments that better capture the narrative arc of the conversation.
 
 The threshold can be further adjusted based on testing results to achieve the desired granularity.
+
+---
+
+## 14. Debugging: 'too many SQL variables' Error
+
+During testing with a large conversation (105 generations), an error `too many SQL variables` was encountered. This occurred in the `getExchangeCache` function, which was attempting to fetch all cached exchanges using a `WHERE IN` clause with a large number of `generationId`s.
+
+### Solution: JSON Blob for Exchange Cache
+
+To resolve this, the exchange caching mechanism was refactored to avoid bulk `WHERE IN` clauses, a pattern that has proven problematic in the past.
+
+1.  **Schema Change:**
+    *   The `exchange_cache` table was migrated. Instead of one row per `generation_id`, it now has one row per `document_id`.
+    *   All cached data for a document (summaries and embeddings for all its exchanges) is stored in a single `cache_json` TEXT column.
+
+2.  **Function Updates:**
+    *   `getExchangeCache(documentId)` now fetches the single row for the document and parses the JSON blob.
+    *   `setExchangeCache(documentId, entries)` now fetches the existing JSON blob, merges the new entries into the JSON object in memory, and writes the entire updated blob back to the database in a single `UPSERT` operation.
+
+This approach resolves the "too many variables" error by ensuring database lookups and writes operate on a single row per document, effectively moving the complexity of handling many exchanges from the SQL query to the application layer.
+
+---
+
+## 15. Refinement: Improving Moment Granularity and Title Framing
+
+After a successful test run with `SIMILARITY_THRESHOLD = 0.7` yielded 48 moments from 103 exchanges, further refinements were identified to improve the quality of the narrative graph.
+
+### The Problem
+
+1.  **Titles are Topics, Not Events:** The LLM-generated titles for moments describe topics (e.g., "SQLite Limitations for Graph Database Queries") rather than events that happened (e.g., "Limitations of SQLite for graph queries were identified"). This makes the timeline feel less like a narrative of events.
+2.  **Granularity is Still Too High:** 48 moments is still too fine-grained. The goal is to identify more significant "milestones" or "turning points" in the conversation, rather than capturing every minor shift. Many single-exchange moments are still being created, which adds noise.
+
+### The Solution: Prompt Engineering and Threshold Adjustment
+
+1.  **Reframe Titles with a New Prompt:**
+    *   The prompt used to generate the title for a consolidated moment will be updated.
+    *   It will explicitly instruct the LLM to frame the title as a past-tense event that describes what happened during that moment.
+
+2.  **Lower Similarity Threshold to Find Turning Points:**
+    *   To create fewer, more meaningful moments, the `SIMILARITY_THRESHOLD` will be lowered further, from `0.7` to `0.6`.
+    *   This will allow the conversation to drift more before a new moment (a "turning point") is created, forcing more exchanges to be grouped together and reducing the number of single-exchange moments.
+
+These two changes aim to produce a more coherent, less noisy, and more narratively compelling Moment Graph.

@@ -8,7 +8,7 @@ export async function generateTitleForText(text: string): Promise<string> {
   );
 
   try {
-    const titlePrompt = `Analyze the following text from a document and generate a short, concise title (less than 10 words) that summarizes its core subject. The title should be descriptive and suitable for a user to understand the topic at a glance. Examples: "Bug: User login fails", "Feature: Add dark mode", "Refactor: API authentication". Do not include quotes in the title. Text: "${truncatedText}"`;
+    const titlePrompt = `Analyze the following text which describes a series of events. Generate a short, concise title (less than 10 words) that describes what happened in the past tense. The title should read like an event or a milestone in a timeline. Examples: "User login bug was fixed", "Dark mode feature was added", "API authentication was refactored". Do not include quotes in the title. Text: "${truncatedText}"`;
 
     const titleResponse = await callLLM(titlePrompt, "gpt-oss-20b-cheap");
 

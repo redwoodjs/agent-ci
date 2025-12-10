@@ -273,7 +273,7 @@ export const cursorPlugin: Plugin = {
       }
 
       // 2. Second Pass: Group exchanges by similarity
-      const SIMILARITY_THRESHOLD = 0.7;
+      const SIMILARITY_THRESHOLD = 0.6;
       console.log(
         `[cursor-plugin] Starting second pass: grouping ${exchanges.length} exchanges into moments (similarity threshold: ${SIMILARITY_THRESHOLD})`
       );

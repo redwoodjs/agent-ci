@@ -433,8 +433,8 @@
         ]
       }
     },
-    "dev-justin-2": {
-      "name": "machinen-dev-justin-2",
+    "dev-justin": {
+      "name": "machinen-dev-justin",
       "r2_buckets": [
         {
           "binding": "MACHINEN_BUCKET",
@@ -476,97 +476,97 @@
       "vectorize": [
         {
           "binding": "VECTORIZE_INDEX",
-          "index_name": "rag-index-dev-justin-2",
+          "index_name": "rag-index-dev-justin",
           "remote": true
         },
         {
           "binding": "SUBJECT_INDEX",
-          "index_name": "subject-index-dev-justin-2"
+          "index_name": "subject-index-dev-justin"
         },
         {
           "binding": "MOMENT_INDEX",
-          "index_name": "moment-index-dev-justin-2",
+          "index_name": "moment-index-dev-justin",
           "remote": true
         }
       ],
       "queues": {
         "producers": [
           {
-            "queue": "github-scheduler-queue-dev-justin-2",
+            "queue": "github-scheduler-queue-dev-justin",
             "binding": "SCHEDULER_QUEUE"
           },
           {
-            "queue": "github-processor-queue-dev-justin-2",
+            "queue": "github-processor-queue-dev-justin",
             "binding": "PROCESSOR_QUEUE"
           },
           {
-            "queue": "engine-indexing-queue-dev-justin-2",
+            "queue": "engine-indexing-queue-dev-justin",
             "binding": "ENGINE_INDEXING_QUEUE"
           },
           {
-            "queue": "r2-file-update-queue-dev-justin-2",
+            "queue": "r2-file-update-queue-dev-justin",
             "binding": "R2_FILE_UPDATE_QUEUE"
           },
           {
-            "queue": "discord-scheduler-queue-dev-justin-2",
+            "queue": "discord-scheduler-queue-dev-justin",
             "binding": "DISCORD_SCHEDULER_QUEUE"
           },
           {
-            "queue": "discord-processor-queue-dev-justin-2",
+            "queue": "discord-processor-queue-dev-justin",
             "binding": "DISCORD_PROCESSOR_QUEUE"
           },
           {
-            "queue": "chunk-processing-queue-dev-justin-2",
+            "queue": "chunk-processing-queue-dev-justin",
             "binding": "CHUNK_PROCESSING_QUEUE"
           }
         ],
         "consumers": [
           {
-            "queue": "github-scheduler-queue-dev-justin-2",
+            "queue": "github-scheduler-queue-dev-justin",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           },
           {
-            "queue": "github-processor-queue-dev-justin-2",
+            "queue": "github-processor-queue-dev-justin",
             "max_batch_size": 100,
             "max_batch_timeout": 30,
-            "dead_letter_queue": "github-processor-queue-dev-justin-2-dlq",
+            "dead_letter_queue": "github-processor-queue-dev-justin-dlq",
             "max_retries": 3
           },
           {
-            "queue": "github-processor-queue-dev-justin-2-dlq",
+            "queue": "github-processor-queue-dev-justin-dlq",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           },
           {
-            "queue": "engine-indexing-queue-dev-justin-2",
+            "queue": "engine-indexing-queue-dev-justin",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           },
           {
-            "queue": "r2-file-update-queue-dev-justin-2",
+            "queue": "r2-file-update-queue-dev-justin",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           },
           {
-            "queue": "discord-scheduler-queue-dev-justin-2",
+            "queue": "discord-scheduler-queue-dev-justin",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           },
           {
-            "queue": "discord-processor-queue-dev-justin-2",
+            "queue": "discord-processor-queue-dev-justin",
             "max_batch_size": 100,
             "max_batch_timeout": 30,
-            "dead_letter_queue": "discord-processor-queue-dev-justin-2-dlq",
+            "dead_letter_queue": "discord-processor-queue-dev-justin-dlq",
             "max_retries": 3
           },
           {
-            "queue": "discord-processor-queue-dev-justin-2-dlq",
+            "queue": "discord-processor-queue-dev-justin-dlq",
             "max_batch_size": 10,
             "max_batch_timeout": 30
           },
           {
-            "queue": "chunk-processing-queue-dev-justin-2",
+            "queue": "chunk-processing-queue-dev-justin",
             "max_batch_size": 100,
             "max_batch_timeout": 30
           }

@@ -25,8 +25,8 @@ if [ -n "$1" ]; then
   WORKER_NAME="$1"
 elif [ -n "$MACHINEN_ENV" ]; then
   case "$MACHINEN_ENV" in
-    "dev-justin-2")
-      WORKER_NAME="machinen-dev-justin-2"
+    "dev-justin")
+      WORKER_NAME="machinen-dev-justin"
       ;;
     "production")
       WORKER_NAME="machinen"

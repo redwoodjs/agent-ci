@@ -22,8 +22,8 @@ fi
 MACHINEN_ENV="${MACHINEN_ENV:-local}"
 
 case "$MACHINEN_ENV" in
-  "dev-justin-2")
-    WORKER_URL="https://machinen-dev-justin-2.redwoodjs.workers.dev"
+  "dev-justin")
+    WORKER_URL="https://machinen-dev-justin.redwoodjs.workers.dev"
     ;;
   "production")
     WORKER_URL="https://machinen.redwoodjs.workers.dev"

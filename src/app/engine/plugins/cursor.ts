@@ -5,7 +5,7 @@ import {
   Chunk,
   ChunkMetadata,
   QueryHookContext,
-  MicroMomentDescription,
+  MomentDescription,
   CursorConversationLatestJson,
 } from "../types";
 import {
@@ -65,10 +65,10 @@ export const cursorPlugin: Plugin = {
   },
 
   subjects: {
-    async extractMicroMomentsFromDocument(
+    async extractMomentsFromDocument(
       document: Document,
       context: IndexingHookContext
-    ): Promise<MicroMomentDescription[] | null> {
+    ): Promise<MomentDescription[] | null> {
       if (document.source !== "cursor") {
         return null;
       }
@@ -114,7 +114,7 @@ export const cursorPlugin: Plugin = {
           `[cursor-plugin] Conversation structure unchanged (hash: ${structureHash.substring(
             0,
             8
-          )}...). Skipping micro-moment extraction.`
+          )}...). Skipping moment extraction.`
         );
         return null;
       }
@@ -122,8 +122,8 @@ export const cursorPlugin: Plugin = {
       // Update structure hash
       await setDocumentStructureHash(document.id, structureHash);
 
-      // Extract micro-moments (one per generation/exchange)
-      const microMoments: MicroMomentDescription[] = [];
+      // Extract moments (one per generation/exchange)
+      const moments: MomentDescription[] = [];
 
       for (const gen of data.generations) {
         const userPromptEvent = gen.events.find(
@@ -159,7 +159,7 @@ export const cursorPlugin: Plugin = {
           continue;
         }
 
-        microMoments.push({
+        moments.push({
           path: gen.id,
           content: content.trim(),
           author: "cursor-user",
@@ -169,10 +169,10 @@ export const cursorPlugin: Plugin = {
       }
 
       console.log(
-        `[cursor-plugin] Extracted ${microMoments.length} micro-moments from ${data.generations.length} generations`
+        `[cursor-plugin] Extracted ${moments.length} moments from ${data.generations.length} generations`
       );
 
-      return microMoments.length > 0 ? microMoments : null;
+      return moments.length > 0 ? moments : null;
     },
 
     async summarizeMomentContent(

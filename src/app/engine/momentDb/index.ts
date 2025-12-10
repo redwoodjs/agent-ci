@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { MomentGraphDO } from "./durableObject";
-import type { Moment, ChunkMetadata, MicroMomentDescription } from "../types";
+import type { Milestone, ChunkMetadata, MomentDescription } from "../types";
 import { type Database, createDb } from "rwsdk/db";
 import { type momentMigrations } from "./migrations";
 import { getEmbedding } from "../utils/vector";
@@ -16,146 +16,152 @@ function getMomentDb() {
   );
 }
 
-export async function addMoment(moment: Moment): Promise<void> {
+export async function addMilestone(milestone: Milestone): Promise<void> {
   console.log(
-    `[momentDb:addMoment] Starting to add moment ${moment.id} (title: "${
-      moment.title
-    }", document: ${moment.documentId}, parent: ${moment.parentId || "none"})`
+    `[momentDb:addMilestone] Starting to add milestone ${
+      milestone.id
+    } (title: "${milestone.title}", document: ${
+      milestone.documentId
+    }, parent: ${milestone.parentId || "none"})`
   );
   const db = getMomentDb();
 
-  // Generate embedding for the moment summary
+  // Generate embedding for the milestone summary
   try {
     console.log(
-      `[momentDb:addMoment] Generating embedding for moment ${moment.id} (summary length: ${moment.summary.length})`
+      `[momentDb:addMilestone] Generating embedding for milestone ${milestone.id} (summary length: ${milestone.summary.length})`
     );
-    const embedding = await getEmbedding(moment.summary);
-    // Index the moment in Vectorize
+    const embedding = await getEmbedding(milestone.summary);
+    // Index the milestone in Vectorize
     await env.MOMENT_INDEX.insert([
       {
-        id: moment.id,
+        id: milestone.id,
         values: embedding,
         metadata: {
-          chunkId: moment.id, // Using moment ID as chunk ID for consistency
-          documentId: moment.documentId,
+          chunkId: milestone.id, // Using milestone ID as chunk ID for consistency
+          documentId: milestone.documentId,
           source: "moment-graph",
-          type: "moment",
-          documentTitle: moment.title,
-          author: moment.author,
-          jsonPath: "$", // Root of the moment
-          sourceMetadata: moment.sourceMetadata,
-          summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
+          type: "milestone",
+          documentTitle: milestone.title,
+          author: milestone.author,
+          jsonPath: "$", // Root of the milestone
+          sourceMetadata: milestone.sourceMetadata,
+          summary: milestone.summary, // Store summary in metadata for quick retrieval if needed (optional)
         } as unknown as ChunkMetadata,
       },
     ]);
     console.log(
-      `[momentDb] Indexed moment ${moment.id} in vector index (summary length: ${moment.summary.length})`
+      `[momentDb] Indexed milestone ${milestone.id} in vector index (summary length: ${milestone.summary.length})`
     );
 
-    // If this is a root moment (no parent), also index it as a Subject
-    if (!moment.parentId) {
+    // If this is a root milestone (no parent), also index it as a Subject
+    if (!milestone.parentId) {
       console.log(
-        `[momentDb:subject-index] Root moment detected: ${moment.id} (${moment.title}). Indexing as Subject...`
+        `[momentDb:subject-index] Root milestone detected: ${milestone.id} (${milestone.title}). Indexing as Subject...`
       );
       await env.SUBJECT_INDEX.upsert([
         {
-          id: moment.id,
+          id: milestone.id,
           values: embedding,
           metadata: {
-            title: moment.title,
-            summary: moment.summary,
-            documentId: moment.documentId,
+            title: milestone.title,
+            summary: milestone.summary,
+            documentId: milestone.documentId,
             type: "subject",
           },
         },
       ]);
       console.log(
-        `[momentDb:subject-index] Successfully indexed root moment ${moment.id} as Subject in SUBJECT_INDEX (title: "${moment.title}", summary length: ${moment.summary.length})`
+        `[momentDb:subject-index] Successfully indexed root milestone ${milestone.id} as Subject in SUBJECT_INDEX (title: "${milestone.title}", summary length: ${milestone.summary.length})`
       );
     } else {
       console.log(
-        `[momentDb:subject-index] Moment ${moment.id} has parent ${moment.parentId}, skipping Subject indexing`
+        `[momentDb:subject-index] Milestone ${milestone.id} has parent ${milestone.parentId}, skipping Subject indexing`
       );
     }
   } catch (error) {
     console.error(
-      `[momentDb] Failed to generate/insert embedding for moment ${moment.id}:`,
+      `[momentDb] Failed to generate/insert embedding for milestone ${milestone.id}:`,
       error
     );
     // We continue to save to DB even if vector indexing fails
   }
 
   console.log(
-    `[momentDb:addMoment] Checking if moment ${
-      moment.id
-    } exists in DB (document: ${moment.documentId}, parent: ${
-      moment.parentId || "none"
+    `[momentDb:addMilestone] Checking if milestone ${
+      milestone.id
+    } exists in DB (document: ${milestone.documentId}, parent: ${
+      milestone.parentId || "none"
     })`
   );
   const existing = await db
-    .selectFrom("moments")
-    .where("id", "=", moment.id)
+    .selectFrom("milestones")
+    .where("id", "=", milestone.id)
     .selectAll()
     .executeTakeFirst();
 
   if (existing) {
     console.log(
-      `[momentDb:addMoment] Moment ${moment.id} exists, updating in DB...`
+      `[momentDb:addMilestone] Milestone ${milestone.id} exists, updating in DB...`
     );
     await db
-      .updateTable("moments")
+      .updateTable("milestones")
       .set({
-        document_id: moment.documentId,
-        summary: moment.summary,
-        title: moment.title,
-        parent_id: (moment.parentId ?? null) as any,
-        created_at: moment.createdAt,
-        author: moment.author,
-        source_metadata: (moment.sourceMetadata
-          ? JSON.stringify(moment.sourceMetadata)
+        document_id: milestone.documentId,
+        summary: milestone.summary,
+        title: milestone.title,
+        parent_id: (milestone.parentId ?? null) as any,
+        created_at: milestone.createdAt,
+        author: milestone.author,
+        source_metadata: (milestone.sourceMetadata
+          ? JSON.stringify(milestone.sourceMetadata)
           : null) as any,
       })
-      .where("id", "=", moment.id)
+      .where("id", "=", milestone.id)
       .execute();
-    console.log(`[momentDb:addMoment] Updated moment ${moment.id} in DB`);
+    console.log(
+      `[momentDb:addMilestone] Updated milestone ${milestone.id} in DB`
+    );
   } else {
     console.log(
-      `[momentDb:addMoment] Moment ${moment.id} does not exist, inserting into DB...`
+      `[momentDb:addMilestone] Milestone ${milestone.id} does not exist, inserting into DB...`
     );
     await db
-      .insertInto("moments")
+      .insertInto("milestones")
       .values({
-        id: moment.id,
-        document_id: moment.documentId,
-        summary: moment.summary,
-        title: moment.title,
-        parent_id: (moment.parentId ?? null) as any,
-        created_at: moment.createdAt,
-        author: moment.author,
-        source_metadata: (moment.sourceMetadata
-          ? JSON.stringify(moment.sourceMetadata)
+        id: milestone.id,
+        document_id: milestone.documentId,
+        summary: milestone.summary,
+        title: milestone.title,
+        parent_id: (milestone.parentId ?? null) as any,
+        created_at: milestone.createdAt,
+        author: milestone.author,
+        source_metadata: (milestone.sourceMetadata
+          ? JSON.stringify(milestone.sourceMetadata)
           : null) as any,
       })
       .execute();
-    console.log(`[momentDb:addMoment] Inserted moment ${moment.id} into DB`);
+    console.log(
+      `[momentDb:addMilestone] Inserted milestone ${milestone.id} into DB`
+    );
   }
 }
 
-export async function getMoment(id: string): Promise<Moment | null> {
-  console.log(`[momentDb:getMoment] Querying DB for moment ${id}`);
+export async function getMilestone(id: string): Promise<Milestone | null> {
+  console.log(`[momentDb:getMilestone] Querying DB for milestone ${id}`);
   const db = getMomentDb();
   const row = await db
-    .selectFrom("moments")
+    .selectFrom("milestones")
     .selectAll()
     .where("id", "=", id)
     .executeTakeFirst();
 
   if (row) {
     console.log(
-      `[momentDb:getMoment] Found moment ${id} in DB (title: "${row.title}")`
+      `[momentDb:getMilestone] Found milestone ${id} in DB (title: "${row.title}")`
     );
   } else {
-    console.log(`[momentDb:getMoment] Moment ${id} not found in DB`);
+    console.log(`[momentDb:getMilestone] Milestone ${id} not found in DB`);
   }
 
   if (!row) {
@@ -178,59 +184,61 @@ export async function getMoment(id: string): Promise<Moment | null> {
   };
 }
 
-export async function findSimilarMoments(
+export async function findSimilarMilestones(
   vector: number[],
   limit: number = 5
-): Promise<Moment[]> {
+): Promise<Milestone[]> {
   const searchResults = await env.MOMENT_INDEX.query(vector, {
     topK: limit,
     returnMetadata: true,
   });
 
-  const moments: Moment[] = [];
+  const milestones: Milestone[] = [];
   for (const match of searchResults.matches) {
-    const moment = await getMoment(match.id);
-    if (moment) {
-      moments.push(moment);
+    const milestone = await getMilestone(match.id);
+    if (milestone) {
+      milestones.push(milestone);
     }
   }
-  return moments;
+  return milestones;
 }
 
-export async function findAncestors(momentId: string): Promise<Moment[]> {
-  const ancestors: Moment[] = [];
-  let currentMomentId: string | undefined = momentId;
+export async function findAncestors(milestoneId: string): Promise<Milestone[]> {
+  const ancestors: Milestone[] = [];
+  let currentMilestoneId: string | undefined = milestoneId;
 
-  while (currentMomentId) {
-    const moment = await getMoment(currentMomentId);
-    if (moment) {
-      ancestors.unshift(moment);
-      currentMomentId = moment.parentId;
+  while (currentMilestoneId) {
+    const milestone = await getMilestone(currentMilestoneId);
+    if (milestone) {
+      ancestors.unshift(milestone);
+      currentMilestoneId = milestone.parentId;
     } else {
-      currentMomentId = undefined;
+      currentMilestoneId = undefined;
     }
   }
 
   return ancestors;
 }
 
-export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
+export async function findDescendants(
+  rootMilestoneId: string
+): Promise<Milestone[]> {
   console.log(
-    `[momentDb:findDescendants] Starting to find descendants for root moment: ${rootMomentId}`
+    `[momentDb:findDescendants] Starting to find descendants for root milestone: ${rootMilestoneId}`
   );
-  const descendants: Moment[] = [];
-  const rootMoment = await getMoment(rootMomentId);
-  if (!rootMoment) {
+  const descendants: Milestone[] = [];
+  const rootMilestone = await getMilestone(rootMilestoneId);
+  if (!rootMilestone) {
     console.log(
-      `[momentDb:findDescendants] Root moment ${rootMomentId} not found, returning empty array`
+      `[momentDb:findDescendants] Root milestone ${rootMilestoneId} not found, returning empty array`
     );
     return descendants;
   }
 
-  // Start with the root moment
-  descendants.push(rootMoment);
+  // Start with the root milestone
+  descendants.push(rootMilestone);
   console.log(
-    `[momentDb:findDescendants] Added root moment: ${rootMoment.id} (${rootMoment.title})`
+    `[momentDb:findDescendants] Added root milestone: ${rootMilestone.id} (${rootMilestone.title})`
   );
 
   // Recursively find all children
@@ -243,7 +251,7 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
       `[momentDb:findDescendants] Querying DB for children of parent ${parentId} at depth ${depth}`
     );
     const children = await db
-      .selectFrom("moments")
+      .selectFrom("milestones")
       .selectAll()
       .where("parent_id", "=", parentId)
       .orderBy("created_at", "asc")
@@ -254,7 +262,7 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
     );
 
     for (const row of children) {
-      const childMoment: Moment = {
+      const childMilestone: Milestone = {
         id: row.id,
         documentId: row.document_id,
         summary: row.summary,
@@ -266,20 +274,20 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
           ? (JSON.parse(row.source_metadata) as Record<string, any>)
           : undefined,
       };
-      descendants.push(childMoment);
+      descendants.push(childMilestone);
       console.log(
-        `[momentDb:findDescendants] Added descendant at depth ${depth}: ${childMoment.id} (${childMoment.title})`
+        `[momentDb:findDescendants] Added descendant at depth ${depth}: ${childMilestone.id} (${childMilestone.title})`
       );
       // Recursively find children of this child
       await findChildren(row.id, depth + 1);
     }
   };
 
-  await findChildren(rootMomentId, 0);
+  await findChildren(rootMilestoneId, 0);
   console.log(
     `[momentDb:findDescendants] Completed. Found ${
       descendants.length
-    } total moments (1 root + ${descendants.length - 1} descendants)`
+    } total milestones (1 root + ${descendants.length - 1} descendants)`
   );
   return descendants;
 }
@@ -287,7 +295,7 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
 export async function findSimilarSubjects(
   vector: number[],
   limit: number = 5
-): Promise<Moment[]> {
+): Promise<Milestone[]> {
   console.log(
     `[momentDb:findSimilarSubjects] Querying SUBJECT_INDEX with vector (dimension: ${vector.length}), limit: ${limit}`
   );
@@ -300,7 +308,7 @@ export async function findSimilarSubjects(
     `[momentDb:findSimilarSubjects] SUBJECT_INDEX returned ${searchResults.matches.length} matches`
   );
 
-  const subjects: Moment[] = [];
+  const subjects: Milestone[] = [];
   for (let i = 0; i < searchResults.matches.length; i++) {
     const match = searchResults.matches[i];
     console.log(
@@ -308,15 +316,15 @@ export async function findSimilarSubjects(
         match.score
       }, metadata=${JSON.stringify(match.metadata)}`
     );
-    const moment = await getMoment(match.id);
-    if (moment) {
-      subjects.push(moment);
+    const milestone = await getMilestone(match.id);
+    if (milestone) {
+      subjects.push(milestone);
       console.log(
-        `[momentDb:findSimilarSubjects] Successfully retrieved Subject moment: ${moment.id} (${moment.title})`
+        `[momentDb:findSimilarSubjects] Successfully retrieved Subject milestone: ${milestone.id} (${milestone.title})`
       );
     } else {
       console.warn(
-        `[momentDb:findSimilarSubjects] Subject moment ${match.id} not found in database`
+        `[momentDb:findSimilarSubjects] Subject milestone ${match.id} not found in database`
       );
     }
   }
@@ -327,12 +335,12 @@ export async function findSimilarSubjects(
   return subjects;
 }
 
-export async function findLastMomentForDocument(
+export async function findLastMilestoneForDocument(
   documentId: string
-): Promise<Moment | null> {
+): Promise<Milestone | null> {
   const db = getMomentDb();
   const rows = await db
-    .selectFrom("moments")
+    .selectFrom("milestones")
     .selectAll()
     .where("document_id", "=", documentId)
     .orderBy("created_at", "desc")
@@ -403,7 +411,7 @@ export async function clearDocumentStructureHash(): Promise<void> {
   console.log("[momentDb] Cleared all document structure hashes (testing)");
 }
 
-export interface MicroMoment {
+export interface Moment {
   id: string;
   documentId: string;
   path: string;
@@ -415,13 +423,13 @@ export interface MicroMoment {
   sourceMetadata?: Record<string, any>;
 }
 
-export async function getMicroMoment(
+export async function getMoment(
   documentId: string,
   path: string
-): Promise<MicroMoment | null> {
+): Promise<Moment | null> {
   const db = getMomentDb();
   const row = await db
-    .selectFrom("micro_moments")
+    .selectFrom("moments")
     .selectAll()
     .where("document_id", "=", documentId)
     .where("path", "=", path)
@@ -452,8 +460,8 @@ export async function getMicroMoment(
   };
 }
 
-export async function upsertMicroMoment(
-  microMoment: MicroMomentDescription,
+export async function upsertMoment(
+  moment: MomentDescription,
   documentId: string,
   summary: string,
   embedding: number[]
@@ -463,40 +471,40 @@ export async function upsertMicroMoment(
   const now = new Date().toISOString();
 
   await db
-    .insertInto("micro_moments")
+    .insertInto("moments")
     .values({
       id,
       document_id: documentId,
-      path: microMoment.path,
-      content: microMoment.content,
+      path: moment.path,
+      content: moment.content,
       summary: summary,
       embedding: JSON.stringify(embedding),
-      created_at: microMoment.createdAt || now,
-      author: microMoment.author,
-      source_metadata: microMoment.sourceMetadata
-        ? JSON.stringify(microMoment.sourceMetadata)
+      created_at: moment.createdAt || now,
+      author: moment.author,
+      source_metadata: moment.sourceMetadata
+        ? JSON.stringify(moment.sourceMetadata)
         : null,
     })
     .onConflict((oc) =>
       oc.columns(["document_id", "path"]).doUpdateSet({
-        content: microMoment.content,
+        content: moment.content,
         summary: summary,
         embedding: JSON.stringify(embedding),
-        author: microMoment.author,
-        source_metadata: microMoment.sourceMetadata
-          ? JSON.stringify(microMoment.sourceMetadata)
+        author: moment.author,
+        source_metadata: moment.sourceMetadata
+          ? JSON.stringify(moment.sourceMetadata)
           : null,
       })
     )
     .execute();
 }
 
-export async function getMicroMomentsForDocument(
+export async function getMomentsForDocument(
   documentId: string
-): Promise<MicroMoment[]> {
+): Promise<Moment[]> {
   const db = getMomentDb();
   const rows = await db
-    .selectFrom("micro_moments")
+    .selectFrom("moments")
     .selectAll()
     .where("document_id", "=", documentId)
     .orderBy("created_at", "asc")

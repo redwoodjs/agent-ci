@@ -9,9 +9,9 @@ import type {
   ReconstructedContext,
   Subject,
   SubjectSearchContext,
-  Moment,
+  Milestone,
+  MilestoneDescription,
   MomentDescription,
-  MicroMomentDescription,
 } from "./types";
 import { createDb, type Database } from "rwsdk/db";
 import type { SubjectDO } from "./subjectDb/durableObject";
@@ -24,13 +24,13 @@ import {
 import { type subjectMigrations } from "./subjectDb/migrations";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
 import {
-  addMoment,
-  findSimilarMoments,
+  addMilestone,
+  findSimilarMilestones,
   findAncestors,
-  getMicroMoment,
-  upsertMicroMoment,
-  getMicroMomentsForDocument,
-  type MicroMoment,
+  getMoment,
+  upsertMoment,
+  getMomentsForDocument,
+  type Moment,
 } from "./momentDb";
 import { callLLM } from "./utils/llm";
 import { getEmbedding } from "./utils/vector";
@@ -52,47 +52,47 @@ interface SynthesizedMoment {
   content: string;
 }
 
-async function synthesizeMicroMoments(
-  microMoments: MicroMoment[]
-): Promise<Array<MomentDescription & { summary: string }>> {
-  if (microMoments.length === 0) {
+async function synthesizeMoments(
+  moments: Moment[]
+): Promise<Array<MilestoneDescription & { summary: string }>> {
+  if (moments.length === 0) {
     return [];
   }
 
   console.log(
-    `[engine] Synthesizing ${microMoments.length} micro-moments into macro-moments`
+    `[engine] Synthesizing ${moments.length} moments into milestones`
   );
 
-  const formattedMoments = microMoments
+  const formattedMoments = moments
     .map(
       (moment, index) =>
-        `## Micro-Moment ${index + 1}\nPath: ${moment.path}\nSummary: ${
+        `## Moment ${index + 1}\nPath: ${moment.path}\nSummary: ${
           moment.summary || "No summary"
         }\nContent:\n${moment.content}\n`
     )
     .join("\n---\n\n");
 
-  const synthesisPrompt = `You are analyzing a development conversation that has been broken down into ${microMoments.length} micro-moments (individual exchanges). Your task is to identify which moments actually matter for understanding the narrative and consolidate related moments into higher-level "macro-moments."
+  const synthesisPrompt = `You are analyzing a development conversation that has been broken down into ${moments.length} moments (individual exchanges). Your task is to identify which moments actually matter for understanding the narrative and consolidate related moments into higher-level "milestones."
 
-Analyze the micro-moments below and:
-1. Identify which micro-moments are important milestones or turning points in the conversation
-2. Group related micro-moments together into macro-moments
+Analyze the moments below and:
+1. Identify which moments are important milestones or turning points in the conversation
+2. Group related moments together into milestones
 3. Filter out noise or redundant exchanges that don't add to the narrative
-4. For each macro-moment, generate:
+4. For each milestone, generate:
    - A concise title (past-tense event, e.g., "User login bug was fixed")
    - A detailed summary (2-4 sentences) that explains WHAT happened, WHY it happened, and HOW it was addressed
-   - The consolidated raw content from all micro-moments in this group
+   - The consolidated raw content from all moments in this group
 
 Return your response as a JSON array of objects with this exact structure:
 [
   {
     "title": "Past-tense event title",
     "summary": "Detailed explanation of what happened, why it happened, and how it was addressed",
-    "content": "Consolidated raw content from all micro-moments in this group"
+    "content": "Consolidated raw content from all moments in this group"
   }
 ]
 
-Micro-Moments:
+Moments:
 ${formattedMoments}
 
 Return only valid JSON, no other text.`;
@@ -121,20 +121,20 @@ Return only valid JSON, no other text.`;
       return [];
     }
 
-    const macroMoments: Array<MomentDescription & { summary: string }> =
+    const milestones: Array<MilestoneDescription & { summary: string }> =
       parsed.map((item) => ({
         title: item.title.trim(),
         content: item.content.trim(),
         summary: item.summary.trim(),
-        author: microMoments[0]?.author || "unknown",
-        createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
-        sourceMetadata: microMoments[0]?.sourceMetadata,
+        author: moments[0]?.author || "unknown",
+        createdAt: moments[0]?.createdAt || new Date().toISOString(),
+        sourceMetadata: moments[0]?.sourceMetadata,
       }));
 
     console.log(
-      `[engine] Successfully synthesized ${macroMoments.length} macro-moments`
+      `[engine] Successfully synthesized ${milestones.length} milestones`
     );
-    return macroMoments;
+    return milestones;
   } catch (error) {
     console.error(
       `[engine] Error during synthesis:`,
@@ -218,111 +218,104 @@ export async function indexDocument(
     return []; // Nothing more to do
   }
 
-  // 3. Extract and process micro-moments, then synthesize into macro-moments
-  // Subjects are now created automatically from root moments via the Moment Graph system.
-  // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
+  // 3. Extract and process moments, then synthesize into milestones
+  // Subjects are now created automatically from root milestones via the Moment Graph system.
+  // Root milestones (milestones with no parent) are indexed in SUBJECT_INDEX as Subjects.
   console.log(
-    `[engine] Extracting micro-moments from document ${document.id} (source: ${document.source})`
+    `[engine] Extracting moments from document ${document.id} (source: ${document.source})`
   );
-  const microMomentDescriptions = await runFirstMatchHook(
+  const momentDescriptions = await runFirstMatchHook(
     context.plugins,
-    "extractMicroMomentsFromDocument",
+    "extractMomentsFromDocument",
     (plugin) =>
-      plugin.subjects?.extractMicroMomentsFromDocument?.(
-        document,
-        indexingContext
-      )
+      plugin.subjects?.extractMomentsFromDocument?.(document, indexingContext)
   );
   console.log(
-    `[engine] extractMicroMomentsFromDocument returned ${
-      microMomentDescriptions?.length || 0
-    } micro-moment descriptions`
+    `[engine] extractMomentsFromDocument returned ${
+      momentDescriptions?.length || 0
+    } moment descriptions`
   );
 
-  if (microMomentDescriptions && microMomentDescriptions.length > 0) {
+  if (momentDescriptions && momentDescriptions.length > 0) {
     console.log(
-      `[engine] Plugin provided ${microMomentDescriptions.length} micro-moments. Processing cache and generating summaries/embeddings.`
+      `[engine] Plugin provided ${momentDescriptions.length} moments. Processing cache and generating summaries/embeddings.`
     );
 
-    // Process each micro-moment: check cache, generate summary/embedding if needed
-    for (let i = 0; i < microMomentDescriptions.length; i++) {
-      const microMomentDesc = microMomentDescriptions[i];
-      if (!microMomentDesc) {
+    // Process each moment: check cache, generate summary/embedding if needed
+    for (let i = 0; i < momentDescriptions.length; i++) {
+      const momentDesc = momentDescriptions[i];
+      if (!momentDesc) {
         console.log(
-          `[engine] Skipping micro-moment ${
-            i + 1
-          } - description is null/undefined`
+          `[engine] Skipping moment ${i + 1} - description is null/undefined`
         );
         continue;
       }
 
       console.log(
-        `[engine] Processing micro-moment ${i + 1}/${
-          microMomentDescriptions.length
-        }: path="${microMomentDesc.path}"`
+        `[engine] Processing moment ${i + 1}/${
+          momentDescriptions.length
+        }: path="${momentDesc.path}"`
       );
 
       // Check cache
-      const cached = await getMicroMoment(document.id, microMomentDesc.path);
+      const cached = await getMoment(document.id, momentDesc.path);
       if (cached && cached.summary && cached.embedding) {
         console.log(
-          `[engine] Cache hit for micro-moment path="${microMomentDesc.path}". Using cached summary/embedding.`
+          `[engine] Cache hit for moment path="${momentDesc.path}". Using cached summary/embedding.`
         );
         continue;
       }
 
       // Cache miss: generate summary and embedding
       console.log(
-        `[engine] Cache miss for micro-moment path="${microMomentDesc.path}". Generating summary and embedding.`
+        `[engine] Cache miss for moment path="${momentDesc.path}". Generating summary and embedding.`
       );
       const summary = await runFirstMatchHook(
         context.plugins,
         "summarizeMomentContent",
         (plugin) =>
           plugin.subjects?.summarizeMomentContent?.(
-            microMomentDesc.content,
+            momentDesc.content,
             indexingContext
           )
       );
 
       if (!summary) {
         console.warn(
-          `[engine] No plugin provided summary for micro-moment path="${microMomentDesc.path}". Skipping.`
+          `[engine] No plugin provided summary for moment path="${momentDesc.path}". Skipping.`
         );
         continue;
       }
 
       const embedding = await getEmbedding(summary);
-      await upsertMicroMoment(microMomentDesc, document.id, summary, embedding);
+      await upsertMoment(momentDesc, document.id, summary, embedding);
       console.log(
-        `[engine] Stored micro-moment path="${microMomentDesc.path}" with summary/embedding.`
+        `[engine] Stored moment path="${momentDesc.path}" with summary/embedding.`
       );
     }
 
-    // Retrieve all micro-moments for this document (now with summaries/embeddings)
-    const allMicroMoments = await getMicroMomentsForDocument(document.id);
+    // Retrieve all moments for this document (now with summaries/embeddings)
+    const allMoments = await getMomentsForDocument(document.id);
     console.log(
-      `[engine] Retrieved ${allMicroMoments.length} micro-moments for synthesis.`
+      `[engine] Retrieved ${allMoments.length} moments for synthesis.`
     );
 
-    if (allMicroMoments.length > 0) {
-      // Synthesize micro-moments into macro-moments
-      const macroMomentDescriptions = await synthesizeMicroMoments(
-        allMicroMoments
-      );
+    if (allMoments.length > 0) {
+      // Synthesize moments into milestones
+      const milestoneDescriptions = await synthesizeMoments(allMoments);
 
-      if (macroMomentDescriptions.length > 0) {
+      if (milestoneDescriptions.length > 0) {
         console.log(
-          `[engine] Synthesized ${macroMomentDescriptions.length} macro-moments. Storing them now.`
+          `[engine] Synthesized ${milestoneDescriptions.length} milestones. Storing them now.`
         );
 
-        let previousMomentId: string | undefined = undefined;
+        let previousMilestoneId: string | undefined = undefined;
 
-        for (let i = 0; i < macroMomentDescriptions.length; i++) {
-          const description = macroMomentDescriptions[i];
+        for (let i = 0; i < milestoneDescriptions.length; i++) {
+          const description = milestoneDescriptions[i];
           if (!description) {
             console.log(
-              `[engine] Skipping macro-moment ${
+              `[engine] Skipping milestone ${
                 i + 1
               } - description is null/undefined`
             );
@@ -330,45 +323,45 @@ export async function indexDocument(
           }
 
           console.log(
-            `[engine] Processing macro-moment ${i + 1}/${
-              macroMomentDescriptions.length
+            `[engine] Processing milestone ${i + 1}/${
+              milestoneDescriptions.length
             }: "${description.title}"`
           );
 
-          const momentId = crypto.randomUUID();
-          const moment: Moment = {
-            id: momentId,
+          const milestoneId = crypto.randomUUID();
+          const milestone: Milestone = {
+            id: milestoneId,
             documentId: document.id,
             summary:
               description.summary || description.content.substring(0, 200),
             title: description.title,
-            parentId: previousMomentId,
+            parentId: previousMilestoneId,
             createdAt: description.createdAt,
             author: description.author,
             sourceMetadata: description.sourceMetadata,
           };
 
           console.log(
-            `[engine] Adding macro-moment to DB: ${moment.id} (title: "${
-              moment.title
-            }", parent: ${moment.parentId || "none"})`
+            `[engine] Adding milestone to DB: ${milestone.id} (title: "${
+              milestone.title
+            }", parent: ${milestone.parentId || "none"})`
           );
-          await addMoment(moment);
+          await addMilestone(milestone);
           console.log(
-            `[engine] Successfully added macro-moment ${moment.id} to DB and vector indexes`
+            `[engine] Successfully added milestone ${milestone.id} to DB and vector indexes`
           );
 
-          previousMomentId = momentId;
+          previousMilestoneId = milestoneId;
         }
       } else {
         console.log(
-          `[engine] Synthesis returned no macro-moments. Skipping moment storage.`
+          `[engine] Synthesis returned no milestones. Skipping milestone storage.`
         );
       }
     }
   } else {
     console.log(
-      `[engine] No plugin provided micro-moment descriptions for document: ${document.id}. Skipping moment extraction.`
+      `[engine] No plugin provided moment descriptions for document: ${document.id}. Skipping moment extraction.`
     );
   }
 
@@ -439,46 +432,47 @@ export async function query(
     );
 
     if (similarSubjects.length > 0) {
-      const subjectMoment = similarSubjects[0];
+      const subjectMilestone = similarSubjects[0];
       console.log(
-        `[query:narrative] ✓ Found relevant Subject: ${subjectMoment.id} (${subjectMoment.title})`
+        `[query:narrative] ✓ Found relevant Subject: ${subjectMilestone.id} (${subjectMilestone.title})`
       );
       console.log(
-        `[query:narrative] Subject summary: "${subjectMoment.summary.substring(
+        `[query:narrative] Subject summary: "${subjectMilestone.summary.substring(
           0,
           100
         )}..."`
       );
 
-      // Get the full narrative timeline (root moment + all descendants)
+      // Get the full narrative timeline (root milestone + all descendants)
       const timelineStart = Date.now();
-      const timeline = await findDescendants(subjectMoment.id);
+      const timeline = await findDescendants(subjectMilestone.id);
       console.log(
         `[query:narrative] Timeline retrieval completed in ${
           Date.now() - timelineStart
         }ms`
       );
       console.log(
-        `[query:narrative] ✓ Reconstructed Subject timeline with ${timeline.length} moments:`
+        `[query:narrative] ✓ Reconstructed Subject timeline with ${timeline.length} milestones:`
       );
-      timeline.forEach((moment, idx) => {
+      timeline.forEach((milestone, idx) => {
         console.log(
-          `[query:narrative]   ${idx + 1}. ${moment.title} (${moment.id})`
+          `[query:narrative]   ${idx + 1}. ${milestone.title} (${milestone.id})`
         );
       });
 
       if (timeline.length > 0) {
-        // Build narrative context from moment summaries
+        // Build narrative context from milestone summaries
         const narrativeContext = timeline
           .map(
-            (moment, idx) => `${idx + 1}. ${moment.title}: ${moment.summary}`
+            (milestone, idx) =>
+              `${idx + 1}. ${milestone.title}: ${milestone.summary}`
           )
           .join("\n\n");
 
-        const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
+        const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related milestones in chronological order.
 
 ## Subject
-${subjectMoment.title}: ${subjectMoment.summary}
+${subjectMilestone.title}: ${subjectMilestone.summary}
 
 ## Timeline
 ${narrativeContext}

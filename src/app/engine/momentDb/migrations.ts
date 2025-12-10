@@ -5,7 +5,7 @@ export const momentMigrations = {
     async up(db) {
       return [
         await db.schema
-          .createTable("moments")
+          .createTable("milestones")
           .addColumn("id", "text", (col) => col.primaryKey())
           .addColumn("document_id", "text", (col) => col.notNull())
           .addColumn("summary", "text", (col) => col.notNull())
@@ -16,19 +16,19 @@ export const momentMigrations = {
           .addColumn("source_metadata", "text")
           .execute(),
         await db.schema
-          .createIndex("moments_parent_id_idx")
-          .on("moments")
+          .createIndex("milestones_parent_id_idx")
+          .on("milestones")
           .column("parent_id")
           .execute(),
         await db.schema
-          .createIndex("moments_document_id_idx")
-          .on("moments")
+          .createIndex("milestones_document_id_idx")
+          .on("milestones")
           .column("document_id")
           .execute(),
       ];
     },
     async down(db) {
-      await db.schema.dropTable("moments").execute();
+      await db.schema.dropTable("milestones").execute();
     },
   },
   "002_add_document_structure_hash": {
@@ -46,11 +46,11 @@ export const momentMigrations = {
       await db.schema.dropTable("document_structure_hash").execute();
     },
   },
-  "003_add_micro_moments": {
+  "003_add_moments": {
     async up(db) {
       return [
         await db.schema
-          .createTable("micro_moments")
+          .createTable("moments")
           .addColumn("id", "text", (col) => col.primaryKey())
           .addColumn("document_id", "text", (col) => col.notNull())
           .addColumn("path", "text", (col) => col.notNull())
@@ -62,20 +62,20 @@ export const momentMigrations = {
           .addColumn("source_metadata", "text")
           .execute(),
         await db.schema
-          .createIndex("micro_moments_document_path_idx")
-          .on("micro_moments")
+          .createIndex("moments_document_path_idx")
+          .on("moments")
           .columns(["document_id", "path"])
           .unique()
           .execute(),
         await db.schema
-          .createIndex("micro_moments_document_id_idx")
-          .on("micro_moments")
+          .createIndex("moments_document_id_idx")
+          .on("moments")
           .column("document_id")
           .execute(),
       ];
     },
     async down(db) {
-      await db.schema.dropTable("micro_moments").execute();
+      await db.schema.dropTable("moments").execute();
     },
   },
 } satisfies Migrations;

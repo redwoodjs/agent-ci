@@ -73,7 +73,7 @@ async function synthesizeMicroMoments(
 
   const synthesisPrompt = `You are an expert at analyzing sequences of events to build a coherent narrative. Your task is to consolidate a series of low-level "micro-moments" into a smaller number of high-level "macro-moments" that tell a story of progress, discovery, and decision-making.
 
-**Your Goal:** Identify and record the most significant events. Specifically look for turning points, key discoveries or realizations, important decisions, changes in approach / new attempts at solving the problem, etc
+**Your Goal:** Identify and record the most significant events. Specifically look for turning points, key discoveries or realizations, newly identified problems, new insights, important decisions, changes in approach, new attempts at solving the problem
 
 **Output format (strictly follow this):**
 

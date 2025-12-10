@@ -96,16 +96,19 @@ Return your response as a JSON array of objects with this exact structure:
 Micro-Moments:
 ${formattedMoments}
 
-Return only valid JSON, no other text.`;
+IMPORTANT: Your response must be ONLY a valid JSON array. Do not include any explanatory text, comments, or markdown formatting. Start your response with [ and end with ].`;
 
   try {
     const response = await callLLM(synthesisPrompt, "gpt-oss-20b");
     console.log(`[engine] LLM synthesis response length: ${response.length}`);
 
-    const jsonMatch = response.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
+    // Try to find JSON array in the response - look for the first [ and last ]
+    let jsonStart = response.indexOf("[");
+    let jsonEnd = response.lastIndexOf("]");
+
+    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
       console.error(
-        `[engine] Failed to extract JSON from LLM response. Response: ${response.substring(
+        `[engine] Failed to find JSON array in LLM response. Response: ${response.substring(
           0,
           500
         )}`
@@ -113,7 +116,21 @@ Return only valid JSON, no other text.`;
       return [];
     }
 
-    const parsed = JSON.parse(jsonMatch[0]) as SynthesizedMoment[];
+    const jsonString = response.substring(jsonStart, jsonEnd + 1);
+    let parsed: SynthesizedMoment[];
+
+    try {
+      parsed = JSON.parse(jsonString) as SynthesizedMoment[];
+    } catch (parseError) {
+      console.error(
+        `[engine] Failed to parse JSON. JSON string: ${jsonString.substring(
+          0,
+          500
+        )}`
+      );
+      console.error(`[engine] Parse error:`, parseError);
+      return [];
+    }
 
     if (!Array.isArray(parsed)) {
       console.error(

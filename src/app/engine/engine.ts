@@ -377,24 +377,55 @@ export async function query(
 
   // Narrative Query Path: Try to answer using Subject (root moment) first
   console.log(
-    `[query] Step 0: Attempting narrative query via Subject Graph...`
+    `[query:narrative] Step 0: Attempting narrative query via Subject Graph...`
   );
+  console.log(`[query:narrative] User query: "${userQuery}"`);
   try {
+    const embeddingStart = Date.now();
     const queryEmbedding = await generateEmbedding(userQuery);
+    console.log(
+      `[query:narrative] Generated query embedding in ${
+        Date.now() - embeddingStart
+      }ms (dimension: ${queryEmbedding.length})`
+    );
+
     const { findSimilarSubjects, findDescendants } = await import("./momentDb");
+    const subjectSearchStart = Date.now();
     const similarSubjects = await findSimilarSubjects(queryEmbedding, 1);
+    console.log(
+      `[query:narrative] Subject search completed in ${
+        Date.now() - subjectSearchStart
+      }ms`
+    );
 
     if (similarSubjects.length > 0) {
       const subjectMoment = similarSubjects[0];
       console.log(
-        `[query] Found relevant Subject: ${subjectMoment.id} (${subjectMoment.title})`
+        `[query:narrative] ✓ Found relevant Subject: ${subjectMoment.id} (${subjectMoment.title})`
+      );
+      console.log(
+        `[query:narrative] Subject summary: "${subjectMoment.summary.substring(
+          0,
+          100
+        )}..."`
       );
 
       // Get the full narrative timeline (root moment + all descendants)
+      const timelineStart = Date.now();
       const timeline = await findDescendants(subjectMoment.id);
       console.log(
-        `[query] Reconstructed Subject timeline with ${timeline.length} moments`
+        `[query:narrative] Timeline retrieval completed in ${
+          Date.now() - timelineStart
+        }ms`
       );
+      console.log(
+        `[query:narrative] ✓ Reconstructed Subject timeline with ${timeline.length} moments:`
+      );
+      timeline.forEach((moment, idx) => {
+        console.log(
+          `[query:narrative]   ${idx + 1}. ${moment.title} (${moment.id})`
+        );
+      });
 
       if (timeline.length > 0) {
         // Build narrative context from moment summaries
@@ -418,18 +449,33 @@ ${userQuery}
 ## Instructions
 Provide a clear, narrative answer that explains the story and causal relationships between events. Focus on answering "why" and "how" questions based on the Subject and the sequence of events in its timeline.`;
 
+        const llmStart = Date.now();
         const narrativeAnswer = await callLlm(narrativePrompt);
         console.log(
-          `[query] Narrative query path succeeded. Total time: ${
+          `[query:narrative] LLM call completed in ${Date.now() - llmStart}ms`
+        );
+        console.log(
+          `[query:narrative] ✓ Narrative query path succeeded. Total time: ${
             Date.now() - totalStart
           }ms`
         );
+        console.log(
+          `[query:narrative] Answer length: ${narrativeAnswer.length} characters`
+        );
         return narrativeAnswer;
+      } else {
+        console.log(
+          `[query:narrative] Timeline is empty, falling back to chunk-based RAG`
+        );
       }
+    } else {
+      console.log(
+        `[query:narrative] No Subjects found matching query, falling back to chunk-based RAG`
+      );
     }
   } catch (error) {
     console.error(
-      `[query] Narrative query path failed, falling back to chunk-based RAG:`,
+      `[query:narrative] ✗ Narrative query path failed, falling back to chunk-based RAG:`,
       error
     );
     // Fall through to the existing chunk-based RAG system

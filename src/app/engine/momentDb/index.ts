@@ -46,6 +46,9 @@ export async function addMoment(moment: Moment): Promise<void> {
 
     // If this is a root moment (no parent), also index it as a Subject
     if (!moment.parentId) {
+      console.log(
+        `[momentDb:subject-index] Root moment detected: ${moment.id} (${moment.title}). Indexing as Subject...`
+      );
       await env.SUBJECT_INDEX.upsert([
         {
           id: moment.id,
@@ -59,7 +62,11 @@ export async function addMoment(moment: Moment): Promise<void> {
         },
       ]);
       console.log(
-        `[momentDb] Indexed root moment ${moment.id} as Subject in SUBJECT_INDEX`
+        `[momentDb:subject-index] Successfully indexed root moment ${moment.id} as Subject in SUBJECT_INDEX (title: "${moment.title}", summary length: ${moment.summary.length})`
+      );
+    } else {
+      console.log(
+        `[momentDb:subject-index] Moment ${moment.id} has parent ${moment.parentId}, skipping Subject indexing`
       );
     }
   } catch (error) {
@@ -174,24 +181,40 @@ export async function findAncestors(momentId: string): Promise<Moment[]> {
 }
 
 export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
+  console.log(
+    `[momentDb:findDescendants] Starting to find descendants for root moment: ${rootMomentId}`
+  );
   const descendants: Moment[] = [];
   const rootMoment = await getMoment(rootMomentId);
   if (!rootMoment) {
+    console.log(
+      `[momentDb:findDescendants] Root moment ${rootMomentId} not found, returning empty array`
+    );
     return descendants;
   }
 
   // Start with the root moment
   descendants.push(rootMoment);
+  console.log(
+    `[momentDb:findDescendants] Added root moment: ${rootMoment.id} (${rootMoment.title})`
+  );
 
   // Recursively find all children
   const db = getMomentDb();
-  const findChildren = async (parentId: string): Promise<void> => {
+  const findChildren = async (
+    parentId: string,
+    depth: number = 0
+  ): Promise<void> => {
     const children = await db
       .selectFrom("moments")
       .selectAll()
       .where("parent_id", "=", parentId)
       .orderBy("created_at", "asc")
       .execute();
+
+    console.log(
+      `[momentDb:findDescendants] Found ${children.length} direct children for parent ${parentId} at depth ${depth}`
+    );
 
     for (const row of children) {
       const childMoment: Moment = {
@@ -207,12 +230,20 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
           : undefined,
       };
       descendants.push(childMoment);
+      console.log(
+        `[momentDb:findDescendants] Added descendant at depth ${depth}: ${childMoment.id} (${childMoment.title})`
+      );
       // Recursively find children of this child
-      await findChildren(row.id);
+      await findChildren(row.id, depth + 1);
     }
   };
 
-  await findChildren(rootMomentId);
+  await findChildren(rootMomentId, 0);
+  console.log(
+    `[momentDb:findDescendants] Completed. Found ${
+      descendants.length
+    } total moments (1 root + ${descendants.length - 1} descendants)`
+  );
   return descendants;
 }
 
@@ -220,18 +251,42 @@ export async function findSimilarSubjects(
   vector: number[],
   limit: number = 5
 ): Promise<Moment[]> {
+  console.log(
+    `[momentDb:findSimilarSubjects] Querying SUBJECT_INDEX with vector (dimension: ${vector.length}), limit: ${limit}`
+  );
   const searchResults = await env.SUBJECT_INDEX.query(vector, {
     topK: limit,
     returnMetadata: true,
   });
 
+  console.log(
+    `[momentDb:findSimilarSubjects] SUBJECT_INDEX returned ${searchResults.matches.length} matches`
+  );
+
   const subjects: Moment[] = [];
-  for (const match of searchResults.matches) {
+  for (let i = 0; i < searchResults.matches.length; i++) {
+    const match = searchResults.matches[i];
+    console.log(
+      `[momentDb:findSimilarSubjects] Match ${i + 1}: id=${match.id}, score=${
+        match.score
+      }, metadata=${JSON.stringify(match.metadata)}`
+    );
     const moment = await getMoment(match.id);
     if (moment) {
       subjects.push(moment);
+      console.log(
+        `[momentDb:findSimilarSubjects] Successfully retrieved Subject moment: ${moment.id} (${moment.title})`
+      );
+    } else {
+      console.warn(
+        `[momentDb:findSimilarSubjects] Subject moment ${match.id} not found in database`
+      );
     }
   }
+
+  console.log(
+    `[momentDb:findSimilarSubjects] Returning ${subjects.length} Subjects`
+  );
   return subjects;
 }
 

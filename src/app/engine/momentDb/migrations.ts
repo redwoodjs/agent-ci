@@ -1,4 +1,5 @@
 import { type Migrations } from "rwsdk/db";
+import { sql } from "rwsdk/db";
 
 export const momentMigrations = {
   "001_initial_schema": {
@@ -46,7 +47,42 @@ export const momentMigrations = {
       await db.schema.dropTable("document_structure_hash").execute();
     },
   },
-  "003_add_moments": {
+  "003_rename_moments_to_milestones": {
+    async up(db) {
+      const momentsTable = await db
+        .selectFrom("sqlite_master")
+        .select("name")
+        .where("type", "=", "table")
+        .where("name", "=", "moments")
+        .executeTakeFirst();
+
+      const milestonesTable = await db
+        .selectFrom("sqlite_master")
+        .select("name")
+        .where("type", "=", "table")
+        .where("name", "=", "milestones")
+        .executeTakeFirst();
+
+      if (momentsTable && !milestonesTable) {
+        await sql`ALTER TABLE moments RENAME TO milestones`.execute(db);
+      }
+      return [];
+    },
+    async down(db) {
+      const result = await db
+        .selectFrom("sqlite_master")
+        .select("name")
+        .where("type", "=", "table")
+        .where("name", "=", "milestones")
+        .executeTakeFirst();
+
+      if (result) {
+        await sql`ALTER TABLE milestones RENAME TO moments`.execute(db);
+      }
+      return [];
+    },
+  },
+  "004_add_moments": {
     async up(db) {
       return [
         await db.schema

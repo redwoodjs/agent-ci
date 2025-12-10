@@ -151,24 +151,12 @@ ${formattedMoments}
       console.error(
         `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`
       );
-      // Fallback: create a single macro-moment from all micro-moments
-      console.log(
-        `[engine] Creating fallback macro-moment from all ${microMoments.length} micro-moments`
+      throw new Error(
+        `Failed to parse macro-moments from LLM response. Response: ${response.substring(
+          0,
+          500
+        )}`
       );
-      const content = microMoments
-        .map((m) => m.content)
-        .filter(Boolean)
-        .join("\n\n---\n\n");
-      return [
-        {
-          title: "Document processing",
-          summary: `Processed ${microMoments.length} micro-moments from the document.`,
-          content: content || "",
-          author: microMoments[0]?.author || "unknown",
-          createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
-          sourceMetadata: microMoments[0]?.sourceMetadata,
-        },
-      ];
     }
 
     console.log(

@@ -74,6 +74,9 @@ export async function callLLM(
           : "N/A"
       }`
     );
+    console.log(
+      `[llm] Raw response structure: ${JSON.stringify(response, null, 2)}`
+    );
   } catch (error) {
     console.error(`[llm] AI.run(${model}) error:`, error);
     console.error(

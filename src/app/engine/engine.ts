@@ -110,11 +110,19 @@ export async function indexDocument(
   // 3. Extract moments from the document
   // Subjects are now created automatically from root moments via the Moment Graph system.
   // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
+  console.log(
+    `[engine] Extracting moments from document ${document.id} (source: ${document.source})`
+  );
   const momentDescriptions = await runFirstMatchHook(
     context.plugins,
     "extractMomentsFromDocument",
     (plugin) =>
       plugin.subjects?.extractMomentsFromDocument?.(document, indexingContext)
+  );
+  console.log(
+    `[engine] extractMomentsFromDocument returned ${
+      momentDescriptions?.length || 0
+    } moment descriptions`
   );
 
   if (momentDescriptions && momentDescriptions.length > 0) {
@@ -127,9 +135,17 @@ export async function indexDocument(
     for (let i = 0; i < momentDescriptions.length; i++) {
       const description = momentDescriptions[i];
       if (!description) {
+        console.log(
+          `[engine] Skipping moment ${i + 1} - description is null/undefined`
+        );
         continue;
       }
 
+      console.log(
+        `[engine] Processing moment ${i + 1}/${momentDescriptions.length}: "${
+          description.title
+        }" (content length: ${description.content.length})`
+      );
       const summary = await runFirstMatchHook(
         context.plugins,
         "summarizeMomentContent",
@@ -159,7 +175,15 @@ export async function indexDocument(
         sourceMetadata: description.sourceMetadata,
       };
 
+      console.log(
+        `[engine] Adding moment to DB: ${moment.id} (title: "${
+          moment.title
+        }", parent: ${moment.parentId || "none"})`
+      );
       await addMoment(moment);
+      console.log(
+        `[engine] Successfully added moment ${moment.id} to DB and vector indexes`
+      );
 
       console.log(
         `[engine] Created moment ${momentId} (parent: ${

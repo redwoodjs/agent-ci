@@ -107,7 +107,29 @@ export const cursorPlugin: Plugin = {
         throw new Error(`R2 object not found: ${document.id}`);
       }
       const jsonText = await object.text();
-      const data = JSON.parse(jsonText) as CursorConversationLatestJson;
+      console.log(
+        `[cursor-plugin] Fetched R2 object, length: ${
+          jsonText.length
+        }, first 100 chars: ${jsonText.substring(0, 100)}`
+      );
+      let data: CursorConversationLatestJson;
+      try {
+        data = JSON.parse(jsonText) as CursorConversationLatestJson;
+      } catch (error) {
+        console.error(
+          `[cursor-plugin] Failed to parse JSON for ${
+            document.id
+          }. JSON text length: ${
+            jsonText.length
+          }, first 200 chars: ${jsonText.substring(0, 200)}`
+        );
+        throw error;
+      }
+      console.log(
+        `[cursor-plugin] Parsed JSON successfully. Generations count: ${
+          data.generations?.length || 0
+        }`
+      );
 
       // Compute structure hash from all generation IDs
       const generationIds = data.generations.map((gen) => gen.id);
@@ -241,6 +263,9 @@ export const cursorPlugin: Plugin = {
       }
 
       // 2. Second Pass: Group exchanges by similarity
+      console.log(
+        `[cursor-plugin] Starting second pass: grouping ${exchanges.length} exchanges into moments (similarity threshold: 0.9)`
+      );
       const moments: MomentDescription[] = [];
       let currentMomentExchanges: Exchange[] = [exchanges[0]];
       const SIMILARITY_THRESHOLD = 0.9;
@@ -252,8 +277,20 @@ export const cursorPlugin: Plugin = {
 
         if (similarity >= SIMILARITY_THRESHOLD) {
           currentMomentExchanges.push(exchanges[i]);
+          console.log(
+            `[cursor-plugin] Exchange ${i} added to current moment (similarity: ${similarity.toFixed(
+              3
+            )}, moment size: ${currentMomentExchanges.length})`
+          );
         } else {
           // Consolidate the completed moment
+          console.log(
+            `[cursor-plugin] Similarity ${similarity.toFixed(
+              3
+            )} < threshold, consolidating moment with ${
+              currentMomentExchanges.length
+            } exchanges`
+          );
           const momentContent = currentMomentExchanges
             .map((e) => e.content)
             .join("\n\n---\n\n");
@@ -268,14 +305,21 @@ export const cursorPlugin: Plugin = {
             createdAt: currentMomentExchanges[0].createdAt,
             sourceMetadata: document.metadata.sourceMetadata,
           });
+          console.log(
+            `[cursor-plugin] Created moment ${moments.length}: "${momentTitle}" (${currentMomentExchanges.length} exchanges)`
+          );
 
           // Start a new moment
           currentMomentExchanges = [exchanges[i]];
+          console.log(`[cursor-plugin] Starting new moment with exchange ${i}`);
         }
       }
 
       // Consolidate the last moment
       if (currentMomentExchanges.length > 0) {
+        console.log(
+          `[cursor-plugin] Consolidating final moment with ${currentMomentExchanges.length} exchanges`
+        );
         const momentContent = currentMomentExchanges
           .map((e) => e.content)
           .join("\n\n---\n\n");
@@ -289,8 +333,14 @@ export const cursorPlugin: Plugin = {
           createdAt: currentMomentExchanges[0].createdAt,
           sourceMetadata: document.metadata.sourceMetadata,
         });
+        console.log(
+          `[cursor-plugin] Created final moment ${moments.length}: "${momentTitle}" (${currentMomentExchanges.length} exchanges)`
+        );
       }
 
+      console.log(
+        `[cursor-plugin] Completed moment extraction: created ${moments.length} moments from ${exchanges.length} exchanges`
+      );
       return moments.length > 0 ? moments : null;
     },
   },

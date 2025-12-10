@@ -28,9 +28,27 @@ export async function getExchangeCache(
 
   const cache = new Map<string, { summary: string; embedding: number[] }>();
   for (const row of rows) {
+    // rwsdk/db auto-parses JSON columns, so embedding should already be an array
+    let embedding: number[];
+    if (Array.isArray(row.embedding)) {
+      embedding = row.embedding;
+    } else if (typeof row.embedding === "string") {
+      // Fallback: parse if it's still a string (shouldn't happen with auto-parsing)
+      console.warn(
+        `[cursorDb] Embedding is still a string, parsing manually. This shouldn't happen if auto-parsing is working.`
+      );
+      embedding = JSON.parse(row.embedding) as number[];
+    } else {
+      console.error(
+        `[cursorDb] Unexpected embedding type: ${typeof row.embedding}, value: ${JSON.stringify(
+          row.embedding
+        ).substring(0, 100)}`
+      );
+      continue;
+    }
     cache.set(row.generation_id, {
       summary: row.summary,
-      embedding: JSON.parse(row.embedding) as number[],
+      embedding,
     });
   }
 

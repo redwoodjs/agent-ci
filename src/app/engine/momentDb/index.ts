@@ -17,10 +17,18 @@ function getMomentDb() {
 }
 
 export async function addMoment(moment: Moment): Promise<void> {
+  console.log(
+    `[momentDb:addMoment] Starting to add moment ${moment.id} (title: "${
+      moment.title
+    }", document: ${moment.documentId}, parent: ${moment.parentId || "none"})`
+  );
   const db = getMomentDb();
 
   // Generate embedding for the moment summary
   try {
+    console.log(
+      `[momentDb:addMoment] Generating embedding for moment ${moment.id} (summary length: ${moment.summary.length})`
+    );
     const embedding = await getEmbedding(moment.summary);
     // Index the moment in Vectorize
     await env.MOMENT_INDEX.insert([
@@ -77,6 +85,13 @@ export async function addMoment(moment: Moment): Promise<void> {
     // We continue to save to DB even if vector indexing fails
   }
 
+  console.log(
+    `[momentDb:addMoment] Checking if moment ${
+      moment.id
+    } exists in DB (document: ${moment.documentId}, parent: ${
+      moment.parentId || "none"
+    })`
+  );
   const existing = await db
     .selectFrom("moments")
     .where("id", "=", moment.id)
@@ -84,6 +99,9 @@ export async function addMoment(moment: Moment): Promise<void> {
     .executeTakeFirst();
 
   if (existing) {
+    console.log(
+      `[momentDb:addMoment] Moment ${moment.id} exists, updating in DB...`
+    );
     await db
       .updateTable("moments")
       .set({
@@ -99,7 +117,11 @@ export async function addMoment(moment: Moment): Promise<void> {
       })
       .where("id", "=", moment.id)
       .execute();
+    console.log(`[momentDb:addMoment] Updated moment ${moment.id} in DB`);
   } else {
+    console.log(
+      `[momentDb:addMoment] Moment ${moment.id} does not exist, inserting into DB...`
+    );
     await db
       .insertInto("moments")
       .values({
@@ -115,16 +137,26 @@ export async function addMoment(moment: Moment): Promise<void> {
           : null) as any,
       })
       .execute();
+    console.log(`[momentDb:addMoment] Inserted moment ${moment.id} into DB`);
   }
 }
 
 export async function getMoment(id: string): Promise<Moment | null> {
+  console.log(`[momentDb:getMoment] Querying DB for moment ${id}`);
   const db = getMomentDb();
   const row = await db
     .selectFrom("moments")
     .selectAll()
     .where("id", "=", id)
     .executeTakeFirst();
+
+  if (row) {
+    console.log(
+      `[momentDb:getMoment] Found moment ${id} in DB (title: "${row.title}")`
+    );
+  } else {
+    console.log(`[momentDb:getMoment] Moment ${id} not found in DB`);
+  }
 
   if (!row) {
     return null;
@@ -139,7 +171,9 @@ export async function getMoment(id: string): Promise<Moment | null> {
     createdAt: row.created_at,
     author: row.author,
     sourceMetadata: row.source_metadata
-      ? (JSON.parse(row.source_metadata) as Record<string, any>)
+      ? typeof row.source_metadata === "string"
+        ? (JSON.parse(row.source_metadata) as Record<string, any>)
+        : (row.source_metadata as Record<string, any>)
       : undefined,
   };
 }
@@ -205,6 +239,9 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
     parentId: string,
     depth: number = 0
   ): Promise<void> => {
+    console.log(
+      `[momentDb:findDescendants] Querying DB for children of parent ${parentId} at depth ${depth}`
+    );
     const children = await db
       .selectFrom("moments")
       .selectAll()
@@ -316,7 +353,9 @@ export async function findLastMomentForDocument(
     createdAt: row.created_at,
     author: row.author,
     sourceMetadata: row.source_metadata
-      ? (JSON.parse(row.source_metadata) as Record<string, any>)
+      ? typeof row.source_metadata === "string"
+        ? (JSON.parse(row.source_metadata) as Record<string, any>)
+        : (row.source_metadata as Record<string, any>)
       : undefined,
   };
 }

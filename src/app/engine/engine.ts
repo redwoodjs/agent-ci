@@ -71,9 +71,10 @@ async function synthesizeMicroMoments(
     )
     .join("\n---\n\n");
 
-  const synthesisPrompt = `You are a data formatter. Your task is to group micro-moments into macro-moments and output them in the exact format below.
+  const synthesisPrompt = `You are a data formatter. Your task is to group micro-moments into macro-moments. For each macro-moment, write a title and a summary that is self-contained and provides a high-level view of what happened and why it's significant to the project.
 
 DO NOT write any reasoning, explanation, or discussion. ONLY output the formatted blocks.
+
 
 Output format:
 
@@ -91,7 +92,7 @@ ${formattedMoments}
 Your response must begin with "MACRO-MOMENT 1" and contain only formatted blocks.`;
 
   try {
-    const response = await callLLM(synthesisPrompt, "gpt-oss-20b");
+    const response = await callLLM(synthesisPrompt, "gpt-oss-20b-cheap");
     console.log(`[engine] LLM synthesis response length: ${response.length}`);
 
     // Check if response starts with expected format
@@ -107,7 +108,7 @@ Your response must begin with "MACRO-MOMENT 1" and contain only formatted blocks
     // Parse structured text format - extract blocks even if there's extra text
     const macroMoments: Array<MomentDescription & { summary: string }> = [];
     const momentRegex =
-      /MACRO-MOMENT \d+\s+TITLE:\s*(.+?)\s+SUMMARY:\s*(.+?)(?=\s+MACRO-MOMENT \d+|$)/gs;
+      /MACRO-MOMENT \d+\s*TITLE:\s*(.*?)\s*SUMMARY:\s*([\s\S]*?)(?=\s*MACRO-MOMENT \d+|$)/g;
 
     let match;
     while ((match = momentRegex.exec(response)) !== null) {
@@ -159,12 +160,7 @@ Your response must begin with "MACRO-MOMENT 1" and contain only formatted blocks
       `[engine] Successfully synthesized ${macroMoments.length} macro-moments:`
     );
     macroMoments.forEach((moment, i) => {
-      console.log(
-        `[engine]   ${i + 1}. "${moment.title}" - ${moment.summary.substring(
-          0,
-          100
-        )}...`
-      );
+      console.log(`[engine]   ${i + 1}. "${moment.title}" - ${moment.summary}`);
     });
     return macroMoments;
   } catch (error) {

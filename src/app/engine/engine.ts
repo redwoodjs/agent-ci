@@ -66,43 +66,48 @@ async function synthesizeMicroMoments(
 
   const formattedMoments = microMoments
     .map(
-      (moment, index) =>
-        `## Micro-Moment ${index + 1}\nPath: ${moment.path}\nSummary: ${
-          moment.summary || "No summary"
-        }\n`
+      (moment) =>
+        `Path: ${moment.path}\nSummary: ${moment.summary || "No summary"}\n`
     )
     .join("\n---\n\n");
 
-  const synthesisPrompt = `You must output ONLY the formatted blocks below. Do not include any reasoning, explanation, discussion, or thinking process.
+  const synthesisPrompt = `You are a data formatter. Your task is to group micro-moments into macro-moments and output them in the exact format below.
 
-REQUIRED OUTPUT FORMAT (copy exactly, replace N with numbers starting at 1):
+DO NOT write any reasoning, explanation, or discussion. ONLY output the formatted blocks.
 
-=== MACRO-MOMENT 1 ===
+Output format:
+
+MACRO-MOMENT 1
 TITLE: Past-tense event title
 SUMMARY: 2-4 sentences explaining what happened, why, and how
-=== END MACRO-MOMENT 1 ===
 
-=== MACRO-MOMENT 2 ===
+MACRO-MOMENT 2
 TITLE: Past-tense event title
 SUMMARY: 2-4 sentences explaining what happened, why, and how
-=== END MACRO-MOMENT 2 ===
 
-Analyze the ${microMoments.length} micro-moments below and group related ones into macro-moments. Then output ONLY the formatted blocks above.
-
-Micro-Moments:
+Input micro-moments:
 ${formattedMoments}
 
-REMEMBER: Start your response immediately with "=== MACRO-MOMENT 1 ===". Do not write anything before that.`;
+Your response must begin with "MACRO-MOMENT 1" and contain only formatted blocks.`;
 
   try {
     const response = await callLLM(synthesisPrompt, "gpt-oss-20b");
     console.log(`[engine] LLM synthesis response length: ${response.length}`);
+
+    // Check if response starts with expected format
+    if (!response.trim().startsWith("MACRO-MOMENT")) {
+      console.error(
+        `[engine] LLM response does not start with expected format. Full response:\n${response}`
+      );
+    } else {
+      console.log(`[engine] LLM response starts with expected format`);
+    }
     console.log(`[engine] LLM synthesis full response:\n${response}`);
 
     // Parse structured text format - extract blocks even if there's extra text
     const macroMoments: Array<MomentDescription & { summary: string }> = [];
     const momentRegex =
-      /=== MACRO-MOMENT \d+ ===\s*TITLE:\s*(.+?)\s*SUMMARY:\s*(.+?)\s*=== END MACRO-MOMENT \d+ ===/gs;
+      /MACRO-MOMENT \d+\s+TITLE:\s*(.+?)\s+SUMMARY:\s*(.+?)(?=\s+MACRO-MOMENT \d+|$)/gs;
 
     let match;
     while ((match = momentRegex.exec(response)) !== null) {
@@ -151,8 +156,16 @@ REMEMBER: Start your response immediately with "=== MACRO-MOMENT 1 ===". Do not 
     }
 
     console.log(
-      `[engine] Successfully synthesized ${macroMoments.length} macro-moments`
+      `[engine] Successfully synthesized ${macroMoments.length} macro-moments:`
     );
+    macroMoments.forEach((moment, i) => {
+      console.log(
+        `[engine]   ${i + 1}. "${moment.title}" - ${moment.summary.substring(
+          0,
+          100
+        )}...`
+      );
+    });
     return macroMoments;
   } catch (error) {
     console.error(

@@ -19,6 +19,12 @@ export async function callLLM(
       : "@cf/meta/llama-3.1-8b-instruct"; // Use Llama 3.1 8B for "cheap" tasks
 
   const start = Date.now();
+  const promptLength = prompt.length;
+  const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
+  console.log(
+    `[llm] Calling ${model} (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`
+  );
+
   let response: any;
   try {
     const isGptOss = modelId.includes("gpt-oss");
@@ -27,7 +33,15 @@ export async function callLLM(
       : { prompt: prompt }; // Llama uses 'prompt'
 
     response = await (env.AI.run as any)(modelId, payload);
-    console.log(`[llm] AI.run(${model}) took ${Date.now() - start}ms`);
+    const duration = Date.now() - start;
+    console.log(`[llm] AI.run(${model}) took ${duration}ms`);
+    console.log(
+      `[llm] Raw response type: ${typeof response}, keys: ${
+        response && typeof response === "object"
+          ? Object.keys(response).join(", ")
+          : "N/A"
+      }`
+    );
   } catch (error) {
     console.error(`[llm] AI.run(${model}) error:`, error);
     console.error(
@@ -48,6 +62,11 @@ export async function callLLM(
   // Handle different response structures
   if (modelId.includes("gpt-oss")) {
     const gptResponse = response as GPTOSSResponse;
+    console.log(
+      `[llm] Parsing gpt-oss response. Has output: ${!!gptResponse?.output}, output length: ${
+        gptResponse?.output?.length || 0
+      }`
+    );
     if (
       !gptResponse ||
       !gptResponse.output ||
@@ -60,18 +79,42 @@ export async function callLLM(
     ) {
       console.error(
         `[llm] Invalid gpt-oss response structure:`,
-        JSON.stringify(response)
+        JSON.stringify(response, null, 2)
       );
+      console.error(`[llm] Response structure check:`, {
+        hasResponse: !!gptResponse,
+        hasOutput: !!gptResponse?.output,
+        outputIsArray: Array.isArray(gptResponse?.output),
+        outputLength: gptResponse?.output?.length || 0,
+        hasFirstContent: !!gptResponse?.output?.[0]?.content,
+        contentIsArray: Array.isArray(gptResponse?.output?.[0]?.content),
+        contentLength: gptResponse?.output?.[0]?.content?.length || 0,
+        hasText:
+          typeof gptResponse?.output?.[0]?.content?.[0]?.text === "string",
+      });
       throw new Error("Failed to parse LLM response from gpt-oss");
     }
-    return gptResponse.output[0].content[0].text;
+    const text = gptResponse.output[0].content[0].text;
+    console.log(
+      `[llm] Successfully extracted text from gpt-oss response. Length: ${text.length} chars`
+    );
+    return text;
   } else {
     // Llama and other models often use this structure
+    console.log(
+      `[llm] Parsing non-gpt-oss response. Has response field: ${!!response?.response}, response type: ${typeof response?.response}`
+    );
     if (response && typeof response.response === "string") {
+      console.log(
+        `[llm] Successfully extracted text from response. Length: ${response.response.length} chars`
+      );
       return response.response;
     }
   }
 
-  console.error(`[llm] Invalid response structure:`, JSON.stringify(response));
+  console.error(
+    `[llm] Invalid response structure:`,
+    JSON.stringify(response, null, 2)
+  );
   throw new Error("Failed to parse LLM response");
 }

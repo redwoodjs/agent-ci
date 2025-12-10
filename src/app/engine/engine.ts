@@ -376,6 +376,11 @@ export async function indexDocument(
               macroMomentDescriptions.length
             }: "${description.title}"`
           );
+          console.log(
+            `[engine] Macro-moment ${i + 1} summary: ${
+              description.summary || "No summary"
+            }`
+          );
 
           const momentId = crypto.randomUUID();
           const moment: Moment = {
@@ -393,7 +398,9 @@ export async function indexDocument(
           console.log(
             `[engine] Adding macro-moment to DB: ${moment.id} (title: "${
               moment.title
-            }", parent: ${moment.parentId || "none"})`
+            }", summary: "${moment.summary}", parent: ${
+              moment.parentId || "none"
+            })`
           );
           await addMoment(moment);
           console.log(

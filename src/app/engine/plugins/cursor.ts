@@ -164,8 +164,8 @@ export const cursorPlugin: Plugin = {
         return null;
       }
 
-      // Bulk-fetch cached exchanges
-      const cachedExchanges = await getExchangeCache(generationIds);
+      // Fetch cached exchanges for this document
+      const cachedExchanges = await getExchangeCache(document.id);
       console.log(
         `[cursor-plugin] Found ${cachedExchanges.size}/${generationIds.length} cached exchanges`
       );
@@ -257,9 +257,9 @@ export const cursorPlugin: Plugin = {
         });
       }
 
-      // Bulk-write new cache entries
+      // Write new cache entries
       if (newCacheEntries.length > 0) {
-        await setExchangeCache(newCacheEntries);
+        await setExchangeCache(document.id, newCacheEntries);
         console.log(
           `[cursor-plugin] Cached ${newCacheEntries.length} new exchanges`
         );

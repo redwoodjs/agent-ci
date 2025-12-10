@@ -46,4 +46,36 @@ export const momentMigrations = {
       await db.schema.dropTable("document_structure_hash").execute();
     },
   },
+  "003_add_micro_moments": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("micro_moments")
+          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("document_id", "text", (col) => col.notNull())
+          .addColumn("path", "text", (col) => col.notNull())
+          .addColumn("content", "text", (col) => col.notNull())
+          .addColumn("summary", "text")
+          .addColumn("embedding", "text")
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("author", "text", (col) => col.notNull())
+          .addColumn("source_metadata", "text")
+          .execute(),
+        await db.schema
+          .createIndex("micro_moments_document_path_idx")
+          .on("micro_moments")
+          .columns(["document_id", "path"])
+          .unique()
+          .execute(),
+        await db.schema
+          .createIndex("micro_moments_document_id_idx")
+          .on("micro_moments")
+          .column("document_id")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("micro_moments").execute();
+    },
+  },
 } satisfies Migrations;

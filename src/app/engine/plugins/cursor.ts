@@ -5,160 +5,19 @@ import {
   Chunk,
   ChunkMetadata,
   QueryHookContext,
-  MomentDescription,
+  MicroMomentDescription,
   CursorConversationLatestJson,
 } from "../types";
-import { generateTitleForText } from "../utils/summarize";
-import { callLLM } from "../utils/llm";
-import { getEmbedding, cosineSimilarity } from "../utils/vector";
 import {
   getDocumentStructureHash,
   setDocumentStructureHash,
-  clearDocumentStructureHash,
 } from "../momentDb";
-import {
-  getExchangeCache,
-  setExchangeCache,
-  clearExchangeCache,
-} from "../cursorDb";
 
 interface CursorEvent {
   hook_event_name: string;
   prompt?: string;
   text?: string;
   [key: string]: any;
-}
-
-function extractUserPrompts(data: CursorConversationLatestJson): string[] {
-  const prompts: string[] = [];
-  for (const gen of data.generations) {
-    const userPrompt =
-      gen.events.find(
-        (e: CursorEvent) =>
-          e.hook_event_name === "beforeSubmitPrompt" && e.prompt
-      )?.prompt || "";
-    if (userPrompt.trim()) {
-      prompts.push(userPrompt.trim());
-    }
-  }
-  return prompts;
-}
-
-// Define a type for an exchange with its summary and embedding
-interface Exchange {
-  content: string;
-  summary: string;
-  embedding: number[];
-  createdAt: string;
-  author: string;
-}
-
-interface SynthesizedMoment {
-  title: string;
-  summary: string;
-  content: string;
-}
-
-async function synthesizeMoments(
-  microMoments: MomentDescription[],
-  context: IndexingHookContext
-): Promise<MomentDescription[]> {
-  if (microMoments.length === 0) {
-    return [];
-  }
-
-  console.log(
-    `[cursor-plugin] Synthesizing ${microMoments.length} micro-moments into macro-moments`
-  );
-
-  const formattedMoments = microMoments
-    .map(
-      (moment, index) =>
-        `## Micro-Moment ${index + 1}\nTitle: ${moment.title}\nContent:\n${
-          moment.content
-        }\n`
-    )
-    .join("\n---\n\n");
-
-  const synthesisPrompt = `You are analyzing a development conversation that has been broken down into ${microMoments.length} micro-moments (individual exchanges). Your task is to identify which moments actually matter for understanding the narrative and consolidate related moments into higher-level "macro-moments."
-
-Analyze the micro-moments below and:
-1. Identify which micro-moments are important milestones or turning points in the conversation
-2. Group related micro-moments together into macro-moments
-3. Filter out noise or redundant exchanges that don't add to the narrative
-4. For each macro-moment, generate:
-   - A concise title (past-tense event, e.g., "User login bug was fixed")
-   - A detailed summary (2-4 sentences) that explains WHAT happened, WHY it happened, and HOW it was addressed
-   - The consolidated raw content from all micro-moments in this group
-
-Return your response as a JSON array of objects with this exact structure:
-[
-  {
-    "title": "Past-tense event title",
-    "summary": "Detailed explanation of what happened, why it happened, and how it was addressed",
-    "content": "Consolidated raw content from all micro-moments in this group"
-  }
-]
-
-Micro-Moments:
-${formattedMoments}
-
-Return only valid JSON, no other text.`;
-
-  try {
-    const response = await callLLM(synthesisPrompt, "gpt-oss-20b");
-    console.log(
-      `[cursor-plugin] LLM synthesis response length: ${response.length}`
-    );
-
-    const jsonMatch = response.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      console.error(
-        `[cursor-plugin] Failed to extract JSON from LLM response. Response: ${response.substring(
-          0,
-          500
-        )}`
-      );
-      return microMoments;
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]) as SynthesizedMoment[];
-
-    if (!Array.isArray(parsed)) {
-      console.error(
-        `[cursor-plugin] LLM response is not an array. Got: ${typeof parsed}`
-      );
-      return microMoments;
-    }
-
-    const macroMoments: MomentDescription[] = parsed.map((item) => {
-      const rawContent = item.content.trim();
-      const synthesizedSummary = item.summary.trim();
-
-      return {
-        title: item.title.trim(),
-        content: `${rawContent}\n\n---SYNTHESIZED_SUMMARY---\n${synthesizedSummary}`,
-        author: microMoments[0]?.author || "cursor-user",
-        createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
-        sourceMetadata: microMoments[0]?.sourceMetadata,
-      };
-    });
-
-    console.log(
-      `[cursor-plugin] Successfully synthesized ${macroMoments.length} macro-moments`
-    );
-    return macroMoments;
-  } catch (error) {
-    console.error(
-      `[cursor-plugin] Error during synthesis:`,
-      error instanceof Error ? error.message : String(error)
-    );
-    console.error(
-      `[cursor-plugin] Falling back to micro-moments as-is. Error:`,
-      error
-    );
-    return microMoments;
-  }
 }
 
 export const cursorPlugin: Plugin = {
@@ -206,18 +65,13 @@ export const cursorPlugin: Plugin = {
   },
 
   subjects: {
-    async extractMomentsFromDocument(
+    async extractMicroMomentsFromDocument(
       document: Document,
       context: IndexingHookContext
-    ): Promise<MomentDescription[] | null> {
+    ): Promise<MicroMomentDescription[] | null> {
       if (document.source !== "cursor") {
         return null;
       }
-
-      // TEMPORARY: Clear caches for testing
-      await clearExchangeCache();
-      await clearDocumentStructureHash();
-      console.log("[cursor-plugin] Cleared all caches for testing");
 
       const bucket = context.env.MACHINEN_BUCKET;
       const object = await bucket.get(document.id);
@@ -225,24 +79,17 @@ export const cursorPlugin: Plugin = {
         throw new Error(`R2 object not found: ${document.id}`);
       }
       const jsonText = await object.text();
-      console.log(
-        `[cursor-plugin] Fetched R2 object, length: ${
-          jsonText.length
-        }, first 100 chars: ${jsonText.substring(0, 100)}`
-      );
       let data: CursorConversationLatestJson;
       try {
         data = JSON.parse(jsonText) as CursorConversationLatestJson;
       } catch (error) {
         console.error(
-          `[cursor-plugin] Failed to parse JSON for ${
-            document.id
-          }. JSON text length: ${
-            jsonText.length
-          }, first 200 chars: ${jsonText.substring(0, 200)}`
+          `[cursor-plugin] Failed to parse JSON for ${document.id}. Error:`,
+          error
         );
         throw error;
       }
+
       console.log(
         `[cursor-plugin] Parsed JSON successfully. Generations count: ${
           data.generations?.length || 0
@@ -267,25 +114,17 @@ export const cursorPlugin: Plugin = {
           `[cursor-plugin] Conversation structure unchanged (hash: ${structureHash.substring(
             0,
             8
-          )}...). Skipping moment extraction.`
+          )}...). Skipping micro-moment extraction.`
         );
         return null;
       }
 
-      // Fetch cached exchanges for this document
-      const cachedExchanges = await getExchangeCache(document.id);
-      console.log(
-        `[cursor-plugin] Found ${cachedExchanges.size}/${generationIds.length} cached exchanges`
-      );
+      // Update structure hash
+      await setDocumentStructureHash(document.id, structureHash);
 
-      const exchanges: Exchange[] = [];
-      const newCacheEntries: Array<{
-        generationId: string;
-        summary: string;
-        embedding: number[];
-      }> = [];
+      // Extract micro-moments (one per generation/exchange)
+      const microMoments: MicroMomentDescription[] = [];
 
-      // 1. First Pass: Summarize and embed each exchange (using cache when available)
       for (const gen of data.generations) {
         const userPromptEvent = gen.events.find(
           (e: CursorEvent) =>
@@ -305,12 +144,6 @@ export const cursorPlugin: Plugin = {
             ? assistantResponseEvent.text
             : "";
 
-        console.log(
-          `[cursor-plugin] Generation ${
-            gen.id
-          }: userPrompt type=${typeof userPromptEvent?.prompt}, assistantResponse type=${typeof assistantResponseEvent?.text}`
-        );
-
         if (!userPrompt.trim() && !assistantResponse.trim()) {
           console.log(
             `[cursor-plugin] Skipping generation ${gen.id} - both prompts empty`
@@ -326,117 +159,35 @@ export const cursorPlugin: Plugin = {
           continue;
         }
 
-        // Check cache first
-        const cached = cachedExchanges.get(gen.id);
-        let summary: string;
-        let embedding: number[];
-
-        if (cached) {
-          summary = cached.summary;
-          embedding = cached.embedding;
-          console.log(
-            `[cursor-plugin] Using cached summary/embedding for generation ${gen.id}`
-          );
-        } else {
-          // Generate new summary and embedding
-          summary = await callLLM(
-            `Summarize this exchange in one sentence: ${content}`,
-            "gpt-oss-20b-cheap"
-          );
-          embedding = await getEmbedding(summary);
-
-          // Add to cache entries for bulk write
-          newCacheEntries.push({
-            generationId: gen.id,
-            summary,
-            embedding,
-          });
-          console.log(
-            `[cursor-plugin] Generated new summary/embedding for generation ${gen.id}`
-          );
-        }
-
-        exchanges.push({
+        microMoments.push({
+          path: gen.id,
           content: content.trim(),
-          summary,
-          embedding,
-          createdAt: new Date().toISOString(),
           author: "cursor-user",
+          createdAt: new Date().toISOString(),
+          sourceMetadata: document.metadata.sourceMetadata,
         });
       }
 
-      // Write new cache entries
-      if (newCacheEntries.length > 0) {
-        await setExchangeCache(document.id, newCacheEntries);
-        console.log(
-          `[cursor-plugin] Cached ${newCacheEntries.length} new exchanges`
-        );
-      }
-
-      // Update structure hash
-      await setDocumentStructureHash(document.id, structureHash);
-
-      if (exchanges.length === 0) {
-        return null;
-      }
-
-      // Phase 1: Create micro-moments (one per exchange)
       console.log(
-        `[cursor-plugin] Phase 1: Creating ${exchanges.length} micro-moments from exchanges`
-      );
-      const microMoments: MomentDescription[] = exchanges.map(
-        (exchange, index) => ({
-          title: `Exchange ${index + 1}`,
-          content: exchange.content,
-          author: exchange.author,
-          createdAt: exchange.createdAt,
-          sourceMetadata: document.metadata.sourceMetadata,
-        })
+        `[cursor-plugin] Extracted ${microMoments.length} micro-moments from ${data.generations.length} generations`
       );
 
-      console.log(
-        `[cursor-plugin] Created ${microMoments.length} micro-moments. Starting Phase 2: Synthesis.`
-      );
-
-      // Phase 2: Synthesize micro-moments into macro-moments
-      const macroMoments = await synthesizeMoments(microMoments, context);
-
-      console.log(
-        `[cursor-plugin] Completed synthesis: ${macroMoments.length} macro-moments from ${microMoments.length} micro-moments`
-      );
-      return macroMoments.length > 0 ? macroMoments : null;
+      return microMoments.length > 0 ? microMoments : null;
     },
 
     async summarizeMomentContent(
       content: string,
       context: IndexingHookContext
     ): Promise<string> {
-      const summaryMarker = "---SYNTHESIZED_SUMMARY---\n";
-      const summaryIndex = content.indexOf(summaryMarker);
-
-      if (summaryIndex !== -1) {
-        const synthesizedSummary = content
-          .substring(summaryIndex + summaryMarker.length)
-          .trim();
-        console.log(
-          `[cursor-plugin] Using synthesized summary from LLM synthesis`
-        );
-        return synthesizedSummary;
-      }
-
-      const rawContent =
-        summaryIndex !== -1
-          ? content.substring(0, summaryIndex).trim()
-          : content;
-
-      const summaryPrompt = `Summarize the following content in 2-4 sentences, explaining what happened, why it happened, and how it was addressed:\n\n${rawContent}`;
+      const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
 
       try {
+        const { callLLM } = await import("../utils/llm");
         const summary = await callLLM(summaryPrompt, "gpt-oss-20b-cheap");
         return summary.trim();
       } catch (error) {
         console.error(`[cursor-plugin] Failed to generate summary:`, error);
-        return `Content about: ${rawContent.substring(0, 100)}...`;
+        return `Content about: ${content.substring(0, 100)}...`;
       }
     },
   },

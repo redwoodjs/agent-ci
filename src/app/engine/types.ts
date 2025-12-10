@@ -67,6 +67,14 @@ export interface MomentDescription {
   sourceMetadata?: Record<string, any>;
 }
 
+export interface MicroMomentDescription {
+  path: string;
+  content: string;
+  author: string;
+  createdAt: string;
+  sourceMetadata?: Record<string, any>;
+}
+
 export interface Subject {
   id: string;
   title: string;
@@ -152,10 +160,10 @@ export interface Plugin {
       context: SubjectSearchContext
     ) => Promise<string | null>;
     generateSubjectTitle?: (context: SubjectSearchContext) => Promise<string>;
-    extractMomentsFromDocument?: (
+    extractMicroMomentsFromDocument?: (
       document: Document,
       context: IndexingHookContext
-    ) => Promise<MomentDescription[] | null>;
+    ) => Promise<MicroMomentDescription[] | null>;
     summarizeMomentContent?: (
       content: string,
       context: IndexingHookContext

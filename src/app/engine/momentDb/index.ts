@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 import { MomentGraphDO } from "./durableObject";
-import type { Moment, ChunkMetadata } from "../types";
+import type { Moment, ChunkMetadata, MicroMomentDescription } from "../types";
 import { type Database, createDb } from "rwsdk/db";
 import { type momentMigrations } from "./migrations";
 import { getEmbedding } from "../utils/vector";
@@ -401,4 +401,124 @@ export async function clearDocumentStructureHash(): Promise<void> {
   const db = getMomentDb();
   await db.deleteFrom("document_structure_hash").execute();
   console.log("[momentDb] Cleared all document structure hashes (testing)");
+}
+
+export interface MicroMoment {
+  id: string;
+  documentId: string;
+  path: string;
+  content: string;
+  summary: string | null;
+  embedding: number[] | null;
+  createdAt: string;
+  author: string;
+  sourceMetadata?: Record<string, any>;
+}
+
+export async function getMicroMoment(
+  documentId: string,
+  path: string
+): Promise<MicroMoment | null> {
+  const db = getMomentDb();
+  const row = await db
+    .selectFrom("micro_moments")
+    .selectAll()
+    .where("document_id", "=", documentId)
+    .where("path", "=", path)
+    .executeTakeFirst();
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    path: row.path,
+    content: row.content,
+    summary: row.summary || null,
+    embedding: row.embedding
+      ? typeof row.embedding === "string"
+        ? (JSON.parse(row.embedding) as number[])
+        : (row.embedding as number[])
+      : null,
+    createdAt: row.created_at,
+    author: row.author,
+    sourceMetadata: row.source_metadata
+      ? typeof row.source_metadata === "string"
+        ? (JSON.parse(row.source_metadata) as Record<string, any>)
+        : (row.source_metadata as Record<string, any>)
+      : undefined,
+  };
+}
+
+export async function upsertMicroMoment(
+  microMoment: MicroMomentDescription,
+  documentId: string,
+  summary: string,
+  embedding: number[]
+): Promise<void> {
+  const db = getMomentDb();
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  await db
+    .insertInto("micro_moments")
+    .values({
+      id,
+      document_id: documentId,
+      path: microMoment.path,
+      content: microMoment.content,
+      summary: summary,
+      embedding: JSON.stringify(embedding),
+      created_at: microMoment.createdAt || now,
+      author: microMoment.author,
+      source_metadata: microMoment.sourceMetadata
+        ? JSON.stringify(microMoment.sourceMetadata)
+        : null,
+    })
+    .onConflict((oc) =>
+      oc.columns(["document_id", "path"]).doUpdateSet({
+        content: microMoment.content,
+        summary: summary,
+        embedding: JSON.stringify(embedding),
+        author: microMoment.author,
+        source_metadata: microMoment.sourceMetadata
+          ? JSON.stringify(microMoment.sourceMetadata)
+          : null,
+      })
+    )
+    .execute();
+}
+
+export async function getMicroMomentsForDocument(
+  documentId: string
+): Promise<MicroMoment[]> {
+  const db = getMomentDb();
+  const rows = await db
+    .selectFrom("micro_moments")
+    .selectAll()
+    .where("document_id", "=", documentId)
+    .orderBy("created_at", "asc")
+    .execute();
+
+  return rows.map((row) => ({
+    id: row.id,
+    documentId: row.document_id,
+    path: row.path,
+    content: row.content,
+    summary: row.summary || null,
+    embedding: row.embedding
+      ? typeof row.embedding === "string"
+        ? (JSON.parse(row.embedding) as number[])
+        : (row.embedding as number[])
+      : null,
+    createdAt: row.created_at,
+    author: row.author,
+    sourceMetadata: row.source_metadata
+      ? typeof row.source_metadata === "string"
+        ? (JSON.parse(row.source_metadata) as Record<string, any>)
+        : (row.source_metadata as Record<string, any>)
+      : undefined,
+  }));
 }

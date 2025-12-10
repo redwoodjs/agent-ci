@@ -10,6 +10,8 @@ import type {
   Subject,
   SubjectSearchContext,
   Moment,
+  MomentDescription,
+  MicroMomentDescription,
 } from "./types";
 import { createDb, type Database } from "rwsdk/db";
 import type { SubjectDO } from "./subjectDb/durableObject";
@@ -21,7 +23,17 @@ import {
 } from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
-import { addMoment, findSimilarMoments, findAncestors } from "./momentDb";
+import {
+  addMoment,
+  findSimilarMoments,
+  findAncestors,
+  getMicroMoment,
+  upsertMicroMoment,
+  getMicroMomentsForDocument,
+  type MicroMoment,
+} from "./momentDb";
+import { callLLM } from "./utils/llm";
+import { getEmbedding } from "./utils/vector";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -32,6 +44,105 @@ async function hashChunkId(chunkId: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return hashHex.substring(0, 16);
+}
+
+interface SynthesizedMoment {
+  title: string;
+  summary: string;
+  content: string;
+}
+
+async function synthesizeMicroMoments(
+  microMoments: MicroMoment[]
+): Promise<Array<MomentDescription & { summary: string }>> {
+  if (microMoments.length === 0) {
+    return [];
+  }
+
+  console.log(
+    `[engine] Synthesizing ${microMoments.length} micro-moments into macro-moments`
+  );
+
+  const formattedMoments = microMoments
+    .map(
+      (moment, index) =>
+        `## Micro-Moment ${index + 1}\nPath: ${moment.path}\nSummary: ${
+          moment.summary || "No summary"
+        }\nContent:\n${moment.content}\n`
+    )
+    .join("\n---\n\n");
+
+  const synthesisPrompt = `You are analyzing a development conversation that has been broken down into ${microMoments.length} micro-moments (individual exchanges). Your task is to identify which moments actually matter for understanding the narrative and consolidate related moments into higher-level "macro-moments."
+
+Analyze the micro-moments below and:
+1. Identify which micro-moments are important milestones or turning points in the conversation
+2. Group related micro-moments together into macro-moments
+3. Filter out noise or redundant exchanges that don't add to the narrative
+4. For each macro-moment, generate:
+   - A concise title (past-tense event, e.g., "User login bug was fixed")
+   - A detailed summary (2-4 sentences) that explains WHAT happened, WHY it happened, and HOW it was addressed
+   - The consolidated raw content from all micro-moments in this group
+
+Return your response as a JSON array of objects with this exact structure:
+[
+  {
+    "title": "Past-tense event title",
+    "summary": "Detailed explanation of what happened, why it happened, and how it was addressed",
+    "content": "Consolidated raw content from all micro-moments in this group"
+  }
+]
+
+Micro-Moments:
+${formattedMoments}
+
+Return only valid JSON, no other text.`;
+
+  try {
+    const response = await callLLM(synthesisPrompt, "gpt-oss-20b");
+    console.log(`[engine] LLM synthesis response length: ${response.length}`);
+
+    const jsonMatch = response.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      console.error(
+        `[engine] Failed to extract JSON from LLM response. Response: ${response.substring(
+          0,
+          500
+        )}`
+      );
+      return [];
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as SynthesizedMoment[];
+
+    if (!Array.isArray(parsed)) {
+      console.error(
+        `[engine] LLM response is not an array. Got: ${typeof parsed}`
+      );
+      return [];
+    }
+
+    const macroMoments: Array<MomentDescription & { summary: string }> =
+      parsed.map((item) => ({
+        title: item.title.trim(),
+        content: item.content.trim(),
+        summary: item.summary.trim(),
+        author: microMoments[0]?.author || "unknown",
+        createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
+        sourceMetadata: microMoments[0]?.sourceMetadata,
+      }));
+
+    console.log(
+      `[engine] Successfully synthesized ${macroMoments.length} macro-moments`
+    );
+    return macroMoments;
+  } catch (error) {
+    console.error(
+      `[engine] Error during synthesis:`,
+      error instanceof Error ? error.message : String(error)
+    );
+    console.error(`[engine] Falling back to empty array. Error:`, error);
+    return [];
+  }
 }
 
 export async function indexDocument(
@@ -107,95 +218,157 @@ export async function indexDocument(
     return []; // Nothing more to do
   }
 
-  // 3. Extract moments from the document
+  // 3. Extract and process micro-moments, then synthesize into macro-moments
   // Subjects are now created automatically from root moments via the Moment Graph system.
   // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
   console.log(
-    `[engine] Extracting moments from document ${document.id} (source: ${document.source})`
+    `[engine] Extracting micro-moments from document ${document.id} (source: ${document.source})`
   );
-  const momentDescriptions = await runFirstMatchHook(
+  const microMomentDescriptions = await runFirstMatchHook(
     context.plugins,
-    "extractMomentsFromDocument",
+    "extractMicroMomentsFromDocument",
     (plugin) =>
-      plugin.subjects?.extractMomentsFromDocument?.(document, indexingContext)
+      plugin.subjects?.extractMicroMomentsFromDocument?.(
+        document,
+        indexingContext
+      )
   );
   console.log(
-    `[engine] extractMomentsFromDocument returned ${
-      momentDescriptions?.length || 0
-    } moment descriptions`
+    `[engine] extractMicroMomentsFromDocument returned ${
+      microMomentDescriptions?.length || 0
+    } micro-moment descriptions`
   );
 
-  if (momentDescriptions && momentDescriptions.length > 0) {
+  if (microMomentDescriptions && microMomentDescriptions.length > 0) {
     console.log(
-      `[engine] Plugin provided ${momentDescriptions.length} moment descriptions. Processing them now.`
+      `[engine] Plugin provided ${microMomentDescriptions.length} micro-moments. Processing cache and generating summaries/embeddings.`
     );
 
-    let previousMomentId: string | undefined = undefined;
-
-    for (let i = 0; i < momentDescriptions.length; i++) {
-      const description = momentDescriptions[i];
-      if (!description) {
+    // Process each micro-moment: check cache, generate summary/embedding if needed
+    for (let i = 0; i < microMomentDescriptions.length; i++) {
+      const microMomentDesc = microMomentDescriptions[i];
+      if (!microMomentDesc) {
         console.log(
-          `[engine] Skipping moment ${i + 1} - description is null/undefined`
+          `[engine] Skipping micro-moment ${
+            i + 1
+          } - description is null/undefined`
         );
         continue;
       }
 
       console.log(
-        `[engine] Processing moment ${i + 1}/${momentDescriptions.length}: "${
-          description.title
-        }" (content length: ${description.content.length})`
+        `[engine] Processing micro-moment ${i + 1}/${
+          microMomentDescriptions.length
+        }: path="${microMomentDesc.path}"`
+      );
+
+      // Check cache
+      const cached = await getMicroMoment(document.id, microMomentDesc.path);
+      if (cached && cached.summary && cached.embedding) {
+        console.log(
+          `[engine] Cache hit for micro-moment path="${microMomentDesc.path}". Using cached summary/embedding.`
+        );
+        continue;
+      }
+
+      // Cache miss: generate summary and embedding
+      console.log(
+        `[engine] Cache miss for micro-moment path="${microMomentDesc.path}". Generating summary and embedding.`
       );
       const summary = await runFirstMatchHook(
         context.plugins,
         "summarizeMomentContent",
         (plugin) =>
           plugin.subjects?.summarizeMomentContent?.(
-            description.content,
+            microMomentDesc.content,
             indexingContext
           )
       );
 
       if (!summary) {
         console.warn(
-          `[engine] No plugin provided summary for moment ${i + 1}. Skipping.`
+          `[engine] No plugin provided summary for micro-moment path="${microMomentDesc.path}". Skipping.`
         );
         continue;
       }
 
-      const momentId = crypto.randomUUID();
-      const moment: Moment = {
-        id: momentId,
-        documentId: document.id,
-        summary: summary,
-        title: description.title,
-        parentId: previousMomentId,
-        createdAt: description.createdAt,
-        author: description.author,
-        sourceMetadata: description.sourceMetadata,
-      };
-
+      const embedding = await getEmbedding(summary);
+      await upsertMicroMoment(microMomentDesc, document.id, summary, embedding);
       console.log(
-        `[engine] Adding moment to DB: ${moment.id} (title: "${
-          moment.title
-        }", parent: ${moment.parentId || "none"})`
+        `[engine] Stored micro-moment path="${microMomentDesc.path}" with summary/embedding.`
       );
-      await addMoment(moment);
-      console.log(
-        `[engine] Successfully added moment ${moment.id} to DB and vector indexes`
+    }
+
+    // Retrieve all micro-moments for this document (now with summaries/embeddings)
+    const allMicroMoments = await getMicroMomentsForDocument(document.id);
+    console.log(
+      `[engine] Retrieved ${allMicroMoments.length} micro-moments for synthesis.`
+    );
+
+    if (allMicroMoments.length > 0) {
+      // Synthesize micro-moments into macro-moments
+      const macroMomentDescriptions = await synthesizeMicroMoments(
+        allMicroMoments
       );
 
-      console.log(
-        `[engine] Created moment ${momentId} (parent: ${
-          previousMomentId || "root"
-        })`
-      );
+      if (macroMomentDescriptions.length > 0) {
+        console.log(
+          `[engine] Synthesized ${macroMomentDescriptions.length} macro-moments. Storing them now.`
+        );
 
-      previousMomentId = momentId;
+        let previousMomentId: string | undefined = undefined;
+
+        for (let i = 0; i < macroMomentDescriptions.length; i++) {
+          const description = macroMomentDescriptions[i];
+          if (!description) {
+            console.log(
+              `[engine] Skipping macro-moment ${
+                i + 1
+              } - description is null/undefined`
+            );
+            continue;
+          }
+
+          console.log(
+            `[engine] Processing macro-moment ${i + 1}/${
+              macroMomentDescriptions.length
+            }: "${description.title}"`
+          );
+
+          const momentId = crypto.randomUUID();
+          const moment: Moment = {
+            id: momentId,
+            documentId: document.id,
+            summary:
+              description.summary || description.content.substring(0, 200),
+            title: description.title,
+            parentId: previousMomentId,
+            createdAt: description.createdAt,
+            author: description.author,
+            sourceMetadata: description.sourceMetadata,
+          };
+
+          console.log(
+            `[engine] Adding macro-moment to DB: ${moment.id} (title: "${
+              moment.title
+            }", parent: ${moment.parentId || "none"})`
+          );
+          await addMoment(moment);
+          console.log(
+            `[engine] Successfully added macro-moment ${moment.id} to DB and vector indexes`
+          );
+
+          previousMomentId = momentId;
+        }
+      } else {
+        console.log(
+          `[engine] Synthesis returned no macro-moments. Skipping moment storage.`
+        );
+      }
     }
   } else {
     console.log(
-      `[engine] No plugin provided moment descriptions for document: ${document.id}. Skipping moment extraction.`
+      `[engine] No plugin provided micro-moment descriptions for document: ${document.id}. Skipping moment extraction.`
     );
   }
 

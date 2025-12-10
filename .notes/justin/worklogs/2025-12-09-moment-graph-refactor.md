@@ -622,10 +622,13 @@ The concept of "micro-moments" (the raw data) and "moments" (the synthesized nar
 
 **Revised Ingestion Flow:**
 
-1.  **Plugin Hook Renamed:** The plugin hook `extractMomentsFromDocument` will be renamed to `extractMicroMomentsFromDocument`. Its job is only to extract the raw, granular events from a source document.
-2.  **Store Micro-Moments:** The engine receives these micro-moments from the plugin and stores them in the new `micro_moments` table.
+1.  **Plugin Hook Renamed:** The plugin hook `extractMomentsFromDocument` will be renamed to `extractMicroMomentsFromDocument`. Its job is only to extract the raw, granular events from a source document. Each micro-moment includes a `path` field (source-specific identifier like generation ID, comment ID, message ID).
+2.  **Cache Check & Store Micro-Moments:** For each micro-moment returned by the plugin:
+    *   Engine checks if `(document_id, path)` already exists in `micro_moments` table.
+    *   **If exists:** Use cached `summary` and `embedding` from the existing micro-moment.
+    *   **If not exists:** Generate `summary` and `embedding`, then insert new micro-moment into table.
 3.  **Core Synthesis Step:** The engine then triggers a new, core `synthesizeMoments` function. This function:
-    *   Retrieves all micro-moments for the document from the database.
+    *   Retrieves all micro-moments for the document from the database (using cached summaries/embeddings when available).
     *   Runs them through the LLM-based consolidation and summarization process.
 4.  **Store Macro-Moments:** The resulting high-level "macro-moments" are stored in the main `moments` table, linked to their subject, and ready for querying.
 
@@ -635,3 +638,57 @@ The concept of "micro-moments" (the raw data) and "moments" (the synthesized nar
 *   **Reusable & Extensible:** The synthesis pipeline is now a core engine feature that any plugin can use simply by providing micro-moments.
 *   **Robust & Scalable:** A proper database schema is far more reliable than string markers and temporary in-memory objects.
 *   **Improved Traceability:** A synthesized macro-moment can be traced back to the exact set of micro-moments that were used to create it, improving debugging and transparency.
+
+### Unified Caching Strategy: Micro-Moments as Cache
+
+The `micro_moments` table will serve a dual purpose: it is both the raw data for synthesis AND the cache for expensive operations (summary generation, embedding).
+
+**The Problem with Source-Specific Caches:**
+
+Currently, the Cursor plugin maintains a separate `exchange_cache` table in `CursorEventsDurableObject` to avoid regenerating summaries and embeddings for unchanged exchanges. This pattern would need to be replicated for every data source (GitHub comments cache, Discord message cache, etc.), creating maintenance overhead and inconsistency.
+
+**The Solution: Micro-Moments as Universal Cache:**
+
+The `micro_moments` table will include a `path` field that serves as a source-specific identifier within a document:
+*   **Cursor:** `path` = `generation.id` (e.g., `"gen-abc123"`)
+*   **GitHub:** `path` = `comment.id` or `issue.id` (e.g., `"comment-456"`)
+*   **Discord:** `path` = `message.id` (e.g., `"msg-789"`)
+
+The composite key `(document_id, path)` uniquely identifies each micro-moment.
+
+**How Caching Works:**
+
+1.  **Plugin extracts micro-moments:** The `extractMicroMomentsFromDocument` hook returns `MicroMomentDescription[]`, where each includes:
+    *   `path`: The source-specific identifier (generation ID, comment ID, etc.)
+    *   `content`: The raw content
+    *   `author`, `createdAt`, `sourceMetadata`: Metadata
+
+2.  **Engine checks for existing micro-moments:** For each micro-moment returned by the plugin, the engine queries `micro_moments` table for `(document_id, path)`.
+
+3.  **Cache hit:** If a micro-moment exists with matching `(document_id, path)`, use its cached `summary` and `embedding`. Skip expensive LLM/embedding calls.
+
+4.  **Cache miss:** If no micro-moment exists, generate `summary` and `embedding`, then insert the new micro-moment into the table.
+
+5.  **Structure hash optimization:** The `document_structure_hash` check remains as a fast-path optimization. If the document structure is unchanged (same paths in same order), skip all processing entirely.
+
+**Plugin API Changes:**
+
+The `extractMicroMomentsFromDocument` hook signature will be updated to return `MicroMomentDescription[]`:
+
+```typescript
+interface MicroMomentDescription {
+  path: string;  // Source-specific identifier (generation ID, comment ID, etc.)
+  content: string;
+  author: string;
+  createdAt: string;
+  sourceMetadata?: Record<string, any>;
+}
+```
+
+**Benefits:**
+
+*   **Eliminates source-specific caches:** No need for `exchange_cache`, `comment_cache`, `message_cache`, etc.
+*   **Unified caching strategy:** All data sources use the same caching mechanism via `micro_moments`.
+*   **Natural cache invalidation:** If a document is re-indexed and a `path` no longer exists in the source, the corresponding micro-moment becomes orphaned but doesn't cause issues (it's simply not used in the new synthesis).
+*   **Handles edits gracefully:** If content at a `path` changes, the plugin will return new content. The engine detects the change (content hash mismatch) and regenerates summary/embedding, updating the micro-moment.
+*   **Simpler plugin implementation:** Plugins only need to extract raw micro-moments with paths. The engine handles all caching, summarization, and embedding logic.

@@ -461,64 +461,112 @@ export async function query(
   };
 
   // Narrative Query Path: Try to answer using Subject (root moment) first
+  console.log(`[query:narrative] ========================================`);
   console.log(
-    `[query:narrative] Step 0: Attempting narrative query via Subject Graph...`
+    `[query:narrative] Step 0: Attempting narrative query via Subject Graph`
   );
   console.log(`[query:narrative] User query: "${userQuery}"`);
   try {
     const embeddingStart = Date.now();
+    console.log(`[query:narrative] Generating embedding for query...`);
     const queryEmbedding = await generateEmbedding(userQuery);
     console.log(
-      `[query:narrative] Generated query embedding in ${
+      `[query:narrative] ✓ Generated query embedding in ${
         Date.now() - embeddingStart
       }ms (dimension: ${queryEmbedding.length})`
     );
 
     const { findSimilarSubjects, findDescendants } = await import("./momentDb");
     const subjectSearchStart = Date.now();
-    const similarSubjects = await findSimilarSubjects(queryEmbedding, 1);
+    console.log(`[query:narrative] Searching for similar subjects (top 5)...`);
+    const similarSubjects = await findSimilarSubjects(queryEmbedding, 5);
     console.log(
-      `[query:narrative] Subject search completed in ${
+      `[query:narrative] ✓ Subject search completed in ${
         Date.now() - subjectSearchStart
       }ms`
     );
+    console.log(
+      `[query:narrative] Found ${similarSubjects.length} similar subjects:`
+    );
+    similarSubjects.forEach((subject, idx) => {
+      console.log(
+        `[query:narrative]   ${idx + 1}. "${subject.title}" (${subject.id})`
+      );
+      console.log(
+        `[query:narrative]      Summary: "${subject.summary.substring(
+          0,
+          150
+        )}..."`
+      );
+    });
 
     if (similarSubjects.length > 0) {
       const subjectMoment = similarSubjects[0];
       console.log(
-        `[query:narrative] ✓ Found relevant Subject: ${subjectMoment.id} (${subjectMoment.title})`
+        `[query:narrative] ✓ Selected top Subject: ${subjectMoment.id}`
+      );
+      console.log(`[query:narrative]   Title: "${subjectMoment.title}"`);
+      console.log(
+        `[query:narrative]   Full Summary: "${subjectMoment.summary}"`
       );
       console.log(
-        `[query:narrative] Subject summary: "${subjectMoment.summary.substring(
-          0,
-          100
-        )}..."`
+        `[query:narrative]   Document ID: ${subjectMoment.documentId}`
+      );
+      console.log(
+        `[query:narrative]   Parent ID: ${
+          subjectMoment.parentId || "none (root)"
+        }`
       );
 
       // Get the full narrative timeline (root moment + all descendants)
       const timelineStart = Date.now();
+      console.log(
+        `[query:narrative] Building timeline by finding all descendants of root moment ${subjectMoment.id}...`
+      );
       const timeline = await findDescendants(subjectMoment.id);
       console.log(
-        `[query:narrative] Timeline retrieval completed in ${
+        `[query:narrative] ✓ Timeline retrieval completed in ${
           Date.now() - timelineStart
         }ms`
       );
       console.log(
-        `[query:narrative] ✓ Reconstructed Subject timeline with ${timeline.length} moments:`
+        `[query:narrative] ✓ Reconstructed Subject timeline with ${timeline.length} macro-moments:`
       );
       timeline.forEach((moment, idx) => {
         console.log(
-          `[query:narrative]   ${idx + 1}. ${moment.title} (${moment.id})`
+          `[query:narrative]   ${idx + 1}. "${moment.title}" (${moment.id})`
         );
+        console.log(
+          `[query:narrative]      Summary: "${moment.summary.substring(
+            0,
+            100
+          )}..."`
+        );
+        console.log(
+          `[query:narrative]      Parent: ${moment.parentId || "none (root)"}`
+        );
+        console.log(`[query:narrative]      Created: ${moment.createdAt}`);
       });
 
       if (timeline.length > 0) {
         // Build narrative context from moment summaries
+        console.log(
+          `[query:narrative] Building narrative context from ${timeline.length} moments...`
+        );
         const narrativeContext = timeline
           .map(
             (moment, idx) => `${idx + 1}. ${moment.title}: ${moment.summary}`
           )
           .join("\n\n");
+        console.log(
+          `[query:narrative] ✓ Narrative context built (length: ${narrativeContext.length} chars)`
+        );
+        console.log(
+          `[query:narrative] Context preview (first 500 chars):\n${narrativeContext.substring(
+            0,
+            500
+          )}...`
+        );
 
         const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
@@ -534,10 +582,23 @@ ${userQuery}
 ## Instructions
 Provide a clear, narrative answer that explains the story and causal relationships between events. Focus on answering "why" and "how" questions based on the Subject and the sequence of events in its timeline.`;
 
+        console.log(
+          `[query:narrative] Constructed LLM prompt (length: ${narrativePrompt.length} chars)`
+        );
+        console.log(
+          `[query:narrative] Prompt preview (first 300 chars):\n${narrativePrompt.substring(
+            0,
+            300
+          )}...`
+        );
+
         const llmStart = Date.now();
+        console.log(
+          `[query:narrative] Calling LLM to generate narrative answer...`
+        );
         const narrativeAnswer = await callLLM(narrativePrompt);
         console.log(
-          `[query:narrative] LLM call completed in ${Date.now() - llmStart}ms`
+          `[query:narrative] ✓ LLM call completed in ${Date.now() - llmStart}ms`
         );
         console.log(
           `[query:narrative] ✓ Narrative query path succeeded. Total time: ${
@@ -547,16 +608,29 @@ Provide a clear, narrative answer that explains the story and causal relationshi
         console.log(
           `[query:narrative] Answer length: ${narrativeAnswer.length} characters`
         );
+        console.log(
+          `[query:narrative] Answer preview (first 500 chars):\n${narrativeAnswer.substring(
+            0,
+            500
+          )}...`
+        );
+        console.log(
+          `[query:narrative] ========================================`
+        );
         return narrativeAnswer;
       } else {
         console.log(
-          `[query:narrative] Timeline is empty, falling back to chunk-based RAG`
+          `[query:narrative] ✗ Timeline is empty, falling back to chunk-based RAG`
+        );
+        console.log(
+          `[query:narrative] ========================================`
         );
       }
     } else {
       console.log(
-        `[query:narrative] No Subjects found matching query, falling back to chunk-based RAG`
+        `[query:narrative] ✗ No Subjects found matching query, falling back to chunk-based RAG`
       );
+      console.log(`[query:narrative] ========================================`);
     }
   } catch (error) {
     console.error(

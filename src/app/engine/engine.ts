@@ -69,39 +69,28 @@ async function synthesizeMicroMoments(
       (moment, index) =>
         `## Micro-Moment ${index + 1}\nPath: ${moment.path}\nSummary: ${
           moment.summary || "No summary"
-        }\nContent:\n${moment.content}\n`
+        }\n`
     )
     .join("\n---\n\n");
 
-  const synthesisPrompt = `You are analyzing a development conversation that has been broken down into ${microMoments.length} micro-moments (individual exchanges). Your task is to identify which moments actually matter for understanding the narrative and consolidate related moments into higher-level "macro-moments."
+  const synthesisPrompt = `Analyze the ${microMoments.length} micro-moments below. Group related ones into macro-moments. Output ONLY the formatted blocks below - do not include any reasoning, explanation, or discussion.
 
-Analyze the micro-moments below and:
-1. Identify which micro-moments are important milestones or turning points in the conversation
-2. Group related micro-moments together into macro-moments
-3. Filter out noise or redundant exchanges that don't add to the narrative
-4. For each macro-moment, generate:
-   - A concise title (past-tense event, e.g., "User login bug was fixed")
-   - A detailed summary (2-4 sentences) that explains WHAT happened, WHY it happened, and HOW it was addressed
-   - The consolidated raw content from all micro-moments in this group
-
-Return your response using this exact format (one macro-moment per block):
+Output format (copy exactly, replace N with numbers starting at 1):
 
 === MACRO-MOMENT 1 ===
 TITLE: Past-tense event title
-SUMMARY: Detailed explanation of what happened, why it happened, and how it was addressed
-CONTENT: Consolidated raw content from all micro-moments in this group
+SUMMARY: 2-4 sentences explaining what happened, why, and how
 === END MACRO-MOMENT 1 ===
 
 === MACRO-MOMENT 2 ===
 TITLE: Past-tense event title
-SUMMARY: Detailed explanation
-CONTENT: Consolidated content
+SUMMARY: 2-4 sentences explaining what happened, why, and how
 === END MACRO-MOMENT 2 ===
 
 Micro-Moments:
 ${formattedMoments}
 
-IMPORTANT: Use the exact format above. Each macro-moment must start with "=== MACRO-MOMENT N ===" and end with "=== END MACRO-MOMENT N ===".`;
+CRITICAL: Output ONLY the formatted blocks. No explanations, no reasoning, no "Let's write" - just the blocks starting with "=== MACRO-MOMENT 1 ===".`;
 
   try {
     const response = await callLLM(synthesisPrompt, "gpt-oss-20b");
@@ -111,16 +100,23 @@ IMPORTANT: Use the exact format above. Each macro-moment must start with "=== MA
     // Parse structured text format
     const macroMoments: Array<MomentDescription & { summary: string }> = [];
     const momentRegex =
-      /=== MACRO-MOMENT \d+ ===\nTITLE: (.+?)\nSUMMARY: (.+?)\nCONTENT: (.+?)\n=== END MACRO-MOMENT \d+ ===/gs;
+      /=== MACRO-MOMENT \d+ ===\nTITLE: (.+?)\nSUMMARY: (.+?)\n=== END MACRO-MOMENT \d+ ===/gs;
 
     let match;
     while ((match = momentRegex.exec(response)) !== null) {
-      const [, title, summary, content] = match;
-      if (title && summary && content) {
+      const [, title, summary] = match;
+      if (title && summary) {
+        // Concatenate all micro-moment content as the macro-moment content
+        // (we don't track which micro-moments map to which macro-moment)
+        const content = microMoments
+          .map((m) => m.content)
+          .filter(Boolean)
+          .join("\n\n---\n\n");
+
         macroMoments.push({
           title: title.trim(),
           summary: summary.trim(),
-          content: content.trim(),
+          content: content || "",
           author: microMoments[0]?.author || "unknown",
           createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
           sourceMetadata: microMoments[0]?.sourceMetadata,

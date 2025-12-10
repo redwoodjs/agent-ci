@@ -12,7 +12,7 @@ type MomentDatabase = Database<typeof momentMigrations>;
 function getMomentDb() {
   return createDb<MomentDatabase>(
     env.MOMENT_GRAPH_DO as DurableObjectNamespace<MomentGraphDO>,
-    "moment-graph"
+    "moment-graph-v2"
   );
 }
 

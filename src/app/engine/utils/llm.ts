@@ -96,32 +96,28 @@ export async function callLLM(
 
   // Handle different response structures
   if (modelId.includes("gpt-oss")) {
-    // gpt-oss-20b uses OpenAI Responses API format: { response: string, usage: {...} }
-    console.log(
-      `[llm] Parsing gpt-oss response. Has response field: ${!!response?.response}, response type: ${typeof response?.response}`
-    );
-    if (response && typeof response.response === "string") {
-      console.log(
-        `[llm] Successfully extracted text from gpt-oss response. Length: ${response.response.length} chars`
-      );
-      return response.response;
-    }
-    // Fallback: check for old format (output array structure)
-    const gptResponse = response as GPTOSSResponse;
+    // gpt-oss-20b returns a structured output with reasoning and message parts
     if (
-      gptResponse?.output &&
-      Array.isArray(gptResponse.output) &&
-      gptResponse.output.length > 0 &&
-      gptResponse.output[0].content &&
-      Array.isArray(gptResponse.output[0].content) &&
-      gptResponse.output[0].content.length > 0 &&
-      typeof gptResponse.output[0].content[0].text === "string"
+      response?.output &&
+      Array.isArray(response.output) &&
+      response.output.length > 0
     ) {
-      const text = gptResponse.output[0].content[0].text;
-      console.log(
-        `[llm] Successfully extracted text from gpt-oss response (legacy format). Length: ${text.length} chars`
+      const messagePart = response.output.find(
+        (part: any) => part.type === "message"
       );
-      return text;
+      if (
+        messagePart &&
+        messagePart.content &&
+        Array.isArray(messagePart.content) &&
+        messagePart.content.length > 0 &&
+        typeof messagePart.content[0].text === "string"
+      ) {
+        const text = messagePart.content[0].text;
+        console.log(
+          `[llm] Successfully extracted text from gpt-oss message part. Length: ${text.length} chars`
+        );
+        return text;
+      }
     }
     console.error(
       `[llm] Invalid gpt-oss response structure:`,

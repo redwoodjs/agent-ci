@@ -473,3 +473,19 @@ Re-center the query architecture around Subjects:
     *   Updated the prompt to reflect that we're answering based on a Subject and its timeline.
 
 This ensures Subjects are the primary entry point, with moments providing the detailed narrative context.
+
+---
+
+## 13. Refinement: Adjusting Similarity Threshold for Finer-Grained Moment Segmentation
+
+After testing with a 93-exchange conversation, the initial `SIMILARITY_THRESHOLD` of `0.9` produced 91 moments (almost one per exchange), which is too granular. The goal is to group exchanges into meaningful moments, aiming for roughly 10-20 moments for a conversation of this size.
+
+**Analysis:**
+- With threshold `0.9`, most exchanges were below the threshold (similarities in the 0.6-0.8 range)
+- Only one instance observed where two exchanges were grouped (similarity `0.901`)
+- This indicates the threshold was too high, preventing meaningful grouping
+
+**Solution:**
+Lowered `SIMILARITY_THRESHOLD` from `0.9` to `0.7` in `src/app/engine/plugins/cursor.ts`. This should allow exchanges with moderate semantic similarity (0.7-0.9 range) to be grouped together, creating fewer, more meaningful moments that better capture the narrative arc of the conversation.
+
+The threshold can be further adjusted based on testing results to achieve the desired granularity.

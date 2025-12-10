@@ -263,12 +263,12 @@ export const cursorPlugin: Plugin = {
       }
 
       // 2. Second Pass: Group exchanges by similarity
+      const SIMILARITY_THRESHOLD = 0.7;
       console.log(
-        `[cursor-plugin] Starting second pass: grouping ${exchanges.length} exchanges into moments (similarity threshold: 0.9)`
+        `[cursor-plugin] Starting second pass: grouping ${exchanges.length} exchanges into moments (similarity threshold: ${SIMILARITY_THRESHOLD})`
       );
       const moments: MomentDescription[] = [];
       let currentMomentExchanges: Exchange[] = [exchanges[0]];
-      const SIMILARITY_THRESHOLD = 0.9;
 
       for (let i = 1; i < exchanges.length; i++) {
         const prevEmbedding = exchanges[i - 1].embedding;

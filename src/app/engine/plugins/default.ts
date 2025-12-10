@@ -64,9 +64,9 @@ export const defaultPlugin: Plugin = {
             `[default-plugin:dedup-debug] All matches: ${JSON.stringify(
               searchResults.matches.map(
                 (m: { id: string; score: number; metadata?: any }) => ({
-                  id: m.id,
-                  score: m.score.toFixed(4),
-                  title: m.metadata?.title,
+                id: m.id,
+                score: m.score.toFixed(4),
+                title: m.metadata?.title,
                 })
               )
             )}`

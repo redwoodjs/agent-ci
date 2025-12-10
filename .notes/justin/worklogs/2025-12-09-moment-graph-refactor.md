@@ -1,4 +1,3 @@
-
 # Work Log: Moment Graph Refactor (Bicycle Iteration)
 
 **Date:** 2025-12-09
@@ -533,3 +532,106 @@ After a successful test run with `SIMILARITY_THRESHOLD = 0.7` yielded 48 moments
     *   This will allow the conversation to drift more before a new moment (a "turning point") is created, forcing more exchanges to be grouped together and reducing the number of single-exchange moments.
 
 These two changes aim to produce a more coherent, less noisy, and more narratively compelling Moment Graph.
+
+---
+
+## 16. Strategic Pivot: Two-Phase Segmentation and Synthesis
+
+After testing the similarity-threshold approach, it became clear that trying to get granularity perfect with a single numerical threshold is brittle and doesn't capture the narrative complexity of conversations. A more robust approach is needed.
+
+### The Problem with Threshold-Based Segmentation
+
+The current approach uses cosine similarity between exchange embeddings to group exchanges into moments. However:
+- **Brittle:** A single threshold value cannot capture the nuanced narrative structure of different conversations
+- **Limited Context:** Similarity-based grouping doesn't understand which exchanges actually matter for the narrative
+- **Noise:** Many single-exchange moments are still created, adding noise to the timeline
+- **Shallow Summaries:** The summaries generated are brief and don't capture the "why" and "how" of what happened
+
+### The Solution: Two-Phase Approach
+
+A two-phase process that separates segmentation from synthesis:
+
+**Phase 1: Segmentation (Micro-Moments)**
+- Extract all exchanges from the conversation
+- Summarize and embed each exchange (using existing caching)
+- Create "micro-moments" - one per exchange, or use a very generous similarity threshold
+- This phase is about collecting raw data without worrying about noise
+
+**Phase 2: Synthesis (Macro-Moments)**
+- Pass all micro-moments to a more powerful LLM
+- The LLM acts as a historian, analyzing the raw data to:
+  - Identify which micro-moments actually matter for the narrative
+  - Consolidate related micro-moments into higher-level "macro-moments"
+  - Generate richer summaries that explain the "why" and "how" of what happened
+- Return consolidated macro-moments with detailed, narrative-focused summaries
+
+### Benefits
+
+- **Higher Quality Narrative:** The final timeline focuses on what actually matters
+- **Richer Context:** Summaries can be much more detailed and useful
+- **More Robust:** Less dependent on tweaking a single similarity number
+- **Better Understanding:** LLM can reason about narrative structure, not just semantic similarity
+
+### Tradeoffs
+
+- **Cost:** Additional LLM call during indexing (but higher quality output)
+- **Latency:** Slightly longer indexing time (but better query results)
+
+### Implementation Plan
+
+1. **Modify Cursor Plugin:**
+   - Phase 1: Create micro-moments (one per exchange, or very low threshold like 0.3)
+   - Phase 2: Add synthesis function that passes all micro-moments to LLM
+   - LLM prompt should instruct it to identify important moments and consolidate related ones
+   - LLM should generate richer summaries with why/how context
+
+2. **Synthesis Function:**
+   - Takes array of micro-moments as input
+   - Formats them for LLM consumption
+   - Calls LLM with structured prompt
+   - Parses LLM response to extract consolidated macro-moments
+   - Returns array of `MomentDescription` objects
+
+This approach leverages LLM reasoning for narrative understanding rather than relying solely on numerical similarity thresholds.
+
+---
+
+## 17. Architectural Refinement: Formalizing Micro-Moments and the Synthesis Pipeline
+
+The two-phase "segmentation and synthesis" model is a significant improvement, but its current implementation inside the Cursor plugin is a temporary workaround. A more robust, system-wide architectural change is needed to formalize this pattern.
+
+### The Problem with the Plugin-Specific Approach
+
+1.  **Logic is Siloed:** The powerful synthesis logic is confined to the Cursor plugin and cannot be reused by other data sources like GitHub or Discord.
+2.  **Apples and Oranges:** The `moments` table currently stores high-level narrative moments, but the process to create them relies on passing around `MomentDescription` objects that are actually just granular exchanges. This mixes two different levels of abstraction.
+3.  **Data Handling is a Hack:** The `---SYNTHESIZED_SUMMARY---` marker is a brittle workaround to the problem of needing to pass both raw content and a synthesized summary through a pipeline that only expects one content field.
+
+### The Solution: A Core Synthesis Pipeline
+
+The concept of "micro-moments" (the raw data) and "moments" (the synthesized narrative) will be formalized as first-class citizens in the engine's architecture.
+
+**1. New `micro_moments` Table:**
+*   A dedicated table will be created to store the raw, granular events extracted from source documents.
+*   This table will hold the content of individual exchanges, commits, comments, etc. It is the persistent, raw input for the synthesis process.
+
+**2. `moments` Table Becomes `macro_moments`:**
+*   The existing `moments` table will now exclusively store the high-level, synthesized "macro-moments" that are the output of the synthesis process. These are the moments that form the queryable narrative timeline.
+
+**3. Core Synthesis Pipeline in the Engine:**
+*   The synthesis logic will be extracted from the Cursor plugin and moved into the core `engine.ts`.
+
+**Revised Ingestion Flow:**
+
+1.  **Plugin Hook Renamed:** The plugin hook `extractMomentsFromDocument` will be renamed to `extractMicroMomentsFromDocument`. Its job is only to extract the raw, granular events from a source document.
+2.  **Store Micro-Moments:** The engine receives these micro-moments from the plugin and stores them in the new `micro_moments` table.
+3.  **Core Synthesis Step:** The engine then triggers a new, core `synthesizeMoments` function. This function:
+    *   Retrieves all micro-moments for the document from the database.
+    *   Runs them through the LLM-based consolidation and summarization process.
+4.  **Store Macro-Moments:** The resulting high-level "macro-moments" are stored in the main `moments` table, linked to their subject, and ready for querying.
+
+### Benefits of this Architecture
+
+*   **Clear Separation of Concerns:** A clean division between raw data (`micro_moments`) and the synthesized narrative (`moments`).
+*   **Reusable & Extensible:** The synthesis pipeline is now a core engine feature that any plugin can use simply by providing micro-moments.
+*   **Robust & Scalable:** A proper database schema is far more reliable than string markers and temporary in-memory objects.
+*   **Improved Traceability:** A synthesized macro-moment can be traced back to the exact set of micro-moments that were used to create it, improving debugging and transparency.

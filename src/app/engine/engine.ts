@@ -84,70 +84,56 @@ Analyze the micro-moments below and:
    - A detailed summary (2-4 sentences) that explains WHAT happened, WHY it happened, and HOW it was addressed
    - The consolidated raw content from all micro-moments in this group
 
-Return your response as a JSON array of objects with this exact structure:
-[
-  {
-    "title": "Past-tense event title",
-    "summary": "Detailed explanation of what happened, why it happened, and how it was addressed",
-    "content": "Consolidated raw content from all micro-moments in this group"
-  }
-]
+Return your response using this exact format (one macro-moment per block):
+
+=== MACRO-MOMENT 1 ===
+TITLE: Past-tense event title
+SUMMARY: Detailed explanation of what happened, why it happened, and how it was addressed
+CONTENT: Consolidated raw content from all micro-moments in this group
+=== END MACRO-MOMENT 1 ===
+
+=== MACRO-MOMENT 2 ===
+TITLE: Past-tense event title
+SUMMARY: Detailed explanation
+CONTENT: Consolidated content
+=== END MACRO-MOMENT 2 ===
 
 Micro-Moments:
 ${formattedMoments}
 
-IMPORTANT: Your response must be ONLY a valid JSON array. Do not include any explanatory text, comments, or markdown formatting. Start your response with [ and end with ].`;
+IMPORTANT: Use the exact format above. Each macro-moment must start with "=== MACRO-MOMENT N ===" and end with "=== END MACRO-MOMENT N ===".`;
 
   try {
     const response = await callLLM(synthesisPrompt, "gpt-oss-20b");
     console.log(`[engine] LLM synthesis response length: ${response.length}`);
+    console.log(`[engine] LLM synthesis full response:\n${response}`);
 
-    // Try to find JSON array in the response - look for the first [ and last ]
-    let jsonStart = response.indexOf("[");
-    let jsonEnd = response.lastIndexOf("]");
+    // Parse structured text format
+    const macroMoments: Array<MomentDescription & { summary: string }> = [];
+    const momentRegex =
+      /=== MACRO-MOMENT \d+ ===\nTITLE: (.+?)\nSUMMARY: (.+?)\nCONTENT: (.+?)\n=== END MACRO-MOMENT \d+ ===/gs;
 
-    if (jsonStart === -1 || jsonEnd === -1 || jsonEnd <= jsonStart) {
+    let match;
+    while ((match = momentRegex.exec(response)) !== null) {
+      const [, title, summary, content] = match;
+      if (title && summary && content) {
+        macroMoments.push({
+          title: title.trim(),
+          summary: summary.trim(),
+          content: content.trim(),
+          author: microMoments[0]?.author || "unknown",
+          createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
+          sourceMetadata: microMoments[0]?.sourceMetadata,
+        });
+      }
+    }
+
+    if (macroMoments.length === 0) {
       console.error(
-        `[engine] Failed to find JSON array in LLM response. Response: ${response.substring(
-          0,
-          500
-        )}`
+        `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`
       );
       return [];
     }
-
-    const jsonString = response.substring(jsonStart, jsonEnd + 1);
-    let parsed: SynthesizedMoment[];
-
-    try {
-      parsed = JSON.parse(jsonString) as SynthesizedMoment[];
-    } catch (parseError) {
-      console.error(
-        `[engine] Failed to parse JSON. JSON string: ${jsonString.substring(
-          0,
-          500
-        )}`
-      );
-      console.error(`[engine] Parse error:`, parseError);
-      return [];
-    }
-
-    if (!Array.isArray(parsed)) {
-      console.error(
-        `[engine] LLM response is not an array. Got: ${typeof parsed}`
-      );
-      return [];
-    }
-
-    const macroMoments: Array<MomentDescription & { summary: string }> =
-      parsed.map((item) => ({
-        title: item.title.trim(),
-        content: item.content.trim(),
-        summary: item.summary.trim(),
-        author: microMoments[0]?.author || "unknown",
-        createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
-        sourceMetadata: microMoments[0]?.sourceMetadata,
-      }));
 
     console.log(
       `[engine] Successfully synthesized ${macroMoments.length} macro-moments`
@@ -157,6 +143,10 @@ IMPORTANT: Your response must be ONLY a valid JSON array. Do not include any exp
     console.error(
       `[engine] Error during synthesis:`,
       error instanceof Error ? error.message : String(error)
+    );
+    console.error(
+      `[engine] Error stack:`,
+      error instanceof Error ? error.stack : "no stack"
     );
     console.error(`[engine] Falling back to empty array. Error:`, error);
     return [];

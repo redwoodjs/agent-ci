@@ -32,6 +32,7 @@ import {
   getMicroMomentsForDocument,
   type MicroMoment,
 } from "./momentDb";
+import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
 import { getEmbedding } from "./utils/vector";
 
@@ -490,7 +491,7 @@ ${userQuery}
 Provide a clear, narrative answer that explains the story and causal relationships between events. Focus on answering "why" and "how" questions based on the Subject and the sequence of events in its timeline.`;
 
         const llmStart = Date.now();
-        const narrativeAnswer = await callLlm(narrativePrompt);
+        const narrativeAnswer = await callLLM(narrativePrompt);
         console.log(
           `[query:narrative] LLM call completed in ${Date.now() - llmStart}ms`
         );
@@ -668,7 +669,7 @@ Provide a clear, narrative answer that explains the story and causal relationshi
     `[query] Step 9: Calling LLM (prompt length: ${prompt.length} chars)`
   );
   const step7Start = Date.now();
-  const llmResponse = await callLlm(prompt);
+  const llmResponse = await callLLM(prompt);
   console.log(`[query] LLM generation took ${Date.now() - step7Start}ms`);
   console.log(
     `[query] Step 10: LLM response received (length: ${llmResponse.length} chars)`
@@ -1000,11 +1001,4 @@ async function generateEmbedding(text: string): Promise<number[]> {
   }
 
   return response.data[0];
-}
-
-import { env } from "cloudflare:workers";
-import { callLLM } from "./utils/llm";
-
-async function callLlm(prompt: string): Promise<string> {
-  return callLLM(prompt);
 }

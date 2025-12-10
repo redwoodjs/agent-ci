@@ -475,7 +475,7 @@ export async function upsertMicroMoment(
       author: microMoment.author,
       source_metadata: microMoment.sourceMetadata
         ? JSON.stringify(microMoment.sourceMetadata)
-        : null,
+        : (null as any),
     })
     .onConflict((oc) =>
       oc.columns(["document_id", "path"]).doUpdateSet({
@@ -485,7 +485,7 @@ export async function upsertMicroMoment(
         author: microMoment.author,
         source_metadata: microMoment.sourceMetadata
           ? JSON.stringify(microMoment.sourceMetadata)
-          : null,
+          : undefined,
       })
     )
     .execute();

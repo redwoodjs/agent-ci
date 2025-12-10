@@ -61,44 +61,38 @@ export async function callLLM(
 
   // Handle different response structures
   if (modelId.includes("gpt-oss")) {
-    const gptResponse = response as GPTOSSResponse;
+    // gpt-oss-20b uses OpenAI Responses API format: { response: string, usage: {...} }
     console.log(
-      `[llm] Parsing gpt-oss response. Has output: ${!!gptResponse?.output}, output length: ${
-        gptResponse?.output?.length || 0
-      }`
+      `[llm] Parsing gpt-oss response. Has response field: ${!!response?.response}, response type: ${typeof response?.response}`
     );
-    if (
-      !gptResponse ||
-      !gptResponse.output ||
-      !Array.isArray(gptResponse.output) ||
-      gptResponse.output.length === 0 ||
-      !gptResponse.output[0].content ||
-      !Array.isArray(gptResponse.output[0].content) ||
-      gptResponse.output[0].content.length === 0 ||
-      typeof gptResponse.output[0].content[0].text !== "string"
-    ) {
-      console.error(
-        `[llm] Invalid gpt-oss response structure:`,
-        JSON.stringify(response, null, 2)
+    if (response && typeof response.response === "string") {
+      console.log(
+        `[llm] Successfully extracted text from gpt-oss response. Length: ${response.response.length} chars`
       );
-      console.error(`[llm] Response structure check:`, {
-        hasResponse: !!gptResponse,
-        hasOutput: !!gptResponse?.output,
-        outputIsArray: Array.isArray(gptResponse?.output),
-        outputLength: gptResponse?.output?.length || 0,
-        hasFirstContent: !!gptResponse?.output?.[0]?.content,
-        contentIsArray: Array.isArray(gptResponse?.output?.[0]?.content),
-        contentLength: gptResponse?.output?.[0]?.content?.length || 0,
-        hasText:
-          typeof gptResponse?.output?.[0]?.content?.[0]?.text === "string",
-      });
-      throw new Error("Failed to parse LLM response from gpt-oss");
+      return response.response;
     }
-    const text = gptResponse.output[0].content[0].text;
-    console.log(
-      `[llm] Successfully extracted text from gpt-oss response. Length: ${text.length} chars`
+    // Fallback: check for old format (output array structure)
+    const gptResponse = response as GPTOSSResponse;
+    if (
+      gptResponse?.output &&
+      Array.isArray(gptResponse.output) &&
+      gptResponse.output.length > 0 &&
+      gptResponse.output[0].content &&
+      Array.isArray(gptResponse.output[0].content) &&
+      gptResponse.output[0].content.length > 0 &&
+      typeof gptResponse.output[0].content[0].text === "string"
+    ) {
+      const text = gptResponse.output[0].content[0].text;
+      console.log(
+        `[llm] Successfully extracted text from gpt-oss response (legacy format). Length: ${text.length} chars`
+      );
+      return text;
+    }
+    console.error(
+      `[llm] Invalid gpt-oss response structure:`,
+      JSON.stringify(response, null, 2)
     );
-    return text;
+    throw new Error("Failed to parse LLM response from gpt-oss");
   } else {
     // Llama and other models often use this structure
     console.log(

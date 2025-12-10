@@ -71,34 +71,27 @@ async function synthesizeMicroMoments(
     )
     .join("\n---\n\n");
 
-  const synthesisPrompt = `You are an expert at analyzing sequences of events and identifying significant turning points and milestones. Your task is to consolidate micro-moments (individual events) into macro-moments (significant, high-level events that represent meaningful progress or decisions).
+  const synthesisPrompt = `You are an expert at analyzing sequences of events to build a coherent narrative. Your task is to consolidate a series of low-level "micro-moments" into a smaller number of high-level "macro-moments" that tell a story of progress, discovery, and decision-making.
 
-**Critical Instructions:**
-- Identify **turning points** - moments where the direction, approach, or understanding changed significantly
-- Group related micro-moments that represent a single coherent event or decision
-- Focus on **why** each macro-moment matters - what problem did it solve, what decision did it represent, or what progress did it mark?
-- Each macro-moment should represent a distinct, meaningful milestone in the narrative
-- Do NOT create a macro-moment for every single micro-moment - consolidate intelligently
-- Look for patterns: problem identification → exploration → solution attempts → breakthrough → implementation
+**Your Goal:** Identify and record the most significant events. Specifically look for turning points, key discoveries or realizations, important decisions, changes in approach / new attempts at solving the problem, etc
 
 **Output format (strictly follow this):**
 
 MACRO-MOMENT 1
-TITLE: Past-tense event title (e.g., "Identified tree-shaking issue with Mantine components")
-SUMMARY: 2-4 sentences explaining what happened, why it was significant, and how it relates to the overall narrative. Focus on the "why" - what problem was being solved or what decision was being made.
+TITLE: A concise, past-tense title for the event (e.g., "Realized barrel files were needed for tree-shaking")
+SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
 
 MACRO-MOMENT 2
-TITLE: Past-tense event title
-SUMMARY: 2-4 sentences explaining what happened, why it was significant, and how it relates to the overall narrative.
+TITLE: A concise, past-tense title for the event
+SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
 
 **Input micro-moments:**
 ${formattedMoments}
 
 **Your response must:**
 - Begin with "MACRO-MOMENT 1"
-- Contain only formatted blocks (no preamble or explanation)
-- Identify genuine turning points, not just chronological sequence
-- Group micro-moments that belong together logically`;
+- Contain only the formatted blocks.
+- Focus on the story of the work, not just a chronological list.`;
 
   try {
     const response = await callLLM(synthesisPrompt, "gpt-oss-20b", {

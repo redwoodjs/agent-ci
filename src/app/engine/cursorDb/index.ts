@@ -84,3 +84,10 @@ export async function setExchangeCache(
       .execute();
   }
 }
+
+// TEMPORARY: Testing function to clear exchange cache
+export async function clearExchangeCache(): Promise<void> {
+  const db = getCursorDb();
+  await db.deleteFrom("exchange_cache").execute();
+  console.log("[cursorDb] Cleared all exchange cache (testing)");
+}

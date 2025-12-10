@@ -395,3 +395,10 @@ export async function setDocumentStructureHash(
     )
     .execute();
 }
+
+// TEMPORARY: Testing function to clear structure hash cache
+export async function clearDocumentStructureHash(): Promise<void> {
+  const db = getMomentDb();
+  await db.deleteFrom("document_structure_hash").execute();
+  console.log("[momentDb] Cleared all document structure hashes (testing)");
+}

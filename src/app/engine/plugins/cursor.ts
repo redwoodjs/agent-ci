@@ -14,8 +14,13 @@ import { getEmbedding, cosineSimilarity } from "../utils/vector";
 import {
   getDocumentStructureHash,
   setDocumentStructureHash,
+  clearDocumentStructureHash,
 } from "../momentDb";
-import { getExchangeCache, setExchangeCache } from "../cursorDb";
+import {
+  getExchangeCache,
+  setExchangeCache,
+  clearExchangeCache,
+} from "../cursorDb";
 
 interface CursorEvent {
   hook_event_name: string;
@@ -100,6 +105,11 @@ export const cursorPlugin: Plugin = {
       if (document.source !== "cursor") {
         return null;
       }
+
+      // TEMPORARY: Clear caches for testing
+      await clearExchangeCache();
+      await clearDocumentStructureHash();
+      console.log("[cursor-plugin] Cleared all caches for testing");
 
       const bucket = context.env.MACHINEN_BUCKET;
       const object = await bucket.get(document.id);

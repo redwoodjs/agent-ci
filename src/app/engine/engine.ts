@@ -73,9 +73,9 @@ async function synthesizeMicroMoments(
     )
     .join("\n---\n\n");
 
-  const synthesisPrompt = `Analyze the ${microMoments.length} micro-moments below. Group related ones into macro-moments. Output ONLY the formatted blocks below - do not include any reasoning, explanation, or discussion.
+  const synthesisPrompt = `You must output ONLY the formatted blocks below. Do not include any reasoning, explanation, discussion, or thinking process.
 
-Output format (copy exactly, replace N with numbers starting at 1):
+REQUIRED OUTPUT FORMAT (copy exactly, replace N with numbers starting at 1):
 
 === MACRO-MOMENT 1 ===
 TITLE: Past-tense event title
@@ -87,20 +87,22 @@ TITLE: Past-tense event title
 SUMMARY: 2-4 sentences explaining what happened, why, and how
 === END MACRO-MOMENT 2 ===
 
+Analyze the ${microMoments.length} micro-moments below and group related ones into macro-moments. Then output ONLY the formatted blocks above.
+
 Micro-Moments:
 ${formattedMoments}
 
-CRITICAL: Output ONLY the formatted blocks. No explanations, no reasoning, no "Let's write" - just the blocks starting with "=== MACRO-MOMENT 1 ===".`;
+REMEMBER: Start your response immediately with "=== MACRO-MOMENT 1 ===". Do not write anything before that.`;
 
   try {
     const response = await callLLM(synthesisPrompt, "gpt-oss-20b");
     console.log(`[engine] LLM synthesis response length: ${response.length}`);
     console.log(`[engine] LLM synthesis full response:\n${response}`);
 
-    // Parse structured text format
+    // Parse structured text format - extract blocks even if there's extra text
     const macroMoments: Array<MomentDescription & { summary: string }> = [];
     const momentRegex =
-      /=== MACRO-MOMENT \d+ ===\nTITLE: (.+?)\nSUMMARY: (.+?)\n=== END MACRO-MOMENT \d+ ===/gs;
+      /=== MACRO-MOMENT \d+ ===\s*TITLE:\s*(.+?)\s*SUMMARY:\s*(.+?)\s*=== END MACRO-MOMENT \d+ ===/gs;
 
     let match;
     while ((match = momentRegex.exec(response)) !== null) {
@@ -128,7 +130,24 @@ CRITICAL: Output ONLY the formatted blocks. No explanations, no reasoning, no "L
       console.error(
         `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`
       );
-      return [];
+      // Fallback: create a single macro-moment from all micro-moments
+      console.log(
+        `[engine] Creating fallback macro-moment from all ${microMoments.length} micro-moments`
+      );
+      const content = microMoments
+        .map((m) => m.content)
+        .filter(Boolean)
+        .join("\n\n---\n\n");
+      return [
+        {
+          title: "Document processing",
+          summary: `Processed ${microMoments.length} micro-moments from the document.`,
+          content: content || "",
+          author: microMoments[0]?.author || "unknown",
+          createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
+          sourceMetadata: microMoments[0]?.sourceMetadata,
+        },
+      ];
     }
 
     console.log(

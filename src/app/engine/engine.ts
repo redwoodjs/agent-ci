@@ -263,6 +263,7 @@ export async function indexDocument(
   );
 
   if (microMomentDescriptions && microMomentDescriptions.length > 0) {
+    const microMomentProcessingStart = Date.now();
     console.log(
       `[engine] Plugin provided ${microMomentDescriptions.length} micro-moments. Processing cache and generating summaries/embeddings.`
     );
@@ -279,6 +280,7 @@ export async function indexDocument(
         continue;
       }
 
+      const microMomentStart = Date.now();
       console.log(
         `[engine] Processing micro-moment ${i + 1}/${
           microMomentDescriptions.length
@@ -286,10 +288,12 @@ export async function indexDocument(
       );
 
       // Check cache
+      const cacheCheckStart = Date.now();
       const cached = await getMicroMoment(document.id, microMomentDesc.path);
+      const cacheCheckDuration = Date.now() - cacheCheckStart;
       if (cached && cached.summary && cached.embedding) {
         console.log(
-          `[engine] Cache hit for micro-moment path="${microMomentDesc.path}". Using cached summary/embedding.`
+          `[engine] Cache hit for micro-moment path="${microMomentDesc.path}" (cache check: ${cacheCheckDuration}ms). Using cached summary/embedding.`
         );
         continue;
       }
@@ -321,6 +325,12 @@ export async function indexDocument(
         `[engine] Stored micro-moment path="${microMomentDesc.path}" with summary/embedding.`
       );
     }
+
+    const microMomentProcessingDuration =
+      Date.now() - microMomentProcessingStart;
+    console.log(
+      `[engine] Processed ${microMomentDescriptions.length} micro-moments in ${microMomentProcessingDuration}ms`
+    );
 
     // Retrieve all micro-moments for this document (now with summaries/embeddings)
     const allMicroMoments = await getMicroMomentsForDocument(document.id);

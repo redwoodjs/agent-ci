@@ -419,6 +419,7 @@ export async function getMicroMoment(
   documentId: string,
   path: string
 ): Promise<MicroMoment | null> {
+  const start = Date.now();
   const db = getMomentDb();
   const row = await db
     .selectFrom("micro_moments")
@@ -426,6 +427,12 @@ export async function getMicroMoment(
     .where("document_id", "=", documentId)
     .where("path", "=", path)
     .executeTakeFirst();
+  const duration = Date.now() - start;
+  if (duration > 10) {
+    console.log(
+      `[momentDb] getMicroMoment(${documentId}, ${path}) took ${duration}ms`
+    );
+  }
 
   if (!row) {
     return null;

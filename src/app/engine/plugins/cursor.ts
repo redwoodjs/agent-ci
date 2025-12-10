@@ -5,7 +5,6 @@ import {
   Chunk,
   ChunkMetadata,
   QueryHookContext,
-  SubjectDescription,
   MomentDescription,
   CursorConversationLatestJson,
 } from "../types";
@@ -94,54 +93,6 @@ export const cursorPlugin: Plugin = {
   },
 
   subjects: {
-    async determineSubjectsForDocument(
-      document: Document,
-      chunks: Chunk[],
-      context: IndexingHookContext
-    ): Promise<SubjectDescription[] | null> {
-      if (document.source !== "cursor") {
-        return null;
-      }
-      if (chunks.length === 0) {
-        return null;
-      }
-
-      const firstChunkContent = chunks[0]?.content;
-      if (!firstChunkContent) {
-        return null;
-      }
-
-      const title = await generateTitleForText(firstChunkContent);
-
-      const bucket = context.env.MACHINEN_BUCKET;
-      const object = await bucket.get(document.id);
-      if (!object) {
-        throw new Error(`R2 object not found: ${document.id}`);
-      }
-      const jsonText = await object.text();
-      const data = JSON.parse(jsonText) as CursorConversationLatestJson;
-      const narrativeComponents = extractUserPrompts(data);
-
-      const encoder = new TextEncoder();
-      const dataBytes = encoder.encode(document.id);
-      const hashBuffer = await crypto.subtle.digest("SHA-256", dataBytes);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const idempotencyKey = hashArray
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-
-      const description: SubjectDescription = {
-        title: title,
-        narrativeComponents:
-          narrativeComponents.length > 0
-            ? narrativeComponents
-            : [document.content],
-        idempotency_key: idempotencyKey,
-        chunks: chunks,
-      };
-
-      return [description];
-    },
     async extractMomentsFromDocument(
       document: Document,
       context: IndexingHookContext

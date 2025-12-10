@@ -15,16 +15,12 @@ import { createDb, type Database } from "rwsdk/db";
 import type { SubjectDO } from "./subjectDb/durableObject";
 import {
   getSubject,
-  putSubject,
-  updateSubjectDocumentIds,
   getSubjectAncestors,
   getSubjectChildren,
-  getSubjectByIdempotencyKey,
   listSubjects,
 } from "./subjectDb";
 import { type subjectMigrations } from "./subjectDb/migrations";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
-import { summarizeNumerically } from "./utils/vector-summary";
 import { addMoment, findSimilarMoments, findAncestors } from "./momentDb";
 
 async function hashChunkId(chunkId: string): Promise<string> {
@@ -43,7 +39,6 @@ export async function indexDocument(
   context: EngineContext
 ): Promise<Chunk[]> {
   const totalStart = Date.now();
-  let subjectId: string | undefined;
   console.log(`[engine] Starting indexDocument for: ${r2Key}`);
   const indexingContext: IndexingHookContext = {
     r2Key,
@@ -112,161 +107,9 @@ export async function indexDocument(
     return []; // Nothing more to do
   }
 
-  // 3. Determine subjects for the document (using only new chunks for correlation if needed)
-  type SubjectDatabase = Database<typeof subjectMigrations>;
-  const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
-    "subject-graph"
-  );
-
-  // Attempt to use the top-down, source-aware hook first
-  const subjectDescriptions = await runFirstMatchHook(
-    context.plugins,
-    "determineSubjectsForDocument",
-    (plugin) =>
-      plugin.subjects?.determineSubjectsForDocument?.(
-        document,
-        newChunks, // Pass only new chunks to the hook
-        indexingContext
-      )
-  );
-
-  if (subjectDescriptions && subjectDescriptions.length > 0) {
-    console.log(
-      `[engine] Plugin provided ${subjectDescriptions.length} subject descriptions. Processing them now.`
-    );
-    for (const description of subjectDescriptions) {
-      if (!description) {
-        continue;
-      }
-
-      console.log(
-        `[engine:dedup-debug] Processing subject description for document: ${document.id}`
-      );
-      console.log(
-        `[engine:dedup-debug] Description title: ${description.title}`
-      );
-      console.log(
-        `[engine:dedup-debug] Has narrativeComponents: ${!!description.narrativeComponents}, count: ${
-          description.narrativeComponents?.length || 0
-        }`
-      );
-      console.log(
-        `[engine:dedup-debug] Has narrative: ${!!description.narrative}`
-      );
-
-      let narrative = description.narrative;
-      if (
-        description.narrativeComponents &&
-        description.narrativeComponents.length > 0
-      ) {
-        console.log(
-          `[engine:dedup-debug] Calling summarizeNumerically with ${description.narrativeComponents.length} components`
-        );
-        narrative = await summarizeNumerically(
-          description.narrativeComponents,
-          context.env
-        );
-        console.log(
-          `[engine:dedup-debug] summarizeNumerically returned narrative (length: ${narrative.length})`
-        );
-      }
-
-      if (!narrative) {
-        console.warn(
-          `[engine] Subject description for document ${document.id} has no narrative. Falling back to title.`
-        );
-        narrative = description.title;
-      }
-
-      console.log(
-        `[engine:dedup-debug] Final narrative to search with (length: ${
-          narrative.length
-        }): ${JSON.stringify(narrative)}`
-      );
-
-      // **Step 1: Prioritize Semantic Search**
-      console.log(
-        `[engine:dedup-debug] Calling findSubjectForText with narrative`
-      );
-      const existingSubjectId = await runFirstMatchHook(
-        context.plugins,
-        "findSubjectForText",
-        (plugin) =>
-          plugin.subjects?.findSubjectForText?.({
-            text: narrative!,
-            env: context.env,
-          })
-      );
-
-      if (existingSubjectId) {
-        console.log(
-          `[engine:dedup-debug] DECISION: Found existing subject ${existingSubjectId} via semantic search. Linking document ${document.id} to existing subject.`
-        );
-        // Append document to existing subject
-        await updateSubjectDocumentIds(subjectDb, existingSubjectId, [
-          document.id,
-        ]);
-        subjectId = existingSubjectId;
-        break; // Move to chunking
-      } else {
-        console.log(
-          `[engine:dedup-debug] DECISION: No existing subject found via semantic search. Will check idempotency key or create new subject.`
-        );
-      }
-
-      // **Step 2: Fallback to Idempotency Key**
-      console.log(
-        `[engine:dedup-debug] Checking idempotency key: ${description.idempotency_key}`
-      );
-      let subject = description.idempotency_key
-        ? await getSubjectByIdempotencyKey(
-            subjectDb,
-            description.idempotency_key
-          )
-        : null;
-
-      if (subject) {
-        console.log(
-          `[engine:dedup-debug] DECISION: Found existing subject ${subject.id} via idempotency key. Linking document ${document.id} to existing subject.`
-        );
-        // DO NOT overwrite the title or narrative of an existing subject.
-        // Its semantic identity should be stable.
-        await updateSubjectDocumentIds(subjectDb, subject.id, [document.id]);
-        subjectId = subject.id;
-      } else {
-        // **Step 3: Create New Subject**
-        subjectId = crypto.randomUUID();
-        console.log(
-          `[engine:dedup-debug] DECISION: No existing subject found. Creating NEW subject ${subjectId} for document ${document.id}`
-        );
-        console.log(
-          `[engine:dedup-debug] New subject details: title="${description.title}", idempotency_key="${description.idempotency_key}"`
-        );
-        const newSubject: Subject = {
-          id: subjectId,
-          title: description.title,
-          narrative: narrative,
-          documentIds: [document.id],
-          idempotency_key: description.idempotency_key,
-        };
-        await putSubject(subjectDb, newSubject);
-        await upsertSubjectVector(newSubject);
-        console.log(
-          `[engine] Created new subject ${subjectId} for document ${document.id}`
-        );
-      }
-      break; // We assume one subject per document for now
-    }
-  } else {
-    // NO FALLBACK: If no plugin provides top-down subjects, we must throw.
-    // This indicates a configuration or plugin logic error that needs to be fixed.
-    throw new Error(
-      `[engine] No plugin provided subject descriptions for document: ${document.id}. This is a fatal error.`
-    );
-  }
-
-  // 3.5. Extract moments from the document
+  // 3. Extract moments from the document
+  // Subjects are now created automatically from root moments via the Moment Graph system.
+  // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
   const momentDescriptions = await runFirstMatchHook(
     context.plugins,
     "extractMomentsFromDocument",
@@ -722,58 +565,6 @@ export async function listAllSubjects(
   );
 
   return await listSubjects(subjectDb, limit, offset);
-}
-
-async function upsertSubjectVector(subject: Subject) {
-  if (!subject.narrative) {
-    console.log(
-      `[engine:dedup-debug] Subject ${subject.id} has no narrative to index.`
-    );
-    return;
-  }
-
-  console.log(
-    `[engine:dedup-debug] Upserting vector for subject ${subject.id}.`
-  );
-  console.log(
-    `[engine:dedup-debug] Narrative being indexed (length: ${
-      subject.narrative.length
-    }): ${JSON.stringify(subject.narrative)}`
-  );
-
-  try {
-    const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
-      text: [subject.narrative],
-    })) as { data: number[][] };
-
-    if (
-      !embeddingResponse ||
-      !embeddingResponse.data ||
-      embeddingResponse.data.length === 0
-    ) {
-      console.error(
-        `[engine:dedup-debug] Failed to generate embedding for subject ${subject.id}`
-      );
-      return;
-    }
-
-    await env.SUBJECT_INDEX.upsert([
-      {
-        id: subject.id,
-        values: embeddingResponse.data[0],
-        metadata: { title: subject.title },
-      },
-    ]);
-    console.log(
-      `[engine:dedup-debug] Successfully upserted vector for subject ${subject.id} (embedding dimension: ${embeddingResponse.data[0].length})`
-    );
-  } catch (error) {
-    console.error(
-      `[engine:dedup-debug] Error upserting vector for subject ${subject.id}:`,
-      error
-    );
-    throw error;
-  }
 }
 
 async function reconstructContexts(

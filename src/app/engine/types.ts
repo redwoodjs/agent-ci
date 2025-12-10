@@ -152,11 +152,6 @@ export interface Plugin {
       context: SubjectSearchContext
     ) => Promise<string | null>;
     generateSubjectTitle?: (context: SubjectSearchContext) => Promise<string>;
-    determineSubjectsForDocument?: (
-      document: Document,
-      chunks: Chunk[],
-      context: IndexingHookContext
-    ) => Promise<SubjectDescription[] | null>;
     extractMomentsFromDocument?: (
       document: Document,
       context: IndexingHookContext

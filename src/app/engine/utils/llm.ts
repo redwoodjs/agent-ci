@@ -9,9 +9,15 @@ interface GPTOSSResponse {
   }>;
 }
 
+export interface LLMOptions {
+  temperature?: number;
+  max_tokens?: number;
+}
+
 export async function callLLM(
   prompt: string,
-  model: LLMModel = "gpt-oss-20b"
+  model: LLMModel = "gpt-oss-20b",
+  options?: LLMOptions
 ): Promise<string> {
   const modelId =
     model === "gpt-oss-20b"
@@ -24,13 +30,32 @@ export async function callLLM(
   console.log(
     `[llm] Calling ${model} (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`
   );
+  if (options) {
+    console.log(`[llm] Options: ${JSON.stringify(options)}`);
+  }
 
   let response: any;
   try {
     const isGptOss = modelId.includes("gpt-oss");
     const payload = isGptOss
-      ? { input: prompt } // GPT-OSS-20B uses 'input'
-      : { prompt: prompt }; // Llama uses 'prompt'
+      ? {
+          input: prompt,
+          ...(options?.temperature !== undefined && {
+            temperature: options.temperature,
+          }),
+          ...(options?.max_tokens !== undefined && {
+            max_tokens: options.max_tokens,
+          }),
+        } // GPT-OSS-20B uses 'input' and supports temperature/max_tokens
+      : {
+          prompt: prompt,
+          ...(options?.temperature !== undefined && {
+            temperature: options.temperature,
+          }),
+          ...(options?.max_tokens !== undefined && {
+            max_tokens: options.max_tokens,
+          }),
+        }; // Llama uses 'prompt' and also supports these params
 
     response = await (env.AI.run as any)(modelId, payload);
     const duration = Date.now() - start;

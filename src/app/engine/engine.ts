@@ -71,25 +71,40 @@ async function synthesizeMicroMoments(
     )
     .join("\n---\n\n");
 
-  const synthesisPrompt = `You are a data formatter. Your task is to consolidate micro-moments into macro-moments. For each macro-moment, write a title and a summary that is self-contained and provides a high-level view of what happened and why it's significant to the project. The summary should read like a record of what happened.
+  const synthesisPrompt = `You are an expert at analyzing sequences of events and identifying significant turning points and milestones. Your task is to consolidate micro-moments (individual events) into macro-moments (significant, high-level events that represent meaningful progress or decisions).
 
-Output format:
+**Critical Instructions:**
+- Identify **turning points** - moments where the direction, approach, or understanding changed significantly
+- Group related micro-moments that represent a single coherent event or decision
+- Focus on **why** each macro-moment matters - what problem did it solve, what decision did it represent, or what progress did it mark?
+- Each macro-moment should represent a distinct, meaningful milestone in the narrative
+- Do NOT create a macro-moment for every single micro-moment - consolidate intelligently
+- Look for patterns: problem identification → exploration → solution attempts → breakthrough → implementation
+
+**Output format (strictly follow this):**
 
 MACRO-MOMENT 1
-TITLE: Past-tense event title
-SUMMARY: 2-4 sentences explaining what happened, why, and how
+TITLE: Past-tense event title (e.g., "Identified tree-shaking issue with Mantine components")
+SUMMARY: 2-4 sentences explaining what happened, why it was significant, and how it relates to the overall narrative. Focus on the "why" - what problem was being solved or what decision was being made.
 
 MACRO-MOMENT 2
 TITLE: Past-tense event title
-SUMMARY: 2-4 sentences explaining what happened, why, and how
+SUMMARY: 2-4 sentences explaining what happened, why it was significant, and how it relates to the overall narrative.
 
-Input micro-moments:
+**Input micro-moments:**
 ${formattedMoments}
 
-Your response must begin with "MACRO-MOMENT 1" and contain only formatted blocks.`;
+**Your response must:**
+- Begin with "MACRO-MOMENT 1"
+- Contain only formatted blocks (no preamble or explanation)
+- Identify genuine turning points, not just chronological sequence
+- Group micro-moments that belong together logically`;
 
   try {
-    const response = await callLLM(synthesisPrompt, "gpt-oss-20b-cheap");
+    const response = await callLLM(synthesisPrompt, "gpt-oss-20b", {
+      temperature: 0.3, // Lower temperature for more focused, deterministic reasoning
+      max_tokens: 2000, // Allow sufficient space for multiple macro-moments
+    });
     console.log(`[engine] LLM synthesis response length: ${response.length}`);
 
     // Check if response starts with expected format

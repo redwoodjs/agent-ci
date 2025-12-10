@@ -12,7 +12,7 @@ import {
   listAllSubjects,
   createEngineContext,
 } from "./index";
-import { findAncestors, findLastMomentForDocument } from "./momentDb";
+import { findAncestors, findLastMilestoneForDocument } from "./momentDb";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
@@ -272,19 +272,19 @@ async function timelineHandler({ request, ctx }: RequestInfo) {
   try {
     console.log(`[timeline] Getting timeline for document: ${documentId}`);
 
-    const lastMoment = await findLastMomentForDocument(documentId);
+    const lastMilestone = await findLastMilestoneForDocument(documentId);
 
-    if (!lastMoment) {
+    if (!lastMilestone) {
       return Response.json(
-        { error: "No moments found for document" },
+        { error: "No milestones found for document" },
         { status: 404 }
       );
     }
 
-    const timeline = await findAncestors(lastMoment.id);
+    const timeline = await findAncestors(lastMilestone.id);
 
     console.log(
-      `[timeline] Found timeline with ${timeline.length} moments for document ${documentId}`
+      `[timeline] Found timeline with ${timeline.length} milestones for document ${documentId}`
     );
 
     return Response.json({ timeline });

@@ -93,7 +93,7 @@ export default {
         } else if (
           queueName === "engine-indexing-queue" ||
           queueName === "engine-indexing-queue-prod" ||
-          queueName === "engine-indexing-queue-dev-justin" ||
+          queueName === "engine-indexing-queue-dev-justin-2" ||
           queueName === "engine-indexing-queue-rag-experiment-1" ||
           queueName === "ENGINE_INDEXING_QUEUE"
         ) {
@@ -119,7 +119,7 @@ export default {
           await processIndexingJob({ r2Key }, env as Cloudflare.Env);
           message.ack();
         } else if (
-          queueName === "chunk-processing-queue-dev-justin" ||
+          queueName === "chunk-processing-queue-dev-justin-2" ||
           queueName === "chunk-processing-queue"
         ) {
           const chunk = queueMessage as unknown as Chunk;

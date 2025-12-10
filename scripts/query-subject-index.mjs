@@ -8,7 +8,7 @@
  *   node scripts/query-subject-index.mjs "your search query here"
  *
  * Environment variables:
- *   CLOUDFLARE_ENV - Optional (defaults to "dev-justin")
+ *   CLOUDFLARE_ENV - Optional (defaults to "dev-justin-2")
  *   API_KEY - Required for authentication
  */
 
@@ -44,7 +44,7 @@ function loadEnvVars() {
 
 loadEnvVars();
 
-const CLOUDFLARE_ENV = process.env.CLOUDFLARE_ENV || "dev-justin";
+const CLOUDFLARE_ENV = process.env.CLOUDFLARE_ENV || "dev-justin-2";
 const API_KEY = process.env.API_KEY;
 
 if (!API_KEY) {
@@ -60,11 +60,11 @@ function getWorkerUrl() {
   }
 
   const envMap = {
-    "dev-justin": "https://machinen-dev-justin.redwoodjs.workers.dev",
+    "dev-justin-2": "https://machinen-dev-justin-2.redwoodjs.workers.dev",
     production: "https://machinen.redwoodjs.workers.dev",
   };
 
-  return envMap[CLOUDFLARE_ENV] || envMap["dev-justin"];
+  return envMap[CLOUDFLARE_ENV] || envMap["dev-justin-2"];
 }
 
 const WORKER_URL = getWorkerUrl();
@@ -75,16 +75,19 @@ async function querySubjectIndex(searchText) {
   console.log(`🌐 Worker URL: ${WORKER_URL}\n`);
 
   try {
-    const response = await fetch(`${WORKER_URL}/rag/debug/query-subject-index`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify({
-        query: searchText,
-      }),
-    });
+    const response = await fetch(
+      `${WORKER_URL}/rag/debug/query-subject-index`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${API_KEY}`,
+        },
+        body: JSON.stringify({
+          query: searchText,
+        }),
+      }
+    );
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -136,4 +139,3 @@ querySubjectIndex(searchQuery)
     console.error("\n❌ Failed to query index:", error.message);
     process.exit(1);
   });
-

@@ -76,8 +76,8 @@ API_KEY="${CLI_API_KEY:-${API_KEY}}"
 
 # Set WORKER_URL based on MACHINEN_ENV, unless overridden by CLI arg
 case "$MACHINEN_ENV" in
-  "dev-justin")
-    WORKER_URL_ENV="https://machinen-dev-justin.redwoodjs.workers.dev"
+  "dev-justin-2")
+    WORKER_URL_ENV="https://machinen-dev-justin-2.redwoodjs.workers.dev"
     ;;
   "production")
     WORKER_URL_ENV="https://machinen.redwoodjs.workers.dev"

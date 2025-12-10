@@ -13,7 +13,7 @@
  *
  * Environment variables:
  *   API_KEY - Required for authentication
- *   CLOUDFLARE_ENV - Optional (determines worker URL, e.g., "dev-justin", "production")
+ *   CLOUDFLARE_ENV - Optional (determines worker URL, e.g., "dev-justin-2", "production")
  *   R2_ACCOUNT_ID - Optional (reads from rclone config if not set)
  *   R2_ACCESS_KEY_ID - Optional (reads from rclone config if not set)
  *   R2_SECRET_ACCESS_KEY - Optional (reads from rclone config if not set)
@@ -154,7 +154,7 @@ if (!WORKER_URL) {
   if (CLOUDFLARE_ENV === "production") {
     WORKER_URL = "https://machinen.redwoodjs.workers.dev";
   } else if (CLOUDFLARE_ENV && CLOUDFLARE_ENV.startsWith("dev-")) {
-    // dev-justin -> machinen-dev-justin.redwoodjs.workers.dev
+    // dev-justin-2 -> machinen-dev-justin-2.redwoodjs.workers.dev
     const envName = CLOUDFLARE_ENV.replace("dev-", "");
     WORKER_URL = `https://machinen-dev-${envName}.redwoodjs.workers.dev`;
   } else {
@@ -379,7 +379,7 @@ async function selectFile(files) {
     } else {
       // Show key for other files
       const key = file.key.padEnd(70, " ");
-    console.log(`${num}) ${key}  ${datetime}  ${size}`);
+      console.log(`${num}) ${key}  ${datetime}  ${size}`);
     }
   });
 

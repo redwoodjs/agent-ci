@@ -147,18 +147,34 @@ export const cursorPlugin: Plugin = {
 
       // 1. First Pass: Summarize and embed each exchange (using cache when available)
       for (const gen of data.generations) {
+        const userPromptEvent = gen.events.find(
+          (e: CursorEvent) =>
+            e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+        );
+        const assistantResponseEvent = gen.events.find(
+          (e: CursorEvent) =>
+            e.hook_event_name === "afterAgentResponse" && e.text
+        );
+
         const userPrompt =
-          gen.events.find(
-            (e: CursorEvent) =>
-              e.hook_event_name === "beforeSubmitPrompt" && e.prompt
-          )?.prompt || "";
+          typeof userPromptEvent?.prompt === "string"
+            ? userPromptEvent.prompt
+            : "";
         const assistantResponse =
-          gen.events.find(
-            (e: CursorEvent) =>
-              e.hook_event_name === "afterAgentResponse" && e.text
-          )?.text || "";
+          typeof assistantResponseEvent?.text === "string"
+            ? assistantResponseEvent.text
+            : "";
+
+        console.log(
+          `[cursor-plugin] Generation ${
+            gen.id
+          }: userPrompt type=${typeof userPromptEvent?.prompt}, assistantResponse type=${typeof assistantResponseEvent?.text}`
+        );
 
         if (!userPrompt.trim() && !assistantResponse.trim()) {
+          console.log(
+            `[cursor-plugin] Skipping generation ${gen.id} - both prompts empty`
+          );
           continue;
         }
 

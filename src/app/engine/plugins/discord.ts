@@ -9,7 +9,6 @@ import type {
 } from "../types";
 import type { components } from "../../ingestors/discord/discord-api-types";
 import type { ThreadPage } from "../../ingestors/discord/utils/thread-to-json";
-import { generateTitleForText } from "../utils/summarize";
 
 type DiscordMessage = components["schemas"]["MessageResponse"];
 

@@ -65,6 +65,13 @@ npx wrangler vectorize create moment-index \
   --metric=cosine
 ```
 
+**Subject Index (for root moments representing Subjects):**
+```bash
+npx wrangler vectorize create subject-index \
+  --dimensions=768 \
+  --metric=cosine
+```
+
 The default embedding model (`@cf/baai/bge-base-en-v1.5`) uses 768 dimensions. Update `wrangler.jsonc` if you use a different model.
 
 ### 2. Configure API Key

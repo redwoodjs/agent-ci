@@ -1,12 +1,11 @@
 import { type Migrations } from "rwsdk/db";
-import { sql } from "rwsdk/db";
 
 export const momentMigrations = {
   "001_initial_schema": {
     async up(db) {
       return [
         await db.schema
-          .createTable("milestones")
+          .createTable("moments")
           .addColumn("id", "text", (col) => col.primaryKey())
           .addColumn("document_id", "text", (col) => col.notNull())
           .addColumn("summary", "text", (col) => col.notNull())
@@ -17,19 +16,19 @@ export const momentMigrations = {
           .addColumn("source_metadata", "text")
           .execute(),
         await db.schema
-          .createIndex("milestones_parent_id_idx")
-          .on("milestones")
+          .createIndex("moments_parent_id_idx")
+          .on("moments")
           .column("parent_id")
           .execute(),
         await db.schema
-          .createIndex("milestones_document_id_idx")
-          .on("milestones")
+          .createIndex("moments_document_id_idx")
+          .on("moments")
           .column("document_id")
           .execute(),
       ];
     },
     async down(db) {
-      await db.schema.dropTable("milestones").execute();
+      await db.schema.dropTable("moments").execute();
     },
   },
   "002_add_document_structure_hash": {
@@ -47,46 +46,11 @@ export const momentMigrations = {
       await db.schema.dropTable("document_structure_hash").execute();
     },
   },
-  "003_rename_moments_to_milestones": {
-    async up(db) {
-      const momentsTable = await db
-        .selectFrom("sqlite_master")
-        .select("name")
-        .where("type", "=", "table")
-        .where("name", "=", "moments")
-        .executeTakeFirst();
-
-      const milestonesTable = await db
-        .selectFrom("sqlite_master")
-        .select("name")
-        .where("type", "=", "table")
-        .where("name", "=", "milestones")
-        .executeTakeFirst();
-
-      if (momentsTable && !milestonesTable) {
-        await sql`ALTER TABLE moments RENAME TO milestones`.execute(db);
-      }
-      return [];
-    },
-    async down(db) {
-      const result = await db
-        .selectFrom("sqlite_master")
-        .select("name")
-        .where("type", "=", "table")
-        .where("name", "=", "milestones")
-        .executeTakeFirst();
-
-      if (result) {
-        await sql`ALTER TABLE milestones RENAME TO moments`.execute(db);
-      }
-      return [];
-    },
-  },
-  "004_add_raw_moments": {
+  "003_add_micro_moments": {
     async up(db) {
       return [
         await db.schema
-          .createTable("raw_moments")
+          .createTable("micro_moments")
           .addColumn("id", "text", (col) => col.primaryKey())
           .addColumn("document_id", "text", (col) => col.notNull())
           .addColumn("path", "text", (col) => col.notNull())
@@ -98,20 +62,20 @@ export const momentMigrations = {
           .addColumn("source_metadata", "text")
           .execute(),
         await db.schema
-          .createIndex("raw_moments_document_path_idx")
-          .on("raw_moments")
+          .createIndex("micro_moments_document_path_idx")
+          .on("micro_moments")
           .columns(["document_id", "path"])
           .unique()
           .execute(),
         await db.schema
-          .createIndex("raw_moments_document_id_idx")
-          .on("raw_moments")
+          .createIndex("micro_moments_document_id_idx")
+          .on("micro_moments")
           .column("document_id")
           .execute(),
       ];
     },
     async down(db) {
-      await db.schema.dropTable("raw_moments").execute();
+      await db.schema.dropTable("micro_moments").execute();
     },
   },
 } satisfies Migrations;

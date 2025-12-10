@@ -48,7 +48,7 @@ export type PluginCompositionStrategy =
   | "first-match"
   | "collector";
 
-export interface Milestone {
+export interface Moment {
   id: string;
   documentId: string;
   summary: string;
@@ -59,7 +59,7 @@ export interface Milestone {
   sourceMetadata?: Record<string, any>;
 }
 
-export interface MilestoneDescription {
+export interface MomentDescription {
   title: string;
   content: string;
   author: string;
@@ -67,7 +67,7 @@ export interface MilestoneDescription {
   sourceMetadata?: Record<string, any>;
 }
 
-export interface MomentDescription {
+export interface MicroMomentDescription {
   path: string;
   content: string;
   author: string;
@@ -160,10 +160,10 @@ export interface Plugin {
       context: SubjectSearchContext
     ) => Promise<string | null>;
     generateSubjectTitle?: (context: SubjectSearchContext) => Promise<string>;
-    extractMomentsFromDocument?: (
+    extractMicroMomentsFromDocument?: (
       document: Document,
       context: IndexingHookContext
-    ) => Promise<MomentDescription[] | null>;
+    ) => Promise<MicroMomentDescription[] | null>;
     summarizeMomentContent?: (
       content: string,
       context: IndexingHookContext

@@ -692,27 +692,3 @@ interface MicroMomentDescription {
 *   **Natural cache invalidation:** If a document is re-indexed and a `path` no longer exists in the source, the corresponding micro-moment becomes orphaned but doesn't cause issues (it's simply not used in the new synthesis).
 *   **Handles edits gracefully:** If content at a `path` changes, the plugin will return new content. The engine detects the change (content hash mismatch) and regenerates summary/embedding, updating the micro-moment.
 *   **Simpler plugin implementation:** Plugins only need to extract raw micro-moments with paths. The engine handles all caching, summarization, and embedding logic.
-
----
-
-## 18. Naming Refinement: Moments and Milestones
-
-After implementing the micro-moments architecture, a naming clarification was needed to better distinguish between the two levels of abstraction.
-
-**Decision:** Rename terminology for clarity:
-*   **Micro-Moments** → **Moments**: The raw, granular events extracted from source documents (exchanges, comments, messages). These are the fundamental building blocks.
-*   **Moments** (synthesized) → **Milestones**: The high-level, synthesized narrative points created by consolidating multiple moments. These represent significant turning points in the story.
-
-**Rationale:**
-*   "Milestone" better captures the essence of synthesized, significant events
-*   "Moment" is a more natural term for the raw, granular events
-*   Creates clear conceptual separation between raw data and synthesized narrative
-*   Eliminates ambiguity where "moment" could refer to either level
-
-**Implementation:**
-*   Rename `MicroMoment` type → `Moment`
-*   Rename `micro_moments` table → `moments`
-*   Rename `Moment` type (synthesized) → `Milestone`
-*   Rename `moments` table (synthesized) → `milestones`
-*   Update all function names, variable names, comments, and documentation
-*   Update plugin hook: `extractMicroMomentsFromDocument` → `extractMomentsFromDocument`

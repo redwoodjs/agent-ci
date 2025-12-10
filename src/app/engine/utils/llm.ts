@@ -12,6 +12,10 @@ interface GPTOSSResponse {
 export interface LLMOptions {
   temperature?: number;
   max_tokens?: number;
+  reasoning?: {
+    effort?: "low" | "medium" | "high";
+    summary?: "auto" | "concise" | "detailed";
+  };
 }
 
 export async function callLLM(
@@ -46,7 +50,10 @@ export async function callLLM(
           ...(options?.max_tokens !== undefined && {
             max_tokens: options.max_tokens,
           }),
-        } // GPT-OSS-20B uses 'input' and supports temperature/max_tokens
+          ...(options?.reasoning && {
+            reasoning: options.reasoning,
+          }),
+        } // GPT-OSS-20B uses 'input' and supports temperature/max_tokens/reasoning
       : {
           prompt: prompt,
           ...(options?.temperature !== undefined && {
@@ -55,7 +62,7 @@ export async function callLLM(
           ...(options?.max_tokens !== undefined && {
             max_tokens: options.max_tokens,
           }),
-        }; // Llama uses 'prompt' and also supports these params
+        }; // Llama uses 'prompt' and supports temperature/max_tokens
 
     response = await (env.AI.run as any)(modelId, payload);
     const duration = Date.now() - start;

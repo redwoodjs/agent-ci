@@ -104,6 +104,9 @@ ${formattedMoments}
     const response = await callLLM(synthesisPrompt, "gpt-oss-20b", {
       temperature: 0.3, // Lower temperature for more focused, deterministic reasoning
       max_tokens: 2000, // Allow sufficient space for multiple macro-moments
+      reasoning: {
+        effort: "low", // Start with low reasoning effort
+      },
     });
     console.log(`[engine] LLM synthesis response length: ${response.length}`);
 

@@ -646,6 +646,8 @@ To prepare for a clean PR, we need to finalize the code and document the deferre
     *   `src/app/engine/plugins/cursor.ts`
 2.  **Verify Code Cleanliness:** Ensure no commented-out code or temporary debugging artifacts remain.
 3.  **Final Review:** Verify consistent variable naming and type usage.
+4.  **Revise architecture documents** for architecture changing, adding new sections where appropriate
+5.  **Append a title and PR description** to the worklog
 
 ### Loose Ends / Future Work ("The Car")
 
@@ -655,3 +657,34 @@ The following features were part of the original broad "Bicycle" plan but have b
 2.  **The Truth Seeker:** Explicit linking using `correlationHints` from plugins.
 3.  **Data Source Expansion:** Adding GitHub and Discord plugins.
 4.  **Drill-Down Functionality:** Linking moments to specific evidence chunks to allow users to "double-click" on a moment and see the raw data.
+
+---
+
+## 19. PR Description
+
+**Title:** `feat: Narrative Query Engine (Moment Graph Architecture)`
+
+### The Idea: Mimicking Human Memory
+Current RAG systems struggle to connect the dots between seemingly unrelated events. For example, an AI seeing "tree-shaking broken" and "barrel files implemented" might not understand the causal link between them without explicit context.
+
+This PR introduces the **Knowledge Synthesis Engine**, a new architecture designed to mimic how human memory works. Instead of storing a flat list of text chunks, we build a **Moment Graph**:
+*   **Moments:** Discrete, significant events (turning points, decisions, discoveries).
+*   **Subjects:** The "root" moment that defines a stream of work or topic.
+*   **The Graph:** A linked structure where moments are connected chronologically and causally.
+
+When a query comes in (e.g., "Why did we switch to barrel files?"), the engine doesn't just keyword-match chunks. It finds the relevant **Subject** and reconstructs the full **Timeline** of moments—from the initial problem to the final solution—to tell the complete story.
+
+### The Changes
+*   **Moment Graph Architecture:** Introduced `Moment` and `Subject` core types and the `MomentGraphDO` (Durable Object) to persist the graph structure (SQLite) and semantic indexes (Vectorize).
+*   **Two-Phase Ingestion Pipeline:**
+    *   **Extraction (Micro-Moments):** Plugins now extract raw, granular "Micro-Moments" (e.g., individual chat exchanges).
+    *   **Synthesis (Macro-Moments):** A core engine process uses an LLM as a "Historian" to analyze the stream of micro-moments, identifying key turning points and synthesizing them into high-level "Macro-Moments" with rich summaries.
+*   **Subject-First Querying:** Implemented a new **Narrative Query Path** that prioritizes finding a Subject and reading its timeline over traditional chunk-based retrieval.
+*   **Unified Caching:** `Micro-Moments` act as a universal cache key `(documentId, path)`, preventing expensive re-processing of unchanged source events.
+*   **Cursor Plugin:** Updated to support the new `extractMicroMomentsFromDocument` hook.
+
+### What's Next (Micro-Iterations)
+*   **The Smart Linker:** Implementing cross-document linking (Layer 3 Correlation) to connect moments across different files (e.g., linking a PR to the Issue it solves).
+*   **The Truth Seeker:** Using explicit signals (Layer 1 Correlation) like programmatic links for high-confidence graph connections.
+*   **Drill-Down:** Connecting high-level Moments back to their raw Evidence Chunks for detailed inspection.
+*   **Data Sources:** Expanding the Moment Graph to GitHub and Discord.

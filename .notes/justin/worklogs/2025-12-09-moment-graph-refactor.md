@@ -316,73 +316,6 @@ A two-tier caching strategy:
 
 ### Implementation Plan
 
-1.  **Add `exchange_cache` table** to `CursorEventsDurableObject` migrations (cursor-specific):
-    *   `generation_id TEXT PRIMARY KEY`
-    *   `summary TEXT`
-    *   `embedding TEXT` (JSON array)
-    *   `created_at TEXT`
-
-2.  **Add `document_structure_hash` table** to `MomentGraphDO` migrations (document-level, could be reused for other sources):
-    *   `document_id TEXT PRIMARY KEY`
-    *   `structure_hash TEXT`
-    *   `updated_at TEXT`
-
-3.  **Create cursor-specific DB module** (`src/app/engine/cursorDb/index.ts`):
-    *   `getExchangeCache(generationIds: string[]): Promise<Map<string, { summary: string; embedding: number[] }>>`
-    *   `setExchangeCache(entries: Array<{ generationId: string; summary: string; embedding: number[] }>): Promise<void>`
-
-4.  **Add structure hash functions** to `momentDb/index.ts`:
-    *   `getDocumentStructureHash(documentId: string): Promise<string | null>`
-    *   `setDocumentStructureHash(documentId: string, hash: string): Promise<void>`
-
-5.  **Update `cursor.ts` plugin:**
-    *   Compute structure hash from all `generation.id`s.
-    *   Check against stored hash—if match, return early.
-    *   If no match, bulk-fetch all cached exchanges from cursor DB.
-    *   Process each generation, using cache when available.
-    *   Bulk-write new cache entries to cursor DB.
-    *   Update structure hash in moment DB.
-
-This ensures we only do expensive work when necessary, while correctly handling all edge cases including history rewrites. The exchange cache is cursor-specific and lives in the cursor DB, while the structure hash is document-level and lives in the moment DB.
-
----
-
-## 10. Refinement: Moving Exchange Cache to Cursor-Specific DB
-
-After initial implementation, realized that `exchange_cache` is cursor-specific and shouldn't live in the general `MomentGraphDO`. Moved it to `CursorEventsDurableObject` instead, creating a new cursor-specific DB module (`src/app/engine/cursorDb/index.ts`) as a sibling to `momentDb` for cache operations. The `document_structure_hash` remains in `MomentGraphDO` since it's document-level and could potentially be reused for other data sources.
-
-During implementation, it became clear that the current approach would re-calculate summaries and embeddings for every exchange on every indexing run, even if the conversation hadn't changed. This is wasteful and expensive.
-
-### The Problem
-
-Every time a Cursor conversation is indexed (even if it hasn't changed), we:
-1. Generate a summary for each exchange using an LLM call
-2. Generate an embedding for each summary
-3. Process all exchanges to group them into moments
-
-For a conversation with 50 exchanges, that's 50 LLM calls and 50 embedding generations on every single indexing run, even if nothing changed.
-
-### The Solution: Hybrid Caching with Structure Hash
-
-A two-tier caching strategy:
-
-1.  **Structure Hash (Fast Path):**
-    *   After processing a conversation, compute a hash of all `generation.id`s in order (e.g., `"gen-A:gen-B:gen-C"`).
-    *   Store this hash keyed by `document.id`.
-    *   On the next indexing run, compute the hash again and compare.
-    *   **If hashes match:** The conversation structure is unchanged. Skip all processing immediately.
-
-2.  **Per-Generation Cache (Robust Path):**
-    *   When the structure hash doesn't match (conversation changed), fall back to per-generation caching.
-    *   Store `{ generationId, summary, embedding }` tuples in a cache table.
-    *   For each generation in the conversation:
-        *   Check if it exists in the cache.
-        *   **If cached:** Use the cached summary and embedding.
-        *   **If not cached:** Generate them and add to cache.
-    *   This handles edits, reverts, and deletions correctly—we only regenerate what's actually new or changed.
-
-### Implementation Plan
-
 1.  **Add `exchange_cache` table** to `MomentGraphDO` migrations:
     *   `generation_id TEXT PRIMARY KEY`
     *   `summary TEXT`
@@ -528,7 +461,7 @@ After a successful test run with `SIMILARITY_THRESHOLD = 0.7` yielded 48 moments
     *   It will explicitly instruct the LLM to frame the title as a past-tense event that describes what happened during that moment.
 
 2.  **Lower Similarity Threshold to Find Turning Points:**
-    *   To create fewer, more meaningful moments, the `SIMILARITY_THRESHOLD` will be lowered further, from `0.7` to `0.6`.
+    *   To create fewer, more meaningful moments, the `SIMILARITY_THRESHOLD` will be lowered further, from `0.6` to `0.6`.
     *   This will allow the conversation to drift more before a new moment (a "turning point") is created, forcing more exchanges to be grouped together and reducing the number of single-exchange moments.
 
 These two changes aim to produce a more coherent, less noisy, and more narratively compelling Moment Graph.
@@ -692,3 +625,33 @@ interface MicroMomentDescription {
 *   **Natural cache invalidation:** If a document is re-indexed and a `path` no longer exists in the source, the corresponding micro-moment becomes orphaned but doesn't cause issues (it's simply not used in the new synthesis).
 *   **Handles edits gracefully:** If content at a `path` changes, the plugin will return new content. The engine detects the change (content hash mismatch) and regenerates summary/embedding, updating the micro-moment.
 *   **Simpler plugin implementation:** Plugins only need to extract raw micro-moments with paths. The engine handles all caching, summarization, and embedding logic.
+
+---
+
+## 18. Path to PR and Next Steps
+
+We have successfully implemented the "Narrative Query Engine" (Bicycle Iteration 1 Revised). The system now:
+1.  Ingests Cursor conversations as "micro-moments".
+2.  Synthesizes them into high-level "macro-moments" using an LLM.
+3.  Indexes root macro-moments as "Subjects".
+4.  Answers queries by finding the relevant Subject and reconstructing its full narrative timeline.
+
+To prepare for a clean PR, we need to finalize the code and document the deferred work.
+
+### PR Readiness Tasks
+
+1.  **Remove Verbose Logging:** The current implementation contains extensive `console.log` statements for debugging the synthesis and query paths. These must be removed from:
+    *   `src/app/engine/engine.ts`
+    *   `src/app/engine/momentDb/index.ts`
+    *   `src/app/engine/plugins/cursor.ts`
+2.  **Verify Code Cleanliness:** Ensure no commented-out code or temporary debugging artifacts remain.
+3.  **Final Review:** Verify consistent variable naming and type usage.
+
+### Loose Ends / Future Work ("The Car")
+
+The following features were part of the original broad "Bicycle" plan but have been deferred to the next iteration ("The Car") to maintain a focused scope:
+
+1.  **The Smart Linker:** Cross-document linking via semantic search (`findSimilarMoments`) during ingestion. Currently, we only link moments within a single document.
+2.  **The Truth Seeker:** Explicit linking using `correlationHints` from plugins.
+3.  **Data Source Expansion:** Adding GitHub and Discord plugins.
+4.  **Drill-Down Functionality:** Linking moments to specific evidence chunks to allow users to "double-click" on a moment and see the raw data.

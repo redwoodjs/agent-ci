@@ -1,60 +1,45 @@
 # System Flow
 
-This document describes the high-level, end-to-end flow of how data from external sources is ingested, processed, and indexed by the system. The architecture is event-driven, designed to be scalable and resilient.
+This document describes the high-level, end-to-end flow of how data is ingested, processed, and queried. The system is designed as an event-driven pipeline that transforms raw data into a structured knowledge base comprising two main components:
 
-## High-Level Overview
+1.  **The Evidence Locker**: A vector index for factual, semantic search (see `evidence-locker-engine.md`).
+2.  **The Knowledge Graph**: A graph of "Moments" for narrative synthesis and "why" questions (see `knowledge-synthesis-engine.md`).
 
-The system's primary goal is to transform raw data from sources like GitHub into a structured, queryable knowledge base. This knowledge base has two main components:
-1.  **The Evidence Locker**: A vector index of fine-grained data chunks, optimized for semantic search to answer "what" questions.
-2.  **The Knowledge Graph**: A graph of "Subject" nodes that represents synthesized narratives and relationships, optimized for answering "why" questions.
+## The Data Pipeline
 
-The flow is designed to be incremental, processing only new or changed information to operate efficiently at scale.
+The flow is broken down into five key stages, moving from an external event to a fully indexed state.
 
-## The End-to-End Flow
+### 1. Ingestion & Denormalization
+The process begins with an event (webhook or backfill) triggering an ingestion service (e.g., `github-proxy-worker`).
+1.  **Fetch**: The service fetches the full, current state of the entity from the source API.
+2.  **Denormalize**: It assembles a "page-centric" view (e.g., embedding comments into a PR object).
+3.  **Store**: It writes the denormalized JSON file to R2, triggering the next stage via R2 Event Notifications.
 
-The process can be broken down into six key stages, moving from an external event to a fully indexed state.
+### 2. The Scheduler & Diffing Engine
+The `indexing-scheduler-worker` consumes R2 events and acts as the gatekeeper.
+1.  **Diffing**: Using the `EngineIndexingStateDO`, it checks if the file has changed. It splits the document into chunks and compares their content hashes against the previous state.
+2.  **Filtering**: Only **new or modified chunks** are selected for processing. Unchanged chunks are skipped entirely.
 
-### 1. Event Trigger
+### 3. Parallel Chunk Processing (Evidence Locker)
+The scheduler fans out the new chunks to the `chunk-processor-worker` via a queue.
+*   **Vectorization**: Each worker generates an embedding for its assigned chunk.
+*   **Indexing**: The vector and metadata are inserted into the Evidence Locker (Vectorize).
 
-The entire process begins with an event that signifies a change in a source entity. This can be triggered in two ways:
-*   **Real-Time Update**: A webhook from a source like GitHub is received by a dedicated ingestion service (e.g., `github-proxy-worker`).
-*   **Bulk Backfill**: A manual or scheduled process triggers a backfill job, which queries the source API for a large set of entities.
+### 4. Knowledge Synthesis (Moment Graph)
+Concurrent with chunk processing, the scheduler triggers the Knowledge Synthesis Engine for the document.
+1.  **Extraction**: The engine uses plugins to extract "Micro-Moments" (atomic events) from the document.
+2.  **Synthesis**: These micro-moments are processed (using a cache to avoid redundant work) and then synthesized by an LLM into higher-level "Macro-Moments."
+3.  **Graph Update**: These Macro-Moments are inserted into the Moment Graph, automatically linking to their parent moments to form a timeline. Root moments are indexed as **Subjects**.
 
-This event is treated as a **trigger**, not as a source of content.
+### 5. Query & Retrieval
+When a user asks a question, the system employs a "Subject-First" strategy:
+1.  **Identify Subject**: The query is first used to find relevant Subjects (Root Moments) in the `SUBJECT_INDEX`.
+2.  **Traverse Graph**: If a Subject is found, the engine traverses the Moment Graph to retrieve its full narrative timeline (descendants).
+3.  **Synthesize Answer**: The LLM answers the user's "why" or "how" question based on this chronological narrative.
+4.  **Fallback**: If no narrative is found, the system falls back to a standard RAG search against the Evidence Locker.
 
-### 2. State Fetch & Denormalization
+## Architecture Map
 
-Upon receiving a trigger, the ingestion service performs a critical pre-processing step before storing anything.
-1.  **Fetch Full State**: It makes a direct API call to the source (e.g., GitHub API) to fetch the complete, current state of the entity. This ensures data completeness, avoiding issues with partial webhook payloads.
-2.  **Denormalize**: It assembles a "page-centric" view of the data. Related child entities are embedded within the parent. For example, all comments and reviews are embedded into the JSON for a GitHub Pull Request.
-3.  **Write to R2**: The service writes a single, denormalized `latest.json` file for the entity to a Cloudflare R2 bucket.
-
-This stage ensures that the downstream processing pipeline always has the full context of an entity in a single, predictable file.
-
-### 3. Indexing Scheduler Trigger (`R2_EVENTS_QUEUE`)
-
-The write operation to R2 automatically triggers the next stage of the pipeline.
-*   R2 is configured with Event Notifications. When the `latest.json` file is written, R2 sends a message containing the object key to a dedicated Cloudflare Queue, `R2_EVENTS_QUEUE`.
-*   This queue decouples the initial data ingestion from the more intensive indexing process.
-
-### 4. Indexing Scheduler & Fan-Out (`indexing-scheduler-worker`)
-
-A scheduler worker consumes messages from the `R2_EVENTS_QUEUE`. Its purpose is to act as a gatekeeper, determining the exact work that needs to be done and fanning it out for parallel processing. This is the key to the system's scalability.
-
-1.  **Stateful Diffing**: The worker performs the critical diffing logic. It first checks the document's `etag` against the state stored in `EngineIndexingStateDO`. If the `etag` is new, it splits the document into chunks, calculates their content hashes, and compares them to the list of previously processed hashes, also from the state DO.
-2.  **Subject Correlation**: For the set of **new or modified chunks**, the scheduler calls the `determineSubjectsForDocument` plugin hook to assign a `subjectId` to each chunk.
-3.  **Fan-Out to Queue**: The scheduler then "fans out" the work. For each new chunk (now containing a `subjectId`), it enqueues a new, specific job onto a second queue, `CHUNK_PROCESSING_QUEUE`. The goal of this fan-out is to enable massive parallelism, allowing many small chunk-processing jobs to run simultaneously instead of one large, slow, sequential job.
-
-### 5. Parallel Chunk Processing (`chunk-processor-worker`)
-
-A pool of workers consumes from the `CHUNK_PROCESSING_QUEUE` in parallel. Each worker is responsible for the expensive, network-bound work of processing a single chunk. The payload of the job is the `Chunk` object itself. The worker performs two main tasks:
-
-1.  **Evidence Locker Update**: It embeds the chunk's content (an AI API call) and inserts the resulting vector into the Vectorize index (the Evidence Locker).
-2.  **Knowledge Graph Update**: It uses the `subjectId` on the chunk's metadata to update the corresponding `Subject` in the `SubjectDO`. This typically involves appending the chunk's content to the Subject's `narrative`.
-
-### 6. Final State Update
-
-The final step is performed by the **Indexing Scheduler** after it has successfully enqueued all the jobs for the new chunks.
-*   It calls `setProcessedChunkHashes`, which updates the `EngineIndexingStateDO` with the new file `etag` and the complete list of *all* current chunk hashes for the document.
-*   This optimistic state update ensures that if the same document is triggered again while its chunks are being processed, the scheduler will correctly see that the work has already been queued and will not enqueue it a second time.
-*   Failed chunk processing jobs from the `CHUNK_PROCESSING_QUEUE` are sent to a Dead-Letter Queue (DLQ) for manual inspection, preventing them from blocking the pipeline.
+*   **Evidence Locker (RAG)**: See `evidence-locker-engine.md` for details on vector indexing and incremental diffing.
+*   **Knowledge Synthesis**: See `knowledge-synthesis-engine.md` for details on the Moment Graph, Micro-Moments, and Subject-First querying.
+*   **Plugin System**: See `plugin-system.md` for details on the hooks that power these pipelines.

@@ -640,14 +640,11 @@ To prepare for a clean PR, we need to finalize the code and document the deferre
 
 ### PR Readiness Tasks
 
-1.  **Remove Verbose Logging:** The current implementation contains extensive `console.log` statements for debugging the synthesis and query paths. These must be removed from:
-    *   `src/app/engine/engine.ts`
-    *   `src/app/engine/momentDb/index.ts`
-    *   `src/app/engine/plugins/cursor.ts`
-2.  **Verify Code Cleanliness:** Ensure no commented-out code or temporary debugging artifacts remain.
-3.  **Final Review:** Verify consistent variable naming and type usage.
-4.  **Revise architecture documents** for architecture changing, adding new sections where appropriate
-5.  **Append a title and PR description** to the worklog
+1.  **Remove Verbose Logging:** (Completed) `console.log` statements stripped from `engine.ts`, `momentDb/index.ts`, and `cursor.ts`.
+2.  **Verify Code Cleanliness:** (Completed) No temporary artifacts found.
+3.  **Final Review:** (Completed)
+4.  **Revise architecture documents:** (Completed) `knowledge-synthesis-engine.md` and `evidence-locker-engine.md` created, `system-flow.md` updated as entry point.
+5.  **Append a title and PR description** to the worklog (Completed)
 
 ### Loose Ends / Future Work ("The Car")
 

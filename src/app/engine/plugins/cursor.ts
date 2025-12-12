@@ -30,8 +30,6 @@ export const cursorPlugin: Plugin = {
       return null;
     }
 
-    console.log(`[cursor-plugin] Preparing document for: ${context.r2Key}`);
-
     const bucket = context.env.MACHINEN_BUCKET;
     const object = await bucket.get(context.r2Key);
 
@@ -41,10 +39,6 @@ export const cursorPlugin: Plugin = {
 
     const jsonText = await object.text();
     const data = JSON.parse(jsonText) as CursorConversationLatestJson;
-
-    console.log(
-      `[cursor-plugin] Loaded conversation with ${data.generations.length} generations`
-    );
 
     return {
       id: context.r2Key,
@@ -90,12 +84,6 @@ export const cursorPlugin: Plugin = {
         throw error;
       }
 
-      console.log(
-        `[cursor-plugin] Parsed JSON successfully. Generations count: ${
-          data.generations?.length || 0
-        }`
-      );
-
       // Compute structure hash from all generation IDs
       const generationIds = data.generations.map((gen) => gen.id);
       const structureHashInput = generationIds.join(":");
@@ -110,12 +98,6 @@ export const cursorPlugin: Plugin = {
       // Check if conversation structure is unchanged
       const storedHash = await getDocumentStructureHash(document.id);
       if (storedHash === structureHash) {
-        console.log(
-          `[cursor-plugin] Conversation structure unchanged (hash: ${structureHash.substring(
-            0,
-            8
-          )}...). Skipping micro-moment extraction.`
-        );
         return null;
       }
 
@@ -145,9 +127,6 @@ export const cursorPlugin: Plugin = {
             : "";
 
         if (!userPrompt.trim() && !assistantResponse.trim()) {
-          console.log(
-            `[cursor-plugin] Skipping generation ${gen.id} - both prompts empty`
-          );
           continue;
         }
 
@@ -167,10 +146,6 @@ export const cursorPlugin: Plugin = {
           sourceMetadata: document.metadata.sourceMetadata,
         });
       }
-
-      console.log(
-        `[cursor-plugin] Extracted ${microMoments.length} micro-moments from ${data.generations.length} generations`
-      );
 
       return microMoments.length > 0 ? microMoments : null;
     },

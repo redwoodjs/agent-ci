@@ -1,5 +1,12 @@
 import { env } from "cloudflare:workers";
-export type LLMModel = "gpt-oss-20b" | "gpt-oss-20b-cheap";
+
+export type LLMAlias = "slow-reasoning" | "quick-cheap";
+
+// Map aliases to specific models
+const MODEL_MAP: Record<LLMAlias, string> = {
+  "slow-reasoning": "@cf/openai/gpt-oss-20b",
+  "quick-cheap": "@cf/meta/llama-3.1-8b-instruct",
+};
 
 interface GPTOSSResponse {
   output: Array<{
@@ -20,19 +27,16 @@ export interface LLMOptions {
 
 export async function callLLM(
   prompt: string,
-  model: LLMModel = "gpt-oss-20b",
+  alias: LLMAlias = "slow-reasoning",
   options?: LLMOptions
 ): Promise<string> {
-  const modelId =
-    model === "gpt-oss-20b"
-      ? "@cf/openai/gpt-oss-20b"
-      : "@cf/meta/llama-3.1-8b-instruct"; // Use Llama 3.1 8B for "cheap" tasks
+  const modelId = MODEL_MAP[alias];
 
   const start = Date.now();
   const promptLength = prompt.length;
   const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
   console.log(
-    `[llm] Calling ${model} (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`
+    `[llm] Calling alias '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`
   );
   if (options) {
     console.log(`[llm] Options: ${JSON.stringify(options)}`);
@@ -66,7 +70,7 @@ export async function callLLM(
 
     response = await (env.AI.run as any)(modelId, payload);
     const duration = Date.now() - start;
-    console.log(`[llm] AI.run(${model}) took ${duration}ms`);
+    console.log(`[llm] AI.run(${alias}) took ${duration}ms`);
     console.log(
       `[llm] Raw response type: ${typeof response}, keys: ${
         response && typeof response === "object"
@@ -78,7 +82,7 @@ export async function callLLM(
       `[llm] Raw response structure: ${JSON.stringify(response, null, 2)}`
     );
   } catch (error) {
-    console.error(`[llm] AI.run(${model}) error:`, error);
+    console.error(`[llm] AI.run(${alias}) error:`, error);
     console.error(
       `[llm] Error type:`,
       error instanceof Error ? error.constructor.name : typeof error

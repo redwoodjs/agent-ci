@@ -158,7 +158,7 @@ export const cursorPlugin: Plugin = {
 
       try {
         const { callLLM } = await import("../utils/llm");
-        const summary = await callLLM(summaryPrompt, "gpt-oss-20b-cheap");
+        const summary = await callLLM(summaryPrompt, "quick-cheap");
         return summary.trim();
       } catch (error) {
         console.error(`[cursor-plugin] Failed to generate summary:`, error);

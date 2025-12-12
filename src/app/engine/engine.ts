@@ -79,7 +79,7 @@ ${formattedMoments}
 - Focus on the story of the work, not just a chronological list.`;
 
   try {
-    const response = await callLLM(synthesisPrompt, "gpt-oss-20b", {
+    const response = await callLLM(synthesisPrompt, "slow-reasoning", {
       temperature: 0.3, // Lower temperature for more focused, deterministic reasoning
       max_tokens: 2000, // Allow sufficient space for multiple macro-moments
       reasoning: {

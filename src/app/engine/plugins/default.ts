@@ -18,7 +18,7 @@ export const defaultPlugin: Plugin = {
       const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
 
       try {
-        const summary = await callLLM(summaryPrompt, "gpt-oss-20b-cheap");
+        const summary = await callLLM(summaryPrompt, "quick-cheap");
         return summary.trim();
       } catch (error) {
         console.error(`[default-plugin] Failed to generate summary:`, error);

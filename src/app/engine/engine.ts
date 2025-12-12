@@ -24,6 +24,7 @@ import {
 import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
 import { getEmbedding } from "./utils/vector";
+import { synthesizeMicroMoments } from "./synthesis/synthesizeMicroMoments";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -34,106 +35,6 @@ async function hashChunkId(chunkId: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return hashHex.substring(0, 16);
-}
-
-interface SynthesizedMoment {
-  title: string;
-  summary: string;
-  content: string;
-}
-
-async function synthesizeMicroMoments(
-  microMoments: MicroMoment[]
-): Promise<Array<MomentDescription & { summary: string }>> {
-  if (microMoments.length === 0) {
-    return [];
-  }
-
-  const formattedMoments = microMoments
-    .map(
-      (moment) =>
-        `Path: ${moment.path}\nSummary: ${moment.summary || "No summary"}\n`
-    )
-    .join("\n---\n\n");
-
-  const synthesisPrompt = `You are an expert at analyzing sequences of events to build a coherent narrative. Your task is to consolidate a series of low-level "micro-moments" into a smaller number of high-level "macro-moments" that tell a story of progress, discovery, and decision-making.
-
-**Your Goal:** Identify and record the most significant events. Specifically look for turning points, key discoveries or realizations, newly identified problems, new insights, important decisions, changes in approach, new attempts at solving the problem
-
-**Output format (strictly follow this):**
-
-MACRO-MOMENT 1
-TITLE: A concise, past-tense title for the event (e.g., "Realized barrel files were needed for tree-shaking")
-SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
-
-MACRO-MOMENT 2
-TITLE: A concise, past-tense title for the event
-SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
-
-**Input micro-moments:**
-${formattedMoments}
-
-**Your response must:**
-- Begin with "MACRO-MOMENT 1"
-- Contain only the formatted blocks.
-- Focus on the story of the work, not just a chronological list.`;
-
-  try {
-    const response = await callLLM(synthesisPrompt, "slow-reasoning", {
-      temperature: 0.3, // Lower temperature for more focused, deterministic reasoning
-      max_tokens: 2000, // Allow sufficient space for multiple macro-moments
-      reasoning: {
-        effort: "low", // Start with low reasoning effort
-      },
-    });
-
-    // Parse structured text format - extract blocks even if there's extra text
-    const macroMoments: Array<MomentDescription & { summary: string }> = [];
-    const momentRegex =
-      /MACRO-MOMENT \d+\s*TITLE:\s*(.*?)\s*SUMMARY:\s*([\s\S]*?)(?=\s*MACRO-MOMENT \d+|$)/g;
-
-    let match;
-    while ((match = momentRegex.exec(response)) !== null) {
-      const [, title, summary] = match;
-      if (title && summary) {
-        // Concatenate all micro-moment content as the macro-moment content
-        // (we don't track which micro-moments map to which macro-moment)
-        const content = microMoments
-          .map((m) => m.content)
-          .filter(Boolean)
-          .join("\n\n---\n\n");
-
-        macroMoments.push({
-          title: title.trim(),
-          summary: summary.trim(),
-          content: content || "",
-          author: microMoments[0]?.author || "unknown",
-          createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
-          sourceMetadata: microMoments[0]?.sourceMetadata,
-        });
-      }
-    }
-
-    if (macroMoments.length === 0) {
-      console.error(
-        `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`
-      );
-      throw new Error(
-        `Failed to parse macro-moments from LLM response. Response: ${response.substring(
-          0,
-          500
-        )}`
-      );
-    }
-
-    return macroMoments;
-  } catch (error) {
-    console.error(
-      `[engine] Error during synthesis:`,
-      error instanceof Error ? error.message : String(error)
-    );
-    return [];
-  }
 }
 
 export async function indexDocument(
@@ -422,7 +323,6 @@ Provide a clear, narrative answer that explains the story and causal relationshi
 
   return formattedResponse;
 }
-
 
 async function reconstructContexts(
   chunks: ChunkMetadata[],

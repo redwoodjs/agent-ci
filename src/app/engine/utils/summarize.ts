@@ -1,10 +1,6 @@
-import type { Cloudflare } from "rwsdk/types";
 import { callLLM } from "./llm";
 
-export async function generateTitleForText(
-  text: string,
-  env: Cloudflare.Env
-): Promise<string> {
+export async function generateTitleForText(text: string): Promise<string> {
   // Use a substring to stay within reasonable limits for a title summary
   const truncatedText = text.substring(0, 2000);
   console.log(
@@ -12,9 +8,9 @@ export async function generateTitleForText(
   );
 
   try {
-    const titlePrompt = `Analyze the following text from a document and generate a short, concise title (less than 10 words) that summarizes its core subject. The title should be descriptive and suitable for a user to understand the topic at a glance. Examples: "Bug: User login fails", "Feature: Add dark mode", "Refactor: API authentication". Do not include quotes in the title. Text: "${truncatedText}"`;
+    const titlePrompt = `Analyze the following text which describes a series of events. Generate a short, concise title (less than 10 words) that describes what happened in the past tense. The title should read like an event or a milestone in a timeline. Examples: "User login bug was fixed", "Dark mode feature was added", "API authentication was refactored". Do not include quotes in the title. Text: "${truncatedText}"`;
 
-    const titleResponse = await callLLM(titlePrompt, env, "gpt-oss-20b-cheap");
+    const titleResponse = await callLLM(titlePrompt, "llama-3-1-8b");
 
     if (!titleResponse || typeof titleResponse !== "string") {
       const errorMsg =

@@ -30,6 +30,10 @@
     {
       "binding": "SUBJECT_INDEX",
       "index_name": "subject-index"
+    },
+    {
+      "binding": "MOMENT_INDEX",
+      "index_name": "moment-index"
     }
   ],
 
@@ -78,6 +82,10 @@
     {
       "tag": "v11",
       "new_sqlite_classes": ["SubjectDO"]
+    },
+    {
+      "tag": "v12",
+      "new_sqlite_classes": ["MomentGraphDO"]
     }
   ],
   "durable_objects": {
@@ -101,6 +109,10 @@
       {
         "name": "SUBJECT_GRAPH_DO",
         "class_name": "SubjectDO"
+      },
+      {
+        "name": "MOMENT_GRAPH_DO",
+        "class_name": "MomentGraphDO"
       },
       {
         "name": "DISCORD_WEBHOOK_BATCHER",
@@ -308,6 +320,11 @@
           "binding": "VECTORIZE_INDEX",
           "index_name": "rag-index-v2",
           "remote": true
+        },
+        {
+          "binding": "MOMENT_INDEX",
+          "index_name": "moment-index-rag-experiment-1",
+          "remote": true
         }
       ],
       "durable_objects": {
@@ -426,6 +443,54 @@
     },
     "dev-justin": {
       "name": "machinen-dev-justin",
+      "migrations": [
+        {
+          "tag": "v1",
+          "new_classes": ["RealtimeDurableObject"],
+          "new_sqlite_classes": ["Database"]
+        },
+        {
+          "tag": "v2",
+          "deleted_classes": []
+        },
+        {
+          "tag": "v3",
+          "new_sqlite_classes": ["CursorEventsDurableObject"]
+        },
+        {
+          "tag": "v4",
+          "new_sqlite_classes": ["GitHubRepoDurableObject"]
+        },
+        {
+          "tag": "v5",
+          "new_sqlite_classes": ["GitHubBackfillStateDO"]
+        },
+        {
+          "tag": "v6",
+          "new_sqlite_classes": ["EngineIndexingStateDO"]
+        },
+        {
+          "tag": "v7",
+          "new_sqlite_classes": ["DiscordBackfillStateDO"]
+        },
+        {
+          "tag": "v8",
+          "new_classes": ["DiscordWebhookBatcherDO"],
+          "new_sqlite_classes": ["SubjectDO"]
+        },
+        {
+          "tag": "v9",
+          "new_classes": ["DiscordGatewayDO"]
+        },
+        {
+          "tag": "v10",
+          "deleted_classes": ["DiscordGatewayDO"]
+        },
+        {
+          "tag": "v12",
+          "new_sqlite_classes": ["MomentGraphDO"]
+        }
+      ],
       "r2_buckets": [
         {
           "binding": "MACHINEN_BUCKET",
@@ -461,6 +526,10 @@
           {
             "name": "SUBJECT_GRAPH_DO",
             "class_name": "SubjectDO"
+          },
+          {
+            "name": "MOMENT_GRAPH_DO",
+            "class_name": "MomentGraphDO"
           }
         ]
       },
@@ -473,6 +542,11 @@
         {
           "binding": "SUBJECT_INDEX",
           "index_name": "subject-index-dev-justin"
+        },
+        {
+          "binding": "MOMENT_INDEX",
+          "index_name": "moment-index-dev-justin",
+          "remote": true
         }
       ],
       "queues": {

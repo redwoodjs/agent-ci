@@ -1,6 +1,12 @@
-import type { Cloudflare } from "rwsdk/types";
+import { env } from "cloudflare:workers";
 
-export type LLMModel = "gpt-oss-20b" | "gpt-oss-20b-cheap";
+export type LLMAlias = "slow-reasoning" | "quick-cheap";
+
+// Map aliases to specific models
+const MODEL_MAP: Record<LLMAlias, string> = {
+  "slow-reasoning": "@cf/openai/gpt-oss-20b",
+  "quick-cheap": "@cf/meta/llama-3.1-8b-instruct",
+};
 
 interface GPTOSSResponse {
   output: Array<{
@@ -10,28 +16,73 @@ interface GPTOSSResponse {
   }>;
 }
 
+export interface LLMOptions {
+  temperature?: number;
+  max_tokens?: number;
+  reasoning?: {
+    effort?: "low" | "medium" | "high";
+    summary?: "auto" | "concise" | "detailed";
+  };
+}
+
 export async function callLLM(
   prompt: string,
-  env: Cloudflare.Env,
-  model: LLMModel = "gpt-oss-20b"
+  alias: LLMAlias = "slow-reasoning",
+  options?: LLMOptions
 ): Promise<string> {
-  const modelId =
-    model === "gpt-oss-20b"
-      ? "@cf/openai/gpt-oss-20b"
-      : "@cf/meta/llama-3.1-8b-instruct"; // Use Llama 3.1 8B for "cheap" tasks
+  const modelId = MODEL_MAP[alias];
 
   const start = Date.now();
+  const promptLength = prompt.length;
+  const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
+  console.log(
+    `[llm] Calling alias '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`
+  );
+  if (options) {
+    console.log(`[llm] Options: ${JSON.stringify(options)}`);
+  }
+
   let response: any;
   try {
     const isGptOss = modelId.includes("gpt-oss");
     const payload = isGptOss
-      ? { input: prompt } // GPT-OSS-20B uses 'input'
-      : { prompt: prompt }; // Llama uses 'prompt'
+      ? {
+          input: prompt,
+          ...(options?.temperature !== undefined && {
+            temperature: options.temperature,
+          }),
+          ...(options?.max_tokens !== undefined && {
+            max_tokens: options.max_tokens,
+          }),
+          ...(options?.reasoning && {
+            reasoning: options.reasoning,
+          }),
+        } // GPT-OSS-20B uses 'input' and supports temperature/max_tokens/reasoning
+      : {
+          prompt: prompt,
+          ...(options?.temperature !== undefined && {
+            temperature: options.temperature,
+          }),
+          ...(options?.max_tokens !== undefined && {
+            max_tokens: options.max_tokens,
+          }),
+        }; // Llama uses 'prompt' and supports temperature/max_tokens
 
     response = await (env.AI.run as any)(modelId, payload);
-    console.log(`[llm] AI.run(${model}) took ${Date.now() - start}ms`);
+    const duration = Date.now() - start;
+    console.log(`[llm] AI.run(${alias}) took ${duration}ms`);
+    console.log(
+      `[llm] Raw response type: ${typeof response}, keys: ${
+        response && typeof response === "object"
+          ? Object.keys(response).join(", ")
+          : "N/A"
+      }`
+    );
+    console.log(
+      `[llm] Raw response structure: ${JSON.stringify(response, null, 2)}`
+    );
   } catch (error) {
-    console.error(`[llm] AI.run(${model}) error:`, error);
+    console.error(`[llm] AI.run(${alias}) error:`, error);
     console.error(
       `[llm] Error type:`,
       error instanceof Error ? error.constructor.name : typeof error
@@ -49,31 +100,50 @@ export async function callLLM(
 
   // Handle different response structures
   if (modelId.includes("gpt-oss")) {
-    const gptResponse = response as GPTOSSResponse;
+    // gpt-oss-20b returns a structured output with reasoning and message parts
     if (
-      !gptResponse ||
-      !gptResponse.output ||
-      !Array.isArray(gptResponse.output) ||
-      gptResponse.output.length === 0 ||
-      !gptResponse.output[0].content ||
-      !Array.isArray(gptResponse.output[0].content) ||
-      gptResponse.output[0].content.length === 0 ||
-      typeof gptResponse.output[0].content[0].text !== "string"
+      response?.output &&
+      Array.isArray(response.output) &&
+      response.output.length > 0
     ) {
-      console.error(
-        `[llm] Invalid gpt-oss response structure:`,
-        JSON.stringify(response)
+      const messagePart = response.output.find(
+        (part: any) => part.type === "message"
       );
-      throw new Error("Failed to parse LLM response from gpt-oss");
+      if (
+        messagePart &&
+        messagePart.content &&
+        Array.isArray(messagePart.content) &&
+        messagePart.content.length > 0 &&
+        typeof messagePart.content[0].text === "string"
+      ) {
+        const text = messagePart.content[0].text;
+        console.log(
+          `[llm] Successfully extracted text from gpt-oss message part. Length: ${text.length} chars`
+        );
+        return text;
+      }
     }
-    return gptResponse.output[0].content[0].text;
+    console.error(
+      `[llm] Invalid gpt-oss response structure:`,
+      JSON.stringify(response, null, 2)
+    );
+    throw new Error("Failed to parse LLM response from gpt-oss");
   } else {
     // Llama and other models often use this structure
+    console.log(
+      `[llm] Parsing non-gpt-oss response. Has response field: ${!!response?.response}, response type: ${typeof response?.response}`
+    );
     if (response && typeof response.response === "string") {
+      console.log(
+        `[llm] Successfully extracted text from response. Length: ${response.response.length} chars`
+      );
       return response.response;
     }
   }
 
-  console.error(`[llm] Invalid response structure:`, JSON.stringify(response));
+  console.error(
+    `[llm] Invalid response structure:`,
+    JSON.stringify(response, null, 2)
+  );
   throw new Error("Failed to parse LLM response");
 }

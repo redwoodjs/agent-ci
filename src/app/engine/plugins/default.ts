@@ -1,141 +1,29 @@
-import type {
-  Plugin,
-  ReconstructedContext,
-  QueryHookContext,
-  SubjectSearchContext,
-} from "../types";
+import type { Plugin, ReconstructedContext, QueryHookContext } from "../types";
 import { Chunk, Document, IndexingHookContext } from "../types";
 import {
   estimateTokens,
   createTokenBudget,
   getAvailableInputTokens,
 } from "../utils/token-counter";
-import { SubjectDescription } from "../types";
-import { generateTitleForText } from "../utils/summarize";
+import { callLLM } from "../utils/llm";
 
 export const defaultPlugin: Plugin = {
   name: "default",
 
   subjects: {
-    async findSubjectForText(
-      context: SubjectSearchContext
-    ): Promise<string | null> {
-      try {
-        const { text, env } = context;
-        const embeddingResponse = (await env.AI.run(
-          "@cf/baai/bge-base-en-v1.5",
-          {
-            text: [text], // We search using the new chunk's content
-          }
-        )) as { data: number[][] };
-
-        if (!embeddingResponse.data || embeddingResponse.data.length === 0) {
-          console.error(
-            `[default-plugin:dedup-debug] AI.run for embedding returned no data for text: ${text.substring(
-              0,
-              100
-            )}...`
-          );
-          return null;
-        }
-
-        const vectors = embeddingResponse.data[0];
-
-        console.log(
-          `[default-plugin:dedup-debug] Search text (length: ${
-            text.length
-          }): ${JSON.stringify(text)}`
-        );
-        console.log(
-          `[default-plugin:dedup-debug] Generated embedding (dimension: ${vectors.length})`
-        );
-
-        const searchResults = await env.SUBJECT_INDEX.query(vectors, {
-          topK: 10, // Increase to see more matches for debugging
-          returnMetadata: true,
-        });
-
-        console.log(
-          `[default-plugin:dedup-debug] Vector search found ${searchResults.matches.length} matches`
-        );
-
-        if (searchResults.matches.length > 0) {
-          console.log(
-            `[default-plugin:dedup-debug] All matches: ${JSON.stringify(
-              searchResults.matches.map((m) => ({
-                id: m.id,
-                score: m.score.toFixed(4),
-                title: m.metadata?.title,
-              }))
-            )}`
-          );
-        }
-
-        if (searchResults.matches.length > 0) {
-          const topMatch = searchResults.matches[0];
-          console.log(
-            `[default-plugin:dedup-debug] Top match: subjectId=${
-              topMatch.id
-            }, score=${topMatch.score.toFixed(4)}, threshold=0.8`
-          );
-          if (topMatch.score > 0.8) {
-            console.log(
-              `[default-plugin:dedup-debug] Match PASSED threshold, returning subjectId: ${topMatch.id}`
-            );
-            return topMatch.id;
-          } else {
-            console.log(
-              `[default-plugin:dedup-debug] Match FAILED threshold (${topMatch.score.toFixed(
-                4
-              )} <= 0.8), returning null`
-            );
-          }
-        } else {
-          console.log(
-            `[default-plugin:dedup-debug] No matches found, returning null`
-          );
-        }
-
-        return null;
-      } catch (error) {
-        console.error(
-          `[default-plugin:dedup-debug] CRITICAL: Error inside findSubjectForText hook:`,
-          error
-        );
-        return null; // Return null to prevent crashing the whole indexing job
-      }
-    },
-    async generateSubjectTitle(context: SubjectSearchContext): Promise<string> {
-      return generateTitleForText(context.text, context.env);
-    },
-    async determineSubjectsForDocument(
-      document: Document,
-      chunks: Chunk[],
+    async summarizeMomentContent(
+      content: string,
       context: IndexingHookContext
-    ): Promise<SubjectDescription[] | null> {
-      // Default behavior: treat the entire document as a single subject.
-      // A more specific plugin (e.g., for GitHub) would implement more nuanced logic.
-      if (chunks.length === 0) {
-        return null;
+    ): Promise<string> {
+      const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
+
+      try {
+        const summary = await callLLM(summaryPrompt, "quick-cheap");
+        return summary.trim();
+      } catch (error) {
+        console.error(`[default-plugin] Failed to generate summary:`, error);
+        return `Content about: ${content.substring(0, 100)}...`;
       }
-
-      // Use a SHA-256 hash of the document ID as the stable content identifier
-      const encoder = new TextEncoder();
-      const data = encoder.encode(document.id);
-      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const idempotencyKey = hashArray
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-
-      const description: SubjectDescription = {
-        title: document.metadata.title,
-        narrative: document.content, // Use the whole document content as the initial narrative
-        idempotency_key: idempotencyKey,
-        chunks: chunks, // Associate all chunks with this single subject
-      };
-
-      return [description];
     },
   },
 

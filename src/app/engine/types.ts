@@ -48,29 +48,33 @@ export type PluginCompositionStrategy =
   | "first-match"
   | "collector";
 
-export interface Subject {
+export interface Moment {
   id: string;
+  documentId: string;
+  summary: string;
   title: string;
-  documentIds: string[];
-  narrative?: string;
   parentId?: string;
-  childIds?: string[];
-  access_weight?: number;
-  idempotency_key?: string;
+  createdAt: string;
+  author: string;
+  sourceMetadata?: Record<string, any>;
 }
 
-export interface SubjectDescription {
+export interface MomentDescription {
   title: string;
-  narrative?: string;
-  narrativeComponents?: string[];
-  idempotency_key?: string;
-  chunks: Chunk[];
+  content: string;
+  author: string;
+  createdAt: string;
+  sourceMetadata?: Record<string, any>;
 }
 
-export interface SubjectSearchContext {
-  text: string;
-  env: Cloudflare.Env;
+export interface MicroMomentDescription {
+  path: string;
+  content: string;
+  author: string;
+  createdAt: string;
+  sourceMetadata?: Record<string, any>;
 }
+
 
 export interface IndexingHookContext {
   r2Key: string;
@@ -129,15 +133,14 @@ export interface Plugin {
     ) => Promise<string>;
   };
   subjects?: {
-    findSubjectForText?: (
-      context: SubjectSearchContext
-    ) => Promise<string | null>;
-    generateSubjectTitle?: (context: SubjectSearchContext) => Promise<string>;
-    determineSubjectsForDocument?: (
+    extractMicroMomentsFromDocument?: (
       document: Document,
-      chunks: Chunk[],
       context: IndexingHookContext
-    ) => Promise<SubjectDescription[] | null>;
+    ) => Promise<MicroMomentDescription[] | null>;
+    summarizeMomentContent?: (
+      content: string,
+      context: IndexingHookContext
+    ) => Promise<string>;
   };
 }
 
@@ -170,4 +173,12 @@ export interface VectorizeIndex {
   insert(
     vectors: Array<{ id: string; values: number[]; metadata: ChunkMetadata }>
   ): Promise<void>;
+}
+
+export interface CursorConversationLatestJson {
+  id: string;
+  generations: {
+    id: string;
+    events: any[];
+  }[];
 }

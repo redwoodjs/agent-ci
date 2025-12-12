@@ -7,23 +7,23 @@ import type {
   QueryHookContext,
   EngineContext,
   ReconstructedContext,
-  Subject,
-  SubjectSearchContext,
+  Moment,
+  MomentDescription,
+  MicroMomentDescription,
 } from "./types";
-import { createDb, type Database } from "rwsdk/db";
-import type { SubjectDO } from "./subjectDb/durableObject";
-import {
-  getSubject,
-  putSubject,
-  updateSubjectDocumentIds,
-  getSubjectAncestors,
-  getSubjectChildren,
-  getSubjectByIdempotencyKey,
-  listSubjects,
-} from "./subjectDb";
-import { type subjectMigrations } from "./subjectDb/migrations";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
-import { summarizeNumerically } from "./utils/vector-summary";
+import {
+  addMoment,
+  findSimilarMoments,
+  findAncestors,
+  getMicroMoment,
+  upsertMicroMoment,
+  getMicroMomentsForDocument,
+  type MicroMoment,
+} from "./momentDb";
+import { env } from "cloudflare:workers";
+import { callLLM } from "./utils/llm";
+import { getEmbedding } from "./utils/vector";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -36,39 +36,127 @@ async function hashChunkId(chunkId: string): Promise<string> {
   return hashHex.substring(0, 16);
 }
 
+interface SynthesizedMoment {
+  title: string;
+  summary: string;
+  content: string;
+}
+
+async function synthesizeMicroMoments(
+  microMoments: MicroMoment[]
+): Promise<Array<MomentDescription & { summary: string }>> {
+  if (microMoments.length === 0) {
+    return [];
+  }
+
+  const formattedMoments = microMoments
+    .map(
+      (moment) =>
+        `Path: ${moment.path}\nSummary: ${moment.summary || "No summary"}\n`
+    )
+    .join("\n---\n\n");
+
+  const synthesisPrompt = `You are an expert at analyzing sequences of events to build a coherent narrative. Your task is to consolidate a series of low-level "micro-moments" into a smaller number of high-level "macro-moments" that tell a story of progress, discovery, and decision-making.
+
+**Your Goal:** Identify and record the most significant events. Specifically look for turning points, key discoveries or realizations, newly identified problems, new insights, important decisions, changes in approach, new attempts at solving the problem
+
+**Output format (strictly follow this):**
+
+MACRO-MOMENT 1
+TITLE: A concise, past-tense title for the event (e.g., "Realized barrel files were needed for tree-shaking")
+SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
+
+MACRO-MOMENT 2
+TITLE: A concise, past-tense title for the event
+SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
+
+**Input micro-moments:**
+${formattedMoments}
+
+**Your response must:**
+- Begin with "MACRO-MOMENT 1"
+- Contain only the formatted blocks.
+- Focus on the story of the work, not just a chronological list.`;
+
+  try {
+    const response = await callLLM(synthesisPrompt, "slow-reasoning", {
+      temperature: 0.3, // Lower temperature for more focused, deterministic reasoning
+      max_tokens: 2000, // Allow sufficient space for multiple macro-moments
+      reasoning: {
+        effort: "low", // Start with low reasoning effort
+      },
+    });
+
+    // Parse structured text format - extract blocks even if there's extra text
+    const macroMoments: Array<MomentDescription & { summary: string }> = [];
+    const momentRegex =
+      /MACRO-MOMENT \d+\s*TITLE:\s*(.*?)\s*SUMMARY:\s*([\s\S]*?)(?=\s*MACRO-MOMENT \d+|$)/g;
+
+    let match;
+    while ((match = momentRegex.exec(response)) !== null) {
+      const [, title, summary] = match;
+      if (title && summary) {
+        // Concatenate all micro-moment content as the macro-moment content
+        // (we don't track which micro-moments map to which macro-moment)
+        const content = microMoments
+          .map((m) => m.content)
+          .filter(Boolean)
+          .join("\n\n---\n\n");
+
+        macroMoments.push({
+          title: title.trim(),
+          summary: summary.trim(),
+          content: content || "",
+          author: microMoments[0]?.author || "unknown",
+          createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
+          sourceMetadata: microMoments[0]?.sourceMetadata,
+        });
+      }
+    }
+
+    if (macroMoments.length === 0) {
+      console.error(
+        `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`
+      );
+      throw new Error(
+        `Failed to parse macro-moments from LLM response. Response: ${response.substring(
+          0,
+          500
+        )}`
+      );
+    }
+
+    return macroMoments;
+  } catch (error) {
+    console.error(
+      `[engine] Error during synthesis:`,
+      error instanceof Error ? error.message : String(error)
+    );
+    return [];
+  }
+}
+
 export async function indexDocument(
   r2Key: string,
   context: EngineContext
 ): Promise<Chunk[]> {
-  const totalStart = Date.now();
-  let subjectId: string | undefined;
-  console.log(`[engine] Starting indexDocument for: ${r2Key}`);
   const indexingContext: IndexingHookContext = {
     r2Key,
     env: context.env,
   };
 
-  const step1Start = Date.now();
   const document = await runFirstMatchHook(
     context.plugins,
     "prepareSourceDocument",
     (plugin) => plugin.prepareSourceDocument?.(indexingContext)
-  );
-  console.log(
-    `[engine] prepareSourceDocument took ${Date.now() - step1Start}ms`
   );
 
   if (!document) {
     throw new Error(`No plugin could prepare document for R2 key: ${r2Key}`);
   }
 
-  console.log(
-    `[engine] Document prepared: ${document.metadata.title || r2Key}`
-  );
-
   // 1. Split document into chunks BEFORE subject correlation
   let chunks: Chunk[] | null = null;
-  const step2Start = Date.now();
   for (const plugin of context.plugins) {
     if (plugin.evidence?.splitDocumentIntoChunks) {
       const result = await plugin.evidence.splitDocumentIntoChunks(
@@ -81,15 +169,10 @@ export async function indexDocument(
       }
     }
   }
-  console.log(
-    `[engine] splitDocumentIntoChunks took ${Date.now() - step2Start}ms`
-  );
 
   if (!chunks || chunks.length === 0) {
     throw new Error(`No plugin could split document into chunks: ${r2Key}`);
   }
-
-  console.log(`[engine] Document split into ${chunks.length} chunks`);
 
   // 2. Diff against previously processed chunks to avoid redundant work
   const oldChunkHashes = await getProcessedChunkHashes(r2Key);
@@ -99,173 +182,95 @@ export async function indexDocument(
     (chunk) => !oldChunkHashSet.has(chunk.contentHash!)
   );
 
-  console.log(
-    `[engine] Found ${newChunks.length} new or modified chunks to process out of ${chunks.length} total.`
-  );
-
   if (newChunks.length === 0) {
-    console.log(
-      `[engine] No new chunks found for document ${document.id}. Indexing is up-to-date.`
-    );
     return []; // Nothing more to do
   }
 
-  // 3. Determine subjects for the document (using only new chunks for correlation if needed)
-  type SubjectDatabase = Database<typeof subjectMigrations>;
-  const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
-    "subject-graph"
-  );
-
-  // Attempt to use the top-down, source-aware hook first
-  const subjectDescriptions = await runFirstMatchHook(
+  // 3. Extract and process micro-moments, then synthesize into macro-moments
+  // Subjects are now created automatically from root moments via the Moment Graph system.
+  // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
+  const microMomentDescriptions = await runFirstMatchHook(
     context.plugins,
-    "determineSubjectsForDocument",
+    "extractMicroMomentsFromDocument",
     (plugin) =>
-      plugin.subjects?.determineSubjectsForDocument?.(
+      plugin.subjects?.extractMicroMomentsFromDocument?.(
         document,
-        newChunks, // Pass only new chunks to the hook
         indexingContext
       )
   );
 
-  if (subjectDescriptions && subjectDescriptions.length > 0) {
-    console.log(
-      `[engine] Plugin provided ${subjectDescriptions.length} subject descriptions. Processing them now.`
-    );
-    for (const description of subjectDescriptions) {
-      if (!description) {
+  if (microMomentDescriptions && microMomentDescriptions.length > 0) {
+    // Process each micro-moment: check cache, generate summary/embedding if needed
+    for (let i = 0; i < microMomentDescriptions.length; i++) {
+      const microMomentDesc = microMomentDescriptions[i];
+      if (!microMomentDesc) {
         continue;
       }
 
-      console.log(
-        `[engine:dedup-debug] Processing subject description for document: ${document.id}`
-      );
-      console.log(
-        `[engine:dedup-debug] Description title: ${description.title}`
-      );
-      console.log(
-        `[engine:dedup-debug] Has narrativeComponents: ${!!description.narrativeComponents}, count: ${
-          description.narrativeComponents?.length || 0
-        }`
-      );
-      console.log(
-        `[engine:dedup-debug] Has narrative: ${!!description.narrative}`
-      );
-
-      let narrative = description.narrative;
-      if (
-        description.narrativeComponents &&
-        description.narrativeComponents.length > 0
-      ) {
-        console.log(
-          `[engine:dedup-debug] Calling summarizeNumerically with ${description.narrativeComponents.length} components`
-        );
-        narrative = await summarizeNumerically(
-          description.narrativeComponents,
-          context.env
-        );
-        console.log(
-          `[engine:dedup-debug] summarizeNumerically returned narrative (length: ${narrative.length})`
-        );
+      // Check cache
+      const cached = await getMicroMoment(document.id, microMomentDesc.path);
+      if (cached && cached.summary && cached.embedding) {
+        continue;
       }
 
-      if (!narrative) {
-        console.warn(
-          `[engine] Subject description for document ${document.id} has no narrative. Falling back to title.`
-        );
-        narrative = description.title;
-      }
-
-      console.log(
-        `[engine:dedup-debug] Final narrative to search with (length: ${
-          narrative.length
-        }): ${JSON.stringify(narrative)}`
-      );
-
-      // **Step 1: Prioritize Semantic Search**
-      console.log(
-        `[engine:dedup-debug] Calling findSubjectForText with narrative`
-      );
-      const existingSubjectId = await runFirstMatchHook(
+      // Cache miss: generate summary and embedding
+      const summary = await runFirstMatchHook(
         context.plugins,
-        "findSubjectForText",
+        "summarizeMomentContent",
         (plugin) =>
-          plugin.subjects?.findSubjectForText?.({
-            text: narrative!,
-            env: context.env,
-          })
-      );
-
-      if (existingSubjectId) {
-        console.log(
-          `[engine:dedup-debug] DECISION: Found existing subject ${existingSubjectId} via semantic search. Linking document ${document.id} to existing subject.`
-        );
-        // Append document to existing subject
-        await updateSubjectDocumentIds(subjectDb, existingSubjectId, [
-          document.id,
-        ]);
-        subjectId = existingSubjectId;
-        break; // Move to chunking
-      } else {
-        console.log(
-          `[engine:dedup-debug] DECISION: No existing subject found via semantic search. Will check idempotency key or create new subject.`
-        );
-      }
-
-      // **Step 2: Fallback to Idempotency Key**
-      console.log(
-        `[engine:dedup-debug] Checking idempotency key: ${description.idempotency_key}`
-      );
-      let subject = description.idempotency_key
-        ? await getSubjectByIdempotencyKey(
-            subjectDb,
-            description.idempotency_key
+          plugin.subjects?.summarizeMomentContent?.(
+            microMomentDesc.content,
+            indexingContext
           )
-        : null;
+      );
 
-      if (subject) {
-        console.log(
-          `[engine:dedup-debug] DECISION: Found existing subject ${subject.id} via idempotency key. Linking document ${document.id} to existing subject.`
-        );
-        // DO NOT overwrite the title or narrative of an existing subject.
-        // Its semantic identity should be stable.
-        await updateSubjectDocumentIds(subjectDb, subject.id, [document.id]);
-        subjectId = subject.id;
-      } else {
-        // **Step 3: Create New Subject**
-        subjectId = crypto.randomUUID();
-        console.log(
-          `[engine:dedup-debug] DECISION: No existing subject found. Creating NEW subject ${subjectId} for document ${document.id}`
-        );
-        console.log(
-          `[engine:dedup-debug] New subject details: title="${description.title}", idempotency_key="${description.idempotency_key}"`
-        );
-        const newSubject: Subject = {
-          id: subjectId,
-          title: description.title,
-          narrative: narrative,
-          documentIds: [document.id],
-          idempotency_key: description.idempotency_key,
-        };
-        await putSubject(subjectDb, newSubject);
-        await upsertSubjectVector(newSubject, context.env);
-        console.log(
-          `[engine] Created new subject ${subjectId} for document ${document.id}`
-        );
+      if (!summary) {
+        continue;
       }
-      break; // We assume one subject per document for now
+
+      const embedding = await getEmbedding(summary);
+      await upsertMicroMoment(microMomentDesc, document.id, summary, embedding);
     }
-  } else {
-    // NO FALLBACK: If no plugin provides top-down subjects, we must throw.
-    // This indicates a configuration or plugin logic error that needs to be fixed.
-    throw new Error(
-      `[engine] No plugin provided subject descriptions for document: ${document.id}. This is a fatal error.`
-    );
+
+    // Retrieve all micro-moments for this document (now with summaries/embeddings)
+    const allMicroMoments = await getMicroMomentsForDocument(document.id);
+
+    if (allMicroMoments.length > 0) {
+      // Synthesize micro-moments into macro-moments
+      const macroMomentDescriptions = await synthesizeMicroMoments(
+        allMicroMoments
+      );
+
+      if (macroMomentDescriptions.length > 0) {
+        let previousMomentId: string | undefined = undefined;
+
+        for (let i = 0; i < macroMomentDescriptions.length; i++) {
+          const description = macroMomentDescriptions[i];
+          if (!description) {
+            continue;
+          }
+
+          const momentId = crypto.randomUUID();
+          const moment: Moment = {
+            id: momentId,
+            documentId: document.id,
+            summary:
+              description.summary || description.content.substring(0, 200),
+            title: description.title,
+            parentId: previousMomentId,
+            createdAt: description.createdAt,
+            author: description.author,
+            sourceMetadata: description.sourceMetadata,
+          };
+
+          await addMoment(moment);
+          previousMomentId = momentId;
+        }
+      }
+    }
   }
 
   // 4. Enrich chunks (optional, original logic for the new chunks)
-  const step3Start = Date.now();
   const enrichedChunks: Chunk[] = [];
   for (const chunk of newChunks) {
     let enrichedChunk = chunk;
@@ -282,18 +287,11 @@ export async function indexDocument(
     }
     enrichedChunks.push(enrichedChunk);
   }
-  console.log(
-    `[engine] enrichChunks (all chunks) took ${Date.now() - step3Start}ms`
-  );
 
   // 5. After successful processing, update the state with the hashes of *all* current chunks
   const allCurrentChunkHashes = chunks.map((c) => c.contentHash!);
   await setProcessedChunkHashes(r2Key, allCurrentChunkHashes);
-  console.log(
-    `[engine] Successfully updated processed chunk state for ${document.id}.`
-  );
 
-  console.log(`[engine] indexDocument total took ${Date.now() - totalStart}ms`);
   return enrichedChunks;
 }
 
@@ -301,14 +299,57 @@ export async function query(
   userQuery: string,
   context: EngineContext
 ): Promise<string> {
-  const totalStart = Date.now();
   const queryContext: QueryHookContext = {
     query: userQuery,
     env: context.env,
   };
 
-  console.log(`[query] Preparing search query...`);
-  const step1Start = Date.now();
+  // Narrative Query Path: Try to answer using Subject (root moment) first
+  try {
+    const queryEmbedding = await generateEmbedding(userQuery);
+    const { findSimilarSubjects, findDescendants } = await import("./momentDb");
+    const similarSubjects = await findSimilarSubjects(queryEmbedding, 5);
+
+    if (similarSubjects.length > 0) {
+      const subjectMoment = similarSubjects[0];
+
+      // Get the full narrative timeline (root moment + all descendants)
+      const timeline = await findDescendants(subjectMoment.id);
+
+      if (timeline.length > 0) {
+        // Build narrative context from moment summaries
+        const narrativeContext = timeline
+          .map(
+            (moment, idx) => `${idx + 1}. ${moment.title}: ${moment.summary}`
+          )
+          .join("\n\n");
+
+        const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
+
+## Subject
+${subjectMoment.title}: ${subjectMoment.summary}
+
+## Timeline
+${narrativeContext}
+
+## User Question
+${userQuery}
+
+## Instructions
+Provide a clear, narrative answer that explains the story and causal relationships between events. Focus on answering "why" and "how" questions based on the Subject and the sequence of events in its timeline.`;
+
+        const narrativeAnswer = await callLLM(narrativePrompt);
+        return narrativeAnswer;
+      }
+    }
+  } catch (error) {
+    console.error(
+      `[query:narrative] ✗ Narrative query path failed, falling back to chunk-based RAG:`,
+      error
+    );
+    // Fall through to the existing chunk-based RAG system
+  }
+
   const processedQuery = await runWaterfallHook(
     context.plugins,
     "prepareSearchQuery",
@@ -316,86 +357,18 @@ export async function query(
     (query, plugin) =>
       plugin.evidence?.prepareSearchQuery?.(query, queryContext)
   );
-  console.log(
-    `[query] Search query preparation took ${Date.now() - step1Start}ms`
-  );
 
-  console.log(`[query] Step 2: Finding relevant subject`);
-  const subjectId = await runFirstMatchHook(
-    context.plugins,
-    "findSubjectForText",
-    (plugin) =>
-      plugin.subjects?.findSubjectForText?.({
-        text: userQuery,
-        env: context.env,
-      })
-  );
-
-  if (subjectId) {
-    console.log(`[query] Found subject: ${subjectId}`);
-  } else {
-    console.log(`[query] No subject found for query`);
-  }
-
-  console.log(`[query] Step 3: Building vector search filter`);
-  const step2Start = Date.now();
   const filterClauses = await runCollectorHook(
     context.plugins,
     "buildVectorSearchFilter",
     (plugin) => plugin.evidence?.buildVectorSearchFilter?.(queryContext)
   );
-  console.log(
-    `[query] Vector search filter build took ${Date.now() - step2Start}ms`
-  );
 
-  // Add subjectId filter if we found one
-  if (subjectId) {
-    filterClauses.push({ subjectId });
-    console.log(`[query] Added subjectId filter: ${subjectId}`);
-  }
-
-  console.log(
-    `[query] Step 4: Performing vector search with filters: ${JSON.stringify(
-      filterClauses
-    )}`
-  );
-  const step3Start = Date.now();
   const searchResults = await performVectorSearch(
     processedQuery,
-    filterClauses,
-    context.env
+    filterClauses
   );
-  console.log(
-    `[query] Vector search execution took ${Date.now() - step3Start}ms`
-  );
-  console.log(`[query] Found ${searchResults.length} search results`);
 
-  if (searchResults.length > 0) {
-    console.log(
-      `[query] All search results with scores: ${JSON.stringify(
-        searchResults.map((r, idx) => ({
-          rank: idx + 1,
-          documentId: r.documentId,
-          chunkId: r.chunkId,
-          source: r.source,
-          score: (r as any).score,
-        }))
-      )}`
-    );
-    console.log(
-      `[query] Top 3 search results: ${JSON.stringify(
-        searchResults.slice(0, 3).map((r) => ({
-          documentId: r.documentId,
-          chunkId: r.chunkId,
-          source: r.source,
-          score: (r as any).score,
-        }))
-      )}`
-    );
-  }
-
-  console.log(`[query] Step 5: Reranking results`);
-  const step4Start = Date.now();
   const rerankedResults = await runWaterfallHook(
     context.plugins,
     "rerankSearchResults",
@@ -403,22 +376,13 @@ export async function query(
     (results, plugin) =>
       plugin.evidence?.rerankSearchResults?.(results, queryContext)
   );
-  console.log(`[query] Result reranking took ${Date.now() - step4Start}ms`);
 
-  console.log(`[query] Step 6: Reconstructing contexts`);
-  const step5Start = Date.now();
   const reconstructedContexts = await reconstructContexts(
     rerankedResults,
     context.plugins,
     queryContext
   );
-  console.log(
-    `[query] Context reconstruction took ${Date.now() - step5Start}ms`
-  );
-  console.log(`[query] Reconstructed ${reconstructedContexts.length} contexts`);
 
-  console.log(`[query] Step 7: Optimizing contexts`);
-  const step55Start = Date.now();
   const optimizedContexts = await runWaterfallHook(
     context.plugins,
     "optimizeContext",
@@ -426,13 +390,7 @@ export async function query(
     (contexts, plugin) =>
       plugin.evidence?.optimizeContext?.(contexts, processedQuery, queryContext)
   );
-  console.log(
-    `[query] Context optimization took ${Date.now() - step55Start}ms`
-  );
-  console.log(`[query] Optimized to ${optimizedContexts.length} contexts`);
 
-  console.log(`[query] Step 8: Composing LLM prompt`);
-  const step6Start = Date.now();
   const prompt = await runFirstMatchHook(
     [...context.plugins].reverse(),
     "composeLlmPrompt",
@@ -443,26 +401,13 @@ export async function query(
         queryContext
       )
   );
-  console.log(
-    `[query] LLM prompt composition took ${Date.now() - step6Start}ms`
-  );
 
   if (!prompt) {
     throw new Error("No plugin could compose LLM prompt");
   }
 
-  console.log(
-    `[query] Step 9: Calling LLM (prompt length: ${prompt.length} chars)`
-  );
-  const step7Start = Date.now();
-  const llmResponse = await callLlm(prompt, context.env);
-  console.log(`[query] LLM generation took ${Date.now() - step7Start}ms`);
-  console.log(
-    `[query] Step 10: LLM response received (length: ${llmResponse.length} chars)`
-  );
+  const llmResponse = await callLLM(prompt);
 
-  console.log(`[query] Step 11: Formatting final response`);
-  const step9Start = Date.now();
   const formattedResponse = await runWaterfallHook(
     context.plugins,
     "formatFinalResponse",
@@ -474,141 +419,16 @@ export async function query(
         queryContext
       )
   );
-  console.log(
-    `[query] Final response formatting took ${Date.now() - step9Start}ms`
-  );
 
-  console.log(`[query] Total query time took ${Date.now() - totalStart}ms`);
   return formattedResponse;
 }
 
-export async function findSubjectByQuery(
-  queryText: string,
-  context: EngineContext
-): Promise<Subject | null> {
-  const subjectId = await runFirstMatchHook(
-    context.plugins,
-    "findSubjectForText",
-    (plugin) =>
-      plugin.subjects?.findSubjectForText?.({
-        text: queryText,
-        env: context.env,
-      })
-  );
-
-  if (!subjectId) {
-    return null;
-  }
-
-  type SubjectDatabase = Database<typeof subjectMigrations>;
-  const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
-    "subject-graph"
-  );
-
-  return await getSubject(subjectDb, subjectId);
-}
-
-export async function getSubjectGraphForQuery(
-  queryText: string,
-  context: EngineContext
-) {
-  const subject = await findSubjectByQuery(queryText, context);
-
-  if (!subject) {
-    return null;
-  }
-
-  type SubjectDatabase = Database<typeof subjectMigrations>;
-  const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
-    "subject-graph"
-  );
-
-  const [ancestors, children] = await Promise.all([
-    getSubjectAncestors(subjectDb, subject.id),
-    getSubjectChildren(subjectDb, subject.id),
-  ]);
-
-  return {
-    subject,
-    ancestors,
-    children,
-  };
-}
-
-export async function listAllSubjects(
-  context: EngineContext,
-  limit: number = 50,
-  offset: number = 0
-) {
-  type SubjectDatabase = Database<typeof subjectMigrations>;
-  const subjectDb = createDb<SubjectDatabase>(
-    context.env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
-    "subject-graph"
-  );
-
-  return await listSubjects(subjectDb, limit, offset);
-}
-
-async function upsertSubjectVector(subject: Subject, env: Cloudflare.Env) {
-  if (!subject.narrative) {
-    console.log(
-      `[engine:dedup-debug] Subject ${subject.id} has no narrative to index.`
-    );
-    return;
-  }
-
-  console.log(
-    `[engine:dedup-debug] Upserting vector for subject ${subject.id}.`
-  );
-  console.log(
-    `[engine:dedup-debug] Narrative being indexed (length: ${
-      subject.narrative.length
-    }): ${JSON.stringify(subject.narrative)}`
-  );
-
-  try {
-    const embeddingResponse = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
-      text: [subject.narrative],
-    })) as { data: number[][] };
-
-    if (
-      !embeddingResponse ||
-      !embeddingResponse.data ||
-      embeddingResponse.data.length === 0
-    ) {
-      console.error(
-        `[engine:dedup-debug] Failed to generate embedding for subject ${subject.id}`
-      );
-      return;
-    }
-
-    await env.SUBJECT_INDEX.upsert([
-      {
-        id: subject.id,
-        values: embeddingResponse.data[0],
-        metadata: { title: subject.title },
-      },
-    ]);
-    console.log(
-      `[engine:dedup-debug] Successfully upserted vector for subject ${subject.id} (embedding dimension: ${embeddingResponse.data[0].length})`
-    );
-  } catch (error) {
-    console.error(
-      `[engine:dedup-debug] Error upserting vector for subject ${subject.id}:`,
-      error
-    );
-    throw error;
-  }
-}
 
 async function reconstructContexts(
   chunks: ChunkMetadata[],
   plugins: Plugin[],
   queryContext: QueryHookContext
 ): Promise<ReconstructedContext[]> {
-  const start = Date.now();
   const chunksByDocument = new Map<string, ChunkMetadata[]>();
 
   for (const chunk of chunks) {
@@ -622,7 +442,6 @@ async function reconstructContexts(
   }
 
   const bucket = queryContext.env.MACHINEN_BUCKET;
-  const fetchStart = Date.now();
 
   const documentEntries = Array.from(chunksByDocument.entries());
   const CONCURRENT_FETCH_LIMIT = 6;
@@ -630,7 +449,6 @@ async function reconstructContexts(
     documentId: string;
     documentChunks: ChunkMetadata[];
     sourceDocument: any;
-    fetchTime: number;
   }> = [];
 
   async function fetchAndReadDocument(
@@ -640,17 +458,11 @@ async function reconstructContexts(
     documentId: string;
     documentChunks: ChunkMetadata[];
     sourceDocument: any;
-    fetchTime: number;
   }> {
-    const r2Start = Date.now();
     const object = await bucket.get(documentId);
-    const fetchTime = Date.now() - r2Start;
 
     if (!object) {
-      console.log(
-        `[query] R2 fetch for ${documentId} took ${fetchTime}ms (not found)`
-      );
-      return { documentId, documentChunks, sourceDocument: null, fetchTime };
+      return { documentId, documentChunks, sourceDocument: null };
     }
 
     const jsonText = await object.text();
@@ -661,12 +473,7 @@ async function reconstructContexts(
       sourceDocument = jsonText;
     }
 
-    console.log(
-      `[query] R2 fetch and read for ${documentId} took ${
-        Date.now() - r2Start
-      }ms`
-    );
-    return { documentId, documentChunks, sourceDocument, fetchTime };
+    return { documentId, documentChunks, sourceDocument };
   }
 
   const inFlight = new Set<Promise<(typeof fetchResults)[0]>>();
@@ -691,12 +498,6 @@ async function reconstructContexts(
     }
   }
 
-  console.log(
-    `[query] All R2 fetches completed in ${Date.now() - fetchStart}ms (${
-      fetchResults.length
-    } documents, max ${CONCURRENT_FETCH_LIMIT} concurrent)`
-  );
-
   const reconstructedContexts: ReconstructedContext[] = [];
 
   for (const { documentId, documentChunks, sourceDocument } of fetchResults) {
@@ -704,7 +505,6 @@ async function reconstructContexts(
       continue;
     }
 
-    const pluginStart = Date.now();
     const reconstructed = await runFirstMatchHook(
       plugins,
       "reconstructContext",
@@ -715,18 +515,12 @@ async function reconstructContexts(
           queryContext
         )
     );
-    console.log(
-      `[query] reconstructContext hook for ${documentId} took ${
-        Date.now() - pluginStart
-      }ms`
-    );
 
     if (reconstructed) {
       reconstructedContexts.push(reconstructed);
     }
   }
 
-  console.log(`[query] reconstructContexts total took ${Date.now() - start}ms`);
   return reconstructedContexts;
 }
 
@@ -777,25 +571,19 @@ async function runCollectorHook<T>(
 
 async function performVectorSearch(
   query: string,
-  filterClauses: Record<string, unknown>[],
-  env: Cloudflare.Env
+  filterClauses: Record<string, unknown>[]
 ): Promise<ChunkMetadata[]> {
-  const embedStart = Date.now();
-  const embedding = await generateEmbedding(query, env);
-  console.log(`[query] Embedding generation took ${Date.now() - embedStart}ms`);
+  const embedding = await generateEmbedding(query);
 
   const combinedFilter = combineFilterClauses(
     filterClauses as Record<string, unknown>[]
   );
 
-  console.log(`[query] Vector search filter:`, JSON.stringify(combinedFilter));
-  const vecStart = Date.now();
   const vectorizeResponse = await env.VECTORIZE_INDEX.query(embedding, {
     topK: 50,
     returnMetadata: true,
     filter: combinedFilter as any,
   });
-  console.log(`[query] Vectorize query took ${Date.now() - vecStart}ms`);
 
   const results = vectorizeResponse.matches.map((match) => {
     if (!match.metadata) {
@@ -824,15 +612,10 @@ function combineFilterClauses(
   };
 }
 
-async function generateEmbedding(
-  text: string,
-  env: Cloudflare.Env
-): Promise<number[]> {
-  const start = Date.now();
+async function generateEmbedding(text: string): Promise<number[]> {
   const response = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
     text: [text],
   })) as { data: number[][] };
-  console.log(`[query] AI.run(embedding) took ${Date.now() - start}ms`);
 
   if (
     !response ||
@@ -843,10 +626,4 @@ async function generateEmbedding(
   }
 
   return response.data[0];
-}
-
-import { callLLM } from "./utils/llm";
-
-async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
-  return callLLM(prompt, env);
 }

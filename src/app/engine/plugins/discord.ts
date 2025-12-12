@@ -6,11 +6,9 @@ import type {
   IndexingHookContext,
   QueryHookContext,
   ReconstructedContext,
-  SubjectDescription,
 } from "../types";
 import type { components } from "../../ingestors/discord/discord-api-types";
 import type { ThreadPage } from "../../ingestors/discord/utils/thread-to-json";
-import { generateTitleForText } from "../utils/summarize";
 
 type DiscordMessage = components["schemas"]["MessageResponse"];
 
@@ -107,42 +105,7 @@ function getAuthorName(message: DiscordMessage): string {
 export const discordPlugin: Plugin = {
   name: "discord",
 
-  subjects: {
-    async determineSubjectsForDocument(
-      document: Document,
-      chunks: Chunk[],
-      context: IndexingHookContext
-    ): Promise<SubjectDescription[] | null> {
-      if (document.source !== "discord") {
-        return null;
-      }
-      if (chunks.length === 0) {
-        return null;
-      }
-
-      // Use the document content to generate a title.
-      // For threads, this is the starter message. For channels, the first message of the day.
-      const title = await generateTitleForText(document.content, context.env);
-
-      // Treat each thread or daily channel log as a single subject.
-      const encoder = new TextEncoder();
-      const data = encoder.encode(document.id);
-      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const idempotencyKey = hashArray
-        .map((b) => b.toString(16).padStart(2, "0"))
-        .join("");
-
-      const description: SubjectDescription = {
-        title: title,
-        narrative: document.content,
-        idempotency_key: idempotencyKey,
-        chunks: chunks,
-      };
-
-      return [description];
-    },
-  },
+  subjects: {},
 
   async prepareSourceDocument(
     context: IndexingHookContext
@@ -169,8 +132,10 @@ export const discordPlugin: Plugin = {
       const lines = jsonlText
         .trim()
         .split("\n")
-        .filter((line) => line.trim());
-      const messages: DiscordMessage[] = lines.map((line) => JSON.parse(line));
+        .filter((line: string) => line.trim());
+      const messages: DiscordMessage[] = lines.map((line: string) =>
+        JSON.parse(line)
+      );
 
       if (messages.length === 0) {
         return null;
@@ -425,8 +390,8 @@ export const discordPlugin: Plugin = {
           const lines = text
             .trim()
             .split("\n")
-            .filter((line) => line.trim());
-          const messages: DiscordMessage[] = lines.map((line) =>
+            .filter((line: string) => line.trim());
+          const messages: DiscordMessage[] = lines.map((line: string) =>
             JSON.parse(line)
           );
           const parsed = parseDiscordR2Key(documentId);

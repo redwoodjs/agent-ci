@@ -8,10 +8,9 @@ import {
 } from "./interruptors";
 import {
   query,
-  getSubjectGraphForQuery,
-  listAllSubjects,
   createEngineContext,
 } from "./index";
+import { findAncestors, findLastMomentForDocument } from "./momentDb";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
@@ -48,65 +47,6 @@ async function queryHandler({ request, ctx }: RequestInfo) {
     return Response.json(
       {
         error: "Failed to process query",
-      },
-      { status: 500 }
-    );
-  }
-}
-
-async function getSubjectGraphHandler({ request, ctx }: RequestInfo) {
-  const url = new URL(request.url);
-  const queryText = url.searchParams.get("query");
-
-  // If no query parameter, list all subjects instead
-  if (!queryText) {
-    const limit = parseInt(url.searchParams.get("limit") || "50", 10);
-    const offset = parseInt(url.searchParams.get("offset") || "0", 10);
-
-    const context = createEngineContext(env as Cloudflare.Env, "querying");
-    try {
-      console.log(
-        `[subjects] Listing subjects (limit: ${limit}, offset: ${offset})`
-      );
-      const result = await listAllSubjects(context, limit, offset);
-      console.log(
-        `[subjects] Found ${result.subjects.length} subjects (total: ${result.total})`
-      );
-      return Response.json(result);
-    } catch (error) {
-      console.error(
-        `[subjects] Error listing subjects: ${
-          error instanceof Error ? error.message : String(error)
-        }`
-      );
-      return Response.json(
-        {
-          error: "Failed to list subjects",
-        },
-        { status: 500 }
-      );
-    }
-  }
-
-  // Otherwise, search for a specific subject by query
-  const context = createEngineContext(env as Cloudflare.Env, "querying");
-  try {
-    console.log(`[subjects] Getting subject graph for query: "${queryText}"`);
-    const graph = await getSubjectGraphForQuery(queryText, context);
-    if (!graph) {
-      return Response.json({ error: "Subject not found" }, { status: 404 });
-    }
-    console.log(`[subjects] Subject graph found successfully`);
-    return Response.json(graph);
-  } catch (error) {
-    console.error(
-      `[subjects] Error getting subject graph: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-    return Response.json(
-      {
-        error: "Failed to get subject graph",
       },
       { status: 500 }
     );
@@ -255,6 +195,54 @@ async function clearIndexingStateHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function timelineHandler({ request, ctx }: RequestInfo) {
+  const url = new URL(request.url);
+  const documentId = url.searchParams.get("documentId");
+
+  if (!documentId) {
+    return Response.json(
+      { error: "Missing 'documentId' parameter" },
+      { status: 400 }
+    );
+  }
+
+  const envCloudflare = env as Cloudflare.Env;
+
+  try {
+    console.log(`[timeline] Getting timeline for document: ${documentId}`);
+
+    const lastMoment = await findLastMomentForDocument(documentId);
+
+    if (!lastMoment) {
+      return Response.json(
+        { error: "No moments found for document" },
+        { status: 404 }
+      );
+    }
+
+    const timeline = await findAncestors(lastMoment.id);
+
+    console.log(
+      `[timeline] Found timeline with ${timeline.length} moments for document ${documentId}`
+    );
+
+    return Response.json({ timeline });
+  } catch (error) {
+    console.error(
+      `[timeline] Error getting timeline: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return Response.json(
+      {
+        error: "Failed to get timeline",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+
 async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -344,9 +332,6 @@ export const routes = [
     ],
     get: [requireQueryApiKey, rateLimitQuery, validateQueryInput, queryHandler],
   }),
-  route("/subjects", {
-    get: [requireQueryApiKey, getSubjectGraphHandler],
-  }),
   route("/admin/index", {
     post: [requireQueryApiKey, indexHandler],
   }),
@@ -358,5 +343,8 @@ export const routes = [
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],
+  }),
+  route("/timeline", {
+    get: [requireQueryApiKey, timelineHandler],
   }),
 ];

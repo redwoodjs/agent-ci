@@ -1,8 +1,6 @@
 export {
   indexDocument,
   query,
-  getSubjectGraphForQuery,
-  listAllSubjects,
 } from "./engine";
 export type {
   Source,

@@ -40,11 +40,15 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 
 ### 3. Micro-Moments as a Universal Cache
 To solve the efficiency problem, **Micro-Moments** serve a dual purpose: they are both the raw input for synthesis and the unit of caching.
-*   Each Micro-Moment is identified by a composite key: `(documentId, path)`.
-*   When processing a document, the engine checks if a Micro-Moment already exists for a given path.
-*   **Hit**: The engine reuses the cached summary and embedding, skipping expensive processing.
-*   **Miss**: The engine generates the summary/embedding and stores it.
-This allows the system to incrementally process evolving documents (like long chat threads) by only processing the new or changed parts.
+
+The Engine relies on two distinct Plugin hooks to achieve this optimization: `extractMicroMomentsFromDocument` (cheap, deterministic) and `summarizeMomentContent` (expensive, on-demand).
+
+*   **Step 1: Extraction (Cheap)**: The engine calls `extractMicroMomentsFromDocument`. The plugin simply identifies raw units (e.g., "Message ID 123") and returns them. No AI is used here.
+*   **Step 2: Cache Check**: For each extracted item, the engine checks its database using the composite key `(documentId, path)`.
+    *   **Hit**: The engine finds an existing Micro-Moment. It reuses the **cached summary and embedding**, skipping the expensive AI operations.
+    *   **Miss**: The engine calls the plugin's `summarizeMomentContent` hook (which calls the LLM), generates an embedding, and stores the result.
+
+This architecture ensures that we only pay the "AI Tax" for new or modified content, while allowing the system to incrementally process evolving documents (like long chat threads) efficiently.
 
 ### 4. Subject-First Narrative Querying
 To answer "why" questions, the query engine flips the traditional RAG model:

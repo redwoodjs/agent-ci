@@ -151,16 +151,45 @@ Remaining work for Iteration 1:
 
 Completed since the previous update:
 
-- Added a correlation hook to the plugin API (`Plugin.correlation.proposeSubjectAttachment`).
+- Added a correlation hook to the plugin API (`Plugin.subjects.proposeMacroMomentParent`).
 - Implemented `smartLinkerPlugin` which:
-  - embeds an aggregate of synthesized macro moment titles and summaries
+  - embeds one synthesized macro moment (title + summary)
   - queries `SUBJECT_INDEX` with match scores and a threshold
-  - proposes an attach parent id as the last moment in the matched subject timeline
+  - filters matches to root moments (no parent) and excludes moments from the current document
+  - proposes an attach parent id as the last moment in the matched subject's timeline
 - Updated macro-moment indexing so the first macro moment can attach under the proposed parent id.
-- Updated subject indexing behavior:
-  - subject index entries include `isSubject`
-  - subject search filters `isSubject = true`
-  - moments that transition from root to child are not returned as subjects.
+- Updated subject search behavior:
+  - `findSimilarSubjects` queries `SUBJECT_INDEX` without a filter and filters results in code to include only root moments.
+
+### Validation status (current deploy)
+
+Observed from indexing this current Cursor conversation (Document A):
+
+- The synthesis produced 2 macro moments.
+- Macro moment 1 was stored as a root moment and indexed into `SUBJECT_INDEX`.
+- Macro moment 2 was stored as a child of macro moment 1 and was not indexed as a subject.
+
+This establishes a baseline subject that Document B can attach to.
+
+Concrete identifiers from the current deploy logs (Document A):
+
+- Document id: `cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json`
+- Root moment id (Subject): `5e2b646b-12cc-4f1b-83a5-82449f72542d`
+- Child moment id: `38f5faa4-f97b-4d84-a8f2-ec60bf824510`
+- Child parent id: `5e2b646b-12cc-4f1b-83a5-82449f72542d`
+
+### Validation plan (next step)
+
+Create a second Cursor conversation (Document B) as a continuation of the same workstream (deploy inspection, follow-up fixes, or tuning decisions). Index it and confirm, via logs, that:
+
+- Smart Linker finds the subject from Document A and chooses an attachment.
+- The first macro moment in Document B is stored with a parent that points into Document A's subject timeline (typically the last descendant).
+
+Idempotency checks can be done later. For now the focus is confirming cross-document attachment on Document B.
+
+### Logging notes
+
+For the Smart Linker rollout, log lines are plain `console.log` and always enabled. Cleanup is a grep for `[moment-linker]` lines.
 
 Next:
 

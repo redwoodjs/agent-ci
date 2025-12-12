@@ -2,7 +2,7 @@
 
 **Date:** 2025-12-12
 
-### Problem
+### 2025-12-12 (time not recorded) - Problem and scope
 
 The current Moment Graph implementation delivers narrative answers within a single document. The next planned work (Smart Linker, Truth Seeker, more data sources) has a sequencing problem:
 
@@ -11,21 +11,26 @@ The current Moment Graph implementation delivers narrative answers within a sing
 
 Each iteration should have a deliverable that can be validated with a repeatable fixture, and should still be useful if work stops after that iteration.
 
-### Context
-
 The Bicycle iteration work established:
 
 - Micro-moments ingestion and caching
 - Macro-moment synthesis
 - Subject-first querying, where root macro-moments are indexed as subjects
 
-The next work should validate cross-document narrative stitching, but without depending on GitHub/Discord ingestion to exist first.
+Iteration 1 goal:
 
-### Decisions
+- Implement Smart Linker for Cursor-only data, so multiple Cursor documents can attach into one subject timeline.
 
-#### Validate linking using Cursor-only data
+Iteration 1 non-goals (deferred):
 
-Use multiple Cursor conversations (multiple documents) as the stand-in for "multiple sources".
+- Explicit correlation hints (Truth Seeker)
+- Drill-down to evidence chunks (R2 fetch vs evidence locker filtering is deferred)
+- GitHub/Discord ingestion
+- General cross-source normalization
+
+### 2025-12-12 (time not recorded) - Decisions: validate linking using Cursor-only data
+
+Use multiple Cursor conversations (multiple documents) as the stand-in for 'multiple sources'.
 
 This keeps the surface area small:
 
@@ -34,13 +39,16 @@ This keeps the surface area small:
 
 This avoids waiting for GitHub/Discord ingestion while still testing the cross-document linker in a way that is representative of the eventual system.
 
-#### Correlation is a first-class step, with hookable strategies
+### 2025-12-12 (time not recorded) - Decisions: correlation is a first-class step, with hookable strategies
 
-Macro moments are first-class entities. Correlation decides, for each synthesized macro moment, whether it maps to an existing stored moment or requires a new stored moment, and whether it should be a root or a child of an existing moment.
+Macro moments are first-class entities. Correlation decides, for each synthesized macro moment:
 
-This correlation step should be extensible so different correlation strategies can be tested without rewriting the engine. The correlation mechanism is expressed as a strategy hook that returns a correlation plan. The engine applies the plan (writes/updates moments, sets parent relationships, updates indexes) so behavior remains consistent.
+- whether it maps to an existing stored moment or requires a new stored moment
+- whether it should be a root or a child of an existing moment
 
-#### Stable provenance mapping on macro moments (membership JSON blob)
+Correlation should be extensible so different correlation strategies can be tested without rewriting the engine. The correlation mechanism is expressed as a strategy hook that returns a correlation plan. The engine applies the plan (writes/updates moments, sets parent relationships, updates indexes) so behavior remains consistent.
+
+### 2025-12-12 (time not recorded) - Decisions: stable provenance mapping on macro moments (membership JSON blob)
 
 Macro moments need stable provenance for:
 
@@ -52,56 +60,39 @@ The provenance mapping for a macro moment is an ordered JSON list of the contrib
 
 An additional derived membership key (hash of ordered micro paths) is used as the stable identifier for macro moments within a document.
 
-#### Update semantics for existing moments: update in place
+Update semantics for existing moments:
 
-If correlation maps a synthesized macro moment onto an existing stored moment, the existing moment is updated in place (title/summary/provenance and parent, as needed).
+- If correlation maps a synthesized macro moment onto an existing stored moment, the existing moment is updated in place (title/summary/provenance and parent, as needed).
 
-### Iteration 1 Scope
+### 2025-12-12 (time not recorded) - Validation fixtures and acceptance checks
 
-**Goal:** Smart Linker that attaches the first macro moment in a synthesized batch under an existing subject when similarity is above a threshold, using Cursor documents only.
-
-**Link target level:** Subject-level (attach under the last moment in the subject's current timeline).
-
-**Outcome model:** One subject timeline spans multiple documents by setting the first macro moment's parent to the attach point.
-
-**Non-goals (deferred):**
-
-- Explicit correlation hints (Truth Seeker)
-- Drill-down to evidence chunks (R2 fetch vs evidence locker filtering is deferred)
-- GitHub/Discord ingestion
-- General cross-source normalization
-
-### Validation Strategy
-
-#### Fixtures
-
-Create two Cursor documents, re-usable across runs:
+Fixtures:
 
 - Document A: earlier conversation in a workstream (problem discovery, early attempts, partial conclusions).
 - Document B: later conversation in the same workstream (implementation decisions, follow-up fixes).
 
 The specific topic/examples can be selected later. The fixture constraint is that A and B are related but do not share many exact phrases, so semantic similarity is required.
 
-Optionally add a third Cursor document to test negative cases:
+Optional negative fixture:
 
 - Document C: unrelated topic (should not merge into the A/B subject).
 
-#### Acceptance checks
+Acceptance checks:
 
-- **Correlation behavior (identity)**:
+- Correlation behavior (identity)
   - Re-ingesting A or B should not create unbounded duplicates for the same macro moments. Macro moments should be matched via membership keys and updated in place.
-- **Correlation behavior (parenting)**:
+- Correlation behavior (parenting)
   - After ingesting A then B, the first macro moment from B should attach under the existing subject for A when similarity is above the threshold.
   - Document C should not attach under the A/B subject.
-- **Query behavior**:
+- Query behavior
   - A narrative query related to the A/B workstream should return a timeline that includes macro moments from both documents.
   - A narrative query related to the unrelated topic (C) should not pull in A/B.
 
-#### What I can demo after Iteration 1
+What I can demo after Iteration 1:
 
 - A single subject timeline that spans multiple Cursor documents, with a narrative answer that includes the causal context that previously lived in a separate document.
 
-### Notes / Open questions
+Open questions:
 
 - Thresholding details and tie-breaking should be tuned against the A/B/C fixtures, not guessed up-front.
 - Drill-down design is deferred. Macro moments will store stable provenance (membership mapping to micro moments) so later work can choose between:
@@ -109,7 +100,7 @@ Optionally add a third Cursor document to test negative cases:
   - filtering evidence locker search using provenance.
 - If subject merging turns out to be too destructive for future work, the alternative is to keep subjects separate but create explicit edges between subjects. That is out of scope for this iteration and can be revisited after there is a working merge-based baseline.
 
-### Implementation notes
+### 2025-12-12 (time not recorded) - Implementation notes (start)
 
 Work begins by making macro moments identifiable and traceable:
 

@@ -75,24 +75,6 @@ export interface MicroMomentDescription {
   sourceMetadata?: Record<string, any>;
 }
 
-export interface Subject {
-  id: string;
-  title: string;
-  documentIds: string[];
-  narrative?: string;
-  parentId?: string;
-  childIds?: string[];
-  access_weight?: number;
-  idempotency_key?: string;
-}
-
-export interface SubjectDescription {
-  title: string;
-  narrative?: string;
-  narrativeComponents?: string[];
-  idempotency_key?: string;
-  chunks: Chunk[];
-}
 
 export interface IndexingHookContext {
   r2Key: string;

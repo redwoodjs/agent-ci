@@ -7,8 +7,6 @@ import type {
   QueryHookContext,
   EngineContext,
   ReconstructedContext,
-  Subject,
-  SubjectSearchContext,
   Moment,
   MomentDescription,
   MicroMomentDescription,

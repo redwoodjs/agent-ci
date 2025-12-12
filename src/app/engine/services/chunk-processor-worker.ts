@@ -1,9 +1,5 @@
-import { createEngineContext, indexDocument } from "../index";
 import { Chunk } from "../types";
-import { getSubject, putSubject } from "../subjectDb";
-import { createDb, type Database } from "rwsdk/db";
-import type { SubjectDO } from "../subjectDb/durableObject";
-import { type subjectMigrations } from "../subjectDb/migrations";
+import { env } from "cloudflare:workers";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -40,23 +36,6 @@ export async function processChunkJob(
   env: Cloudflare.Env
 ): Promise<void> {
   try {
-    if (chunk.metadata.subjectId) {
-      type SubjectDatabase = Database<typeof subjectMigrations>;
-      const subjectDb = createDb<SubjectDatabase>(
-        env.SUBJECT_GRAPH_DO as DurableObjectNamespace<SubjectDO>,
-        "subject-graph"
-      );
-
-      const subject = await getSubject(subjectDb, chunk.metadata.subjectId);
-      if (subject) {
-        const updatedNarrative = `${subject.narrative || ""}\\n\\n---\\n\\n${
-          chunk.content
-        }`;
-        subject.narrative = updatedNarrative;
-        await putSubject(subjectDb, subject);
-      }
-    }
-
     const embedding = await generateEmbedding(chunk.content, env);
     const vectorId = await hashChunkId(chunk.metadata.chunkId);
 

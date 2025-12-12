@@ -19,10 +19,8 @@ function getMomentDb() {
 export async function addMoment(moment: Moment): Promise<void> {
   const db = getMomentDb();
 
-  // Generate embedding for the moment summary
   try {
     const embedding = await getEmbedding(moment.summary);
-    // Index the moment in Vectorize
     const momentVector = {
       id: moment.id,
       values: embedding,
@@ -41,21 +39,19 @@ export async function addMoment(moment: Moment): Promise<void> {
 
     await env.MOMENT_INDEX.upsert([momentVector]);
 
-    // If this is a root moment (no parent), also index it as a Subject
-    if (!moment.parentId) {
-      await env.SUBJECT_INDEX.upsert([
-        {
-          id: moment.id,
-          values: embedding,
-          metadata: {
-            title: moment.title,
-            summary: moment.summary,
-            documentId: moment.documentId,
-            type: "subject",
-          },
+    await env.SUBJECT_INDEX.upsert([
+      {
+        id: moment.id,
+        values: embedding,
+        metadata: {
+          title: moment.title,
+          summary: moment.summary,
+          documentId: moment.documentId,
+          type: "subject",
+          isSubject: !moment.parentId,
         },
-      ]);
-    }
+      },
+    ]);
   } catch (error) {
     console.error(
       `[momentDb] Failed to generate/insert embedding for moment ${moment.id}:`,
@@ -276,7 +272,7 @@ export async function findSimilarSubjects(
   for (let i = 0; i < searchResults.matches.length; i++) {
     const match = searchResults.matches[i];
     const moment = await getMoment(match.id);
-    if (moment) {
+    if (moment && !moment.parentId) {
       subjects.push(moment);
     } else {
       console.warn(

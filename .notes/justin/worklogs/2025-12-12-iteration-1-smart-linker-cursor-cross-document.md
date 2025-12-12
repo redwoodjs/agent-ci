@@ -147,4 +147,23 @@ Remaining work for Iteration 1:
   - ingest C and confirm it does not attach under A/B
   - re-ingest A/B and confirm macro moments are updated in place rather than duplicating
 
+### Implementation status (continued)
+
+Completed since the previous update:
+
+- Added a correlation hook to the plugin API (`Plugin.correlation.proposeSubjectAttachment`).
+- Implemented `smartLinkerPlugin` which:
+  - embeds an aggregate of synthesized macro moment titles and summaries
+  - queries `SUBJECT_INDEX` with match scores and a threshold
+  - proposes an attach parent id as the last moment in the matched subject timeline
+- Updated macro-moment indexing so the first macro moment can attach under the proposed parent id.
+- Updated subject indexing behavior:
+  - subject index entries include `isSubject`
+  - subject search filters `isSubject = true`
+  - moments that transition from root to child are not returned as subjects.
+
+Next:
+
+- Run the A/B/C fixture ingestion to confirm attachment behavior and re-index idempotency.
+
 

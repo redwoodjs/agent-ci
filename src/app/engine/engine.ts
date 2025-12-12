@@ -8,8 +8,8 @@ import type {
   EngineContext,
   ReconstructedContext,
   Moment,
-  MomentDescription,
   MicroMomentDescription,
+  MacroMomentDescription,
 } from "./types";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
 import {
@@ -19,7 +19,7 @@ import {
   getMicroMoment,
   upsertMicroMoment,
   getMicroMomentsForDocument,
-  type MicroMoment,
+  findMomentByMicroPathsHash,
 } from "./momentDb";
 import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
@@ -37,6 +37,14 @@ async function hashChunkId(chunkId: string): Promise<string> {
   return hashHex.substring(0, 16);
 }
 
+async function hashMicroPaths(microPaths: string[]): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(microPaths.join("\n"));
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 export async function indexDocument(
   r2Key: string,
   context: EngineContext
@@ -45,6 +53,7 @@ export async function indexDocument(
     r2Key,
     env: context.env,
   };
+  console.log("[moment-linker] indexDocument start", { r2Key });
 
   const document = await runFirstMatchHook(
     context.plugins,
@@ -84,6 +93,7 @@ export async function indexDocument(
   );
 
   if (newChunks.length === 0) {
+    console.log("[moment-linker] skipping: no new chunks", { r2Key });
     return []; // Nothing more to do
   }
 
@@ -101,6 +111,10 @@ export async function indexDocument(
   );
 
   if (microMomentDescriptions && microMomentDescriptions.length > 0) {
+    console.log("[moment-linker] micro moments extracted", {
+      documentId: document.id,
+      count: microMomentDescriptions.length,
+    });
     // Process each micro-moment: check cache, generate summary/embedding if needed
     for (let i = 0; i < microMomentDescriptions.length; i++) {
       const microMomentDesc = microMomentDescriptions[i];
@@ -111,8 +125,16 @@ export async function indexDocument(
       // Check cache
       const cached = await getMicroMoment(document.id, microMomentDesc.path);
       if (cached && cached.summary && cached.embedding) {
+        console.log("[moment-linker] micro cache hit", {
+          documentId: document.id,
+          path: microMomentDesc.path,
+        });
         continue;
       }
+      console.log("[moment-linker] micro cache miss", {
+        documentId: document.id,
+        path: microMomentDesc.path,
+      });
 
       // Cache miss: generate summary and embedding
       const summary = await runFirstMatchHook(
@@ -137,12 +159,22 @@ export async function indexDocument(
     const allMicroMoments = await getMicroMomentsForDocument(document.id);
 
     if (allMicroMoments.length > 0) {
+      console.log("[moment-linker] micro moments loaded", {
+        documentId: document.id,
+        count: allMicroMoments.length,
+      });
       // Synthesize micro-moments into macro-moments
-      const macroMomentDescriptions = await synthesizeMicroMoments(
+      const macroMomentDescriptions = (await synthesizeMicroMoments(
         allMicroMoments
-      );
+      )) as MacroMomentDescription[];
 
       if (macroMomentDescriptions.length > 0) {
+        console.log("[moment-linker] macro moments synthesized", {
+          documentId: document.id,
+          count: macroMomentDescriptions.length,
+          firstTitle: macroMomentDescriptions[0]?.title,
+        });
+        let resolvedParentIdForFirst: string | undefined = undefined;
         let previousMomentId: string | undefined = undefined;
 
         for (let i = 0; i < macroMomentDescriptions.length; i++) {
@@ -151,14 +183,77 @@ export async function indexDocument(
             continue;
           }
 
-          const momentId = crypto.randomUUID();
+          const microPaths = description.microPaths || [];
+          const microPathsHash =
+            microPaths.length > 0
+              ? await hashMicroPaths(microPaths)
+              : undefined;
+          const existing =
+            microPathsHash !== undefined
+              ? await findMomentByMicroPathsHash(document.id, microPathsHash)
+              : null;
+
+          const momentId = existing?.id ?? crypto.randomUUID();
+          if (i === 0) {
+            if (existing?.parentId) {
+              resolvedParentIdForFirst = existing.parentId;
+              console.log("[moment-linker] attachment reuse existing parent", {
+                documentId: document.id,
+                macroMomentIndex: i,
+                parentId: resolvedParentIdForFirst,
+                momentId,
+              });
+            } else {
+              const parentProposal = await runFirstMatchHook(
+                context.plugins,
+                "proposeMacroMomentParent",
+                (plugin) =>
+                  plugin.subjects?.proposeMacroMomentParent?.(
+                    document,
+                    description,
+                    i,
+                    indexingContext
+                  )
+              );
+              resolvedParentIdForFirst = parentProposal?.parentMomentId;
+              if (parentProposal) {
+                console.log("[moment-linker] attachment proposal", {
+                  documentId: document.id,
+                  macroMomentIndex: i,
+                  parentMomentId: parentProposal.parentMomentId,
+                  matchedSubjectId: parentProposal.matchedSubjectId,
+                  score: parentProposal.score,
+                });
+              } else {
+                console.log("[moment-linker] no attachment proposal", {
+                  documentId: document.id,
+                  macroMomentIndex: i,
+                });
+              }
+            }
+          }
+          console.log("[moment-linker] macro correlation", {
+            documentId: document.id,
+            index: i,
+            title: description.title,
+            microPathsCount: microPaths.length,
+            microPathsHash,
+            reuseExisting: Boolean(existing),
+            momentId,
+            parentId:
+              i === 0
+                ? resolvedParentIdForFirst ?? null
+                : previousMomentId ?? null,
+          });
           const moment: Moment = {
             id: momentId,
             documentId: document.id,
             summary:
               description.summary || description.content.substring(0, 200),
             title: description.title,
-            parentId: previousMomentId,
+            parentId: i === 0 ? resolvedParentIdForFirst : previousMomentId,
+            microPaths,
+            microPathsHash,
             createdAt: description.createdAt,
             author: description.author,
             sourceMetadata: description.sourceMetadata,

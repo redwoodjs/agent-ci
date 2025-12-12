@@ -69,6 +69,11 @@ export interface MomentDescription {
   sourceMetadata?: Record<string, any>;
 }
 
+export interface MacroMomentDescription extends MomentDescription {
+  summary: string;
+  microPaths: string[];
+}
+
 export interface MicroMomentDescription {
   path: string;
   content: string;
@@ -85,6 +90,12 @@ export interface IndexingHookContext {
 export interface QueryHookContext {
   query: string;
   env: Cloudflare.Env;
+}
+
+export interface MacroMomentParentProposal {
+  parentMomentId: string;
+  matchedSubjectId: string;
+  score: number;
 }
 
 export interface Plugin {
@@ -142,6 +153,12 @@ export interface Plugin {
       content: string,
       context: IndexingHookContext
     ) => Promise<string>;
+    proposeMacroMomentParent?: (
+      document: Document,
+      macroMoment: MacroMomentDescription,
+      macroMomentIndex: number,
+      context: IndexingHookContext
+    ) => Promise<MacroMomentParentProposal | null>;
   };
 }
 

@@ -1,7 +1,4 @@
-export {
-  indexDocument,
-  query,
-} from "./engine";
+export { indexDocument, query } from "./engine";
 export type {
   Source,
   Document,
@@ -18,6 +15,7 @@ import {
   discordPlugin,
   cursorPlugin,
   defaultPlugin,
+  smartLinkerPlugin,
 } from "./plugins";
 
 export function createEngineContext(
@@ -25,7 +23,13 @@ export function createEngineContext(
   mode: "indexing" | "querying"
 ): EngineContext {
   return {
-    plugins: [githubPlugin, discordPlugin, cursorPlugin, defaultPlugin],
+    plugins: [
+      smartLinkerPlugin,
+      githubPlugin,
+      discordPlugin,
+      cursorPlugin,
+      defaultPlugin,
+    ],
     env,
   };
 }

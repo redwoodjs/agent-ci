@@ -94,11 +94,6 @@ export interface SubjectDescription {
   chunks: Chunk[];
 }
 
-export interface SubjectSearchContext {
-  text: string;
-  env: Cloudflare.Env;
-}
-
 export interface IndexingHookContext {
   r2Key: string;
   env: Cloudflare.Env;
@@ -156,10 +151,6 @@ export interface Plugin {
     ) => Promise<string>;
   };
   subjects?: {
-    findSubjectForText?: (
-      context: SubjectSearchContext
-    ) => Promise<string | null>;
-    generateSubjectTitle?: (context: SubjectSearchContext) => Promise<string>;
     extractMicroMomentsFromDocument?: (
       document: Document,
       context: IndexingHookContext

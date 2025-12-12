@@ -100,11 +100,3 @@ const MyPlugin: Plugin = {
 *   **Purpose**: To generate a concise summary of a Micro-Moment's content.
 *   **Strategy**: `First-Match`
 
-#### `findSubjectForText` (Legacy/Deprecated)
-*   **Purpose**: To find a subject ID based on text.
-*   **Strategy**: `First-Match`
-
-#### `generateSubjectTitle` (Legacy/Deprecated)
-*   **Purpose**: To generate a title for a new subject.
-*   **Strategy**: `First-Match`
-

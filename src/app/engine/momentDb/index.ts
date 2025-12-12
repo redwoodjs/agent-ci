@@ -23,23 +23,23 @@ export async function addMoment(moment: Moment): Promise<void> {
   try {
     const embedding = await getEmbedding(moment.summary);
     // Index the moment in Vectorize
-    await env.MOMENT_INDEX.insert([
-      {
-        id: moment.id,
-        values: embedding,
-        metadata: {
-          chunkId: moment.id, // Using moment ID as chunk ID for consistency
-          documentId: moment.documentId,
-          source: "moment-graph",
-          type: "moment",
-          documentTitle: moment.title,
-          author: moment.author,
-          jsonPath: "$", // Root of the moment
-          sourceMetadata: moment.sourceMetadata,
-          summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
-        } as unknown as ChunkMetadata,
-      },
-    ]);
+    const momentVector = {
+      id: moment.id,
+      values: embedding,
+      metadata: {
+        chunkId: moment.id, // Using moment ID as chunk ID for consistency
+        documentId: moment.documentId,
+        source: "moment-graph",
+        type: "moment",
+        documentTitle: moment.title,
+        author: moment.author,
+        jsonPath: "$", // Root of the moment
+        sourceMetadata: moment.sourceMetadata,
+        summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
+      } as unknown as ChunkMetadata,
+    };
+
+    await env.MOMENT_INDEX.upsert([momentVector]);
 
     // If this is a root moment (no parent), also index it as a Subject
     if (!moment.parentId) {
@@ -78,6 +78,10 @@ export async function addMoment(moment: Moment): Promise<void> {
         summary: moment.summary,
         title: moment.title,
         parent_id: (moment.parentId ?? null) as any,
+        micro_paths_json: moment.microPaths
+          ? JSON.stringify(moment.microPaths)
+          : (null as any),
+        micro_paths_hash: (moment.microPathsHash ?? null) as any,
         created_at: moment.createdAt,
         author: moment.author,
         source_metadata: (moment.sourceMetadata
@@ -95,6 +99,10 @@ export async function addMoment(moment: Moment): Promise<void> {
         summary: moment.summary,
         title: moment.title,
         parent_id: (moment.parentId ?? null) as any,
+        micro_paths_json: moment.microPaths
+          ? JSON.stringify(moment.microPaths)
+          : (null as any),
+        micro_paths_hash: (moment.microPathsHash ?? null) as any,
         created_at: moment.createdAt,
         author: moment.author,
         source_metadata: (moment.sourceMetadata
@@ -123,9 +131,47 @@ export async function getMoment(id: string): Promise<Moment | null> {
     summary: row.summary,
     title: row.title,
     parentId: row.parent_id || undefined,
+    microPaths:
+      (row.micro_paths_json as unknown as string[] | null) || undefined,
+    microPathsHash: (row.micro_paths_hash as any) || undefined,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata: row.source_metadata as Record<string, any> | undefined,
+    sourceMetadata:
+      (row.source_metadata as unknown as Record<string, any> | null) ||
+      undefined,
+  };
+}
+
+export async function findMomentByMicroPathsHash(
+  documentId: string,
+  microPathsHash: string
+): Promise<Moment | null> {
+  const db = getMomentDb();
+  const row = await db
+    .selectFrom("moments")
+    .selectAll()
+    .where("document_id", "=", documentId)
+    .where("micro_paths_hash", "=", microPathsHash)
+    .executeTakeFirst();
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    summary: row.summary,
+    title: row.title,
+    parentId: row.parent_id || undefined,
+    microPaths:
+      (row.micro_paths_json as unknown as string[] | null) || undefined,
+    microPathsHash: (row.micro_paths_hash as any) || undefined,
+    createdAt: row.created_at,
+    author: row.author,
+    sourceMetadata:
+      (row.source_metadata as unknown as Record<string, any> | null) ||
+      undefined,
   };
 }
 
@@ -195,9 +241,17 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
         summary: row.summary,
         title: row.title,
         parentId: row.parent_id || undefined,
+        microPaths: row.micro_paths_json
+          ? (JSON.parse(row.micro_paths_json as any) as string[])
+          : undefined,
+        microPathsHash: (row.micro_paths_hash as any) || undefined,
         createdAt: row.created_at,
         author: row.author,
-        sourceMetadata: row.source_metadata as Record<string, any> | undefined,
+        sourceMetadata: row.source_metadata
+          ? typeof row.source_metadata === "string"
+            ? (JSON.parse(row.source_metadata) as Record<string, any>)
+            : (row.source_metadata as Record<string, any>)
+          : undefined,
       };
       descendants.push(childMoment);
       // Recursively find children of this child
@@ -259,7 +313,9 @@ export async function findLastMomentForDocument(
     parentId: row.parent_id || undefined,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata: row.source_metadata as Record<string, any> | undefined,
+    sourceMetadata:
+      (row.source_metadata as unknown as Record<string, any> | null) ||
+      undefined,
   };
 }
 
@@ -353,7 +409,9 @@ export async function getMicroMoment(
       : null,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata: row.source_metadata as Record<string, any> | undefined,
+    sourceMetadata:
+      (row.source_metadata as unknown as Record<string, any> | null) ||
+      undefined,
   };
 }
 
@@ -420,6 +478,8 @@ export async function getMicroMomentsForDocument(
       : null,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata: row.source_metadata as Record<string, any> | undefined,
+    sourceMetadata:
+      (row.source_metadata as unknown as Record<string, any> | null) ||
+      undefined,
   }));
 }

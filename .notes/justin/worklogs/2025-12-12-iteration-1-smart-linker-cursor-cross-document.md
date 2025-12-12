@@ -109,4 +109,13 @@ Optionally add a third Cursor document to test negative cases:
   - filtering evidence locker search using provenance.
 - If subject merging turns out to be too destructive for future work, the alternative is to keep subjects separate but create explicit edges between subjects. That is out of scope for this iteration and can be revisited after there is a working merge-based baseline.
 
+### Implementation notes
+
+Work begins by making macro moments identifiable and traceable:
+
+- Persist macro moment membership as an ordered JSON list of contributing micro paths.
+- Persist a derived membership hash to match macro moments on re-index.
+- Correlation produces a plan per macro moment: reuse-or-create moment id, and parent id (root vs child-of-X).
+- When a macro moment matches an existing stored moment, update it in place.
+
 

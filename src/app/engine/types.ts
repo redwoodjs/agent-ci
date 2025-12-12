@@ -54,6 +54,8 @@ export interface Moment {
   summary: string;
   title: string;
   parentId?: string;
+  microPaths?: string[];
+  microPathsHash?: string;
   createdAt: string;
   author: string;
   sourceMetadata?: Record<string, any>;
@@ -74,7 +76,6 @@ export interface MicroMomentDescription {
   createdAt: string;
   sourceMetadata?: Record<string, any>;
 }
-
 
 export interface IndexingHookContext {
   r2Key: string;

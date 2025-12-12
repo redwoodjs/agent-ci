@@ -78,4 +78,29 @@ export const momentMigrations = {
       await db.schema.dropTable("micro_moments").execute();
     },
   },
+  "004_add_macro_moment_membership": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("moments")
+          .addColumn("micro_paths_json", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moments")
+          .addColumn("micro_paths_hash", "text")
+          .execute(),
+        await db.schema
+          .createIndex("moments_document_micro_paths_hash_idx")
+          .on("moments")
+          .columns(["document_id", "micro_paths_hash"])
+          .unique()
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropIndex("moments_document_micro_paths_hash_idx").execute();
+      await db.schema.alterTable("moments").dropColumn("micro_paths_hash").execute();
+      await db.schema.alterTable("moments").dropColumn("micro_paths_json").execute();
+    },
+  },
 } satisfies Migrations;

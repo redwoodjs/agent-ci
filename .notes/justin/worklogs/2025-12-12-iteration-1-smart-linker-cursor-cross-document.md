@@ -2,7 +2,7 @@
 
 **Date:** 2025-12-12
 
-### 2025-12-12 (time not recorded) - Problem and scope
+### Problem and scope
 
 The current Moment Graph implementation delivers narrative answers within a single document. The next planned work (Smart Linker, Truth Seeker, more data sources) has a sequencing problem:
 
@@ -28,7 +28,7 @@ Iteration 1 non-goals (deferred):
 - GitHub/Discord ingestion
 - General cross-source normalization
 
-### 2025-12-12 (time not recorded) - Decisions: validate linking using Cursor-only data
+### Decisions: validate linking using Cursor-only data
 
 Use multiple Cursor conversations (multiple documents) as the stand-in for 'multiple sources'.
 
@@ -39,7 +39,7 @@ This keeps the surface area small:
 
 This avoids waiting for GitHub/Discord ingestion while still testing the cross-document linker in a way that is representative of the eventual system.
 
-### 2025-12-12 (time not recorded) - Decisions: correlation is a first-class step, with hookable strategies
+### Decisions: correlation is a first-class step, with hookable strategies
 
 Macro moments are first-class entities. Correlation decides, for each synthesized macro moment:
 
@@ -48,7 +48,7 @@ Macro moments are first-class entities. Correlation decides, for each synthesize
 
 Correlation should be extensible so different correlation strategies can be tested without rewriting the engine. The correlation mechanism is expressed as a strategy hook that returns a correlation plan. The engine applies the plan (writes/updates moments, sets parent relationships, updates indexes) so behavior remains consistent.
 
-### 2025-12-12 (time not recorded) - Decisions: stable provenance mapping on macro moments (membership JSON blob)
+### Decisions: stable provenance mapping on macro moments (membership JSON blob)
 
 Macro moments need stable provenance for:
 
@@ -64,7 +64,7 @@ Update semantics for existing moments:
 
 - If correlation maps a synthesized macro moment onto an existing stored moment, the existing moment is updated in place (title/summary/provenance and parent, as needed).
 
-### 2025-12-12 (time not recorded) - Validation fixtures and acceptance checks
+### Validation fixtures and acceptance checks
 
 Fixtures:
 
@@ -100,7 +100,7 @@ Open questions:
   - filtering evidence locker search using provenance.
 - If subject merging turns out to be too destructive for future work, the alternative is to keep subjects separate but create explicit edges between subjects. That is out of scope for this iteration and can be revisited after there is a working merge-based baseline.
 
-### 2025-12-12 (time not recorded) - Implementation notes (start)
+### Implementation notes (start)
 
 Work begins by making macro moments identifiable and traceable:
 
@@ -108,5 +108,43 @@ Work begins by making macro moments identifiable and traceable:
 - Persist a derived membership hash to match macro moments on re-index.
 - Correlation produces a plan per macro moment: reuse-or-create moment id, and parent id (root vs child-of-X).
 - When a macro moment matches an existing stored moment, update it in place.
+
+### Implementation status (progress update)
+
+Completed work:
+
+- Added macro moment membership fields to Moment Graph storage:
+  - `moments.micro_paths_json` (JSON blob)
+  - `moments.micro_paths_hash` (hash of ordered micro paths)
+  - unique index on `(document_id, micro_paths_hash)`
+- Extended moment types and DB access:
+  - `Moment` includes `microPaths` and `microPathsHash`
+  - momentDb persists and loads these fields
+  - momentDb includes a lookup helper to find an existing macro moment by `(documentId, microPathsHash)`
+- Updated macro-moment synthesis so membership is deterministic:
+  - synthesis prompt requests `INDICES` (1-based) rather than paths
+  - indices are mapped to micro moments by position, then converted to `microPaths`
+  - macro moment content is assembled from the member micro moments
+  - macro moment createdAt/author are taken from the first member micro moment
+- Refactored synthesis code into its own module:
+  - moved into `src/app/engine/synthesis/synthesizeMicroMoments.ts`
+
+Remaining work for Iteration 1:
+
+- Implement correlation strategy hook + engine integration:
+  - compute `microPathsHash` for each synthesized macro moment
+  - determine reuse-or-create moment id per macro moment using `(documentId, microPathsHash)`
+  - update in place for existing macro moments
+  - decide parent for the first macro moment in a batch using Smart Linker (semantic match against subjects)
+  - set parent for subsequent macro moments to the previous macro moment, unless overridden
+  - apply the correlation plan (write/update moments and vector indexes)
+- Implement Smart Linker strategy:
+  - embed an aggregate of synthesized macro moment titles/summaries
+  - query `SUBJECT_INDEX`
+  - if above threshold, attach under the last moment in the matched subject's timeline
+- Run validation fixtures:
+  - ingest A then B and confirm B attaches under A’s subject
+  - ingest C and confirm it does not attach under A/B
+  - re-ingest A/B and confirm macro moments are updated in place rather than duplicating
 
 

@@ -24,20 +24,14 @@ export const smartLinkerPlugin: Plugin = {
         return null;
       }
 
-      const linkerDebugEnabled =
-        context.env.MOMENT_LINKER_DEBUG === "1" ||
-        context.env.MOMENT_LINKER_DEBUG === "true";
-
       const queryText = `${macroMoment.title}: ${macroMoment.summary}`;
 
-      if (linkerDebugEnabled) {
-        console.log("[moment-linker] smart linker query", {
-          documentId: document.id,
-          macroMomentIndex,
-          macroMomentTitle: macroMoment.title,
-          queryPreview: queryText.slice(0, 200),
-        });
-      }
+      console.log("[moment-linker] smart linker query", {
+        documentId: document.id,
+        macroMomentIndex,
+        macroMomentTitle: macroMoment.title,
+        queryPreview: queryText.slice(0, 200),
+      });
 
       const embedding = await getEmbedding(queryText);
       const results = await context.env.SUBJECT_INDEX.query(embedding, {
@@ -45,16 +39,14 @@ export const smartLinkerPlugin: Plugin = {
         returnMetadata: true,
       });
 
-      if (linkerDebugEnabled) {
-        console.log("[moment-linker] smart linker candidates", {
-          documentId: document.id,
-          macroMomentIndex,
-          matches: results.matches.map((m) => ({
-            id: m.id,
-            score: m.score,
-          })),
-        });
-      }
+      console.log("[moment-linker] smart linker candidates", {
+        documentId: document.id,
+        macroMomentIndex,
+        matches: results.matches.map((m) => ({
+          id: m.id,
+          score: m.score,
+        })),
+      });
 
       for (const match of results.matches) {
         const subject = await getMoment(match.id);
@@ -78,18 +70,16 @@ export const smartLinkerPlugin: Plugin = {
         const last = timeline.length > 0 ? timeline[timeline.length - 1] : null;
         const parentMomentId = last?.id ?? subject.id;
 
-        if (linkerDebugEnabled) {
-          console.log("[moment-linker] smart linker chose attachment", {
-            documentId: document.id,
-            macroMomentIndex,
-            matchedSubjectId: subject.id,
-            score: match.score,
-            parentMomentId,
-            subjectTitle: subject.title,
-            subjectDocumentId: subject.documentId,
-            subjectTimelineLength: timeline.length,
-          });
-        }
+        console.log("[moment-linker] smart linker chose attachment", {
+          documentId: document.id,
+          macroMomentIndex,
+          matchedSubjectId: subject.id,
+          score: match.score,
+          parentMomentId,
+          subjectTitle: subject.title,
+          subjectDocumentId: subject.documentId,
+          subjectTimelineLength: timeline.length,
+        });
 
         return {
           parentMomentId,
@@ -98,12 +88,10 @@ export const smartLinkerPlugin: Plugin = {
         };
       }
 
-      if (linkerDebugEnabled) {
-        console.log("[moment-linker] smart linker no attachment", {
-          documentId: document.id,
-          macroMomentIndex,
-        });
-      }
+      console.log("[moment-linker] smart linker no attachment", {
+        documentId: document.id,
+        macroMomentIndex,
+      });
 
       return null;
     },

@@ -22,21 +22,8 @@ import { clearAllIndexingState } from "./db";
 function isDebugMomentGraphClearAllowed(
   envCloudflare: Cloudflare.Env
 ): boolean {
-  const envName = String(
-    (envCloudflare as any).CLOUDFLARE_ENV ??
-      (envCloudflare as any).MACHINEN_ENV ??
-      ""
-  );
-  if (!envName) {
-    return false;
-  }
-  if (envName === "local" || envName === "test") {
-    return true;
-  }
-  if (envName.startsWith("dev-")) {
-    return true;
-  }
-  return false;
+  void envCloudflare;
+  return true;
 }
 
 async function queryHandler({ request, ctx }: RequestInfo) {

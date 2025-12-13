@@ -289,3 +289,37 @@ Validation:
 Follow-up:
 
 - Remove the reset endpoint and the DB clearing helper once the namespace approach is in place, since changing `MOMENT_GRAPH_NAMESPACE` becomes the reset mechanism.
+
+### Validation status (Doc A indexing, dev-justin)
+
+I tailed `machinen-dev-justin` and captured a full Doc A indexing run (despite the tail entering sampling mode later).
+
+Observed from the logs:
+
+- Document id: `cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json`
+- Micro moments extracted: 87
+- Macro moments synthesized: 2
+
+Smart Linker:
+
+- Queried for macro moment 0 and returned raw candidate ids with high scores.
+- Produced no attachment proposal for Doc A (so the first macro moment stayed a root moment).
+
+Correlation / storage:
+
+- Macro moment 0
+  - reuseExisting: true (this suggests Doc A has already been indexed in the current namespace)
+  - moment id: `caddb526-8d6c-4132-9ab8-92e77211774c`
+  - micro paths hash: `8981f5c0f0a816f8ba69bad65742fd264472dac7aa5723f75b521eb04268d3e3`
+  - micro paths count: 15
+  - parent id: null
+- Macro moment 1
+  - reuseExisting: false
+  - moment id: `20dc4f16-0551-40f2-9399-025f408e78f5`
+  - micro paths hash: `4d50efc51520c58509ed89fa2a7c35b10899fb874c28237fc113839df76bdee8`
+  - micro paths count: 72
+  - parent id: `caddb526-8d6c-4132-9ab8-92e77211774c`
+
+Notes:
+
+- The Smart Linker candidate list is printed before namespace filtering, so it can still show ids that will be filtered out by metadata checks. The attachment decision is the authoritative signal.

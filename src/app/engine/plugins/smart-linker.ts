@@ -54,7 +54,8 @@ export const smartLinkerPlugin: Plugin = {
       for (const match of results.matches) {
         const matchNamespace =
           (match.metadata as any)?.momentGraphNamespace ?? null;
-        if (matchNamespace !== momentGraphNamespace) {
+        const normalizedMatchNamespace = matchNamespace ?? "default";
+        if (normalizedMatchNamespace !== momentGraphNamespace) {
           continue;
         }
         const subject = await getMoment(match.id);

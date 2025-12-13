@@ -193,7 +193,8 @@ export async function findSimilarMoments(
   for (const match of searchResults.matches) {
     const matchNamespace =
       (match.metadata as any)?.momentGraphNamespace ?? null;
-    if (matchNamespace !== momentGraphNamespace) {
+    const normalizedMatchNamespace = matchNamespace ?? "default";
+    if (normalizedMatchNamespace !== momentGraphNamespace) {
       continue;
     }
     const moment = await getMoment(match.id);
@@ -288,7 +289,8 @@ export async function findSimilarSubjects(
     const match = searchResults.matches[i];
     const matchNamespace =
       (match.metadata as any)?.momentGraphNamespace ?? null;
-    if (matchNamespace !== momentGraphNamespace) {
+    const normalizedMatchNamespace = matchNamespace ?? "default";
+    if (normalizedMatchNamespace !== momentGraphNamespace) {
       continue;
     }
     const moment = await getMoment(match.id);

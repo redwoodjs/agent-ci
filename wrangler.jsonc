@@ -443,6 +443,9 @@
     },
     "dev-justin": {
       "name": "machinen-dev-justin",
+      "vars": {
+        "MOMENT_GRAPH_NAMESPACE": "dev-justin"
+      },
       "migrations": [
         {
           "tag": "v1",

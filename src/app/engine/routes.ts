@@ -298,9 +298,10 @@ async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
       momentGraphNamespace: (m.metadata as any)?.momentGraphNamespace ?? null,
     }));
 
-    const matches = unfilteredMatches.filter(
-      (m) => m.momentGraphNamespace === momentGraphNamespace
-    );
+    const matches = unfilteredMatches.filter((m) => {
+      const normalizedMatchNamespace = m.momentGraphNamespace ?? "default";
+      return normalizedMatchNamespace === momentGraphNamespace;
+    });
 
     return Response.json({
       query: queryText,

@@ -323,3 +323,33 @@ Correlation / storage:
 Notes:
 
 - The Smart Linker candidate list is printed before namespace filtering, so it can still show ids that will be filtered out by metadata checks. The attachment decision is the authoritative signal.
+
+### Validation status (Doc A indexing, fresh namespace run)
+
+I reran Doc A indexing after changing `MOMENT_GRAPH_NAMESPACE` to a fresh value, to force a clean DO SQLite namespace and isolate Vectorize reads by metadata.
+
+Observed from the logs:
+
+- Document id: `cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json`
+- Micro moments extracted: 91
+- Macro moments synthesized: 2
+
+Smart Linker:
+
+- Queried for macro moment 0.
+- Produced no attachment proposal for Doc A (so the first macro moment stayed a root moment).
+
+Correlation / storage:
+
+- Macro moment 0
+  - reuseExisting: false
+  - moment id: `176f0c30-b4fa-498d-b3e3-c6b652e80a0f`
+  - micro paths hash: `56a3286392b2c3fc13e8d361629f5bf0001ea1b6ec4a281ec0e3475c8ade7b07`
+  - micro paths count: 27
+  - parent id: null
+- Macro moment 1
+  - reuseExisting: false
+  - moment id: `979d477a-30f3-4de9-829b-94e63453dbf2`
+  - micro paths hash: `91d5004e2f230b2d4fa1c3a5c0ef26462f172102928406129f65772a353387f4`
+  - micro paths count: 64
+  - parent id: `176f0c30-b4fa-498d-b3e3-c6b652e80a0f`

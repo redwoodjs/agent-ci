@@ -444,7 +444,7 @@
     "dev-justin": {
       "name": "machinen-dev-justin",
       "vars": {
-        "MOMENT_GRAPH_NAMESPACE": "dev-justin-2"
+        "MOMENT_GRAPH_NAMESPACE": "dev-justin-3"
       },
       "migrations": [
         {

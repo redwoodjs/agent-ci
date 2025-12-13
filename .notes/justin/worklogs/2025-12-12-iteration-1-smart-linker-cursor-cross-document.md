@@ -398,3 +398,35 @@ Experiment:
 Expected outcome:
 
 - For documents that contain a mix of low-signal and high-signal micro moments, subject matching should become less sensitive to where the turning point lands in the macro synthesis.
+
+### Validation status (Doc A indexing, fresh namespace, micro-concat query)
+
+I reran Doc A indexing in a fresh namespace after switching Smart Linker to build its query embedding from concatenated micro-moment text (with a deterministic cap).
+
+Observed from the logs:
+
+- Document id: `cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json`
+- Micro moments extracted: 94
+- Micro moments loaded: 94
+- Macro moments synthesized: 2
+
+Smart Linker:
+
+- Query source: `micro-concat`
+- Micro moments used: 13 (out of 94)
+- Produced no attachment proposal for Doc A (so the first macro moment stayed a root moment).
+
+Correlation / storage:
+
+- Macro moment 0
+  - reuseExisting: false
+  - moment id: `ba6c0e93-e0f4-4c40-ad35-7463028cc4d2`
+  - micro paths hash: `817da82c0583d8f2dcaef09f37325c2b980237f9967d984271c085afabcddf10`
+  - micro paths count: 94
+  - parent id: null
+- Macro moment 1
+  - reuseExisting: false
+  - moment id: `2a26a3ab-3941-4a11-9afc-795cc8f41012`
+  - micro paths hash: `5751d5da526849b5c149ee086c34e99a690ee8cbaa98110ecdbac19b4b5ef121`
+  - micro paths count: 71
+  - parent id: `ba6c0e93-e0f4-4c40-ad35-7463028cc4d2`

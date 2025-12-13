@@ -2,6 +2,10 @@ import { env } from "cloudflare:workers";
 import { type Database, createDb } from "rwsdk/db";
 import { type indexingStateMigrations } from "./migrations";
 import type { EngineIndexingStateDO } from "./durableObject";
+import {
+  getMomentGraphNamespaceFromEnv,
+  qualifyName,
+} from "../momentGraphNamespace";
 
 type IndexingStateDatabase = Database<typeof indexingStateMigrations>;
 
@@ -19,10 +23,11 @@ export async function getIndexingState(r2Key: string): Promise<{
 } | null> {
   console.log(`[db] getIndexingState called for: ${r2Key}`);
 
+  const namespace = getMomentGraphNamespaceFromEnv(env);
   const db = createDb<IndexingStateDatabase>(
     (env as any)
       .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
-    "engine-indexing-state"
+    qualifyName("engine-indexing-state", namespace)
   );
 
   const state = await db
@@ -80,10 +85,11 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
 
   console.log(`[db] getIndexingStatesBatch called for ${r2Keys.length} keys`);
 
+  const namespace = getMomentGraphNamespaceFromEnv(env);
   const db = createDb<IndexingStateDatabase>(
     (env as any)
       .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
-    "engine-indexing-state"
+    qualifyName("engine-indexing-state", namespace)
   );
 
   const result = new Map<
@@ -136,10 +142,11 @@ export async function updateIndexingState(
     `[db] updateIndexingState called for ${r2Key}: etag=${etag}, chunkIds=${chunkIds.length} items`
   );
 
+  const namespace = getMomentGraphNamespaceFromEnv(env);
   const db = createDb<IndexingStateDatabase>(
     (env as any)
       .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
-    "engine-indexing-state"
+    qualifyName("engine-indexing-state", namespace)
   );
 
   const now = new Date().toISOString();
@@ -184,10 +191,11 @@ export async function updateIndexingState(
 export async function getProcessedChunkHashes(
   r2Key: string
 ): Promise<string[]> {
+  const namespace = getMomentGraphNamespaceFromEnv(env);
   const db = createDb<IndexingStateDatabase>(
     (env as any)
       .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
-    "engine-indexing-state"
+    qualifyName("engine-indexing-state", namespace)
   );
 
   const result = await db
@@ -209,10 +217,11 @@ export async function setProcessedChunkHashes(
   r2Key: string,
   chunkHashes: string[]
 ): Promise<void> {
+  const namespace = getMomentGraphNamespaceFromEnv(env);
   const db = createDb<IndexingStateDatabase>(
     (env as any)
       .ENGINE_INDEXING_STATE as DurableObjectNamespace<EngineIndexingStateDO>,
-    "engine-indexing-state"
+    qualifyName("engine-indexing-state", namespace)
   );
 
   const now = new Date().toISOString();

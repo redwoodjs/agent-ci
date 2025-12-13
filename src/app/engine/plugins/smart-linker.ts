@@ -7,6 +7,7 @@ import type {
 } from "../types";
 import { getEmbedding } from "../utils/vector";
 import { findDescendants, getMoment } from "../momentDb";
+import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
 
@@ -24,6 +25,8 @@ export const smartLinkerPlugin: Plugin = {
         return null;
       }
 
+      const momentGraphNamespace =
+        getMomentGraphNamespaceFromEnv(context.env) ?? "default";
       const queryText = `${macroMoment.title}: ${macroMoment.summary}`;
 
       console.log("[moment-linker] smart linker query", {
@@ -49,6 +52,11 @@ export const smartLinkerPlugin: Plugin = {
       });
 
       for (const match of results.matches) {
+        const matchNamespace =
+          (match.metadata as any)?.momentGraphNamespace ?? null;
+        if (matchNamespace !== momentGraphNamespace) {
+          continue;
+        }
         const subject = await getMoment(match.id);
         if (!subject) {
           continue;

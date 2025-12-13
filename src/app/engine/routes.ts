@@ -7,24 +7,14 @@ import {
   validateQueryInput,
 } from "./interruptors";
 import { query, createEngineContext } from "./index";
-import {
-  clearMomentGraphState,
-  findAncestors,
-  findLastMomentForDocument,
-} from "./momentDb";
+import { findAncestors, findLastMomentForDocument } from "./momentDb";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
   enqueueUnprocessedFiles,
 } from "./services/scanner-service";
 import { clearAllIndexingState } from "./db";
-
-function isDebugMomentGraphClearAllowed(
-  envCloudflare: Cloudflare.Env
-): boolean {
-  void envCloudflare;
-  return true;
-}
+import { getMomentGraphNamespaceFromEnv } from "./momentGraphNamespace";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const queryText =
@@ -203,39 +193,6 @@ async function clearIndexingStateHandler({ request, ctx }: RequestInfo) {
   }
 }
 
-async function clearMomentGraphHandler({ request, ctx }: RequestInfo) {
-  if (request.method !== "POST") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 });
-  }
-
-  const envCloudflare = env as Cloudflare.Env;
-  if (!isDebugMomentGraphClearAllowed(envCloudflare)) {
-    return Response.json({ error: "Not allowed" }, { status: 403 });
-  }
-
-  try {
-    console.log(`[debug] Clearing Moment Graph state`);
-    await clearMomentGraphState();
-    return Response.json({
-      success: true,
-      message: "Moment Graph state cleared",
-    });
-  } catch (error) {
-    console.error(
-      `[debug] Error clearing Moment Graph state: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-    return Response.json(
-      {
-        error: "Failed to clear Moment Graph state",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 }
-    );
-  }
-}
-
 async function timelineHandler({ request, ctx }: RequestInfo) {
   const url = new URL(request.url);
   const documentId = url.searchParams.get("documentId");
@@ -301,6 +258,8 @@ async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
     }
 
     const envCloudflare = env as Cloudflare.Env;
+    const momentGraphNamespace =
+      getMomentGraphNamespaceFromEnv(envCloudflare) ?? "default";
 
     console.log(`[debug] Querying SUBJECT_INDEX for: "${queryText}"`);
 
@@ -332,18 +291,25 @@ async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
       `[debug] Vector search found ${searchResults.matches.length} matches`
     );
 
-    const matches = searchResults.matches.map((m) => ({
+    const unfilteredMatches = searchResults.matches.map((m) => ({
       id: m.id,
       score: m.score,
-      title: m.metadata?.title,
+      title: (m.metadata as any)?.title,
+      momentGraphNamespace: (m.metadata as any)?.momentGraphNamespace ?? null,
     }));
+
+    const matches = unfilteredMatches.filter(
+      (m) => m.momentGraphNamespace === momentGraphNamespace
+    );
 
     return Response.json({
       query: queryText,
+      momentGraphNamespace,
       embeddingDimension: vectors.length,
-      matches: matches,
+      matches,
       debug: {
-        totalMatches: searchResults.matches.length,
+        totalMatches: unfilteredMatches.length,
+        totalMatchesInNamespace: matches.length,
         topK: 10,
       },
     });
@@ -381,9 +347,6 @@ export const routes = [
   }),
   route("/admin/clear-indexing-state", {
     post: [requireQueryApiKey, clearIndexingStateHandler],
-  }),
-  route("/debug/clear-moment-graph", {
-    post: [requireQueryApiKey, clearMomentGraphHandler],
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],

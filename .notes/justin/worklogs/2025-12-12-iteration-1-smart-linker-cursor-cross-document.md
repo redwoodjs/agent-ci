@@ -263,3 +263,29 @@ curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   "http://localhost:8787/rag/debug/clear-moment-graph"
 ```
+
+### Plan update (namespace-based test isolation)
+
+The reset endpoint clears the DO SQLite tables, but it does not clear Vectorize. That leaves stale subject/moment vectors in `SUBJECT_INDEX` / `MOMENT_INDEX`, which can produce high-scoring candidates that no longer exist in the DO database. This makes Smart Linker test runs hard to interpret.
+
+Instead of trying to delete vectors, I want to namespace the entire Moment Graph stack so a clean test run is just a config change.
+
+Plan:
+
+- Add `MOMENT_GRAPH_NAMESPACE` to `.dev.vars` and `.dev.vars.example`.
+- Use `MOMENT_GRAPH_NAMESPACE` to prefix the DO database namespaces passed to `createDb(...)` for:
+  - Moment Graph storage (MomentGraphDO SQLite)
+  - Engine indexing state (EngineIndexingStateDO SQLite)
+- For Vectorize, avoid creating separate indices per namespace. Instead:
+  - Include `momentGraphNamespace` metadata on writes to `MOMENT_INDEX` and `SUBJECT_INDEX`.
+  - Filter query results in code to only consider matches where `momentGraphNamespace` matches the current configured namespace.
+
+Validation:
+
+- Set `MOMENT_GRAPH_NAMESPACE` to a fresh value, deploy, then re-run:
+  - index Doc A (should create a root subject in the current namespace)
+  - index Doc B (Smart Linker should attach under Doc A’s timeline, using only candidates from the same namespace)
+
+Follow-up:
+
+- Remove the reset endpoint and the DB clearing helper once the namespace approach is in place, since changing `MOMENT_GRAPH_NAMESPACE` becomes the reset mechanism.

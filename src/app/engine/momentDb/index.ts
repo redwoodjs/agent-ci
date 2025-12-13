@@ -4,20 +4,26 @@ import type { Moment, ChunkMetadata, MicroMomentDescription } from "../types";
 import { type Database, createDb } from "rwsdk/db";
 import { type momentMigrations } from "./migrations";
 import { getEmbedding } from "../utils/vector";
+import {
+  getMomentGraphNamespaceFromEnv,
+  qualifyName,
+} from "../momentGraphNamespace";
 
 export { MomentGraphDO };
 
 type MomentDatabase = Database<typeof momentMigrations>;
 
 function getMomentDb() {
+  const namespace = getMomentGraphNamespaceFromEnv(env);
   return createDb<MomentDatabase>(
     env.MOMENT_GRAPH_DO as DurableObjectNamespace<MomentGraphDO>,
-    "moment-graph-v2"
+    qualifyName("moment-graph-v2", namespace)
   );
 }
 
 export async function addMoment(moment: Moment): Promise<void> {
   const db = getMomentDb();
+  const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
 
   try {
     const embedding = await getEmbedding(moment.summary);
@@ -26,6 +32,7 @@ export async function addMoment(moment: Moment): Promise<void> {
       values: embedding,
       metadata: {
         chunkId: moment.id, // Using moment ID as chunk ID for consistency
+        momentGraphNamespace,
         documentId: moment.documentId,
         source: "moment-graph",
         type: "moment",
@@ -44,6 +51,7 @@ export async function addMoment(moment: Moment): Promise<void> {
         id: moment.id,
         values: embedding,
         metadata: {
+          momentGraphNamespace,
           title: moment.title,
           summary: moment.summary,
           documentId: moment.documentId,
@@ -175,6 +183,7 @@ export async function findSimilarMoments(
   vector: number[],
   limit: number = 5
 ): Promise<Moment[]> {
+  const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
   const searchResults = await env.MOMENT_INDEX.query(vector, {
     topK: limit,
     returnMetadata: true,
@@ -182,6 +191,11 @@ export async function findSimilarMoments(
 
   const moments: Moment[] = [];
   for (const match of searchResults.matches) {
+    const matchNamespace =
+      (match.metadata as any)?.momentGraphNamespace ?? null;
+    if (matchNamespace !== momentGraphNamespace) {
+      continue;
+    }
     const moment = await getMoment(match.id);
     if (moment) {
       moments.push(moment);
@@ -263,6 +277,7 @@ export async function findSimilarSubjects(
   vector: number[],
   limit: number = 5
 ): Promise<Moment[]> {
+  const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
   const searchResults = await env.SUBJECT_INDEX.query(vector, {
     topK: limit,
     returnMetadata: true,
@@ -271,6 +286,11 @@ export async function findSimilarSubjects(
   const subjects: Moment[] = [];
   for (let i = 0; i < searchResults.matches.length; i++) {
     const match = searchResults.matches[i];
+    const matchNamespace =
+      (match.metadata as any)?.momentGraphNamespace ?? null;
+    if (matchNamespace !== momentGraphNamespace) {
+      continue;
+    }
     const moment = await getMoment(match.id);
     if (moment && !moment.parentId) {
       subjects.push(moment);
@@ -349,20 +369,6 @@ export async function setDocumentStructureHash(
       })
     )
     .execute();
-}
-
-// TEMPORARY: Testing function to clear structure hash cache
-export async function clearDocumentStructureHash(): Promise<void> {
-  const db = getMomentDb();
-  await db.deleteFrom("document_structure_hash").execute();
-  console.log("[momentDb] Cleared all document structure hashes (testing)");
-}
-
-export async function clearMomentGraphState(): Promise<void> {
-  const db = getMomentDb();
-  await db.deleteFrom("moments").execute();
-  await db.deleteFrom("micro_moments").execute();
-  await db.deleteFrom("document_structure_hash").execute();
 }
 
 export interface MicroMoment {

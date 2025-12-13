@@ -430,3 +430,12 @@ Correlation / storage:
   - micro paths hash: `5751d5da526849b5c149ee086c34e99a690ee8cbaa98110ecdbac19b4b5ef121`
   - micro paths count: 71
   - parent id: `ba6c0e93-e0f4-4c40-ad35-7463028cc4d2`
+
+### Implementation note (Smart Linker candidate rejection logging)
+
+The Smart Linker logs showed high-scoring Vectorize candidates but still produced no attachment proposal. The existing logs only listed candidate ids/scores, which was not enough to see which filter rejected each match.
+
+I added per-candidate logging to the Smart Linker no-attachment case:
+
+- For each candidate: namespace in metadata, document id in metadata, subject row existence, same-document check, root check, threshold check.
+- This is emitted only when no attachment is produced, to keep successful runs less noisy.

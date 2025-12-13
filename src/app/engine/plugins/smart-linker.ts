@@ -16,6 +16,17 @@ import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
 
+function previewText(value: unknown, maxChars: number): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.length > maxChars ? trimmed.slice(0, maxChars) : trimmed;
+}
+
 function buildCappedMicroMomentQueryText(
   microMomentTexts: string[],
   maxChars: number
@@ -93,36 +104,75 @@ export const smartLinkerPlugin: Plugin = {
         matches: results.matches.map((m) => ({
           id: m.id,
           score: m.score,
+          matchNamespace: (m.metadata as any)?.momentGraphNamespace ?? null,
+          matchDocumentId: (m.metadata as any)?.documentId ?? null,
+          matchIsSubject: (m.metadata as any)?.isSubject ?? null,
+          matchType: (m.metadata as any)?.type ?? null,
         })),
       });
 
+      const candidateDecisions: Array<Record<string, unknown>> = [];
+
       for (const match of results.matches) {
-        const matchNamespace =
-          (match.metadata as any)?.momentGraphNamespace ?? null;
+        const matchMetadata = (match.metadata as any) ?? null;
+        const matchNamespace = matchMetadata?.momentGraphNamespace ?? null;
         const normalizedMatchNamespace = matchNamespace ?? "default";
+
+        const decision: Record<string, unknown> = {
+          id: match.id,
+          score: match.score,
+          expectedNamespace: momentGraphNamespace,
+          matchNamespace: normalizedMatchNamespace,
+          matchDocumentId: matchMetadata?.documentId ?? null,
+          matchIsSubject: matchMetadata?.isSubject ?? null,
+          matchType: matchMetadata?.type ?? null,
+          matchTitlePreview: previewText(matchMetadata?.title, 120),
+          matchSummaryPreview: previewText(matchMetadata?.summary, 160),
+        };
+
         if (normalizedMatchNamespace !== momentGraphNamespace) {
-          continue;
-        }
-        const subject = await getMoment(match.id);
-        if (!subject) {
+          decision.rejectReason = "namespace-mismatch";
+          candidateDecisions.push(decision);
           continue;
         }
 
+        const subject = await getMoment(match.id);
+        if (!subject) {
+          decision.rejectReason = "missing-moment-row";
+          candidateDecisions.push(decision);
+          continue;
+        }
+
+        decision.subjectDocumentId = subject.documentId;
+        decision.subjectParentId = subject.parentId ?? null;
+
         if (subject.documentId === document.id) {
+          decision.rejectReason = "same-document";
+          candidateDecisions.push(decision);
           continue;
         }
 
         if (subject.parentId) {
+          decision.rejectReason = "non-root-subject";
+          candidateDecisions.push(decision);
           continue;
         }
 
         if (match.score < DEFAULT_SMART_LINKER_THRESHOLD) {
+          decision.rejectReason = "below-threshold";
+          decision.threshold = DEFAULT_SMART_LINKER_THRESHOLD;
+          candidateDecisions.push(decision);
           continue;
         }
 
         const timeline = await findDescendants(subject.id);
         const last = timeline.length > 0 ? timeline[timeline.length - 1] : null;
         const parentMomentId = last?.id ?? subject.id;
+
+        decision.accepted = true;
+        decision.parentMomentId = parentMomentId;
+        decision.subjectTimelineLength = timeline.length;
+        candidateDecisions.push(decision);
 
         console.log("[moment-linker] smart linker chose attachment", {
           documentId: document.id,
@@ -145,6 +195,8 @@ export const smartLinkerPlugin: Plugin = {
       console.log("[moment-linker] smart linker no attachment", {
         documentId: document.id,
         macroMomentIndex,
+        threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+        candidates: candidateDecisions,
       });
 
       return null;

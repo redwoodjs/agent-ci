@@ -178,6 +178,39 @@ Concrete identifiers from the current deploy logs (Document A):
 - Child moment id: `38f5faa4-f97b-4d84-a8f2-ec60bf824510`
 - Child parent id: `5e2b646b-12cc-4f1b-83a5-82449f72542d`
 
+### Validation status (Doc A run after redeploy)
+
+Note: I accidentally deployed to production first, then redeployed to the environment where I was tailing logs (`cf:environment=dev-justin`). The identifiers below are from the later run in that environment.
+
+Observed from the Document A indexing logs:
+
+- Micro moments extracted: 65
+- Macro moments synthesized: 2
+- Smart Linker:
+  - queried `SUBJECT_INDEX` and returned high-scoring candidates
+  - returned no attachment proposal for this document (most likely due to candidate filtering: same document ids and non-root moments)
+- Correlation / storage:
+  - macro moment 1 was stored as a new root moment (no parent)
+  - macro moment 2 was stored as a child of macro moment 1
+
+Concrete identifiers from the later Document A run:
+
+- Document id: `cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json`
+- Macro moment 1:
+  - moment id: `c21fc0cd-c4cc-4841-82d9-b20298ba3c7c`
+  - micro paths hash: `98c957af181794a83712523cf31a915fd70a266de35e05bd22f6e55ed0333127`
+  - micro paths count: 13
+  - parent id: null
+- Macro moment 2:
+  - moment id: `a40f7093-1ea9-4bfa-923a-1ec734c8b9d1`
+  - micro paths hash: `90d1eb29b13787b25bdd434f371045de56946244dfcc9dcac5d298738005c15d`
+  - micro paths count: 52
+  - parent id: `c21fc0cd-c4cc-4841-82d9-b20298ba3c7c`
+
+Note on synthesis membership:
+
+- The LLM provided `INDICES` lists (1-13 and 14-65) for the two macro moments. This avoids path-string reproduction but still relies on the LLM selecting correct indices. If this turns out to be unstable, we can add stricter parsing/validation and fallbacks.
+
 ### Validation plan (next step)
 
 Create a second Cursor conversation (Document B) as a continuation of the same workstream (deploy inspection, follow-up fixes, or tuning decisions). Index it and confirm, via logs, that:
@@ -186,13 +219,3 @@ Create a second Cursor conversation (Document B) as a continuation of the same w
 - The first macro moment in Document B is stored with a parent that points into Document A's subject timeline (typically the last descendant).
 
 Idempotency checks can be done later. For now the focus is confirming cross-document attachment on Document B.
-
-### Logging notes
-
-For the Smart Linker rollout, log lines are plain `console.log` and always enabled. Cleanup is a grep for `[moment-linker]` lines.
-
-Next:
-
-- Run the A/B/C fixture ingestion to confirm attachment behavior and re-index idempotency.
-
-

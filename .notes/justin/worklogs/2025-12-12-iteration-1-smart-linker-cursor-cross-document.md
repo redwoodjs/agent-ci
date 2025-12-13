@@ -211,11 +211,23 @@ Note on synthesis membership:
 
 - The LLM provided `INDICES` lists (1-13 and 14-65) for the two macro moments. This avoids path-string reproduction but still relies on the LLM selecting correct indices. If this turns out to be unstable, we can add stricter parsing/validation and fallbacks.
 
+### Validation status (Doc B indexing)
+
+While tailing `dev-justin`, I indexed a later Cursor conversation (Doc B):
+
+- Document id: `cursor/conversations/07230886-c5d6-42c2-a6ff-08c49f90b2d3/latest.json`
+- Engine indexing ran, but with a delay between enqueue and delivery.
+- The doc was re-indexed multiple times as the conversation evolved.
+- In the observed runs, correlation reused an existing parent id for the first macro moment rather than showing a fresh Smart Linker attachment decision.
+
+This makes it hard to confirm the cross-document attachment behavior (Doc B under Doc A) using only these logs.
+
 ### Validation plan (next step)
 
-Create a second Cursor conversation (Document B) as a continuation of the same workstream (deploy inspection, follow-up fixes, or tuning decisions). Index it and confirm, via logs, that:
+I want a clean slate for Moment Graph state so I can run the A/B fixture with clear logs and without re-index reuse confusing parent decisions.
 
-- Smart Linker finds the subject from Document A and chooses an attachment.
-- The first macro moment in Document B is stored with a parent that points into Document A's subject timeline (typically the last descendant).
+Plan:
 
-Idempotency checks can be done later. For now the focus is confirming cross-document attachment on Document B.
+- Add a debug-only endpoint that deletes all Moment Graph rows from the DO SQLite tables (moments and related state).
+- Guard it so it is only enabled in non-production environments and requires the existing admin API key.
+- Re-ingest Doc A, then ingest Doc B and confirm Smart Linker proposes a parent in Doc A's timeline.

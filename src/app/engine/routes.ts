@@ -6,17 +6,38 @@ import {
   rateLimitQuery,
   validateQueryInput,
 } from "./interruptors";
+import { query, createEngineContext } from "./index";
 import {
-  query,
-  createEngineContext,
-} from "./index";
-import { findAncestors, findLastMomentForDocument } from "./momentDb";
+  clearMomentGraphState,
+  findAncestors,
+  findLastMomentForDocument,
+} from "./momentDb";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
   enqueueUnprocessedFiles,
 } from "./services/scanner-service";
 import { clearAllIndexingState } from "./db";
+
+function isDebugMomentGraphClearAllowed(
+  envCloudflare: Cloudflare.Env
+): boolean {
+  const envName = String(
+    (envCloudflare as any).CLOUDFLARE_ENV ??
+      (envCloudflare as any).MACHINEN_ENV ??
+      ""
+  );
+  if (!envName) {
+    return false;
+  }
+  if (envName === "local" || envName === "test") {
+    return true;
+  }
+  if (envName.startsWith("dev-")) {
+    return true;
+  }
+  return false;
+}
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const queryText =
@@ -195,6 +216,39 @@ async function clearIndexingStateHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function clearMomentGraphHandler({ request, ctx }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  const envCloudflare = env as Cloudflare.Env;
+  if (!isDebugMomentGraphClearAllowed(envCloudflare)) {
+    return Response.json({ error: "Not allowed" }, { status: 403 });
+  }
+
+  try {
+    console.log(`[debug] Clearing Moment Graph state`);
+    await clearMomentGraphState();
+    return Response.json({
+      success: true,
+      message: "Moment Graph state cleared",
+    });
+  } catch (error) {
+    console.error(
+      `[debug] Error clearing Moment Graph state: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return Response.json(
+      {
+        error: "Failed to clear Moment Graph state",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
+  }
+}
+
 async function timelineHandler({ request, ctx }: RequestInfo) {
   const url = new URL(request.url);
   const documentId = url.searchParams.get("documentId");
@@ -340,6 +394,9 @@ export const routes = [
   }),
   route("/admin/clear-indexing-state", {
     post: [requireQueryApiKey, clearIndexingStateHandler],
+  }),
+  route("/debug/clear-moment-graph", {
+    post: [requireQueryApiKey, clearMomentGraphHandler],
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],

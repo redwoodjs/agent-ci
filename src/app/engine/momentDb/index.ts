@@ -358,6 +358,13 @@ export async function clearDocumentStructureHash(): Promise<void> {
   console.log("[momentDb] Cleared all document structure hashes (testing)");
 }
 
+export async function clearMomentGraphState(): Promise<void> {
+  const db = getMomentDb();
+  await db.deleteFrom("moments").execute();
+  await db.deleteFrom("micro_moments").execute();
+  await db.deleteFrom("document_structure_hash").execute();
+}
+
 export interface MicroMoment {
   id: string;
   documentId: string;

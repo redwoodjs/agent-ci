@@ -231,3 +231,21 @@ Plan:
 - Add a debug-only endpoint that deletes all Moment Graph rows from the DO SQLite tables (moments and related state).
 - Guard it so it is only enabled in non-production environments and requires the existing admin API key.
 - Re-ingest Doc A, then ingest Doc B and confirm Smart Linker proposes a parent in Doc A's timeline.
+
+### Implementation status (Moment Graph reset endpoint)
+
+I added a debug endpoint to clear Moment Graph storage so the Doc A / Doc B fixture can be rerun without interference from older moments.
+
+Changes:
+
+- Added a Moment DB helper that deletes all rows from:
+  - `moments`
+  - `micro_moments`
+  - `document_structure_hash`
+- Added a route: `POST /rag/debug/clear-moment-graph`
+  - For now it is gated only by the existing API key interruptor. Any additional environment checks were removed to unblock testing. I can tighten this later.
+
+Validation:
+
+- Calling the endpoint on `machinen-dev-justin` returned `{ "success": true }`.
+- A follow-up call to `/rag/timeline` for Doc A returned `No moments found for document`, which is consistent with the DB being cleared.

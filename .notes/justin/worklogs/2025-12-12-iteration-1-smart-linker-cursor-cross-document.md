@@ -249,3 +249,17 @@ Validation:
 
 - Calling the endpoint on `machinen-dev-justin` returned `{ "success": true }`.
 - A follow-up call to `/rag/timeline` for Doc A returned `No moments found for document`, which is consistent with the DB being cleared.
+
+Manual invocation:
+
+```bash
+# dev-justin
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  "https://machinen-dev-justin.redwoodjs.workers.dev/rag/debug/clear-moment-graph"
+
+# local
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  "http://localhost:8787/rag/debug/clear-moment-graph"
+```

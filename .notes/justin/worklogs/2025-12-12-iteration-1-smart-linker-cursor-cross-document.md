@@ -353,3 +353,48 @@ Correlation / storage:
   - micro paths hash: `91d5004e2f230b2d4fa1c3a5c0ef26462f172102928406129f65772a353387f4`
   - micro paths count: 64
   - parent id: `176f0c30-b4fa-498d-b3e3-c6b652e80a0f`
+
+### Validation status (Doc B indexing, minimal content)
+
+I tried to use this chat as Doc B, but it did not contain enough workstream content to exercise Smart Linker.
+
+Observed from the logs:
+
+- Document id: `cursor/conversations/979d250a-d6ac-4567-a76d-961c1897d370/latest.json`
+- Micro moments extracted: 2
+- Macro moments synthesized: 2
+
+Smart Linker:
+
+- Returned high-scoring candidates for macro moment 0.
+- Produced no attachment proposal, so Doc B became its own root timeline.
+
+Correlation / storage:
+
+- Macro moment 0:
+  - reuseExisting: true
+  - moment id: `3e70b201-9687-44a7-a442-234bedd4f6c8`
+  - parent id: null
+- Macro moment 1:
+  - reuseExisting: false
+  - moment id: `87a5fc4f-4a67-432c-b7c8-ceb0cf2ed7d0`
+  - parent id: `3e70b201-9687-44a7-a442-234bedd4f6c8`
+
+Interpretation:
+
+- The document only contained status nudges ('bump', 'stand by'). Even with semantic search, there is not enough signal to associate it with Doc A's subject.
+
+### Experiment plan (micro-moment concatenation query for subject assignment)
+
+This chat scenario is realistic: sometimes a follow-up document starts with low-signal messages, but I still want it grouped under the same subject/workstream.
+
+Experiment:
+
+- Change Smart Linker so the query embedding is built from concatenated micro-moment text for the document, rather than a synthesized macro moment title/summary.
+- Apply a deterministic cap (to control prompt size and cost).
+- Keep the existing namespace metadata filtering.
+- Do this directly in the plugin rather than keeping multiple query modes.
+
+Expected outcome:
+
+- For documents that contain a mix of low-signal and high-signal micro moments, subject matching should become less sensitive to where the turning point lands in the macro synthesis.

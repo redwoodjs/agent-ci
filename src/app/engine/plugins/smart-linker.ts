@@ -6,10 +6,46 @@ import type {
   MacroMomentParentProposal,
 } from "../types";
 import { getEmbedding } from "../utils/vector";
-import { findDescendants, getMoment } from "../momentDb";
+import {
+  findDescendants,
+  getMicroMomentsForDocument,
+  getMoment,
+} from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
+const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
+
+function buildCappedMicroMomentQueryText(
+  microMomentTexts: string[],
+  maxChars: number
+): { text: string; usedCount: number } {
+  let out = "";
+  let usedCount = 0;
+
+  for (const rawText of microMomentTexts) {
+    const text = rawText.trim();
+    if (!text) {
+      continue;
+    }
+
+    const separator = out.length > 0 ? "\n\n" : "";
+    const remaining = maxChars - out.length - separator.length;
+    if (remaining <= 0) {
+      break;
+    }
+
+    const slice = text.length > remaining ? text.slice(0, remaining) : text;
+    out = `${out}${separator}${slice}`;
+    usedCount += 1;
+
+    if (out.length >= maxChars) {
+      break;
+    }
+  }
+
+  return { text: out, usedCount };
+}
 
 export const smartLinkerPlugin: Plugin = {
   name: "smart-linker",
@@ -27,12 +63,21 @@ export const smartLinkerPlugin: Plugin = {
 
       const momentGraphNamespace =
         getMomentGraphNamespaceFromEnv(context.env) ?? "default";
-      const queryText = `${macroMoment.title}: ${macroMoment.summary}`;
+      const microMoments = await getMicroMomentsForDocument(document.id);
+      const microTexts = microMoments.map((m) => m.summary ?? m.content);
+      const built = buildCappedMicroMomentQueryText(
+        microTexts,
+        DEFAULT_SMART_LINKER_MAX_QUERY_CHARS
+      );
+      const queryText = built.text;
 
       console.log("[moment-linker] smart linker query", {
         documentId: document.id,
         macroMomentIndex,
         macroMomentTitle: macroMoment.title,
+        querySource: "micro-concat",
+        microMomentsUsed: built.usedCount,
+        microMomentsTotal: microMoments.length,
         queryPreview: queryText.slice(0, 200),
       });
 

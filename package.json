@@ -11,6 +11,7 @@
   "scripts": {
     "build": "vite build",
     "dev": "NODE_ENV=${NODE_ENV:-development} vite dev",
+    "dev:log": "NODE_ENV=${NODE_ENV:-development} vite dev 2>&1 | tee /tmp/machinen-dev.log",
     "dev:init": "rw-scripts dev-init",
     "preview": "vite preview",
     "worker:run": "rw-scripts worker-run",

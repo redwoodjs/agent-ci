@@ -604,3 +604,44 @@ Interpretation from these logs:
 
 - The Smart Linker rejection reason is not “below threshold” or “same document” or “not a root”. It is consistently “namespace mismatch”.
 - The candidate entries show `matchNamespace` as `default`, which suggests the namespace metadata being checked by Smart Linker is either missing on the Vectorize matches or not being returned on query, so the code treats it as `default` and rejects it when a non-default `momentGraphNamespace` is configured for the run.
+
+### 2025-12-14 (time not recorded) - Investigation note (namespace mismatch vs query-time filtering)
+
+The `namespace-mismatch` outcome looks odd at first (both Doc A and Doc B were indexed under the same namespace), but the logs point at a more specific failure mode:
+
+- Smart Linker queries `SUBJECT_INDEX` without a metadata filter.
+- Vectorize returns topK matches across all previously indexed vectors.
+- Smart Linker then filters those matches in code by `momentGraphNamespace`.
+- In a namespace-isolated test run, it is possible for all returned matches to be from other namespaces (or old vectors missing the namespace metadata, treated as `default`), which means the in-code filter drops everything and the run ends with `namespace-mismatch`.
+
+In that situation, it is not that the system “is not using the namespace”. It is using it too late (after the vector search), which can cause topK starvation:
+
+- The subject for Doc A might be correctly written with `momentGraphNamespace: 'Clumsy Odin Thrilled Raisins'`, but if it is not among the global topK results for the Doc B query, it never reaches the in-code filter.
+
+Proposed fix direction:
+
+- When the configured Moment Graph namespace is not `default`, apply a Vectorize metadata filter at query time (`filter: { momentGraphNamespace: <namespace> }`) for subject/moment search.
+- Keep the existing in-code filtering as a safety net, but do not rely on it as the primary isolation mechanism.
+
+### 2025-12-14 (time not recorded) - Implementation status (namespace query filtering)
+
+I implemented query-time namespace filtering for Moment Graph vector queries.
+
+Changes:
+
+- Smart Linker subject search now applies a Vectorize metadata filter when the effective namespace is not `default`:
+  - `SUBJECT_INDEX.query(..., { filter: { momentGraphNamespace } })`
+- `momentDb.findSimilarSubjects` and `momentDb.findSimilarMoments` now apply the same filter when the effective namespace is not `default`.
+- The debug route `/rag/debug/query-subject-index` now applies the same filter when the effective namespace is not `default`.
+
+Rationale:
+
+- Without query-time filtering, topK results can be dominated by other namespaces (or older vectors missing namespace metadata), then dropped by the in-code filter. This can produce “namespace-mismatch” even when the correct in-namespace subject exists.
+
+Local typecheck note:
+
+- `npm run types` currently fails with unrelated TypeScript errors in other parts of the repo, so I did not use it as a validation signal for this change.
+
+Next validation:
+
+- Run Doc A then Doc B in a shared non-default namespace and confirm Smart Linker sees in-namespace candidates and produces an attachment proposal for Doc B when similarity is above threshold.

@@ -184,10 +184,14 @@ export async function findSimilarMoments(
   limit: number = 5
 ): Promise<Moment[]> {
   const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
-  const searchResults = await env.MOMENT_INDEX.query(vector, {
+  const queryOptions: Record<string, unknown> = {
     topK: limit,
     returnMetadata: true,
-  });
+  };
+  if (momentGraphNamespace !== "default") {
+    queryOptions.filter = { momentGraphNamespace };
+  }
+  const searchResults = await env.MOMENT_INDEX.query(vector, queryOptions as any);
 
   const moments: Moment[] = [];
   for (const match of searchResults.matches) {
@@ -279,10 +283,17 @@ export async function findSimilarSubjects(
   limit: number = 5
 ): Promise<Moment[]> {
   const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
-  const searchResults = await env.SUBJECT_INDEX.query(vector, {
+  const queryOptions: Record<string, unknown> = {
     topK: limit,
     returnMetadata: true,
-  });
+  };
+  if (momentGraphNamespace !== "default") {
+    queryOptions.filter = { momentGraphNamespace };
+  }
+  const searchResults = await env.SUBJECT_INDEX.query(
+    vector,
+    queryOptions as any
+  );
 
   const subjects: Moment[] = [];
   for (let i = 0; i < searchResults.matches.length; i++) {

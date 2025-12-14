@@ -104,10 +104,17 @@ export const smartLinkerPlugin: Plugin = {
       });
 
       const embedding = await getEmbedding(queryText);
-      const results = await context.env.SUBJECT_INDEX.query(embedding, {
+      const queryOptions: Record<string, unknown> = {
         topK: 5,
         returnMetadata: true,
-      });
+      };
+      if (momentGraphNamespace !== "default") {
+        queryOptions.filter = { momentGraphNamespace };
+      }
+      const results = await context.env.SUBJECT_INDEX.query(
+        embedding,
+        queryOptions as any
+      );
 
       console.log("[moment-linker] smart linker candidates", {
         documentId: document.id,

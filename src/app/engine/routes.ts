@@ -402,11 +402,19 @@ async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
     const vectors = embeddingResponse.data[0];
     console.log(`[debug] Generated embedding (dimension: ${vectors.length})`);
 
-    // Query the SUBJECT_INDEX
-    const searchResults = await envCloudflare.SUBJECT_INDEX.query(vectors, {
+    const queryOptions: Record<string, unknown> = {
       topK: 10,
       returnMetadata: true,
-    });
+    };
+    if (momentGraphNamespace !== "default") {
+      queryOptions.filter = { momentGraphNamespace };
+    }
+
+    // Query the SUBJECT_INDEX
+    const searchResults = await envCloudflare.SUBJECT_INDEX.query(
+      vectors,
+      queryOptions as any
+    );
 
     console.log(
       `[debug] Vector search found ${searchResults.matches.length} matches`

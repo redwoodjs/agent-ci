@@ -58,6 +58,15 @@ To answer "why" questions, the query engine flips the traditional RAG model:
 2.  **Reconstruct the Timeline**: Once a Subject is identified, the engine traverses the graph to retrieve all descendant Moments, effectively loading the entire "chapter" of the story.
 3.  **Synthesize Answer**: The LLM is given this full, curated narrative timeline (not random chunks) to generate a coherent answer.
 
+### 5. Moment Graph namespaces (test isolation)
+During development, it is sometimes useful to run repeated ingestion experiments without deleting existing data in Durable Objects or Vectorize. The Moment Graph supports a namespace value that scopes both storage and retrieval.
+
+- Durable Object storage uses the namespace value as a prefix for the database name.
+- Moment and subject vectors store the namespace value in vector metadata.
+- Queries for moments and subjects apply a metadata filter using the namespace value.
+
+This avoids returning topK results from other namespaces and then dropping them in code after the vector query.
+
 ## Integration with the Evidence Locker
 
 The Knowledge Synthesis Engine operates alongside the traditional Evidence Locker (RAG) to provide a complete picture.

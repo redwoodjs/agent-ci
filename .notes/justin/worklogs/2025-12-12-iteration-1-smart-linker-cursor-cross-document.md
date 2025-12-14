@@ -718,3 +718,12 @@ Change direction:
 Implementation status:
 
 - The narrative query path now prefers matched-moment trails (from `MOMENT_INDEX` matches) before falling back to subject-first “full timeline” retrieval.
+
+### 2025-12-14 (time not recorded) - Logging note (Smart Linker comparison inputs)
+
+To debug “why didn’t it attach?”, I added more always-on Smart Linker logging showing the actual inputs being compared:
+
+- The Smart Linker query log now includes `usedMicroMoments`:
+  - the micro moment path (when available)
+  - a short preview of the micro moment text used to build the query embedding
+- Candidate logs already include title/summary previews for the matched moments.

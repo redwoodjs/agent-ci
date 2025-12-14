@@ -54,6 +54,38 @@ function buildCappedMicroMomentQueryText(
   return { text: out, usedCount };
 }
 
+function buildCappedMicroMomentQueryTextWithIndices(
+  microMomentTexts: string[],
+  maxChars: number
+): { text: string; usedIndices: number[] } {
+  let out = "";
+  const usedIndices: number[] = [];
+
+  for (let i = 0; i < microMomentTexts.length; i++) {
+    const rawText = microMomentTexts[i];
+    const text = rawText.trim();
+    if (!text) {
+      continue;
+    }
+
+    const separator = out.length > 0 ? "\n\n" : "";
+    const remaining = maxChars - out.length - separator.length;
+    if (remaining <= 0) {
+      break;
+    }
+
+    const slice = text.length > remaining ? text.slice(0, remaining) : text;
+    out = `${out}${separator}${slice}`;
+    usedIndices.push(i);
+
+    if (out.length >= maxChars) {
+      break;
+    }
+  }
+
+  return { text: out, usedIndices };
+}
+
 export const smartLinkerPlugin: Plugin = {
   name: "smart-linker",
 
@@ -83,20 +115,29 @@ export const smartLinkerPlugin: Plugin = {
         getMomentGraphNamespaceFromEnv(context.env) ?? "default";
       const microMoments = await getMicroMomentsForDocument(document.id);
       const microTexts = microMoments.map((m) => m.summary ?? m.content);
-      const built = buildCappedMicroMomentQueryText(
+      const built = buildCappedMicroMomentQueryTextWithIndices(
         microTexts,
         DEFAULT_SMART_LINKER_MAX_QUERY_CHARS
       );
       const queryText = built.text;
+      const usedMicroMoments = built.usedIndices.map((idx) => {
+        const m = microMoments[idx] as any;
+        const text = microTexts[idx] ?? "";
+        return {
+          path: m?.path ?? null,
+          summaryPreview: previewText(text, 160),
+        };
+      });
 
       console.log("[moment-linker] smart linker query", {
         documentId: document.id,
         macroMomentIndex,
         macroMomentTitle: macroMoment.title,
         querySource: "micro-concat",
-        microMomentsUsed: built.usedCount,
+        microMomentsUsed: built.usedIndices.length,
         microMomentsTotal: microMoments.length,
         queryPreview: queryText.slice(0, 200),
+        usedMicroMoments,
       });
 
       const embedding = await getEmbedding(queryText);

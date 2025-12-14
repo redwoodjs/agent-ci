@@ -72,6 +72,17 @@ export const smartLinkerPlugin: Plugin = {
         return null;
       }
 
+      if (
+        !context.env.SUBJECT_INDEX ||
+        typeof (context.env.SUBJECT_INDEX as any).query !== "function"
+      ) {
+        console.log("[moment-linker] smart linker skipped (no SUBJECT_INDEX)", {
+          documentId: document.id,
+          macroMomentIndex,
+        });
+        return null;
+      }
+
       const momentGraphNamespace =
         getMomentGraphNamespaceFromEnv(context.env) ?? "default";
       const microMoments = await getMicroMomentsForDocument(document.id);

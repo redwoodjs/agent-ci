@@ -154,6 +154,8 @@ export const cursorPlugin: Plugin = {
       contents: string[],
       context: IndexingHookContext
     ): Promise<string[]> {
+      const delimiter = "\n<<<MICRO_MOMENT_SUMMARY_DELIMITER>>>\n";
+
       if (contents.length === 1) {
         const content = contents[0] ?? "";
         const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
@@ -172,14 +174,15 @@ export const cursorPlugin: Plugin = {
 
       const itemsJson = JSON.stringify(contents);
       const summaryPrompt =
-        `Return only a JSON array of strings.\n` +
-        `- Do not include any prose.\n` +
-        `- Do not use markdown or code fences.\n` +
-        `- The output array length must equal the input length.\n` +
+        `Return ${contents.length} summaries separated by this exact delimiter:\n` +
+        `${delimiter}\n` +
+        `Rules:\n` +
+        `- No prose, no markdown, no code fences.\n` +
+        `- Output must contain exactly ${contents.length - 1} delimiters.\n` +
         `- Summaries must be in the same order as the inputs.\n` +
         `- Each summary must be a single sentence and <= 200 characters.\n\n` +
         `INPUTS (JSON array of strings):\n${itemsJson}\n\n` +
-        `OUTPUT (JSON array of strings only):`;
+        `OUTPUT (summaries separated by the delimiter):`;
 
       try {
         const { callLLM } = await import("../utils/llm");
@@ -187,26 +190,22 @@ export const cursorPlugin: Plugin = {
           temperature: 0,
           max_tokens: 1200,
         });
+
         const trimmed = summary.trim();
         const withoutFences = trimmed
-          .replace(/^```json\s*/i, "")
-          .replace(/^```\s*/i, "")
+          .replace(/^```[a-z]*\s*/i, "")
           .replace(/\s*```$/, "");
-        const start = withoutFences.indexOf("[");
-        const end = withoutFences.lastIndexOf("]");
-        const slice =
-          start >= 0 && end >= 0 && end > start
-            ? withoutFences.slice(start, end + 1)
-            : withoutFences;
-        const parsed = JSON.parse(slice) as unknown;
-        if (!Array.isArray(parsed) || parsed.length !== contents.length) {
+
+        const parts = withoutFences.split(delimiter).map((s) => s.trim());
+        if (parts.length !== contents.length) {
           return contents.map((content) =>
             `Content about: ${content.substring(0, 100)}...`.trim()
           );
         }
-        return parsed.map((x, i) => {
-          if (typeof x === "string") {
-            return x.trim();
+
+        return parts.map((s, i) => {
+          if (s) {
+            return s;
           }
           const content = contents[i] ?? "";
           return `Content about: ${content.substring(0, 100)}...`.trim();

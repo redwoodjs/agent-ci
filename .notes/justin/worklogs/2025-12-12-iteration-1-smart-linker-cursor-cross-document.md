@@ -526,3 +526,4 @@ Adjustments:
 - Cap total batch input size (`MICRO_MOMENT_SUMMARY_BATCH_MAX_CHARS`, default 10000).
 - Use a single-item path for summarization to avoid JSON parsing for batches of size 1.
 - Set LLM options for the batch hook (temperature 0, higher max output tokens) to reduce truncation.
+- Stop requesting JSON output from the model for batch summaries. Instead, request summaries separated by a fixed delimiter and parse by splitting on that delimiter.

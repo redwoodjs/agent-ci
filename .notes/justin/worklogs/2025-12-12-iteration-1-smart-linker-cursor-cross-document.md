@@ -512,3 +512,17 @@ Plugins updated:
 Operational note:
 
 - Batch size is currently controlled by `MICRO_MOMENT_SUMMARY_BATCH_SIZE` (defaults to 10).
+
+### Validation note (batching: context window + output parsing)
+
+First local runs surfaced two practical batching issues:
+
+- Some batches can exceed the model context window, depending on how long the micro moment contents are.
+- The model output sometimes includes non-JSON preamble, code fences, or truncated arrays, which makes strict JSON parsing fail.
+
+Adjustments:
+
+- Cap each micro moment content passed into the batch summarizer (`MICRO_MOMENT_SUMMARY_ITEM_MAX_CHARS`, default 2000).
+- Cap total batch input size (`MICRO_MOMENT_SUMMARY_BATCH_MAX_CHARS`, default 10000).
+- Use a single-item path for summarization to avoid JSON parsing for batches of size 1.
+- Set LLM options for the batch hook (temperature 0, higher max output tokens) to reduce truncation.

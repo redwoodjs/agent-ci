@@ -56,6 +56,71 @@ function chunkByCount<T>(items: T[], batchSize: number): T[][] {
   return batches;
 }
 
+function truncateToChars(text: string, maxChars: number): string {
+  if (maxChars <= 0) {
+    return "";
+  }
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return text.slice(0, maxChars);
+}
+
+function chunkMicroMomentsForSummaries(
+  items: MicroMomentDescription[],
+  opts: { maxBatchChars: number; maxItemChars: number; maxBatchItems: number }
+): { batch: MicroMomentDescription[]; contents: string[] }[] {
+  const maxBatchChars =
+    Number.isFinite(opts.maxBatchChars) && opts.maxBatchChars > 0
+      ? opts.maxBatchChars
+      : 10_000;
+  const maxItemChars =
+    Number.isFinite(opts.maxItemChars) && opts.maxItemChars > 0
+      ? opts.maxItemChars
+      : 2_000;
+  const maxBatchItems =
+    Number.isFinite(opts.maxBatchItems) && opts.maxBatchItems > 0
+      ? opts.maxBatchItems
+      : 10;
+
+  const out: { batch: MicroMomentDescription[]; contents: string[] }[] = [];
+  let currentBatch: MicroMomentDescription[] = [];
+  let currentContents: string[] = [];
+  let currentChars = 0;
+
+  function flush() {
+    if (currentBatch.length > 0) {
+      out.push({ batch: currentBatch, contents: currentContents });
+      currentBatch = [];
+      currentContents = [];
+      currentChars = 0;
+    }
+  }
+
+  for (const item of items) {
+    const content = truncateToChars(item.content, maxItemChars);
+    const projectedChars = currentChars + content.length;
+
+    if (
+      currentBatch.length > 0 &&
+      (currentBatch.length >= maxBatchItems || projectedChars > maxBatchChars)
+    ) {
+      flush();
+    }
+
+    currentBatch.push(item);
+    currentContents.push(content);
+    currentChars += content.length;
+
+    if (currentBatch.length >= maxBatchItems || currentChars > maxBatchChars) {
+      flush();
+    }
+  }
+
+  flush();
+  return out;
+}
+
 export async function indexDocument(
   r2Key: string,
   context: EngineContext
@@ -164,22 +229,42 @@ export async function indexDocument(
           ? batchSizeRaw
           : 10;
 
-      const batches = chunkByCount(cacheMisses, batchSize);
+      const maxBatchCharsRaw = (indexingContext.env as any)
+        .MICRO_MOMENT_SUMMARY_BATCH_MAX_CHARS;
+      const maxItemCharsRaw = (indexingContext.env as any)
+        .MICRO_MOMENT_SUMMARY_ITEM_MAX_CHARS;
+      const maxBatchChars =
+        typeof maxBatchCharsRaw === "string"
+          ? Number.parseInt(maxBatchCharsRaw, 10)
+          : typeof maxBatchCharsRaw === "number"
+          ? maxBatchCharsRaw
+          : 10_000;
+      const maxItemChars =
+        typeof maxItemCharsRaw === "string"
+          ? Number.parseInt(maxItemCharsRaw, 10)
+          : typeof maxItemCharsRaw === "number"
+          ? maxItemCharsRaw
+          : 2_000;
+
+      const batches = chunkMicroMomentsForSummaries(cacheMisses, {
+        maxBatchChars,
+        maxItemChars,
+        maxBatchItems: batchSize,
+      });
       for (let i = 0; i < batches.length; i++) {
         const batch = batches[i];
-        const contents = batch.map((m) => m.content);
 
         const summaries = await runFirstMatchHook(
           context.plugins,
           "summarizeMomentContents",
           (plugin) =>
             plugin.subjects?.summarizeMomentContents?.(
-              contents,
+              batch.contents,
               indexingContext
             )
         );
 
-        if (!summaries || summaries.length !== batch.length) {
+        if (!summaries || summaries.length !== batch.batch.length) {
           continue;
         }
 
@@ -190,14 +275,15 @@ export async function indexDocument(
           embeddings = [];
         }
 
-        for (let j = 0; j < batch.length; j++) {
-          const microMomentDesc = batch[j];
+        for (let j = 0; j < batch.batch.length; j++) {
+          const microMomentDesc = batch.batch[j];
           const summary = summaries[j];
           if (!microMomentDesc || typeof summary !== "string") {
             continue;
           }
           const embedding =
-            embeddings.length === batch.length && Array.isArray(embeddings[j])
+            embeddings.length === batch.batch.length &&
+            Array.isArray(embeddings[j])
               ? embeddings[j]
               : await getEmbedding(summary);
 

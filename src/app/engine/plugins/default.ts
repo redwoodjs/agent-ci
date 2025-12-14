@@ -15,17 +15,37 @@ export const defaultPlugin: Plugin = {
       contents: string[],
       context: IndexingHookContext
     ): Promise<string[]> {
+      if (contents.length === 1) {
+        const content = contents[0] ?? "";
+        const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
+        try {
+          const summary = await callLLM(summaryPrompt, "quick-cheap", {
+            temperature: 0,
+            max_tokens: 200,
+          });
+          return [summary.trim()];
+        } catch (error) {
+          console.error(`[default-plugin] Failed to generate summary:`, error);
+          return [`Content about: ${content.substring(0, 100)}...`.trim()];
+        }
+      }
+
       const itemsJson = JSON.stringify(contents);
       const summaryPrompt =
-        `Return a JSON array of concise one-sentence summaries.\n` +
-        `- Output must be a JSON array of strings.\n` +
+        `Return only a JSON array of strings.\n` +
+        `- Do not include any prose.\n` +
+        `- Do not use markdown or code fences.\n` +
         `- The output array length must equal the input length.\n` +
-        `- Summaries must be in the same order as the inputs.\n\n` +
+        `- Summaries must be in the same order as the inputs.\n` +
+        `- Each summary must be a single sentence and <= 200 characters.\n\n` +
         `INPUTS (JSON array of strings):\n${itemsJson}\n\n` +
         `OUTPUT (JSON array of strings only):`;
 
       try {
-        const summary = await callLLM(summaryPrompt, "quick-cheap");
+        const summary = await callLLM(summaryPrompt, "quick-cheap", {
+          temperature: 0,
+          max_tokens: 1200,
+        });
         const trimmed = summary.trim();
         const withoutFences = trimmed
           .replace(/^```json\s*/i, "")

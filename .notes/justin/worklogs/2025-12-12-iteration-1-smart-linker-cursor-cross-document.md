@@ -736,3 +736,23 @@ The micro moment batch summarizer prompt now includes a source-specific context 
 ### 2025-12-14 (time not recorded) - Adjustment (micro moment batch summarizer model + reasoning options)
 
 Switched the micro moment batch summarizer call to use the slow-reasoning LLM alias, with reasoning options set to effort low and summary concise. The goal is to get more consistent structured outputs (S-index lines) without increasing reasoning cost.
+
+### 2025-12-14 (time not recorded) - Validation status (Cursor Doc A then Doc B attaches under Doc A; namespace withu)
+
+From `/tmp/machinen-dev.log` (namespace `withu`):
+
+- Doc A (`cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json`)
+  - Smart Linker candidates: `matches: []` (consistent with first document in namespace).
+  - Macro 0 stored as root: moment id `40f244dc-2651-4fc1-afd9-d79de6368ffe`, parent id `null`.
+  - Macro 1 stored as child: moment id `9c885322-a8e6-4e86-b16a-a9d0e7911663`, parent id `40f244dc-2651-4fc1-afd9-d79de6368ffe`.
+
+- Doc B (`cursor/conversations/22c179e5-456c-41cc-b66b-e316d8a133af/latest.json`)
+  - Smart Linker candidates: 2 in-namespace matches from Doc A:
+    - `9c885322-a8e6-4e86-b16a-a9d0e7911663` score `0.8041179` (non-root)
+    - `40f244dc-2651-4fc1-afd9-d79de6368ffe` score `0.77589697` (root)
+  - Smart Linker chose attachment under the best match (non-root):
+    - `parentMomentId: 9c885322-a8e6-4e86-b16a-a9d0e7911663` (score `0.8041179`, threshold `0.75`)
+  - Macro 0 stored with parent id pointing at Doc A’s macro 1:
+    - moment id `6aa40e99-3825-44f4-85fd-b4e26c651185`, parent id `9c885322-a8e6-4e86-b16a-a9d0e7911663`
+  - Macro 1 stored as child of Doc B macro 0:
+    - moment id `1c3d02fa-cecd-4948-8edb-75d36cea04db`, parent id `6aa40e99-3825-44f4-85fd-b4e26c651185`

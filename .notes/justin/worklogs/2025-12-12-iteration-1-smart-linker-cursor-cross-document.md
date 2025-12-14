@@ -649,3 +649,72 @@ Next validation:
 Note:
 
 - I added always-on logs for vector upserts in `momentDb.addMoment` so we can see the `momentGraphNamespace` metadata being written to `MOMENT_INDEX` and `SUBJECT_INDEX` during indexing runs. This is intended for the current debugging loop and can be removed after the namespace behavior is confirmed.
+
+### 2025-12-14 (time not recorded) - Validation status (namespace write ok, metadata filtering missing)
+
+Observed from a local run in namespace `paper_lantern`:
+
+- The system is inserting vectors and writing namespace metadata:
+  - `vector upsert (subject)` shows `momentGraphNamespace: 'paper_lantern'` for the root moment.
+  - `vector upsert (moment)` shows `momentGraphNamespace: 'paper_lantern'` for each moment.
+- Smart Linker is querying `SUBJECT_INDEX` with a namespace filter and getting `matches: []`.
+
+This suggests the issue is not “missing metadata on writes”. It looks more like metadata filtering is not active for `momentGraphNamespace` on the Vectorize indexes being queried.
+
+Follow-up action taken:
+
+- I created Vectorize metadata indexes for `momentGraphNamespace` (type: string) on:
+  - `subject-index`
+  - `subject-index-dev-justin`
+  - `moment-index`
+  - `moment-index-dev-justin`
+
+Next validation:
+
+- Rerun Doc A then Doc B in `paper_lantern` after the metadata index creation has finished processing, and confirm Smart Linker returns in-namespace candidates.
+
+### 2025-12-14 (time not recorded) - Validation status (metadata filtering working, but Doc B similarity below threshold)
+
+Observed from a later local run in namespace `salem`:
+
+- Doc A:
+  - Smart Linker candidates: `matches: []`, which is consistent with Doc A being the first subject in a fresh namespace (there is nothing to attach to yet).
+  - Vectors were inserted with `momentGraphNamespace: 'salem'` (both moment + subject upserts logged).
+- Doc B:
+  - Smart Linker candidates: non-empty, with `matchNamespace: 'salem'` and `matchDocumentId` pointing at Doc A.
+  - Smart Linker did not attach, with explicit per-candidate reasons:
+    - One candidate rejected as `non-root-subject` (it had a parent id).
+    - The root subject candidate rejected as `below-threshold`:
+      - score `0.5802404` with threshold `0.75`
+
+Interpretation:
+
+- Namespace filtering and metadata propagation look consistent now (writes and reads in the same namespace).
+- The remaining blocker for the Doc A / Doc B attachment check is the similarity threshold and/or the low-signal content in Doc B (this “Doc B” is still mostly meta chatter).
+
+### 2025-12-14 (time not recorded) - Plan update (allow attaching to non-root matches)
+
+The Smart Linker currently treats “subjects” as root moments and rejects candidates whose stored moment row has a parent id.
+
+I changed Smart Linker to allow attaching to a matched moment even when it is not a root:
+
+- If a Vectorize candidate passes namespace and threshold checks, we attach the first macro moment under the matched moment id directly.
+- This can create multiple children under a moment (a branch), rather than always appending to the end of a single chain.
+
+Next validation:
+
+- Rerun Doc A then Doc B and confirm the Smart Linker chooses an attachment when a non-root candidate is the best semantic match, even if the root subject score stays below the threshold.
+
+### 2025-12-14 (time not recorded) - Query behavior note (moment match trails)
+
+With branching enabled (Smart Linker can attach to non-root moments), query-time context should not assume that the “right” entry point is always a root subject and that the right context is always the full descendant timeline.
+
+Change direction:
+
+- When a query has semantic matches to specific moments, treat those matched moments as anchors.
+- For each matched moment, walk its ancestor chain up to the root moment, recording the moments encountered along the way.
+- Use these “trails” (root -> ... -> matched moment) as narrative context for the query response.
+
+Implementation status:
+
+- The narrative query path now prefers matched-moment trails (from `MOMENT_INDEX` matches) before falling back to subject-first “full timeline” retrieval.

@@ -6,11 +6,7 @@ import type {
   MacroMomentParentProposal,
 } from "../types";
 import { getEmbedding } from "../utils/vector";
-import {
-  findDescendants,
-  getMicroMomentsForDocument,
-  getMoment,
-} from "../momentDb";
+import { getMicroMomentsForDocument, getMoment } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
@@ -170,12 +166,6 @@ export const smartLinkerPlugin: Plugin = {
           continue;
         }
 
-        if (subject.parentId) {
-          decision.rejectReason = "non-root-subject";
-          candidateDecisions.push(decision);
-          continue;
-        }
-
         if (match.score < DEFAULT_SMART_LINKER_THRESHOLD) {
           decision.rejectReason = "below-threshold";
           decision.threshold = DEFAULT_SMART_LINKER_THRESHOLD;
@@ -183,13 +173,10 @@ export const smartLinkerPlugin: Plugin = {
           continue;
         }
 
-        const timeline = await findDescendants(subject.id);
-        const last = timeline.length > 0 ? timeline[timeline.length - 1] : null;
-        const parentMomentId = last?.id ?? subject.id;
+        const parentMomentId = subject.id;
 
         decision.accepted = true;
         decision.parentMomentId = parentMomentId;
-        decision.subjectTimelineLength = timeline.length;
         candidateDecisions.push(decision);
 
         console.log("[moment-linker] smart linker chose attachment", {
@@ -200,7 +187,6 @@ export const smartLinkerPlugin: Plugin = {
           parentMomentId,
           subjectTitle: subject.title,
           subjectDocumentId: subject.documentId,
-          subjectTimelineLength: timeline.length,
         });
 
         return {

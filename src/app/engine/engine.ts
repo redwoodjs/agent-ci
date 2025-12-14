@@ -446,7 +446,80 @@ export async function query(
   // Narrative Query Path: Try to answer using Subject (root moment) first
   try {
     const queryEmbedding = await generateEmbedding(userQuery);
-    const { findSimilarSubjects, findDescendants } = await import("./momentDb");
+    const {
+      findSimilarSubjects,
+      findSimilarMoments,
+      findAncestors,
+      findDescendants,
+    } = await import("./momentDb");
+
+    const similarMoments = await findSimilarMoments(queryEmbedding, 8);
+    if (similarMoments.length > 0) {
+      const trailsByRoot = new Map<
+        string,
+        {
+          root: unknown;
+          trails: unknown[][];
+        }
+      >();
+
+      for (const matchedMoment of similarMoments) {
+        const ancestors = await findAncestors(matchedMoment.id);
+        if (ancestors.length === 0) {
+          continue;
+        }
+        const root = ancestors[0];
+        const existing = trailsByRoot.get(root.id);
+        if (existing) {
+          existing.trails.push(ancestors);
+        } else {
+          trailsByRoot.set(root.id, { root, trails: [ancestors] });
+        }
+      }
+
+      if (trailsByRoot.size > 0) {
+        const rootsSorted = Array.from(trailsByRoot.values()).sort(
+          (a, b) => b.trails.length - a.trails.length
+        );
+        const topRoots = rootsSorted.slice(0, 3);
+
+        const trailsContext = topRoots
+          .map((entry, rootIdx) => {
+            const root = entry.root as any;
+            const trailsText = entry.trails
+              .slice(0, 6)
+              .map((trail, trailIdx) => {
+                const steps = (trail as any[])
+                  .map(
+                    (m, idx: number) => `${idx + 1}. ${m.title}: ${m.summary}`
+                  )
+                  .join("\n");
+                return `Trail ${trailIdx + 1}\n${steps}`;
+              })
+              .join("\n\n");
+
+            return `Root ${rootIdx + 1}\n${root.title}: ${
+              root.summary
+            }\n\n${trailsText}`;
+          })
+          .join("\n\n---\n\n");
+
+        const narrativePrompt = `Based on the following matched moment trails and their root moments, answer the user's question. Each trail is a chain of moments from a root moment down to a matched moment. Use the trails to explain what happened leading up to the relevant points.
+
+## Matched Trails
+${trailsContext}
+
+## User Question
+${userQuery}
+
+## Instructions
+Provide a clear narrative answer. Prefer causal links and chronological explanation using the trail steps. If multiple roots are present, pick the most relevant one(s) and say why.`;
+
+        const narrativeAnswer = await callLLM(narrativePrompt);
+        return narrativeAnswer;
+      }
+    }
+
     const similarSubjects = await findSimilarSubjects(queryEmbedding, 5);
 
     if (similarSubjects.length > 0) {

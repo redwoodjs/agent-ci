@@ -238,12 +238,11 @@ Queue message shapes are polymorphic:
 You can manually trigger indexing for a single file using the `/admin/index` endpoint:
 
 ```bash
-# Uses the environment from MACHINEN_ENV (or defaults to local)
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
-  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/index"
+  "http://localhost:5173/rag/admin/index"
 ```
 
 Or use the full URL directly:
@@ -253,6 +252,16 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
   "https://your-domain.workers.dev/rag/admin/index"
+```
+
+Or use `scripts/query.sh` to build the base URL from `MACHINEN_ENV`:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
+  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/index"
 ```
 
 **Response:**
@@ -284,7 +293,7 @@ curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json","cursor/conversations/<docB>/latest.json"]}' \
-  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/resync"
+  "http://localhost:5173/rag/admin/resync"
 ```
 
 Enqueue:
@@ -294,6 +303,16 @@ curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"enqueue","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json"]}' \
+  "http://localhost:5173/rag/admin/resync"
+```
+
+Or use `scripts/query.sh` to build the base URL from `MACHINEN_ENV`:
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json","cursor/conversations/<docB>/latest.json"]}' \
   "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/resync"
 ```
 

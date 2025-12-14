@@ -15,8 +15,6 @@ export const defaultPlugin: Plugin = {
       contents: string[],
       context: IndexingHookContext
     ): Promise<string[]> {
-      const delimiter = "\n<<<MICRO_MOMENT_SUMMARY_DELIMITER>>>\n";
-
       if (contents.length === 1) {
         const content = contents[0] ?? "";
         const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
@@ -32,17 +30,17 @@ export const defaultPlugin: Plugin = {
         }
       }
 
+      const expectedCount = contents.length;
       const itemsJson = JSON.stringify(contents);
       const summaryPrompt =
-        `Return ${contents.length} summaries separated by this exact delimiter:\n` +
-        `${delimiter}\n` +
+        `Return exactly ${expectedCount} lines.\n` +
         `Rules:\n` +
         `- No prose, no markdown, no code fences.\n` +
-        `- Output must contain exactly ${contents.length - 1} delimiters.\n` +
+        `- Each line must start with "S<index>|" where <index> is 1..${expectedCount}.\n` +
         `- Summaries must be in the same order as the inputs.\n` +
         `- Each summary must be a single sentence and <= 200 characters.\n\n` +
         `INPUTS (JSON array of strings):\n${itemsJson}\n\n` +
-        `OUTPUT (summaries separated by the delimiter):`;
+        `OUTPUT (exactly ${expectedCount} lines):`;
 
       try {
         const summary = await callLLM(summaryPrompt, "quick-cheap", {
@@ -55,20 +53,39 @@ export const defaultPlugin: Plugin = {
           .replace(/^```[a-z]*\s*/i, "")
           .replace(/\s*```$/, "");
 
-        const parts = withoutFences.split(delimiter).map((s) => s.trim());
-        if (parts.length !== contents.length) {
+        const matches = Array.from(
+          withoutFences.matchAll(/S(\d+)\|([\s\S]*?)(?=S\d+\||$)/g)
+        );
+        if (matches.length === 0) {
           return contents.map((content) =>
             `Content about: ${content.substring(0, 100)}...`.trim()
           );
         }
 
-        return parts.map((s, i) => {
-          if (s) {
-            return s;
+        const byIndex = new Map<number, string>();
+        for (const match of matches) {
+          const idxStr = match[1] ?? "";
+          const body = (match[2] ?? "").trim().replace(/\s+/g, " ");
+          const idx = Number.parseInt(idxStr, 10);
+          if (!Number.isFinite(idx) || idx < 1 || idx > expectedCount) {
+            continue;
           }
-          const content = contents[i] ?? "";
-          return `Content about: ${content.substring(0, 100)}...`.trim();
-        });
+          if (body) {
+            byIndex.set(idx, body);
+          }
+        }
+
+        if (byIndex.size !== expectedCount) {
+          return contents.map((content) =>
+            `Content about: ${content.substring(0, 100)}...`.trim()
+          );
+        }
+
+        const out: string[] = [];
+        for (let i = 1; i <= expectedCount; i++) {
+          out.push(byIndex.get(i)!);
+        }
+        return out;
       } catch (error) {
         console.error(`[default-plugin] Failed to generate summary:`, error);
         return contents.map((content) =>

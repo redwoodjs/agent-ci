@@ -506,7 +506,7 @@ Engine changes:
 
 Plugins updated:
 
-- Cursor plugin: implements `summarizeMomentContents` by asking the LLM for a JSON array of summaries and parsing it.
+- Cursor plugin: implements `summarizeMomentContents` by asking for a fixed line format (`S1|...`) and parsing by index.
 - Default plugin: implements the same batch interface, returning a fallback summary per item on parse errors.
 
 Operational note:
@@ -526,4 +526,35 @@ Adjustments:
 - Cap total batch input size (`MICRO_MOMENT_SUMMARY_BATCH_MAX_CHARS`, default 10000).
 - Use a single-item path for summarization to avoid JSON parsing for batches of size 1.
 - Set LLM options for the batch hook (temperature 0, higher max output tokens) to reduce truncation.
-- Stop requesting JSON output from the model for batch summaries. Instead, request summaries separated by a fixed delimiter and parse by splitting on that delimiter.
+- Stop requesting JSON output from the model for batch summaries. Instead, request a fixed line format (`S1|...`) and parse by index.
+
+### Design note (generalizing micro compression across sources)
+
+The batch summarization work surfaced a bigger design issue:
+
+- If micro summarization is a plugin hook, each ingestion source ends up re-implementing:
+  - output shape constraints
+  - parsing / validation
+  - batching heuristics and caps
+
+This does not scale well across sources.
+
+Alternate direction to get more mileage:
+
+- Keep plugins responsible only for extracting deterministic raw events:
+  - a stable id/path per event
+  - raw text content
+  - author + time (when available)
+- Move “micro compression” into the engine:
+  - The engine batches raw events purely for performance (token/size caps), not for semantic boundaries.
+  - For each batch, the LLM produces a markdown-ish list of “what happened” items.
+  - These items do not need to be 1:1 with the raw inputs.
+
+The missing piece is provenance:
+
+- If the compression output does not map back to inputs, we lose stable provenance, and we make idempotent re-indexing harder.
+- A compromise is to have the engine request that each output item includes an input range or list of indices, so the engine can:
+  - cache compression results per batch (keyed by a hash of the raw event ids)
+  - keep a stable membership mapping for later drill-down
+
+If this direction holds up, it would let us simplify the plugin API (plugins emit raw events; the engine owns batching, compression, caching, and downstream synthesis).

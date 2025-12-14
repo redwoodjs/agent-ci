@@ -61,7 +61,7 @@ curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json","cursor/conversations/<docB>/latest.json"]}' \
-  "http://localhost:8787/rag/admin/resync"
+  "http://localhost:5173/rag/admin/resync"
 ```
 
 Enqueue indexing (still avoids R2 events, but uses queue consumer path):
@@ -71,7 +71,40 @@ curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"enqueue","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json"]}' \
-  "http://localhost:8787/rag/admin/resync"
+  "http://localhost:5173/rag/admin/resync"
+```
+
+Concrete Doc A / Doc B keys from logs:
+
+- Doc A: `cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json`
+- Doc B: `cursor/conversations/979d250a-d6ac-4567-a76d-961c1897d370/latest.json`
+
+Run inline indexing for both in a shared namespace:
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json","cursor/conversations/979d250a-d6ac-4567-a76d-961c1897d370/latest.json"]}' \
+  "http://localhost:5173/rag/admin/resync"
+```
+
+Or run them one at a time (inline):
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Key":"cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json"}' \
+  "http://localhost:5173/rag/admin/resync"
+```
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Key":"cursor/conversations/979d250a-d6ac-4567-a76d-961c1897d370/latest.json"}' \
+  "http://localhost:5173/rag/admin/resync"
 ```
 
 Dev logs to file:

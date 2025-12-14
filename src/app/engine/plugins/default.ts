@@ -11,55 +11,48 @@ export const defaultPlugin: Plugin = {
   name: "default",
 
   subjects: {
-    async summarizeMomentContents(
-      contents: string[],
+    async computeMicroMomentsForChunkBatch(
+      chunks: Chunk[],
       context: IndexingHookContext
-    ): Promise<string[]> {
-      if (contents.length === 1) {
-        const content = contents[0] ?? "";
-        const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
-        try {
-          const summary = await callLLM(summaryPrompt, "quick-cheap", {
-            temperature: 0,
-            max_tokens: 200,
-          });
-          return [summary.trim()];
-        } catch (error) {
-          console.error(`[default-plugin] Failed to generate summary:`, error);
-          return [`Content about: ${content.substring(0, 100)}...`.trim()];
-        }
+    ): Promise<string[] | null> {
+      if (chunks.length === 0) {
+        return [];
       }
 
-      const expectedCount = contents.length;
-      const itemsJson = JSON.stringify(contents);
-      const summaryPrompt =
-        `Return exactly ${expectedCount} lines.\n` +
+      const chunkText = chunks
+        .map((chunk, i) => {
+          const content = chunk.content ?? "";
+          return `CHUNK ${i + 1}:\n${content}`;
+        })
+        .join("\n\n---\n\n");
+
+      const prompt =
+        `You will be given a small batch of ordered chunks from a single document.\n` +
+        `Return a list of short "what happened" items.\n\n` +
         `Rules:\n` +
+        `- Output must be plain text.\n` +
         `- No prose, no markdown, no code fences.\n` +
-        `- Each line must start with "S<index>|" where <index> is 1..${expectedCount}.\n` +
-        `- Summaries must be in the same order as the inputs.\n` +
-        `- Each summary must be a single sentence and <= 200 characters.\n\n` +
-        `INPUTS (JSON array of strings):\n${itemsJson}\n\n` +
-        `OUTPUT (exactly ${expectedCount} lines):`;
+        `- Output must be lines in this format: S<index>|<one sentence>\n` +
+        `- Indices start at 1 and must be sequential with no gaps.\n` +
+        `- Each sentence must be <= 200 characters.\n` +
+        `- Return between 1 and 12 items.\n\n` +
+        `CHUNKS:\n${chunkText}\n\n` +
+        `OUTPUT:`;
 
       try {
-        const summary = await callLLM(summaryPrompt, "quick-cheap", {
+        const response = await callLLM(prompt, "quick-cheap", {
           temperature: 0,
           max_tokens: 1200,
         });
 
-        const trimmed = summary.trim();
+        const trimmed = response.trim();
         const withoutFences = trimmed
           .replace(/^```[a-z]*\s*/i, "")
           .replace(/\s*```$/, "");
 
-        const matches = Array.from(
-          withoutFences.matchAll(/S(\d+)\|([\s\S]*?)(?=S\d+\||$)/g)
-        );
+        const matches = Array.from(withoutFences.matchAll(/S(\d+)\|([^\n]*)/g));
         if (matches.length === 0) {
-          return contents.map((content) =>
-            `Content about: ${content.substring(0, 100)}...`.trim()
-          );
+          return null;
         }
 
         const byIndex = new Map<number, string>();
@@ -67,7 +60,7 @@ export const defaultPlugin: Plugin = {
           const idxStr = match[1] ?? "";
           const body = (match[2] ?? "").trim().replace(/\s+/g, " ");
           const idx = Number.parseInt(idxStr, 10);
-          if (!Number.isFinite(idx) || idx < 1 || idx > expectedCount) {
+          if (!Number.isFinite(idx) || idx < 1) {
             continue;
           }
           if (body) {
@@ -75,22 +68,22 @@ export const defaultPlugin: Plugin = {
           }
         }
 
-        if (byIndex.size !== expectedCount) {
-          return contents.map((content) =>
-            `Content about: ${content.substring(0, 100)}...`.trim()
-          );
+        const out: string[] = [];
+        for (let i = 1; i <= 12; i++) {
+          const body = byIndex.get(i);
+          if (!body) {
+            break;
+          }
+          out.push(body);
         }
 
-        const out: string[] = [];
-        for (let i = 1; i <= expectedCount; i++) {
-          out.push(byIndex.get(i)!);
-        }
-        return out;
+        return out.length > 0 ? out : null;
       } catch (error) {
-        console.error(`[default-plugin] Failed to generate summary:`, error);
-        return contents.map((content) =>
-          `Content about: ${content.substring(0, 100)}...`.trim()
+        console.error(
+          `[default-plugin] Failed to compute micro moments from chunk batch:`,
+          error
         );
+        return null;
       }
     },
   },

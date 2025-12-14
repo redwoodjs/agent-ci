@@ -145,14 +145,10 @@ export interface Plugin {
     ) => Promise<string>;
   };
   subjects?: {
-    extractMicroMomentsFromDocument?: (
-      document: Document,
+    computeMicroMomentsForChunkBatch?: (
+      chunks: Chunk[],
       context: IndexingHookContext
-    ) => Promise<MicroMomentDescription[] | null>;
-    summarizeMomentContents?: (
-      contents: string[],
-      context: IndexingHookContext
-    ) => Promise<string[]>;
+    ) => Promise<string[] | null>;
     proposeMacroMomentParent?: (
       document: Document,
       macroMoment: MacroMomentDescription,

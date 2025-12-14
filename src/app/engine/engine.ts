@@ -8,7 +8,6 @@ import type {
   EngineContext,
   ReconstructedContext,
   Moment,
-  MicroMomentDescription,
   MacroMomentDescription,
 } from "./types";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
@@ -16,10 +15,10 @@ import {
   addMoment,
   findSimilarMoments,
   findAncestors,
-  getMicroMoment,
   upsertMicroMoment,
   getMicroMomentsForDocument,
   findMomentByMicroPathsHash,
+  type MicroMoment,
 } from "./momentDb";
 import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
@@ -45,15 +44,12 @@ async function hashMicroPaths(microPaths: string[]): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-function chunkByCount<T>(items: T[], batchSize: number): T[][] {
-  if (batchSize <= 0) {
-    return [items];
-  }
-  const batches: T[][] = [];
-  for (let i = 0; i < items.length; i += batchSize) {
-    batches.push(items.slice(i, i + batchSize));
-  }
-  return batches;
+async function hashStrings(values: string[]): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(values.join("\n"));
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function truncateToChars(text: string, maxChars: number): string {
@@ -66,39 +62,37 @@ function truncateToChars(text: string, maxChars: number): string {
   return text.slice(0, maxChars);
 }
 
-function chunkMicroMomentsForSummaries(
-  items: MicroMomentDescription[],
-  opts: { maxBatchChars: number; maxItemChars: number; maxBatchItems: number }
-): { batch: MicroMomentDescription[]; contents: string[] }[] {
+function chunkChunksForMicroComputation(
+  chunks: Chunk[],
+  opts: { maxBatchChars: number; maxChunkChars: number; maxBatchItems: number }
+): Chunk[][] {
   const maxBatchChars =
     Number.isFinite(opts.maxBatchChars) && opts.maxBatchChars > 0
       ? opts.maxBatchChars
       : 10_000;
-  const maxItemChars =
-    Number.isFinite(opts.maxItemChars) && opts.maxItemChars > 0
-      ? opts.maxItemChars
+  const maxChunkChars =
+    Number.isFinite(opts.maxChunkChars) && opts.maxChunkChars > 0
+      ? opts.maxChunkChars
       : 2_000;
   const maxBatchItems =
     Number.isFinite(opts.maxBatchItems) && opts.maxBatchItems > 0
       ? opts.maxBatchItems
       : 10;
 
-  const out: { batch: MicroMomentDescription[]; contents: string[] }[] = [];
-  let currentBatch: MicroMomentDescription[] = [];
-  let currentContents: string[] = [];
+  const out: Chunk[][] = [];
+  let currentBatch: Chunk[] = [];
   let currentChars = 0;
 
   function flush() {
     if (currentBatch.length > 0) {
-      out.push({ batch: currentBatch, contents: currentContents });
+      out.push(currentBatch);
       currentBatch = [];
-      currentContents = [];
       currentChars = 0;
     }
   }
 
-  for (const item of items) {
-    const content = truncateToChars(item.content, maxItemChars);
+  for (const chunk of chunks) {
+    const content = truncateToChars(chunk.content ?? "", maxChunkChars);
     const projectedChars = currentChars + content.length;
 
     if (
@@ -108,8 +102,10 @@ function chunkMicroMomentsForSummaries(
       flush();
     }
 
-    currentBatch.push(item);
-    currentContents.push(content);
+    currentBatch.push({
+      ...chunk,
+      content,
+    });
     currentChars += content.length;
 
     if (currentBatch.length >= maxBatchItems || currentChars > maxBatchChars) {
@@ -173,237 +169,242 @@ export async function indexDocument(
     return []; // Nothing more to do
   }
 
-  // 3. Extract and process micro-moments, then synthesize into macro-moments
+  // 3. Compute and cache micro-moments from chunk batches, then synthesize into macro-moments
   // Subjects are now created automatically from root moments via the Moment Graph system.
   // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
-  const microMomentDescriptions = await runFirstMatchHook(
-    context.plugins,
-    "extractMicroMomentsFromDocument",
-    (plugin) =>
-      plugin.subjects?.extractMicroMomentsFromDocument?.(
-        document,
-        indexingContext
-      )
-  );
+  const existingMicroMoments = await getMicroMomentsForDocument(document.id);
 
-  if (microMomentDescriptions && microMomentDescriptions.length > 0) {
-    console.log("[moment-linker] micro moments extracted", {
-      documentId: document.id,
-      count: microMomentDescriptions.length,
+  const chunkBatchSizeRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_BATCH_SIZE;
+  const chunkBatchMaxCharsRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_BATCH_MAX_CHARS;
+  const chunkMaxCharsRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_MAX_CHARS;
+
+  const chunkBatchSize =
+    typeof chunkBatchSizeRaw === "string"
+      ? Number.parseInt(chunkBatchSizeRaw, 10)
+      : typeof chunkBatchSizeRaw === "number"
+      ? chunkBatchSizeRaw
+      : 10;
+  const chunkBatchMaxChars =
+    typeof chunkBatchMaxCharsRaw === "string"
+      ? Number.parseInt(chunkBatchMaxCharsRaw, 10)
+      : typeof chunkBatchMaxCharsRaw === "number"
+      ? chunkBatchMaxCharsRaw
+      : 10_000;
+  const chunkMaxChars =
+    typeof chunkMaxCharsRaw === "string"
+      ? Number.parseInt(chunkMaxCharsRaw, 10)
+      : typeof chunkMaxCharsRaw === "number"
+      ? chunkMaxCharsRaw
+      : 2_000;
+
+  const chunkBatches = chunkChunksForMicroComputation(chunks, {
+    maxBatchChars: chunkBatchMaxChars,
+    maxChunkChars: chunkMaxChars,
+    maxBatchItems: chunkBatchSize,
+  });
+
+  console.log("[moment-linker] micro chunks extracted", {
+    documentId: document.id,
+    chunks: chunks.length,
+    batches: chunkBatches.length,
+  });
+
+  const microMomentsForSynthesis: MicroMoment[] = [];
+
+  for (let batchIndex = 0; batchIndex < chunkBatches.length; batchIndex++) {
+    const batchChunks = chunkBatches[batchIndex] ?? [];
+    const batchKeyParts = batchChunks.map((c) => {
+      const hash = c.contentHash ?? "";
+      return `${c.id}:${hash}`;
     });
-    const existingMicroMoments = await getMicroMomentsForDocument(document.id);
-    const existingByPath = new Map(
-      existingMicroMoments.map((m) => [m.path, m])
-    );
+    const batchHash = await hashStrings(batchKeyParts);
+    const prefix = `chunk-batch:${batchHash}:`;
 
-    const cacheMisses: MicroMomentDescription[] = [];
-    for (let i = 0; i < microMomentDescriptions.length; i++) {
-      const microMomentDesc = microMomentDescriptions[i];
-      if (!microMomentDesc) {
-        continue;
-      }
+    const existingBatchItems = existingMicroMoments
+      .filter((m) => m.path.startsWith(prefix))
+      .map((m) => {
+        const idxStr = m.path.slice(prefix.length);
+        const idx = Number.parseInt(idxStr, 10);
+        return { idx, m };
+      })
+      .filter((x) => Number.isFinite(x.idx) && x.idx > 0)
+      .sort((a, b) => a.idx - b.idx)
+      .map((x) => x.m);
 
-      const cached = existingByPath.get(microMomentDesc.path) ?? null;
-      if (cached && cached.summary && cached.embedding) {
-        console.log("[moment-linker] micro cache hit", {
-          documentId: document.id,
-          path: microMomentDesc.path,
-        });
-        continue;
-      }
+    const hasFullCachedBatch =
+      existingBatchItems.length > 0 &&
+      existingBatchItems.every((m) => !!m.summary && !!m.embedding);
 
-      console.log("[moment-linker] micro cache miss", {
-        documentId: document.id,
-        path: microMomentDesc.path,
-      });
-      cacheMisses.push(microMomentDesc);
+    if (hasFullCachedBatch) {
+      microMomentsForSynthesis.push(...existingBatchItems);
+      continue;
     }
 
-    if (cacheMisses.length > 0) {
-      const batchSizeRaw = (indexingContext.env as any)
-        .MICRO_MOMENT_SUMMARY_BATCH_SIZE;
-      const batchSize =
-        typeof batchSizeRaw === "string"
-          ? Number.parseInt(batchSizeRaw, 10)
-          : typeof batchSizeRaw === "number"
-          ? batchSizeRaw
-          : 10;
+    const computed = await runFirstMatchHook(
+      context.plugins,
+      "computeMicroMomentsForChunkBatch",
+      (plugin) =>
+        plugin.subjects?.computeMicroMomentsForChunkBatch?.(
+          batchChunks,
+          indexingContext
+        )
+    );
 
-      const maxBatchCharsRaw = (indexingContext.env as any)
-        .MICRO_MOMENT_SUMMARY_BATCH_MAX_CHARS;
-      const maxItemCharsRaw = (indexingContext.env as any)
-        .MICRO_MOMENT_SUMMARY_ITEM_MAX_CHARS;
-      const maxBatchChars =
-        typeof maxBatchCharsRaw === "string"
-          ? Number.parseInt(maxBatchCharsRaw, 10)
-          : typeof maxBatchCharsRaw === "number"
-          ? maxBatchCharsRaw
-          : 10_000;
-      const maxItemChars =
-        typeof maxItemCharsRaw === "string"
-          ? Number.parseInt(maxItemCharsRaw, 10)
-          : typeof maxItemCharsRaw === "number"
-          ? maxItemCharsRaw
-          : 2_000;
+    const computedItems =
+      computed && Array.isArray(computed) ? computed.filter(Boolean) : [];
 
-      const batches = chunkMicroMomentsForSummaries(cacheMisses, {
-        maxBatchChars,
-        maxItemChars,
-        maxBatchItems: batchSize,
+    const itemsToStore =
+      computedItems.length > 0
+        ? computedItems
+        : batchChunks
+            .map((c) => c.content?.trim() ?? "")
+            .filter(Boolean)
+            .slice(0, 1)
+            .map((c) => `Content about: ${c.substring(0, 100)}...`);
+
+    const embeddings = await getEmbeddings(itemsToStore);
+
+    for (let i = 0; i < itemsToStore.length; i++) {
+      const text = itemsToStore[i] ?? "";
+      const embedding = embeddings[i] ?? (await getEmbedding(text));
+      const path = `${prefix}${i + 1}`;
+
+      await upsertMicroMoment(
+        {
+          path,
+          content: text,
+          author: document.metadata.author,
+          createdAt: document.metadata.createdAt,
+          sourceMetadata: {
+            chunkBatchHash: batchHash,
+            chunkIds: batchChunks.map((c) => c.id),
+          },
+        },
+        document.id,
+        text,
+        embedding
+      );
+
+      microMomentsForSynthesis.push({
+        id: crypto.randomUUID(),
+        documentId: document.id,
+        path,
+        content: text,
+        summary: text,
+        embedding: embedding,
+        createdAt: document.metadata.createdAt,
+        author: document.metadata.author,
+        sourceMetadata: {
+          chunkBatchHash: batchHash,
+          chunkIds: batchChunks.map((c) => c.id),
+        },
       });
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
+    }
+  }
 
-        const summaries = await runFirstMatchHook(
-          context.plugins,
-          "summarizeMomentContents",
-          (plugin) =>
-            plugin.subjects?.summarizeMomentContents?.(
-              batch.contents,
-              indexingContext
-            )
-        );
+  if (microMomentsForSynthesis.length > 0) {
+    console.log("[moment-linker] micro moments loaded", {
+      documentId: document.id,
+      count: microMomentsForSynthesis.length,
+    });
 
-        if (!summaries || summaries.length !== batch.batch.length) {
+    const macroMomentDescriptions = (await synthesizeMicroMoments(
+      microMomentsForSynthesis
+    )) as MacroMomentDescription[];
+
+    if (macroMomentDescriptions.length > 0) {
+      console.log("[moment-linker] macro moments synthesized", {
+        documentId: document.id,
+        count: macroMomentDescriptions.length,
+        firstTitle: macroMomentDescriptions[0]?.title,
+      });
+      let resolvedParentIdForFirst: string | undefined = undefined;
+      let previousMomentId: string | undefined = undefined;
+
+      for (let i = 0; i < macroMomentDescriptions.length; i++) {
+        const description = macroMomentDescriptions[i];
+        if (!description) {
           continue;
         }
 
-        let embeddings: number[][] = [];
-        try {
-          embeddings = await getEmbeddings(summaries);
-        } catch {
-          embeddings = [];
-        }
+        const microPaths = description.microPaths || [];
+        const microPathsHash =
+          microPaths.length > 0 ? await hashMicroPaths(microPaths) : undefined;
+        const existing =
+          microPathsHash !== undefined
+            ? await findMomentByMicroPathsHash(document.id, microPathsHash)
+            : null;
 
-        for (let j = 0; j < batch.batch.length; j++) {
-          const microMomentDesc = batch.batch[j];
-          const summary = summaries[j];
-          if (!microMomentDesc || typeof summary !== "string") {
-            continue;
-          }
-          const embedding =
-            embeddings.length === batch.batch.length &&
-            Array.isArray(embeddings[j])
-              ? embeddings[j]
-              : await getEmbedding(summary);
-
-          await upsertMicroMoment(
-            microMomentDesc,
-            document.id,
-            summary,
-            embedding
-          );
-        }
-      }
-    }
-
-    // Retrieve all micro-moments for this document (now with summaries/embeddings)
-    const allMicroMoments = await getMicroMomentsForDocument(document.id);
-
-    if (allMicroMoments.length > 0) {
-      console.log("[moment-linker] micro moments loaded", {
-        documentId: document.id,
-        count: allMicroMoments.length,
-      });
-      // Synthesize micro-moments into macro-moments
-      const macroMomentDescriptions = (await synthesizeMicroMoments(
-        allMicroMoments
-      )) as MacroMomentDescription[];
-
-      if (macroMomentDescriptions.length > 0) {
-        console.log("[moment-linker] macro moments synthesized", {
-          documentId: document.id,
-          count: macroMomentDescriptions.length,
-          firstTitle: macroMomentDescriptions[0]?.title,
-        });
-        let resolvedParentIdForFirst: string | undefined = undefined;
-        let previousMomentId: string | undefined = undefined;
-
-        for (let i = 0; i < macroMomentDescriptions.length; i++) {
-          const description = macroMomentDescriptions[i];
-          if (!description) {
-            continue;
-          }
-
-          const microPaths = description.microPaths || [];
-          const microPathsHash =
-            microPaths.length > 0
-              ? await hashMicroPaths(microPaths)
-              : undefined;
-          const existing =
-            microPathsHash !== undefined
-              ? await findMomentByMicroPathsHash(document.id, microPathsHash)
-              : null;
-
-          const momentId = existing?.id ?? crypto.randomUUID();
-          if (i === 0) {
-            if (existing?.parentId) {
-              resolvedParentIdForFirst = existing.parentId;
-              console.log("[moment-linker] attachment reuse existing parent", {
+        const momentId = existing?.id ?? crypto.randomUUID();
+        if (i === 0) {
+          if (existing?.parentId) {
+            resolvedParentIdForFirst = existing.parentId;
+            console.log("[moment-linker] attachment reuse existing parent", {
+              documentId: document.id,
+              macroMomentIndex: i,
+              parentId: resolvedParentIdForFirst,
+              momentId,
+            });
+          } else {
+            const parentProposal = await runFirstMatchHook(
+              context.plugins,
+              "proposeMacroMomentParent",
+              (plugin) =>
+                plugin.subjects?.proposeMacroMomentParent?.(
+                  document,
+                  description,
+                  i,
+                  indexingContext
+                )
+            );
+            resolvedParentIdForFirst = parentProposal?.parentMomentId;
+            if (parentProposal) {
+              console.log("[moment-linker] attachment proposal", {
                 documentId: document.id,
                 macroMomentIndex: i,
-                parentId: resolvedParentIdForFirst,
-                momentId,
+                parentMomentId: parentProposal.parentMomentId,
+                matchedSubjectId: parentProposal.matchedSubjectId,
+                score: parentProposal.score,
               });
             } else {
-              const parentProposal = await runFirstMatchHook(
-                context.plugins,
-                "proposeMacroMomentParent",
-                (plugin) =>
-                  plugin.subjects?.proposeMacroMomentParent?.(
-                    document,
-                    description,
-                    i,
-                    indexingContext
-                  )
-              );
-              resolvedParentIdForFirst = parentProposal?.parentMomentId;
-              if (parentProposal) {
-                console.log("[moment-linker] attachment proposal", {
-                  documentId: document.id,
-                  macroMomentIndex: i,
-                  parentMomentId: parentProposal.parentMomentId,
-                  matchedSubjectId: parentProposal.matchedSubjectId,
-                  score: parentProposal.score,
-                });
-              } else {
-                console.log("[moment-linker] no attachment proposal", {
-                  documentId: document.id,
-                  macroMomentIndex: i,
-                });
-              }
+              console.log("[moment-linker] no attachment proposal", {
+                documentId: document.id,
+                macroMomentIndex: i,
+              });
             }
           }
-          console.log("[moment-linker] macro correlation", {
-            documentId: document.id,
-            index: i,
-            title: description.title,
-            microPathsCount: microPaths.length,
-            microPathsHash,
-            reuseExisting: Boolean(existing),
-            momentId,
-            parentId:
-              i === 0
-                ? resolvedParentIdForFirst ?? null
-                : previousMomentId ?? null,
-          });
-          const moment: Moment = {
-            id: momentId,
-            documentId: document.id,
-            summary:
-              description.summary || description.content.substring(0, 200),
-            title: description.title,
-            parentId: i === 0 ? resolvedParentIdForFirst : previousMomentId,
-            microPaths,
-            microPathsHash,
-            createdAt: description.createdAt,
-            author: description.author,
-            sourceMetadata: description.sourceMetadata,
-          };
-
-          await addMoment(moment);
-          previousMomentId = momentId;
         }
+        console.log("[moment-linker] macro correlation", {
+          documentId: document.id,
+          index: i,
+          title: description.title,
+          microPathsCount: microPaths.length,
+          microPathsHash,
+          reuseExisting: Boolean(existing),
+          momentId,
+          parentId:
+            i === 0
+              ? resolvedParentIdForFirst ?? null
+              : previousMomentId ?? null,
+        });
+        const moment: Moment = {
+          id: momentId,
+          documentId: document.id,
+          summary: description.summary || description.content.substring(0, 200),
+          title: description.title,
+          parentId: i === 0 ? resolvedParentIdForFirst : previousMomentId,
+          microPaths,
+          microPathsHash,
+          createdAt: description.createdAt,
+          author: description.author,
+          sourceMetadata: description.sourceMetadata,
+        };
+
+        await addMoment(moment);
+        previousMomentId = momentId;
       }
     }
   }

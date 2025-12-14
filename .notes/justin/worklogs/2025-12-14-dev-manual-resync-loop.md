@@ -58,7 +58,6 @@ Inline indexing (fast loop, no queue wait):
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json","cursor/conversations/<docB>/latest.json"]}' \
   "http://localhost:5173/rag/admin/resync"
@@ -68,7 +67,6 @@ Enqueue indexing (still avoids R2 events, but uses queue consumer path):
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"enqueue","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json"]}' \
   "http://localhost:5173/rag/admin/resync"
@@ -83,7 +81,6 @@ Run inline indexing for both in a shared namespace:
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json","cursor/conversations/979d250a-d6ac-4567-a76d-961c1897d370/latest.json"]}' \
   "http://localhost:5173/rag/admin/resync"
@@ -93,7 +90,6 @@ Or run them one at a time (inline):
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Key":"cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json"}' \
   "http://localhost:5173/rag/admin/resync"
@@ -101,7 +97,6 @@ curl -s -X POST \
 
 ```bash
 curl -s -X POST \
-  -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Key":"cursor/conversations/979d250a-d6ac-4567-a76d-961c1897d370/latest.json"}' \
   "http://localhost:5173/rag/admin/resync"
@@ -117,3 +112,7 @@ npm run dev:log
 ### Documentation
 
 - Updated `src/app/engine/README.md` to describe the system as Evidence Locker + Moment Graph (subject-first query path), and documented `/rag/admin/resync`.
+
+### Note (local dev auth)
+
+When running under the Vite dev server, admin and query routes do not require the API key. This is gated by `import.meta.VITE_IS_DEV_SERVER` so deployed environments still require the `Authorization: Bearer $API_KEY` header.

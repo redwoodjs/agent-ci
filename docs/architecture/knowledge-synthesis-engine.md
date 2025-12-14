@@ -41,12 +41,14 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 ### 3. Micro-Moments as a Universal Cache
 To solve the efficiency problem, **Micro-Moments** serve a dual purpose: they are both the raw input for synthesis and the unit of caching.
 
-The Engine relies on two distinct Plugin hooks to achieve this optimization: `extractMicroMomentsFromDocument` (cheap, deterministic) and `summarizeMomentContents` (expensive, on-demand, batched).
+The Engine relies on chunking for a source-agnostic input stream and engine-owned micro-moment computation/caching.
 
-*   **Step 1: Extraction (Cheap)**: The engine calls `extractMicroMomentsFromDocument`. The plugin simply identifies raw units (e.g., "Message ID 123") and returns them. No AI is used here.
-*   **Step 2: Cache Check**: For each extracted item, the engine checks its database using the composite key `(documentId, path)`.
-    *   **Hit**: The engine finds an existing Micro-Moment. It reuses the **cached summary and embedding**, skipping the expensive AI operations.
-    *   **Miss**: The engine batches cache misses and calls the plugin's `summarizeMomentContents` hook (which calls the LLM). The engine generates embeddings for the summaries (also batched) and stores the results.
+*   **Step 1: Chunking (Cheap)**: The engine calls the chunking hook (`splitDocumentIntoChunks`) to produce a stable, ordered list of chunks.
+*   **Step 2: Micro-moment computation (Engine-owned, batched)**: The engine batches chunks purely for performance (token/size caps), then asks an LLM to produce a list of "what happened" items for each batch.
+*   **Step 3: Batch provenance**: Each micro-moment produced from a batch is attributed to that batch's chunk ids/hashes (no AI mapping).
+*   **Step 4: Cache Check**: The engine caches batch outputs keyed by a hash of the batch's chunk ids/hashes. On re-index:
+    *   **Hit**: reuse the cached micro-moments and embeddings for the batch.
+    *   **Miss**: recompute only the batches that changed.
 
 This architecture ensures that we only pay the "AI Tax" for new or modified content, while allowing the system to incrementally process evolving documents (like long chat threads) efficiently.
 
@@ -74,7 +76,7 @@ The query engine employs a waterfall strategy to answer questions:
 ## Data Flow
 
 1.  **Ingestion**: `Raw Doc` -> `Plugin` ->
-    *   *Path A (Narrative)*: `Micro-Moments` -> `Cache Check` -> `Synthesis (LLM)` -> `Macro-Moments` -> `Graph Storage`
+    *   *Path A (Narrative)*: `Chunks` -> `Micro-Moments (batched)` -> `Cache Check` -> `Synthesis (LLM)` -> `Macro-Moments` -> `Graph Storage`
     *   *Path B (Evidence)*: `Chunks` -> `Deduplication` -> `Vector Storage`
 2.  **Query**: `User Query` -> `Subject Search` ->
     *   *Match Found*: `Graph Traversal` -> `Timeline Assembly` -> `LLM Generation`

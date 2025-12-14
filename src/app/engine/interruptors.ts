@@ -8,6 +8,11 @@ declare module "rwsdk/worker" {
 }
 
 export async function requireQueryApiKey({ request }: RequestInfo) {
+  const isViteDev = Boolean((import.meta as any).env?.VITE_IS_DEV_SERVER);
+  if (isViteDev) {
+    return;
+  }
+
   const apiKey = (env as any).API_KEY;
 
   if (!apiKey) {

@@ -24,7 +24,7 @@ The solution is a graph-based architecture that creates a layer of abstraction b
 Instead of a flat list of documents, we model knowledge as a graph of **Moments**.
 *   **Moments (Macro-Moments)**: The nodes of the graph. These are high-level, synthesized events (e.g., "Identified root cause in router", "Decided to switch databases"). They contain rich, LLM-generated summaries, not raw text.
 *   **Subjects (Root Moments)**: The entry points of the graph. A Subject is simply a Moment with no parent. It defines the start of a topic or stream of work.
-*   **Edges**: Represent chronological and causal relationships. By traversing from a Subject down its descendants, we can reconstruct the full timeline of a story.
+*   **Edges**: Represent chronological and causal relationships. A single Subject can have multiple branches when later documents attach under non-root Moments.
 
 ### 2. The "Segmentation and Synthesis" Pipeline
 To solve the signal-to-noise problem, ingestion is split into two distinct phases:
@@ -41,31 +41,34 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 ### 3. Micro-Moments as a Universal Cache
 To solve the efficiency problem, **Micro-Moments** serve a dual purpose: they are both the raw input for synthesis and the unit of caching.
 
-The Engine relies on chunking for a source-agnostic input stream and engine-owned micro-moment computation/caching.
+The Engine relies on chunking for a source-agnostic input stream and engine-owned micro-moment caching, while allowing plugins to tailor summarization prompts per source.
 
 *   **Step 1: Chunking (Cheap)**: The engine calls the chunking hook (`splitDocumentIntoChunks`) to produce a stable, ordered list of chunks.
-*   **Step 2: Micro-moment computation (Engine-owned, batched)**: The engine batches chunks purely for performance (token/size caps), then asks an LLM to produce a list of "what happened" items for each batch.
-*   **Step 3: Batch provenance**: Each micro-moment produced from a batch is attributed to that batch's chunk ids/hashes (no AI mapping).
+*   **Step 2: Micro-moment computation (Batched)**: The engine batches chunks purely for performance (token/size caps), then calls the plugin hook to summarize each batch into a list of "what happened" items.
+*   **Step 3: Batch provenance**: Each micro-moment is stored with a stable path derived from the batch hash and the summary index, so re-indexing can reference the same micro-moment positions for an unchanged batch.
 *   **Step 4: Cache Check**: The engine caches batch outputs keyed by a hash of the batch's chunk ids/hashes. On re-index:
     *   **Hit**: reuse the cached micro-moments and embeddings for the batch.
     *   **Miss**: recompute only the batches that changed.
 
 This architecture ensures that we only pay the "AI Tax" for new or modified content, while allowing the system to incrementally process evolving documents (like long chat threads) efficiently.
 
-### 4. Subject-First Narrative Querying
+### 4. Narrative Querying (Moment Trails, then Subject-First)
 To answer "why" questions, the query engine flips the traditional RAG model:
-1.  **Find the Subject**: Instead of searching for keywords, it first searches the **Subject Index** (root moments) to find the broad topic matching the user's intent.
-2.  **Reconstruct the Timeline**: Once a Subject is identified, the engine traverses the graph to retrieve all descendant Moments, effectively loading the entire "chapter" of the story.
-3.  **Synthesize Answer**: The LLM is given this full, curated narrative timeline (not random chunks) to generate a coherent answer.
+1.  **Find anchor Moments**: The query is embedded and matched against the **Moment Index** (all moments). Each match is treated as an anchor.
+2.  **Build trails to Subjects**: For each matched Moment, the engine walks ancestors up to the root, recording the chain (root -> ... -> matched Moment).
+3.  **Synthesize Answer**: The LLM is given these trails (not random chunks) to generate an answer grounded in the relevant narrative path.
+4.  **Fallback to Subject-First**: If there are no matched Moments, the engine searches the **Subject Index** (root moments) and traverses descendants to load the full timeline for that Subject.
 
 ### 5. Moment Graph namespaces (test isolation)
 During development, it is sometimes useful to run repeated ingestion experiments without deleting existing data in Durable Objects or Vectorize. The Moment Graph supports a namespace value that scopes both storage and retrieval.
 
 - Durable Object storage uses the namespace value as a prefix for the database name.
 - Moment and subject vectors store the namespace value in vector metadata.
-- Queries for moments and subjects apply a metadata filter using the namespace value.
+- Queries for moments and subjects apply a Vectorize metadata filter using the namespace value.
 
 This avoids returning topK results from other namespaces and then dropping them in code after the vector query.
+
+Note: Vectorize metadata filtering requires creating metadata indexes for the filtered keys. Without a metadata index, filtered queries can return empty match sets even when vectors exist with the expected metadata.
 
 ## Integration with the Evidence Locker
 

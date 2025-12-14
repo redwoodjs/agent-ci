@@ -756,3 +756,15 @@ From `/tmp/machinen-dev.log` (namespace `withu`):
     - moment id `6aa40e99-3825-44f4-85fd-b4e26c651185`, parent id `9c885322-a8e6-4e86-b16a-a9d0e7911663`
   - Macro 1 stored as child of Doc B macro 0:
     - moment id `1c3d02fa-cecd-4948-8edb-75d36cea04db`, parent id `6aa40e99-3825-44f4-85fd-b4e26c651185`
+
+### 2025-12-14 (time not recorded) - Documentation update (architecture docs)
+
+Updated architecture docs to reflect current behavior:
+
+- `docs/architecture/knowledge-synthesis-engine.md`
+  - Moment Graph branching (attachments under non-root moments)
+  - Narrative querying using moment trails before subject-first fallback
+  - Namespace isolation note including Vectorize metadata index requirement
+- `docs/architecture/system-flow.md`
+  - Stage 4 includes micro-moment chunk batching + caching and Smart Linker stitching
+  - Stage 5 includes moment match trails and subject-first fallback ordering

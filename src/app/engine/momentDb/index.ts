@@ -44,8 +44,21 @@ export async function addMoment(moment: Moment): Promise<void> {
       } as unknown as ChunkMetadata,
     };
 
+    console.log("[moment-linker] vector upsert (moment)", {
+      id: moment.id,
+      momentGraphNamespace,
+      documentId: moment.documentId,
+      type: "moment",
+    });
     await env.MOMENT_INDEX.upsert([momentVector]);
 
+    console.log("[moment-linker] vector upsert (subject)", {
+      id: moment.id,
+      momentGraphNamespace,
+      documentId: moment.documentId,
+      type: "subject",
+      isSubject: !moment.parentId,
+    });
     await env.SUBJECT_INDEX.upsert([
       {
         id: moment.id,
@@ -191,7 +204,10 @@ export async function findSimilarMoments(
   if (momentGraphNamespace !== "default") {
     queryOptions.filter = { momentGraphNamespace };
   }
-  const searchResults = await env.MOMENT_INDEX.query(vector, queryOptions as any);
+  const searchResults = await env.MOMENT_INDEX.query(
+    vector,
+    queryOptions as any
+  );
 
   const moments: Moment[] = [];
   for (const match of searchResults.matches) {

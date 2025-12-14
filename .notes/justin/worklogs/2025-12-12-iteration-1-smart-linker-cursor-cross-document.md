@@ -645,3 +645,7 @@ Local typecheck note:
 Next validation:
 
 - Run Doc A then Doc B in a shared non-default namespace and confirm Smart Linker sees in-namespace candidates and produces an attachment proposal for Doc B when similarity is above threshold.
+
+Note:
+
+- I added always-on logs for vector upserts in `momentDb.addMoment` so we can see the `momentGraphNamespace` metadata being written to `MOMENT_INDEX` and `SUBJECT_INDEX` during indexing runs. This is intended for the current debugging loop and can be removed after the namespace behavior is confirmed.

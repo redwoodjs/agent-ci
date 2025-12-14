@@ -558,3 +558,49 @@ The missing piece is provenance:
   - keep a stable membership mapping for later drill-down
 
 If this direction holds up, it would let us simplify the plugin API (plugins emit raw events; the engine owns batching, compression, caching, and downstream synthesis).
+
+### 2025-12-14 (time not recorded) - Status update (local dev logs: Smart Linker decision)
+
+I ran local dev with log capture to continue the Doc A / Doc B Smart Linker validation loop.
+
+Doc A run (local dev):
+
+- Document id: `cursor/conversations/6e15efeb-263c-4ff0-94db-17277c76f50e/latest.json`
+- Micro moments loaded: 12
+- Macro moments synthesized: 2
+- Smart Linker:
+  - Query source: `micro-concat`
+  - Micro moments used: 12 (out of 12)
+  - Returned candidates with scores above the threshold (example: score `0.7814766` with threshold `0.75`)
+  - Produced no attachment proposal
+  - Decision logging shows every candidate was rejected with `rejectReason: 'namespace-mismatch'`
+  - The log shows `expectedNamespace: 'Clumsy Odin Thrilled Raisins'` and `matchNamespace: 'default'` for the rejected candidates
+- Correlation / storage:
+  - Macro moment 0:
+    - reuseExisting: false
+    - moment id: `5b793074-2f66-4905-9492-b0502f7df6a5`
+    - micro paths hash: `1719d44fbc007913275af0da4aaeb8e8c132adc6f8a58cb09bac6ddb1f7d9ea2`
+    - parent id: null
+  - Macro moment 1:
+    - reuseExisting: false
+    - moment id: `66d1ebb6-bb4d-4504-b086-47c74235c302`
+    - micro paths hash: `2a465b54a7e157970827b8702f2b18855732d7abc43489abd375d0053d0d2a07`
+    - parent id: `5b793074-2f66-4905-9492-b0502f7df6a5`
+
+Doc B run (local dev, minimal content):
+
+- Document id: `cursor/conversations/979d250a-d6ac-4567-a76d-961c1897d370/latest.json`
+- Micro moments loaded: 2
+- Macro moments synthesized: 2
+- Smart Linker:
+  - Query source: `micro-concat`
+  - Micro moments used: 2 (out of 2)
+  - Returned candidates with scores near / above the threshold (example: score `0.7631746` with threshold `0.75`)
+  - Produced no attachment proposal
+  - Decision logging shows every candidate was rejected with `rejectReason: 'namespace-mismatch'`
+  - The log shows `expectedNamespace: 'Clumsy Odin Thrilled Raisins'` and `matchNamespace: 'default'` for the rejected candidates
+
+Interpretation from these logs:
+
+- The Smart Linker rejection reason is not “below threshold” or “same document” or “not a root”. It is consistently “namespace mismatch”.
+- The candidate entries show `matchNamespace` as `default`, which suggests the namespace metadata being checked by Smart Linker is either missing on the Vectorize matches or not being returned on query, so the code treats it as `default` and rejects it when a non-default `momentGraphNamespace` is configured for the run.

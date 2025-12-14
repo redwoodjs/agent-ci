@@ -19,6 +19,24 @@ export const defaultPlugin: Plugin = {
         return [];
       }
 
+      const sources = new Set<string>();
+      for (const chunk of chunks) {
+        const src = chunk.source ?? (chunk.metadata as any)?.source;
+        if (typeof src === "string" && src.trim().length > 0) {
+          sources.add(src.trim());
+        }
+      }
+      const primarySource = sources.size === 1 ? Array.from(sources)[0] : null;
+
+      const sourceContext =
+        primarySource === "cursor"
+          ? `Context: These chunks are from a Cursor AI coding assistant conversation. Each chunk may include User and Assistant turns. Focus on technical details, decisions, errors, file paths, commands, and outcomes.\n`
+          : primarySource === "github"
+          ? `Context: These chunks are from GitHub (issues, pull requests, comments, commit messages). Focus on concrete changes, decisions, errors, and references like issue numbers, file paths, and code identifiers.\n`
+          : primarySource === "discord"
+          ? `Context: These chunks are from Discord chat logs. Focus on concrete decisions, actions, errors, and references that could be used to link related work across conversations.\n`
+          : `Context: These chunks are from a single document. Focus on concrete details and avoid generic summaries.\n`;
+
       const chunkText = chunks
         .map((chunk, i) => {
           const content = chunk.content ?? "";
@@ -28,13 +46,18 @@ export const defaultPlugin: Plugin = {
 
       const prompt =
         `You will be given a small batch of ordered chunks from a single document.\n` +
-        `Return a list of short "what happened" items.\n\n` +
+        sourceContext +
+        `Return a list of short summaries of what was discussed or established.\n\n` +
         `Rules:\n` +
         `- Output must be plain text.\n` +
         `- No prose, no markdown, no code fences.\n` +
-        `- Output must be lines in this format: S<index>|<one sentence>\n` +
+        `- Output must be lines in this format: S<index>|<summary>\n` +
         `- Indices start at 1 and must be sequential with no gaps.\n` +
-        `- Each sentence must be <= 200 characters.\n` +
+        `- Each summary must be 1-3 sentences.\n` +
+        `- Each summary must be <= 400 characters.\n` +
+        `- Include concrete terms (names, ids, file paths, errors, decisions) when present.\n` +
+        `- Do not include phrases like "Content about".\n` +
+        `- Do not output meta commentary about summarizing.\n` +
         `- Return between 1 and 12 items.\n\n` +
         `CHUNKS:\n${chunkText}\n\n` +
         `OUTPUT:`;
@@ -50,7 +73,9 @@ export const defaultPlugin: Plugin = {
           .replace(/^```[a-z]*\s*/i, "")
           .replace(/\s*```$/, "");
 
-        const matches = Array.from(withoutFences.matchAll(/S(\d+)\|([^\n]*)/g));
+        const matches = Array.from(
+          withoutFences.matchAll(/(?:S)?(\d+)\|([^\n]*)/g)
+        );
         if (matches.length === 0) {
           return null;
         }
@@ -59,6 +84,9 @@ export const defaultPlugin: Plugin = {
         for (const match of matches) {
           const idxStr = match[1] ?? "";
           const body = (match[2] ?? "").trim().replace(/\s+/g, " ");
+          if (/^Content about:/i.test(body)) {
+            return null;
+          }
           const idx = Number.parseInt(idxStr, 10);
           if (!Number.isFinite(idx) || idx < 1) {
             continue;

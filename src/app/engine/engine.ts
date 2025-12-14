@@ -263,7 +263,7 @@ export async function indexDocument(
             .map((c) => c.content?.trim() ?? "")
             .filter(Boolean)
             .slice(0, 1)
-            .map((c) => `Content about: ${c.substring(0, 100)}...`);
+            .map((c) => c.substring(0, 300));
 
     const embeddings = await getEmbeddings(itemsToStore);
 

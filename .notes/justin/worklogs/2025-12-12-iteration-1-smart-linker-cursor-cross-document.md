@@ -728,3 +728,7 @@ To debug “why didn’t it attach?”, I added more always-on Smart Linker logg
   - a short preview of the micro moment text used to build the query embedding
 - The Smart Linker query log now also includes the micro moment text for each used micro moment, capped to avoid extremely large logs.
 - Candidate logs already include title/summary previews for the matched moments.
+
+### 2025-12-14 (time not recorded) - Adjustment (micro moment summaries: Cursor conversation context)
+
+The micro moment batch summarizer prompt now includes a source-specific context line derived from the chunk source (Cursor/GitHub/Discord/other). For Cursor documents it explicitly describes an AI coding assistant conversation and asks for concrete technical anchors (ids, file paths, errors, decisions).

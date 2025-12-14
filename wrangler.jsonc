@@ -29,11 +29,13 @@
     },
     {
       "binding": "SUBJECT_INDEX",
-      "index_name": "subject-index"
+      "index_name": "subject-index",
+      "remote": true
     },
     {
       "binding": "MOMENT_INDEX",
-      "index_name": "moment-index"
+      "index_name": "moment-index",
+      "remote": true
     }
   ],
 
@@ -544,7 +546,8 @@
         },
         {
           "binding": "SUBJECT_INDEX",
-          "index_name": "subject-index-dev-justin"
+          "index_name": "subject-index-dev-justin",
+          "remote": true
         },
         {
           "binding": "MOMENT_INDEX",

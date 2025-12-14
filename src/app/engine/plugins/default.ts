@@ -63,9 +63,13 @@ export const defaultPlugin: Plugin = {
         `OUTPUT:`;
 
       try {
-        const response = await callLLM(prompt, "quick-cheap", {
+        const response = await callLLM(prompt, "slow-reasoning", {
           temperature: 0,
           max_tokens: 1200,
+          reasoning: {
+            effort: "low",
+            summary: "concise",
+          },
         });
 
         const trimmed = response.trim();

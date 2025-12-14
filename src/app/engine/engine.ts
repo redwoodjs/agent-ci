@@ -23,7 +23,7 @@ import {
 } from "./momentDb";
 import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
-import { getEmbedding } from "./utils/vector";
+import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { synthesizeMicroMoments } from "./synthesis/synthesizeMicroMoments";
 
 async function hashChunkId(chunkId: string): Promise<string> {
@@ -43,6 +43,17 @@ async function hashMicroPaths(microPaths: string[]): Promise<string> {
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function chunkByCount<T>(items: T[], batchSize: number): T[][] {
+  if (batchSize <= 0) {
+    return [items];
+  }
+  const batches: T[][] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    batches.push(items.slice(i, i + batchSize));
+  }
+  return batches;
 }
 
 export async function indexDocument(
@@ -115,15 +126,19 @@ export async function indexDocument(
       documentId: document.id,
       count: microMomentDescriptions.length,
     });
-    // Process each micro-moment: check cache, generate summary/embedding if needed
+    const existingMicroMoments = await getMicroMomentsForDocument(document.id);
+    const existingByPath = new Map(
+      existingMicroMoments.map((m) => [m.path, m])
+    );
+
+    const cacheMisses: MicroMomentDescription[] = [];
     for (let i = 0; i < microMomentDescriptions.length; i++) {
       const microMomentDesc = microMomentDescriptions[i];
       if (!microMomentDesc) {
         continue;
       }
 
-      // Check cache
-      const cached = await getMicroMoment(document.id, microMomentDesc.path);
+      const cached = existingByPath.get(microMomentDesc.path) ?? null;
       if (cached && cached.summary && cached.embedding) {
         console.log("[moment-linker] micro cache hit", {
           documentId: document.id,
@@ -131,28 +146,69 @@ export async function indexDocument(
         });
         continue;
       }
+
       console.log("[moment-linker] micro cache miss", {
         documentId: document.id,
         path: microMomentDesc.path,
       });
+      cacheMisses.push(microMomentDesc);
+    }
 
-      // Cache miss: generate summary and embedding
-      const summary = await runFirstMatchHook(
-        context.plugins,
-        "summarizeMomentContent",
-        (plugin) =>
-          plugin.subjects?.summarizeMomentContent?.(
-            microMomentDesc.content,
-            indexingContext
-          )
-      );
+    if (cacheMisses.length > 0) {
+      const batchSizeRaw = (indexingContext.env as any)
+        .MICRO_MOMENT_SUMMARY_BATCH_SIZE;
+      const batchSize =
+        typeof batchSizeRaw === "string"
+          ? Number.parseInt(batchSizeRaw, 10)
+          : typeof batchSizeRaw === "number"
+          ? batchSizeRaw
+          : 10;
 
-      if (!summary) {
-        continue;
+      const batches = chunkByCount(cacheMisses, batchSize);
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+        const contents = batch.map((m) => m.content);
+
+        const summaries = await runFirstMatchHook(
+          context.plugins,
+          "summarizeMomentContents",
+          (plugin) =>
+            plugin.subjects?.summarizeMomentContents?.(
+              contents,
+              indexingContext
+            )
+        );
+
+        if (!summaries || summaries.length !== batch.length) {
+          continue;
+        }
+
+        let embeddings: number[][] = [];
+        try {
+          embeddings = await getEmbeddings(summaries);
+        } catch {
+          embeddings = [];
+        }
+
+        for (let j = 0; j < batch.length; j++) {
+          const microMomentDesc = batch[j];
+          const summary = summaries[j];
+          if (!microMomentDesc || typeof summary !== "string") {
+            continue;
+          }
+          const embedding =
+            embeddings.length === batch.length && Array.isArray(embeddings[j])
+              ? embeddings[j]
+              : await getEmbedding(summary);
+
+          await upsertMicroMoment(
+            microMomentDesc,
+            document.id,
+            summary,
+            embedding
+          );
+        }
       }
-
-      const embedding = await getEmbedding(summary);
-      await upsertMicroMoment(microMomentDesc, document.id, summary, embedding);
     }
 
     // Retrieve all micro-moments for this document (now with summaries/embeddings)

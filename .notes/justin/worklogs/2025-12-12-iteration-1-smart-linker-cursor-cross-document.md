@@ -439,3 +439,76 @@ I added per-candidate logging to the Smart Linker no-attachment case:
 
 - For each candidate: namespace in metadata, document id in metadata, subject row existence, same-document check, root check, threshold check.
 - This is emitted only when no attachment is produced, to keep successful runs less noisy.
+
+### Dev workflow update (local resync loop) and performance hurdle (cold micro cache)
+
+I took a digression to make Smart Linker iterations faster:
+
+- Run a local dev server and keep it running.
+- Trigger indexing manually for specific R2 keys (bypassing R2 event delivery delay).
+- Override the Moment Graph namespace per run so A/B fixtures can share a namespace without editing `.dev.vars` each time.
+- Write logs to a file so I can run indexing, then inspect a stable log after.
+
+Workflow:
+
+- Start dev server with log capture:
+  - `npm run dev:log` (writes to `/tmp/machinen-dev.log`)
+- Trigger indexing inline (no queue wait):
+  - `POST /rag/admin/resync` with `mode: inline`, `r2Key` or `r2Keys`, and `momentGraphNamespace`
+- Use a shared namespace for the A/B fixture, so Doc A then Doc B are forced into one isolated test run.
+
+Hurdle discovered:
+
+On a fresh namespace (and/or a fresh doc), micro moment processing is slow because the micro cache is cold. The engine currently does:
+
+- for each extracted micro moment:
+  - read cache row
+  - on miss: call the LLM to summarize that micro moment
+  - on miss: call the embedding model for that summary
+  - upsert the summary + embedding
+
+So the cold-start path is one LLM call per micro moment, plus one embedding call per micro moment. In the log for Doc A this showed up as many sequential `micro cache miss` lines and many `llm` calls, which makes the first indexing run take long enough that it becomes the next bottleneck in the dev loop.
+
+What I plan to do about it:
+
+- Batch micro moment summarization:
+  - Collect the cache misses first.
+  - Send micro moment contents to the LLM in batches (size capped).
+  - Require the model to return machine-readable output (array of summaries aligned to inputs).
+  - Validate shape and length before writing results. If parsing fails, fall back to per-item summarization for that batch.
+- Batch embeddings:
+  - The embedding call already accepts an array input (`text: [...]`), so I can embed a whole batch of summaries in one request and then map results back to micro moments by index.
+
+This keeps the existing caching behavior (warm runs are fast), but reduces the cold-start cost so the first run in a namespace is less dominated by dozens of separate AI calls.
+
+Decision update:
+
+- The current plugin API has `summarizeMomentContent` as a single-item hook. That shape blocks plugin-owned batching because the plugin never sees the batch.
+- I am going to change the hook to be batch-based (`summarizeMomentContents`) so a plugin can do one LLM call per batch and return summaries aligned to inputs.
+- Embedding batching stays engine-owned since the embedding model already accepts array input.
+
+### Implementation status (micro moment batching)
+
+I implemented the first version of batching for cold micro-moment caches.
+
+Plugin API change:
+
+- Replaced the single-item micro moment summarization hook with a batch hook:
+  - `summarizeMomentContent(content)` -> `summarizeMomentContents(contents)`
+
+Engine changes:
+
+- The engine now loads existing micro moments for the document once and builds an in-memory map by path.
+- It collects the cache misses (missing summary and/or embedding).
+- It calls the plugin batch hook over cache misses in batches.
+- It generates embeddings for the returned summaries in a single embedding call per batch, and upserts each micro moment row.
+- If the batch embedding call fails or returns an unexpected shape, it falls back to per-item embedding generation for that batch.
+
+Plugins updated:
+
+- Cursor plugin: implements `summarizeMomentContents` by asking the LLM for a JSON array of summaries and parsing it.
+- Default plugin: implements the same batch interface, returning a fallback summary per item on parse errors.
+
+Operational note:
+
+- Batch size is currently controlled by `MICRO_MOMENT_SUMMARY_BATCH_SIZE` (defaults to 10).

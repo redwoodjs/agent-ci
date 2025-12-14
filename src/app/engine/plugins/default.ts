@@ -11,18 +11,50 @@ export const defaultPlugin: Plugin = {
   name: "default",
 
   subjects: {
-    async summarizeMomentContent(
-      content: string,
+    async summarizeMomentContents(
+      contents: string[],
       context: IndexingHookContext
-    ): Promise<string> {
-      const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
+    ): Promise<string[]> {
+      const itemsJson = JSON.stringify(contents);
+      const summaryPrompt =
+        `Return a JSON array of concise one-sentence summaries.\n` +
+        `- Output must be a JSON array of strings.\n` +
+        `- The output array length must equal the input length.\n` +
+        `- Summaries must be in the same order as the inputs.\n\n` +
+        `INPUTS (JSON array of strings):\n${itemsJson}\n\n` +
+        `OUTPUT (JSON array of strings only):`;
 
       try {
         const summary = await callLLM(summaryPrompt, "quick-cheap");
-        return summary.trim();
+        const trimmed = summary.trim();
+        const withoutFences = trimmed
+          .replace(/^```json\s*/i, "")
+          .replace(/^```\s*/i, "")
+          .replace(/\s*```$/, "");
+        const start = withoutFences.indexOf("[");
+        const end = withoutFences.lastIndexOf("]");
+        const slice =
+          start >= 0 && end >= 0 && end > start
+            ? withoutFences.slice(start, end + 1)
+            : withoutFences;
+        const parsed = JSON.parse(slice) as unknown;
+        if (!Array.isArray(parsed) || parsed.length !== contents.length) {
+          return contents.map((content) =>
+            `Content about: ${content.substring(0, 100)}...`.trim()
+          );
+        }
+        return parsed.map((x, i) => {
+          if (typeof x === "string") {
+            return x.trim();
+          }
+          const content = contents[i] ?? "";
+          return `Content about: ${content.substring(0, 100)}...`.trim();
+        });
       } catch (error) {
         console.error(`[default-plugin] Failed to generate summary:`, error);
-        return `Content about: ${content.substring(0, 100)}...`;
+        return contents.map((content) =>
+          `Content about: ${content.substring(0, 100)}...`.trim()
+        );
       }
     },
   },

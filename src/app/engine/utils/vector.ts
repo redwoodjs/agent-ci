@@ -2,11 +2,23 @@ import { env } from "cloudflare:workers";
 
 export async function getEmbedding(text: string): Promise<number[]> {
   const modelId = "@cf/baai/bge-base-en-v1.5";
-  const response = await (env.AI.run as any)(modelId, { text: [text] });
-  if (response.data && response.data.length > 0) {
-    return response.data[0];
+  const embeddings = await getEmbeddings([text]);
+  if (embeddings.length !== 1) {
+    throw new Error("Failed to generate embedding");
   }
-  throw new Error("Failed to generate embedding");
+  return embeddings[0];
+}
+
+export async function getEmbeddings(texts: string[]): Promise<number[][]> {
+  if (texts.length === 0) {
+    return [];
+  }
+  const modelId = "@cf/baai/bge-base-en-v1.5";
+  const response = await (env.AI.run as any)(modelId, { text: texts });
+  if (response?.data && Array.isArray(response.data)) {
+    return response.data as number[][];
+  }
+  throw new Error("Failed to generate embeddings");
 }
 
 export function cosineSimilarity(vecA: number[], vecB: number[]): number {

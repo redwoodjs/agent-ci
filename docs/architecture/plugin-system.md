@@ -96,7 +96,10 @@ const MyPlugin: Plugin = {
 *   **Purpose**: To extract a stream of atomic "Micro-Moments" (e.g., chat exchanges) from a document for the synthesis engine.
 *   **Strategy**: `First-Match`
 
-#### `summarizeMomentContent`
-*   **Purpose**: To generate a concise summary of a Micro-Moment's content.
+#### `summarizeMomentContents`
+*   **Purpose**: To generate concise summaries for a batch of Micro-Moment contents.
 *   **Strategy**: `First-Match`
+*   **Notes**:
+    *   The engine calls this hook with only the cache misses.
+    *   The hook returns one summary per input, in the same order.
 

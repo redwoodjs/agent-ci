@@ -149,10 +149,10 @@ export interface Plugin {
       document: Document,
       context: IndexingHookContext
     ) => Promise<MicroMomentDescription[] | null>;
-    summarizeMomentContent?: (
-      content: string,
+    summarizeMomentContents?: (
+      contents: string[],
       context: IndexingHookContext
-    ) => Promise<string>;
+    ) => Promise<string[]>;
     proposeMacroMomentParent?: (
       document: Document,
       macroMoment: MacroMomentDescription,

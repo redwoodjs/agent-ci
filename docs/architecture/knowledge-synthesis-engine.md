@@ -41,12 +41,12 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 ### 3. Micro-Moments as a Universal Cache
 To solve the efficiency problem, **Micro-Moments** serve a dual purpose: they are both the raw input for synthesis and the unit of caching.
 
-The Engine relies on two distinct Plugin hooks to achieve this optimization: `extractMicroMomentsFromDocument` (cheap, deterministic) and `summarizeMomentContent` (expensive, on-demand).
+The Engine relies on two distinct Plugin hooks to achieve this optimization: `extractMicroMomentsFromDocument` (cheap, deterministic) and `summarizeMomentContents` (expensive, on-demand, batched).
 
 *   **Step 1: Extraction (Cheap)**: The engine calls `extractMicroMomentsFromDocument`. The plugin simply identifies raw units (e.g., "Message ID 123") and returns them. No AI is used here.
 *   **Step 2: Cache Check**: For each extracted item, the engine checks its database using the composite key `(documentId, path)`.
     *   **Hit**: The engine finds an existing Micro-Moment. It reuses the **cached summary and embedding**, skipping the expensive AI operations.
-    *   **Miss**: The engine calls the plugin's `summarizeMomentContent` hook (which calls the LLM), generates an embedding, and stores the result.
+    *   **Miss**: The engine batches cache misses and calls the plugin's `summarizeMomentContents` hook (which calls the LLM). The engine generates embeddings for the summaries (also batched) and stores the results.
 
 This architecture ensures that we only pay the "AI Tax" for new or modified content, while allowing the system to incrementally process evolving documents (like long chat threads) efficiently.
 

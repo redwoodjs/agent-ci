@@ -11,6 +11,7 @@ import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
+const DEFAULT_SMART_LINKER_MAX_LOG_MICRO_TEXT_CHARS = 2000;
 
 function previewText(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") {
@@ -21,6 +22,23 @@ function previewText(value: unknown, maxChars: number): string | null {
     return null;
   }
   return trimmed.length > maxChars ? trimmed.slice(0, maxChars) : trimmed;
+}
+
+function capText(
+  value: unknown,
+  maxChars: number
+): { text: string | null; truncated: boolean } {
+  if (typeof value !== "string") {
+    return { text: null, truncated: false };
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return { text: null, truncated: false };
+  }
+  if (trimmed.length > maxChars) {
+    return { text: trimmed.slice(0, maxChars), truncated: true };
+  }
+  return { text: trimmed, truncated: false };
 }
 
 function buildCappedMicroMomentQueryText(
@@ -123,9 +141,15 @@ export const smartLinkerPlugin: Plugin = {
       const usedMicroMoments = built.usedIndices.map((idx) => {
         const m = microMoments[idx] as any;
         const text = microTexts[idx] ?? "";
+        const capped = capText(
+          text,
+          DEFAULT_SMART_LINKER_MAX_LOG_MICRO_TEXT_CHARS
+        );
         return {
           path: m?.path ?? null,
           summaryPreview: previewText(text, 160),
+          text: capped.text,
+          textTruncated: capped.truncated,
         };
       });
 

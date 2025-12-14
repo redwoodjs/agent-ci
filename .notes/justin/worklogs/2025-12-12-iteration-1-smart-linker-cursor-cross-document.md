@@ -726,4 +726,5 @@ To debug “why didn’t it attach?”, I added more always-on Smart Linker logg
 - The Smart Linker query log now includes `usedMicroMoments`:
   - the micro moment path (when available)
   - a short preview of the micro moment text used to build the query embedding
+- The Smart Linker query log now also includes the micro moment text for each used micro moment, capped to avoid extremely large logs.
 - Candidate logs already include title/summary previews for the matched moments.

@@ -106,7 +106,7 @@ Change:
 
 The per-source macro synthesis prompt context hook is now used for more than references and formatting. Plugins can also provide narrative context guidance that shapes how the macro summary is written (example: issue text as proposal/discussion vs PR text as changes/review).
 
-### 2025-12-15 - Implementation note (micro summaries: avoid false "implemented" claims)
+### 2025-12-15 - Implementation note (micro summarization: engine-owned, plugin context)
 
 Observed:
 
@@ -114,15 +114,9 @@ Observed:
 
 Change:
 
-- Kept micro summarization centralized in the default plugin.
-- Added document-type-aware prompt context for GitHub chunks:
-  - For issue chunk types, prefer proposal/discussion verbs unless the text explicitly states completion.
-  - For pull request chunk types, describe changes/review, but still avoid claiming user-visible shipping unless explicitly stated.
-
-Update:
-
-- Moved GitHub micro-moment summarization rules into the GitHub plugin (first-match for GitHub docs).
-- Default plugin micro summarization is generic again.
+- The engine performs micro-moment summarization (LLM call and parsing).
+- Plugins only provide a prompt context string via a hook, per source and per document type (issue vs pull request, thread vs channel, etc).
+- The default plugin provides a generic fallback context and does not branch on source.
 
 ### 2025-12-15 - Current pipeline notes (chunks, micro-moments, macro-moments)
 

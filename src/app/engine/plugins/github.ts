@@ -359,6 +359,52 @@ export const githubPlugin: Plugin = {
   },
 
   subjects: {
+    async getMicroMomentBatchPromptContext(
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "github") {
+        return null;
+      }
+      if (!chunks.every((c) => c.source === "github")) {
+        return null;
+      }
+
+      const chunkTypes = chunks
+        .map((c) => (c.metadata as any)?.type)
+        .filter(
+          (t) => typeof t === "string" && t.trim().length > 0
+        ) as string[];
+
+      const isIssueBatch =
+        chunkTypes.length > 0 &&
+        chunkTypes.every((t) => t.startsWith("issue-"));
+      const isPullRequestBatch =
+        chunkTypes.length > 0 &&
+        chunkTypes.every((t) => t.startsWith("pull-request-"));
+
+      if (isIssueBatch) {
+        return (
+          `Context: These chunks are from a GitHub issue (body and/or comments).\n` +
+          `Treat them as proposals, questions, or discussion unless the text explicitly states work was completed/merged/shipped.\n` +
+          `Prefer verbs like "described", "proposed", "requested", "discussed", "noted".\n`
+        );
+      }
+
+      if (isPullRequestBatch) {
+        return (
+          `Context: These chunks are from a GitHub pull request (body and/or comments).\n` +
+          `Summarize what was changed, reviewed, or decided.\n` +
+          `Avoid claiming work shipped to users unless the text explicitly says so.\n`
+        );
+      }
+
+      return (
+        `Context: These chunks are from GitHub.\n` +
+        `Focus on concrete changes, decisions, errors, and references like issue numbers, file paths, and code identifiers.\n`
+      );
+    },
     async getMacroSynthesisPromptContext(
       document: Document,
       context: IndexingHookContext

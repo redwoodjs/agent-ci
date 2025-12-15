@@ -19,6 +19,23 @@ export const cursorPlugin: Plugin = {
   name: "cursor",
 
   subjects: {
+    async getMicroMomentBatchPromptContext(
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "cursor") {
+        return null;
+      }
+      if (!chunks.every((c) => c.source === "cursor")) {
+        return null;
+      }
+      return (
+        `Context: These chunks are from a Cursor AI coding assistant conversation. Each chunk may include User and Assistant turns.\n` +
+        `Focus on technical details, decisions, errors, file paths, commands, and outcomes.\n` +
+        `Avoid claiming a change landed unless the text explicitly indicates it.\n`
+      );
+    },
     async getMacroSynthesisPromptContext(
       document: Document,
       context: IndexingHookContext

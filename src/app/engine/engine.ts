@@ -24,6 +24,7 @@ import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { synthesizeMicroMoments } from "./synthesis/synthesizeMicroMoments";
+import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -243,18 +244,26 @@ export async function indexDocument(
       continue;
     }
 
-    const computed = await runFirstMatchHook(
+    const microPromptContext = await runFirstMatchHook(
       context.plugins,
-      "computeMicroMomentsForChunkBatch",
+      "getMicroMomentBatchPromptContext",
       (plugin) =>
-        plugin.subjects?.computeMicroMomentsForChunkBatch?.(
+        plugin.subjects?.getMicroMomentBatchPromptContext?.(
+          document,
           batchChunks,
           indexingContext
         )
     );
 
+    const promptContext =
+      microPromptContext ??
+      `Context: These chunks are from a single document.\n` +
+        `Focus on concrete details and avoid generic summaries.\n`;
+
     const computedItems =
-      computed && Array.isArray(computed) ? computed.filter(Boolean) : [];
+      (await computeMicroMomentsForChunkBatch(batchChunks, {
+        promptContext,
+      })) ?? [];
 
     const itemsToStore =
       computedItems.length > 0

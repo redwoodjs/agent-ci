@@ -106,6 +106,51 @@ export const discordPlugin: Plugin = {
   name: "discord",
 
   subjects: {
+    async getMicroMomentBatchPromptContext(
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "discord") {
+        return null;
+      }
+      if (!chunks.every((c) => c.source === "discord")) {
+        return null;
+      }
+
+      const chunkTypes = chunks
+        .map((c) => (c.metadata as any)?.type)
+        .filter(
+          (t) => typeof t === "string" && t.trim().length > 0
+        ) as string[];
+
+      const isThreadBatch =
+        chunkTypes.length > 0 &&
+        chunkTypes.every((t) => t.startsWith("thread-"));
+      const isChannelBatch =
+        chunkTypes.length > 0 &&
+        chunkTypes.every((t) => t.startsWith("channel-"));
+
+      if (isThreadBatch) {
+        return (
+          `Context: These chunks are from a Discord thread.\n` +
+          `Prefer wording like "discussed", "suggested", "asked", "decided", "agreed" unless a concrete action is explicitly described.\n` +
+          `Attribute statements to participants when possible.\n`
+        );
+      }
+
+      if (isChannelBatch) {
+        return (
+          `Context: These chunks are from a Discord channel log.\n` +
+          `Prefer wording like "discussed", "suggested", "asked", "decided", "agreed" unless a concrete action is explicitly described.\n`
+        );
+      }
+
+      return (
+        `Context: These chunks are from Discord.\n` +
+        `Prefer discussion framing unless a concrete action is explicitly described.\n`
+      );
+    },
     async getMacroSynthesisPromptContext(
       document: Document,
       context: IndexingHookContext

@@ -23,9 +23,9 @@ const threadRefreshRequestSchema = z.object({
   threadID: z.string().min(1),
 });
 
-async function readJsonBody(request: Request): Promise<
-  { ok: true; value: unknown } | { ok: false; response: Response }
-> {
+async function readJsonBody(
+  request: Request
+): Promise<{ ok: true; value: unknown } | { ok: false; response: Response }> {
   const text = await request.text();
   if (!text || text.trim().length === 0) {
     return {
@@ -46,7 +46,8 @@ async function readJsonBody(request: Request): Promise<
         {
           success: false,
           error: "Invalid JSON in request body",
-          details: error instanceof Error ? error.message : "Unknown parse error",
+          details:
+            error instanceof Error ? error.message : "Unknown parse error",
         },
         { status: 400 }
       ),
@@ -356,8 +357,9 @@ const refreshThreadRoute = route("/thread/refresh", [
         return parsed.response;
       }
 
-      const { guildID, channelID, threadID } =
-        threadRefreshRequestSchema.parse(parsed.value);
+      const { guildID, channelID, threadID } = threadRefreshRequestSchema.parse(
+        parsed.value
+      );
 
       await processThreadEvent(guildID, channelID, threadID);
 

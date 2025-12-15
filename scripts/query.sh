@@ -160,4 +160,4 @@ RESPONSE=$(curl -s -X POST \
 fi
 
 # Pretty-print the JSON response
-echo "$RESPONSE" | jq .
+echo "$RESPONSE" | jq -r '.response'

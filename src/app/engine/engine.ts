@@ -215,6 +215,49 @@ export async function indexDocument(
 
   const microMomentsForSynthesis: MicroMoment[] = [];
 
+  function parseDateMs(value: unknown): number | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    const ms = Date.parse(trimmed);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  function inferBatchTimeRange(
+    chunks: Chunk[],
+    documentCreatedAt: string
+  ): { start: string; end: string } {
+    let minMs: number | null = null;
+    let maxMs: number | null = null;
+
+    for (const chunk of chunks) {
+      const ts = (chunk.metadata as any)?.timestamp;
+      const ms = parseDateMs(ts);
+      if (ms === null) {
+        continue;
+      }
+      if (minMs === null || ms < minMs) {
+        minMs = ms;
+      }
+      if (maxMs === null || ms > maxMs) {
+        maxMs = ms;
+      }
+    }
+
+    const fallbackMs = parseDateMs(documentCreatedAt) ?? Date.now();
+    const startMs = minMs ?? fallbackMs;
+    const endMs = maxMs ?? startMs;
+
+    return {
+      start: new Date(startMs).toISOString(),
+      end: new Date(endMs).toISOString(),
+    };
+  }
+
   for (let batchIndex = 0; batchIndex < chunkBatches.length; batchIndex++) {
     const batchChunks = chunkBatches[batchIndex] ?? [];
     const batchKeyParts = batchChunks.map((c) => {
@@ -275,6 +318,15 @@ export async function indexDocument(
             .map((c) => c.substring(0, 300));
 
     const embeddings = await getEmbeddings(itemsToStore);
+    const batchTimeRange = inferBatchTimeRange(
+      batchChunks,
+      document.metadata.createdAt
+    );
+    const batchAuthorRaw = (batchChunks[0]?.metadata as any)?.author;
+    const batchAuthor =
+      typeof batchAuthorRaw === "string" && batchAuthorRaw.trim().length > 0
+        ? batchAuthorRaw.trim()
+        : document.metadata.author;
 
     for (let i = 0; i < itemsToStore.length; i++) {
       const text = itemsToStore[i] ?? "";
@@ -285,11 +337,12 @@ export async function indexDocument(
         {
           path,
           content: text,
-          author: document.metadata.author,
-          createdAt: document.metadata.createdAt,
+          author: batchAuthor,
+          createdAt: batchTimeRange.start,
           sourceMetadata: {
             chunkBatchHash: batchHash,
             chunkIds: batchChunks.map((c) => c.id),
+            timeRange: batchTimeRange,
           },
         },
         document.id,
@@ -304,17 +357,26 @@ export async function indexDocument(
         content: text,
         summary: text,
         embedding: embedding,
-        createdAt: document.metadata.createdAt,
-        author: document.metadata.author,
+        createdAt: batchTimeRange.start,
+        author: batchAuthor,
         sourceMetadata: {
           chunkBatchHash: batchHash,
           chunkIds: batchChunks.map((c) => c.id),
+          timeRange: batchTimeRange,
         },
       });
     }
   }
 
   if (microMomentsForSynthesis.length > 0) {
+    microMomentsForSynthesis.sort((a, b) => {
+      const aMs = parseDateMs(a.createdAt) ?? 0;
+      const bMs = parseDateMs(b.createdAt) ?? 0;
+      if (aMs !== bMs) {
+        return aMs - bMs;
+      }
+      return a.path.localeCompare(b.path);
+    });
     console.log("[moment-linker] micro moments loaded", {
       documentId: document.id,
       count: microMomentsForSynthesis.length,
@@ -491,11 +553,26 @@ export async function query(
   }
 
   function formatTimelineLine(
-    moment: { createdAt?: string; title?: string; summary?: string },
+    moment: {
+      createdAt?: string;
+      title?: string;
+      summary?: string;
+      sourceMetadata?: Record<string, any>;
+    },
     idx: number
   ): string {
+    const timeRange = (moment.sourceMetadata as any)?.timeRange as
+      | { start?: unknown; end?: unknown }
+      | undefined;
+    const rangeStart = formatIso8601(timeRange?.start);
+    const rangeEnd = formatIso8601(timeRange?.end);
     const iso = formatIso8601(moment.createdAt);
-    const prefix = iso.length > 0 ? `${iso} ` : "";
+    const prefix =
+      rangeStart.length > 0 && rangeEnd.length > 0 && rangeStart !== rangeEnd
+        ? `${rangeStart}..${rangeEnd} `
+        : iso.length > 0
+        ? `${iso} `
+        : "";
     return `${prefix}${idx + 1}. ${moment.title}: ${moment.summary}`;
   }
 

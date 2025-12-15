@@ -148,6 +148,20 @@ ${formattedMoments}
         .map((idx) => microMoments[idx - 1])
         .filter(Boolean) as MicroMoment[];
 
+      const memberTimes = members
+        .map((m) => Date.parse(m.createdAt))
+        .filter((ms) => Number.isFinite(ms));
+      const minMs =
+        memberTimes.length > 0 ? Math.min(...memberTimes) : Date.now();
+      const maxMs = memberTimes.length > 0 ? Math.max(...memberTimes) : minMs;
+      const timeRange =
+        memberTimes.length > 0
+          ? {
+              start: new Date(minMs).toISOString(),
+              end: new Date(maxMs).toISOString(),
+            }
+          : null;
+
       const microPaths = members.map((m) => m.path);
 
       const content = members
@@ -155,14 +169,24 @@ ${formattedMoments}
         .filter(Boolean)
         .join("\n\n---\n\n");
 
+      const baseSourceMetadata = members[0]?.sourceMetadata;
+      const sourceMetadata =
+        timeRange &&
+        baseSourceMetadata &&
+        typeof baseSourceMetadata === "object"
+          ? { ...(baseSourceMetadata as any), timeRange }
+          : timeRange
+          ? { timeRange }
+          : baseSourceMetadata;
+
       macroMoments.push({
         title: title.trim(),
         summary: summary.trim(),
         microPaths,
         content: content || "",
         author: members[0]?.author || "unknown",
-        createdAt: members[0]?.createdAt || new Date().toISOString(),
-        sourceMetadata: members[0]?.sourceMetadata,
+        createdAt: new Date(minMs).toISOString(),
+        sourceMetadata,
       });
     }
 

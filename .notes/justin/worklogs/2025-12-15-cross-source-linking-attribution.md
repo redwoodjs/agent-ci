@@ -452,3 +452,22 @@ Follow-ups:
 
 - The narrative LLM call is still using the default temperature (raw response shows `temperature: 1`).
 - The narrative answer still does not include the canonical `mchn://...` tokens that we’re injecting into macro summaries, and it may over-interpret timeline text. Tightening narrative prompt formatting and/or adding a deterministic response enrichment step is likely next.
+
+### 2025-12-15 - Timestamp correction: Discord thread created_at vs message timestamps
+
+Observed:
+
+- Discord macro moments were showing dates close to the thread creation time (May 2025), but the relevant GET-for-caching message was posted in early Oct 2025.
+
+Findings:
+
+- The thread JSON contains:
+  - `metadata.created_at`: thread creation time (May 2025)
+  - per-message `timestamp` fields for replies (including Oct 2025)
+- The Discord plugin already stores per-message timestamps on chunk metadata (`timestamp`), but micro moments were being written with `createdAt` equal to the document createdAt (thread created_at), which flattened all micro/macro timestamps to May 2025.
+
+Change:
+
+- Micro moment `createdAt` is now derived from the earliest timestamp in the chunk batch (falling back to document createdAt).
+- Micro moments are sorted by createdAt before macro synthesis.
+- Macro moments now store a `timeRange` derived from the min/max createdAt across member micro moments, and query-time narrative timeline lines render `start..end` when the range spans multiple timestamps.

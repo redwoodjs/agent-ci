@@ -38,6 +38,12 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
     2.  **Cluster**: Group related Micro-Moments into logical events.
     3.  **Synthesize**: Generate a **Macro-Moment** for each group, writing a concise title and a rich summary that captures the *narrative significance* (the "why").
 
+*   **Phase 3: Correlation (Smart Linker)**
+    Before persisting, the engine attempts to stitch the new Macro-Moments into existing timelines.
+    1.  **Search**: It queries the vector index for existing Moments that match the semantic content of the new document.
+    2.  **Attach**: If a strong match is found, the new document's timeline attaches as a branch under the existing Moment.
+    3.  **Root**: If no match is found, the new timeline starts a new Subject (Root Moment).
+
 ### 3. Micro-Moments as a Universal Cache
 To solve the efficiency problem, **Micro-Moments** serve a dual purpose: they are both the raw input for synthesis and the unit of caching.
 

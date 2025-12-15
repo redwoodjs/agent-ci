@@ -23,12 +23,48 @@ const threadRefreshRequestSchema = z.object({
   threadID: z.string().min(1),
 });
 
+async function readJsonBody(request: Request): Promise<
+  { ok: true; value: unknown } | { ok: false; response: Response }
+> {
+  const text = await request.text();
+  if (!text || text.trim().length === 0) {
+    return {
+      ok: false,
+      response: Response.json(
+        { success: false, error: "Request body is empty" },
+        { status: 400 }
+      ),
+    };
+  }
+
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch (error) {
+    return {
+      ok: false,
+      response: Response.json(
+        {
+          success: false,
+          error: "Invalid JSON in request body",
+          details: error instanceof Error ? error.message : "Unknown parse error",
+        },
+        { status: 400 }
+      ),
+    };
+  }
+}
+
 const backfillRoute = route("/backfill", [
   logDiscordRequest,
   async ({ request, ctx }: { request: Request; ctx: any }) => {
     try {
-      const body = await request.json();
-      const { guildID, channelID } = backfillRequestSchema.parse(body);
+      const parsed = await readJsonBody(request);
+      if (!parsed.ok) {
+        ctx.logCompletion?.(parsed.response);
+        return parsed.response;
+      }
+
+      const { guildID, channelID } = backfillRequestSchema.parse(parsed.value);
 
       const guildChannelKey = `${guildID}/${channelID}`;
       const schedulerQueue = (env as any)
@@ -76,8 +112,13 @@ const pauseBackfillRoute = route("/backfill/pause", [
   logDiscordRequest,
   async ({ request, ctx }: { request: Request; ctx: any }) => {
     try {
-      const body = await request.json();
-      const { guildID, channelID } = backfillRequestSchema.parse(body);
+      const parsed = await readJsonBody(request);
+      if (!parsed.ok) {
+        ctx.logCompletion?.(parsed.response);
+        return parsed.response;
+      }
+
+      const { guildID, channelID } = backfillRequestSchema.parse(parsed.value);
 
       const guildChannelKey = `${guildID}/${channelID}`;
 
@@ -309,10 +350,14 @@ const refreshThreadRoute = route("/thread/refresh", [
   logDiscordRequest,
   async ({ request, ctx }: { request: Request; ctx: any }) => {
     try {
-      const body = await request.json();
-      const { guildID, channelID, threadID } = threadRefreshRequestSchema.parse(
-        body
-      );
+      const parsed = await readJsonBody(request);
+      if (!parsed.ok) {
+        ctx.logCompletion?.(parsed.response);
+        return parsed.response;
+      }
+
+      const { guildID, channelID, threadID } =
+        threadRefreshRequestSchema.parse(parsed.value);
 
       await processThreadEvent(guildID, channelID, threadID);
 

@@ -18,3 +18,4 @@ Live Discord ingestion does not reliably refetch full thread history when a thre
 - Reused the existing API key interruptor so the endpoint can be used in dev without extra setup, but can be gated in environments where `API_KEY` is set.
 - Ran file-scoped lint checks on the touched files.
 - Full repo TypeScript check is currently not clean in this workspace and the generate script expects dependencies to be installed (it also tries to run `openapi-typescript`).
+- Updated Discord routes to return a 400 for empty/invalid JSON bodies (instead of throwing `Unexpected end of JSON input` and returning a 500).

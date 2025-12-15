@@ -435,3 +435,20 @@ Change:
 
 - The interruptor now parses the body as a generic JSON object and preserves all fields in the parsed body so `momentGraphNamespace` can be applied per request.
 - Added narrative-path debug logs in the query function to print the namespace, match counts, and whether it fell through.
+
+### 2025-12-15 - Query validation: narrative path working with namespace override
+
+Observed:
+
+- Re-ran the timeline query in namespace `cross-source-link-552-1` and got a narrative answer (no Evidence Locker fallback).
+
+What the logs show:
+
+- The query handler applied the namespace override and the engine logged `namespace=cross-source-link-552-1`.
+- The narrative path matched moments (`similarMoments=3`) and produced matched trails (`trailsByRoot=1`), then called the LLM with the trails prompt.
+- ISO8601-prefixed timeline lines were present in the prompt, and the model referenced the timestamps in its answer.
+
+Follow-ups:
+
+- The narrative LLM call is still using the default temperature (raw response shows `temperature: 1`).
+- The narrative answer still does not include the canonical `mchn://...` tokens that we’re injecting into macro summaries, and it may over-interpret timeline text. Tightening narrative prompt formatting and/or adding a deterministic response enrichment step is likely next.

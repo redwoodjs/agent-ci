@@ -82,6 +82,44 @@ Macro synthesis prompt formatting rules now support:
 
 Each plugin's macro synthesis prompt context hook now provides these fields where possible.
 
+### 2025-12-15 - Implementation note (macro synthesis prompt: hard requirements)
+
+The macro synthesis prompt rules were tightened to require exact usage of values provided by the plugin context:
+
+- Title must begin with the exact `title_label` value when provided.
+- Summary must begin with the exact `summary_descriptor` value when provided.
+- Summary must include the `document_ref` token in brackets exactly once when provided.
+
+### 2025-12-15 - Implementation note (prompt compliance iteration)
+
+Observed from local runs on `github/redwoodjs/sdk/issues/552/latest.json`:
+
+- The macro synthesis output sometimes omitted `title_label` and the bracketed `document_ref` token, even when they were present in the plugin-provided context.
+
+Change:
+
+- The macro synthesis prompt now includes a short "Resolved requirements" block that repeats the extracted `title_label`, `summary_descriptor`, and `document_ref` values.
+- Macro synthesis temperature was set to 0 to reduce format drift.
+- The engine now logs the full macro synthesis prompt context block for inspection in dev logs.
+
+### 2025-12-15 - Implementation note (micro summaries: avoid false "implemented" claims)
+
+Observed:
+
+- GitHub issue text often describes intent (problem statement, proposal, request), but micro summaries were phrased as completed work ("implemented", "added").
+
+Change:
+
+- Kept micro summarization centralized in the default plugin.
+- Added document-type-aware prompt context for GitHub chunks:
+  - For issue chunk types, prefer proposal/discussion verbs unless the text explicitly states completion.
+  - For pull request chunk types, describe changes/review, but still avoid claiming user-visible shipping unless explicitly stated.
+
+Update:
+
+- Moved GitHub micro-moment summarization rules into the GitHub plugin (first-match for GitHub docs).
+- Default plugin micro summarization is generic again.
+
 ### 2025-12-15 - Current pipeline notes (chunks, micro-moments, macro-moments)
 
 Engine plugin ordering (indexing and querying):

@@ -320,6 +320,12 @@ export async function indexDocument(
           indexingContext
         )
     );
+    if (macroSynthesisPromptContext) {
+      console.log("[moment-linker] macro synthesis prompt context", {
+        documentId: document.id,
+        context: macroSynthesisPromptContext,
+      });
+    }
 
     const macroMomentDescriptions = (await synthesizeMicroMoments(
       microMomentsForSynthesis,

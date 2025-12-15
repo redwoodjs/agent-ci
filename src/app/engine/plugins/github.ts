@@ -447,7 +447,9 @@ export const githubPlugin: Plugin = {
         }
         if (commentIds.length > commentIdsLimited.length) {
           lines.push(
-            `  - (truncated: ${commentIds.length - commentIdsLimited.length} more)`
+            `  - (truncated: ${
+              commentIds.length - commentIdsLimited.length
+            } more)`
           );
         }
       }

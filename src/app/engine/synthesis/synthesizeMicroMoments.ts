@@ -25,9 +25,29 @@ export async function synthesizeMicroMoments(
 
   const macroSynthesisPromptContext = options?.macroSynthesisPromptContext;
 
+  const titleLabel =
+    typeof macroSynthesisPromptContext === "string"
+      ? macroSynthesisPromptContext.match(
+          /^\s*-\s*title_label:\s*(.+)\s*$/m
+        )?.[1]
+      : undefined;
+  const summaryDescriptor =
+    typeof macroSynthesisPromptContext === "string"
+      ? macroSynthesisPromptContext.match(
+          /^\s*-\s*summary_descriptor:\s*(.+)\s*$/m
+        )?.[1]
+      : undefined;
+  const documentRef =
+    typeof macroSynthesisPromptContext === "string"
+      ? macroSynthesisPromptContext.match(
+          /^\s*-\s*document_ref:\s*([^\s]+)\s*$/m
+        )?.[1]
+      : undefined;
+
   const formattingRules = `Formatting rules:
-- If "title_label" is provided in the source formatting context, TITLE must begin with it (example: "[GitHub Pull Request #530]").
-- If "summary_descriptor" is provided in the source formatting context, SUMMARY must begin with it (example: "In a GitHub pull request (#530), ...").
+- If the "Source formatting and reference context" section includes a line "title_label: ...", TITLE must begin with the exact value after "title_label: " (character-for-character).
+- If the "Source formatting and reference context" section includes a line "summary_descriptor: ...", SUMMARY must begin with the exact value after "summary_descriptor: " (character-for-character).
+- If the "Source formatting and reference context" section includes a line "document_ref: <token>", SUMMARY must include "[<token>]" exactly once (example: "[github:issue/redwoodjs/sdk/552]").
 - Summary must include a canonical reference token in brackets near the first mention of the primary entity when applicable.
 - Canonical token format: source:document_type/path
 - Examples:
@@ -39,11 +59,25 @@ export async function synthesizeMicroMoments(
   - discord:thread_message/<guildid>/<channelid>/<threadid>/<messageid>
 `;
 
+  const resolvedRequirements =
+    titleLabel || summaryDescriptor || documentRef
+      ? `Resolved requirements for this document:
+- required_title_prefix: ${titleLabel ?? "(none)"}
+- required_summary_prefix: ${summaryDescriptor ?? "(none)"}
+- required_document_ref_token: ${documentRef ?? "(none)"}
+- If required_document_ref_token is not "(none)", SUMMARY must contain it in brackets exactly once: [${
+          documentRef ?? ""
+        }]
+`
+      : "";
+
   const synthesisPrompt = `You are an expert at analyzing sequences of events to build a coherent narrative. Your task is to consolidate a series of low-level "micro-moments" into a smaller number of high-level "macro-moments" that tell a story of progress, discovery, and decision-making.
 
 **Your Goal:** Identify and record the most significant events. Specifically look for turning points, key discoveries or realizations, newly identified problems, new insights, important decisions, changes in approach, new attempts at solving the problem
 
 ${formattingRules}
+
+${resolvedRequirements}
 
 ${
   macroSynthesisPromptContext
@@ -76,7 +110,7 @@ ${formattedMoments}
 
   try {
     const response = await callLLM(synthesisPrompt, "slow-reasoning", {
-      temperature: 0.3,
+      temperature: 0,
       max_tokens: 2000,
       reasoning: {
         effort: "low",

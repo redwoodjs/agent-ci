@@ -222,7 +222,23 @@ Response:
 }
 ```
 
-### 5. Manually Index a Discord File
+### 5. Refresh a Thread Page
+
+Force a refresh of a thread `latest.json` by fetching the current thread state from the Discord API.
+
+```bash
+# Local development
+curl -X POST http://localhost:5173/ingest/discord/thread/refresh \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "guildID": "679514959968993311",
+    "channelID": "1307974274145062912",
+    "threadID": "111222333"
+  }'
+```
+
+### 6. Manually Index a Discord File
 
 To manually trigger vectorization for a specific Discord file, use the RAG engine's indexing endpoint:
 

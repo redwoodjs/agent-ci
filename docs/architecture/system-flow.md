@@ -38,6 +38,18 @@ When a user asks a question, the system first attempts a narrative query path, t
 3.  **Fallback to Subject-First**: If there are no matched Moments, the query is used to find relevant Subjects (Root Moments) in the `SUBJECT_INDEX`, then the engine loads that Subject's descendant timeline.
 4.  **Fallback to Evidence Locker**: If no narrative context is found, the system falls back to a standard RAG search against the Evidence Locker.
 
+#### Root-to-leaf narrative context (alternative retrieval mode)
+For cross-document, cross-source timelines, ancestor trails can omit linked descendant work (example: a Discord thread or PR attached under a root, while the query matches a moment higher up in the tree).
+
+An alternative mode is:
+
+1. Identify anchor Moments (vector match against `MOMENT_INDEX`).
+2. For each anchor Moment, resolve its root Subject via ancestor walk.
+3. For each resolved root, traverse descendants and build root-to-leaf paths.
+4. Provide the LLM with a capped set of paths (token budget) rather than only ancestor trails.
+
+This mode is intended to surface work that is linked in the graph but not on an ancestor chain of the matched moment.
+
 ## Architecture Map
 
 *   **Evidence Locker (RAG)**: See `evidence-locker-engine.md` for details on vector indexing and incremental diffing.

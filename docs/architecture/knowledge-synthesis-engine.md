@@ -88,6 +88,21 @@ To answer "why" questions, the query engine flips the traditional RAG model:
 3.  **Synthesize Answer**: The LLM is given these trails (not random chunks) to generate an answer grounded in the relevant narrative path.
 4.  **Fallback to Subject-First**: If there are no matched Moments, the engine searches the **Subject Index** (root moments) and traverses descendants to load the full timeline for that Subject.
 
+#### Root-to-leaf paths (proposed narrative context shape)
+Matched-moment trails are useful for pinpointing a single causal chain, but they can miss relevant work that is linked elsewhere under the same root (for example: a PR and a Discord thread both attached under a root Subject, while the query matches only one moment).
+
+A proposed retrieval shape is:
+
+- Resolve one or more root Subjects from the matched moments.
+- Traverse the full descendant set under each root.
+- Convert the descendant tree into root-to-leaf paths.
+- Select a capped set of paths (based on relevance and token budget) and provide them to the LLM as the narrative context.
+
+Constraints:
+
+- Root-to-leaf expansion can be large for long-lived subjects. Any implementation needs a deterministic cap (example: max roots, max leaves per root, and max total tokens).
+- Paths should preserve source labels and timestamps so the model can reason about chronology without inventing dates.
+
 ### 5. Moment Graph namespaces (test isolation)
 During development, it is sometimes useful to run repeated ingestion experiments without deleting existing data in Durable Objects or Vectorize. The Moment Graph supports a namespace value that scopes both storage and retrieval.
 

@@ -656,83 +656,54 @@ Write a clear narrative answer that explains the sequence and causal relationshi
           .map((m) => `${m.id}:${m.documentId}`)
           .join(",")}`
       );
-      const trailsByRoot = new Map<
-        string,
-        {
-          root: unknown;
-          trails: unknown[][];
-        }
-      >();
-
-      for (const matchedMoment of similarMoments) {
-        const ancestors = await findAncestors(matchedMoment.id);
-        if (ancestors.length === 0) {
-          continue;
-        }
+      const bestMatch = similarMoments[0];
+      if (bestMatch) {
+        const ancestors = await findAncestors(bestMatch.id);
         const root = ancestors[0];
-        const existing = trailsByRoot.get(root.id);
-        if (existing) {
-          existing.trails.push(ancestors);
-        } else {
-          trailsByRoot.set(root.id, { root, trails: [ancestors] });
-        }
-      }
+        if (root) {
+          console.log(
+            `[query:narrative] resolvedRootFromMatch root=${root.id} match=${bestMatch.id}`
+          );
+          const timeline = await findDescendants(root.id);
+          console.log(`[query:narrative] rootTimelineLen=${timeline.length}`);
 
-      if (trailsByRoot.size > 0) {
-        console.log(
-          `[query:narrative] trailsByRoot=${trailsByRoot.size} (from moment matches)`
-        );
-        const rootsSorted = Array.from(trailsByRoot.values()).sort(
-          (a, b) => b.trails.length - a.trails.length
-        );
-        const topRoots = rootsSorted.slice(0, 3);
-
-        const trailsContext = topRoots
-          .map((entry, rootIdx) => {
-            const root = entry.root as any;
-            const trailsText = entry.trails
-              .slice(0, 6)
-              .map((trail, trailIdx) => {
-                const steps = (trail as any[])
-                  .map((m, idx: number) => formatTimelineLine(m, idx))
-                  .join("\n");
-                return `Trail ${trailIdx + 1}\n${steps}`;
-              })
+          if (timeline.length > 0) {
+            const narrativeContext = timeline
+              .map((moment, idx) => formatTimelineLine(moment, idx))
               .join("\n\n");
 
-            return `Root ${rootIdx + 1}\n${root.title}: ${
-              root.summary
-            }\n\n${trailsText}`;
-          })
-          .join("\n\n---\n\n");
+            const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
-        const narrativePrompt = `Based on the following matched moment trails and their root moments, answer the user's question. Each trail is a chain of moments from a root moment down to a matched moment.
+## Subject
+${root.title}: ${root.summary}
 
-## Matched Trails
-${trailsContext}
+## Timeline
+${narrativeContext}
 
 ## User Question
 ${userQuery}
 
 ## Instructions
 Rules:
-- You MUST only use timestamps that appear at the start of trail lines. Do not invent or guess dates.
-- When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that trail line.
-- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the trail text).
-- You MUST NOT mention events, sources, or pull requests/issues that are not present in the trail text.
-- If the trails do not contain enough information to answer part of the question, say that directly.
+- You MUST only use timestamps that appear at the start of Timeline lines. Do not invent or guess dates.
+- When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
+- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
+- You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
+- If the Timeline does not contain enough information to answer part of the question, say that directly.
 
-Provide a clear narrative answer. Prefer causal links and chronological explanation using the trail steps. If multiple roots are present, pick the most relevant one(s) and say why.`;
+Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
 
-        const narrativeAnswer = await callLLM(
-          narrativePrompt,
-          "slow-reasoning",
-          {
-            temperature: 0,
-            reasoning: { effort: "low" },
+            const narrativeAnswer = await callLLM(
+              narrativePrompt,
+              "slow-reasoning",
+              {
+                temperature: 0,
+                reasoning: { effort: "low" },
+              }
+            );
+            return narrativeAnswer;
           }
-        );
-        return narrativeAnswer;
+        }
       }
     }
   } catch (error) {

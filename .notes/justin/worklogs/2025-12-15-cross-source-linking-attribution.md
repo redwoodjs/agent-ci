@@ -503,3 +503,24 @@ Change:
 Query behavior tweak:
 
 - Prefer subject timeline (descendants) when a similar subject is found, so linked child moments (Discord/PR) are included in the narrative context rather than only ancestor trails.
+
+### 2025-12-15 - Retrieval idea: root-to-leaf paths from matched root
+
+Idea:
+
+- When a query matches a moment, resolve the root Subject for that matched moment and then build narrative context from the full sub-tree under that root.
+- Represent the sub-tree as root-to-leaf paths (capped by token budget) rather than only ancestor trails, so linked descendant work (Discord/PR) is harder to miss.
+
+Note:
+
+- This needs a deterministic cap and selection strategy to avoid huge prompts for long-lived subjects.
+
+### 2025-12-15 - Query behavior change: use full root descendant timeline (simple mode)
+
+Decision:
+
+- Keep retrieval simple for now: when a query matches a moment, resolve the root and provide the full descendant timeline under that root as narrative context.
+
+Reason:
+
+- Avoid missing linked child moments (Discord/PR) that are not on the matched moment's ancestor chain.

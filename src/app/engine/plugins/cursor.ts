@@ -30,8 +30,10 @@ export const cursorPlugin: Plugin = {
       if (!chunks.every((c) => c.source === "cursor")) {
         return null;
       }
+
       return (
         `Context: These chunks are from a Cursor AI coding assistant conversation. Each chunk may include User and Assistant turns.\n` +
+        `Attribute statements to the chunk author (author=...) when possible.\n` +
         `Focus on technical details, decisions, errors, file paths, commands, and outcomes.\n` +
         `Avoid claiming a change landed unless the text explicitly indicates it.\n`
       );

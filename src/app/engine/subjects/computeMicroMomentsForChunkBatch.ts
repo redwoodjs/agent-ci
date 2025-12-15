@@ -14,7 +14,13 @@ export async function computeMicroMomentsForChunkBatch(
   const chunkText = chunks
     .map((chunk, i) => {
       const content = chunk.content ?? "";
-      return `CHUNK ${i + 1}:\n${content}`;
+      const type = (chunk.metadata as any)?.type ?? "unknown";
+      const authorRaw = (chunk.metadata as any)?.author;
+      const author =
+        typeof authorRaw === "string" && authorRaw.trim().length > 0
+          ? authorRaw.trim()
+          : "unknown";
+      return `CHUNK ${i + 1} (type=${type}, author=${author}):\n${content}`;
     })
     .join("\n\n---\n\n");
 
@@ -30,6 +36,10 @@ export async function computeMicroMomentsForChunkBatch(
     `- Each summary must be 1-3 sentences.\n` +
     `- Each summary must be <= 400 characters.\n` +
     `- Include concrete terms (names, ids, file paths, errors, decisions) when present.\n` +
+    `- Each summary should explicitly attribute key statements to the relevant person.\n` +
+    `  - Prefer the author shown in the CHUNK header (author=...).\n` +
+    `  - If a different person is explicitly mentioned in the content (e.g. quoted), attribute to that person.\n` +
+    `  - Example: "@peter suggested ...", "Peter noted ...", "@alice proposed ...".\n` +
     `- Do not include phrases like "Content about".\n` +
     `- Do not output meta commentary about summarizing.\n` +
     `- Return between 1 and 12 items.\n\n` +
@@ -109,5 +119,3 @@ function parseMicroMomentLines(response: string): string[] | null {
 
   return out.length > 0 ? out : null;
 }
-
-

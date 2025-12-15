@@ -135,7 +135,7 @@ export const discordPlugin: Plugin = {
         return (
           `Context: These chunks are from a Discord thread.\n` +
           `Prefer wording like "discussed", "suggested", "asked", "decided", "agreed" unless a concrete action is explicitly described.\n` +
-          `Attribute statements to participants when possible.\n`
+          `Attribute statements to the chunk author (author=...) when possible.\n`
         );
       }
 
@@ -148,6 +148,7 @@ export const discordPlugin: Plugin = {
 
       return (
         `Context: These chunks are from Discord.\n` +
+        `Attribute statements to the chunk author (author=...) when possible.\n` +
         `Prefer discussion framing unless a concrete action is explicitly described.\n`
       );
     },

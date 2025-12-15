@@ -388,6 +388,7 @@ export const githubPlugin: Plugin = {
         return (
           `Context: These chunks are from a GitHub issue (body and/or comments).\n` +
           `Treat them as proposals, questions, or discussion unless the text explicitly states work was completed/merged/shipped.\n` +
+          `Attribute proposals and observations to the chunk author (author=...) when possible.\n` +
           `Prefer verbs like "described", "proposed", "requested", "discussed", "noted".\n`
         );
       }
@@ -396,12 +397,14 @@ export const githubPlugin: Plugin = {
         return (
           `Context: These chunks are from a GitHub pull request (body and/or comments).\n` +
           `Summarize what was changed, reviewed, or decided.\n` +
+          `Attribute review feedback and decisions to the chunk author (author=...) when possible.\n` +
           `Avoid claiming work shipped to users unless the text explicitly says so.\n`
         );
       }
 
       return (
         `Context: These chunks are from GitHub.\n` +
+        `Attribute statements to the chunk author (author=...) when possible.\n` +
         `Focus on concrete changes, decisions, errors, and references like issue numbers, file paths, and code identifiers.\n`
       );
     },

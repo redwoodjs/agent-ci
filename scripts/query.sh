@@ -139,13 +139,25 @@ if [[ "$MODE" == "subjects" ]]; then
 else
   # It's a POST request to the default /rag/query endpoint
   ENDPOINT_URL="$WORKER_URL/rag/query"
+  # Optional namespace override for Moment Graph queries
+  # When set, the server will temporarily scope Moment Graph reads to this namespace.
+  MOMENT_GRAPH_NAMESPACE_JSON="null"
+  if [ -n "${MOMENT_GRAPH_NAMESPACE:-}" ]; then
+    MOMENT_GRAPH_NAMESPACE_JSON=$(echo "$MOMENT_GRAPH_NAMESPACE" | jq -R .)
+  fi
+
+  # Evidence Locker toggle (when disabled, only Moment Graph narrative path is used)
+  ENABLE_EVIDENCE_LOCKER=true
+  if [ "${DISABLE_EVIDENCE_LOCKER:-}" = "1" ] || [ "${DISABLE_EVIDENCE_LOCKER:-}" = "true" ]; then
+    ENABLE_EVIDENCE_LOCKER=false
+  fi
+
 RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"query\": $(echo "$QUERY" | jq -R .)}" \
+  -d "{\"query\": $(echo "$QUERY" | jq -R .), \"momentGraphNamespace\": $MOMENT_GRAPH_NAMESPACE_JSON, \"enableEvidenceLocker\": $ENABLE_EVIDENCE_LOCKER}" \
     "$ENDPOINT_URL")
 fi
 
 # Pretty-print the JSON response
-echo "$RESPONSE" | jq .
-
+echo "$RESPONSE"

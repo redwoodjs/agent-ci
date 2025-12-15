@@ -363,3 +363,50 @@ Change:
   - `/Users/justin/rw/machinen/.tmp/machinen/discord/679514959968993311/1435702216315899948/threads/1373759907605516408/latest.json`
 - Discord R2 key:
   - `discord/679514959968993311/1435702216315899948/threads/1373759907605516408/latest.json`
+
+### 2025-12-15 - Query validation (namespace + response attribution)
+
+Observed:
+
+- Ran a query via `scripts/query.sh` against the local dev server: "What did we say about making RSC navigation use GET so fetches can be cached?"
+- The response only referenced the GitHub issue discussion ("#552") and did not mention the Discord thread content that includes the same idea.
+
+What the logs show:
+
+- The query request hit `/rag/query` and then executed the chunk-based Evidence Locker path:
+  - `optimizeContext` ran and selected 35 contexts (about 15k tokens), and the LLM prompt preview shows raw document context (example: "Issue #552 ... URL: https://...").
+  - The response was produced by `callLLM(prompt)` with no explicit LLM options passed, so the model used its default temperature (the raw response shows `temperature: 1`).
+- The Moment Graph narrative query path did not return early (no matched trails or subject timeline was used for this query), so the answer was not generated from macro moment summaries.
+
+Likely cause:
+
+- Namespace isolation for indexing was set per resync call (admin resync temporarily sets the worker env namespace for that request), but `/rag/query` does not accept a per-request namespace override. Setting `MOMENT_GRAPH_NAMESPACE=...` in the shell running `scripts/query.sh` does not change the already-running dev server's env.
+- As a result, the narrative path probably searched a different namespace than the one used during the resync indexing run, and then the query fell back to Evidence Locker retrieval.
+
+### 2025-12-15 - Decision: Moment Graph-only querying during cross-source validation
+
+Observed:
+
+- Query results were dominated by Evidence Locker contexts and did not reflect the Moment Graph macro summaries (and their canonical tokens).
+
+Decision:
+
+- Disable Evidence Locker during query validation for this task, so the query path either:
+  - answers from the Moment Graph narrative path, or
+  - returns a short "no timeline match" message instead of falling back to chunk retrieval.
+
+Change:
+
+- `/rag/query` now accepts `momentGraphNamespace` (or `namespace`) in the request body, and temporarily sets the worker env namespace for that request, matching the approach used by `/rag/admin/resync`.
+- `/rag/query` also accepts an Evidence Locker toggle. When disabled, the engine skips the Evidence Locker retrieval path.
+- `scripts/query.sh` now sends `momentGraphNamespace` in the POST body when `MOMENT_GRAPH_NAMESPACE` is set, and can disable Evidence Locker by setting `DISABLE_EVIDENCE_LOCKER=1`.
+
+### 2025-12-15 - Decision update: Hardcode Evidence Locker query path disabled
+
+Change:
+
+- Hardcoded the Evidence Locker query path to be disabled in the engine query function, independent of request flags.
+
+Reason:
+
+- Keeps the validation loop focused on the Moment Graph and linking behavior, and avoids results being dominated by chunk retrieval.

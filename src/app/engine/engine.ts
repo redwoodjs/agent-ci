@@ -464,8 +464,12 @@ export async function indexDocument(
 
 export async function query(
   userQuery: string,
-  context: EngineContext
+  context: EngineContext,
+  options?: {
+    enableEvidenceLocker?: boolean;
+  }
 ): Promise<string> {
+  const enableEvidenceLocker = false;
   const queryContext: QueryHookContext = {
     query: userQuery,
     env: context.env,
@@ -588,6 +592,10 @@ Provide a clear, narrative answer that explains the story and causal relationshi
       error
     );
     // Fall through to the existing chunk-based RAG system
+  }
+
+  if (!enableEvidenceLocker) {
+    return `No Moment Graph subject timeline matched this query. Evidence Locker is disabled.`;
   }
 
   const processedQuery = await runWaterfallHook(

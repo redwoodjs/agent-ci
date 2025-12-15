@@ -145,7 +145,8 @@ export const discordPlugin: Plugin = {
         }
 
         const raw = document.metadata._rawJson as ThreadPage | undefined;
-        const messageIds = raw?.messages?.map((m) => m.id).filter(Boolean) ?? [];
+        const messageIds =
+          raw?.messages?.map((m) => m.id).filter(Boolean) ?? [];
         const maxMessageRefs = 10;
         const messageIdsLimited = messageIds.slice(0, maxMessageRefs);
         if (guildID && channelID && threadID && messageIdsLimited.length > 0) {
@@ -166,6 +167,15 @@ export const discordPlugin: Plugin = {
 
         lines.push(`- entity_hints:`);
         lines.push(`  - This is a Discord thread with the ids above.`);
+
+        lines.push("");
+        lines.push("Narrative context:");
+        lines.push(
+          `- This is a Discord thread. Attribute statements to participants when possible.`
+        );
+        lines.push(
+          `- Prefer wording like "discussed", "suggested", "asked", "decided", "agreed" unless a concrete action is explicitly described.`
+        );
 
         return lines.join("\n");
       }
@@ -216,7 +226,15 @@ export const discordPlugin: Plugin = {
         }
 
         lines.push(`- entity_hints:`);
-        lines.push(`  - This is a Discord channel day file with the ids above.`);
+        lines.push(
+          `  - This is a Discord channel day file with the ids above.`
+        );
+
+        lines.push("");
+        lines.push("Narrative context:");
+        lines.push(
+          `- This is a Discord channel log. Treat it as discussion unless a concrete action is explicitly described.`
+        );
 
         return lines.join("\n");
       }
@@ -227,6 +245,10 @@ export const discordPlugin: Plugin = {
       lines.push("Reference context:");
       lines.push(`- entity_hints:`);
       lines.push(`  - This document is from Discord.`);
+
+      lines.push("");
+      lines.push("Narrative context:");
+      lines.push(`- This is Discord content.`);
 
       return lines.join("\n");
     },

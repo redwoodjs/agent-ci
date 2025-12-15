@@ -102,6 +102,10 @@ Change:
 - Macro synthesis temperature was set to 0 to reduce format drift.
 - The engine now logs the full macro synthesis prompt context block for inspection in dev logs.
 
+### 2025-12-15 - Implementation note (macro synthesis context hook scope)
+
+The per-source macro synthesis prompt context hook is now used for more than references and formatting. Plugins can also provide narrative context guidance that shapes how the macro summary is written (example: issue text as proposal/discussion vs PR text as changes/review).
+
 ### 2025-12-15 - Implementation note (micro summaries: avoid false "implemented" claims)
 
 Observed:

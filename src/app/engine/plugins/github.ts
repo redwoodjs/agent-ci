@@ -461,6 +461,31 @@ export const githubPlugin: Plugin = {
         );
       }
 
+      lines.push("");
+      lines.push("Narrative context:");
+      if (isIssue) {
+        lines.push(
+          `- This is an issue. Treat the text as describing a problem, request, or proposal unless it explicitly says work was completed/merged/shipped.`
+        );
+        lines.push(
+          `- Prefer verbs like "described", "proposed", "requested", "discussed", "noted".`
+        );
+        lines.push(
+          `- Avoid implying implementation happened unless the text explicitly states it.`
+        );
+      } else if (isPullRequest) {
+        lines.push(
+          `- This is a pull request. Treat the text as describing changes, review feedback, and decisions.`
+        );
+        lines.push(
+          `- Avoid claiming user-visible shipping unless the text explicitly says it shipped.`
+        );
+      } else {
+        lines.push(
+          `- This is a GitHub document. Prefer concrete, source-grounded wording.`
+        );
+      }
+
       return lines.join("\n");
     },
   },

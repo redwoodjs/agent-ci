@@ -38,6 +38,12 @@ export const cursorPlugin: Plugin = {
       lines.push("Reference context:");
       lines.push(`- entity_hints:`);
       lines.push(`  - This document is a Cursor conversation.`);
+
+      lines.push("");
+      lines.push("Narrative context:");
+      lines.push(
+        `- This is a Cursor coding conversation. Prefer concrete technical phrasing and avoid claiming a change landed unless the text explicitly indicates it.`
+      );
       return lines.join("\n");
     },
   },

@@ -53,89 +53,87 @@ export const cursorPlugin: Plugin = {
     };
   },
 
+  async splitDocumentIntoChunks(
+    document: Document,
+    context: IndexingHookContext
+  ): Promise<Chunk[]> {
+    if (document.source !== "cursor") {
+      return [];
+    }
+
+    const bucket = context.env.MACHINEN_BUCKET;
+    const object = await bucket.get(document.id);
+    if (!object) {
+      throw new Error(`R2 object not found during chunking: ${document.id}`);
+    }
+
+    const jsonText = await object.text();
+    const data = JSON.parse(jsonText) as CursorConversationLatestJson;
+
+    const chunks: Chunk[] = [];
+
+    const encoder = new TextEncoder();
+    async function hashContent(content: string): Promise<string> {
+      const data = encoder.encode(content);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    for (const [index, gen] of data.generations.entries()) {
+      const userPrompt =
+        gen.events.find(
+          (e: CursorEvent) =>
+            e.hook_event_name === "beforeSubmitPrompt" && e.prompt
+        )?.prompt || "";
+      const assistantResponse =
+        gen.events.find(
+          (e: CursorEvent) =>
+            e.hook_event_name === "afterAgentResponse" && e.text
+        )?.text || "";
+
+      let content = "";
+      if (userPrompt) {
+        content += `User: ${userPrompt}\n`;
+      }
+
+      if (assistantResponse) {
+        content += `Assistant: ${assistantResponse}`;
+      }
+
+      if (!content.trim()) {
+        continue;
+      }
+
+      const chunkId = `${document.id}#gen-${gen.id}`;
+      const trimmedContent = content.trim();
+      chunks.push({
+        id: chunkId,
+        documentId: document.id,
+        source: "cursor",
+        content: trimmedContent,
+        contentHash: await hashContent(trimmedContent),
+        metadata: {
+          chunkId: chunkId,
+          documentId: document.id,
+          source: "cursor",
+          type: "cursor-generation",
+          documentTitle:
+            document.metadata.title ||
+            `Cursor Conversation ${
+              document.metadata.sourceMetadata?.conversationId || "unknown"
+            }`,
+          author: "cursor-user",
+          jsonPath: `$.generations[${index}]`,
+          sourceMetadata: document.metadata.sourceMetadata,
+        },
+      });
+    }
+
+    return chunks;
+  },
+
   evidence: {
-    async splitDocumentIntoChunks(
-      document: Document,
-      context: IndexingHookContext
-    ): Promise<Chunk[]> {
-      if (document.source !== "cursor") {
-        return [];
-      }
-
-      const bucket = context.env.MACHINEN_BUCKET;
-      const object = await bucket.get(document.id);
-      if (!object) {
-        throw new Error(`R2 object not found during chunking: ${document.id}`);
-      }
-
-      const jsonText = await object.text();
-      const data = JSON.parse(jsonText) as CursorConversationLatestJson;
-
-      const chunks: Chunk[] = [];
-
-      const encoder = new TextEncoder();
-      async function hashContent(content: string): Promise<string> {
-        const data = encoder.encode(content);
-        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-      }
-
-      for (const [index, gen] of data.generations.entries()) {
-        const userPrompt =
-          gen.events.find(
-            (e: CursorEvent) =>
-              e.hook_event_name === "beforeSubmitPrompt" && e.prompt
-          )?.prompt || "";
-        const assistantResponse =
-          gen.events.find(
-            (e: CursorEvent) =>
-              e.hook_event_name === "afterAgentResponse" && e.text
-          )?.text || "";
-
-        let content = "";
-        if (userPrompt) {
-          content += `User: ${userPrompt}\n`;
-        }
-
-        if (assistantResponse) {
-          content += `Assistant: ${assistantResponse}`;
-        }
-
-        if (!content.trim()) {
-          continue;
-        }
-
-        if (content.trim()) {
-          const chunkId = `${document.id}#gen-${gen.id}`;
-          const trimmedContent = content.trim();
-          chunks.push({
-            id: chunkId,
-            documentId: document.id,
-            source: "cursor",
-            content: trimmedContent,
-            contentHash: await hashContent(trimmedContent),
-            metadata: {
-              chunkId: chunkId,
-              documentId: document.id,
-              source: "cursor",
-              type: "cursor-generation",
-              documentTitle:
-                document.metadata.title ||
-                `Cursor Conversation ${
-                  document.metadata.sourceMetadata?.conversationId || "unknown"
-                }`,
-              author: "cursor-user",
-              jsonPath: `$.generations[${index}]`,
-              sourceMetadata: document.metadata.sourceMetadata,
-            },
-          });
-        }
-      }
-
-      return chunks;
-    },
-
     async reconstructContext(
       documentChunks: ChunkMetadata[],
       sourceDocument: any,

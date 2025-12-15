@@ -10,6 +10,78 @@ import { callLLM } from "../utils/llm";
 export const defaultPlugin: Plugin = {
   name: "default",
 
+  async splitDocumentIntoChunks(
+    document: Document,
+    context: IndexingHookContext
+  ): Promise<Chunk[]> {
+    // Default chunking: split by newline, capped by a character limit.
+    const chunks: Chunk[] = [];
+    const lines = document.content.split("\n");
+    let currentChunkContent: string[] = [];
+    const CHUNK_SIZE = 1000; // characters per chunk
+
+    const encoder = new TextEncoder();
+    async function hashContent(content: string): Promise<string> {
+      const data = encoder.encode(content);
+      const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+    }
+
+    for (const line of lines) {
+      if (
+        currentChunkContent.join("\n").length + line.length + 1 >
+        CHUNK_SIZE
+      ) {
+        const chunkId = `${document.id}-${chunks.length}`;
+        const content = currentChunkContent.join("\n");
+        chunks.push({
+          id: chunkId,
+          documentId: document.id,
+          source: document.source,
+          content: content,
+          contentHash: await hashContent(content),
+          metadata: {
+            chunkId,
+            documentId: document.id,
+            source: document.source,
+            type: document.type,
+            documentTitle: document.metadata.title,
+            author: document.metadata.author,
+            jsonPath: "$.content",
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+        currentChunkContent = [];
+      }
+      currentChunkContent.push(line);
+    }
+
+    if (currentChunkContent.length > 0) {
+      const chunkId = `${document.id}-${chunks.length}`;
+      const content = currentChunkContent.join("\n");
+      chunks.push({
+        id: chunkId,
+        documentId: document.id,
+        source: document.source,
+        content: content,
+        contentHash: await hashContent(content),
+        metadata: {
+          chunkId,
+          documentId: document.id,
+          source: document.source,
+          type: document.type,
+          documentTitle: document.metadata.title,
+          author: document.metadata.author,
+          jsonPath: "$.content",
+          sourceMetadata: document.metadata.sourceMetadata,
+        },
+      });
+    }
+
+    return chunks;
+  },
+
   subjects: {
     async computeMicroMomentsForChunkBatch(
       chunks: Chunk[],
@@ -121,79 +193,6 @@ export const defaultPlugin: Plugin = {
   },
 
   evidence: {
-    async splitDocumentIntoChunks(
-      document: Document,
-      context: IndexingHookContext
-    ): Promise<Chunk[]> {
-      // This is a naive chunking strategy that just splits by newline.
-      // In a real-world scenario, you'd want a more sophisticated strategy.
-      const chunks: Chunk[] = [];
-      const lines = document.content.split("\n");
-      let currentChunkContent: string[] = [];
-      const CHUNK_SIZE = 1000; // characters per chunk
-
-      const encoder = new TextEncoder();
-      async function hashContent(content: string): Promise<string> {
-        const data = encoder.encode(content);
-        const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-        const hashArray = Array.from(new Uint8Array(hashBuffer));
-        return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
-      }
-
-      for (const line of lines) {
-        if (
-          currentChunkContent.join("\n").length + line.length + 1 >
-          CHUNK_SIZE
-        ) {
-          const chunkId = `${document.id}-${chunks.length}`;
-          const content = currentChunkContent.join("\n");
-          chunks.push({
-            id: chunkId,
-            documentId: document.id,
-            source: document.source,
-            content: content,
-            contentHash: await hashContent(content),
-            metadata: {
-              chunkId,
-              documentId: document.id,
-              source: document.source,
-              type: document.type,
-              documentTitle: document.metadata.title,
-              author: document.metadata.author,
-              jsonPath: "$.content",
-              sourceMetadata: document.metadata.sourceMetadata,
-            },
-          });
-          currentChunkContent = [];
-        }
-        currentChunkContent.push(line);
-      }
-
-      if (currentChunkContent.length > 0) {
-        const chunkId = `${document.id}-${chunks.length}`;
-        const content = currentChunkContent.join("\n");
-        chunks.push({
-          id: chunkId,
-          documentId: document.id,
-          source: document.source,
-          content: content,
-          contentHash: await hashContent(content),
-          metadata: {
-            chunkId,
-            documentId: document.id,
-            source: document.source,
-            type: document.type,
-            documentTitle: document.metadata.title,
-            author: document.metadata.author,
-            jsonPath: "$.content",
-            sourceMetadata: document.metadata.sourceMetadata,
-          },
-        });
-      }
-
-      return chunks;
-    },
-
     async optimizeContext(
       contexts: ReconstructedContext[],
       query: string,

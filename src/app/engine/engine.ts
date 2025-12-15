@@ -140,8 +140,8 @@ export async function indexDocument(
   // 1. Split document into chunks BEFORE subject correlation
   let chunks: Chunk[] | null = null;
   for (const plugin of context.plugins) {
-    if (plugin.evidence?.splitDocumentIntoChunks) {
-      const result = await plugin.evidence.splitDocumentIntoChunks(
+    if (plugin.splitDocumentIntoChunks) {
+      const result = await plugin.splitDocumentIntoChunks(
         document,
         indexingContext
       );

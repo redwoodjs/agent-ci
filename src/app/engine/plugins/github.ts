@@ -191,176 +191,176 @@ export const githubPlugin: Plugin = {
     }
   },
 
-  subjects: {},
+  async splitDocumentIntoChunks(
+    document: Document,
+    context: IndexingHookContext
+  ): Promise<Chunk[]> {
+    if (document.source !== "github") {
+      return [];
+    }
 
-  evidence: {
-    async splitDocumentIntoChunks(
-      document: Document,
-      context: IndexingHookContext
-    ): Promise<Chunk[]> {
-      if (document.source !== "github") {
-        return [];
+    const parsed = parseR2Key(context.r2Key);
+    if (!parsed) {
+      return [];
+    }
+
+    const chunks: Chunk[] = [];
+
+    if ("repo" in parsed) {
+      const data = document.metadata._rawJson as GitHubLatestJson | undefined;
+      if (!data) {
+        throw new Error(
+          `Document metadata missing _rawJson for ${context.r2Key}`
+        );
       }
 
-      const parsed = parseR2Key(context.r2Key);
-      if (!parsed) {
-        return [];
+      if (data.body) {
+        chunks.push({
+          id: `${document.id}#body`,
+          documentId: document.id,
+          source: "github",
+          content: data.body,
+          metadata: {
+            chunkId: `${document.id}#body`,
+            documentId: document.id,
+            source: "github",
+            type: "issue-body",
+            documentTitle: document.metadata.title,
+            author: document.metadata.author,
+            jsonPath: "$.body",
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      } else if (data.title) {
+        chunks.push({
+          id: `${document.id}#title`,
+          documentId: document.id,
+          source: "github",
+          content: data.title,
+          metadata: {
+            chunkId: `${document.id}#title`,
+            documentId: document.id,
+            source: "github",
+            type:
+              parsed.type === "pull-requests"
+                ? "pull-request-title"
+                : "issue-title",
+            documentTitle: data.title,
+            author: data.author,
+            jsonPath: "$.title",
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
       }
 
-      const chunks: Chunk[] = [];
-
-      if ("repo" in parsed) {
-        const data = document.metadata._rawJson as GitHubLatestJson | undefined;
-        if (!data) {
-          throw new Error(
-            `Document metadata missing _rawJson for ${context.r2Key}`
-          );
-        }
-
-        if (data.body) {
+      if (data.comments) {
+        for (let i = 0; i < data.comments.length; i++) {
+          const comment = data.comments[i];
           chunks.push({
-            id: `${document.id}#body`,
+            id: `${document.id}#comment-${comment.id}`,
             documentId: document.id,
             source: "github",
-            content: data.body,
+            content: comment.body,
             metadata: {
-              chunkId: `${document.id}#body`,
-              documentId: document.id,
-              source: "github",
-              type: "issue-body",
-              documentTitle: document.metadata.title,
-              author: document.metadata.author,
-              jsonPath: "$.body",
-              sourceMetadata: document.metadata.sourceMetadata,
-            },
-          });
-        } else if (data.title) {
-          chunks.push({
-            id: `${document.id}#title`,
-            documentId: document.id,
-            source: "github",
-            content: data.title,
-            metadata: {
-              chunkId: `${document.id}#title`,
+              chunkId: `${document.id}#comment-${comment.id}`,
               documentId: document.id,
               source: "github",
               type:
                 parsed.type === "pull-requests"
-                  ? "pull-request-title"
-                  : "issue-title",
+                  ? "pull-request-comment"
+                  : "issue-comment",
               documentTitle: data.title,
-              author: data.author,
-              jsonPath: "$.title",
+              author: comment.author,
+              jsonPath: `$.comments[${i}].body`,
               sourceMetadata: document.metadata.sourceMetadata,
             },
           });
-        }
-
-        if (data.comments) {
-          for (let i = 0; i < data.comments.length; i++) {
-            const comment = data.comments[i];
-            chunks.push({
-              id: `${document.id}#comment-${comment.id}`,
-              documentId: document.id,
-              source: "github",
-              content: comment.body,
-              metadata: {
-                chunkId: `${document.id}#comment-${comment.id}`,
-                documentId: document.id,
-                source: "github",
-                type:
-                  parsed.type === "pull-requests"
-                    ? "pull-request-comment"
-                    : "issue-comment",
-                documentTitle: data.title,
-                author: comment.author,
-                jsonPath: `$.comments[${i}].body`,
-                sourceMetadata: document.metadata.sourceMetadata,
-              },
-            });
-          }
-        }
-      } else {
-        const data = document.metadata._rawJson as
-          | GitHubProjectLatestJson
-          | undefined;
-        if (!data) {
-          throw new Error(
-            `Document metadata missing _rawJson for ${context.r2Key}`
-          );
-        }
-
-        if (data.body) {
-          chunks.push({
-            id: `${document.id}#body`,
-            documentId: document.id,
-            source: "github",
-            content: data.body,
-            metadata: {
-              chunkId: `${document.id}#body`,
-              documentId: document.id,
-              source: "github",
-              type: "project-body",
-              documentTitle: data.title,
-              author: data.owner,
-              jsonPath: "$.body",
-              sourceMetadata: document.metadata.sourceMetadata,
-            },
-          });
-        } else if (data.title) {
-          chunks.push({
-            id: `${document.id}#title`,
-            documentId: document.id,
-            source: "github",
-            content: data.title,
-            metadata: {
-              chunkId: `${document.id}#title`,
-              documentId: document.id,
-              source: "github",
-              type: "project-title",
-              documentTitle: data.title,
-              author: data.owner,
-              jsonPath: "$.title",
-            },
-          });
-        }
-
-        if (data.items) {
-          for (let i = 0; i < data.items.length; i++) {
-            const item = data.items[i];
-            const fieldValuesText =
-              item.field_values
-                ?.map((fv) => `${fv.name}: ${fv.value ?? "null"}`)
-                .join(", ") || "";
-            const content = item.title
-              ? `${item.title}${fieldValuesText ? ` - ${fieldValuesText}` : ""}`
-              : `${item.content_type}${
-                  item.content_id ? ` #${item.content_id}` : ""
-                }${fieldValuesText ? ` - ${fieldValuesText}` : ""}`;
-
-            chunks.push({
-              id: `${document.id}#item-${item.id}`,
-              documentId: document.id,
-              source: "github",
-              content,
-              metadata: {
-                chunkId: `${document.id}#item-${item.id}`,
-                documentId: document.id,
-                source: "github",
-                type: "project-item",
-                documentTitle: data.title,
-                author: data.owner,
-                jsonPath: `$.items[${i}]`,
-                sourceMetadata: document.metadata.sourceMetadata,
-              },
-            });
-          }
         }
       }
+    } else {
+      const data = document.metadata._rawJson as
+        | GitHubProjectLatestJson
+        | undefined;
+      if (!data) {
+        throw new Error(
+          `Document metadata missing _rawJson for ${context.r2Key}`
+        );
+      }
 
-      return chunks;
-    },
+      if (data.body) {
+        chunks.push({
+          id: `${document.id}#body`,
+          documentId: document.id,
+          source: "github",
+          content: data.body,
+          metadata: {
+            chunkId: `${document.id}#body`,
+            documentId: document.id,
+            source: "github",
+            type: "project-body",
+            documentTitle: data.title,
+            author: data.owner,
+            jsonPath: "$.body",
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      } else if (data.title) {
+        chunks.push({
+          id: `${document.id}#title`,
+          documentId: document.id,
+          source: "github",
+          content: data.title,
+          metadata: {
+            chunkId: `${document.id}#title`,
+            documentId: document.id,
+            source: "github",
+            type: "project-title",
+            documentTitle: data.title,
+            author: data.owner,
+            jsonPath: "$.title",
+          },
+        });
+      }
 
+      if (data.items) {
+        for (let i = 0; i < data.items.length; i++) {
+          const item = data.items[i];
+          const fieldValuesText =
+            item.field_values
+              ?.map((fv) => `${fv.name}: ${fv.value ?? "null"}`)
+              .join(", ") || "";
+          const content = item.title
+            ? `${item.title}${fieldValuesText ? ` - ${fieldValuesText}` : ""}`
+            : `${item.content_type}${
+                item.content_id ? ` #${item.content_id}` : ""
+              }${fieldValuesText ? ` - ${fieldValuesText}` : ""}`;
+
+          chunks.push({
+            id: `${document.id}#item-${item.id}`,
+            documentId: document.id,
+            source: "github",
+            content,
+            metadata: {
+              chunkId: `${document.id}#item-${item.id}`,
+              documentId: document.id,
+              source: "github",
+              type: "project-item",
+              documentTitle: data.title,
+              author: data.owner,
+              jsonPath: `$.items[${i}]`,
+              sourceMetadata: document.metadata.sourceMetadata,
+            },
+          });
+        }
+      }
+    }
+
+    return chunks;
+  },
+
+  subjects: {},
+
+  evidence: {
     async buildVectorSearchFilter(
       context: QueryHookContext
     ): Promise<Record<string, unknown> | null> {

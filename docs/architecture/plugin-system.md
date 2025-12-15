@@ -7,8 +7,8 @@ The core of the system is an extensible, hook-based plugin architecture. The eng
 ### 1. Namespaces
 To keep concerns separate, the plugin API is organized into namespaces corresponding to the two main subsystems:
 
-*   **Root (Shared)**: Hooks that apply to the raw document before it is split (e.g., `prepareSourceDocument`).
-*   **`evidence` (RAG)**: Hooks related to the **Evidence Locker**—handling raw chunks, vector search, and context reconstruction.
+*   **Root (Shared)**: Hooks that apply before subsystem-specific processing (e.g., `prepareSourceDocument`, `splitDocumentIntoChunks`).
+*   **`evidence` (RAG)**: Hooks related to the **Evidence Locker**—vector search, reranking, and context reconstruction.
 *   **`subjects` (Knowledge Graph)**: Hooks related to the **Knowledge Synthesis Engine**—extracting moments, finding subjects, and summarizing content.
 
 ### 2. Composition Strategies
@@ -28,10 +28,10 @@ const MyPlugin: Plugin = {
 
   // --- Shared Hooks ---
   prepareSourceDocument: async (context) => { /* ... */ },
+  splitDocumentIntoChunks: async (doc, ctx) => { /* ... */ },
 
   // --- Evidence Locker (RAG) Hooks ---
   evidence: {
-    splitDocumentIntoChunks: async (doc, ctx) => { /* ... */ },
     enrichChunk: async (chunk, ctx) => { /* ... */ },
     // ...
   },
@@ -52,11 +52,11 @@ const MyPlugin: Plugin = {
 *   **Purpose**: To identify a raw source file (from R2) and transform it into a standardized `Document` object. This is the entry point for all indexing.
 *   **Strategy**: `First-Match`
 
-### Evidence Locker (RAG) Hooks
-
 #### `splitDocumentIntoChunks`
-*   **Purpose**: To break a `Document` into smaller, searchable `Chunk` objects.
+*   **Purpose**: To break a `Document` into a stable, ordered list of `Chunk` objects. This chunk stream is used by both the Evidence Locker and the Knowledge Synthesis Engine.
 *   **Strategy**: `First-Match`
+
+### Evidence Locker (RAG) Hooks
 
 #### `enrichChunk`
 *   **Purpose**: To add metadata or computed fields to a chunk before it is hashed and indexed.

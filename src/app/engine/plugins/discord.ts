@@ -215,119 +215,119 @@ export const discordPlugin: Plugin = {
     }
   },
 
+  async splitDocumentIntoChunks(
+    document: Document,
+    context: IndexingHookContext
+  ): Promise<Chunk[]> {
+    if (document.source !== "discord") {
+      return [];
+    }
+
+    const parsed = parseDiscordR2Key(context.r2Key);
+    if (!parsed) {
+      return [];
+    }
+
+    const chunks: Chunk[] = [];
+
+    if (parsed.type === "channel") {
+      const data = document.metadata._rawJson as
+        | { messages: DiscordMessage[]; parsed: typeof parsed }
+        | undefined;
+      if (!data) {
+        throw new Error(
+          `Document metadata missing _rawJson for ${context.r2Key}`
+        );
+      }
+
+      // Create one chunk per message
+      for (let i = 0; i < data.messages.length; i++) {
+        const message = data.messages[i];
+        if (!message.content || message.content.trim() === "") {
+          continue;
+        }
+
+        chunks.push({
+          id: `${context.r2Key}#message-${message.id}`,
+          documentId: context.r2Key,
+          source: "discord",
+          content: message.content,
+          metadata: {
+            chunkId: `${context.r2Key}#message-${message.id}`,
+            documentId: context.r2Key,
+            source: "discord",
+            type: "channel-message",
+            documentTitle: document.metadata.title,
+            author: getAuthorName(message),
+            jsonPath: `$.messages[${i}].content`,
+            timestamp: message.timestamp,
+            messageId: message.id,
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      }
+    } else {
+      const threadPage = document.metadata._rawJson as ThreadPage | undefined;
+      if (!threadPage) {
+        throw new Error(
+          `Document metadata missing _rawJson for ${context.r2Key}`
+        );
+      }
+
+      // Create chunk for starter message
+      if (threadPage.starter_message.content) {
+        chunks.push({
+          id: `${context.r2Key}#starter`,
+          documentId: context.r2Key,
+          source: "discord",
+          content: threadPage.starter_message.content,
+          metadata: {
+            chunkId: `${context.r2Key}#starter`,
+            documentId: context.r2Key,
+            source: "discord",
+            type: "thread-starter",
+            documentTitle: document.metadata.title,
+            author: getAuthorName(threadPage.starter_message),
+            jsonPath: "$.starter_message.content",
+            timestamp: threadPage.starter_message.timestamp,
+            messageId: threadPage.starter_message.id,
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      }
+
+      // Create chunks for each reply message
+      for (let i = 0; i < threadPage.messages.length; i++) {
+        const message = threadPage.messages[i];
+        if (!message.content || message.content.trim() === "") {
+          continue;
+        }
+
+        chunks.push({
+          id: `${context.r2Key}#message-${message.id}`,
+          documentId: context.r2Key,
+          source: "discord",
+          content: message.content,
+          metadata: {
+            chunkId: `${context.r2Key}#message-${message.id}`,
+            documentId: context.r2Key,
+            source: "discord",
+            type: "thread-message",
+            documentTitle: document.metadata.title,
+            author: getAuthorName(message),
+            jsonPath: `$.messages[${i}].content`,
+            timestamp: message.timestamp,
+            messageId: message.id,
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      }
+    }
+
+    return chunks;
+  },
+
   evidence: {
-    async splitDocumentIntoChunks(
-      document: Document,
-      context: IndexingHookContext
-    ): Promise<Chunk[]> {
-      if (document.source !== "discord") {
-        return [];
-      }
-
-      const parsed = parseDiscordR2Key(context.r2Key);
-      if (!parsed) {
-        return [];
-      }
-
-      const chunks: Chunk[] = [];
-
-      if (parsed.type === "channel") {
-        const data = document.metadata._rawJson as
-          | { messages: DiscordMessage[]; parsed: typeof parsed }
-          | undefined;
-        if (!data) {
-          throw new Error(
-            `Document metadata missing _rawJson for ${context.r2Key}`
-          );
-        }
-
-        // Create one chunk per message
-        for (let i = 0; i < data.messages.length; i++) {
-          const message = data.messages[i];
-          if (!message.content || message.content.trim() === "") {
-            continue; // Skip empty messages
-          }
-
-          chunks.push({
-            id: `${context.r2Key}#message-${message.id}`,
-            documentId: context.r2Key,
-            source: "discord",
-            content: message.content,
-            metadata: {
-              chunkId: `${context.r2Key}#message-${message.id}`,
-              documentId: context.r2Key,
-              source: "discord",
-              type: "channel-message",
-              documentTitle: document.metadata.title,
-              author: getAuthorName(message),
-              jsonPath: `$.messages[${i}].content`,
-              timestamp: message.timestamp,
-              messageId: message.id,
-              sourceMetadata: document.metadata.sourceMetadata,
-            },
-          });
-        }
-      } else {
-        const threadPage = document.metadata._rawJson as ThreadPage | undefined;
-        if (!threadPage) {
-          throw new Error(
-            `Document metadata missing _rawJson for ${context.r2Key}`
-          );
-        }
-
-        // Create chunk for starter message
-        if (threadPage.starter_message.content) {
-          chunks.push({
-            id: `${context.r2Key}#starter`,
-            documentId: context.r2Key,
-            source: "discord",
-            content: threadPage.starter_message.content,
-            metadata: {
-              chunkId: `${context.r2Key}#starter`,
-              documentId: context.r2Key,
-              source: "discord",
-              type: "thread-starter",
-              documentTitle: document.metadata.title,
-              author: getAuthorName(threadPage.starter_message),
-              jsonPath: "$.starter_message.content",
-              timestamp: threadPage.starter_message.timestamp,
-              messageId: threadPage.starter_message.id,
-              sourceMetadata: document.metadata.sourceMetadata,
-            },
-          });
-        }
-
-        // Create chunks for each reply message
-        for (let i = 0; i < threadPage.messages.length; i++) {
-          const message = threadPage.messages[i];
-          if (!message.content || message.content.trim() === "") {
-            continue; // Skip empty messages
-          }
-
-          chunks.push({
-            id: `${context.r2Key}#message-${message.id}`,
-            documentId: context.r2Key,
-            source: "discord",
-            content: message.content,
-            metadata: {
-              chunkId: `${context.r2Key}#message-${message.id}`,
-              documentId: context.r2Key,
-              source: "discord",
-              type: "thread-message",
-              documentTitle: document.metadata.title,
-              author: getAuthorName(message),
-              jsonPath: `$.messages[${i}].content`,
-              timestamp: message.timestamp,
-              messageId: message.id,
-              sourceMetadata: document.metadata.sourceMetadata,
-            },
-          });
-        }
-      }
-
-      return chunks;
-    },
-
     async buildVectorSearchFilter(
       context: QueryHookContext
     ): Promise<Record<string, unknown> | null> {

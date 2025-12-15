@@ -769,6 +769,17 @@ Updated architecture docs to reflect current behavior:
   - Stage 4 includes micro-moment chunk batching + caching and Smart Linker stitching
   - Stage 5 includes moment match trails and subject-first fallback ordering
 
+### 2025-12-15 (time not recorded) - Refactor (chunking hook moved to shared plugin API)
+
+I moved chunking out of the Evidence Locker hook namespace and into the shared plugin API:
+
+- `splitDocumentIntoChunks` is now a top-level plugin hook.
+- The engine uses this single chunk stream for both:
+  - Evidence Locker indexing (diffing + Vectorize writes)
+  - Knowledge Synthesis (micro-moment batching and summarization)
+
+I updated the engine and the Cursor/GitHub/Discord/default plugins to implement the new hook location, and updated architecture docs so the hook layout matches how it is used.
+
 ---
 
 ## PR title

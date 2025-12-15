@@ -103,11 +103,11 @@ export interface Plugin {
   prepareSourceDocument?: (
     context: IndexingHookContext
   ) => Promise<Document | null>;
+  splitDocumentIntoChunks?: (
+    document: Document,
+    context: IndexingHookContext
+  ) => Promise<Chunk[]>;
   evidence?: {
-    splitDocumentIntoChunks?: (
-      document: Document,
-      context: IndexingHookContext
-    ) => Promise<Chunk[]>;
     enrichChunk?: (
       chunk: Chunk,
       context: IndexingHookContext

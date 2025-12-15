@@ -41,7 +41,7 @@ To reconstruct coherent context from fragmented vector results:
 
 ## Integration with Plugins
 The Evidence Locker relies heavily on the Plugin System to handle the specifics of different file types. See `plugin-system.md` for details on the hooks:
-*   `splitDocumentIntoChunks`
+*   `splitDocumentIntoChunks` (shared hook)
 *   `enrichChunk`
 *   `buildVectorSearchFilter`
 *   `reconstructContext`

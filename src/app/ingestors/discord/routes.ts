@@ -9,11 +9,18 @@ import type {
   SchedulerJobMessage,
   GatewayEventMessage,
 } from "@/app/ingestors/discord/services/backfill-types";
+import { processThreadEvent } from "@/app/ingestors/discord/services/thread-processor";
 import { logDiscordRequest, requireGatewayAuth } from "./interruptors";
 
 const backfillRequestSchema = z.object({
   guildID: z.string().min(1),
   channelID: z.string().min(1),
+});
+
+const threadRefreshRequestSchema = z.object({
+  guildID: z.string().min(1),
+  channelID: z.string().min(1),
+  threadID: z.string().min(1),
 });
 
 const backfillRoute = route("/backfill", [
@@ -297,9 +304,45 @@ const gatewayEventsRoute = route("/events", [
   },
 ]);
 
+const refreshThreadRoute = route("/thread/refresh", [
+  requireGatewayAuth,
+  logDiscordRequest,
+  async ({ request, ctx }: { request: Request; ctx: any }) => {
+    try {
+      const body = await request.json();
+      const { guildID, channelID, threadID } = threadRefreshRequestSchema.parse(
+        body
+      );
+
+      await processThreadEvent(guildID, channelID, threadID);
+
+      const r2Key = `discord/${guildID}/${channelID}/threads/${threadID}/latest.json`;
+      const apiResponse = Response.json({
+        success: true,
+        r2Key,
+        message: "Thread refresh completed",
+      });
+      ctx.logCompletion?.(apiResponse);
+      return apiResponse;
+    } catch (error) {
+      console.error("Discord thread refresh error:", error);
+      const errorResponse = Response.json(
+        {
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        },
+        { status: 500 }
+      );
+      ctx.logCompletion?.(errorResponse);
+      return errorResponse;
+    }
+  },
+]);
+
 export const routes = [
   backfillRoute,
   pauseBackfillRoute,
   statusRoute,
   gatewayEventsRoute,
+  refreshThreadRoute,
 ];

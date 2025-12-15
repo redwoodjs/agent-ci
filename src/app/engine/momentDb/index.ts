@@ -36,7 +36,9 @@ export async function addMoment(moment: Moment): Promise<void> {
     }
   }
 
-  function readTimeRange(value: unknown): { start: string; end: string } | null {
+  function readTimeRange(
+    value: unknown
+  ): { start: string; end: string } | null {
     const range = (value as any)?.timeRange;
     const start = typeof range?.start === "string" ? range.start : null;
     const end = typeof range?.end === "string" ? range.end : null;
@@ -298,16 +300,14 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
         title: row.title,
         parentId: row.parent_id || undefined,
         microPaths: row.micro_paths_json
-          ? (JSON.parse(row.micro_paths_json as any) as string[])
+          ? (row.micro_paths_json as unknown as string[] | null) || undefined
           : undefined,
         microPathsHash: (row.micro_paths_hash as any) || undefined,
         createdAt: row.created_at,
         author: row.author,
-        sourceMetadata: row.source_metadata
-          ? typeof row.source_metadata === "string"
-            ? (JSON.parse(row.source_metadata) as Record<string, any>)
-            : (row.source_metadata as Record<string, any>)
-          : undefined,
+        sourceMetadata:
+          (row.source_metadata as unknown as Record<string, any> | null) ||
+          undefined,
       };
       descendants.push(childMoment);
       // Recursively find children of this child

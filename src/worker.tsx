@@ -165,10 +165,7 @@ export default {
           }
 
           message.ack();
-        } else if (
-          queueName === "chunk-processing-queue-dev-justin" ||
-          queueName === "chunk-processing-queue"
-        ) {
+        } else if (queueName.startsWith("chunk-processing-queue")) {
           const chunk = queueMessage as unknown as Chunk;
           await processChunkJob(chunk, env as Cloudflare.Env);
           message.ack();

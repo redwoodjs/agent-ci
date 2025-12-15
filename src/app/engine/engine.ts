@@ -475,6 +475,30 @@ export async function query(
     env: context.env,
   };
 
+  function formatIso8601(raw: unknown): string {
+    if (typeof raw !== "string") {
+      return "";
+    }
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      return "";
+    }
+    const date = new Date(trimmed);
+    if (Number.isNaN(date.getTime())) {
+      return trimmed;
+    }
+    return date.toISOString();
+  }
+
+  function formatTimelineLine(
+    moment: { createdAt?: string; title?: string; summary?: string },
+    idx: number
+  ): string {
+    const iso = formatIso8601(moment.createdAt);
+    const prefix = iso.length > 0 ? `${iso} ` : "";
+    return `${prefix}${idx + 1}. ${moment.title}: ${moment.summary}`;
+  }
+
   // Narrative Query Path: Try to answer using Subject (root moment) first
   try {
     const queryEmbedding = await generateEmbedding(userQuery);
@@ -522,9 +546,7 @@ export async function query(
               .slice(0, 6)
               .map((trail, trailIdx) => {
                 const steps = (trail as any[])
-                  .map(
-                    (m, idx: number) => `${idx + 1}. ${m.title}: ${m.summary}`
-                  )
+                  .map((m, idx: number) => formatTimelineLine(m, idx))
                   .join("\n");
                 return `Trail ${trailIdx + 1}\n${steps}`;
               })
@@ -563,9 +585,7 @@ Provide a clear narrative answer. Prefer causal links and chronological explanat
       if (timeline.length > 0) {
         // Build narrative context from moment summaries
         const narrativeContext = timeline
-          .map(
-            (moment, idx) => `${idx + 1}. ${moment.title}: ${moment.summary}`
-          )
+          .map((moment, idx) => formatTimelineLine(moment, idx))
           .join("\n\n");
 
         const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.

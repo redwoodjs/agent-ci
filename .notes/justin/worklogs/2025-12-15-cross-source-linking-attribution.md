@@ -410,3 +410,13 @@ Change:
 Reason:
 
 - Keeps the validation loop focused on the Moment Graph and linking behavior, and avoids results being dominated by chunk retrieval.
+
+### 2025-12-15 - Query output tweak: ISO8601 timestamps in narrative prompt timeline
+
+Change:
+
+- When building the narrative prompt from Moment Graph moments, each timeline line is prefixed with an ISO8601 timestamp derived from the stored moment createdAt.
+
+Reason:
+
+- Makes chronological ordering explicit in the text the model sees during narrative answering, without changing stored moment titles/summaries.

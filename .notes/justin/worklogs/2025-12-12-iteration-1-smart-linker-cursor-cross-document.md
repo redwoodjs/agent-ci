@@ -768,3 +768,32 @@ Updated architecture docs to reflect current behavior:
 - `docs/architecture/system-flow.md`
   - Stage 4 includes micro-moment chunk batching + caching and Smart Linker stitching
   - Stage 5 includes moment match trails and subject-first fallback ordering
+
+---
+
+## PR title
+
+Smart Linker: cross-document attachment, namespace isolation, and local resync loop
+
+## Smart Linker
+
+Previously, the Moment Graph treated each document as an isolated island—a single linear timeline that became its own Subject (root moment). This was limited because real-world knowledge is scattered across many conversations, PRs, and issue threads. If I discuss "auth refactor" in a Cursor chat today, and continue it in a Discord thread tomorrow, the system should see them as one connected narrative, not two separate ones.
+
+The challenge is that different data sources (Cursor, Discord, GitHub) and different entities (conversations, threads) need to be linked under the same subject without manual tagging. We need a way to automatically detect that a new document belongs to an existing timeline and "stitch" it in place.
+
+The Smart Linker solves this by adding a semantic correlation step during indexing. Before creating a new Subject, it embeds the incoming document (using a concatenated view of its micro-moments) and queries the vector index for existing related moments. If a match is found above a similarity threshold, the system attaches the new document's first macro-moment as a child of the matched moment.
+
+This approach creates a **branching Moment Graph** where a single Subject can have multiple timelines merging into it. To make this work practically, we refined several behaviors:
+- **Branching:** Allowed attachment to any moment (not just roots), so a conversation can branch off from specific point in a previous timeline.
+- **Query Trails:** Updated the query engine to prefer "moment trails" (ancestor chains from specific matched moments) over generic subject-first retrieval, ensuring answers reflect the specific branch where the match occurred.
+- **Better Summaries:** Improved micro-moment summarization by injecting source-specific context (e.g., "this is an AI coding assistant conversation") into the LLM prompt, ensuring the semantic embeddings have concrete anchors like file paths and error messages rather than generic chatter.
+
+## Changes to make dev more practical and fast
+
+Validating the Smart Linker was slow and painful because it relied on the full async ingestion pipeline: deploy the worker, upload a file to R2, wait for the event notification, wait for the queue, and hope tail logs didn't get sampled. This cycle took minutes per attempt and made it hard to run controlled A/B tests (e.g., "does Doc B attach to Doc A?").
+
+We solved this by building a **manual resync loop** and **namespace isolation**:
+
+- **Manual Resync Endpoint:** Added `POST /rag/admin/resync` to trigger indexing for specific R2 keys immediately (`inline` mode) or via the queue (`enqueue` mode), bypassing R2 event delays.
+- **Local Log Capture:** Added `npm run dev:log` to pipe local dev logs to a file, avoiding tail sampling and making it easy to grep for linker decisions.
+- **Namespace Isolation:** Implemented full isolation for test runs. We now write `momentGraphNamespace` metadata to vector indexes and apply a **query-time metadata filter** when reading. This ensures that a test run for "feature-branch-x" never sees stale candidates from "default" or previous runs, preventing false negatives (where valid matches were starved out of top-k by stale data). We also documented the requirement to create Vectorize metadata indexes for this filtering to work.

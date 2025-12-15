@@ -88,14 +88,14 @@ ${
 **Output format (strictly follow this):**
 
 MACRO-MOMENT 1
-TITLE: A concise, past-tense title for the event (e.g., "Realized barrel files were needed for tree-shaking")
+TITLE: <required_title_prefix> <concise, past-tense title for the event>
 INDICES: A comma-separated list of the Index values (1-based) that belong to this macro-moment, in chronological order
-SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
+SUMMARY: <required_summary_prefix> 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project. Include the required document ref token if provided.
 
 MACRO-MOMENT 2
-TITLE: A concise, past-tense title for the event
+TITLE: <required_title_prefix> <concise, past-tense title for the event>
 INDICES: A comma-separated list of the Index values (1-based) that belong to this macro-moment, in chronological order
-SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
+SUMMARY: <required_summary_prefix> 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project. Include the required document ref token if provided.
 
 **Input micro-moments:**
 ${formattedMoments}

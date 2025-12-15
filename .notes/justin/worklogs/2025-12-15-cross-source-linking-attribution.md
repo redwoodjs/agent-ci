@@ -50,74 +50,6 @@ Relevant prior work logs:
   - Discord thread objects covering the discussion window
   - GitHub issue `redwoodjs/sdk#552` and related PR(s)
 
-### 2025-12-15 - Implementation kickoff
-
-Next step is implementation. Per repo process, I updated architecture docs first to reflect the planned canonical token format and the macro synthesis prompt hook that provides source-specific formatting and reference context.
-
-Docs updated:
-
-- `docs/architecture/knowledge-synthesis-engine.md`
-- `docs/architecture/plugin-system.md`
-- `docs/architecture/system-flow.md`
-
-### 2025-12-15 - Implementation status (in progress)
-
-Changes made:
-
-- Added a plugin hook for macro synthesis prompt context so each source plugin can provide:
-  - title label formatting guidance
-  - canonical token shapes
-  - concrete reference tokens for the current document (capped lists for comments/messages)
-- Wired the engine to call this hook before macro synthesis and pass the returned text into the macro synthesis prompt.
-- Updated the macro synthesis prompt to include:
-  - generic formatting rules for canonical tokens
-  - the per-source plugin-provided block
-
-### 2025-12-15 - Implementation note (title labels and natural summary descriptors)
-
-Macro synthesis prompt formatting rules now support:
-
-- `title_label`: used as the bracket label at the start of each macro moment title (example: `[GitHub Pull Request #530]`).
-- `summary_descriptor`: used as the natural-language prefix at the start of each macro moment summary (example: `In a GitHub pull request (#530), ...`).
-
-Each plugin's macro synthesis prompt context hook now provides these fields where possible.
-
-### 2025-12-15 - Implementation note (macro synthesis prompt: hard requirements)
-
-The macro synthesis prompt rules were tightened to require exact usage of values provided by the plugin context:
-
-- Title must begin with the exact `title_label` value when provided.
-- Summary must begin with the exact `summary_descriptor` value when provided.
-- Summary must include the `document_ref` token in brackets exactly once when provided.
-
-### 2025-12-15 - Implementation note (prompt compliance iteration)
-
-Observed from local runs on `github/redwoodjs/sdk/issues/552/latest.json`:
-
-- The macro synthesis output sometimes omitted `title_label` and the bracketed `document_ref` token, even when they were present in the plugin-provided context.
-
-Change:
-
-- The macro synthesis prompt now includes a short "Resolved requirements" block that repeats the extracted `title_label`, `summary_descriptor`, and `document_ref` values.
-- Macro synthesis temperature was set to 0 to reduce format drift.
-- The engine now logs the full macro synthesis prompt context block for inspection in dev logs.
-
-### 2025-12-15 - Implementation note (macro synthesis context hook scope)
-
-The per-source macro synthesis prompt context hook is now used for more than references and formatting. Plugins can also provide narrative context guidance that shapes how the macro summary is written (example: issue text as proposal/discussion vs PR text as changes/review).
-
-### 2025-12-15 - Implementation note (micro summarization: engine-owned, plugin context)
-
-Observed:
-
-- GitHub issue text often describes intent (problem statement, proposal, request), but micro summaries were phrased as completed work ("implemented", "added").
-
-Change:
-
-- The engine performs micro-moment summarization (LLM call and parsing).
-- Plugins only provide a prompt context string via a hook, per source and per document type (issue vs pull request, thread vs channel, etc).
-- The default plugin provides a generic fallback context and does not branch on source.
-
 ### 2025-12-15 - Current pipeline notes (chunks, micro-moments, macro-moments)
 
 Engine plugin ordering (indexing and querying):
@@ -351,4 +283,56 @@ Cursor note:
 - Cursor can still use a title label like `[Cursor Conversation]`.
 - For now, the summary should omit a canonical token for Cursor (or include a generic token without an id).
 
+### 2025-12-15 - Implementation kickoff
 
+Next step is implementation. Per repo process, I updated architecture docs first to reflect the planned canonical token format and the macro synthesis prompt hook that provides source-specific formatting and reference context.
+
+Docs updated:
+
+- `docs/architecture/knowledge-synthesis-engine.md`
+- `docs/architecture/plugin-system.md`
+- `docs/architecture/system-flow.md`
+
+### 2025-12-15 - Implementation status: Macro Synthesis & Attribution
+
+Changes made:
+
+- **Plugin Hook for Macro Context**: Added `subjects.getMacroSynthesisPromptContext` hook to the plugin API.
+  - Wired the engine to call this hook before macro synthesis.
+  - The hook allows each plugin to provide:
+    - Title label (e.g., `[GitHub Issue #552]`)
+    - Summary descriptor (e.g., `In a GitHub Issue (#552),`)
+    - Canonical document reference token (e.g., `github:issue/redwoodjs/sdk/552`)
+    - Narrative context guidance (e.g., "treat as proposal")
+- **Prompt Engineering**:
+  - Updated the macro synthesis prompt to include generic formatting rules for canonical tokens.
+  - Appended the plugin-provided context block verbatim to the prompt.
+- **Tightened Output Requirements**:
+  - To prevent the LLM from hallucinating or omitting prefixes, the prompt now explicitly requires the title and summary to start with the provided `title_label` and `summary_descriptor`.
+  - The output schema in the prompt was changed to:
+    - `TITLE: <required_title_prefix> <rest>`
+    - `SUMMARY: <required_summary_prefix> ...`
+  - A "Resolved requirements" block is injected into the prompt, explicitly listing the exact strings the model must use.
+  - Set LLM temperature to `0` for maximum compliance.
+
+### 2025-12-15 - Implementation status: Micro Summarization
+
+Problem:
+- Micro-moment summaries for GitHub issues were often phrased as "Implemented X" or "Added Y", even when the issue body only described a proposal or a bug report.
+- The default summarizer didn't know the document context.
+
+Changes made:
+- **Engine-Owned Summarization**:
+  - Moved the micro-moment summarization logic (LLM call + line-based parsing) into a dedicated engine function (`src/app/engine/subjects/computeMicroMomentsForChunkBatch.ts`).
+  - Removed duplicated/flimsy regex parsing from plugins.
+- **Plugin Hook for Micro Context**:
+  - Added `subjects.getMicroMomentBatchPromptContext` hook.
+  - This allows each plugin to provide a specific "lens" for the summarizer (e.g., "These chunks are from a GitHub issue; treat them as proposals/discussion unless explicitly completed").
+- **Implementation**:
+  - Implemented the hook in `github.ts` (issue vs PR), `discord.ts` (thread vs channel), `cursor.ts`, and `default.ts`.
+  - The default plugin no longer branches on source; it just provides generic fallback context.
+
+Status:
+- Validated with manual reindexing of issue #552.
+- Micro summaries now correctly use verbs like "Proposed", "Identified", "discussed".
+- Macro summaries now correctly reflect the proposal nature of the issue.

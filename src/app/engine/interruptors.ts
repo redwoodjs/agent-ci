@@ -77,8 +77,9 @@ export async function validateQueryInput({
 
   if (request.method === "POST") {
     try {
-      const body = (await request.json()) as { query?: string };
-      queryText = body.query || queryParam;
+      const body = (await request.json()) as Record<string, unknown>;
+      const bodyQuery = body.query;
+      queryText = typeof bodyQuery === "string" ? bodyQuery : queryParam;
       ctx.parsedBody = body;
     } catch {
       queryText = queryParam;

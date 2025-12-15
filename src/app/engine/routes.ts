@@ -17,7 +17,7 @@ import { clearAllIndexingState } from "./db";
 import { getMomentGraphNamespaceFromEnv } from "./momentGraphNamespace";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
-  let body:
+  const body = (ctx as any)?.parsedBody as
     | {
         query?: unknown;
         momentGraphNamespace?: unknown;
@@ -26,11 +26,6 @@ async function queryHandler({ request, ctx }: RequestInfo) {
         disableEvidenceLocker?: unknown;
       }
     | undefined;
-  try {
-    body = (await request.json()) as any;
-  } catch {
-    body = undefined;
-  }
 
   const queryText =
     (ctx as any).validatedQuery ||

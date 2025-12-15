@@ -501,6 +501,15 @@ export async function query(
 
   // Narrative Query Path: Try to answer using Subject (root moment) first
   try {
+    const momentGraphNamespaceRaw = (context.env as any)
+      ?.MOMENT_GRAPH_NAMESPACE;
+    const momentGraphNamespace =
+      typeof momentGraphNamespaceRaw === "string" &&
+      momentGraphNamespaceRaw.trim().length > 0
+        ? momentGraphNamespaceRaw.trim()
+        : "default";
+    console.log(`[query:narrative] namespace=${momentGraphNamespace}`);
+
     const queryEmbedding = await generateEmbedding(userQuery);
     const {
       findSimilarSubjects,
@@ -510,6 +519,7 @@ export async function query(
     } = await import("./momentDb");
 
     const similarMoments = await findSimilarMoments(queryEmbedding, 8);
+    console.log(`[query:narrative] similarMoments=${similarMoments.length}`);
     if (similarMoments.length > 0) {
       const trailsByRoot = new Map<
         string,
@@ -534,6 +544,9 @@ export async function query(
       }
 
       if (trailsByRoot.size > 0) {
+        console.log(
+          `[query:narrative] trailsByRoot=${trailsByRoot.size} (from moment matches)`
+        );
         const rootsSorted = Array.from(trailsByRoot.values()).sort(
           (a, b) => b.trails.length - a.trails.length
         );
@@ -575,12 +588,17 @@ Provide a clear narrative answer. Prefer causal links and chronological explanat
     }
 
     const similarSubjects = await findSimilarSubjects(queryEmbedding, 5);
+    console.log(`[query:narrative] similarSubjects=${similarSubjects.length}`);
 
     if (similarSubjects.length > 0) {
       const subjectMoment = similarSubjects[0];
+      console.log(
+        `[query:narrative] choseSubject=${subjectMoment.id} doc=${subjectMoment.documentId}`
+      );
 
       // Get the full narrative timeline (root moment + all descendants)
       const timeline = await findDescendants(subjectMoment.id);
+      console.log(`[query:narrative] timelineLen=${timeline.length}`);
 
       if (timeline.length > 0) {
         // Build narrative context from moment summaries
@@ -615,6 +633,7 @@ Provide a clear, narrative answer that explains the story and causal relationshi
   }
 
   if (!enableEvidenceLocker) {
+    console.log(`[query] no narrative match; evidenceLockerDisabled=true`);
     return `No Moment Graph subject timeline matched this query. Evidence Locker is disabled.`;
   }
 

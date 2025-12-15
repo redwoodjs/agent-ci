@@ -420,3 +420,18 @@ Change:
 Reason:
 
 - Makes chronological ordering explicit in the text the model sees during narrative answering, without changing stored moment titles/summaries.
+
+### 2025-12-15 - Query investigation: namespace not reaching handler
+
+Observed:
+
+- Queries in the test namespace returned "No Moment Graph subject timeline matched this query. Evidence Locker is disabled."
+
+Finding:
+
+- The query input validation interruptor parsed the POST body as `{ query?: string }` and stored that as the parsed body. This dropped `momentGraphNamespace` from the request body before the query handler ran.
+
+Change:
+
+- The interruptor now parses the body as a generic JSON object and preserves all fields in the parsed body so `momentGraphNamespace` can be applied per request.
+- Added narrative-path debug logs in the query function to print the namespace, match counts, and whether it fell through.

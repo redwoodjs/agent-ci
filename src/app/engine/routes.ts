@@ -6,10 +6,7 @@ import {
   rateLimitQuery,
   validateQueryInput,
 } from "./interruptors";
-import {
-  query,
-  createEngineContext,
-} from "./index";
+import { query, createEngineContext, indexDocument } from "./index";
 import { findAncestors, findLastMomentForDocument } from "./momentDb";
 import {
   processScannerJob,
@@ -17,6 +14,7 @@ import {
   enqueueUnprocessedFiles,
 } from "./services/scanner-service";
 import { clearAllIndexingState } from "./db";
+import { getMomentGraphNamespaceFromEnv } from "./momentGraphNamespace";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const queryText =
@@ -166,6 +164,127 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function resyncHandler({ request }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  const host = new URL(request.url).host;
+  if (host === "machinen.redwoodjs.workers.dev") {
+    return Response.json({ error: "Not found" }, { status: 404 });
+  }
+
+  let body:
+    | {
+        r2Key?: unknown;
+        r2Keys?: unknown;
+        momentGraphNamespace?: unknown;
+        namespace?: unknown;
+        mode?: unknown;
+      }
+    | undefined;
+
+  try {
+    body = (await request.json()) as any;
+  } catch {
+    body = undefined;
+  }
+
+  const r2KeysRaw = (body as any)?.r2Keys;
+  const r2KeyRaw = (body as any)?.r2Key;
+  const r2Keys =
+    Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
+      ? (r2KeysRaw as string[])
+      : typeof r2KeyRaw === "string"
+      ? [r2KeyRaw]
+      : null;
+
+  if (!r2Keys || r2Keys.length === 0) {
+    return Response.json(
+      { error: "Missing or invalid 'r2Keys' or 'r2Key' parameter" },
+      { status: 400 }
+    );
+  }
+
+  const namespaceRaw =
+    (body as any)?.momentGraphNamespace ?? (body as any)?.namespace;
+  const momentGraphNamespace =
+    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+      ? namespaceRaw.trim()
+      : null;
+
+  const modeRaw = (body as any)?.mode;
+  const mode = modeRaw === "enqueue" ? "enqueue" : "inline";
+
+  const envCloudflare = env as Cloudflare.Env;
+
+  const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
+  if (momentGraphNamespace) {
+    (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+  }
+
+  try {
+    const effectiveNamespace =
+      getMomentGraphNamespaceFromEnv(envCloudflare) ?? "default";
+
+    if (mode === "enqueue") {
+      if (!envCloudflare.ENGINE_INDEXING_QUEUE) {
+        return Response.json(
+          { error: "ENGINE_INDEXING_QUEUE binding not found" },
+          { status: 500 }
+        );
+      }
+
+      const batchSize = 10;
+      for (let i = 0; i < r2Keys.length; i += batchSize) {
+        const batch = r2Keys.slice(i, i + batchSize);
+        await envCloudflare.ENGINE_INDEXING_QUEUE.sendBatch(
+          batch.map((r2Key) => ({
+            body: { r2Key, momentGraphNamespace: effectiveNamespace },
+          }))
+        );
+      }
+
+      return Response.json({
+        success: true,
+        mode,
+        momentGraphNamespace: effectiveNamespace,
+        r2KeysEnqueued: r2Keys.length,
+      });
+    }
+
+    const context = createEngineContext(envCloudflare, "indexing");
+
+    const results: Array<{
+      r2Key: string;
+      chunks: number;
+      error?: string;
+    }> = [];
+
+    for (const r2Key of r2Keys) {
+      try {
+        const chunks = await indexDocument(r2Key, context);
+        results.push({ r2Key, chunks: chunks.length });
+      } catch (error) {
+        results.push({
+          r2Key,
+          chunks: 0,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return Response.json({
+      success: true,
+      mode,
+      momentGraphNamespace: effectiveNamespace,
+      results,
+    });
+  } finally {
+    (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
+  }
+}
+
 async function clearIndexingStateHandler({ request, ctx }: RequestInfo) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -260,6 +379,8 @@ async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
     }
 
     const envCloudflare = env as Cloudflare.Env;
+    const momentGraphNamespace =
+      getMomentGraphNamespaceFromEnv(envCloudflare) ?? "default";
 
     console.log(`[debug] Querying SUBJECT_INDEX for: "${queryText}"`);
 
@@ -281,28 +402,44 @@ async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
     const vectors = embeddingResponse.data[0];
     console.log(`[debug] Generated embedding (dimension: ${vectors.length})`);
 
-    // Query the SUBJECT_INDEX
-    const searchResults = await envCloudflare.SUBJECT_INDEX.query(vectors, {
+    const queryOptions: Record<string, unknown> = {
       topK: 10,
       returnMetadata: true,
-    });
+    };
+    if (momentGraphNamespace !== "default") {
+      queryOptions.filter = { momentGraphNamespace };
+    }
+
+    // Query the SUBJECT_INDEX
+    const searchResults = await envCloudflare.SUBJECT_INDEX.query(
+      vectors,
+      queryOptions as any
+    );
 
     console.log(
       `[debug] Vector search found ${searchResults.matches.length} matches`
     );
 
-    const matches = searchResults.matches.map((m) => ({
+    const unfilteredMatches = searchResults.matches.map((m) => ({
       id: m.id,
       score: m.score,
-      title: m.metadata?.title,
+      title: (m.metadata as any)?.title,
+      momentGraphNamespace: (m.metadata as any)?.momentGraphNamespace ?? null,
     }));
+
+    const matches = unfilteredMatches.filter((m) => {
+      const normalizedMatchNamespace = m.momentGraphNamespace ?? "default";
+      return normalizedMatchNamespace === momentGraphNamespace;
+    });
 
     return Response.json({
       query: queryText,
+      momentGraphNamespace,
       embeddingDimension: vectors.length,
-      matches: matches,
+      matches,
       debug: {
-        totalMatches: searchResults.matches.length,
+        totalMatches: unfilteredMatches.length,
+        totalMatchesInNamespace: matches.length,
         topK: 10,
       },
     });
@@ -337,6 +474,9 @@ export const routes = [
   }),
   route("/admin/backfill", {
     post: [requireQueryApiKey, backfillHandler],
+  }),
+  route("/admin/resync", {
+    post: [requireQueryApiKey, resyncHandler],
   }),
   route("/admin/clear-indexing-state", {
     post: [requireQueryApiKey, clearIndexingStateHandler],

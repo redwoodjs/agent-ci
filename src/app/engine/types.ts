@@ -54,6 +54,8 @@ export interface Moment {
   summary: string;
   title: string;
   parentId?: string;
+  microPaths?: string[];
+  microPathsHash?: string;
   createdAt: string;
   author: string;
   sourceMetadata?: Record<string, any>;
@@ -67,6 +69,11 @@ export interface MomentDescription {
   sourceMetadata?: Record<string, any>;
 }
 
+export interface MacroMomentDescription extends MomentDescription {
+  summary: string;
+  microPaths: string[];
+}
+
 export interface MicroMomentDescription {
   path: string;
   content: string;
@@ -74,7 +81,6 @@ export interface MicroMomentDescription {
   createdAt: string;
   sourceMetadata?: Record<string, any>;
 }
-
 
 export interface IndexingHookContext {
   r2Key: string;
@@ -84,6 +90,12 @@ export interface IndexingHookContext {
 export interface QueryHookContext {
   query: string;
   env: Cloudflare.Env;
+}
+
+export interface MacroMomentParentProposal {
+  parentMomentId: string;
+  matchedSubjectId: string;
+  score: number;
 }
 
 export interface Plugin {
@@ -133,14 +145,16 @@ export interface Plugin {
     ) => Promise<string>;
   };
   subjects?: {
-    extractMicroMomentsFromDocument?: (
+    computeMicroMomentsForChunkBatch?: (
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ) => Promise<string[] | null>;
+    proposeMacroMomentParent?: (
       document: Document,
+      macroMoment: MacroMomentDescription,
+      macroMomentIndex: number,
       context: IndexingHookContext
-    ) => Promise<MicroMomentDescription[] | null>;
-    summarizeMomentContent?: (
-      content: string,
-      context: IndexingHookContext
-    ) => Promise<string>;
+    ) => Promise<MacroMomentParentProposal | null>;
   };
 }
 

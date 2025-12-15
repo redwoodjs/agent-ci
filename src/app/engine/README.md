@@ -1,15 +1,36 @@
-# RAG Engine
+# Engine
 
-The RAG (Retrieval-Augmented Generation) engine provides a plugin-based architecture for indexing and querying documents. It uses Cloudflare Vectorize for vector storage and Cloudflare AI for embeddings and LLM generation.
+This engine indexes denormalized source documents stored in R2 and serves query endpoints. It uses:
+
+- Cloudflare AI for embeddings and LLM calls
+- Cloudflare Vectorize for vector search
+- Durable Objects (SQLite) for indexing state and the Moment Graph
+
+At a high level, the system maintains two stores:
+
+1. **Evidence Locker**: a vector index of document chunks for semantic retrieval.
+2. **Moment Graph**: a graph of moments for narrative queries. Root moments act as subjects and are indexed into a subject vector index.
+
+See `docs/architecture/system-flow.md` for the end-to-end flow.
 
 ## Architecture
 
-The engine operates in two main pipelines:
+### Indexing pipeline
 
-1. **Indexing Pipeline**: Processes documents from R2, chunks them, generates embeddings, and stores them in Vectorize
-2. **Query Pipeline**: Takes user queries, performs vector search, reconstructs context, and generates LLM responses
+Given an R2 object key, indexing does the following:
 
-See the [worklog](../.notes/justin/worklogs/2025-11-09-rag-engine-poc-design.md) for detailed architecture documentation.
+1. Fetch the document from R2 and prepare it via a plugin.
+2. Split the document into chunks and diff against previously processed chunk hashes.
+3. Fan out new chunks to a chunk processing queue to insert vectors into the Evidence Locker.
+4. Extract micro moments, synthesize macro moments, and update the Moment Graph. Root moments are indexed as subjects.
+
+### Query pipeline
+
+Queries use a subject-first path:
+
+1. Embed the user query and query the subject index.
+2. If a subject is found, traverse the Moment Graph to build a narrative timeline and ask the LLM for an answer.
+3. If no subject path is available, fall back to chunk retrieval against the Evidence Locker.
 
 ## Setup
 
@@ -51,7 +72,7 @@ See `docs/dx/environments.md` for detailed information on the multi-environment 
 
 Create Vectorize indexes with the appropriate dimensions for your embedding model (default: @cf/baai/bge-base-en-v1.5, 768 dimensions).
 
-**RAG Index (for raw content chunks):**
+**Evidence Locker index (raw content chunks):**
 ```bash
 npx wrangler vectorize create rag-index \
   --dimensions=768 \
@@ -184,7 +205,11 @@ npx wrangler r2 bucket notification create machinen \
 
 ### Indexing Documents
 
-To index a document, send a message to the `engine-indexing-queue` with the R2 key:
+Indexing is usually triggered by R2 event notifications. You can also trigger it manually by sending messages to the indexing queue or by calling admin endpoints.
+
+#### Indexing via queue
+
+Send a message to the indexing queue with the R2 key:
 
 ```typescript
 // GitHub example
@@ -203,19 +228,21 @@ await env.ENGINE_INDEXING_QUEUE.send({
 });
 ```
 
-**Note**: Documents are automatically indexed when created or updated in R2 via R2 event notifications. Manual indexing is typically only needed for backfilling or re-indexing.
+Queue message shapes are polymorphic:
+
+- `r2Key` or `r2Keys` (at top-level or nested under `body`)
+- optional `momentGraphNamespace` (or `namespace`) to scope the Moment Graph and indexing state for the job
 
 ### Manual Indexing via API
 
 You can manually trigger indexing for a single file using the `/admin/index` endpoint:
 
 ```bash
-# Uses the environment from MACHINEN_ENV (or defaults to local)
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
-  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/index"
+  "http://localhost:5173/rag/admin/index"
 ```
 
 Or use the full URL directly:
@@ -225,6 +252,16 @@ curl -X POST \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
   "https://your-domain.workers.dev/rag/admin/index"
+```
+
+Or use `scripts/query.sh` to build the base URL from `MACHINEN_ENV`:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
+  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/index"
 ```
 
 **Response:**
@@ -237,13 +274,47 @@ curl -X POST \
 }
 ```
 
-The indexing worker will:
+The indexing pipeline will:
 
 1. Fetch the document from R2
 2. Use plugins to prepare and chunk the document
 3. Generate embeddings for each chunk
-4. Delete any existing vectors for that document
-5. Insert new vectors into Vectorize
+4. Insert chunk vectors into Vectorize (Evidence Locker)
+5. Extract micro moments, synthesize macro moments, and update the Moment Graph
+
+### Manual resync (inline or enqueue)
+
+For local iteration, `/admin/resync` can run indexing inline (no queue wait) or enqueue it. It also accepts a namespace override so runs can be isolated without changing `.dev.vars`.
+
+Inline:
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json","cursor/conversations/<docB>/latest.json"]}' \
+  "http://localhost:5173/rag/admin/resync"
+```
+
+Enqueue:
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"mode":"enqueue","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json"]}' \
+  "http://localhost:5173/rag/admin/resync"
+```
+
+Or use `scripts/query.sh` to build the base URL from `MACHINEN_ENV`:
+
+```bash
+curl -s -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json","cursor/conversations/<docB>/latest.json"]}' \
+  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/resync"
+```
 
 ### Manual Backfill
 
@@ -293,7 +364,7 @@ The backfill process:
 
 ### Querying
 
-Query the RAG engine via the `/rag/query` endpoint. The `scripts/query.sh` script automatically uses your `MACHINEN_ENV` setting:
+Query via the `/rag/query` endpoint. The `scripts/query.sh` script automatically uses your `MACHINEN_ENV` setting:
 
 ```bash
 ./scripts/query.sh "your query"
@@ -359,6 +430,7 @@ See `types.ts` for the complete plugin interface.
 - `MOMENT_INDEX`: Vectorize index binding for moment summaries (configured in wrangler.jsonc)
 - `SUBJECT_INDEX`: Vectorize index binding for root moments representing Subjects (configured in wrangler.jsonc)
 - `AI`: Cloudflare AI binding (configured in wrangler.jsonc)
+- `MOMENT_GRAPH_NAMESPACE`: prefixes the Durable Object database namespaces used by indexing state and the Moment Graph, and is written into Moment/Subject vector metadata for filtering
 
 ## Queue Configuration
 

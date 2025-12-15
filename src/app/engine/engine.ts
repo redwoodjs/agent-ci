@@ -8,22 +8,22 @@ import type {
   EngineContext,
   ReconstructedContext,
   Moment,
-  MomentDescription,
-  MicroMomentDescription,
+  MacroMomentDescription,
 } from "./types";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
 import {
   addMoment,
   findSimilarMoments,
   findAncestors,
-  getMicroMoment,
   upsertMicroMoment,
   getMicroMomentsForDocument,
+  findMomentByMicroPathsHash,
   type MicroMoment,
 } from "./momentDb";
 import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
-import { getEmbedding } from "./utils/vector";
+import { getEmbedding, getEmbeddings } from "./utils/vector";
+import { synthesizeMicroMoments } from "./synthesis/synthesizeMicroMoments";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -36,104 +36,85 @@ async function hashChunkId(chunkId: string): Promise<string> {
   return hashHex.substring(0, 16);
 }
 
-interface SynthesizedMoment {
-  title: string;
-  summary: string;
-  content: string;
+async function hashMicroPaths(microPaths: string[]): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(microPaths.join("\n"));
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function synthesizeMicroMoments(
-  microMoments: MicroMoment[]
-): Promise<Array<MomentDescription & { summary: string }>> {
-  if (microMoments.length === 0) {
-    return [];
+async function hashStrings(values: string[]): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(values.join("\n"));
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+function truncateToChars(text: string, maxChars: number): string {
+  if (maxChars <= 0) {
+    return "";
+  }
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return text.slice(0, maxChars);
+}
+
+function chunkChunksForMicroComputation(
+  chunks: Chunk[],
+  opts: { maxBatchChars: number; maxChunkChars: number; maxBatchItems: number }
+): Chunk[][] {
+  const maxBatchChars =
+    Number.isFinite(opts.maxBatchChars) && opts.maxBatchChars > 0
+      ? opts.maxBatchChars
+      : 10_000;
+  const maxChunkChars =
+    Number.isFinite(opts.maxChunkChars) && opts.maxChunkChars > 0
+      ? opts.maxChunkChars
+      : 2_000;
+  const maxBatchItems =
+    Number.isFinite(opts.maxBatchItems) && opts.maxBatchItems > 0
+      ? opts.maxBatchItems
+      : 10;
+
+  const out: Chunk[][] = [];
+  let currentBatch: Chunk[] = [];
+  let currentChars = 0;
+
+  function flush() {
+    if (currentBatch.length > 0) {
+      out.push(currentBatch);
+      currentBatch = [];
+      currentChars = 0;
+    }
   }
 
-  const formattedMoments = microMoments
-    .map(
-      (moment) =>
-        `Path: ${moment.path}\nSummary: ${moment.summary || "No summary"}\n`
-    )
-    .join("\n---\n\n");
+  for (const chunk of chunks) {
+    const content = truncateToChars(chunk.content ?? "", maxChunkChars);
+    const projectedChars = currentChars + content.length;
 
-  const synthesisPrompt = `You are an expert at analyzing sequences of events to build a coherent narrative. Your task is to consolidate a series of low-level "micro-moments" into a smaller number of high-level "macro-moments" that tell a story of progress, discovery, and decision-making.
+    if (
+      currentBatch.length > 0 &&
+      (currentBatch.length >= maxBatchItems || projectedChars > maxBatchChars)
+    ) {
+      flush();
+    }
 
-**Your Goal:** Identify and record the most significant events. Specifically look for turning points, key discoveries or realizations, newly identified problems, new insights, important decisions, changes in approach, new attempts at solving the problem
-
-**Output format (strictly follow this):**
-
-MACRO-MOMENT 1
-TITLE: A concise, past-tense title for the event (e.g., "Realized barrel files were needed for tree-shaking")
-SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
-
-MACRO-MOMENT 2
-TITLE: A concise, past-tense title for the event
-SUMMARY: 2-4 sentences explaining what happened, why it was a significant turning point or decision, and what its impact was on the project.
-
-**Input micro-moments:**
-${formattedMoments}
-
-**Your response must:**
-- Begin with "MACRO-MOMENT 1"
-- Contain only the formatted blocks.
-- Focus on the story of the work, not just a chronological list.`;
-
-  try {
-    const response = await callLLM(synthesisPrompt, "slow-reasoning", {
-      temperature: 0.3, // Lower temperature for more focused, deterministic reasoning
-      max_tokens: 2000, // Allow sufficient space for multiple macro-moments
-      reasoning: {
-        effort: "low", // Start with low reasoning effort
-      },
+    currentBatch.push({
+      ...chunk,
+      content,
     });
+    currentChars += content.length;
 
-    // Parse structured text format - extract blocks even if there's extra text
-    const macroMoments: Array<MomentDescription & { summary: string }> = [];
-    const momentRegex =
-      /MACRO-MOMENT \d+\s*TITLE:\s*(.*?)\s*SUMMARY:\s*([\s\S]*?)(?=\s*MACRO-MOMENT \d+|$)/g;
-
-    let match;
-    while ((match = momentRegex.exec(response)) !== null) {
-      const [, title, summary] = match;
-      if (title && summary) {
-        // Concatenate all micro-moment content as the macro-moment content
-        // (we don't track which micro-moments map to which macro-moment)
-        const content = microMoments
-          .map((m) => m.content)
-          .filter(Boolean)
-          .join("\n\n---\n\n");
-
-        macroMoments.push({
-          title: title.trim(),
-          summary: summary.trim(),
-          content: content || "",
-          author: microMoments[0]?.author || "unknown",
-          createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
-          sourceMetadata: microMoments[0]?.sourceMetadata,
-        });
-      }
+    if (currentBatch.length >= maxBatchItems || currentChars > maxBatchChars) {
+      flush();
     }
-
-    if (macroMoments.length === 0) {
-      console.error(
-        `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`
-      );
-      throw new Error(
-        `Failed to parse macro-moments from LLM response. Response: ${response.substring(
-          0,
-          500
-        )}`
-      );
-    }
-
-    return macroMoments;
-  } catch (error) {
-    console.error(
-      `[engine] Error during synthesis:`,
-      error instanceof Error ? error.message : String(error)
-    );
-    return [];
   }
+
+  flush();
+  return out;
 }
 
 export async function indexDocument(
@@ -144,6 +125,7 @@ export async function indexDocument(
     r2Key,
     env: context.env,
   };
+  console.log("[moment-linker] indexDocument start", { r2Key });
 
   const document = await runFirstMatchHook(
     context.plugins,
@@ -183,89 +165,246 @@ export async function indexDocument(
   );
 
   if (newChunks.length === 0) {
+    console.log("[moment-linker] skipping: no new chunks", { r2Key });
     return []; // Nothing more to do
   }
 
-  // 3. Extract and process micro-moments, then synthesize into macro-moments
+  // 3. Compute and cache micro-moments from chunk batches, then synthesize into macro-moments
   // Subjects are now created automatically from root moments via the Moment Graph system.
   // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
-  const microMomentDescriptions = await runFirstMatchHook(
-    context.plugins,
-    "extractMicroMomentsFromDocument",
-    (plugin) =>
-      plugin.subjects?.extractMicroMomentsFromDocument?.(
-        document,
-        indexingContext
-      )
-  );
+  const existingMicroMoments = await getMicroMomentsForDocument(document.id);
 
-  if (microMomentDescriptions && microMomentDescriptions.length > 0) {
-    // Process each micro-moment: check cache, generate summary/embedding if needed
-    for (let i = 0; i < microMomentDescriptions.length; i++) {
-      const microMomentDesc = microMomentDescriptions[i];
-      if (!microMomentDesc) {
-        continue;
-      }
+  const chunkBatchSizeRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_BATCH_SIZE;
+  const chunkBatchMaxCharsRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_BATCH_MAX_CHARS;
+  const chunkMaxCharsRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_MAX_CHARS;
 
-      // Check cache
-      const cached = await getMicroMoment(document.id, microMomentDesc.path);
-      if (cached && cached.summary && cached.embedding) {
-        continue;
-      }
+  const chunkBatchSize =
+    typeof chunkBatchSizeRaw === "string"
+      ? Number.parseInt(chunkBatchSizeRaw, 10)
+      : typeof chunkBatchSizeRaw === "number"
+      ? chunkBatchSizeRaw
+      : 10;
+  const chunkBatchMaxChars =
+    typeof chunkBatchMaxCharsRaw === "string"
+      ? Number.parseInt(chunkBatchMaxCharsRaw, 10)
+      : typeof chunkBatchMaxCharsRaw === "number"
+      ? chunkBatchMaxCharsRaw
+      : 10_000;
+  const chunkMaxChars =
+    typeof chunkMaxCharsRaw === "string"
+      ? Number.parseInt(chunkMaxCharsRaw, 10)
+      : typeof chunkMaxCharsRaw === "number"
+      ? chunkMaxCharsRaw
+      : 2_000;
 
-      // Cache miss: generate summary and embedding
-      const summary = await runFirstMatchHook(
-        context.plugins,
-        "summarizeMomentContent",
-        (plugin) =>
-          plugin.subjects?.summarizeMomentContent?.(
-            microMomentDesc.content,
-            indexingContext
-          )
-      );
+  const chunkBatches = chunkChunksForMicroComputation(chunks, {
+    maxBatchChars: chunkBatchMaxChars,
+    maxChunkChars: chunkMaxChars,
+    maxBatchItems: chunkBatchSize,
+  });
 
-      if (!summary) {
-        continue;
-      }
+  console.log("[moment-linker] micro chunks extracted", {
+    documentId: document.id,
+    chunks: chunks.length,
+    batches: chunkBatches.length,
+  });
 
-      const embedding = await getEmbedding(summary);
-      await upsertMicroMoment(microMomentDesc, document.id, summary, embedding);
+  const microMomentsForSynthesis: MicroMoment[] = [];
+
+  for (let batchIndex = 0; batchIndex < chunkBatches.length; batchIndex++) {
+    const batchChunks = chunkBatches[batchIndex] ?? [];
+    const batchKeyParts = batchChunks.map((c) => {
+      const hash = c.contentHash ?? "";
+      return `${c.id}:${hash}`;
+    });
+    const batchHash = await hashStrings(batchKeyParts);
+    const prefix = `chunk-batch:${batchHash}:`;
+
+    const existingBatchItems = existingMicroMoments
+      .filter((m) => m.path.startsWith(prefix))
+      .map((m) => {
+        const idxStr = m.path.slice(prefix.length);
+        const idx = Number.parseInt(idxStr, 10);
+        return { idx, m };
+      })
+      .filter((x) => Number.isFinite(x.idx) && x.idx > 0)
+      .sort((a, b) => a.idx - b.idx)
+      .map((x) => x.m);
+
+    const hasFullCachedBatch =
+      existingBatchItems.length > 0 &&
+      existingBatchItems.every((m) => !!m.summary && !!m.embedding);
+
+    if (hasFullCachedBatch) {
+      microMomentsForSynthesis.push(...existingBatchItems);
+      continue;
     }
 
-    // Retrieve all micro-moments for this document (now with summaries/embeddings)
-    const allMicroMoments = await getMicroMomentsForDocument(document.id);
+    const computed = await runFirstMatchHook(
+      context.plugins,
+      "computeMicroMomentsForChunkBatch",
+      (plugin) =>
+        plugin.subjects?.computeMicroMomentsForChunkBatch?.(
+          batchChunks,
+          indexingContext
+        )
+    );
 
-    if (allMicroMoments.length > 0) {
-      // Synthesize micro-moments into macro-moments
-      const macroMomentDescriptions = await synthesizeMicroMoments(
-        allMicroMoments
+    const computedItems =
+      computed && Array.isArray(computed) ? computed.filter(Boolean) : [];
+
+    const itemsToStore =
+      computedItems.length > 0
+        ? computedItems
+        : batchChunks
+            .map((c) => c.content?.trim() ?? "")
+            .filter(Boolean)
+            .slice(0, 1)
+            .map((c) => c.substring(0, 300));
+
+    const embeddings = await getEmbeddings(itemsToStore);
+
+    for (let i = 0; i < itemsToStore.length; i++) {
+      const text = itemsToStore[i] ?? "";
+      const embedding = embeddings[i] ?? (await getEmbedding(text));
+      const path = `${prefix}${i + 1}`;
+
+      await upsertMicroMoment(
+        {
+          path,
+          content: text,
+          author: document.metadata.author,
+          createdAt: document.metadata.createdAt,
+          sourceMetadata: {
+            chunkBatchHash: batchHash,
+            chunkIds: batchChunks.map((c) => c.id),
+          },
+        },
+        document.id,
+        text,
+        embedding
       );
 
-      if (macroMomentDescriptions.length > 0) {
-        let previousMomentId: string | undefined = undefined;
+      microMomentsForSynthesis.push({
+        id: crypto.randomUUID(),
+        documentId: document.id,
+        path,
+        content: text,
+        summary: text,
+        embedding: embedding,
+        createdAt: document.metadata.createdAt,
+        author: document.metadata.author,
+        sourceMetadata: {
+          chunkBatchHash: batchHash,
+          chunkIds: batchChunks.map((c) => c.id),
+        },
+      });
+    }
+  }
 
-        for (let i = 0; i < macroMomentDescriptions.length; i++) {
-          const description = macroMomentDescriptions[i];
-          if (!description) {
-            continue;
-          }
+  if (microMomentsForSynthesis.length > 0) {
+    console.log("[moment-linker] micro moments loaded", {
+      documentId: document.id,
+      count: microMomentsForSynthesis.length,
+    });
 
-          const momentId = crypto.randomUUID();
-          const moment: Moment = {
-            id: momentId,
-            documentId: document.id,
-            summary:
-              description.summary || description.content.substring(0, 200),
-            title: description.title,
-            parentId: previousMomentId,
-            createdAt: description.createdAt,
-            author: description.author,
-            sourceMetadata: description.sourceMetadata,
-          };
+    const macroMomentDescriptions = (await synthesizeMicroMoments(
+      microMomentsForSynthesis
+    )) as MacroMomentDescription[];
 
-          await addMoment(moment);
-          previousMomentId = momentId;
+    if (macroMomentDescriptions.length > 0) {
+      console.log("[moment-linker] macro moments synthesized", {
+        documentId: document.id,
+        count: macroMomentDescriptions.length,
+        firstTitle: macroMomentDescriptions[0]?.title,
+      });
+      let resolvedParentIdForFirst: string | undefined = undefined;
+      let previousMomentId: string | undefined = undefined;
+
+      for (let i = 0; i < macroMomentDescriptions.length; i++) {
+        const description = macroMomentDescriptions[i];
+        if (!description) {
+          continue;
         }
+
+        const microPaths = description.microPaths || [];
+        const microPathsHash =
+          microPaths.length > 0 ? await hashMicroPaths(microPaths) : undefined;
+        const existing =
+          microPathsHash !== undefined
+            ? await findMomentByMicroPathsHash(document.id, microPathsHash)
+            : null;
+
+        const momentId = existing?.id ?? crypto.randomUUID();
+        if (i === 0) {
+          if (existing?.parentId) {
+            resolvedParentIdForFirst = existing.parentId;
+            console.log("[moment-linker] attachment reuse existing parent", {
+              documentId: document.id,
+              macroMomentIndex: i,
+              parentId: resolvedParentIdForFirst,
+              momentId,
+            });
+          } else {
+            const parentProposal = await runFirstMatchHook(
+              context.plugins,
+              "proposeMacroMomentParent",
+              (plugin) =>
+                plugin.subjects?.proposeMacroMomentParent?.(
+                  document,
+                  description,
+                  i,
+                  indexingContext
+                )
+            );
+            resolvedParentIdForFirst = parentProposal?.parentMomentId;
+            if (parentProposal) {
+              console.log("[moment-linker] attachment proposal", {
+                documentId: document.id,
+                macroMomentIndex: i,
+                parentMomentId: parentProposal.parentMomentId,
+                matchedSubjectId: parentProposal.matchedSubjectId,
+                score: parentProposal.score,
+              });
+            } else {
+              console.log("[moment-linker] no attachment proposal", {
+                documentId: document.id,
+                macroMomentIndex: i,
+              });
+            }
+          }
+        }
+        console.log("[moment-linker] macro correlation", {
+          documentId: document.id,
+          index: i,
+          title: description.title,
+          microPathsCount: microPaths.length,
+          microPathsHash,
+          reuseExisting: Boolean(existing),
+          momentId,
+          parentId:
+            i === 0
+              ? resolvedParentIdForFirst ?? null
+              : previousMomentId ?? null,
+        });
+        const moment: Moment = {
+          id: momentId,
+          documentId: document.id,
+          summary: description.summary || description.content.substring(0, 200),
+          title: description.title,
+          parentId: i === 0 ? resolvedParentIdForFirst : previousMomentId,
+          microPaths,
+          microPathsHash,
+          createdAt: description.createdAt,
+          author: description.author,
+          sourceMetadata: description.sourceMetadata,
+        };
+
+        await addMoment(moment);
+        previousMomentId = momentId;
       }
     }
   }
@@ -307,7 +446,80 @@ export async function query(
   // Narrative Query Path: Try to answer using Subject (root moment) first
   try {
     const queryEmbedding = await generateEmbedding(userQuery);
-    const { findSimilarSubjects, findDescendants } = await import("./momentDb");
+    const {
+      findSimilarSubjects,
+      findSimilarMoments,
+      findAncestors,
+      findDescendants,
+    } = await import("./momentDb");
+
+    const similarMoments = await findSimilarMoments(queryEmbedding, 8);
+    if (similarMoments.length > 0) {
+      const trailsByRoot = new Map<
+        string,
+        {
+          root: unknown;
+          trails: unknown[][];
+        }
+      >();
+
+      for (const matchedMoment of similarMoments) {
+        const ancestors = await findAncestors(matchedMoment.id);
+        if (ancestors.length === 0) {
+          continue;
+        }
+        const root = ancestors[0];
+        const existing = trailsByRoot.get(root.id);
+        if (existing) {
+          existing.trails.push(ancestors);
+        } else {
+          trailsByRoot.set(root.id, { root, trails: [ancestors] });
+        }
+      }
+
+      if (trailsByRoot.size > 0) {
+        const rootsSorted = Array.from(trailsByRoot.values()).sort(
+          (a, b) => b.trails.length - a.trails.length
+        );
+        const topRoots = rootsSorted.slice(0, 3);
+
+        const trailsContext = topRoots
+          .map((entry, rootIdx) => {
+            const root = entry.root as any;
+            const trailsText = entry.trails
+              .slice(0, 6)
+              .map((trail, trailIdx) => {
+                const steps = (trail as any[])
+                  .map(
+                    (m, idx: number) => `${idx + 1}. ${m.title}: ${m.summary}`
+                  )
+                  .join("\n");
+                return `Trail ${trailIdx + 1}\n${steps}`;
+              })
+              .join("\n\n");
+
+            return `Root ${rootIdx + 1}\n${root.title}: ${
+              root.summary
+            }\n\n${trailsText}`;
+          })
+          .join("\n\n---\n\n");
+
+        const narrativePrompt = `Based on the following matched moment trails and their root moments, answer the user's question. Each trail is a chain of moments from a root moment down to a matched moment. Use the trails to explain what happened leading up to the relevant points.
+
+## Matched Trails
+${trailsContext}
+
+## User Question
+${userQuery}
+
+## Instructions
+Provide a clear narrative answer. Prefer causal links and chronological explanation using the trail steps. If multiple roots are present, pick the most relevant one(s) and say why.`;
+
+        const narrativeAnswer = await callLLM(narrativePrompt);
+        return narrativeAnswer;
+      }
+    }
+
     const similarSubjects = await findSimilarSubjects(queryEmbedding, 5);
 
     if (similarSubjects.length > 0) {
@@ -422,7 +634,6 @@ Provide a clear, narrative answer that explains the story and causal relationshi
 
   return formattedResponse;
 }
-
 
 async function reconstructContexts(
   chunks: ChunkMetadata[],

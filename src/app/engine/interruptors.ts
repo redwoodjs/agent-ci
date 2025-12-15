@@ -8,6 +8,15 @@ declare module "rwsdk/worker" {
 }
 
 export async function requireQueryApiKey({ request }: RequestInfo) {
+  const url = new URL(request.url);
+  const isLocalhost =
+    url.hostname === "localhost" ||
+    url.hostname === "127.0.0.1" ||
+    url.hostname === "::1";
+  if (isLocalhost) {
+    return;
+  }
+
   const apiKey = (env as any).API_KEY;
 
   if (!apiKey) {

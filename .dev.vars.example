@@ -1,2 +1,5 @@
 DISCORD_BOT_TOKEN=your_discord_bot_token_here
 
+# Moment Graph namespace for test isolation (optional, change to get a clean slate)
+# MOMENT_GRAPH_NAMESPACE=test-run-1
+

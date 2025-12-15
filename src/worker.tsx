@@ -1,5 +1,6 @@
 import { defineApp } from "rwsdk/worker";
 import { render, prefix, route } from "rwsdk/router";
+import { env as workerEnv } from "cloudflare:workers";
 
 import { Document } from "@/app/Document";
 
@@ -98,15 +99,44 @@ export default {
           queueName === "ENGINE_INDEXING_QUEUE"
         ) {
           const indexingMessage = queueMessage as unknown as {
-            r2Key?: string;
-            body?: { r2Key?: string };
+            r2Key?: unknown;
+            r2Keys?: unknown;
+            momentGraphNamespace?: unknown;
+            namespace?: unknown;
+            body?: {
+              r2Key?: unknown;
+              r2Keys?: unknown;
+              momentGraphNamespace?: unknown;
+              namespace?: unknown;
+            };
           };
-          const r2Key = indexingMessage.r2Key || indexingMessage.body?.r2Key;
+
+          const r2KeysRaw =
+            indexingMessage.r2Keys ?? indexingMessage.body?.r2Keys;
+          const r2KeyRaw = indexingMessage.r2Key ?? indexingMessage.body?.r2Key;
+          const r2Keys =
+            Array.isArray(r2KeysRaw) &&
+            r2KeysRaw.every((k) => typeof k === "string")
+              ? (r2KeysRaw as string[])
+              : typeof r2KeyRaw === "string"
+              ? [r2KeyRaw]
+              : null;
+
+          const namespaceRaw = (indexingMessage.momentGraphNamespace ??
+            indexingMessage.namespace ??
+            indexingMessage.body?.momentGraphNamespace ??
+            indexingMessage.body?.namespace) as unknown;
+          const momentGraphNamespace =
+            typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+              ? namespaceRaw.trim()
+              : null;
+
           console.log(`[queue] Received indexing job from ${queueName}:`, {
-            r2Key,
-            rawMessage: indexingMessage,
+            r2KeysCount: r2Keys?.length ?? 0,
+            momentGraphNamespace,
           });
-          if (!r2Key) {
+
+          if (!r2Keys || r2Keys.length === 0) {
             console.error(
               formatLog("[queue] Missing r2Key in indexing message:", {
                 queueName,
@@ -116,7 +146,24 @@ export default {
             message.ack();
             continue;
           }
-          await processIndexingJob({ r2Key }, env as Cloudflare.Env);
+
+          const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
+          const previousWorkerNamespace = (workerEnv as any)
+            .MOMENT_GRAPH_NAMESPACE;
+          if (momentGraphNamespace) {
+            (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+            (workerEnv as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+          }
+
+          try {
+            for (const r2Key of r2Keys) {
+              await processIndexingJob({ r2Key }, env as Cloudflare.Env);
+            }
+          } finally {
+            (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
+            (workerEnv as any).MOMENT_GRAPH_NAMESPACE = previousWorkerNamespace;
+          }
+
           message.ack();
         } else if (
           queueName === "chunk-processing-queue-dev-justin" ||

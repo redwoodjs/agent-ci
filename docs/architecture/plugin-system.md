@@ -92,11 +92,11 @@ const MyPlugin: Plugin = {
 
 ### Knowledge Graph (Subjects) Hooks
 
-#### `extractMicroMomentsFromDocument`
-*   **Purpose**: To extract a stream of atomic "Micro-Moments" (e.g., chat exchanges) from a document for the synthesis engine.
+#### `computeMicroMomentsForChunkBatch`
+*   **Purpose**: To compute a list of "Micro-Moments" for a batch of chunks. This is an engine-owned performance primitive used to reduce work on cold caches without defining semantic boundaries.
 *   **Strategy**: `First-Match`
-
-#### `summarizeMomentContent`
-*   **Purpose**: To generate a concise summary of a Micro-Moment's content.
-*   **Strategy**: `First-Match`
+*   **Notes**:
+    *   The engine batches chunks for performance (token/size caps), not for semantic boundaries.
+    *   The hook can use an LLM to return a list of "what happened" items.
+    *   Provenance is handled by the engine at the batch level: a micro-moment produced from a batch is attributed to the batch's chunk ids/hashes.
 

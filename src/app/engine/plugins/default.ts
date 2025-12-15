@@ -11,18 +11,111 @@ export const defaultPlugin: Plugin = {
   name: "default",
 
   subjects: {
-    async summarizeMomentContent(
-      content: string,
+    async computeMicroMomentsForChunkBatch(
+      chunks: Chunk[],
       context: IndexingHookContext
-    ): Promise<string> {
-      const summaryPrompt = `Summarize the following content in one concise sentence describing what happened:\n\n${content}`;
+    ): Promise<string[] | null> {
+      if (chunks.length === 0) {
+        return [];
+      }
+
+      const sources = new Set<string>();
+      for (const chunk of chunks) {
+        const src = chunk.source ?? (chunk.metadata as any)?.source;
+        if (typeof src === "string" && src.trim().length > 0) {
+          sources.add(src.trim());
+        }
+      }
+      const primarySource = sources.size === 1 ? Array.from(sources)[0] : null;
+
+      const sourceContext =
+        primarySource === "cursor"
+          ? `Context: These chunks are from a Cursor AI coding assistant conversation. Each chunk may include User and Assistant turns. Focus on technical details, decisions, errors, file paths, commands, and outcomes.\n`
+          : primarySource === "github"
+          ? `Context: These chunks are from GitHub (issues, pull requests, comments, commit messages). Focus on concrete changes, decisions, errors, and references like issue numbers, file paths, and code identifiers.\n`
+          : primarySource === "discord"
+          ? `Context: These chunks are from Discord chat logs. Focus on concrete decisions, actions, errors, and references that could be used to link related work across conversations.\n`
+          : `Context: These chunks are from a single document. Focus on concrete details and avoid generic summaries.\n`;
+
+      const chunkText = chunks
+        .map((chunk, i) => {
+          const content = chunk.content ?? "";
+          return `CHUNK ${i + 1}:\n${content}`;
+        })
+        .join("\n\n---\n\n");
+
+      const prompt =
+        `You will be given a small batch of ordered chunks from a single document.\n` +
+        sourceContext +
+        `Return a list of short summaries of what was discussed or established.\n\n` +
+        `Rules:\n` +
+        `- Output must be plain text.\n` +
+        `- No prose, no markdown, no code fences.\n` +
+        `- Output must be lines in this format: S<index>|<summary>\n` +
+        `- Indices start at 1 and must be sequential with no gaps.\n` +
+        `- Each summary must be 1-3 sentences.\n` +
+        `- Each summary must be <= 400 characters.\n` +
+        `- Include concrete terms (names, ids, file paths, errors, decisions) when present.\n` +
+        `- Do not include phrases like "Content about".\n` +
+        `- Do not output meta commentary about summarizing.\n` +
+        `- Return between 1 and 12 items.\n\n` +
+        `CHUNKS:\n${chunkText}\n\n` +
+        `OUTPUT:`;
 
       try {
-        const summary = await callLLM(summaryPrompt, "quick-cheap");
-        return summary.trim();
+        const response = await callLLM(prompt, "slow-reasoning", {
+          temperature: 0,
+          max_tokens: 1200,
+          reasoning: {
+            effort: "low",
+            summary: "concise",
+          },
+        });
+
+        const trimmed = response.trim();
+        const withoutFences = trimmed
+          .replace(/^```[a-z]*\s*/i, "")
+          .replace(/\s*```$/, "");
+
+        const matches = Array.from(
+          withoutFences.matchAll(/(?:S)?(\d+)\|([^\n]*)/g)
+        );
+        if (matches.length === 0) {
+          return null;
+        }
+
+        const byIndex = new Map<number, string>();
+        for (const match of matches) {
+          const idxStr = match[1] ?? "";
+          const body = (match[2] ?? "").trim().replace(/\s+/g, " ");
+          if (/^Content about:/i.test(body)) {
+            return null;
+          }
+          const idx = Number.parseInt(idxStr, 10);
+          if (!Number.isFinite(idx) || idx < 1) {
+            continue;
+          }
+          if (body) {
+            byIndex.set(idx, body);
+          }
+        }
+
+        const out: string[] = [];
+        for (let i = 1; i <= 12; i++) {
+          const body = byIndex.get(i);
+          if (!body) {
+            break;
+          }
+          out.push(body);
+        }
+
+        return out.length > 0 ? out : null;
       } catch (error) {
-        console.error(`[default-plugin] Failed to generate summary:`, error);
-        return `Content about: ${content.substring(0, 100)}...`;
+        console.error(
+          `[default-plugin] Failed to compute micro moments from chunk batch:`,
+          error
+        );
+        return null;
       }
     },
   },

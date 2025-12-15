@@ -27,16 +27,16 @@ The scheduler fans out the new chunks to the `chunk-processor-worker` via a queu
 
 ### 4. Knowledge Synthesis (Moment Graph)
 Concurrent with chunk processing, the scheduler triggers the Knowledge Synthesis Engine for the document.
-1.  **Extraction**: The engine uses plugins to extract "Micro-Moments" (atomic events) from the document.
-2.  **Synthesis**: These micro-moments are processed (using a cache to avoid redundant work) and then synthesized by an LLM into higher-level "Macro-Moments."
-3.  **Graph Update**: These Macro-Moments are inserted into the Moment Graph, automatically linking to their parent moments to form a timeline. Root moments are indexed as **Subjects**.
+1.  **Chunk batching and micro-moment summarization**: The engine batches chunks for performance (token/size caps) and uses a plugin hook to summarize each batch into "Micro-Moments." Batch outputs are cached so re-indexing only recomputes changed batches.
+2.  **Synthesis**: Micro-moments are synthesized by an LLM into higher-level "Macro-Moments."
+3.  **Graph Update**: Macro-moments are inserted into the Moment Graph with parent relationships. The first macro-moment can attach under an existing moment (Smart Linker) to stitch documents into a shared graph. Root moments are indexed as **Subjects**.
 
 ### 5. Query & Retrieval
-When a user asks a question, the system employs a "Subject-First" strategy:
-1.  **Identify Subject**: The query is first used to find relevant Subjects (Root Moments) in the `SUBJECT_INDEX`.
-2.  **Traverse Graph**: If a Subject is found, the engine traverses the Moment Graph to retrieve its full narrative timeline (descendants).
-3.  **Synthesize Answer**: The LLM answers the user's "why" or "how" question based on this chronological narrative.
-4.  **Fallback**: If no narrative is found, the system falls back to a standard RAG search against the Evidence Locker.
+When a user asks a question, the system first attempts a narrative query path, then falls back to RAG:
+1.  **Identify anchor Moments**: The query is used to find similar Moments in the `MOMENT_INDEX`.
+2.  **Build trails**: For matched Moments, the engine walks ancestors to the root (Subject) and uses those trails as narrative context.
+3.  **Fallback to Subject-First**: If there are no matched Moments, the query is used to find relevant Subjects (Root Moments) in the `SUBJECT_INDEX`, then the engine loads that Subject's descendant timeline.
+4.  **Fallback to Evidence Locker**: If no narrative context is found, the system falls back to a standard RAG search against the Evidence Locker.
 
 ## Architecture Map
 

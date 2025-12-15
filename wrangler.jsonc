@@ -29,11 +29,13 @@
     },
     {
       "binding": "SUBJECT_INDEX",
-      "index_name": "subject-index"
+      "index_name": "subject-index",
+      "remote": true
     },
     {
       "binding": "MOMENT_INDEX",
-      "index_name": "moment-index"
+      "index_name": "moment-index",
+      "remote": true
     }
   ],
 
@@ -443,6 +445,9 @@
     },
     "dev-justin": {
       "name": "machinen-dev-justin",
+      "vars": {
+        "MOMENT_GRAPH_NAMESPACE": "dev-justin-3"
+      },
       "migrations": [
         {
           "tag": "v1",
@@ -541,7 +546,8 @@
         },
         {
           "binding": "SUBJECT_INDEX",
-          "index_name": "subject-index-dev-justin"
+          "index_name": "subject-index-dev-justin",
+          "remote": true
         },
         {
           "binding": "MOMENT_INDEX",

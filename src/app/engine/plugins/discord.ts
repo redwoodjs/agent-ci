@@ -178,10 +178,10 @@ export const discordPlugin: Plugin = {
         lines.push(`- title_label: [Discord Thread]`);
         lines.push(`- summary_descriptor: In a Discord thread,`);
         lines.push(
-          "- when_referencing_thread_use: discord:thread/<guildid>/<channelid>/<threadid>"
+          "- when_referencing_thread_use: mchn://dc/thread/<guildid>/<channelid>/<threadid>"
         );
         lines.push(
-          "- when_referencing_thread_message_use: discord:thread_message/<guildid>/<channelid>/<threadid>/<messageid>"
+          "- when_referencing_thread_message_use: mchn://dc/thread_message/<guildid>/<channelid>/<threadid>/<messageid>"
         );
 
         lines.push("");
@@ -193,7 +193,7 @@ export const discordPlugin: Plugin = {
 
         if (guildID && channelID && threadID) {
           lines.push(
-            `- document_ref: discord:thread/${guildID}/${channelID}/${threadID}`
+            `- document_ref: mchn://dc/thread/${guildID}/${channelID}/${threadID}`
           );
         }
 
@@ -206,7 +206,7 @@ export const discordPlugin: Plugin = {
           lines.push(`- known_message_refs:`);
           for (const messageId of messageIdsLimited) {
             lines.push(
-              `  - discord:thread_message/${guildID}/${channelID}/${threadID}/${messageId}`
+              `  - mchn://dc/thread_message/${guildID}/${channelID}/${threadID}/${messageId}`
             );
           }
           if (messageIds.length > messageIdsLimited.length) {
@@ -237,10 +237,10 @@ export const discordPlugin: Plugin = {
         lines.push(`- title_label: [Discord Channel]`);
         lines.push(`- summary_descriptor: In a Discord channel,`);
         lines.push(
-          "- when_referencing_channel_day_use: discord:channel_day/<guildid>/<channelid>/<yyyy-mm-dd>"
+          "- when_referencing_channel_day_use: mchn://dc/channel_day/<guildid>/<channelid>/<yyyy-mm-dd>"
         );
         lines.push(
-          "- when_referencing_channel_message_use: discord:channel_message/<guildid>/<channelid>/<yyyy-mm-dd>/<messageid>"
+          "- when_referencing_channel_message_use: mchn://dc/channel_message/<guildid>/<channelid>/<yyyy-mm-dd>/<messageid>"
         );
 
         lines.push("");
@@ -251,7 +251,7 @@ export const discordPlugin: Plugin = {
         const date = String(sourceMetadata.date ?? "");
         if (guildID && channelID && date) {
           lines.push(
-            `- document_ref: discord:channel_day/${guildID}/${channelID}/${date}`
+            `- document_ref: mchn://dc/channel_day/${guildID}/${channelID}/${date}`
           );
         }
 
@@ -266,7 +266,7 @@ export const discordPlugin: Plugin = {
           lines.push(`- known_message_refs:`);
           for (const messageId of messageIdsLimited) {
             lines.push(
-              `  - discord:channel_message/${guildID}/${channelID}/${date}/${messageId}`
+              `  - mchn://dc/channel_message/${guildID}/${channelID}/${date}/${messageId}`
             );
           }
           if (messageIds.length > messageIdsLimited.length) {

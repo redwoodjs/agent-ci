@@ -461,18 +461,18 @@ export const githubPlugin: Plugin = {
       lines.push(`- summary_descriptor: ${summaryDescriptor}`);
       if (isPullRequest) {
         lines.push(
-          "- when_referencing_pr_use: github:pr/<owner>/<repo>/<number>"
+          "- when_referencing_pr_use: mchn://gh/pr/<owner>/<repo>/<number>"
         );
         lines.push(
-          "- when_referencing_pr_comment_use: github:pr_comment/<owner>/<repo>/<number>/<commentid>"
+          "- when_referencing_pr_comment_use: mchn://gh/pr_comment/<owner>/<repo>/<number>/<commentid>"
         );
       }
       if (isIssue) {
         lines.push(
-          "- when_referencing_issue_use: github:issue/<owner>/<repo>/<number>"
+          "- when_referencing_issue_use: mchn://gh/issue/<owner>/<repo>/<number>"
         );
         lines.push(
-          "- when_referencing_issue_comment_use: github:issue_comment/<owner>/<repo>/<number>/<commentid>"
+          "- when_referencing_issue_comment_use: mchn://gh/issue_comment/<owner>/<repo>/<number>/<commentid>"
         );
       }
 
@@ -481,12 +481,14 @@ export const githubPlugin: Plugin = {
 
       if (owner && repo && number) {
         if (isPullRequest) {
-          lines.push(`- document_ref: github:pr/${owner}/${repo}/${number}`);
+          lines.push(`- document_ref: mchn://gh/pr/${owner}/${repo}/${number}`);
         } else if (isIssue) {
-          lines.push(`- document_ref: github:issue/${owner}/${repo}/${number}`);
+          lines.push(
+            `- document_ref: mchn://gh/issue/${owner}/${repo}/${number}`
+          );
         } else {
           lines.push(
-            `- document_ref: github:document/${owner}/${repo}/${number}`
+            `- document_ref: mchn://gh/document/${owner}/${repo}/${number}`
           );
         }
       }
@@ -501,11 +503,11 @@ export const githubPlugin: Plugin = {
         for (const commentId of commentIdsLimited) {
           if (isPullRequest) {
             lines.push(
-              `  - github:pr_comment/${owner}/${repo}/${number}/${commentId}`
+              `  - mchn://gh/pr_comment/${owner}/${repo}/${number}/${commentId}`
             );
           } else if (isIssue) {
             lines.push(
-              `  - github:issue_comment/${owner}/${repo}/${number}/${commentId}`
+              `  - mchn://gh/issue_comment/${owner}/${repo}/${number}/${commentId}`
             );
           }
         }

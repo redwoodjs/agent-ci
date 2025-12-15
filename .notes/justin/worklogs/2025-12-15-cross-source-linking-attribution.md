@@ -155,7 +155,7 @@ Open question:
 
 - Whether to inject the label+token at indexing time (stored on the moment) or at query time (formatted into the LLM context and/or appended after).
 
-### 2025-12-15 - Plan: canonical reference format (source:document_type/path)
+### 2025-12-15 - Plan: canonical reference format (mchn://<source>/<type>/<path>)
 
 Decision:
 
@@ -164,7 +164,7 @@ Decision:
 
 Format:
 
-- `source:document_type/<path>`
+- `mchn://<source>/<type>/<path>`
 
 Notes:
 
@@ -174,28 +174,28 @@ Notes:
 GitHub token formats:
 
 - issue:
-  - `github:issue/<owner>/<repo>/<number>`
-  - example: `github:issue/redwoodjs/sdk/552`
+  - `mchn://gh/issue/<owner>/<repo>/<number>`
+  - example: `mchn://gh/issue/redwoodjs/sdk/552`
 - pull request:
-  - `github:pr/<owner>/<repo>/<number>`
-  - example: `github:pr/redwoodjs/sdk/530`
+  - `mchn://gh/pr/<owner>/<repo>/<number>`
+  - example: `mchn://gh/pr/redwoodjs/sdk/530`
 - issue comment:
-  - `github:issue_comment/<owner>/<repo>/<number>/<commentid>`
-  - example: `github:issue_comment/redwoodjs/sdk/552/1234567890`
+  - `mchn://gh/issue_comment/<owner>/<repo>/<number>/<commentid>`
+  - example: `mchn://gh/issue_comment/redwoodjs/sdk/552/1234567890`
 - pull request comment:
-  - `github:pr_comment/<owner>/<repo>/<number>/<commentid>`
-  - example: `github:pr_comment/redwoodjs/sdk/530/1234567890`
+  - `mchn://gh/pr_comment/<owner>/<repo>/<number>/<commentid>`
+  - example: `mchn://gh/pr_comment/redwoodjs/sdk/530/1234567890`
 
 Discord token formats:
 
 - thread:
-  - `discord:thread/<guildid>/<channelid>/<threadid>`
+  - `mchn://dc/thread/<guildid>/<channelid>/<threadid>`
 - thread message:
-  - `discord:thread_message/<guildid>/<channelid>/<threadid>/<messageid>`
+  - `mchn://dc/thread_message/<guildid>/<channelid>/<threadid>/<messageid>`
 - channel day file (if needed later for backfills):
-  - `discord:channel_day/<guildid>/<channelid>/<yyyy-mm-dd>`
+  - `mchn://dc/channel_day/<guildid>/<channelid>/<yyyy-mm-dd>`
 - channel message:
-  - `discord:channel_message/<guildid>/<channelid>/<yyyy-mm-dd>/<messageid>`
+  - `mchn://dc/channel_message/<guildid>/<channelid>/<yyyy-mm-dd>/<messageid>`
 
 Cursor token formats (tentative):
 
@@ -241,7 +241,7 @@ Prompt assembly plan (macro synthesis time):
     - When describing an action that happened in the source, include the canonical token in brackets near the first mention.
     - Prefer one canonical token per macro moment summary unless needed for clarity.
   - Canonical token format:
-    - Use `source:document_type/path` as described earlier in this log.
+    - Use `mchn://<source>/<type>/<path>` as described earlier in this log.
 - Section C: plugin-provided source formatting + reference context (hook output, concatenated verbatim)
   - This is where each source plugin can say:
     - “For titles, use this specific bracket label”

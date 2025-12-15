@@ -47,16 +47,16 @@ export async function synthesizeMicroMoments(
   const formattingRules = `Formatting rules:
 - If the "Source formatting and reference context" section includes a line "title_label: ...", TITLE must begin with the exact value after "title_label: " (character-for-character).
 - If the "Source formatting and reference context" section includes a line "summary_descriptor: ...", SUMMARY must begin with the exact value after "summary_descriptor: " (character-for-character).
-- If the "Source formatting and reference context" section includes a line "document_ref: <token>", SUMMARY must include "[<token>]" exactly once (example: "[github:issue/redwoodjs/sdk/552]").
+- If the "Source formatting and reference context" section includes a line "document_ref: <token>", SUMMARY must include "[<token>]" exactly once (example: "[mchn://gh/issue/redwoodjs/sdk/552]").
 - Summary must include a canonical reference token in brackets near the first mention of the primary entity when applicable.
-- Canonical token format: source:document_type/path
+- Canonical token format: mchn://<source>/<type>/<path>
 - Examples:
-  - github:issue/redwoodjs/sdk/552
-  - github:pr/redwoodjs/sdk/530
-  - github:issue_comment/redwoodjs/sdk/552/1234567890
-  - github:pr_comment/redwoodjs/sdk/530/1234567890
-  - discord:thread/<guildid>/<channelid>/<threadid>
-  - discord:thread_message/<guildid>/<channelid>/<threadid>/<messageid>
+  - mchn://gh/issue/redwoodjs/sdk/552
+  - mchn://gh/pr/redwoodjs/sdk/530
+  - mchn://gh/issue_comment/redwoodjs/sdk/552/1234567890
+  - mchn://gh/pr_comment/redwoodjs/sdk/530/1234567890
+  - mchn://dc/thread/<guildid>/<channelid>/<threadid>
+  - mchn://dc/thread_message/<guildid>/<channelid>/<threadid>/<messageid>
 `;
 
   const resolvedRequirements =

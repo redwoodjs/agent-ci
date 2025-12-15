@@ -485,3 +485,21 @@ Cause:
 Change:
 
 - For Vectorize upserts, serialize sourceMetadata to a string field and flatten time range into `timeRangeStart`/`timeRangeEnd` string fields.
+
+### 2025-12-15 - Narrative query tightening: use provided sources and timestamps, avoid invented events
+
+Observed:
+
+- Narrative answers sometimes invented dates and events (example: made up PR timeline dates for PR 933 when PR 933 was not present in the matched trails prompt).
+
+Change:
+
+- Updated the narrative query prompts to use strict rules:
+  - use only timestamps that appear in the timeline/trail lines
+  - include the bracketed source label when referencing events
+  - do not mention events/sources that are not present in the provided timeline/trails
+- Set narrative query LLM temperature to 0.
+
+Query behavior tweak:
+
+- Prefer subject timeline (descendants) when a similar subject is found, so linked child moments (Discord/PR) are included in the narrative context rather than only ancestor trails.

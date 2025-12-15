@@ -595,9 +595,67 @@ export async function query(
       findDescendants,
     } = await import("./momentDb");
 
-    const similarMoments = await findSimilarMoments(queryEmbedding, 8);
+    const similarSubjects = await findSimilarSubjects(queryEmbedding, 5);
+    console.log(`[query:narrative] similarSubjects=${similarSubjects.length}`);
+
+    if (similarSubjects.length > 0) {
+      const subjectMoment = similarSubjects[0];
+      console.log(
+        `[query:narrative] choseSubject=${subjectMoment.id} doc=${subjectMoment.documentId}`
+      );
+
+      // Get the full narrative timeline (root moment + all descendants)
+      const timeline = await findDescendants(subjectMoment.id);
+      console.log(`[query:narrative] timelineLen=${timeline.length}`);
+
+      if (timeline.length > 0) {
+        // Build narrative context from moment summaries
+        const narrativeContext = timeline
+          .map((moment, idx) => formatTimelineLine(moment, idx))
+          .join("\n\n");
+
+        const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
+
+## Subject
+${subjectMoment.title}: ${subjectMoment.summary}
+
+## Timeline
+${narrativeContext}
+
+## User Question
+${userQuery}
+
+## Instructions
+Rules:
+- You MUST only use timestamps that appear at the start of Timeline lines. Do not invent or guess dates.
+- When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
+- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
+- You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
+- If the Timeline does not contain enough information to answer part of the question, say that directly.
+
+Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
+
+        const narrativeAnswer = await callLLM(
+          narrativePrompt,
+          "slow-reasoning",
+          {
+            temperature: 0,
+            reasoning: { effort: "low" },
+          }
+        );
+        return narrativeAnswer;
+      }
+    }
+
+    const similarMoments = await findSimilarMoments(queryEmbedding, 20);
     console.log(`[query:narrative] similarMoments=${similarMoments.length}`);
     if (similarMoments.length > 0) {
+      console.log(
+        `[query:narrative] similarMomentSample=${similarMoments
+          .slice(0, 5)
+          .map((m) => `${m.id}:${m.documentId}`)
+          .join(",")}`
+      );
       const trailsByRoot = new Map<
         string,
         {
@@ -648,7 +706,7 @@ export async function query(
           })
           .join("\n\n---\n\n");
 
-        const narrativePrompt = `Based on the following matched moment trails and their root moments, answer the user's question. Each trail is a chain of moments from a root moment down to a matched moment. Use the trails to explain what happened leading up to the relevant points.
+        const narrativePrompt = `Based on the following matched moment trails and their root moments, answer the user's question. Each trail is a chain of moments from a root moment down to a matched moment.
 
 ## Matched Trails
 ${trailsContext}
@@ -657,47 +715,23 @@ ${trailsContext}
 ${userQuery}
 
 ## Instructions
+Rules:
+- You MUST only use timestamps that appear at the start of trail lines. Do not invent or guess dates.
+- When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that trail line.
+- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the trail text).
+- You MUST NOT mention events, sources, or pull requests/issues that are not present in the trail text.
+- If the trails do not contain enough information to answer part of the question, say that directly.
+
 Provide a clear narrative answer. Prefer causal links and chronological explanation using the trail steps. If multiple roots are present, pick the most relevant one(s) and say why.`;
 
-        const narrativeAnswer = await callLLM(narrativePrompt);
-        return narrativeAnswer;
-      }
-    }
-
-    const similarSubjects = await findSimilarSubjects(queryEmbedding, 5);
-    console.log(`[query:narrative] similarSubjects=${similarSubjects.length}`);
-
-    if (similarSubjects.length > 0) {
-      const subjectMoment = similarSubjects[0];
-      console.log(
-        `[query:narrative] choseSubject=${subjectMoment.id} doc=${subjectMoment.documentId}`
-      );
-
-      // Get the full narrative timeline (root moment + all descendants)
-      const timeline = await findDescendants(subjectMoment.id);
-      console.log(`[query:narrative] timelineLen=${timeline.length}`);
-
-      if (timeline.length > 0) {
-        // Build narrative context from moment summaries
-        const narrativeContext = timeline
-          .map((moment, idx) => formatTimelineLine(moment, idx))
-          .join("\n\n");
-
-        const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
-
-## Subject
-${subjectMoment.title}: ${subjectMoment.summary}
-
-## Timeline
-${narrativeContext}
-
-## User Question
-${userQuery}
-
-## Instructions
-Provide a clear, narrative answer that explains the story and causal relationships between events. Focus on answering "why" and "how" questions based on the Subject and the sequence of events in its timeline.`;
-
-        const narrativeAnswer = await callLLM(narrativePrompt);
+        const narrativeAnswer = await callLLM(
+          narrativePrompt,
+          "slow-reasoning",
+          {
+            temperature: 0,
+            reasoning: { effort: "low" },
+          }
+        );
         return narrativeAnswer;
       }
     }

@@ -25,8 +25,33 @@ export async function addMoment(moment: Moment): Promise<void> {
   const db = getMomentDb();
   const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
 
+  function serializeSourceMetadata(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  function readTimeRange(
+    value: unknown
+  ): { start: string; end: string } | null {
+    const range = (value as any)?.timeRange;
+    const start = typeof range?.start === "string" ? range.start : null;
+    const end = typeof range?.end === "string" ? range.end : null;
+    if (!start || !end) {
+      return null;
+    }
+    return { start, end };
+  }
+
   try {
     const embedding = await getEmbedding(moment.summary);
+    const timeRange = readTimeRange(moment.sourceMetadata);
+    const sourceMetadataJson = serializeSourceMetadata(moment.sourceMetadata);
     const momentVector = {
       id: moment.id,
       values: embedding,
@@ -39,7 +64,9 @@ export async function addMoment(moment: Moment): Promise<void> {
         documentTitle: moment.title,
         author: moment.author,
         jsonPath: "$", // Root of the moment
-        sourceMetadata: moment.sourceMetadata,
+        sourceMetadataJson,
+        ...(timeRange ? { timeRangeStart: timeRange.start } : null),
+        ...(timeRange ? { timeRangeEnd: timeRange.end } : null),
         summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
       } as unknown as ChunkMetadata,
     };
@@ -273,16 +300,14 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
         title: row.title,
         parentId: row.parent_id || undefined,
         microPaths: row.micro_paths_json
-          ? (JSON.parse(row.micro_paths_json as any) as string[])
+          ? (row.micro_paths_json as unknown as string[] | null) || undefined
           : undefined,
         microPathsHash: (row.micro_paths_hash as any) || undefined,
         createdAt: row.created_at,
         author: row.author,
-        sourceMetadata: row.source_metadata
-          ? typeof row.source_metadata === "string"
-            ? (JSON.parse(row.source_metadata) as Record<string, any>)
-            : (row.source_metadata as Record<string, any>)
-          : undefined,
+        sourceMetadata:
+          (row.source_metadata as unknown as Record<string, any> | null) ||
+          undefined,
       };
       descendants.push(childMoment);
       // Recursively find children of this child

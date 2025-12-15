@@ -118,6 +118,21 @@ function buildGitHubUrl(
   return `https://github.com/orgs/${parsed.owner}/projects/${parsed.number}`;
 }
 
+function normalizeGitHubHandle(value: unknown): string {
+  if (typeof value !== "string") {
+    return "unknown";
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "unknown";
+  }
+  const withoutAt = trimmed.replace(/^@+/, "");
+  if (!withoutAt) {
+    return "unknown";
+  }
+  return `@${withoutAt.toLowerCase()}`;
+}
+
 export const githubPlugin: Plugin = {
   name: "github",
 
@@ -156,7 +171,7 @@ export const githubPlugin: Plugin = {
           title: prIssueData.title,
           url,
           createdAt: prIssueData.created_at,
-          author: prIssueData.author,
+          author: normalizeGitHubHandle(prIssueData.author),
           _rawJson: prIssueData,
           sourceMetadata: {
             type: "github-pr-issue",
@@ -179,7 +194,7 @@ export const githubPlugin: Plugin = {
           title: projectData.title,
           url,
           createdAt: projectData.created_at,
-          author: projectData.owner,
+          author: normalizeGitHubHandle(projectData.owner),
           _rawJson: projectData,
           sourceMetadata: {
             type: "github-project",
@@ -226,7 +241,7 @@ export const githubPlugin: Plugin = {
             source: "github",
             type: "issue-body",
             documentTitle: document.metadata.title,
-            author: document.metadata.author,
+            author: normalizeGitHubHandle(document.metadata.author),
             jsonPath: "$.body",
             sourceMetadata: document.metadata.sourceMetadata,
           },
@@ -246,7 +261,7 @@ export const githubPlugin: Plugin = {
                 ? "pull-request-title"
                 : "issue-title",
             documentTitle: data.title,
-            author: data.author,
+            author: normalizeGitHubHandle(data.author),
             jsonPath: "$.title",
             sourceMetadata: document.metadata.sourceMetadata,
           },
@@ -270,7 +285,7 @@ export const githubPlugin: Plugin = {
                   ? "pull-request-comment"
                   : "issue-comment",
               documentTitle: data.title,
-              author: comment.author,
+              author: normalizeGitHubHandle(comment.author),
               jsonPath: `$.comments[${i}].body`,
               sourceMetadata: document.metadata.sourceMetadata,
             },
@@ -299,7 +314,7 @@ export const githubPlugin: Plugin = {
             source: "github",
             type: "project-body",
             documentTitle: data.title,
-            author: data.owner,
+            author: normalizeGitHubHandle(data.owner),
             jsonPath: "$.body",
             sourceMetadata: document.metadata.sourceMetadata,
           },
@@ -316,7 +331,7 @@ export const githubPlugin: Plugin = {
             source: "github",
             type: "project-title",
             documentTitle: data.title,
-            author: data.owner,
+            author: normalizeGitHubHandle(data.owner),
             jsonPath: "$.title",
           },
         });
@@ -358,7 +373,188 @@ export const githubPlugin: Plugin = {
     return chunks;
   },
 
-  subjects: {},
+  subjects: {
+    async getMicroMomentBatchPromptContext(
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "github") {
+        return null;
+      }
+      if (!chunks.every((c) => c.source === "github")) {
+        return null;
+      }
+
+      const chunkTypes = chunks
+        .map((c) => (c.metadata as any)?.type)
+        .filter(
+          (t) => typeof t === "string" && t.trim().length > 0
+        ) as string[];
+
+      const isIssueBatch =
+        chunkTypes.length > 0 &&
+        chunkTypes.every((t) => t.startsWith("issue-"));
+      const isPullRequestBatch =
+        chunkTypes.length > 0 &&
+        chunkTypes.every((t) => t.startsWith("pull-request-"));
+
+      if (isIssueBatch) {
+        return (
+          `Context: These chunks are from a GitHub issue (body and/or comments).\n` +
+          `Treat them as proposals, questions, or discussion unless the text explicitly states work was completed/merged/shipped.\n` +
+          `Attribute proposals and observations to the chunk author (author=...) when possible.\n` +
+          `Prefer verbs like "described", "proposed", "requested", "discussed", "noted".\n`
+        );
+      }
+
+      if (isPullRequestBatch) {
+        return (
+          `Context: These chunks are from a GitHub pull request (body and/or comments).\n` +
+          `Summarize what was changed, reviewed, or decided.\n` +
+          `Attribute review feedback and decisions to the chunk author (author=...) when possible.\n` +
+          `Avoid claiming work shipped to users unless the text explicitly says so.\n`
+        );
+      }
+
+      return (
+        `Context: These chunks are from GitHub.\n` +
+        `Attribute statements to the chunk author (author=...) when possible.\n` +
+        `Focus on concrete changes, decisions, errors, and references like issue numbers, file paths, and code identifiers.\n`
+      );
+    },
+    async getMacroSynthesisPromptContext(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "github") {
+        return null;
+      }
+
+      const sourceMetadata = document.metadata.sourceMetadata ?? {};
+      const owner = String(sourceMetadata.owner ?? "");
+      const repo = String(sourceMetadata.repo ?? "");
+      const number = String(sourceMetadata.number ?? "");
+
+      const isPullRequest = document.type === "pull-request";
+      const isIssue = document.type === "issue";
+
+      const titleLabelBase = isPullRequest
+        ? "GitHub Pull Request"
+        : isIssue
+        ? "GitHub Issue"
+        : "GitHub";
+
+      const hasNumber = owner && repo && number;
+      const titleLabel = hasNumber
+        ? `[${titleLabelBase} #${number}]`
+        : `[${titleLabelBase}]`;
+
+      const summaryDescriptor = hasNumber
+        ? `In a ${titleLabelBase} (#${number}),`
+        : `In ${titleLabelBase},`;
+
+      const lines: string[] = [];
+
+      lines.push("Formatting:");
+      lines.push(`- title_label: ${titleLabel}`);
+      lines.push(`- summary_descriptor: ${summaryDescriptor}`);
+      if (isPullRequest) {
+        lines.push(
+          "- when_referencing_pr_use: mchn://gh/pr/<owner>/<repo>/<number>"
+        );
+        lines.push(
+          "- when_referencing_pr_comment_use: mchn://gh/pr_comment/<owner>/<repo>/<number>/<commentid>"
+        );
+      }
+      if (isIssue) {
+        lines.push(
+          "- when_referencing_issue_use: mchn://gh/issue/<owner>/<repo>/<number>"
+        );
+        lines.push(
+          "- when_referencing_issue_comment_use: mchn://gh/issue_comment/<owner>/<repo>/<number>/<commentid>"
+        );
+      }
+
+      lines.push("");
+      lines.push("Reference context:");
+
+      if (owner && repo && number) {
+        if (isPullRequest) {
+          lines.push(`- document_ref: mchn://gh/pr/${owner}/${repo}/${number}`);
+        } else if (isIssue) {
+          lines.push(
+            `- document_ref: mchn://gh/issue/${owner}/${repo}/${number}`
+          );
+        } else {
+          lines.push(
+            `- document_ref: mchn://gh/document/${owner}/${repo}/${number}`
+          );
+        }
+      }
+
+      const raw = document.metadata._rawJson as GitHubLatestJson | undefined;
+      const commentIds =
+        raw?.comments?.map((c) => c.id).filter((id) => id !== undefined) ?? [];
+      const maxCommentRefs = 10;
+      const commentIdsLimited = commentIds.slice(0, maxCommentRefs);
+      if (owner && repo && number && commentIdsLimited.length > 0) {
+        lines.push(`- known_comment_refs:`); // optional list
+        for (const commentId of commentIdsLimited) {
+          if (isPullRequest) {
+            lines.push(
+              `  - mchn://gh/pr_comment/${owner}/${repo}/${number}/${commentId}`
+            );
+          } else if (isIssue) {
+            lines.push(
+              `  - mchn://gh/issue_comment/${owner}/${repo}/${number}/${commentId}`
+            );
+          }
+        }
+        if (commentIds.length > commentIdsLimited.length) {
+          lines.push(
+            `  - (truncated: ${
+              commentIds.length - commentIdsLimited.length
+            } more)`
+          );
+        }
+      }
+
+      if (owner && repo && number) {
+        lines.push(`- entity_hints:`);
+        lines.push(
+          `  - This document is in ${owner}/${repo} and is number ${number}.`
+        );
+      }
+
+      lines.push("");
+      lines.push("Narrative context:");
+      if (isIssue) {
+        lines.push(
+          `- This is an issue. Treat the text as describing a problem, request, or proposal unless it explicitly says work was completed/merged/shipped.`
+        );
+        lines.push(
+          `- Prefer verbs like "described", "proposed", "requested", "discussed", "noted".`
+        );
+        lines.push(
+          `- Avoid implying implementation happened unless the text explicitly states it.`
+        );
+      } else if (isPullRequest) {
+        lines.push(
+          `- This is a pull request. Treat the text as describing changes, review feedback, and decisions.`
+        );
+        lines.push(
+          `- Avoid claiming user-visible shipping unless the text explicitly says it shipped.`
+        );
+      } else {
+        lines.push(
+          `- This is a GitHub document. Prefer concrete, source-grounded wording.`
+        );
+      }
+
+      return lines.join("\n");
+    },
+  },
 
   evidence: {
     async buildVectorSearchFilter(

@@ -17,9 +17,20 @@ import { clearAllIndexingState } from "./db";
 import { getMomentGraphNamespaceFromEnv } from "./momentGraphNamespace";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
+  const body = (ctx as any)?.parsedBody as
+    | {
+        query?: unknown;
+        momentGraphNamespace?: unknown;
+        namespace?: unknown;
+        enableEvidenceLocker?: unknown;
+        disableEvidenceLocker?: unknown;
+      }
+    | undefined;
+
   const queryText =
     (ctx as any).validatedQuery ||
     ((ctx as any).parsedBody as { query?: string })?.query ||
+    (typeof body?.query === "string" ? body.query : undefined) ||
     new URL(request.url).searchParams.get("q");
 
   if (!queryText) {
@@ -31,9 +42,29 @@ async function queryHandler({ request, ctx }: RequestInfo) {
 
   const context = createEngineContext(env as Cloudflare.Env, "querying");
 
+  const namespaceRaw = body?.momentGraphNamespace ?? body?.namespace;
+  const momentGraphNamespace =
+    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+      ? namespaceRaw.trim()
+      : null;
+
+  const enableEvidenceLockerRaw =
+    body?.disableEvidenceLocker === true
+      ? false
+      : body?.enableEvidenceLocker === false
+      ? false
+      : true;
+
+  const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
+  if (momentGraphNamespace) {
+    (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+  }
+
   try {
     console.log(`[query] Starting query: "${queryText}"`);
-    const response = await query(queryText, context);
+    const response = await query(queryText, context, {
+      enableEvidenceLocker: enableEvidenceLockerRaw,
+    });
     console.log(`[query] Query completed successfully`);
     return Response.json({ response });
   } catch (error) {
@@ -48,6 +79,8 @@ async function queryHandler({ request, ctx }: RequestInfo) {
       },
       { status: 500 }
     );
+  } finally {
+    (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
   }
 }
 

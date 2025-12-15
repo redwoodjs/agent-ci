@@ -32,11 +32,19 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 *   **Phase 1: Segmentation (Micro-Moments)**
     The system first breaks raw documents down into **Micro-Moments**—atomic units of raw data (e.g., a single user/assistant exchange, a GitHub comment). These represent the raw "evidence" without judgement.
 
+    This process is engine-owned but source-aware:
+    *   **Per-chunk attribution**: The engine normalizes actor attribution (e.g., `@handle`) from chunk metadata so the LLM knows exactly who said what.
+    *   **Narrative context**: Plugins provide a "lens" (via `getMicroMomentBatchPromptContext`) to guide summarization (e.g., "Treat these GitHub issue chunks as a proposal, not completed work").
+
 *   **Phase 2: Synthesis (Macro-Moments)**
     The engine then passes the stream of Micro-Moments to an LLM acting as a "Historian." This model analyzes the sequence to:
     1.  **Filter**: Discard irrelevant chatter.
     2.  **Cluster**: Group related Micro-Moments into logical events.
     3.  **Synthesize**: Generate a **Macro-Moment** for each group, writing a concise title and a rich summary that captures the *narrative significance* (the "why").
+
+    Plugins enrich this step via the `getMacroSynthesisPromptContext` hook, which provides:
+    *   **Formatting rules**: Instructions for source labels in titles (e.g., `[GitHub Issue #552]`).
+    *   **Reference context**: Canonical tokens to be included in the summary text.
 
 *   **Phase 3: Correlation (Smart Linker)**
     Before persisting, the engine attempts to stitch the new Macro-Moments into existing timelines.
@@ -44,13 +52,32 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
     2.  **Attach**: If a strong match is found, the new document's timeline attaches as a branch under the existing Moment.
     3.  **Root**: If no match is found, the new timeline starts a new Subject (Root Moment).
 
+### 3. Canonical references in macro moments (source labels and tokens)
+Macro moments are summaries, but they also need a lightweight way to identify where they came from. The system uses two layers:
+
+- A human-readable source label in the title (example: `[GitHub Pull Request]`, `[Discord Thread]`).
+- A canonical reference token embedded in the summary near the first mention of the source entity.
+
+Canonical reference tokens are intended to be short, parseable, and unique. The format is:
+
+- `mchn://<source>/<type>/<path>`
+
+Example shapes:
+
+- `mchn://gh/issue/<owner>/<repo>/<number>`
+- `mchn://gh/pr/<owner>/<repo>/<number>`
+- `mchn://dc/thread/<guildid>/<channelid>/<threadid>`
+- `mchn://dc/thread_message/<guildid>/<channelid>/<threadid>/<messageid>`
+
+The current approach is prompt-driven: the macro synthesis prompt includes specific formatting rules and reference context provided by the plugin, so the LLM deterministically includes the correct label and token in the output.
+
 ### 3. Micro-Moments as a Universal Cache
 To solve the efficiency problem, **Micro-Moments** serve a dual purpose: they are both the raw input for synthesis and the unit of caching.
 
 The Engine relies on chunking for a source-agnostic input stream and engine-owned micro-moment caching, while allowing plugins to tailor summarization prompts per source.
 
 *   **Step 1: Chunking (Cheap)**: The engine calls the chunking hook (`splitDocumentIntoChunks`) to produce a stable, ordered list of chunks.
-*   **Step 2: Micro-moment computation (Batched)**: The engine batches chunks purely for performance (token/size caps), then calls the plugin hook to summarize each batch into a list of "what happened" items.
+*   **Step 2: Micro-moment computation (Batched)**: The engine batches chunks for performance (token/size caps), then calls the engine-owned summarizer. This function uses plugin-provided context (`getMicroMomentBatchPromptContext`) to ensure the summaries reflect the correct narrative framing (e.g. proposal vs implementation).
 *   **Step 3: Batch provenance**: Each micro-moment is stored with a stable path derived from the batch hash and the summary index, so re-indexing can reference the same micro-moment positions for an unchanged batch.
 *   **Step 4: Cache Check**: The engine caches batch outputs keyed by a hash of the batch's chunk ids/hashes. On re-index:
     *   **Hit**: reuse the cached micro-moments and embeddings for the batch.
@@ -58,12 +85,21 @@ The Engine relies on chunking for a source-agnostic input stream and engine-owne
 
 This architecture ensures that we only pay the "AI Tax" for new or modified content, while allowing the system to incrementally process evolving documents (like long chat threads) efficiently.
 
-### 4. Narrative Querying (Moment Trails, then Subject-First)
+### 4. Narrative Querying (Root-to-Leaf Timeline)
 To answer "why" questions, the query engine flips the traditional RAG model:
+
 1.  **Find anchor Moments**: The query is embedded and matched against the **Moment Index** (all moments). Each match is treated as an anchor.
-2.  **Build trails to Subjects**: For each matched Moment, the engine walks ancestors up to the root, recording the chain (root -> ... -> matched Moment).
-3.  **Synthesize Answer**: The LLM is given these trails (not random chunks) to generate an answer grounded in the relevant narrative path.
-4.  **Fallback to Subject-First**: If there are no matched Moments, the engine searches the **Subject Index** (root moments) and traverses descendants to load the full timeline for that Subject.
+2.  **Resolve Root Subject**: For each matched Moment, the engine identifies the root Subject of that timeline.
+3.  **Retrieve Descendant Timeline**: The engine retrieves the *full descendant timeline* under that root. This ensures that linked work (e.g., a Discord thread attached to a GitHub issue) is included in the context, even if the query matched the parent issue and not the thread.
+4.  **Synthesize Answer**: The LLM is given this full timeline—formatted with ISO8601 timestamps and canonical references—to generate an answer grounded in the chronological narrative.
+
+#### Narrative Context
+The context provided to the LLM is a chronological list of macro-moments, ordered by their timestamp (derived from the underlying micro-moments). Each line includes:
+- ISO8601 timestamp
+- Source label and Title
+- Summary with canonical reference tokens
+
+This allows the model to reason about the sequence of events without inventing dates or hallucinations.
 
 ### 5. Moment Graph namespaces (test isolation)
 During development, it is sometimes useful to run repeated ingestion experiments without deleting existing data in Durable Objects or Vectorize. The Moment Graph supports a namespace value that scopes both storage and retrieval.
@@ -87,7 +123,7 @@ When a document is indexed, it undergoes two parallel processes:
 
 ### Querying: The Narrative Waterfall
 The query engine employs a waterfall strategy to answer questions:
-1.  **Attempt Narrative Query**: First, the system tries to match the query to a `Subject` in the Moment Graph. If a relevant Subject is found, it constructs a narrative answer from the timeline.
+1.  **Attempt Narrative Query**: First, the system tries to match the query to a `Moment` in the Moment Graph. If a match is found, it resolves the root Subject and constructs a narrative answer from the full descendant timeline.
 2.  **Drill-Down (Future Work)**: In future iterations, the system will use the found Moments to precisely filter the Evidence Locker. Instead of a broad semantic search, we can fetch the exact raw chunks (Micro-Moments) that back up a specific point in the narrative, allowing the user to "double-click" on a summary to see the source truth.
 3.  **Fallback to Evidence Locker**: If no relevant Subject is found, or if the query is purely factual/specific (e.g., "what was the error code"), the system falls back to the standard RAG pipeline, retrieving specific `Chunks` to generate an answer.
 
@@ -96,6 +132,6 @@ The query engine employs a waterfall strategy to answer questions:
 1.  **Ingestion**: `Raw Doc` -> `Plugin` ->
     *   *Path A (Narrative)*: `Chunks` -> `Micro-Moments (batched)` -> `Cache Check` -> `Synthesis (LLM)` -> `Macro-Moments` -> `Graph Storage`
     *   *Path B (Evidence)*: `Chunks` -> `Deduplication` -> `Vector Storage`
-2.  **Query**: `User Query` -> `Subject Search` ->
-    *   *Match Found*: `Graph Traversal` -> `Timeline Assembly` -> `LLM Generation`
+2.  **Query**: `User Query` -> `Moment Search` ->
+    *   *Match Found*: `Resolve Root` -> `Descendant Timeline Assembly` -> `LLM Generation`
     *   *No Match*: `Vector Search (Evidence)` -> `Context Assembly` -> `LLM Generation`

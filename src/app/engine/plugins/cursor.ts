@@ -18,6 +18,55 @@ interface CursorEvent {
 export const cursorPlugin: Plugin = {
   name: "cursor",
 
+  subjects: {
+    async getMicroMomentBatchPromptContext(
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "cursor") {
+        return null;
+      }
+      if (!chunks.every((c) => c.source === "cursor")) {
+        return null;
+      }
+
+      return (
+        `Context: These chunks are from a Cursor AI coding assistant conversation. Each chunk may include User and Assistant turns.\n` +
+        `Attribute statements to the chunk author (author=...) when possible.\n` +
+        `Focus on technical details, decisions, errors, file paths, commands, and outcomes.\n` +
+        `Avoid claiming a change landed unless the text explicitly indicates it.\n`
+      );
+    },
+    async getMacroSynthesisPromptContext(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "cursor") {
+        return null;
+      }
+
+      const lines: string[] = [];
+      lines.push("Formatting:");
+      lines.push(`- title_label: [Cursor Conversation]`);
+      lines.push(`- summary_descriptor: In a Cursor conversation,`);
+      lines.push(
+        `- canonical_token_note: omit canonical tokens for cursor in titles and summaries`
+      );
+      lines.push("");
+      lines.push("Reference context:");
+      lines.push(`- entity_hints:`);
+      lines.push(`  - This document is a Cursor conversation.`);
+
+      lines.push("");
+      lines.push("Narrative context:");
+      lines.push(
+        `- This is a Cursor coding conversation. Prefer concrete technical phrasing and avoid claiming a change landed unless the text explicitly indicates it.`
+      );
+      return lines.join("\n");
+    },
+  },
+
   async prepareSourceDocument(
     context: IndexingHookContext
   ): Promise<Document | null> {
@@ -92,42 +141,56 @@ export const cursorPlugin: Plugin = {
             e.hook_event_name === "afterAgentResponse" && e.text
         )?.text || "";
 
-      let content = "";
-      if (userPrompt) {
-        content += `User: ${userPrompt}\n`;
-      }
+      const baseJsonPath = `$.generations[${index}]`;
+      const documentTitle =
+        document.metadata.title ||
+        `Cursor Conversation ${
+          document.metadata.sourceMetadata?.conversationId || "unknown"
+        }`;
 
-      if (assistantResponse) {
-        content += `Assistant: ${assistantResponse}`;
-      }
-
-      if (!content.trim()) {
-        continue;
-      }
-
-      const chunkId = `${document.id}#gen-${gen.id}`;
-      const trimmedContent = content.trim();
-      chunks.push({
-        id: chunkId,
-        documentId: document.id,
-        source: "cursor",
-        content: trimmedContent,
-        contentHash: await hashContent(trimmedContent),
-        metadata: {
-          chunkId: chunkId,
+      if (userPrompt.trim()) {
+        const chunkId = `${document.id}#gen-${gen.id}-user`;
+        const trimmedContent = `User: ${userPrompt.trim()}`;
+        chunks.push({
+          id: chunkId,
           documentId: document.id,
           source: "cursor",
-          type: "cursor-generation",
-          documentTitle:
-            document.metadata.title ||
-            `Cursor Conversation ${
-              document.metadata.sourceMetadata?.conversationId || "unknown"
-            }`,
-          author: "cursor-user",
-          jsonPath: `$.generations[${index}]`,
-          sourceMetadata: document.metadata.sourceMetadata,
-        },
-      });
+          content: trimmedContent,
+          contentHash: await hashContent(trimmedContent),
+          metadata: {
+            chunkId: chunkId,
+            documentId: document.id,
+            source: "cursor",
+            type: "cursor-user-prompt",
+            documentTitle,
+            author: "User",
+            jsonPath: baseJsonPath,
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      }
+
+      if (assistantResponse.trim()) {
+        const chunkId = `${document.id}#gen-${gen.id}-assistant`;
+        const trimmedContent = `Assistant: ${assistantResponse.trim()}`;
+        chunks.push({
+          id: chunkId,
+          documentId: document.id,
+          source: "cursor",
+          content: trimmedContent,
+          contentHash: await hashContent(trimmedContent),
+          metadata: {
+            chunkId: chunkId,
+            documentId: document.id,
+            source: "cursor",
+            type: "cursor-assistant-response",
+            documentTitle,
+            author: "Assistant",
+            jsonPath: baseJsonPath,
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      }
     }
 
     return chunks;

@@ -149,6 +149,15 @@ export interface Plugin {
       chunks: Chunk[],
       context: IndexingHookContext
     ) => Promise<string[] | null>;
+    getMicroMomentBatchPromptContext?: (
+      document: Document,
+      chunks: Chunk[],
+      context: IndexingHookContext
+    ) => Promise<string | null>;
+    getMacroSynthesisPromptContext?: (
+      document: Document,
+      context: IndexingHookContext
+    ) => Promise<string | null>;
     proposeMacroMomentParent?: (
       document: Document,
       macroMoment: MacroMomentDescription,

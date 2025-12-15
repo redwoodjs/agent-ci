@@ -24,6 +24,7 @@ import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { synthesizeMicroMoments } from "./synthesis/synthesizeMicroMoments";
+import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -214,6 +215,49 @@ export async function indexDocument(
 
   const microMomentsForSynthesis: MicroMoment[] = [];
 
+  function parseDateMs(value: unknown): number | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      return null;
+    }
+    const ms = Date.parse(trimmed);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  function inferBatchTimeRange(
+    chunks: Chunk[],
+    documentCreatedAt: string
+  ): { start: string; end: string } {
+    let minMs: number | null = null;
+    let maxMs: number | null = null;
+
+    for (const chunk of chunks) {
+      const ts = (chunk.metadata as any)?.timestamp;
+      const ms = parseDateMs(ts);
+      if (ms === null) {
+        continue;
+      }
+      if (minMs === null || ms < minMs) {
+        minMs = ms;
+      }
+      if (maxMs === null || ms > maxMs) {
+        maxMs = ms;
+      }
+    }
+
+    const fallbackMs = parseDateMs(documentCreatedAt) ?? Date.now();
+    const startMs = minMs ?? fallbackMs;
+    const endMs = maxMs ?? startMs;
+
+    return {
+      start: new Date(startMs).toISOString(),
+      end: new Date(endMs).toISOString(),
+    };
+  }
+
   for (let batchIndex = 0; batchIndex < chunkBatches.length; batchIndex++) {
     const batchChunks = chunkBatches[batchIndex] ?? [];
     const batchKeyParts = batchChunks.map((c) => {
@@ -243,18 +287,26 @@ export async function indexDocument(
       continue;
     }
 
-    const computed = await runFirstMatchHook(
+    const microPromptContext = await runFirstMatchHook(
       context.plugins,
-      "computeMicroMomentsForChunkBatch",
+      "getMicroMomentBatchPromptContext",
       (plugin) =>
-        plugin.subjects?.computeMicroMomentsForChunkBatch?.(
+        plugin.subjects?.getMicroMomentBatchPromptContext?.(
+          document,
           batchChunks,
           indexingContext
         )
     );
 
+    const promptContext =
+      microPromptContext ??
+      `Context: These chunks are from a single document.\n` +
+        `Focus on concrete details and avoid generic summaries.\n`;
+
     const computedItems =
-      computed && Array.isArray(computed) ? computed.filter(Boolean) : [];
+      (await computeMicroMomentsForChunkBatch(batchChunks, {
+        promptContext,
+      })) ?? [];
 
     const itemsToStore =
       computedItems.length > 0
@@ -266,6 +318,15 @@ export async function indexDocument(
             .map((c) => c.substring(0, 300));
 
     const embeddings = await getEmbeddings(itemsToStore);
+    const batchTimeRange = inferBatchTimeRange(
+      batchChunks,
+      document.metadata.createdAt
+    );
+    const batchAuthorRaw = (batchChunks[0]?.metadata as any)?.author;
+    const batchAuthor =
+      typeof batchAuthorRaw === "string" && batchAuthorRaw.trim().length > 0
+        ? batchAuthorRaw.trim()
+        : document.metadata.author;
 
     for (let i = 0; i < itemsToStore.length; i++) {
       const text = itemsToStore[i] ?? "";
@@ -276,11 +337,12 @@ export async function indexDocument(
         {
           path,
           content: text,
-          author: document.metadata.author,
-          createdAt: document.metadata.createdAt,
+          author: batchAuthor,
+          createdAt: batchTimeRange.start,
           sourceMetadata: {
             chunkBatchHash: batchHash,
             chunkIds: batchChunks.map((c) => c.id),
+            timeRange: batchTimeRange,
           },
         },
         document.id,
@@ -295,24 +357,52 @@ export async function indexDocument(
         content: text,
         summary: text,
         embedding: embedding,
-        createdAt: document.metadata.createdAt,
-        author: document.metadata.author,
+        createdAt: batchTimeRange.start,
+        author: batchAuthor,
         sourceMetadata: {
           chunkBatchHash: batchHash,
           chunkIds: batchChunks.map((c) => c.id),
+          timeRange: batchTimeRange,
         },
       });
     }
   }
 
   if (microMomentsForSynthesis.length > 0) {
+    microMomentsForSynthesis.sort((a, b) => {
+      const aMs = parseDateMs(a.createdAt) ?? 0;
+      const bMs = parseDateMs(b.createdAt) ?? 0;
+      if (aMs !== bMs) {
+        return aMs - bMs;
+      }
+      return a.path.localeCompare(b.path);
+    });
     console.log("[moment-linker] micro moments loaded", {
       documentId: document.id,
       count: microMomentsForSynthesis.length,
     });
 
+    const macroSynthesisPromptContext = await runFirstMatchHook(
+      context.plugins,
+      "getMacroSynthesisPromptContext",
+      (plugin) =>
+        plugin.subjects?.getMacroSynthesisPromptContext?.(
+          document,
+          indexingContext
+        )
+    );
+    if (macroSynthesisPromptContext) {
+      console.log("[moment-linker] macro synthesis prompt context", {
+        documentId: document.id,
+        context: macroSynthesisPromptContext,
+      });
+    }
+
     const macroMomentDescriptions = (await synthesizeMicroMoments(
-      microMomentsForSynthesis
+      microMomentsForSynthesis,
+      {
+        macroSynthesisPromptContext,
+      }
     )) as MacroMomentDescription[];
 
     if (macroMomentDescriptions.length > 0) {
@@ -436,15 +526,67 @@ export async function indexDocument(
 
 export async function query(
   userQuery: string,
-  context: EngineContext
+  context: EngineContext,
+  options?: {
+    enableEvidenceLocker?: boolean;
+  }
 ): Promise<string> {
+  const enableEvidenceLocker = false;
   const queryContext: QueryHookContext = {
     query: userQuery,
     env: context.env,
   };
 
+  function formatIso8601(raw: unknown): string {
+    if (typeof raw !== "string") {
+      return "";
+    }
+    const trimmed = raw.trim();
+    if (trimmed.length === 0) {
+      return "";
+    }
+    const date = new Date(trimmed);
+    if (Number.isNaN(date.getTime())) {
+      return trimmed;
+    }
+    return date.toISOString();
+  }
+
+  function formatTimelineLine(
+    moment: {
+      createdAt?: string;
+      title?: string;
+      summary?: string;
+      sourceMetadata?: Record<string, any>;
+    },
+    idx: number
+  ): string {
+    const timeRange = (moment.sourceMetadata as any)?.timeRange as
+      | { start?: unknown; end?: unknown }
+      | undefined;
+    const rangeStart = formatIso8601(timeRange?.start);
+    const rangeEnd = formatIso8601(timeRange?.end);
+    const iso = formatIso8601(moment.createdAt);
+    const prefix =
+      rangeStart.length > 0 && rangeEnd.length > 0 && rangeStart !== rangeEnd
+        ? `${rangeStart}..${rangeEnd} `
+        : iso.length > 0
+        ? `${iso} `
+        : "";
+    return `${prefix}${idx + 1}. ${moment.title}: ${moment.summary}`;
+  }
+
   // Narrative Query Path: Try to answer using Subject (root moment) first
   try {
+    const momentGraphNamespaceRaw = (context.env as any)
+      ?.MOMENT_GRAPH_NAMESPACE;
+    const momentGraphNamespace =
+      typeof momentGraphNamespaceRaw === "string" &&
+      momentGraphNamespaceRaw.trim().length > 0
+        ? momentGraphNamespaceRaw.trim()
+        : "default";
+    console.log(`[query:narrative] namespace=${momentGraphNamespace}`);
+
     const queryEmbedding = await generateEmbedding(userQuery);
     const {
       findSimilarSubjects,
@@ -453,87 +595,23 @@ export async function query(
       findDescendants,
     } = await import("./momentDb");
 
-    const similarMoments = await findSimilarMoments(queryEmbedding, 8);
-    if (similarMoments.length > 0) {
-      const trailsByRoot = new Map<
-        string,
-        {
-          root: unknown;
-          trails: unknown[][];
-        }
-      >();
-
-      for (const matchedMoment of similarMoments) {
-        const ancestors = await findAncestors(matchedMoment.id);
-        if (ancestors.length === 0) {
-          continue;
-        }
-        const root = ancestors[0];
-        const existing = trailsByRoot.get(root.id);
-        if (existing) {
-          existing.trails.push(ancestors);
-        } else {
-          trailsByRoot.set(root.id, { root, trails: [ancestors] });
-        }
-      }
-
-      if (trailsByRoot.size > 0) {
-        const rootsSorted = Array.from(trailsByRoot.values()).sort(
-          (a, b) => b.trails.length - a.trails.length
-        );
-        const topRoots = rootsSorted.slice(0, 3);
-
-        const trailsContext = topRoots
-          .map((entry, rootIdx) => {
-            const root = entry.root as any;
-            const trailsText = entry.trails
-              .slice(0, 6)
-              .map((trail, trailIdx) => {
-                const steps = (trail as any[])
-                  .map(
-                    (m, idx: number) => `${idx + 1}. ${m.title}: ${m.summary}`
-                  )
-                  .join("\n");
-                return `Trail ${trailIdx + 1}\n${steps}`;
-              })
-              .join("\n\n");
-
-            return `Root ${rootIdx + 1}\n${root.title}: ${
-              root.summary
-            }\n\n${trailsText}`;
-          })
-          .join("\n\n---\n\n");
-
-        const narrativePrompt = `Based on the following matched moment trails and their root moments, answer the user's question. Each trail is a chain of moments from a root moment down to a matched moment. Use the trails to explain what happened leading up to the relevant points.
-
-## Matched Trails
-${trailsContext}
-
-## User Question
-${userQuery}
-
-## Instructions
-Provide a clear narrative answer. Prefer causal links and chronological explanation using the trail steps. If multiple roots are present, pick the most relevant one(s) and say why.`;
-
-        const narrativeAnswer = await callLLM(narrativePrompt);
-        return narrativeAnswer;
-      }
-    }
-
     const similarSubjects = await findSimilarSubjects(queryEmbedding, 5);
+    console.log(`[query:narrative] similarSubjects=${similarSubjects.length}`);
 
     if (similarSubjects.length > 0) {
       const subjectMoment = similarSubjects[0];
+      console.log(
+        `[query:narrative] choseSubject=${subjectMoment.id} doc=${subjectMoment.documentId}`
+      );
 
       // Get the full narrative timeline (root moment + all descendants)
       const timeline = await findDescendants(subjectMoment.id);
+      console.log(`[query:narrative] timelineLen=${timeline.length}`);
 
       if (timeline.length > 0) {
         // Build narrative context from moment summaries
         const narrativeContext = timeline
-          .map(
-            (moment, idx) => `${idx + 1}. ${moment.title}: ${moment.summary}`
-          )
+          .map((moment, idx) => formatTimelineLine(moment, idx))
           .join("\n\n");
 
         const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
@@ -548,10 +626,84 @@ ${narrativeContext}
 ${userQuery}
 
 ## Instructions
-Provide a clear, narrative answer that explains the story and causal relationships between events. Focus on answering "why" and "how" questions based on the Subject and the sequence of events in its timeline.`;
+Rules:
+- You MUST only use timestamps that appear at the start of Timeline lines. Do not invent or guess dates.
+- When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
+- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
+- You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
+- If the Timeline does not contain enough information to answer part of the question, say that directly.
 
-        const narrativeAnswer = await callLLM(narrativePrompt);
+Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
+
+        const narrativeAnswer = await callLLM(
+          narrativePrompt,
+          "slow-reasoning",
+          {
+            temperature: 0,
+            reasoning: { effort: "low" },
+          }
+        );
         return narrativeAnswer;
+      }
+    }
+
+    const similarMoments = await findSimilarMoments(queryEmbedding, 20);
+    console.log(`[query:narrative] similarMoments=${similarMoments.length}`);
+    if (similarMoments.length > 0) {
+      console.log(
+        `[query:narrative] similarMomentSample=${similarMoments
+          .slice(0, 5)
+          .map((m) => `${m.id}:${m.documentId}`)
+          .join(",")}`
+      );
+      const bestMatch = similarMoments[0];
+      if (bestMatch) {
+        const ancestors = await findAncestors(bestMatch.id);
+        const root = ancestors[0];
+        if (root) {
+          console.log(
+            `[query:narrative] resolvedRootFromMatch root=${root.id} match=${bestMatch.id}`
+          );
+          const timeline = await findDescendants(root.id);
+          console.log(`[query:narrative] rootTimelineLen=${timeline.length}`);
+
+          if (timeline.length > 0) {
+            const narrativeContext = timeline
+              .map((moment, idx) => formatTimelineLine(moment, idx))
+              .join("\n\n");
+
+            const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
+
+## Subject
+${root.title}: ${root.summary}
+
+## Timeline
+${narrativeContext}
+
+## User Question
+${userQuery}
+
+## Instructions
+Rules:
+- You MUST only use timestamps that appear at the start of Timeline lines. Do not invent or guess dates.
+- When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
+- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
+- You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
+- If the Timeline does not contain enough information to answer part of the question, say that directly.
+
+Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
+
+            const narrativeAnswer = await callLLM(
+              narrativePrompt,
+              "slow-reasoning",
+              {
+                temperature: 0,
+                reasoning: { effort: "low" },
+              }
+            );
+            return narrativeAnswer;
+          }
+        }
       }
     }
   } catch (error) {
@@ -560,6 +712,11 @@ Provide a clear, narrative answer that explains the story and causal relationshi
       error
     );
     // Fall through to the existing chunk-based RAG system
+  }
+
+  if (!enableEvidenceLocker) {
+    console.log(`[query] no narrative match; evidenceLockerDisabled=true`);
+    return `No Moment Graph subject timeline matched this query. Evidence Locker is disabled.`;
   }
 
   const processedQuery = await runWaterfallHook(

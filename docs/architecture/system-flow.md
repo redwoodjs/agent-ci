@@ -27,16 +27,26 @@ The scheduler fans out the new chunks to the `chunk-processor-worker` via a queu
 
 ### 4. Knowledge Synthesis (Moment Graph)
 Concurrent with chunk processing, the scheduler triggers the Knowledge Synthesis Engine for the document.
-1.  **Chunk batching and micro-moment summarization**: The engine batches chunks for performance (token/size caps) and uses a plugin hook to summarize each batch into "Micro-Moments." Batch outputs are cached so re-indexing only recomputes changed batches.
-2.  **Synthesis**: Micro-moments are synthesized by an LLM into higher-level "Macro-Moments."
+1.  **Chunk batching and micro-moment summarization**: The engine batches chunks for performance (token/size caps) and uses an engine-owned summarizer. This summarizer calls a plugin hook (`getMicroMomentBatchPromptContext`) to ensure summaries reflect the source's narrative context (e.g., issue proposal vs. PR changes). Batch outputs are cached so re-indexing only recomputes changed batches.
+2.  **Synthesis**: Micro-moments are synthesized by an LLM into higher-level "Macro-Moments." The synthesis prompt uses plugin-provided context (`getMacroSynthesisPromptContext`) to inject source formatting guidance and canonical reference tokens (`mchn://...`) so macro moments can identify their originating entities across sources.
 3.  **Graph Update**: Macro-moments are inserted into the Moment Graph with parent relationships. The first macro-moment can attach under an existing moment (Smart Linker) to stitch documents into a shared graph. Root moments are indexed as **Subjects**.
 
 ### 5. Query & Retrieval
 When a user asks a question, the system first attempts a narrative query path, then falls back to RAG:
 1.  **Identify anchor Moments**: The query is used to find similar Moments in the `MOMENT_INDEX`.
-2.  **Build trails**: For matched Moments, the engine walks ancestors to the root (Subject) and uses those trails as narrative context.
+2.  **Resolve Root & Build Timeline**: For matched Moments, the engine resolves the root Subject and retrieves the **full descendant timeline**. This ensures that linked work (like a Discord thread attached to a GitHub issue) is included in the narrative context.
 3.  **Fallback to Subject-First**: If there are no matched Moments, the query is used to find relevant Subjects (Root Moments) in the `SUBJECT_INDEX`, then the engine loads that Subject's descendant timeline.
 4.  **Fallback to Evidence Locker**: If no narrative context is found, the system falls back to a standard RAG search against the Evidence Locker.
+
+#### Root-to-leaf narrative context (primary retrieval mode)
+For cross-document, cross-source timelines, ancestor trails can omit linked descendant work (example: a Discord thread or PR attached under a root, while the query matches a moment higher up in the tree).
+
+The primary retrieval mode for narrative queries is:
+
+1. Identify anchor Moments (vector match against `MOMENT_INDEX`).
+2. For each anchor Moment, resolve its root Subject.
+3. For each resolved root, traverse descendants and build root-to-leaf paths.
+4. Provide the LLM with the full timeline context (capped by token budget) rather than only ancestor trails.
 
 ## Architecture Map
 

@@ -141,42 +141,56 @@ export const cursorPlugin: Plugin = {
             e.hook_event_name === "afterAgentResponse" && e.text
         )?.text || "";
 
-      let content = "";
-      if (userPrompt) {
-        content += `User: ${userPrompt}\n`;
-      }
+      const baseJsonPath = `$.generations[${index}]`;
+      const documentTitle =
+        document.metadata.title ||
+        `Cursor Conversation ${
+          document.metadata.sourceMetadata?.conversationId || "unknown"
+        }`;
 
-      if (assistantResponse) {
-        content += `Assistant: ${assistantResponse}`;
-      }
-
-      if (!content.trim()) {
-        continue;
-      }
-
-      const chunkId = `${document.id}#gen-${gen.id}`;
-      const trimmedContent = content.trim();
-      chunks.push({
-        id: chunkId,
-        documentId: document.id,
-        source: "cursor",
-        content: trimmedContent,
-        contentHash: await hashContent(trimmedContent),
-        metadata: {
-          chunkId: chunkId,
+      if (userPrompt.trim()) {
+        const chunkId = `${document.id}#gen-${gen.id}-user`;
+        const trimmedContent = `User: ${userPrompt.trim()}`;
+        chunks.push({
+          id: chunkId,
           documentId: document.id,
           source: "cursor",
-          type: "cursor-generation",
-          documentTitle:
-            document.metadata.title ||
-            `Cursor Conversation ${
-              document.metadata.sourceMetadata?.conversationId || "unknown"
-            }`,
-          author: "cursor-user",
-          jsonPath: `$.generations[${index}]`,
-          sourceMetadata: document.metadata.sourceMetadata,
-        },
-      });
+          content: trimmedContent,
+          contentHash: await hashContent(trimmedContent),
+          metadata: {
+            chunkId: chunkId,
+            documentId: document.id,
+            source: "cursor",
+            type: "cursor-user-prompt",
+            documentTitle,
+            author: "User",
+            jsonPath: baseJsonPath,
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      }
+
+      if (assistantResponse.trim()) {
+        const chunkId = `${document.id}#gen-${gen.id}-assistant`;
+        const trimmedContent = `Assistant: ${assistantResponse.trim()}`;
+        chunks.push({
+          id: chunkId,
+          documentId: document.id,
+          source: "cursor",
+          content: trimmedContent,
+          contentHash: await hashContent(trimmedContent),
+          metadata: {
+            chunkId: chunkId,
+            documentId: document.id,
+            source: "cursor",
+            type: "cursor-assistant-response",
+            documentTitle,
+            author: "Assistant",
+            jsonPath: baseJsonPath,
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
+      }
     }
 
     return chunks;

@@ -118,6 +118,21 @@ function buildGitHubUrl(
   return `https://github.com/orgs/${parsed.owner}/projects/${parsed.number}`;
 }
 
+function normalizeGitHubHandle(value: unknown): string {
+  if (typeof value !== "string") {
+    return "unknown";
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "unknown";
+  }
+  const withoutAt = trimmed.replace(/^@+/, "");
+  if (!withoutAt) {
+    return "unknown";
+  }
+  return `@${withoutAt.toLowerCase()}`;
+}
+
 export const githubPlugin: Plugin = {
   name: "github",
 
@@ -156,7 +171,7 @@ export const githubPlugin: Plugin = {
           title: prIssueData.title,
           url,
           createdAt: prIssueData.created_at,
-          author: prIssueData.author,
+          author: normalizeGitHubHandle(prIssueData.author),
           _rawJson: prIssueData,
           sourceMetadata: {
             type: "github-pr-issue",
@@ -179,7 +194,7 @@ export const githubPlugin: Plugin = {
           title: projectData.title,
           url,
           createdAt: projectData.created_at,
-          author: projectData.owner,
+          author: normalizeGitHubHandle(projectData.owner),
           _rawJson: projectData,
           sourceMetadata: {
             type: "github-project",
@@ -226,7 +241,7 @@ export const githubPlugin: Plugin = {
             source: "github",
             type: "issue-body",
             documentTitle: document.metadata.title,
-            author: document.metadata.author,
+            author: normalizeGitHubHandle(document.metadata.author),
             jsonPath: "$.body",
             sourceMetadata: document.metadata.sourceMetadata,
           },
@@ -246,7 +261,7 @@ export const githubPlugin: Plugin = {
                 ? "pull-request-title"
                 : "issue-title",
             documentTitle: data.title,
-            author: data.author,
+            author: normalizeGitHubHandle(data.author),
             jsonPath: "$.title",
             sourceMetadata: document.metadata.sourceMetadata,
           },
@@ -270,7 +285,7 @@ export const githubPlugin: Plugin = {
                   ? "pull-request-comment"
                   : "issue-comment",
               documentTitle: data.title,
-              author: comment.author,
+              author: normalizeGitHubHandle(comment.author),
               jsonPath: `$.comments[${i}].body`,
               sourceMetadata: document.metadata.sourceMetadata,
             },
@@ -299,7 +314,7 @@ export const githubPlugin: Plugin = {
             source: "github",
             type: "project-body",
             documentTitle: data.title,
-            author: data.owner,
+            author: normalizeGitHubHandle(data.owner),
             jsonPath: "$.body",
             sourceMetadata: document.metadata.sourceMetadata,
           },
@@ -316,7 +331,7 @@ export const githubPlugin: Plugin = {
             source: "github",
             type: "project-title",
             documentTitle: data.title,
-            author: data.owner,
+            author: normalizeGitHubHandle(data.owner),
             jsonPath: "$.title",
           },
         });

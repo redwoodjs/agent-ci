@@ -99,7 +99,14 @@ function extractJsonPath(obj: unknown, jsonPath: string): string | null {
 }
 
 function getAuthorName(message: DiscordMessage): string {
-  return message.author?.username || message.author?.global_name || "unknown";
+  const username = message.author?.username;
+  if (typeof username === "string" && username.trim().length > 0) {
+    const trimmed = username.trim().replace(/^@+/, "");
+    if (trimmed) {
+      return `@${trimmed}`;
+    }
+  }
+  return message.author?.global_name || "unknown";
 }
 
 export const discordPlugin: Plugin = {

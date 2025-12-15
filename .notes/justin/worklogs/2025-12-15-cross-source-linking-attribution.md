@@ -336,3 +336,18 @@ Status:
 - Validated with manual reindexing of issue #552.
 - Micro summaries now correctly use verbs like "Proposed", "Identified", "discussed".
 - Macro summaries now correctly reflect the proposal nature of the issue.
+
+### 2025-12-15 - Implementation status: Attribution (actors)
+
+Observed:
+
+- Batch-level "participants" lists biased attribution in micro summaries.
+- Chunk metadata already includes an author per chunk, but GitHub authors were not consistently formatted as `@handle` (example: `Peterp` instead of `@peterp`).
+
+Change:
+
+- Micro summarization input now includes per-chunk actor labels directly in the chunk header (`author=...`).
+- Plugins normalize chunk authors to the source's conventions:
+  - GitHub: `@<login>` (lowercased, `@` prefixed).
+  - Discord: `@<username>` when a username is present.
+  - Cursor: split generation chunks into separate User and Assistant chunks so actor attribution is meaningful.

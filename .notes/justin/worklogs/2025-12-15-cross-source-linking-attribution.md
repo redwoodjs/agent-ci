@@ -50,6 +50,38 @@ Relevant prior work logs:
   - Discord thread objects covering the discussion window
   - GitHub issue `redwoodjs/sdk#552` and related PR(s)
 
+### 2025-12-15 - Implementation kickoff
+
+Next step is implementation. Per repo process, I updated architecture docs first to reflect the planned canonical token format and the macro synthesis prompt hook that provides source-specific formatting and reference context.
+
+Docs updated:
+
+- `docs/architecture/knowledge-synthesis-engine.md`
+- `docs/architecture/plugin-system.md`
+- `docs/architecture/system-flow.md`
+
+### 2025-12-15 - Implementation status (in progress)
+
+Changes made:
+
+- Added a plugin hook for macro synthesis prompt context so each source plugin can provide:
+  - title label formatting guidance
+  - canonical token shapes
+  - concrete reference tokens for the current document (capped lists for comments/messages)
+- Wired the engine to call this hook before macro synthesis and pass the returned text into the macro synthesis prompt.
+- Updated the macro synthesis prompt to include:
+  - generic formatting rules for canonical tokens
+  - the per-source plugin-provided block
+
+### 2025-12-15 - Implementation note (title labels and natural summary descriptors)
+
+Macro synthesis prompt formatting rules now support:
+
+- `title_label`: used as the bracket label at the start of each macro moment title (example: `[GitHub Pull Request #530]`).
+- `summary_descriptor`: used as the natural-language prefix at the start of each macro moment summary (example: `In a GitHub pull request (#530), ...`).
+
+Each plugin's macro synthesis prompt context hook now provides these fields where possible.
+
 ### 2025-12-15 - Current pipeline notes (chunks, micro-moments, macro-moments)
 
 Engine plugin ordering (indexing and querying):

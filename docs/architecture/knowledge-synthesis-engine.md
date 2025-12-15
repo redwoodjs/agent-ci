@@ -38,11 +38,34 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
     2.  **Cluster**: Group related Micro-Moments into logical events.
     3.  **Synthesize**: Generate a **Macro-Moment** for each group, writing a concise title and a rich summary that captures the *narrative significance* (the "why").
 
+    During synthesis, the engine provides source-aware formatting guidance so macro moments include human-readable provenance. This is intended to support cross-source timelines where a single narrative includes events from GitHub, Discord, and other sources.
+
 *   **Phase 3: Correlation (Smart Linker)**
     Before persisting, the engine attempts to stitch the new Macro-Moments into existing timelines.
     1.  **Search**: It queries the vector index for existing Moments that match the semantic content of the new document.
     2.  **Attach**: If a strong match is found, the new document's timeline attaches as a branch under the existing Moment.
     3.  **Root**: If no match is found, the new timeline starts a new Subject (Root Moment).
+
+### 3. Canonical references in macro moments (source labels and tokens)
+Macro moments are summaries, but they also need a lightweight way to identify where they came from. The system uses two layers:
+
+- A human-readable source label in the title (example: `[GitHub Pull Request]`, `[Discord Thread]`).
+- A canonical reference token embedded in the summary near the first mention of the source entity.
+
+Canonical reference tokens are intended to be short and parseable. The format is:
+
+- `source:document_type/path`
+
+Example shapes (not exhaustive):
+
+- `github:issue/<owner>/<repo>/<number>`
+- `github:pr/<owner>/<repo>/<number>`
+- `github:issue_comment/<owner>/<repo>/<number>/<commentid>`
+- `github:pr_comment/<owner>/<repo>/<number>/<commentid>`
+- `discord:thread/<guildid>/<channelid>/<threadid>`
+- `discord:thread_message/<guildid>/<channelid>/<threadid>/<messageid>`
+
+The current approach is prompt-driven: the macro synthesis prompt includes formatting rules and reference context so the LLM can include the label and token in the output. For now, minor deviations are acceptable as long as the output includes a readable source indicator and a recognizable token.
 
 ### 3. Micro-Moments as a Universal Cache
 To solve the efficiency problem, **Micro-Moments** serve a dual purpose: they are both the raw input for synthesis and the unit of caching.

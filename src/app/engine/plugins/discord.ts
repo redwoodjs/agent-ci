@@ -105,7 +105,132 @@ function getAuthorName(message: DiscordMessage): string {
 export const discordPlugin: Plugin = {
   name: "discord",
 
-  subjects: {},
+  subjects: {
+    async getMacroSynthesisPromptContext(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "discord") {
+        return null;
+      }
+
+      const sourceMetadata = document.metadata.sourceMetadata ?? {};
+      const type = String(sourceMetadata.type ?? "");
+
+      const lines: string[] = [];
+
+      lines.push("Formatting:");
+
+      if (type === "discord-thread") {
+        lines.push(`- title_label: [Discord Thread]`);
+        lines.push(`- summary_descriptor: In a Discord thread,`);
+        lines.push(
+          "- when_referencing_thread_use: discord:thread/<guildid>/<channelid>/<threadid>"
+        );
+        lines.push(
+          "- when_referencing_thread_message_use: discord:thread_message/<guildid>/<channelid>/<threadid>/<messageid>"
+        );
+
+        lines.push("");
+        lines.push("Reference context:");
+
+        const guildID = String(sourceMetadata.guildID ?? "");
+        const channelID = String(sourceMetadata.channelID ?? "");
+        const threadID = String(sourceMetadata.threadID ?? "");
+
+        if (guildID && channelID && threadID) {
+          lines.push(
+            `- document_ref: discord:thread/${guildID}/${channelID}/${threadID}`
+          );
+        }
+
+        const raw = document.metadata._rawJson as ThreadPage | undefined;
+        const messageIds = raw?.messages?.map((m) => m.id).filter(Boolean) ?? [];
+        const maxMessageRefs = 10;
+        const messageIdsLimited = messageIds.slice(0, maxMessageRefs);
+        if (guildID && channelID && threadID && messageIdsLimited.length > 0) {
+          lines.push(`- known_message_refs:`);
+          for (const messageId of messageIdsLimited) {
+            lines.push(
+              `  - discord:thread_message/${guildID}/${channelID}/${threadID}/${messageId}`
+            );
+          }
+          if (messageIds.length > messageIdsLimited.length) {
+            lines.push(
+              `  - (truncated: ${
+                messageIds.length - messageIdsLimited.length
+              } more)`
+            );
+          }
+        }
+
+        lines.push(`- entity_hints:`);
+        lines.push(`  - This is a Discord thread with the ids above.`);
+
+        return lines.join("\n");
+      }
+
+      if (type === "discord-channel") {
+        lines.push(`- title_label: [Discord Channel]`);
+        lines.push(`- summary_descriptor: In a Discord channel,`);
+        lines.push(
+          "- when_referencing_channel_day_use: discord:channel_day/<guildid>/<channelid>/<yyyy-mm-dd>"
+        );
+        lines.push(
+          "- when_referencing_channel_message_use: discord:channel_message/<guildid>/<channelid>/<yyyy-mm-dd>/<messageid>"
+        );
+
+        lines.push("");
+        lines.push("Reference context:");
+
+        const guildID = String(sourceMetadata.guildID ?? "");
+        const channelID = String(sourceMetadata.channelID ?? "");
+        const date = String(sourceMetadata.date ?? "");
+        if (guildID && channelID && date) {
+          lines.push(
+            `- document_ref: discord:channel_day/${guildID}/${channelID}/${date}`
+          );
+        }
+
+        const raw = document.metadata._rawJson as
+          | { messages: DiscordMessage[] }
+          | undefined;
+        const messageIds =
+          raw?.messages?.map((m) => m.id).filter(Boolean) ?? [];
+        const maxMessageRefs = 10;
+        const messageIdsLimited = messageIds.slice(0, maxMessageRefs);
+        if (guildID && channelID && date && messageIdsLimited.length > 0) {
+          lines.push(`- known_message_refs:`);
+          for (const messageId of messageIdsLimited) {
+            lines.push(
+              `  - discord:channel_message/${guildID}/${channelID}/${date}/${messageId}`
+            );
+          }
+          if (messageIds.length > messageIdsLimited.length) {
+            lines.push(
+              `  - (truncated: ${
+                messageIds.length - messageIdsLimited.length
+              } more)`
+            );
+          }
+        }
+
+        lines.push(`- entity_hints:`);
+        lines.push(`  - This is a Discord channel day file with the ids above.`);
+
+        return lines.join("\n");
+      }
+
+      lines.push(`- title_label: [Discord]`);
+      lines.push(`- summary_descriptor: In Discord,`);
+      lines.push("");
+      lines.push("Reference context:");
+      lines.push(`- entity_hints:`);
+      lines.push(`  - This document is from Discord.`);
+
+      return lines.join("\n");
+    },
+  },
 
   async prepareSourceDocument(
     context: IndexingHookContext

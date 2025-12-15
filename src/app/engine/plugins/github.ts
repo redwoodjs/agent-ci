@@ -358,7 +358,110 @@ export const githubPlugin: Plugin = {
     return chunks;
   },
 
-  subjects: {},
+  subjects: {
+    async getMacroSynthesisPromptContext(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "github") {
+        return null;
+      }
+
+      const sourceMetadata = document.metadata.sourceMetadata ?? {};
+      const owner = String(sourceMetadata.owner ?? "");
+      const repo = String(sourceMetadata.repo ?? "");
+      const number = String(sourceMetadata.number ?? "");
+
+      const isPullRequest = document.type === "pull-request";
+      const isIssue = document.type === "issue";
+
+      const titleLabelBase = isPullRequest
+        ? "GitHub Pull Request"
+        : isIssue
+        ? "GitHub Issue"
+        : "GitHub";
+
+      const hasNumber = owner && repo && number;
+      const titleLabel = hasNumber
+        ? `[${titleLabelBase} #${number}]`
+        : `[${titleLabelBase}]`;
+
+      const summaryDescriptor = hasNumber
+        ? `In a ${titleLabelBase} (#${number}),`
+        : `In ${titleLabelBase},`;
+
+      const lines: string[] = [];
+
+      lines.push("Formatting:");
+      lines.push(`- title_label: ${titleLabel}`);
+      lines.push(`- summary_descriptor: ${summaryDescriptor}`);
+      if (isPullRequest) {
+        lines.push(
+          "- when_referencing_pr_use: github:pr/<owner>/<repo>/<number>"
+        );
+        lines.push(
+          "- when_referencing_pr_comment_use: github:pr_comment/<owner>/<repo>/<number>/<commentid>"
+        );
+      }
+      if (isIssue) {
+        lines.push(
+          "- when_referencing_issue_use: github:issue/<owner>/<repo>/<number>"
+        );
+        lines.push(
+          "- when_referencing_issue_comment_use: github:issue_comment/<owner>/<repo>/<number>/<commentid>"
+        );
+      }
+
+      lines.push("");
+      lines.push("Reference context:");
+
+      if (owner && repo && number) {
+        if (isPullRequest) {
+          lines.push(`- document_ref: github:pr/${owner}/${repo}/${number}`);
+        } else if (isIssue) {
+          lines.push(`- document_ref: github:issue/${owner}/${repo}/${number}`);
+        } else {
+          lines.push(
+            `- document_ref: github:document/${owner}/${repo}/${number}`
+          );
+        }
+      }
+
+      const raw = document.metadata._rawJson as GitHubLatestJson | undefined;
+      const commentIds =
+        raw?.comments?.map((c) => c.id).filter((id) => id !== undefined) ?? [];
+      const maxCommentRefs = 10;
+      const commentIdsLimited = commentIds.slice(0, maxCommentRefs);
+      if (owner && repo && number && commentIdsLimited.length > 0) {
+        lines.push(`- known_comment_refs:`); // optional list
+        for (const commentId of commentIdsLimited) {
+          if (isPullRequest) {
+            lines.push(
+              `  - github:pr_comment/${owner}/${repo}/${number}/${commentId}`
+            );
+          } else if (isIssue) {
+            lines.push(
+              `  - github:issue_comment/${owner}/${repo}/${number}/${commentId}`
+            );
+          }
+        }
+        if (commentIds.length > commentIdsLimited.length) {
+          lines.push(
+            `  - (truncated: ${commentIds.length - commentIdsLimited.length} more)`
+          );
+        }
+      }
+
+      if (owner && repo && number) {
+        lines.push(`- entity_hints:`);
+        lines.push(
+          `  - This document is in ${owner}/${repo} and is number ${number}.`
+        );
+      }
+
+      return lines.join("\n");
+    },
+  },
 
   evidence: {
     async buildVectorSearchFilter(

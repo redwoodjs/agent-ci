@@ -18,6 +18,30 @@ interface CursorEvent {
 export const cursorPlugin: Plugin = {
   name: "cursor",
 
+  subjects: {
+    async getMacroSynthesisPromptContext(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      if (document.source !== "cursor") {
+        return null;
+      }
+
+      const lines: string[] = [];
+      lines.push("Formatting:");
+      lines.push(`- title_label: [Cursor Conversation]`);
+      lines.push(`- summary_descriptor: In a Cursor conversation,`);
+      lines.push(
+        `- canonical_token_note: omit canonical tokens for cursor in titles and summaries`
+      );
+      lines.push("");
+      lines.push("Reference context:");
+      lines.push(`- entity_hints:`);
+      lines.push(`  - This document is a Cursor conversation.`);
+      return lines.join("\n");
+    },
+  },
+
   async prepareSourceDocument(
     context: IndexingHookContext
   ): Promise<Document | null> {

@@ -28,7 +28,7 @@ The scheduler fans out the new chunks to the `chunk-processor-worker` via a queu
 ### 4. Knowledge Synthesis (Moment Graph)
 Concurrent with chunk processing, the scheduler triggers the Knowledge Synthesis Engine for the document.
 1.  **Chunk batching and micro-moment summarization**: The engine batches chunks for performance (token/size caps) and uses a plugin hook to summarize each batch into "Micro-Moments." Batch outputs are cached so re-indexing only recomputes changed batches.
-2.  **Synthesis**: Micro-moments are synthesized by an LLM into higher-level "Macro-Moments."
+2.  **Synthesis**: Micro-moments are synthesized by an LLM into higher-level "Macro-Moments." The synthesis prompt includes source formatting guidance and canonical reference tokens so macro moments can identify their originating entities across sources.
 3.  **Graph Update**: Macro-moments are inserted into the Moment Graph with parent relationships. The first macro-moment can attach under an existing moment (Smart Linker) to stitch documents into a shared graph. Root moments are indexed as **Subjects**.
 
 ### 5. Query & Retrieval

@@ -1,12 +1,12 @@
-import type {
-  MomentDescription,
-  MicroMomentDescription,
-} from "../types";
+import type { MomentDescription, MicroMomentDescription } from "../types";
 import type { MicroMoment } from "../momentDb";
 import { callLLM } from "../utils/llm";
 
 export async function synthesizeMicroMoments(
-  microMoments: MicroMoment[]
+  microMoments: MicroMoment[],
+  options?: {
+    macroSynthesisPromptContext?: string | null;
+  }
 ): Promise<
   Array<MomentDescription & { summary: string; microPaths: string[] }>
 > {
@@ -23,9 +23,33 @@ export async function synthesizeMicroMoments(
     )
     .join("\n---\n\n");
 
+  const macroSynthesisPromptContext = options?.macroSynthesisPromptContext;
+
+  const formattingRules = `Formatting rules:
+- If "title_label" is provided in the source formatting context, TITLE must begin with it (example: "[GitHub Pull Request #530]").
+- If "summary_descriptor" is provided in the source formatting context, SUMMARY must begin with it (example: "In a GitHub pull request (#530), ...").
+- Summary must include a canonical reference token in brackets near the first mention of the primary entity when applicable.
+- Canonical token format: source:document_type/path
+- Examples:
+  - github:issue/redwoodjs/sdk/552
+  - github:pr/redwoodjs/sdk/530
+  - github:issue_comment/redwoodjs/sdk/552/1234567890
+  - github:pr_comment/redwoodjs/sdk/530/1234567890
+  - discord:thread/<guildid>/<channelid>/<threadid>
+  - discord:thread_message/<guildid>/<channelid>/<threadid>/<messageid>
+`;
+
   const synthesisPrompt = `You are an expert at analyzing sequences of events to build a coherent narrative. Your task is to consolidate a series of low-level "micro-moments" into a smaller number of high-level "macro-moments" that tell a story of progress, discovery, and decision-making.
 
 **Your Goal:** Identify and record the most significant events. Specifically look for turning points, key discoveries or realizations, newly identified problems, new insights, important decisions, changes in approach, new attempts at solving the problem
+
+${formattingRules}
+
+${
+  macroSynthesisPromptContext
+    ? `Source formatting and reference context:\n${macroSynthesisPromptContext}\n`
+    : ""
+}
 
 **Output format (strictly follow this):**
 
@@ -45,7 +69,9 @@ ${formattedMoments}
 **Your response must:**
 - Begin with "MACRO-MOMENT 1"
 - Contain only the formatted blocks.
-- Every INDICES entry must reference only Index values present in the input (1 to ${microMoments.length}).
+- Every INDICES entry must reference only Index values present in the input (1 to ${
+    microMoments.length
+  }).
 - Focus on the story of the work, not just a chronological list.`;
 
   try {
@@ -84,7 +110,9 @@ ${formattedMoments}
         continue;
       }
 
-      const members = uniqueIndices.map((idx) => microMoments[idx - 1]).filter(Boolean) as MicroMoment[];
+      const members = uniqueIndices
+        .map((idx) => microMoments[idx - 1])
+        .filter(Boolean) as MicroMoment[];
 
       const microPaths = members.map((m) => m.path);
 
@@ -133,4 +161,3 @@ ${formattedMoments}
     return [];
   }
 }
-

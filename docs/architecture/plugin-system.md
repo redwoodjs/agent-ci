@@ -100,3 +100,17 @@ const MyPlugin: Plugin = {
     *   The hook can use an LLM to return a list of "what happened" items.
     *   Provenance is handled by the engine at the batch level: a micro-moment produced from a batch is attributed to the batch's chunk ids/hashes.
 
+#### (Macro synthesis) source formatting and reference context
+During macro-moment synthesis, the engine constructs a prompt that includes generic formatting rules plus a source-specific block.
+
+The source-specific block is returned by a per-source plugin hook. The engine concatenates this block into the macro synthesis prompt verbatim.
+
+This hook output is intended to include:
+
+- Formatting guidance (how the title should label the source, how canonical tokens should appear in summaries)
+- Reference context for the current document (canonical tokens for the document and relevant entities like comments or messages)
+
+The canonical token format is:
+
+- `source:document_type/path`
+

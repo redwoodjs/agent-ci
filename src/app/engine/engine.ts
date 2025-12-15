@@ -311,8 +311,21 @@ export async function indexDocument(
       count: microMomentsForSynthesis.length,
     });
 
+    const macroSynthesisPromptContext = await runFirstMatchHook(
+      context.plugins,
+      "getMacroSynthesisPromptContext",
+      (plugin) =>
+        plugin.subjects?.getMacroSynthesisPromptContext?.(
+          document,
+          indexingContext
+        )
+    );
+
     const macroMomentDescriptions = (await synthesizeMicroMoments(
-      microMomentsForSynthesis
+      microMomentsForSynthesis,
+      {
+        macroSynthesisPromptContext,
+      }
     )) as MacroMomentDescription[];
 
     if (macroMomentDescriptions.length > 0) {

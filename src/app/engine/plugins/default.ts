@@ -83,6 +83,34 @@ export const defaultPlugin: Plugin = {
   },
 
   subjects: {
+    async getMacroSynthesisPromptContext(
+      document: Document,
+      context: IndexingHookContext
+    ): Promise<string | null> {
+      const source = String(document.source ?? "unknown");
+
+      const label =
+        source === "github"
+          ? "[GitHub]"
+          : source === "discord"
+          ? "[Discord]"
+          : source === "cursor"
+          ? "[Cursor Conversation]"
+          : `[${source}]`;
+
+      const lines: string[] = [];
+      lines.push("Formatting:");
+      lines.push(`- title_label: ${label}`);
+      lines.push(`- summary_descriptor: In ${source},`);
+      lines.push(
+        `- canonical_token_note: include canonical tokens only if they are provided in this context`
+      );
+      lines.push("");
+      lines.push("Reference context:");
+      lines.push(`- entity_hints:`);
+      lines.push(`  - This document source is ${source}.`);
+      return lines.join("\n");
+    },
     async computeMicroMomentsForChunkBatch(
       chunks: Chunk[],
       context: IndexingHookContext

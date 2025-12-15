@@ -70,8 +70,8 @@ Chunking:
 
 Micro-moment batching:
 
-- The engine batches chunks (size and character caps), then calls the first-match hook `computeMicroMomentsForChunkBatch`.
-- Only the default plugin currently implements this hook, so it acts as the shared micro-moment summarizer across sources.
+- The engine batches chunks (size and character caps), then computes micro-moment summaries in an engine-owned function.
+- Plugins provide micro summarization prompt context via `getMicroMomentBatchPromptContext` (first-match by plugin order).
 - Micro-moments are stored with:
   - a stable path derived from the batch hash + summary index
   - `sourceMetadata` containing the batch hash and the list of chunk ids in the batch
@@ -142,13 +142,13 @@ Constraints:
 Proposed middle-ground behavior:
 
 - Derive a canonical ref token deterministically from document metadata:
-  - github: `github:issue/<owner>/<repo>/<number>` and `github:pr/<owner>/<repo>/<number>`
-  - discord: `discord:thread/<guildid>/<channelid>/<threadid>` (and optionally a message token later)
+  - GitHub: `mchn://gh/issue/<owner>/<repo>/<number>` and `mchn://gh/pr/<owner>/<repo>/<number>`
+  - Discord: `mchn://dc/thread/<guildid>/<channelid>/<threadid>` (and optionally a message token later)
   - Cursor: either no ref token, or a generic label without an id
 - Inject a source label + bracket token into the stored macro moment text deterministically, not via synthesis:
   - Prefix the moment title or summary with something like:
-    - `Discord thread [discord:thread/<guildid>/<channelid>/<threadid>] - <title>`
-    - `GitHub issue [github:issue/<owner>/<repo>/<number>] - <title>`
+    - `Discord thread [mchn://dc/thread/<guildid>/<channelid>/<threadid>] - <title>`
+    - `GitHub issue [mchn://gh/issue/<owner>/<repo>/<number>] - <title>`
   - This keeps query-time output consistent without requiring special prompt instructions.
 
 Open question:
@@ -168,7 +168,9 @@ Format:
 
 Notes:
 
-- Use lowercase `github` and `discord` for readability and consistency.
+- Use short source codes for readability and consistency:
+  - GitHub: `gh`
+  - Discord: `dc`
 - Keep the path format stable and parseable. Avoid punctuation variants like `#` or `!` to reduce ambiguity.
 
 GitHub token formats:
@@ -201,7 +203,7 @@ Cursor token formats (tentative):
 
 - For now, include the source label but omit a canonical reference token for Cursor.
 - If we later add one, keep it consistent with the above shape:
-  - `cursor:conversation/<conversationid>`
+  - `mchn://cu/conversation/<conversationid>`
 
 ### 2025-12-15 - Plan: plugin-provided synthesis context vs deterministic ref injection
 
@@ -252,12 +254,12 @@ Example hook output (GitHub PR):
 
 - Formatting:
   - `title_label: [GitHub Pull Request]`
-  - `when_referencing_pr_use: github:pr/<owner>/<repo>/<number>`
-  - `when_referencing_pr_comment_use: github:pr_comment/<owner>/<repo>/<number>/<commentid>`
+  - `when_referencing_pr_use: mchn://gh/pr/<owner>/<repo>/<number>`
+  - `when_referencing_pr_comment_use: mchn://gh/pr_comment/<owner>/<repo>/<number>/<commentid>`
 - Reference context:
-  - `document_ref: github:pr/redwoodjs/sdk/530`
+  - `document_ref: mchn://gh/pr/redwoodjs/sdk/530`
   - `known_comment_refs:` (optional)
-    - `github:pr_comment/redwoodjs/sdk/530/1234567890`
+    - `mchn://gh/pr_comment/redwoodjs/sdk/530/1234567890`
   - `entity_hints:` (optional, natural language)
     - `This PR is in redwoodjs/sdk and is number 530.`
 
@@ -265,12 +267,12 @@ Example hook output (Discord thread):
 
 - Formatting:
   - `title_label: [Discord Thread]`
-  - `when_referencing_thread_use: discord:thread/<guildid>/<channelid>/<threadid>`
-  - `when_referencing_thread_message_use: discord:thread_message/<guildid>/<channelid>/<threadid>/<messageid>`
+  - `when_referencing_thread_use: mchn://dc/thread/<guildid>/<channelid>/<threadid>`
+  - `when_referencing_thread_message_use: mchn://dc/thread_message/<guildid>/<channelid>/<threadid>/<messageid>`
 - Reference context:
-  - `document_ref: discord:thread/<guildid>/<channelid>/<threadid>`
+  - `document_ref: mchn://dc/thread/<guildid>/<channelid>/<threadid>`
   - `known_message_refs:` (optional)
-    - `discord:thread_message/<guildid>/<channelid>/<threadid>/<messageid>`
+    - `mchn://dc/thread_message/<guildid>/<channelid>/<threadid>/<messageid>`
   - `entity_hints:` (optional)
     - `This is a Discord thread with the ids above.`
 
@@ -302,7 +304,7 @@ Changes made:
   - The hook allows each plugin to provide:
     - Title label (e.g., `[GitHub Issue #552]`)
     - Summary descriptor (e.g., `In a GitHub Issue (#552),`)
-    - Canonical document reference token (e.g., `github:issue/redwoodjs/sdk/552`)
+    - Canonical document reference token (e.g., `mchn://gh/issue/redwoodjs/sdk/552`)
     - Narrative context guidance (e.g., "treat as proposal")
 - **Prompt Engineering**:
   - Updated the macro synthesis prompt to include generic formatting rules for canonical tokens.
@@ -351,3 +353,13 @@ Change:
   - GitHub: `@<login>` (lowercased, `@` prefixed).
   - Discord: `@<username>` when a username is present.
   - Cursor: split generation chunks into separate User and Assistant chunks so actor attribution is meaningful.
+
+### 2025-12-15 - Test inputs (resync)
+
+- Namespace (example): `cross-source-link-552-1`
+- GitHub R2 key:
+  - `github/redwoodjs/sdk/issues/552/latest.json`
+- Discord thread local file:
+  - `/Users/justin/rw/machinen/.tmp/machinen/discord/679514959968993311/1435702216315899948/threads/1373759907605516408/latest.json`
+- Discord R2 key:
+  - `discord/679514959968993311/1435702216315899948/threads/1373759907605516408/latest.json`

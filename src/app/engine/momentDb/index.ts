@@ -25,8 +25,31 @@ export async function addMoment(moment: Moment): Promise<void> {
   const db = getMomentDb();
   const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
 
+  function serializeSourceMetadata(value: unknown): string | null {
+    if (value === null || value === undefined) {
+      return null;
+    }
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+
+  function readTimeRange(value: unknown): { start: string; end: string } | null {
+    const range = (value as any)?.timeRange;
+    const start = typeof range?.start === "string" ? range.start : null;
+    const end = typeof range?.end === "string" ? range.end : null;
+    if (!start || !end) {
+      return null;
+    }
+    return { start, end };
+  }
+
   try {
     const embedding = await getEmbedding(moment.summary);
+    const timeRange = readTimeRange(moment.sourceMetadata);
+    const sourceMetadataJson = serializeSourceMetadata(moment.sourceMetadata);
     const momentVector = {
       id: moment.id,
       values: embedding,
@@ -39,7 +62,9 @@ export async function addMoment(moment: Moment): Promise<void> {
         documentTitle: moment.title,
         author: moment.author,
         jsonPath: "$", // Root of the moment
-        sourceMetadata: moment.sourceMetadata,
+        sourceMetadataJson,
+        ...(timeRange ? { timeRangeStart: timeRange.start } : null),
+        ...(timeRange ? { timeRangeEnd: timeRange.end } : null),
         summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
       } as unknown as ChunkMetadata,
     };

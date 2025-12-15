@@ -471,3 +471,17 @@ Change:
 - Micro moment `createdAt` is now derived from the earliest timestamp in the chunk batch (falling back to document createdAt).
 - Micro moments are sorted by createdAt before macro synthesis.
 - Macro moments now store a `timeRange` derived from the min/max createdAt across member micro moments, and query-time narrative timeline lines render `start..end` when the range spans multiple timestamps.
+
+### 2025-12-15 - Vectorize constraint: moment metadata must be flat
+
+Observed:
+
+- Resyncing into a fresh namespace failed Vectorize upserts for moments with: "the metadata JSON object cannot contain JSON objects".
+
+Cause:
+
+- Moment `sourceMetadata` was passed through to Vectorize metadata. After adding `timeRange` as an object, this introduced nested JSON objects in vector metadata.
+
+Change:
+
+- For Vectorize upserts, serialize sourceMetadata to a string field and flatten time range into `timeRangeStart`/`timeRangeEnd` string fields.

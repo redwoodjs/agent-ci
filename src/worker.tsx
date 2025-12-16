@@ -10,7 +10,7 @@ import { auditRoutes } from "./app/pages/audit/routes";
 import { routes as discordRoutes } from "./app/ingestors/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
-import { routes as ragRoutes } from "./app/engine/routes";
+import { routes as ragRoutes, queryRoutes } from "./app/engine/routes";
 import { HomePage } from "./app/pages/HomePage";
 
 export type AppContext = {
@@ -25,6 +25,7 @@ const app = defineApp([
   prefix("/ingestors/discord", discordRoutes),
   prefix("/ingestors/cursor", cursorIngestorRoutes),
   prefix("/ingestors/github", githubIngestorRoutes),
+  prefix("/query", queryRoutes),
   prefix("/rag", ragRoutes),
 ]);
 

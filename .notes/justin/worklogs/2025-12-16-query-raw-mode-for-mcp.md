@@ -71,7 +71,7 @@ Query API: Raw output modes for agent integration (Answer vs Briefing)
 
 When an AI agent (like Cursor's composer) queries Machinen, it does not need a second LLM to generate a polite natural language answer. It needs the raw narrative context—the timeline of events—so it can perform its own reasoning.
 
-This PR introduces output modes to the `/rag/query` endpoint to support this use case, and simplifies the API contract to always return plain text.
+This PR introduces output modes to the `/query` endpoint (formerly `/rag/query`) to support this use case, and simplifies the API contract to always return plain text.
 
 ### Output Modes
 
@@ -83,6 +83,16 @@ The endpoint now accepts a `responseMode` parameter:
 
 ### Changes
 
-- **API Contract**: `/rag/query` now always returns `text/plain` instead of JSON.
+- **API Contract**: `/query` is now the primary query endpoint (alias `/rag/query` preserved for compatibility). It always returns `text/plain`.
 - **Evidence Locker**: Removed the `enableEvidenceLocker` flag plumbing. The Evidence Locker query path is currently disconnected in favor of the Moment Graph narrative path, so this cleans up dead control logic.
 - **Clients**: Updated `scripts/query.sh` and the Cursor MCP server to support the new mode and text response format. The MCP server defaults to `brief` mode to give the Cursor agent direct access to the timeline.
+
+## Addendum (endpoint naming)
+
+- `/rag/query` is now treated as a legacy alias.
+- The primary query endpoint is `/query` (same auth, same request shape, same text response).
+- Docs and clients now refer to `/query`.
+
+## PR description update (endpoint naming)
+
+Replace references to `/rag/query` with `/query` in the PR summary and change list, and add a note that `/rag/query` remains as an alias for compatibility.

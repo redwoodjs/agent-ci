@@ -93,8 +93,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     log("Executing search_machinen", { query });
 
     try {
-      log("Making API request", { url: `${API_URL}/rag/query`, query });
-      const response = await fetch(`${API_URL}/rag/query`, {
+      log("Making API request", { url: `${API_URL}/query`, query });
+      const response = await fetch(`${API_URL}/query`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

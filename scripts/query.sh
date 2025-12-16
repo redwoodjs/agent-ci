@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Query the RAG engine
+# Query the Machinen query endpoint
 #
 # Usage:
 #   ./query.sh "your query here"
@@ -59,7 +59,7 @@ if [[ "$1" == "subjects" ]]; then
   shift
 fi
 
-# Optional response mode for /rag/query (answer|brief|prompt)
+# Optional response mode for /query (answer|brief|prompt)
 RESPONSE_MODE="${RESPONSE_MODE:-answer}"
 if [[ "$1" == "--mode="* ]]; then
   RESPONSE_MODE="${1#*=}"
@@ -148,8 +148,8 @@ if [[ "$MODE" == "subjects" ]]; then
     -H "Authorization: Bearer $API_KEY" \
     "$ENDPOINT_URL")
 else
-  # It's a POST request to the default /rag/query endpoint
-  ENDPOINT_URL="$WORKER_URL/rag/query"
+  # It's a POST request to the /query endpoint
+  ENDPOINT_URL="$WORKER_URL/query"
   # Optional namespace override for Moment Graph queries
   # When set, the server will temporarily scope Moment Graph reads to this namespace.
   MOMENT_GRAPH_NAMESPACE_JSON="null"

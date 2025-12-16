@@ -525,3 +525,15 @@ export const routes = [
     get: [requireQueryApiKey, timelineHandler],
   }),
 ];
+
+export const queryRoutes = [
+  route("/", {
+    post: [
+      requireQueryApiKey,
+      rateLimitQuery,
+      validateQueryInput,
+      queryHandler,
+    ],
+    get: [requireQueryApiKey, rateLimitQuery, validateQueryInput, queryHandler],
+  }),
+];

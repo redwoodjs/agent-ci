@@ -32,7 +32,7 @@ Concurrent with chunk processing, the scheduler triggers the Knowledge Synthesis
 3.  **Graph Update**: Macro-moments are inserted into the Moment Graph with parent relationships. The first macro-moment can attach under an existing moment (Smart Linker) to stitch documents into a shared graph. Root moments are indexed as **Subjects**.
 
 ### 5. Query & Retrieval
-When a user asks a question, the system first attempts a narrative query path, then falls back to RAG. The query endpoint supports multiple output modes to serve both human users and agentic tools:
+When a user asks a question, the system first attempts a narrative query path, then falls back to RAG. The query endpoint (`/query`) supports multiple output modes to serve both human users and agentic tools:
 
 -   **Answer Mode** (Default): The system constructs a narrative prompt and calls an LLM to generate a natural language answer.
 -   **Brief Mode**: The system returns the raw narrative context (Subject summary + Timeline) as plain text without calling an LLM. This is optimized for agentic clients (like Cursor MCP) that want to perform their own reasoning over the retrieved context.

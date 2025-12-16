@@ -496,6 +496,10 @@ export async function indexDocument(
         await addMoment(moment);
         previousMomentId = momentId;
       }
+    } else {
+      console.log("[moment-linker] no macro moments synthesized; skipping", {
+        documentId: document.id,
+      });
     }
   }
 

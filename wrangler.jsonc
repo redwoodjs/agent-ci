@@ -640,7 +640,10 @@
       }
     },
     "production": {
-      "name": "machinen"
+      "name": "machinen",
+      "vars": {
+        "MOMENT_GRAPH_NAMESPACE": "prod-2025-12-16"
+      }
     }
   }
 }

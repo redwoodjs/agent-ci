@@ -173,23 +173,23 @@ export const cursorPlugin: Plugin = {
       if (assistantResponse.trim()) {
         const chunkId = `${document.id}#gen-${gen.id}-assistant`;
         const trimmedContent = `Assistant: ${assistantResponse.trim()}`;
-        chunks.push({
-          id: chunkId,
+      chunks.push({
+        id: chunkId,
+        documentId: document.id,
+        source: "cursor",
+        content: trimmedContent,
+        contentHash: await hashContent(trimmedContent),
+        metadata: {
+          chunkId: chunkId,
           documentId: document.id,
           source: "cursor",
-          content: trimmedContent,
-          contentHash: await hashContent(trimmedContent),
-          metadata: {
-            chunkId: chunkId,
-            documentId: document.id,
-            source: "cursor",
             type: "cursor-assistant-response",
             documentTitle,
             author: "Assistant",
             jsonPath: baseJsonPath,
-            sourceMetadata: document.metadata.sourceMetadata,
-          },
-        });
+          sourceMetadata: document.metadata.sourceMetadata,
+        },
+      });
       }
     }
 

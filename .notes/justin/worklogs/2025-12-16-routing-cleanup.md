@@ -38,3 +38,31 @@ Preparing the system for production use by cleaning up legacy routing (`/rag` pr
 **Docs & Scripts**
 - Updated all CLI scripts and documentation to reflect the new route structure.
 - Verified that query `responseMode` (answer/brief/prompt) remains fully functional.
+
+---
+
+## Production curl commands
+
+### Resync (enqueue mode)
+
+```bash
+curl -sS -X POST "https://machinen.redwoodjs.workers.dev/admin/resync" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "mode": "enqueue",
+    "r2Keys": [
+      "github/redwoodjs/sdk/issues/552/latest.json",
+      "github/redwoodjs/sdk/pull-requests/933/latest.json"
+    ]
+  }' | jq .
+```
+
+### Single doc enqueue
+
+```bash
+curl -sS -X POST "https://machinen.redwoodjs.workers.dev/admin/index" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"r2Key":"github/redwoodjs/sdk/issues/552/latest.json"}' | jq .
+```

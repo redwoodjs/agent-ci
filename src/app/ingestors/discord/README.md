@@ -66,7 +66,7 @@ When files are created or updated in R2, they are automatically enqueued for ind
 
 ### Manual Indexing
 
-To manually trigger vectorization for a specific Discord file, use the `/rag/admin/index` endpoint:
+To manually trigger vectorization for a specific Discord file, use the `/admin/index` endpoint:
 
 ```bash
 # Index a channel's daily messages
@@ -74,14 +74,14 @@ curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
-  "https://your-domain.workers.dev/rag/admin/index"
+  "https://your-domain.workers.dev/admin/index"
 
 # Index a thread
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/123456789/987654321/threads/111222333/latest.json"}' \
-  "https://your-domain.workers.dev/rag/admin/index"
+  "https://your-domain.workers.dev/admin/index"
 ```
 
 See the [RAG Engine README](../engine/README.md) for more details on the indexing pipeline.
@@ -248,14 +248,14 @@ curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/679514959968993311/1307974274145062912/2024-11-04.jsonl"}' \
-  "https://machinen.redwoodjs.workers.dev/rag/admin/index"
+  "https://machinen.redwoodjs.workers.dev/admin/index"
 
 # Index a thread
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/679514959968993311/1307974274145062912/threads/111222333/latest.json"}' \
-  "https://machinen.redwoodjs.workers.dev/rag/admin/index"
+  "https://machinen.redwoodjs.workers.dev/admin/index"
 ```
 
 See the [Engine README](../engine/README.md) for information on using personal development environments.

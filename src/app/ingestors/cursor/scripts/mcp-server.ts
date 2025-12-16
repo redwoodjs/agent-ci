@@ -35,6 +35,7 @@ const API_KEY = process.env.MACHINEN_API_KEY;
 const API_URL =
   process.env.MACHINEN_API_URL || "https://machinen.redwoodjs.workers.dev";
 const RESPONSE_MODE = process.env.MACHINEN_RESPONSE_MODE || "brief";
+const MOMENT_GRAPH_NAMESPACE = process.env.MOMENT_GRAPH_NAMESPACE;
 
 if (!API_KEY) {
   const error = "Error: MACHINEN_API_KEY environment variable is required.";
@@ -43,7 +44,11 @@ if (!API_KEY) {
   process.exit(1);
 }
 
-log("Configuration loaded", { API_URL, hasApiKey: !!API_KEY });
+log("Configuration loaded", {
+  API_URL,
+  hasApiKey: !!API_KEY,
+  hasMomentGraphNamespace: !!MOMENT_GRAPH_NAMESPACE,
+});
 
 // --- Server Setup ---
 const server = new Server(
@@ -108,6 +113,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     log("Executing search_machinen", { query });
 
     try {
+      const requestBody: {
+        query: string;
+        responseMode: string;
+        momentGraphNamespace?: string;
+      } = { query, responseMode: RESPONSE_MODE };
+
+      if (typeof MOMENT_GRAPH_NAMESPACE === "string") {
+        const trimmed = MOMENT_GRAPH_NAMESPACE.trim();
+        if (trimmed.length > 0) {
+          requestBody.momentGraphNamespace = trimmed;
+        }
+      }
+
       log("Making API request", { url: `${API_URL}/query`, query });
       const response = await fetch(`${API_URL}/query`, {
         method: "POST",
@@ -115,7 +133,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
         },
-        body: JSON.stringify({ query, responseMode: RESPONSE_MODE }),
+        body: JSON.stringify(requestBody),
       });
 
       log("API response received", {

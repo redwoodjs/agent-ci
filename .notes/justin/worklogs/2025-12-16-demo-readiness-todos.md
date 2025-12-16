@@ -67,6 +67,10 @@ The goal for the next few days is **polish + reliability**:
   - One command (or a short, documented sequence) populates demo data.
   - `/query` produces the narrative timeline reliably and quickly from multiple phrasings.
 
+### 6) Reindex all data in r2
+- Check idempotence
+
+
 ## Known sharp edge (worth fixing if time permits)
 - **Queue sendBatch limit (100)**: We saw a failure when trying to enqueue >100 chunk messages for a large Cursor conversation.
   - This doesn’t block demo if we use `mode:"inline"` resync, but it’s a reliability hole.
@@ -129,4 +133,8 @@ The goal for the next few days is **polish + reliability**:
 #### Still to validate
 - Tool call reliability from a clean Cursor start.
 - The tool-call argument/schema mismatch mentioned in todo 1.
+
+## Attempt: forward Moment Graph namespace from Cursor MCP
+- Added support for `MOMENT_GRAPH_NAMESPACE` in the Cursor MCP script and forwarded it to `/query` as `momentGraphNamespace` when set.
+- Kept the default behavior when the env var is unset.
 

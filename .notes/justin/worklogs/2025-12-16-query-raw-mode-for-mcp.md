@@ -59,3 +59,30 @@ Cursor MCP clients already include an LLM. The current query endpoint returns an
 
 ## Follow-up
 - Simplified `brief` output to omit the query string and debug metadata (namespace and ids). It now returns only the Subject summary and Timeline lines.
+- Updated `docs/architecture/system-flow.md` to document the new output modes in the Query & Retrieval section.
+
+---
+
+## PR title
+
+Query API: Raw output modes for agent integration (Answer vs Briefing)
+
+## Summary
+
+When an AI agent (like Cursor's composer) queries Machinen, it does not need a second LLM to generate a polite natural language answer. It needs the raw narrative context—the timeline of events—so it can perform its own reasoning.
+
+This PR introduces output modes to the `/rag/query` endpoint to support this use case, and simplifies the API contract to always return plain text.
+
+### Output Modes
+
+The endpoint now accepts a `responseMode` parameter:
+
+- **Answer Mode** (default): The existing behavior. The system constructs a narrative prompt and calls an LLM to generate a synthesized answer.
+- **Brief Mode**: Returns the raw narrative context (Subject summary + Timeline) as plain text without calling an LLM. This saves tokens, latency, and avoids "LLM telephone" (where one model summarises for another).
+- **Prompt Mode**: Returns the exact prompt that would have been sent to the LLM (useful for debugging prompt construction).
+
+### Changes
+
+- **API Contract**: `/rag/query` now always returns `text/plain` instead of JSON.
+- **Evidence Locker**: Removed the `enableEvidenceLocker` flag plumbing. The Evidence Locker query path is currently disconnected in favor of the Moment Graph narrative path, so this cleans up dead control logic.
+- **Clients**: Updated `scripts/query.sh` and the Cursor MCP server to support the new mode and text response format. The MCP server defaults to `brief` mode to give the Cursor agent direct access to the timeline.

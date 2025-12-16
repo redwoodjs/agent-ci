@@ -420,7 +420,7 @@ async function indexFile(r2Key) {
   console.log("");
 
   try {
-    const response = await fetch(`${WORKER_URL}/rag/admin/index`, {
+    const response = await fetch(`${WORKER_URL}/admin/index`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${API_KEY}`,

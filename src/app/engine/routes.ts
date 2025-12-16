@@ -206,11 +206,6 @@ async function resyncHandler({ request }: RequestInfo) {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
   }
 
-  const host = new URL(request.url).host;
-  if (host === "machinen.redwoodjs.workers.dev") {
-    return Response.json({ error: "Not found" }, { status: 404 });
-  }
-
   let body:
     | {
         r2Key?: unknown;

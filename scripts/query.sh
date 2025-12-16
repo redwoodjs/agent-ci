@@ -135,17 +135,18 @@ fi
 echo "" >&2
 
 if [[ "$MODE" == "subjects" ]]; then
-  # It's a GET request to the subjects endpoint
-  if [ -n "$QUERY" ]; then
-    # Search for a specific subject
-    ENCODED_QUERY=$(echo "$QUERY" | jq -sRr @uri)
-    ENDPOINT_URL="$WORKER_URL/rag/subjects?query=$ENCODED_QUERY"
-  else
-    # List all subjects
-    ENDPOINT_URL="$WORKER_URL/rag/subjects"
+  # Debug helper: query SUBJECT_INDEX (Vectorize) directly
+  if [ -z "$QUERY" ]; then
+    echo "Error: Query is required for subjects mode" >&2
+    echo "Usage: $0 subjects \"your search query\" [api-key] [worker-url]" >&2
+    exit 1
   fi
-  RESPONSE=$(curl -s -X GET \
+
+  ENDPOINT_URL="$WORKER_URL/debug/query-subject-index"
+  RESPONSE=$(curl -s -X POST \
     -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -d "{\"query\": $(echo "$QUERY" | jq -R .)}" \
     "$ENDPOINT_URL")
 else
   # It's a POST request to the /query endpoint

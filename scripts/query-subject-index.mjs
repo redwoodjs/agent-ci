@@ -75,7 +75,7 @@ async function querySubjectIndex(searchText) {
   console.log(`🌐 Worker URL: ${WORKER_URL}\n`);
 
   try {
-    const response = await fetch(`${WORKER_URL}/rag/debug/query-subject-index`, {
+    const response = await fetch(`${WORKER_URL}/debug/query-subject-index`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

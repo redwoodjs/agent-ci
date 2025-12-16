@@ -242,7 +242,7 @@ curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
-  "http://localhost:5173/rag/admin/index"
+  "http://localhost:5173/admin/index"
 ```
 
 Or use the full URL directly:
@@ -251,7 +251,7 @@ curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
-  "https://your-domain.workers.dev/rag/admin/index"
+  "https://your-domain.workers.dev/admin/index"
 ```
 
 Or use `scripts/query.sh` to build the base URL from `MACHINEN_ENV`:
@@ -261,7 +261,7 @@ curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"r2Key": "discord/123456789/987654321/2024-11-04.jsonl"}' \
-  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/index"
+  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/admin/index"
 ```
 
 **Response:**
@@ -293,7 +293,7 @@ curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json","cursor/conversations/<docB>/latest.json"]}' \
-  "http://localhost:5173/rag/admin/resync"
+  "http://localhost:5173/admin/resync"
 ```
 
 Enqueue:
@@ -303,7 +303,7 @@ curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"enqueue","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json"]}' \
-  "http://localhost:5173/rag/admin/resync"
+  "http://localhost:5173/admin/resync"
 ```
 
 Or use `scripts/query.sh` to build the base URL from `MACHINEN_ENV`:
@@ -313,7 +313,7 @@ curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   --data '{"mode":"inline","momentGraphNamespace":"test-run-6","r2Keys":["cursor/conversations/<docA>/latest.json","cursor/conversations/<docB>/latest.json"]}' \
-  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/rag/admin/resync"
+  "$(./scripts/query.sh --env ${MACHINEN_ENV:-local} --dry-run-url)/admin/resync"
 ```
 
 ### Manual Backfill
@@ -326,21 +326,21 @@ curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"prefix": "github/"}' \
-  "https://your-domain.workers.dev/rag/admin/backfill"
+  "https://your-domain.workers.dev/admin/backfill"
 
 # Backfill Cursor conversations
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"prefix": "cursor/"}' \
-  "https://your-domain.workers.dev/rag/admin/backfill"
+  "https://your-domain.workers.dev/admin/backfill"
 
 # Backfill Discord files
 curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"prefix": "discord/"}' \
-  "https://your-domain.workers.dev/rag/admin/backfill"
+  "https://your-domain.workers.dev/admin/backfill"
 ```
 
 **Response:**
@@ -409,7 +409,7 @@ curl -X POST \
 
 Compatibility:
 
-- `/rag/query` is kept as an alias of `/query`.
+- (No `/rag/*` alias paths.)
 
 ## API Protection
 

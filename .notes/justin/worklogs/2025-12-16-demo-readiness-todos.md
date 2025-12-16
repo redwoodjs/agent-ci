@@ -110,3 +110,23 @@ The goal for the next few days is **polish + reliability**:
 - Updated the `search_machinen` tool description to read like usage rules (when to call, what phrases imply a call, and a few example prompts).
 - Expanded it to include timeline questions (how we got to a solution, where work started, underlying issue, decision rationale).
 
+## PR draft (work so far)
+
+### Title
+- Cursor MCP: make tool usage rules explicit
+
+### Description
+#### Problem
+- Cursor does not consistently call the Machinen MCP tool for repo and timeline questions without repeated prompting.
+
+#### Change
+- Updated the MCP tool description to use directive wording and a short list of when to call the tool, including timeline and decision-history questions.
+- Added a documented directive pattern (`mchn:` / explicit tool invocation) for forcing a tool call during the demo flow.
+
+#### Testing
+- Manual: prompted with `mchn:` and observed the agent choosing the Machinen tool more consistently.
+
+#### Still to validate
+- Tool call reliability from a clean Cursor start.
+- The tool-call argument/schema mismatch mentioned in todo 1.
+

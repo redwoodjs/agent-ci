@@ -87,12 +87,6 @@ ${
 
 **Output format (strictly follow this):**
 
-If there are no significant events or decisions (for example, acknowledgements, thanks, or short status updates), respond with exactly:
-
-NO_MACRO_MOMENTS
-
-Otherwise, respond using the blocks below:
-
 MACRO-MOMENT 1
 TITLE: <required_title_prefix> <concise, past-tense title for the event>
 INDICES: A comma-separated list of the Index values (1-based) that belong to this macro-moment, in chronological order
@@ -107,8 +101,8 @@ SUMMARY: <required_summary_prefix> 2-4 sentences explaining what happened, why i
 ${formattedMoments}
 
 **Your response must:**
-- Be exactly "NO_MACRO_MOMENTS" (and nothing else), or begin with "MACRO-MOMENT 1".
-- If it is not "NO_MACRO_MOMENTS", contain only the formatted blocks.
+- Begin with "MACRO-MOMENT 1".
+- Contain only the formatted blocks.
 - Every INDICES entry must reference only Index values present in the input (1 to ${
     microMoments.length
   }).
@@ -122,10 +116,6 @@ ${formattedMoments}
         effort: "low",
       },
     });
-
-    if (response.trim() === "NO_MACRO_MOMENTS") {
-      return [];
-    }
 
     const momentRegex =
       /MACRO-MOMENT \d+\s*TITLE:\s*(.*?)\s*INDICES:\s*(.*?)\s*SUMMARY:\s*([\s\S]*?)(?=\s*MACRO-MOMENT \d+|$)/g;

@@ -222,7 +222,7 @@
     ]
   },
   "vars": {
-    "MOMENT_GRAPH_NAMESPACE": "prod-2025-12-17-3"
+    "MOMENT_GRAPH_NAMESPACE": "prod-2025-12-16"
   },
   "env": {
     "test": {

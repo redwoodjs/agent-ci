@@ -141,3 +141,8 @@ The goal for the next few days is **polish + reliability**:
 - Updated queue enqueue to include `momentGraphNamespace` in each indexing message body.
 - Updated the architecture note to describe incremental-only behavior (no forced mode).
 
+## Attempt: revert NO_MACRO_MOMENTS handling
+- I think the `NO_MACRO_MOMENTS` escape hatch is affecting linking and the shape of the timeline for the demo set.
+- I am reverting the prompt + parsing so macro synthesis always returns macro-moment blocks.
+- I am also removing the explicit engine log branch that treats 0 macro moments as an expected outcome.
+

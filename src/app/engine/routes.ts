@@ -22,22 +22,24 @@ async function queryHandler({ request, ctx }: RequestInfo) {
         query?: unknown;
         momentGraphNamespace?: unknown;
         namespace?: unknown;
-        enableEvidenceLocker?: unknown;
-        disableEvidenceLocker?: unknown;
+        responseMode?: unknown;
       }
     | undefined;
 
+  const url = new URL(request.url);
   const queryText =
     (ctx as any).validatedQuery ||
     ((ctx as any).parsedBody as { query?: string })?.query ||
     (typeof body?.query === "string" ? body.query : undefined) ||
-    new URL(request.url).searchParams.get("q");
+    url.searchParams.get("q");
 
   if (!queryText) {
-    return Response.json(
-      { error: "Missing 'query' parameter" },
-      { status: 400 }
-    );
+    return new Response("Missing 'query' parameter", {
+      status: 400,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+      },
+    });
   }
 
   const context = createEngineContext(env as Cloudflare.Env, "querying");
@@ -48,12 +50,12 @@ async function queryHandler({ request, ctx }: RequestInfo) {
       ? namespaceRaw.trim()
       : null;
 
-  const enableEvidenceLockerRaw =
-    body?.disableEvidenceLocker === true
-      ? false
-      : body?.enableEvidenceLocker === false
-      ? false
-      : true;
+  const responseModeRaw =
+    body?.responseMode ?? url.searchParams.get("responseMode");
+  const responseMode =
+    responseModeRaw === "brief" || responseModeRaw === "prompt"
+      ? responseModeRaw
+      : "answer";
 
   const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
   if (momentGraphNamespace) {
@@ -62,23 +64,25 @@ async function queryHandler({ request, ctx }: RequestInfo) {
 
   try {
     console.log(`[query] Starting query: "${queryText}"`);
-    const response = await query(queryText, context, {
-      enableEvidenceLocker: enableEvidenceLockerRaw,
-    });
+    const response = await query(queryText, context, { responseMode });
     console.log(`[query] Query completed successfully`);
-    return Response.json({ response });
+    return new Response(response, {
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
+      },
+    });
   } catch (error) {
     console.error(
       `[query] Error processing query: ${
         error instanceof Error ? error.message : String(error)
       }`
     );
-    return Response.json(
-      {
-        error: "Failed to process query",
+    return new Response("Failed to process query", {
+      status: 500,
+      headers: {
+        "Content-Type": "text/plain; charset=utf-8",
       },
-      { status: 500 }
-    );
+    });
   } finally {
     (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
   }

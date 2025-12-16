@@ -528,9 +528,10 @@ export async function query(
   userQuery: string,
   context: EngineContext,
   options?: {
-    enableEvidenceLocker?: boolean;
+    responseMode?: "answer" | "brief" | "prompt";
   }
 ): Promise<string> {
+  const responseMode = options?.responseMode ?? "answer";
   const enableEvidenceLocker = false;
   const queryContext: QueryHookContext = {
     query: userQuery,
@@ -576,6 +577,37 @@ export async function query(
     return `${prefix}${idx + 1}. ${moment.title}: ${moment.summary}`;
   }
 
+  function buildBriefingText(input: {
+    momentGraphNamespace: string;
+    query: string;
+    subject: {
+      title?: string;
+      summary?: string;
+      id?: string;
+      documentId?: string;
+    };
+    timelineLines: string[];
+  }): string {
+    const headerLines: string[] = [];
+    headerLines.push(`Machinen query briefing`);
+    headerLines.push(`Query: ${input.query}`);
+    headerLines.push(`Moment Graph namespace: ${input.momentGraphNamespace}`);
+    if (input.subject?.id) {
+      headerLines.push(`Subject id: ${input.subject.id}`);
+    }
+    if (input.subject?.documentId) {
+      headerLines.push(`Subject document id: ${input.subject.documentId}`);
+    }
+    headerLines.push(``);
+    headerLines.push(`Subject`);
+    headerLines.push(
+      `${input.subject.title ?? ""}: ${input.subject.summary ?? ""}`.trim()
+    );
+    headerLines.push(``);
+    headerLines.push(`Timeline`);
+    return `${headerLines.join("\n")}\n${input.timelineLines.join("\n")}\n`;
+  }
+
   // Narrative Query Path: Try to answer using Subject (root moment) first
   try {
     const momentGraphNamespaceRaw = (context.env as any)
@@ -610,9 +642,10 @@ export async function query(
 
       if (timeline.length > 0) {
         // Build narrative context from moment summaries
-        const narrativeContext = timeline
-          .map((moment, idx) => formatTimelineLine(moment, idx))
-          .join("\n\n");
+        const timelineLines = timeline.map((moment, idx) =>
+          formatTimelineLine(moment, idx)
+        );
+        const narrativeContext = timelineLines.join("\n\n");
 
         const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
@@ -635,6 +668,17 @@ Rules:
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
 
+        if (responseMode === "prompt") {
+          return narrativePrompt;
+        }
+        if (responseMode === "brief") {
+          return buildBriefingText({
+            momentGraphNamespace,
+            query: userQuery,
+            subject: subjectMoment,
+            timelineLines,
+          });
+        }
         const narrativeAnswer = await callLLM(
           narrativePrompt,
           "slow-reasoning",
@@ -668,9 +712,10 @@ Write a clear narrative answer that explains the sequence and causal relationshi
           console.log(`[query:narrative] rootTimelineLen=${timeline.length}`);
 
           if (timeline.length > 0) {
-            const narrativeContext = timeline
-              .map((moment, idx) => formatTimelineLine(moment, idx))
-              .join("\n\n");
+            const timelineLines = timeline.map((moment, idx) =>
+              formatTimelineLine(moment, idx)
+            );
+            const narrativeContext = timelineLines.join("\n\n");
 
             const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
@@ -693,6 +738,17 @@ Rules:
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
 
+            if (responseMode === "prompt") {
+              return narrativePrompt;
+            }
+            if (responseMode === "brief") {
+              return buildBriefingText({
+                momentGraphNamespace,
+                query: userQuery,
+                subject: root,
+                timelineLines,
+              });
+            }
             const narrativeAnswer = await callLLM(
               narrativePrompt,
               "slow-reasoning",

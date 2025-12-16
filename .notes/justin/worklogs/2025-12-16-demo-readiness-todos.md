@@ -34,16 +34,7 @@ The goal for the next few days is **polish + reliability**:
   - If `MOMENT_GRAPH_NAMESPACE` is unset, behavior remains sane (uses production defaults).
 
 ### 3) Fix Discord `idFromName` issue
-- **Why**: Name→id resolution is a common “demo-time” failure (and makes the system feel flaky).
-- **What**:
-  - Make `idFromName` deterministic and robust:
-    - Handle ambiguity with clear errors (“multiple matches”) and optional disambiguators.
-    - Cache lookups where appropriate.
-    - Normalize input (case, punctuation, leading `#`, etc.).
-  - Add a small regression test (or a fixture-driven test) if feasible.
-- **Done when**:
-  - The demo ingestion path never fails on basic name→id resolution.
-  - If it can’t resolve, the error suggests the user’s next action (use id, rename, etc.).
+- **Edit**: No fix needed - this was temporary, result of bad deploy, fixed already
 
 ### 4) “0 macros also fine”
 - **Why**: We’re currently producing low-signal macro moments for Cursor convos that have no technical content (e.g. “thanks”), which pollutes the demo narrative.

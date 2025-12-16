@@ -45,7 +45,8 @@ Cursor MCP clients already include an LLM. The current query endpoint returns an
   - Removes Evidence Locker toggling from `query()` and always returns the narrative-miss message.
   - Moves the Evidence Locker query path into `queryEvidenceLocker(...)` so it remains available but is not called.
 - Updated `scripts/query.sh`:
-  - Adds `--response-mode` / `RESPONSE_MODE` support.
+  - Adds `--mode` and `RESPONSE_MODE` support.
+  - Accepts both `--mode brief` and `--mode=brief` forms.
   - Posts `responseMode` to `/rag/query`.
   - Treats `/rag/query` responses as plain text.
   - Removes `DISABLE_EVIDENCE_LOCKER` handling and stops posting Evidence Locker flags.

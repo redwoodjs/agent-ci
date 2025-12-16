@@ -364,7 +364,7 @@ The backfill process:
 
 ### Querying
 
-Query via the `/rag/query` endpoint. The `scripts/query.sh` script automatically uses your `MACHINEN_ENV` setting:
+Query via the `/query` endpoint. The `scripts/query.sh` script automatically uses your `MACHINEN_ENV` setting:
 
 ```bash
 ./scripts/query.sh "your query"
@@ -376,7 +376,7 @@ Or use curl directly:
 
 ```bash
 curl -H "Authorization: Bearer $API_KEY" \
-  "https://your-domain.workers.dev/rag/query?q=your+query"
+  "https://your-domain.workers.dev/query?q=your+query"
 ```
 
 **POST request:**
@@ -386,16 +386,30 @@ curl -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"query": "your query"}' \
-  "https://your-domain.workers.dev/rag/query"
+  "https://your-domain.workers.dev/query"
 ```
 
 **Response:**
 
-```json
-{
-  "response": "LLM-generated answer based on retrieved context"
-}
+The endpoint returns plain text.
+
+### Query response modes
+
+`/query` accepts `responseMode` (`answer`, `brief`, `prompt`).
+
+Example:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "your query", "responseMode": "brief"}' \
+  "https://your-domain.workers.dev/query"
 ```
+
+Compatibility:
+
+- `/rag/query` is kept as an alias of `/query`.
 
 ## API Protection
 

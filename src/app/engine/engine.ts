@@ -528,14 +528,10 @@ export async function query(
   userQuery: string,
   context: EngineContext,
   options?: {
-    enableEvidenceLocker?: boolean;
+    responseMode?: "answer" | "brief" | "prompt";
   }
 ): Promise<string> {
-  const enableEvidenceLocker = false;
-  const queryContext: QueryHookContext = {
-    query: userQuery,
-    env: context.env,
-  };
+  const responseMode = options?.responseMode ?? "answer";
 
   function formatIso8601(raw: unknown): string {
     if (typeof raw !== "string") {
@@ -576,6 +572,27 @@ export async function query(
     return `${prefix}${idx + 1}. ${moment.title}: ${moment.summary}`;
   }
 
+  function buildBriefingText(input: {
+    momentGraphNamespace: string;
+    query: string;
+    subject: {
+      title?: string;
+      summary?: string;
+      id?: string;
+      documentId?: string;
+    };
+    timelineLines: string[];
+  }): string {
+    const lines: string[] = [];
+    lines.push(`Subject`);
+    lines.push(
+      `${input.subject.title ?? ""}: ${input.subject.summary ?? ""}`.trim()
+    );
+    lines.push(``);
+    lines.push(`Timeline`);
+    return `${lines.join("\n")}\n${input.timelineLines.join("\n")}\n`;
+  }
+
   // Narrative Query Path: Try to answer using Subject (root moment) first
   try {
     const momentGraphNamespaceRaw = (context.env as any)
@@ -610,9 +627,10 @@ export async function query(
 
       if (timeline.length > 0) {
         // Build narrative context from moment summaries
-        const narrativeContext = timeline
-          .map((moment, idx) => formatTimelineLine(moment, idx))
-          .join("\n\n");
+        const timelineLines = timeline.map((moment, idx) =>
+          formatTimelineLine(moment, idx)
+        );
+        const narrativeContext = timelineLines.join("\n\n");
 
         const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
@@ -635,6 +653,17 @@ Rules:
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
 
+        if (responseMode === "prompt") {
+          return narrativePrompt;
+        }
+        if (responseMode === "brief") {
+          return buildBriefingText({
+            momentGraphNamespace,
+            query: userQuery,
+            subject: subjectMoment,
+            timelineLines,
+          });
+        }
         const narrativeAnswer = await callLLM(
           narrativePrompt,
           "slow-reasoning",
@@ -668,9 +697,10 @@ Write a clear narrative answer that explains the sequence and causal relationshi
           console.log(`[query:narrative] rootTimelineLen=${timeline.length}`);
 
           if (timeline.length > 0) {
-            const narrativeContext = timeline
-              .map((moment, idx) => formatTimelineLine(moment, idx))
-              .join("\n\n");
+            const timelineLines = timeline.map((moment, idx) =>
+              formatTimelineLine(moment, idx)
+            );
+            const narrativeContext = timelineLines.join("\n\n");
 
             const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
@@ -693,6 +723,17 @@ Rules:
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
 
+            if (responseMode === "prompt") {
+              return narrativePrompt;
+            }
+            if (responseMode === "brief") {
+              return buildBriefingText({
+                momentGraphNamespace,
+                query: userQuery,
+                subject: root,
+                timelineLines,
+              });
+            }
             const narrativeAnswer = await callLLM(
               narrativePrompt,
               "slow-reasoning",
@@ -714,10 +755,18 @@ Write a clear narrative answer that explains the sequence and causal relationshi
     // Fall through to the existing chunk-based RAG system
   }
 
-  if (!enableEvidenceLocker) {
-    console.log(`[query] no narrative match; evidenceLockerDisabled=true`);
-    return `No Moment Graph subject timeline matched this query. Evidence Locker is disabled.`;
-  }
+  console.log(`[query] no narrative match; evidenceLockerDisabled=true`);
+  return `No Moment Graph subject timeline matched this query. Evidence Locker is disabled.`;
+}
+
+export async function queryEvidenceLocker(
+  userQuery: string,
+  context: EngineContext
+): Promise<string> {
+  const queryContext: QueryHookContext = {
+    query: userQuery,
+    env: context.env,
+  };
 
   const processedQuery = await runWaterfallHook(
     context.plugins,

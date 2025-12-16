@@ -53,7 +53,9 @@ curl -sS -X POST "https://machinen.redwoodjs.workers.dev/admin/resync" \
     "mode": "enqueue",
     "r2Keys": [
       "github/redwoodjs/sdk/issues/552/latest.json",
-      "github/redwoodjs/sdk/pull-requests/933/latest.json"
+      "github/redwoodjs/sdk/pull-requests/933/latest.json",
+      "discord/679514959968993311/1435702216315899948/threads/1373759907605516408/latest.json",
+      "cursor/conversations/736f23a1-e794-4207-8bd0-5f5799e1abf4/latest.json"
     ]
   }' | jq .
 ```

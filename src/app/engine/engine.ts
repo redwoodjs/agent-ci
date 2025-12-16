@@ -583,24 +583,14 @@ export async function query(
     };
     timelineLines: string[];
   }): string {
-    const headerLines: string[] = [];
-    headerLines.push(`Machinen query briefing`);
-    headerLines.push(`Query: ${input.query}`);
-    headerLines.push(`Moment Graph namespace: ${input.momentGraphNamespace}`);
-    if (input.subject?.id) {
-      headerLines.push(`Subject id: ${input.subject.id}`);
-    }
-    if (input.subject?.documentId) {
-      headerLines.push(`Subject document id: ${input.subject.documentId}`);
-    }
-    headerLines.push(``);
-    headerLines.push(`Subject`);
-    headerLines.push(
+    const lines: string[] = [];
+    lines.push(`Subject`);
+    lines.push(
       `${input.subject.title ?? ""}: ${input.subject.summary ?? ""}`.trim()
     );
-    headerLines.push(``);
-    headerLines.push(`Timeline`);
-    return `${headerLines.join("\n")}\n${input.timelineLines.join("\n")}\n`;
+    lines.push(``);
+    lines.push(`Timeline`);
+    return `${lines.join("\n")}\n${input.timelineLines.join("\n")}\n`;
   }
 
   // Narrative Query Path: Try to answer using Subject (root moment) first

@@ -56,3 +56,6 @@ Cursor MCP clients already include an LLM. The current query endpoint returns an
 - Updated `src/app/engine/README.md`:
   - Replaces the `/rag/query` response example with a plain text description.
   - Documents `responseMode`.
+
+## Follow-up
+- Simplified `brief` output to omit the query string and debug metadata (namespace and ids). It now returns only the Subject summary and Timeline lines.

@@ -129,3 +129,15 @@ The goal for the next few days is **polish + reliability**:
 - Added support for `MOMENT_GRAPH_NAMESPACE` in the Cursor MCP script and forwarded it to `/query` as `momentGraphNamespace` when set.
 - Kept the default behavior when the env var is unset.
 
+## Idea: namespace-aware global backfill/resync
+- Backfill scanning compares R2 etags to indexing state, and indexing state is namespaced.
+- The queue consumer supports `momentGraphNamespace` in messages, but the scanner/backfill enqueue path does not currently propagate it.
+- Added an architecture note describing a namespace-aware admin endpoint that:
+  - runs the scan under a namespace override
+  - enqueues jobs with the same namespace override
+
+## Attempt: namespace-aware admin backfill
+- Updated `/admin/backfill` to accept `momentGraphNamespace` (or `namespace`) and run the scan under that namespace for indexing state lookups.
+- Updated queue enqueue to include `momentGraphNamespace` in each indexing message body.
+- Updated the architecture note to describe incremental-only behavior (no forced mode).
+

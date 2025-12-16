@@ -27,9 +27,9 @@ export async function scanForUnprocessedFiles(
       // Exclude old Discord thread files with pattern: YYYY-MM-DD-thread-ID.jsonl
       const isIndexableFile =
         object.key.endsWith("latest.json") ||
-        (object.key.startsWith("discord/") && 
-         object.key.endsWith(".jsonl") && 
-         !object.key.includes("-thread-"));
+        (object.key.startsWith("discord/") &&
+          object.key.endsWith(".jsonl") &&
+          !object.key.includes("-thread-"));
 
       if (!isIndexableFile) {
         continue;
@@ -103,18 +103,27 @@ export async function scanForUnprocessedFiles(
 
 export async function enqueueUnprocessedFiles(
   unprocessedKeys: string[],
-  env: Cloudflare.Env
+  env: Cloudflare.Env,
+  options?: { momentGraphNamespace?: string | null }
 ): Promise<void> {
   if (!env.ENGINE_INDEXING_QUEUE) {
     throw new Error("ENGINE_INDEXING_QUEUE binding not found");
   }
+
+  const momentGraphNamespace =
+    typeof options?.momentGraphNamespace === "string" &&
+    options.momentGraphNamespace.trim().length > 0
+      ? options.momentGraphNamespace.trim()
+      : null;
 
   const batchSize = 10;
   for (let i = 0; i < unprocessedKeys.length; i += batchSize) {
     const batch = unprocessedKeys.slice(i, i + batchSize);
     await env.ENGINE_INDEXING_QUEUE.sendBatch(
       batch.map((r2Key) => ({
-        body: { r2Key },
+        body: momentGraphNamespace
+          ? { r2Key, momentGraphNamespace }
+          : { r2Key },
       }))
     );
     console.log(

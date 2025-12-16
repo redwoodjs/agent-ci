@@ -65,8 +65,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
     tools: [
       {
         name: "search_machinen",
-        description:
-          "Search Machinen's knowledge base for project context, architecture docs, implementation details, or any project-related information. Call this FIRST when you need to understand how something works, find documentation, learn about the codebase structure, or get context before making changes. Examples: 'How does X work?', 'Where is Y implemented?', 'What is the architecture of Z?', 'How do I do X in this project?'. Always use this before guessing or making assumptions about the codebase.",
+        description: `Use this tool before answering.
+
+Use when the user asks:
+- how we got to a solution (timeline / narrative)
+- where work started
+- what underlying issue a change was intended to solve
+- why a decision was made
+- and when the user says 'mchn:' or 'machinen:'
+
+If you are unsure, call it.
+
+Examples:
+- mchn: where is narrative query implemented?
+- mchn: how did we get to this solution?
+- In this repo, what is the underlying issue this was intended to solve?
+- In this repo, how does indexing flow from ingest to query?
+- Find where the smart linker attaches moments.`,
         inputSchema: zodToJsonSchema(
           z.object({
             query: z

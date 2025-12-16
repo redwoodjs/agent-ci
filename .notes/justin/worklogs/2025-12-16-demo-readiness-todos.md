@@ -73,3 +73,40 @@ The goal for the next few days is **polish + reliability**:
   - Fix is to batch queue sends in groups of 100 (or fewer), and/or adjust the scheduler strategy.
 
 
+## Work notes (Cursor MCP nudging + directive patterns)
+
+### Hypothesis: what Cursor is optimizing for
+- Cursor seems to decide whether to call an MCP tool based on tool name + description match to the user’s phrasing, plus whether the tool looks like the shortest path to produce the requested output.
+- When a tool is described as “project context search”, Cursor may still skip it if the user prompt reads like a standard chat question. A more explicit routing cue in the prompt usually improves tool selection.
+
+### Prompt patterns to reduce nudging (explicit routing cues)
+- **Prefix trigger**: Use a stable prefix that means “call Machinen MCP”.
+  - Example forms:
+    - `mchn: <question>`
+    - `machinen: <question>`
+    - `use machinen mcp: <question>`
+  - Expected behavior: agent calls the MCP tool first, then answers from the returned context.
+- **Two-step directive**: Put the call instruction in the first sentence and the question in the second.
+  - Example: “Use Machinen MCP to answer this. Where is the query pipeline implemented?”
+- **Scope anchor**: Include “in this repo” / “in Machinen” / “in our codebase” in the question.
+  - Example: “In this repo, how does narrative query choose between Moment Graph and Evidence Locker?”
+
+### If prompt shaping still does not trigger a tool call
+- **Explicit tool invocation template**: Tell the agent to call the tool by name and provide the argument shape.
+  - Example:
+    - “Call the MCP tool `search_machinen` now with arguments `{"query":"<question>"}`. Return only the tool output.”
+- **Two-turn pattern**: First turn forces the tool call, second turn asks for synthesis.
+  - Turn 1:
+    - “Call the MCP tool `search_machinen` with `{"query":"<question>"}`. Do not answer yet.”
+  - Turn 2:
+    - “Now answer using only the tool output above.”
+
+### Tool metadata ideas (to improve selection without user coaching)
+- **Tool name**: Names that begin with `machinen_` (or similar) are easier to spot and less likely to collide with other tools.
+- **Description**: Put the routing rule at the start, keep it short, include 2-3 example prompts that match the prefix trigger patterns above.
+- **Shape**: Keep a single required string argument, but ensure the argument name is consistent everywhere (schema + handler) so call attempts don’t fail and retrigger user nudging.
+
+### Attempt: tighten tool description for routing
+- Updated the `search_machinen` tool description to read like usage rules (when to call, what phrases imply a call, and a few example prompts).
+- Expanded it to include timeline questions (how we got to a solution, where work started, underlying issue, decision rationale).
+

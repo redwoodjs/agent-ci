@@ -61,7 +61,7 @@ fi
 
 # Optional response mode for /rag/query (answer|brief|prompt)
 RESPONSE_MODE="${RESPONSE_MODE:-answer}"
-if [[ "$1" == "--response-mode" && -n "${2:-}" ]]; then
+if [[ ( "$1" == "--response-mode" || "$1" == "--mode" || "$1" == "-m" ) && -n "${2:-}" ]]; then
   RESPONSE_MODE="$2"
   shift 2
 fi

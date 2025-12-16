@@ -391,10 +391,20 @@ curl -X POST \
 
 **Response:**
 
-```json
-{
-  "response": "LLM-generated answer based on retrieved context"
-}
+The endpoint returns plain text.
+
+### Query response modes
+
+`/rag/query` accepts `responseMode` (`answer`, `brief`, `prompt`).
+
+Example:
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "your query", "responseMode": "brief"}' \
+  "https://your-domain.workers.dev/rag/query"
 ```
 
 ## API Protection

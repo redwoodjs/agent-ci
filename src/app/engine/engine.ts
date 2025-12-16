@@ -532,11 +532,6 @@ export async function query(
   }
 ): Promise<string> {
   const responseMode = options?.responseMode ?? "answer";
-  const enableEvidenceLocker = false;
-  const queryContext: QueryHookContext = {
-    query: userQuery,
-    env: context.env,
-  };
 
   function formatIso8601(raw: unknown): string {
     if (typeof raw !== "string") {
@@ -770,10 +765,18 @@ Write a clear narrative answer that explains the sequence and causal relationshi
     // Fall through to the existing chunk-based RAG system
   }
 
-  if (!enableEvidenceLocker) {
-    console.log(`[query] no narrative match; evidenceLockerDisabled=true`);
-    return `No Moment Graph subject timeline matched this query. Evidence Locker is disabled.`;
-  }
+  console.log(`[query] no narrative match; evidenceLockerDisabled=true`);
+  return `No Moment Graph subject timeline matched this query. Evidence Locker is disabled.`;
+}
+
+export async function queryEvidenceLocker(
+  userQuery: string,
+  context: EngineContext
+): Promise<string> {
+  const queryContext: QueryHookContext = {
+    query: userQuery,
+    env: context.env,
+  };
 
   const processedQuery = await runWaterfallHook(
     context.plugins,

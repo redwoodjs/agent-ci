@@ -34,6 +34,7 @@ try {
 const API_KEY = process.env.MACHINEN_API_KEY;
 const API_URL =
   process.env.MACHINEN_API_URL || "https://machinen.redwoodjs.workers.dev";
+const RESPONSE_MODE = process.env.MACHINEN_RESPONSE_MODE || "brief";
 
 if (!API_KEY) {
   const error = "Error: MACHINEN_API_KEY environment variable is required.";
@@ -99,7 +100,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           "Content-Type": "application/json",
           Authorization: `Bearer ${API_KEY}`,
         },
-        body: JSON.stringify({ query }),
+        body: JSON.stringify({ query, responseMode: RESPONSE_MODE }),
       });
 
       log("API response received", {
@@ -122,17 +123,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
 
-      const data = (await response.json()) as { response: string };
+      const text = await response.text();
       log("API success response", {
-        responseLength: data.response?.length || 0,
-        responsePreview: data.response?.substring(0, 200),
+        responseMode: RESPONSE_MODE,
+        responseLength: text?.length || 0,
+        responsePreview: text?.substring(0, 200),
       });
 
       return {
         content: [
           {
             type: "text",
-            text: data.response,
+            text,
           },
         ],
       };

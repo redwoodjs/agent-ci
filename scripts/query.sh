@@ -59,6 +59,13 @@ if [[ "$1" == "subjects" ]]; then
   shift
 fi
 
+# Optional response mode for /rag/query (answer|brief|prompt)
+RESPONSE_MODE="${RESPONSE_MODE:-answer}"
+if [[ "$1" == "--response-mode" && -n "${2:-}" ]]; then
+  RESPONSE_MODE="$2"
+  shift 2
+fi
+
 # Parse positional arguments
 QUERY="${1:-}"
 # Detect if second argument is URL/port or API key
@@ -146,18 +153,15 @@ else
     MOMENT_GRAPH_NAMESPACE_JSON=$(echo "$MOMENT_GRAPH_NAMESPACE" | jq -R .)
   fi
 
-  # Evidence Locker toggle (when disabled, only Moment Graph narrative path is used)
-  ENABLE_EVIDENCE_LOCKER=true
-  if [ "${DISABLE_EVIDENCE_LOCKER:-}" = "1" ] || [ "${DISABLE_EVIDENCE_LOCKER:-}" = "true" ]; then
-    ENABLE_EVIDENCE_LOCKER=false
-  fi
-
 RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"query\": $(echo "$QUERY" | jq -R .), \"momentGraphNamespace\": $MOMENT_GRAPH_NAMESPACE_JSON, \"enableEvidenceLocker\": $ENABLE_EVIDENCE_LOCKER}" \
+  -d "{\"query\": $(echo "$QUERY" | jq -R .), \"momentGraphNamespace\": $MOMENT_GRAPH_NAMESPACE_JSON, \"responseMode\": $(echo "$RESPONSE_MODE" | jq -R .)}" \
     "$ENDPOINT_URL")
 fi
 
-# Pretty-print the JSON response
-echo "$RESPONSE" | jq -r '.response'
+if [[ "$MODE" == "subjects" ]]; then
+  echo "$RESPONSE" | jq .
+else
+  echo "$RESPONSE"
+fi

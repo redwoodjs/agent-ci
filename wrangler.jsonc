@@ -221,6 +221,9 @@
       }
     ]
   },
+  "vars": {
+    "MOMENT_GRAPH_NAMESPACE": "prod-2025-12-17"
+  },
   "env": {
     "test": {
       "queues": {
@@ -637,12 +640,6 @@
             "max_batch_timeout": 30
           }
         ]
-      }
-    },
-    "production": {
-      "name": "machinen",
-      "vars": {
-        "MOMENT_GRAPH_NAMESPACE": "prod-2025-12-16"
       }
     }
   }

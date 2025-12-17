@@ -76,12 +76,18 @@ To solve the efficiency problem, **Micro-Moments** serve a dual purpose: they ar
 
 The Engine relies on chunking for a source-agnostic input stream and engine-owned micro-moment caching, while allowing plugins to tailor summarization prompts per source.
 
+There are two caching layers:
+
+*   **Chunk-diff caching (document chunk hashes)**: On re-index, the engine compares current chunk hashes against the previous run and skips any unchanged chunks. This avoids re-enqueueing unchanged evidence chunks and avoids recomputing micro-moment batches that would be identical.
+*   **Micro-moment batch caching (batch hash)**: For the chunks that remain, the engine computes a batch hash for each chunk batch and reuses cached micro-moment summaries and embeddings when the batch hash matches a previously computed batch.
+
 *   **Step 1: Chunking (Cheap)**: The engine calls the chunking hook (`splitDocumentIntoChunks`) to produce a stable, ordered list of chunks.
-*   **Step 2: Micro-moment computation (Batched)**: The engine batches chunks for performance (token/size caps), then calls the engine-owned summarizer. This function uses plugin-provided context (`getMicroMomentBatchPromptContext`) to ensure the summaries reflect the correct narrative framing (e.g. proposal vs implementation).
-*   **Step 3: Batch provenance**: Each micro-moment is stored with a stable path derived from the batch hash and the summary index, so re-indexing can reference the same micro-moment positions for an unchanged batch.
-*   **Step 4: Cache Check**: The engine caches batch outputs keyed by a hash of the batch's chunk ids/hashes. On re-index:
-    *   **Hit**: reuse the cached micro-moments and embeddings for the batch.
+*   **Step 2: Chunk-diff cache check**: The engine compares the chunk hashes for the document against the previously stored hashes. Only new or modified chunks are processed further.
+*   **Step 3: Micro-moment computation (Batched)**: The engine batches the remaining chunks for performance (token/size caps), then calls the engine-owned summarizer. This function uses plugin-provided context (`getMicroMomentBatchPromptContext`) to ensure summaries reflect the correct narrative framing (e.g. proposal vs implementation).
+*   **Step 4: Micro-moment batch cache check**: Each chunk batch is keyed by a hash of its chunk ids/hashes. On re-index:
+    *   **Hit**: reuse cached micro-moment summaries and embeddings for that batch.
     *   **Miss**: recompute only the batches that changed.
+*   **Step 5: Synthesis**: The engine synthesizes macro moments from the micro-moment stream.
 
 This architecture ensures that we only pay the "AI Tax" for new or modified content, while allowing the system to incrementally process evolving documents (like long chat threads) efficiently.
 

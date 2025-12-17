@@ -15,7 +15,7 @@ import {
   addMoment,
   findSimilarMoments,
   findAncestors,
-  upsertMicroMoment,
+  upsertMicroMomentsBatch,
   getMicroMomentsForDocument,
   findMomentByMicroPathsHash,
   type MicroMoment,
@@ -328,27 +328,35 @@ export async function indexDocument(
         ? batchAuthorRaw.trim()
         : document.metadata.author;
 
+    const microMomentItems: Array<{
+      path: string;
+      content: string;
+      summary: string;
+      embedding: number[];
+      createdAt?: string;
+      author: string;
+      sourceMetadata?: Record<string, any>;
+    }> = [];
+
     for (let i = 0; i < itemsToStore.length; i++) {
       const text = itemsToStore[i] ?? "";
       const embedding = embeddings[i] ?? (await getEmbedding(text));
       const path = `${prefix}${i + 1}`;
+      const sourceMetadata = {
+        chunkBatchHash: batchHash,
+        chunkIds: batchChunks.map((c) => c.id),
+        timeRange: batchTimeRange,
+      };
 
-      await upsertMicroMoment(
-        {
-          path,
-          content: text,
-          author: batchAuthor,
-          createdAt: batchTimeRange.start,
-          sourceMetadata: {
-            chunkBatchHash: batchHash,
-            chunkIds: batchChunks.map((c) => c.id),
-            timeRange: batchTimeRange,
-          },
-        },
-        document.id,
-        text,
-        embedding
-      );
+      microMomentItems.push({
+        path,
+        content: text,
+        summary: text,
+        embedding,
+        createdAt: batchTimeRange.start,
+        author: batchAuthor,
+        sourceMetadata,
+      });
 
       microMomentsForSynthesis.push({
         id: crypto.randomUUID(),
@@ -359,13 +367,11 @@ export async function indexDocument(
         embedding: embedding,
         createdAt: batchTimeRange.start,
         author: batchAuthor,
-        sourceMetadata: {
-          chunkBatchHash: batchHash,
-          chunkIds: batchChunks.map((c) => c.id),
-          timeRange: batchTimeRange,
-        },
+        sourceMetadata,
       });
     }
+
+    await upsertMicroMomentsBatch(document.id, microMomentItems);
   }
 
   if (microMomentsForSynthesis.length > 0) {

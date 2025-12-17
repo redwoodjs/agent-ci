@@ -21,7 +21,11 @@ export async function processIndexingJob(
     }
 
     const messages = newChunks.map((chunk) => ({ body: chunk }));
-    await env.CHUNK_PROCESSING_QUEUE.sendBatch(messages);
+    const batchSize = 100;
+    for (let i = 0; i < messages.length; i += batchSize) {
+      const batch = messages.slice(i, i + batchSize);
+      await env.CHUNK_PROCESSING_QUEUE.sendBatch(batch);
+    }
     console.log(
       `[indexing-scheduler] Enqueued ${newChunks.length} chunks for ${r2Key}`
     );

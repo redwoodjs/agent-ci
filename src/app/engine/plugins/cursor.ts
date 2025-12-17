@@ -129,17 +129,25 @@ export const cursorPlugin: Plugin = {
       return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
     }
 
+    function readTrimmedString(value: unknown): string {
+      if (typeof value !== "string") {
+        return "";
+      }
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : "";
+    }
+
     for (const [index, gen] of data.generations.entries()) {
-      const userPrompt =
+      const userPrompt = readTrimmedString(
         gen.events.find(
-          (e: CursorEvent) =>
-            e.hook_event_name === "beforeSubmitPrompt" && e.prompt
-        )?.prompt || "";
-      const assistantResponse =
+          (e: CursorEvent) => e.hook_event_name === "beforeSubmitPrompt"
+        )?.prompt
+      );
+      const assistantResponse = readTrimmedString(
         gen.events.find(
-          (e: CursorEvent) =>
-            e.hook_event_name === "afterAgentResponse" && e.text
-        )?.text || "";
+          (e: CursorEvent) => e.hook_event_name === "afterAgentResponse"
+        )?.text
+      );
 
       const baseJsonPath = `$.generations[${index}]`;
       const documentTitle =
@@ -148,9 +156,9 @@ export const cursorPlugin: Plugin = {
           document.metadata.sourceMetadata?.conversationId || "unknown"
         }`;
 
-      if (userPrompt.trim()) {
+      if (userPrompt) {
         const chunkId = `${document.id}#gen-${gen.id}-user`;
-        const trimmedContent = `User: ${userPrompt.trim()}`;
+        const trimmedContent = `User: ${userPrompt}`;
         chunks.push({
           id: chunkId,
           documentId: document.id,
@@ -170,26 +178,26 @@ export const cursorPlugin: Plugin = {
         });
       }
 
-      if (assistantResponse.trim()) {
+      if (assistantResponse) {
         const chunkId = `${document.id}#gen-${gen.id}-assistant`;
-        const trimmedContent = `Assistant: ${assistantResponse.trim()}`;
-      chunks.push({
-        id: chunkId,
-        documentId: document.id,
-        source: "cursor",
-        content: trimmedContent,
-        contentHash: await hashContent(trimmedContent),
-        metadata: {
-          chunkId: chunkId,
+        const trimmedContent = `Assistant: ${assistantResponse}`;
+        chunks.push({
+          id: chunkId,
           documentId: document.id,
           source: "cursor",
+          content: trimmedContent,
+          contentHash: await hashContent(trimmedContent),
+          metadata: {
+            chunkId: chunkId,
+            documentId: document.id,
+            source: "cursor",
             type: "cursor-assistant-response",
             documentTitle,
             author: "Assistant",
             jsonPath: baseJsonPath,
-          sourceMetadata: document.metadata.sourceMetadata,
-        },
-      });
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
       }
     }
 

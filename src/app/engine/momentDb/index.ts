@@ -661,6 +661,53 @@ export async function upsertMicroMoment(
     .execute();
 }
 
+export async function upsertMicroMomentsBatch(
+  documentId: string,
+  items: Array<{
+    path: string;
+    content: string;
+    summary: string;
+    embedding: number[];
+    createdAt?: string;
+    author: string;
+    sourceMetadata?: Record<string, any>;
+  }>
+): Promise<void> {
+  if (items.length === 0) {
+    return;
+  }
+
+  const db = getMomentDb();
+  const now = new Date().toISOString();
+  const paths = items.map((i) => i.path);
+
+  // Avoid per-row upserts. This reduces DO subrequests in large indexing jobs.
+  await db
+    .deleteFrom("micro_moments")
+    .where("document_id", "=", documentId)
+    .where("path", "in", paths)
+    .execute();
+
+  await db
+    .insertInto("micro_moments")
+    .values(
+      items.map((item) => ({
+        id: crypto.randomUUID(),
+        document_id: documentId,
+        path: item.path,
+        content: item.content,
+        summary: item.summary,
+        embedding: JSON.stringify(item.embedding),
+        created_at: item.createdAt || now,
+        author: item.author,
+        source_metadata: item.sourceMetadata
+          ? JSON.stringify(item.sourceMetadata)
+          : (null as any),
+      }))
+    )
+    .execute();
+}
+
 export async function getMicroMomentsForDocument(
   documentId: string
 ): Promise<MicroMoment[]> {

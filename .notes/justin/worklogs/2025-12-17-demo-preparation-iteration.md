@@ -215,3 +215,33 @@ We updated the **MCP tool description** to be strictly prescriptive, explicitly 
 ### Fix: Subrequest Limits
 
 The narrative query path was occasionally hitting Cloudflare's "Too many API requests" error due to high-fanout database fetches during graph traversal. We refactored `findAncestors` and `findDescendants` to perform batched fetches and in-memory traversal with cycle detection, significantly reducing the number of Durable Object calls per query.
+
+## Follow-up: indexing failures in prod-importance backfill logs
+
+After kicking off a backfill to `2025-12-17-prod-importance`, I looked at `/tmp/out.log` to see whether indexing was clean enough to rely on for the namespace switch.
+
+The logs show that importance emission is working (macro synthesis output includes `IMPORTANCE: 0.xx`), but indexing itself is still hitting multiple failure modes:
+
+### Queue sendBatch message limit (100)
+The worker can fail while processing `engine-indexing-queue-prod` messages with an error like:
+- `Queue sendBatch failed: batch message count of 135 exceeds limit of 100`
+
+This happens when a single indexing job produces more than 100 chunks and we try to enqueue all chunk-processing messages in one `sendBatch`.
+
+Fix: split chunk-processing queue sends into batches of 100.
+
+### Cursor chunking type error (E.trim)
+Some Cursor conversations fail in `splitDocumentIntoChunks` with:
+- `TypeError: E.trim is not a function`
+
+This suggests some Cursor event fields are not always strings (prompt/text can be non-string values). The chunker was calling `.trim()` without type checking.
+
+Fix: coerce `prompt` and `text` to strings only when they are strings, otherwise treat them as empty.
+
+### Indexing subrequest limit during micro-moment writes
+Some indexing jobs (notably GitHub project documents) still hit:
+- `Too many API requests by single worker invocation.`
+
+In the indexing path, micro-moments were being stored one row at a time (`upsertMicroMoment` inside a loop). For large documents this creates a large number of Durable Object database RPC calls in a single invocation.
+
+Fix: batch micro-moment persistence per chunk-batch (delete existing rows for the paths, then insert all rows in one insert). This reduces indexing DO database calls from O(micro moments) to O(chunk batches).

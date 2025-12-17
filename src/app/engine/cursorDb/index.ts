@@ -2,8 +2,16 @@ import { env } from "cloudflare:workers";
 import { CursorEventsDurableObject } from "../../ingestors/cursor/db/durableObject";
 import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "../../ingestors/cursor/db/migrations";
+import { Override } from "@/app/shared/kyselyTypeOverrides";
 
 type CursorDatabase = Database<typeof migrations>;
+type ExchangeCacheInput = CursorDatabase["exchange_cache"];
+type ExchangeCache = Override<
+  ExchangeCacheInput,
+  {
+    cache_json: Record<string, { summary: string; embedding: number[] }>;
+  }
+>;
 
 function getCursorDb() {
   return createDb<CursorDatabase>(
@@ -26,16 +34,7 @@ export async function getExchangeCache(
     return new Map();
   }
 
-  // Parse the JSON blob
-  let cacheData: Record<string, { summary: string; embedding: number[] }> = {};
-  if (typeof row.cache_json === "string") {
-    cacheData = JSON.parse(row.cache_json);
-  } else {
-    cacheData = row.cache_json as Record<
-      string,
-      { summary: string; embedding: number[] }
-    >;
-  }
+  const cacheData = (row as unknown as ExchangeCache).cache_json;
 
   // Convert to Map
   const cache = new Map<string, { summary: string; embedding: number[] }>();
@@ -62,14 +61,7 @@ export async function setExchangeCache(
 
   let cacheData: Record<string, { summary: string; embedding: number[] }> = {};
   if (existing) {
-    if (typeof existing.cache_json === "string") {
-      cacheData = JSON.parse(existing.cache_json);
-    } else {
-      cacheData = existing.cache_json as Record<
-        string,
-        { summary: string; embedding: number[] }
-      >;
-    }
+    cacheData = (existing as unknown as ExchangeCache).cache_json;
   }
 
   // Merge new entries into cache

@@ -6,8 +6,17 @@ import {
   getMomentGraphNamespaceFromEnv,
   qualifyName,
 } from "../momentGraphNamespace";
+import { Override } from "@/app/shared/kyselyTypeOverrides";
 
 type IndexingStateDatabase = Database<typeof indexingStateMigrations>;
+type IndexingStateInput = IndexingStateDatabase["indexing_state"];
+type IndexingStateRow = Override<
+  IndexingStateInput,
+  {
+    chunk_ids: string[] | null;
+    processed_chunk_hashes_json: string[] | null;
+  }
+>;
 
 declare module "rwsdk/worker" {
   interface WorkerEnv {
@@ -30,41 +39,28 @@ export async function getIndexingState(r2Key: string): Promise<{
     qualifyName("engine-indexing-state", namespace)
   );
 
-  const state = await db
+  const state = (await db
     .selectFrom("indexing_state")
     .selectAll()
     .where("r2_key", "=", r2Key)
-    .executeTakeFirst();
+    .executeTakeFirst()) as IndexingStateRow | undefined;
 
   if (!state) {
     console.log(`[db] getIndexingState: no state found for ${r2Key}`);
     return null;
   }
 
-  let chunkIds: string[] | null = null;
-  if (state.chunk_ids) {
-    if (Array.isArray(state.chunk_ids)) {
-      chunkIds = state.chunk_ids;
-    } else {
-      console.warn(
-        `[db] Invalid chunk_ids for ${r2Key}: expected array (already parsed by ParseJSONResultsPlugin), got ${typeof state.chunk_ids}. Value: ${JSON.stringify(
-          state.chunk_ids
-        ).substring(0, 200)}`
-      );
-    }
-  }
-
   console.log(
     `[db] getIndexingState: found state for ${r2Key}, etag=${
       state.etag
-    }, chunk_ids=${chunkIds ? chunkIds.length : 0} items`
+    }, chunk_ids=${state.chunk_ids ? state.chunk_ids.length : 0} items`
   );
 
   return {
     r2_key: state.r2_key,
     etag: state.etag,
     indexed_at: state.indexed_at,
-    chunk_ids: chunkIds,
+    chunk_ids: state.chunk_ids,
   };
 }
 
@@ -106,15 +102,17 @@ export async function getIndexingStatesBatch(r2Keys: string[]): Promise<
   for (let i = 0; i < r2Keys.length; i += maxBatchSize) {
     const batch = r2Keys.slice(i, i + maxBatchSize);
 
-    const states = await db
+    const states = (await db
       .selectFrom("indexing_state")
       .select(["r2_key", "etag", "indexed_at", "processed_chunk_hashes_json"])
       .where("r2_key", "in", batch)
-      .execute();
+      .execute()) as unknown as Pick<
+      IndexingStateRow,
+      "r2_key" | "etag" | "indexed_at" | "processed_chunk_hashes_json"
+    >[];
 
     for (const state of states) {
-      // Kysely plugin auto-parses JSON fields, so this is already an array
-      const chunkCount = Array.isArray(state.processed_chunk_hashes_json)
+      const chunkCount = state.processed_chunk_hashes_json
         ? state.processed_chunk_hashes_json.length
         : 0;
       result.set(state.r2_key, {
@@ -198,19 +196,15 @@ export async function getProcessedChunkHashes(
     qualifyName("engine-indexing-state", namespace)
   );
 
-  const result = await db
+  const result = (await db
     .selectFrom("indexing_state")
     .select("processed_chunk_hashes_json")
     .where("r2_key", "=", r2Key)
-    .executeTakeFirst();
+    .executeTakeFirst()) as unknown as
+    | Pick<IndexingStateRow, "processed_chunk_hashes_json">
+    | undefined;
 
-  if (result?.processed_chunk_hashes_json) {
-    // Kysely plugin auto-parses JSON fields, so this is already an array
-    const hashes = result.processed_chunk_hashes_json;
-    return Array.isArray(hashes) ? hashes : [];
-  }
-
-  return [];
+  return result?.processed_chunk_hashes_json ?? [];
 }
 
 export async function setProcessedChunkHashes(

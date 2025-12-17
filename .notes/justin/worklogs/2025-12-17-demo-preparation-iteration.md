@@ -274,3 +274,12 @@ While switching micro-moment storage to batch blobs, there were a couple of othe
 
 ### Follow-up: JSON parsing in DO db results
 It looks like `rwsdk/db` uses a Kysely plugin that parses JSON columns on read (for example `processed_chunk_hashes_json`). In a couple of places I still call `JSON.parse` directly on values that may already be parsed (notably micro-moment batch reads, and subject child IDs). Plan is to treat these columns as "unknown", then accept either a string (parse it) or an array/object (use it).
+
+I simplified the micro-moment batch reads and subject child ID reads to assume the DB layer returns parsed arrays and to avoid `JSON.parse`.
+
+### Follow-up: inferred db types from migrations
+For modules using `rwsdk/db`, the row shapes are already available from `Database<typeof migrations>`. I removed hand-written row types and switched to aliases derived from the inferred table types.
+
+Pattern: define `SubjectInput = SubjectDatabase["subjects"]` for inserts (strings), and `Subject = Override<SubjectInput, { document_ids: string[] }>` for query results (parsed arrays/objects). Cast query results directly: `executeTakeFirst() as unknown as Subject | undefined`.
+
+Removed all `JSON.parse` calls from DB read paths since the Kysely plugin parses JSON automatically. Still use `JSON.stringify` for writes.

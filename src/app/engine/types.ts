@@ -21,17 +21,6 @@ export interface Document {
   subjectId?: string;
 }
 
-export interface Subject {
-  id: string;
-  title: string;
-  documentIds: string[];
-  parentId?: string;
-  childIds?: string[];
-  narrative?: string;
-  access_weight?: number;
-  idempotency_key?: string;
-}
-
 export interface Chunk {
   id: string;
   documentId: string;

@@ -581,7 +581,9 @@ export async function query(
         ? clamp01(rawImportance)
         : null;
     const importanceText =
-      importance === null ? "" : `importance=${importance.toFixed(2)} `;
+      importance === null
+        ? `importance=not_provided `
+        : `importance=${importance.toFixed(2)} `;
 
     return `${prefix}${importanceText}${idx + 1}. ${moment.title}: ${
       moment.summary

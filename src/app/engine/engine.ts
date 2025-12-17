@@ -558,6 +558,7 @@ export async function query(
       title?: string;
       summary?: string;
       sourceMetadata?: Record<string, any>;
+      importance?: number;
     },
     idx: number
   ): string {
@@ -573,7 +574,18 @@ export async function query(
         : iso.length > 0
         ? `${iso} `
         : "";
-    return `${prefix}${idx + 1}. ${moment.title}: ${moment.summary}`;
+
+    const rawImportance = moment.importance;
+    const importance =
+      typeof rawImportance === "number" && Number.isFinite(rawImportance)
+        ? clamp01(rawImportance)
+        : null;
+    const importanceText =
+      importance === null ? "" : `importance=${importance.toFixed(2)} `;
+
+    return `${prefix}${importanceText}${idx + 1}. ${moment.title}: ${
+      moment.summary
+    }`;
   }
 
   function buildBriefingText(input: {
@@ -599,14 +611,14 @@ export async function query(
       `- Select only the timeline events that are needed to answer the user's question. Do not try to mention every event.`
     );
     lines.push(
+      `- Timeline lines may include an importance=0..1 field. Prefer higher importance events when selecting which events to mention.`
+    );
+    lines.push(
       `- When you mention an event, include its timestamp (or timestamp range) as shown on the line.`
     );
     lines.push(
       `- When you mention an event, include the data source label as shown in the line text.`
     );
-    lines.push(``);
-    lines.push(`Query`);
-    lines.push(input.query.trim());
     lines.push(``);
     lines.push(`Subject`);
     lines.push(
@@ -853,6 +865,7 @@ Rules:
 - You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
 - You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
 - You MUST NOT try to mention every event in the Timeline. Mention only events needed to answer the question.
+- If a Timeline line includes an importance=0..1 field, prefer higher importance events when selecting which events to mention.
 - If the Timeline does not contain enough information to answer part of the question, say that directly.
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
@@ -953,6 +966,7 @@ Rules:
 - You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
 - You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
 - You MUST NOT try to mention every event in the Timeline. Mention only events needed to answer the question.
+- If a Timeline line includes an importance=0..1 field, prefer higher importance events when selecting which events to mention.
 - If the Timeline does not contain enough information to answer part of the question, say that directly.
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;

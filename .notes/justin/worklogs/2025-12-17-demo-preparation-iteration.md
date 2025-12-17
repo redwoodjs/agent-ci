@@ -185,4 +185,6 @@ Rationale: the middle of a long timeline often contains repeated attempts and in
   - a secondary bias toward keeping early/late timeline positions
   - small neighbor inclusion around kept events
 - Brief-mode output now includes explicit instructions (single-call preference, cite timestamps and sources, select only needed events).
+- Timeline output now includes per-event importance values so the caller model can do an extra selection pass when the response is still long.
+- Brief-mode output no longer includes the query text to reduce tokens.
 - Cursor MCP tool description now instructs single-call usage and discourages repeated tool calls.

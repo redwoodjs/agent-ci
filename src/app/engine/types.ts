@@ -56,6 +56,7 @@ export interface Moment {
   parentId?: string;
   microPaths?: string[];
   microPathsHash?: string;
+  importance?: number;
   createdAt: string;
   author: string;
   sourceMetadata?: Record<string, any>;
@@ -72,6 +73,7 @@ export interface MomentDescription {
 export interface MacroMomentDescription extends MomentDescription {
   summary: string;
   microPaths: string[];
+  importance?: number;
 }
 
 export interface MicroMomentDescription {

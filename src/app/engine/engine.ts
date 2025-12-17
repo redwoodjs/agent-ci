@@ -15,7 +15,7 @@ import {
   addMoment,
   findSimilarMoments,
   findAncestors,
-  upsertMicroMoment,
+  upsertMicroMomentsBatch,
   getMicroMomentsForDocument,
   findMomentByMicroPathsHash,
   type MicroMoment,
@@ -328,27 +328,35 @@ export async function indexDocument(
         ? batchAuthorRaw.trim()
         : document.metadata.author;
 
+    const microMomentItems: Array<{
+      path: string;
+      content: string;
+      summary: string;
+      embedding: number[];
+      createdAt?: string;
+      author: string;
+      sourceMetadata?: Record<string, any>;
+    }> = [];
+
     for (let i = 0; i < itemsToStore.length; i++) {
       const text = itemsToStore[i] ?? "";
       const embedding = embeddings[i] ?? (await getEmbedding(text));
       const path = `${prefix}${i + 1}`;
+      const sourceMetadata = {
+        chunkBatchHash: batchHash,
+        chunkIds: batchChunks.map((c) => c.id),
+        timeRange: batchTimeRange,
+      };
 
-      await upsertMicroMoment(
-        {
+      microMomentItems.push({
           path,
           content: text,
-          author: batchAuthor,
+        summary: text,
+        embedding,
           createdAt: batchTimeRange.start,
-          sourceMetadata: {
-            chunkBatchHash: batchHash,
-            chunkIds: batchChunks.map((c) => c.id),
-            timeRange: batchTimeRange,
-          },
-        },
-        document.id,
-        text,
-        embedding
-      );
+        author: batchAuthor,
+        sourceMetadata,
+      });
 
       microMomentsForSynthesis.push({
         id: crypto.randomUUID(),
@@ -359,13 +367,11 @@ export async function indexDocument(
         embedding: embedding,
         createdAt: batchTimeRange.start,
         author: batchAuthor,
-        sourceMetadata: {
-          chunkBatchHash: batchHash,
-          chunkIds: batchChunks.map((c) => c.id),
-          timeRange: batchTimeRange,
-        },
+        sourceMetadata,
       });
     }
+
+    await upsertMicroMomentsBatch(document.id, microMomentItems);
   }
 
   if (microMomentsForSynthesis.length > 0) {
@@ -488,6 +494,10 @@ export async function indexDocument(
           parentId: i === 0 ? resolvedParentIdForFirst : previousMomentId,
           microPaths,
           microPathsHash,
+          importance:
+            typeof (description as any).importance === "number"
+              ? ((description as any).importance as number)
+              : undefined,
           createdAt: description.createdAt,
           author: description.author,
           sourceMetadata: description.sourceMetadata,
@@ -496,10 +506,6 @@ export async function indexDocument(
         await addMoment(moment);
         previousMomentId = momentId;
       }
-    } else {
-      console.log("[moment-linker] no macro moments synthesized; skipping", {
-        documentId: document.id,
-      });
     }
   }
 
@@ -558,6 +564,7 @@ export async function query(
       title?: string;
       summary?: string;
       sourceMetadata?: Record<string, any>;
+      importance?: number;
     },
     idx: number
   ): string {
@@ -573,7 +580,20 @@ export async function query(
         : iso.length > 0
         ? `${iso} `
         : "";
-    return `${prefix}${idx + 1}. ${moment.title}: ${moment.summary}`;
+
+    const rawImportance = moment.importance;
+    const importance =
+      typeof rawImportance === "number" && Number.isFinite(rawImportance)
+        ? clamp01(rawImportance)
+        : null;
+    const importanceText =
+      importance === null
+        ? `importance=not_provided `
+        : `importance=${importance.toFixed(2)} `;
+
+    return `${prefix}${importanceText}${idx + 1}. ${moment.title}: ${
+      moment.summary
+    }`;
   }
 
   function buildBriefingText(input: {
@@ -588,6 +608,26 @@ export async function query(
     timelineLines: string[];
   }): string {
     const lines: string[] = [];
+    lines.push(`Instructions`);
+    lines.push(
+      `- Prefer a single tool call. Do not call the tool again unless the user asks for more context that is not present in this output.`
+    );
+    lines.push(
+      `- Use the Timeline lines as the only source of events. Do not invent events.`
+    );
+    lines.push(
+      `- Select only the timeline events that are needed to answer the user's question. Do not try to mention every event.`
+    );
+    lines.push(
+      `- Timeline lines may include an importance=0..1 field. Prefer higher importance events when selecting which events to mention.`
+    );
+    lines.push(
+      `- When you mention an event, include its timestamp (or timestamp range) as shown on the line.`
+    );
+    lines.push(
+      `- When you mention an event, include the data source label as shown in the line text.`
+    );
+    lines.push(``);
     lines.push(`Subject`);
     lines.push(
       `${input.subject.title ?? ""}: ${input.subject.summary ?? ""}`.trim()
@@ -595,6 +635,156 @@ export async function query(
     lines.push(``);
     lines.push(`Timeline`);
     return `${lines.join("\n")}\n${input.timelineLines.join("\n")}\n`;
+  }
+
+  function readEnvNumber(
+    name: string,
+    fallback: number
+  ): { value: number; usedFallback: boolean } {
+    const raw = (context.env as any)?.[name];
+    if (typeof raw !== "string") {
+      return { value: fallback, usedFallback: true };
+    }
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      return { value: fallback, usedFallback: true };
+    }
+    const parsed = Number.parseFloat(trimmed);
+    if (!Number.isFinite(parsed)) {
+      return { value: fallback, usedFallback: true };
+    }
+    return { value: parsed, usedFallback: false };
+  }
+
+  function clamp01(value: number): number {
+    if (value < 0) {
+      return 0;
+    }
+    if (value > 1) {
+      return 1;
+    }
+    return value;
+  }
+
+  function pruneTimeline(input: {
+    timeline: Array<{
+      id?: string;
+      importance?: number;
+    }>;
+    requiredIds: string[];
+    maxMoments: number;
+    minImportance: number;
+    neighborWindow: number;
+    endBiasWeight: number;
+  }): number[] {
+    const n = input.timeline.length;
+    if (n === 0) {
+      return [];
+    }
+
+    const required = new Set(
+      input.requiredIds.filter((id) => typeof id === "string" && id.length > 0)
+    );
+
+    const safeMax = Math.max(1, Math.floor(input.maxMoments));
+    const safeMinImportance = clamp01(input.minImportance);
+    const safeNeighborWindow = Math.max(0, Math.floor(input.neighborWindow));
+    const safeEndBiasWeight = Math.max(0, input.endBiasWeight);
+
+    function importanceAt(idx: number): number {
+      const raw = input.timeline[idx]?.importance;
+      if (typeof raw !== "number" || !Number.isFinite(raw)) {
+        return 0;
+      }
+      return clamp01(raw);
+    }
+
+    function endBiasAt(idx: number): number {
+      if (n <= 1) {
+        return 1;
+      }
+      const pos = idx / (n - 1);
+      return 2 * Math.abs(0.5 - pos);
+    }
+
+    function scoreAt(idx: number): number {
+      const imp = importanceAt(idx);
+      const endBias = endBiasAt(idx);
+      return imp + (1 - imp) * endBias * safeEndBiasWeight;
+    }
+
+    const seed = new Set<number>();
+    for (let i = 0; i < n; i++) {
+      const id = input.timeline[i]?.id;
+      if (typeof id === "string" && required.has(id)) {
+        seed.add(i);
+        continue;
+      }
+      if (importanceAt(i) >= safeMinImportance) {
+        seed.add(i);
+      }
+    }
+
+    const requiredIndices: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const id = input.timeline[i]?.id;
+      if (typeof id === "string" && required.has(id)) {
+        requiredIndices.push(i);
+      }
+    }
+
+    function capSet(indices: Set<number>): Set<number> {
+      if (indices.size <= safeMax) {
+        return indices;
+      }
+
+      const requiredSet = new Set(requiredIndices);
+      const scored = Array.from(indices).map((idx) => ({
+        idx,
+        score: scoreAt(idx),
+      }));
+
+      scored.sort((a, b) => {
+        if (a.score !== b.score) {
+          return b.score - a.score;
+        }
+        return a.idx - b.idx;
+      });
+
+      const out = new Set<number>();
+      for (const idx of requiredSet) {
+        out.add(idx);
+      }
+
+      for (const item of scored) {
+        if (out.size >= safeMax) {
+          break;
+        }
+        out.add(item.idx);
+      }
+
+      if (out.size === 0) {
+        out.add(0);
+      }
+      return out;
+    }
+
+    const cappedSeed = capSet(seed);
+
+    const expanded = new Set<number>(cappedSeed);
+    if (safeNeighborWindow > 0) {
+      for (const idx of cappedSeed) {
+        const start = Math.max(0, idx - safeNeighborWindow);
+        const end = Math.min(n - 1, idx + safeNeighborWindow);
+        for (let j = start; j <= end; j++) {
+          expanded.add(j);
+        }
+      }
+    }
+
+    const cappedExpanded = capSet(expanded);
+
+    return Array.from(cappedExpanded).sort((a, b) => a - b);
   }
 
   // Narrative Query Path: Try to answer using Subject (root moment) first
@@ -630,8 +820,37 @@ export async function query(
       console.log(`[query:narrative] timelineLen=${timeline.length}`);
 
       if (timeline.length > 0) {
+        const maxMoments = readEnvNumber(
+          "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
+          200
+        ).value;
+        const minImportance = readEnvNumber(
+          "MOMENT_GRAPH_MIN_IMPORTANCE",
+          0.8
+        ).value;
+        const neighborWindow = readEnvNumber(
+          "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
+          1
+        ).value;
+        const endBiasWeight = readEnvNumber(
+          "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
+          0.4
+        ).value;
+
+        const keptIndices = pruneTimeline({
+          timeline,
+          requiredIds: [subjectMoment.id],
+          maxMoments,
+          minImportance,
+          neighborWindow,
+          endBiasWeight,
+        });
+        const prunedTimeline = keptIndices
+          .map((idx) => timeline[idx])
+          .filter(Boolean);
+
         // Build narrative context from moment summaries
-        const timelineLines = timeline.map((moment, idx) =>
+        const timelineLines = prunedTimeline.map((moment, idx) =>
           formatTimelineLine(moment, idx)
         );
         const narrativeContext = timelineLines.join("\n\n");
@@ -653,6 +872,8 @@ Rules:
 - When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
 - You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
 - You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
+- You MUST NOT try to mention every event in the Timeline. Mention only events needed to answer the question.
+- If a Timeline line includes an importance=0..1 field, prefer higher importance events when selecting which events to mention.
 - If the Timeline does not contain enough information to answer part of the question, say that directly.
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
@@ -701,7 +922,36 @@ Write a clear narrative answer that explains the sequence and causal relationshi
           console.log(`[query:narrative] rootTimelineLen=${timeline.length}`);
 
           if (timeline.length > 0) {
-            const timelineLines = timeline.map((moment, idx) =>
+            const maxMoments = readEnvNumber(
+              "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
+              200
+            ).value;
+            const minImportance = readEnvNumber(
+              "MOMENT_GRAPH_MIN_IMPORTANCE",
+              0.8
+            ).value;
+            const neighborWindow = readEnvNumber(
+              "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
+              1
+            ).value;
+            const endBiasWeight = readEnvNumber(
+              "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
+              0.4
+            ).value;
+
+            const keptIndices = pruneTimeline({
+              timeline,
+              requiredIds: [root.id, bestMatch.id],
+              maxMoments,
+              minImportance,
+              neighborWindow,
+              endBiasWeight,
+            });
+            const prunedTimeline = keptIndices
+              .map((idx) => timeline[idx])
+              .filter(Boolean);
+
+            const timelineLines = prunedTimeline.map((moment, idx) =>
               formatTimelineLine(moment, idx)
             );
             const narrativeContext = timelineLines.join("\n\n");
@@ -723,6 +973,8 @@ Rules:
 - When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
 - You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
 - You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
+- You MUST NOT try to mention every event in the Timeline. Mention only events needed to answer the question.
+- If a Timeline line includes an importance=0..1 field, prefer higher importance events when selecting which events to mention.
 - If the Timeline does not contain enough information to answer part of the question, say that directly.
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;

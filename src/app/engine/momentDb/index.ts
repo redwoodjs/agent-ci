@@ -4,6 +4,7 @@ import type { Moment, ChunkMetadata, MicroMomentDescription } from "../types";
 import { type Database, createDb } from "rwsdk/db";
 import { type momentMigrations } from "./migrations";
 import { getEmbedding } from "../utils/vector";
+import { Override } from "@/app/shared/kyselyTypeOverrides";
 import {
   getMomentGraphNamespaceFromEnv,
   qualifyName,
@@ -12,6 +13,22 @@ import {
 export { MomentGraphDO };
 
 type MomentDatabase = Database<typeof momentMigrations>;
+type MomentInput = MomentDatabase["moments"];
+type MomentRow = Override<
+  MomentInput,
+  {
+    micro_paths_json: string[] | null;
+    source_metadata: Record<string, any> | null;
+  }
+>;
+
+type MicroMomentBatchInput = MomentDatabase["micro_moment_batches"];
+type MicroMomentBatchRow = Override<
+  MicroMomentBatchInput,
+  {
+    items_json: MicroMoment[];
+  }
+>;
 
 function getMomentDb() {
   const namespace = getMomentGraphNamespaceFromEnv(env);
@@ -68,6 +85,9 @@ export async function addMoment(moment: Moment): Promise<void> {
         ...(timeRange ? { timeRangeStart: timeRange.start } : null),
         ...(timeRange ? { timeRangeEnd: timeRange.end } : null),
         summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
+        ...(typeof moment.importance === "number"
+          ? { importance: moment.importance }
+          : null),
       } as unknown as ChunkMetadata,
     };
 
@@ -126,6 +146,10 @@ export async function addMoment(moment: Moment): Promise<void> {
           ? JSON.stringify(moment.microPaths)
           : (null as any),
         micro_paths_hash: (moment.microPathsHash ?? null) as any,
+        importance:
+          typeof moment.importance === "number"
+            ? moment.importance
+            : (null as any),
         created_at: moment.createdAt,
         author: moment.author,
         source_metadata: (moment.sourceMetadata
@@ -147,6 +171,10 @@ export async function addMoment(moment: Moment): Promise<void> {
           ? JSON.stringify(moment.microPaths)
           : (null as any),
         micro_paths_hash: (moment.microPathsHash ?? null) as any,
+        importance:
+          typeof moment.importance === "number"
+            ? moment.importance
+            : (null as any),
         created_at: moment.createdAt,
         author: moment.author,
         source_metadata: (moment.sourceMetadata
@@ -159,11 +187,11 @@ export async function addMoment(moment: Moment): Promise<void> {
 
 export async function getMoment(id: string): Promise<Moment | null> {
   const db = getMomentDb();
-  const row = await db
+  const row = (await db
     .selectFrom("moments")
     .selectAll()
     .where("id", "=", id)
-    .executeTakeFirst();
+    .executeTakeFirst()) as MomentRow | undefined;
 
   if (!row) {
     return null;
@@ -175,15 +203,51 @@ export async function getMoment(id: string): Promise<Moment | null> {
     summary: row.summary,
     title: row.title,
     parentId: row.parent_id || undefined,
-    microPaths:
-      (row.micro_paths_json as unknown as string[] | null) || undefined,
-    microPathsHash: (row.micro_paths_hash as any) || undefined,
+    microPaths: row.micro_paths_json || undefined,
+    microPathsHash: row.micro_paths_hash || undefined,
+    importance: typeof row.importance === "number" ? row.importance : undefined,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata:
-      (row.source_metadata as unknown as Record<string, any> | null) ||
-      undefined,
+    sourceMetadata: row.source_metadata || undefined,
   };
+}
+
+export async function getMoments(ids: string[]): Promise<Map<string, Moment>> {
+  if (ids.length === 0) {
+    return new Map();
+  }
+
+  const db = getMomentDb();
+  const moments = new Map<string, Moment>();
+
+  const maxBatchSize = 100;
+  for (let i = 0; i < ids.length; i += maxBatchSize) {
+    const batch = ids.slice(i, i + maxBatchSize);
+    const rows = (await db
+      .selectFrom("moments")
+      .selectAll()
+      .where("id", "in", batch)
+      .execute()) as unknown as MomentRow[];
+
+    for (const row of rows) {
+      moments.set(row.id, {
+        id: row.id,
+        documentId: row.document_id,
+        summary: row.summary,
+        title: row.title,
+        parentId: row.parent_id || undefined,
+        microPaths: row.micro_paths_json || undefined,
+        microPathsHash: row.micro_paths_hash || undefined,
+        importance:
+          typeof row.importance === "number" ? row.importance : undefined,
+        createdAt: row.created_at,
+        author: row.author,
+        sourceMetadata: row.source_metadata || undefined,
+      });
+    }
+  }
+
+  return moments;
 }
 
 export async function findMomentByMicroPathsHash(
@@ -191,12 +255,12 @@ export async function findMomentByMicroPathsHash(
   microPathsHash: string
 ): Promise<Moment | null> {
   const db = getMomentDb();
-  const row = await db
+  const row = (await db
     .selectFrom("moments")
     .selectAll()
     .where("document_id", "=", documentId)
     .where("micro_paths_hash", "=", microPathsHash)
-    .executeTakeFirst();
+    .executeTakeFirst()) as MomentRow | undefined;
 
   if (!row) {
     return null;
@@ -208,14 +272,12 @@ export async function findMomentByMicroPathsHash(
     summary: row.summary,
     title: row.title,
     parentId: row.parent_id || undefined,
-    microPaths:
-      (row.micro_paths_json as unknown as string[] | null) || undefined,
-    microPathsHash: (row.micro_paths_hash as any) || undefined,
+    microPaths: row.micro_paths_json || undefined,
+    microPathsHash: row.micro_paths_hash || undefined,
+    importance: typeof row.importance === "number" ? row.importance : undefined,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata:
-      (row.source_metadata as unknown as Record<string, any> | null) ||
-      undefined,
+    sourceMetadata: row.source_metadata || undefined,
   };
 }
 
@@ -236,7 +298,7 @@ export async function findSimilarMoments(
     queryOptions as any
   );
 
-  const moments: Moment[] = [];
+  const momentIds: string[] = [];
   for (const match of searchResults.matches) {
     const matchNamespace =
       (match.metadata as any)?.momentGraphNamespace ?? null;
@@ -244,25 +306,56 @@ export async function findSimilarMoments(
     if (normalizedMatchNamespace !== momentGraphNamespace) {
       continue;
     }
-    const moment = await getMoment(match.id);
-    if (moment) {
-      moments.push(moment);
-    }
+    momentIds.push(match.id);
   }
-  return moments;
+
+  if (momentIds.length === 0) {
+    return [];
+  }
+
+  const momentsMap = await getMoments(momentIds);
+  return momentIds
+    .map((id) => momentsMap.get(id))
+    .filter((m): m is Moment => m !== undefined);
 }
 
 export async function findAncestors(momentId: string): Promise<Moment[]> {
-  const ancestors: Moment[] = [];
+  const db = getMomentDb();
+  const idRows = await db
+    .selectFrom("moments")
+    .select(["id", "parent_id"])
+    .execute();
+
+  const parentById = new Map<string, string | undefined>();
+  for (const row of idRows) {
+    parentById.set(row.id, row.parent_id || undefined);
+  }
+
+  const ancestorIds: string[] = [];
+  const visited = new Set<string>();
+  const maxDepth = 5_000;
   let currentMomentId: string | undefined = momentId;
 
-  while (currentMomentId) {
-    const moment = await getMoment(currentMomentId);
+  for (let depth = 0; depth < maxDepth && currentMomentId; depth++) {
+    if (visited.has(currentMomentId)) {
+      break;
+    }
+    visited.add(currentMomentId);
+    ancestorIds.push(currentMomentId);
+    currentMomentId = parentById.get(currentMomentId);
+  }
+
+  if (ancestorIds.length === 0) {
+    return [];
+  }
+
+  const momentsMap = await getMoments(ancestorIds);
+  const ancestors: Moment[] = [];
+  for (let i = ancestorIds.length - 1; i >= 0; i--) {
+    const id = ancestorIds[i];
+    const moment = momentsMap.get(id);
     if (moment) {
-      ancestors.unshift(moment);
-      currentMomentId = moment.parentId;
-    } else {
-      currentMomentId = undefined;
+      ancestors.push(moment);
     }
   }
 
@@ -270,53 +363,91 @@ export async function findAncestors(momentId: string): Promise<Moment[]> {
 }
 
 export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
-  const descendants: Moment[] = [];
-  const rootMoment = await getMoment(rootMomentId);
-  if (!rootMoment) {
-    return descendants;
+  const db = getMomentDb();
+  const rows = (await db
+    .selectFrom("moments")
+    .selectAll()
+    .execute()) as unknown as MomentRow[];
+
+  const rowsById = new Map<string, MomentRow>();
+  const childrenByParentId = new Map<string, MomentRow[]>();
+
+  for (const row of rows) {
+    rowsById.set(row.id, row);
+    const parentId = row.parent_id || undefined;
+    if (!parentId) {
+      continue;
+    }
+    const list = childrenByParentId.get(parentId) ?? [];
+    list.push(row);
+    childrenByParentId.set(parentId, list);
   }
 
-  // Start with the root moment
-  descendants.push(rootMoment);
+  for (const [parentId, list] of childrenByParentId.entries()) {
+    list.sort((a, b) => {
+      if (a.created_at !== b.created_at) {
+        return a.created_at.localeCompare(b.created_at);
+      }
+      return a.id.localeCompare(b.id);
+    });
+    childrenByParentId.set(parentId, list);
+  }
 
-  // Recursively find all children
-  const db = getMomentDb();
-  const findChildren = async (
-    parentId: string,
-    depth: number = 0
-  ): Promise<void> => {
-    const children = await db
-      .selectFrom("moments")
-      .selectAll()
-      .where("parent_id", "=", parentId)
-      .orderBy("created_at", "asc")
-      .execute();
+  const rootRow = rowsById.get(rootMomentId);
+  if (!rootRow) {
+    return [];
+  }
 
-    for (const row of children) {
-      const childMoment: Moment = {
-        id: row.id,
-        documentId: row.document_id,
-        summary: row.summary,
-        title: row.title,
-        parentId: row.parent_id || undefined,
-        microPaths: row.micro_paths_json
-          ? (row.micro_paths_json as unknown as string[] | null) || undefined
-          : undefined,
-        microPathsHash: (row.micro_paths_hash as any) || undefined,
-        createdAt: row.created_at,
-        author: row.author,
-        sourceMetadata:
-          (row.source_metadata as unknown as Record<string, any> | null) ||
-          undefined,
-      };
-      descendants.push(childMoment);
-      // Recursively find children of this child
-      await findChildren(row.id, depth + 1);
+  function rowToMoment(row: MomentRow): Moment {
+    return {
+      id: row.id,
+      documentId: row.document_id,
+      summary: row.summary,
+      title: row.title,
+      parentId: row.parent_id || undefined,
+      microPaths: row.micro_paths_json || undefined,
+      microPathsHash: row.micro_paths_hash || undefined,
+      importance:
+        typeof row.importance === "number" ? row.importance : undefined,
+      createdAt: row.created_at,
+      author: row.author,
+      sourceMetadata: row.source_metadata || undefined,
+    };
+  }
+
+  const out: Moment[] = [];
+  const visited = new Set<string>();
+  const maxNodes = 50_000;
+
+  function visit(id: string) {
+    if (out.length >= maxNodes) {
+      return;
     }
-  };
+    if (visited.has(id)) {
+      return;
+    }
+    visited.add(id);
+    const row = rowsById.get(id);
+    if (!row) {
+      return;
+    }
+    out.push(rowToMoment(row));
+    const children = childrenByParentId.get(id) ?? [];
+    for (const child of children) {
+      visit(child.id);
+    }
+  }
 
-  await findChildren(rootMomentId, 0);
-  return descendants;
+  visit(rootMomentId);
+
+  out.sort((a, b) => {
+    if (a.createdAt !== b.createdAt) {
+      return a.createdAt.localeCompare(b.createdAt);
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  return out;
 }
 
 export async function findSimilarSubjects(
@@ -336,7 +467,7 @@ export async function findSimilarSubjects(
     queryOptions as any
   );
 
-  const subjects: Moment[] = [];
+  const subjectIds: string[] = [];
   for (let i = 0; i < searchResults.matches.length; i++) {
     const match = searchResults.matches[i];
     const matchNamespace =
@@ -345,12 +476,22 @@ export async function findSimilarSubjects(
     if (normalizedMatchNamespace !== momentGraphNamespace) {
       continue;
     }
-    const moment = await getMoment(match.id);
+    subjectIds.push(match.id);
+  }
+
+  if (subjectIds.length === 0) {
+    return [];
+  }
+
+  const momentsMap = await getMoments(subjectIds);
+  const subjects: Moment[] = [];
+  for (const id of subjectIds) {
+    const moment = momentsMap.get(id);
     if (moment && !moment.parentId) {
       subjects.push(moment);
-    } else {
+    } else if (!moment) {
       console.warn(
-        `[momentDb:findSimilarSubjects] Subject moment ${match.id} not found in database`
+        `[momentDb:findSimilarSubjects] Subject moment ${id} not found in database`
       );
     }
   }
@@ -362,13 +503,13 @@ export async function findLastMomentForDocument(
   documentId: string
 ): Promise<Moment | null> {
   const db = getMomentDb();
-  const rows = await db
+  const rows = (await db
     .selectFrom("moments")
     .selectAll()
     .where("document_id", "=", documentId)
     .orderBy("created_at", "desc")
     .limit(1)
-    .execute();
+    .execute()) as unknown as MomentRow[];
 
   if (rows.length === 0) {
     return null;
@@ -383,9 +524,7 @@ export async function findLastMomentForDocument(
     parentId: row.parent_id || undefined,
     createdAt: row.created_at,
     author: row.author,
-    sourceMetadata:
-      (row.source_metadata as unknown as Record<string, any> | null) ||
-      undefined,
+    sourceMetadata: row.source_metadata || undefined,
   };
 }
 
@@ -441,41 +580,21 @@ export async function getMicroMoment(
   documentId: string,
   path: string
 ): Promise<MicroMoment | null> {
-  const start = Date.now();
   const db = getMomentDb();
-  const row = await db
-    .selectFrom("micro_moments")
-    .selectAll()
+  const rows = (await db
+    .selectFrom("micro_moment_batches")
+    .select(["items_json"])
     .where("document_id", "=", documentId)
-    .where("path", "=", path)
-    .executeTakeFirst();
-  const duration = Date.now() - start;
-  if (duration > 10) {
-    // Keep this one log if latency is high, otherwise silent
-    // console.log(`[momentDb] getMicroMoment slow query: ${duration}ms`);
+    .execute()) as unknown as Pick<MicroMomentBatchRow, "items_json">[];
+
+  for (const row of rows) {
+    const match = row.items_json.find((m) => m.path === path);
+    if (match) {
+      return match;
+    }
   }
 
-  if (!row) {
-    return null;
-  }
-
-  return {
-    id: row.id,
-    documentId: row.document_id,
-    path: row.path,
-    content: row.content,
-    summary: row.summary || null,
-    embedding: row.embedding
-      ? typeof row.embedding === "string"
-        ? (JSON.parse(row.embedding) as number[])
-        : (row.embedding as number[])
-      : null,
-    createdAt: row.created_at,
-    author: row.author,
-    sourceMetadata:
-      (row.source_metadata as unknown as Record<string, any> | null) ||
-      undefined,
-  };
+  return null;
 }
 
 export async function upsertMicroMoment(
@@ -484,34 +603,72 @@ export async function upsertMicroMoment(
   summary: string,
   embedding: number[]
 ): Promise<void> {
-  const db = getMomentDb();
-  const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-
-  await db
-    .insertInto("micro_moments")
-    .values({
-      id,
-      document_id: documentId,
+  await upsertMicroMomentsBatch(documentId, [
+    {
       path: microMoment.path,
       content: microMoment.content,
-      summary: summary,
-      embedding: JSON.stringify(embedding),
-      created_at: microMoment.createdAt || now,
+      summary,
+      embedding,
+      createdAt: microMoment.createdAt,
       author: microMoment.author,
-      source_metadata: microMoment.sourceMetadata
-        ? JSON.stringify(microMoment.sourceMetadata)
-        : (null as any),
+      sourceMetadata: microMoment.sourceMetadata,
+    },
+  ]);
+}
+
+export async function upsertMicroMomentsBatch(
+  documentId: string,
+  items: Array<{
+    path: string;
+    content: string;
+    summary: string;
+    embedding: number[];
+    createdAt?: string;
+    author: string;
+    sourceMetadata?: Record<string, any>;
+  }>
+): Promise<void> {
+  if (items.length === 0) {
+    return;
+  }
+
+  const db = getMomentDb();
+  const now = new Date().toISOString();
+
+  const batchHashRaw = items[0]?.sourceMetadata?.chunkBatchHash;
+  const batchHash = typeof batchHashRaw === "string" ? batchHashRaw : null;
+  if (!batchHash) {
+    throw new Error(
+      "Micro-moment batch upsert requires sourceMetadata.chunkBatchHash"
+    );
+  }
+
+  const itemsJson = JSON.stringify(
+    items.map((item) => ({
+      id: crypto.randomUUID(),
+      documentId,
+      path: item.path,
+      content: item.content,
+      summary: item.summary,
+      embedding: item.embedding,
+      createdAt: item.createdAt || now,
+      author: item.author,
+      sourceMetadata: item.sourceMetadata,
+    }))
+  );
+
+  await db
+    .insertInto("micro_moment_batches")
+    .values({
+      document_id: documentId,
+      batch_hash: batchHash,
+      items_json: itemsJson,
+      updated_at: now,
     })
     .onConflict((oc) =>
-      oc.columns(["document_id", "path"]).doUpdateSet({
-        content: microMoment.content,
-        summary: summary,
-        embedding: JSON.stringify(embedding),
-        author: microMoment.author,
-        source_metadata: microMoment.sourceMetadata
-          ? JSON.stringify(microMoment.sourceMetadata)
-          : undefined,
+      oc.columns(["document_id", "batch_hash"]).doUpdateSet({
+        items_json: itemsJson,
+        updated_at: now,
       })
     )
     .execute();
@@ -521,28 +678,25 @@ export async function getMicroMomentsForDocument(
   documentId: string
 ): Promise<MicroMoment[]> {
   const db = getMomentDb();
-  const rows = await db
-    .selectFrom("micro_moments")
-    .selectAll()
+  const rows = (await db
+    .selectFrom("micro_moment_batches")
+    .select(["items_json"])
     .where("document_id", "=", documentId)
-    .orderBy("created_at", "asc")
-    .execute();
+    .execute()) as unknown as Pick<MicroMomentBatchRow, "items_json">[];
 
-  return rows.map((row) => ({
-    id: row.id,
-    documentId: row.document_id,
-    path: row.path,
-    content: row.content,
-    summary: row.summary || null,
-    embedding: row.embedding
-      ? typeof row.embedding === "string"
-        ? (JSON.parse(row.embedding) as number[])
-        : (row.embedding as number[])
-      : null,
-    createdAt: row.created_at,
-    author: row.author,
-    sourceMetadata:
-      (row.source_metadata as unknown as Record<string, any> | null) ||
-      undefined,
-  }));
+  const out: MicroMoment[] = [];
+  for (const row of rows) {
+    out.push(...row.items_json);
+  }
+
+  out.sort((a, b) => {
+    const aMs = Date.parse(a.createdAt);
+    const bMs = Date.parse(b.createdAt);
+    if (Number.isFinite(aMs) && Number.isFinite(bMs) && aMs !== bMs) {
+      return aMs - bMs;
+    }
+    return a.path.localeCompare(b.path);
+  });
+
+  return out;
 }

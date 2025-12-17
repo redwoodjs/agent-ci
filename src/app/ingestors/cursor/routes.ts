@@ -5,8 +5,16 @@ import { type Database, createDb } from "rwsdk/db";
 import { type migrations } from "./db/migrations";
 import { type CursorEventsDurableObject } from "./db/durableObject";
 import { requireApiKey } from "./interruptors";
+import { Override } from "@/app/shared/kyselyTypeOverrides";
 
 type CursorDatabase = Database<typeof migrations>;
+type EventInput = CursorDatabase["events"];
+type EventRow = Override<
+  EventInput,
+  {
+    event_data: CursorEvent;
+  }
+>;
 
 declare module "rwsdk/worker" {
   interface WorkerEnv {
@@ -47,22 +55,16 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
     .execute();
 
   if (hook_event_name === "stop") {
-    const eventsResult = await db
+    const eventsResult = (await db
       .selectFrom("events")
       .selectAll()
       .orderBy("timestamp", "asc")
-      .execute();
+      .execute()) as unknown as EventRow[];
 
     const allEvents = eventsResult.map((row) => {
-      let eventData: CursorEvent;
-      if (typeof row.event_data === "string") {
-        eventData = JSON.parse(row.event_data) as CursorEvent;
-      } else {
-        eventData = row.event_data as CursorEvent;
-      }
       return {
         rowId: row.id,
-        data: eventData,
+        data: row.event_data,
       };
     });
 

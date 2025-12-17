@@ -140,51 +140,94 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
   }
 
   try {
-    let body: { prefix?: string; r2Keys?: string[] } = {};
+    let body:
+      | {
+          prefix?: unknown;
+          r2Keys?: unknown;
+          momentGraphNamespace?: unknown;
+          namespace?: unknown;
+        }
+      | undefined = undefined;
     try {
-      body = (await request.json()) as { prefix?: string; r2Keys?: string[] };
+      body = (await request.json()) as any;
     } catch {
-      body = {};
+      body = undefined;
     }
 
     const envCloudflare = env as Cloudflare.Env;
 
-    if (body.r2Keys && Array.isArray(body.r2Keys)) {
-      console.log(
-        `[backfill] Indexing ${body.r2Keys.length} specific R2 keys directly`
-      );
-      await enqueueUnprocessedFiles(body.r2Keys, envCloudflare);
-      return Response.json({
-        success: true,
-        message: `Enqueued ${body.r2Keys.length} files for indexing`,
-      });
+    const namespaceRaw =
+      (body as any)?.momentGraphNamespace ?? (body as any)?.namespace;
+    const momentGraphNamespace =
+      typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+        ? namespaceRaw.trim()
+        : null;
+
+    const r2KeysRaw = (body as any)?.r2Keys;
+    const r2Keys =
+      Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
+        ? (r2KeysRaw as string[])
+        : null;
+
+    const prefixRaw = (body as any)?.prefix;
+    const prefix = typeof prefixRaw === "string" ? prefixRaw : "github/";
+
+    const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
+    if (momentGraphNamespace) {
+      (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
     }
 
-    const prefix = body.prefix || "github/";
-    console.log(`[backfill] Starting manual backfill for prefix: ${prefix}`);
+    try {
+      const effectiveNamespace =
+        getMomentGraphNamespaceFromEnv(envCloudflare) ?? "default";
 
-    const unprocessedKeys = await scanForUnprocessedFiles(
-      envCloudflare,
-      prefix
-    );
+      if (r2Keys) {
+        console.log(
+          `[backfill] Indexing ${r2Keys.length} specific R2 keys directly`
+        );
+        await enqueueUnprocessedFiles(r2Keys, envCloudflare, {
+          momentGraphNamespace: effectiveNamespace,
+        });
+        return Response.json({
+          success: true,
+          momentGraphNamespace: effectiveNamespace,
+          message: `Enqueued ${r2Keys.length} files for indexing`,
+        });
+      }
 
-    if (unprocessedKeys.length > 0) {
-      await enqueueUnprocessedFiles(unprocessedKeys, envCloudflare);
       console.log(
-        `[backfill] Manual backfill completed. Enqueued ${unprocessedKeys.length} files.`
+        `[backfill] Starting manual backfill for prefix: ${prefix} (namespace=${effectiveNamespace})`
       );
-      return Response.json({
-        success: true,
-        message: `Backfill completed. Enqueued ${unprocessedKeys.length} files for indexing.`,
-        filesEnqueued: unprocessedKeys.length,
-      });
-    } else {
-      console.log(`[backfill] Manual backfill completed. No files to index.`);
-      return Response.json({
-        success: true,
-        message: "Backfill completed. No files need indexing.",
-        filesEnqueued: 0,
-      });
+
+      const unprocessedKeys = await scanForUnprocessedFiles(
+        envCloudflare,
+        prefix
+      );
+
+      if (unprocessedKeys.length > 0) {
+        await enqueueUnprocessedFiles(unprocessedKeys, envCloudflare, {
+          momentGraphNamespace: effectiveNamespace,
+        });
+        console.log(
+          `[backfill] Manual backfill completed. Enqueued ${unprocessedKeys.length} files.`
+        );
+        return Response.json({
+          success: true,
+          momentGraphNamespace: effectiveNamespace,
+          message: `Backfill completed. Enqueued ${unprocessedKeys.length} files for indexing.`,
+          filesEnqueued: unprocessedKeys.length,
+        });
+      } else {
+        console.log(`[backfill] Manual backfill completed. No files to index.`);
+        return Response.json({
+          success: true,
+          momentGraphNamespace: effectiveNamespace,
+          message: "Backfill completed. No files need indexing.",
+          filesEnqueued: 0,
+        });
+      }
+    } finally {
+      (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
     }
   } catch (error) {
     console.error(

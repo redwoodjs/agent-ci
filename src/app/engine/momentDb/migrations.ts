@@ -98,9 +98,30 @@ export const momentMigrations = {
       ];
     },
     async down(db) {
-      await db.schema.dropIndex("moments_document_micro_paths_hash_idx").execute();
-      await db.schema.alterTable("moments").dropColumn("micro_paths_hash").execute();
-      await db.schema.alterTable("moments").dropColumn("micro_paths_json").execute();
+      await db.schema
+        .dropIndex("moments_document_micro_paths_hash_idx")
+        .execute();
+      await db.schema
+        .alterTable("moments")
+        .dropColumn("micro_paths_hash")
+        .execute();
+      await db.schema
+        .alterTable("moments")
+        .dropColumn("micro_paths_json")
+        .execute();
+    },
+  },
+  "005_add_moment_importance": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("moments")
+          .addColumn("importance", "real")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.alterTable("moments").dropColumn("importance").execute();
     },
   },
 } satisfies Migrations;

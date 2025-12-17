@@ -68,6 +68,9 @@ export async function addMoment(moment: Moment): Promise<void> {
         ...(timeRange ? { timeRangeStart: timeRange.start } : null),
         ...(timeRange ? { timeRangeEnd: timeRange.end } : null),
         summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
+        ...(typeof moment.importance === "number"
+          ? { importance: moment.importance }
+          : null),
       } as unknown as ChunkMetadata,
     };
 
@@ -126,6 +129,10 @@ export async function addMoment(moment: Moment): Promise<void> {
           ? JSON.stringify(moment.microPaths)
           : (null as any),
         micro_paths_hash: (moment.microPathsHash ?? null) as any,
+        importance:
+          typeof moment.importance === "number"
+            ? moment.importance
+            : (null as any),
         created_at: moment.createdAt,
         author: moment.author,
         source_metadata: (moment.sourceMetadata
@@ -147,6 +154,10 @@ export async function addMoment(moment: Moment): Promise<void> {
           ? JSON.stringify(moment.microPaths)
           : (null as any),
         micro_paths_hash: (moment.microPathsHash ?? null) as any,
+        importance:
+          typeof moment.importance === "number"
+            ? moment.importance
+            : (null as any),
         created_at: moment.createdAt,
         author: moment.author,
         source_metadata: (moment.sourceMetadata
@@ -178,6 +189,10 @@ export async function getMoment(id: string): Promise<Moment | null> {
     microPaths:
       (row.micro_paths_json as unknown as string[] | null) || undefined,
     microPathsHash: (row.micro_paths_hash as any) || undefined,
+    importance:
+      typeof (row as any).importance === "number"
+        ? ((row as any).importance as number)
+        : undefined,
     createdAt: row.created_at,
     author: row.author,
     sourceMetadata:
@@ -213,6 +228,10 @@ export async function getMoments(ids: string[]): Promise<Map<string, Moment>> {
         microPaths:
           (row.micro_paths_json as unknown as string[] | null) || undefined,
         microPathsHash: (row.micro_paths_hash as any) || undefined,
+        importance:
+          typeof (row as any).importance === "number"
+            ? ((row as any).importance as number)
+            : undefined,
         createdAt: row.created_at,
         author: row.author,
         sourceMetadata:
@@ -250,6 +269,10 @@ export async function findMomentByMicroPathsHash(
     microPaths:
       (row.micro_paths_json as unknown as string[] | null) || undefined,
     microPathsHash: (row.micro_paths_hash as any) || undefined,
+    importance:
+      typeof (row as any).importance === "number"
+        ? ((row as any).importance as number)
+        : undefined,
     createdAt: row.created_at,
     author: row.author,
     sourceMetadata:
@@ -383,6 +406,10 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
         ? (row.micro_paths_json as unknown as string[] | null) || undefined
         : undefined,
       microPathsHash: (row.micro_paths_hash as any) || undefined,
+      importance:
+        typeof (row as any).importance === "number"
+          ? ((row as any).importance as number)
+          : undefined,
       createdAt: row.created_at,
       author: row.author,
       sourceMetadata:

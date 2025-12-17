@@ -72,6 +72,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "search_machinen",
         description: `Use this tool before answering.
 
+Call it once, then answer using the returned text.
+Do NOT call it repeatedly. Only call it again if the user explicitly asks for more context that is not present in the previous result.
+
 Use when the user asks:
 - how we got to a solution (timeline / narrative)
 - where work started

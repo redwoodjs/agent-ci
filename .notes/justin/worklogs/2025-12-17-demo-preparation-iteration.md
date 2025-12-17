@@ -188,3 +188,30 @@ Rationale: the middle of a long timeline often contains repeated attempts and in
 - Timeline output now includes per-event importance values so the caller model can do an extra selection pass when the response is still long.
 - Brief-mode output no longer includes the query text to reduce tokens.
 - Cursor MCP tool description now instructs single-call usage and discourages repeated tool calls.
+
+## PR: Importance Scoring, Timeline Pruning, and Two-Pass Filtering
+
+### Importance Scoring & Two-Pass Filtering
+
+Previously, Moment Graph queries returned every macro-moment in the timeline, often resulting in thousands of events. This overwhelmed the context window and provided no signal on which events were significant. We needed a way to identify key turning points without relying on query similarity, which fails for narrative arcs where early events (problem framing) are semantically distant from the final question.
+
+We solved this with a **two-pass filtering system**:
+
+1.  **Intrinsic Importance (Synthesis Time):**
+    We updated the macro-moment synthesis prompt to emit an `IMPORTANCE` score (0-1 float) for every generated moment. This score is intrinsic to the event itself—capturing how significant a moment is to the project history—rather than being derived from a specific user query. This value is stored in the database and indexed.
+
+2.  **Engine Pruning (Query Time):**
+    The narrative query engine now performs a first pass of pruning before returning results. It always preserves the root and query anchor, but filters the rest of the timeline based on the importance score. To maintain a readable narrative, we also apply **position bias** (favoring the start and end of the timeline) and preserve **connective tissue** (neighbors of kept moments). A hard cap ensures the total size remains within limits (default 200 moments).
+
+3.  **Model Selection (Response Time):**
+    The second pass happens at the consumption layer. We expose the `importance=0.xx` score directly in the text output for both Brief Mode and Answer Mode. We then instruct the consuming model (Cursor or the internal LLM) to use these scores as a signal when selecting which events to mention in its final answer. This allows the model to make the final judgment call on relevance while working with a pre-curated, high-quality list of candidates.
+
+### Cursor Interaction Improvements
+
+The client-side model (Cursor) was struggling to use the tool effectively, often calling it repeatedly in a loop or ignoring the timeline data.
+
+We updated the **MCP tool description** to be strictly prescriptive, explicitly instructing the model to call the tool once and then answer using the returned text. Additionally, we added a dedicated **Instructions** section to the Brief Mode output. This guides the model to treat the returned timeline as the sole source of truth, prefer high-importance events (now visible in the line data), and cite timestamps and sources. This closes the loop on the two-pass system, giving the client model both the signal (importance scores) and the policy (instructions) to generate high-quality answers.
+
+### Fix: Subrequest Limits
+
+The narrative query path was occasionally hitting Cloudflare's "Too many API requests" error due to high-fanout database fetches during graph traversal. We refactored `findAncestors` and `findDescendants` to perform batched fetches and in-memory traversal with cycle detection, significantly reducing the number of Durable Object calls per query.

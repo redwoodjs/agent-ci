@@ -365,8 +365,8 @@ export async function findAncestors(momentId: string): Promise<Moment[]> {
 export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
   const db = getMomentDb();
   const rows = (await db
-    .selectFrom("moments")
-    .selectAll()
+      .selectFrom("moments")
+      .selectAll()
     .execute()) as unknown as MomentRow[];
 
   const rowsById = new Map<string, MomentRow>();
@@ -400,17 +400,17 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
 
   function rowToMoment(row: MomentRow): Moment {
     return {
-      id: row.id,
-      documentId: row.document_id,
-      summary: row.summary,
-      title: row.title,
-      parentId: row.parent_id || undefined,
+        id: row.id,
+        documentId: row.document_id,
+        summary: row.summary,
+        title: row.title,
+        parentId: row.parent_id || undefined,
       microPaths: row.micro_paths_json || undefined,
       microPathsHash: row.micro_paths_hash || undefined,
       importance:
         typeof row.importance === "number" ? row.importance : undefined,
-      createdAt: row.created_at,
-      author: row.author,
+        createdAt: row.created_at,
+        author: row.author,
       sourceMetadata: row.source_metadata || undefined,
     };
   }
@@ -594,7 +594,7 @@ export async function getMicroMoment(
     }
   }
 
-  return null;
+    return null;
 }
 
 export async function upsertMicroMoment(

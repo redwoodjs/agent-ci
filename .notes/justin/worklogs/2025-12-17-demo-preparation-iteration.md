@@ -257,12 +257,12 @@ The micro-moment table shape is also not aligned with how we actually use micro-
 
 Given that, I think it makes sense to store micro-moments as a small number of JSON blobs, keyed by the chunk-batch hash, rather than one row per micro-moment.
 
-This keeps the write path as \"replace one blob for one batch\" and avoids the large multi-row insert / large IN-list delete patterns that repeatedly hit SQLite limits.
+This keeps the write path as "replace one blob for one batch" and avoids the large multi-row insert / large IN-list delete patterns that repeatedly hit SQLite limits.
 
 ### Drill-down consideration
 I can imagine wanting to drill down from a macro-moment to the underlying micro-moments later. If we want that, I think it will work better as a macro-level snapshot:
 - store the relevant micro-moment summaries (and their canonical references) on the macro-moment record itself, as a JSON blob
-- treat that as a stable \"what this macro-moment was synthesized from\" view, rather than re-querying micro-moment storage as a live index
+- treat that as a stable "what this macro-moment was synthesized from" view, rather than re-querying micro-moment storage as a live index
 
 Decision: move micro-moment persistence to per-batch JSON blobs (documentId + batchHash), and treat macro-moment drill-down as a separate, explicit snapshot on macro moments if/when we implement it.
 
@@ -283,3 +283,34 @@ For modules using `rwsdk/db`, the row shapes are already available from `Databas
 Pattern: define `SubjectInput = SubjectDatabase["subjects"]` for inserts (strings), and `Subject = Override<SubjectInput, { document_ids: string[] }>` for query results (parsed arrays/objects). Cast query results directly: `executeTakeFirst() as unknown as Subject | undefined`.
 
 Removed all `JSON.parse` calls from DB read paths since the Kysely plugin parses JSON automatically. Still use `JSON.stringify` for writes.
+
+## Updated PR: Demo Readiness - Importance Scoring, Timeline Pruning, and Scalable Storage
+
+### Importance Scoring & Two-Pass Filtering
+
+Previously, Moment Graph queries returned every macro-moment in the timeline, often resulting in thousands of events. This overwhelmed the context window and provided no signal on which events were significant.
+
+We solved this with a **two-pass filtering system**:
+
+1.  **Intrinsic Importance (Synthesis Time):**
+    We updated the macro-moment synthesis prompt to emit an `IMPORTANCE` score (0-1 float) for every generated moment. This score is intrinsic to the event itself and stored in the database.
+
+2.  **Engine Pruning (Query Time):**
+    The narrative query engine now performs a first pass of pruning. It always preserves the root and query anchor, but filters the rest of the timeline based on the importance score, position bias (favoring start/end), and connective tissue (neighbors).
+
+3.  **Model Selection (Response Time):**
+    The second pass happens at the consumption layer. We expose the `importance=0.xx` score directly in the text output. We then instruct the consuming model (Cursor) to use these scores as a signal when selecting which events to mention.
+
+### Scalable Storage & Indexing Reliability
+
+During backfills, we encountered scalability cliffs where large documents (e.g., long Cursor conversations) triggered Cloudflare subrequest limits and SQLite bound-parameter limits.
+
+We implemented a major storage refactor and reliability hardening:
+
+*   **JSON Blob Storage for Micro-Moments**: We moved micro-moment persistence from individual rows to per-batch JSON blobs. This aligns storage with our read patterns (caching/synthesis) and drastically reduces the number of database operations and variable bindings per document.
+*   **Queue Batching**: Chunk-processing queue sends are now strictly chunked to respect the 100-message `sendBatch` limit.
+*   **Robust Ingestion**: We added type safety checks for Cursor ingest payloads to handle non-string fields gracefully, and implemented retries for transient network failures during Vectorize operations.
+
+### Cursor Interaction Improvements
+
+We updated the **MCP tool description** to be strictly prescriptive, instructing the model to call the tool once and then answer using the returned text. We also added a dedicated **Instructions** section to the Brief Mode output to guide the model's summarization behavior.

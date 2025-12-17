@@ -271,3 +271,6 @@ While switching micro-moment storage to batch blobs, there were a couple of othe
 - Chunk-processing queue sends are batched to respect the 100 message `sendBatch` limit.
 - Cursor chunking treats non-string prompt/response fields as empty to avoid `.trim()` type errors.
 - Chunk processor retries Vectorize inserts on transient `Network connection lost` failures.
+
+### Follow-up: JSON parsing in DO db results
+It looks like `rwsdk/db` uses a Kysely plugin that parses JSON columns on read (for example `processed_chunk_hashes_json`). In a couple of places I still call `JSON.parse` directly on values that may already be parsed (notably micro-moment batch reads, and subject child IDs). Plan is to treat these columns as "unknown", then accept either a string (parse it) or an array/object (use it).

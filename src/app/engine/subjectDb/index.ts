@@ -8,6 +8,20 @@ export { SubjectDO };
 type SubjectDatabase = Database<typeof subjectMigrations>;
 type SubjectDb = ReturnType<typeof createDb<SubjectDatabase>>;
 
+function readStringArray(value: unknown): string[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (Array.isArray(value)) {
+    return value as string[];
+  }
+  if (typeof value === "string") {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as string[]) : undefined;
+  }
+  return undefined;
+}
+
 export async function getSubject(
   db: SubjectDb,
   id: string
@@ -27,9 +41,7 @@ export async function getSubject(
     title: row.title,
     documentIds: (row.document_ids as unknown as string[]) || [],
     parentId: row.parent_id || undefined,
-    childIds: (row.child_ids ? JSON.parse(row.child_ids) : undefined) as
-      | string[]
-      | undefined,
+    childIds: readStringArray(row.child_ids),
     narrative: row.narrative ?? undefined,
     access_weight: row.access_weight ?? undefined,
     idempotency_key: row.idempotency_key ?? undefined,
@@ -55,9 +67,7 @@ export async function getSubjectByIdempotencyKey(
     title: row.title,
     documentIds: (row.document_ids as unknown as string[]) || [],
     parentId: row.parent_id || undefined,
-    childIds: (row.child_ids ? JSON.parse(row.child_ids) : undefined) as
-      | string[]
-      | undefined,
+    childIds: readStringArray(row.child_ids),
     narrative: row.narrative ?? undefined,
     access_weight: row.access_weight ?? undefined,
     idempotency_key: row.idempotency_key ?? undefined,
@@ -170,7 +180,7 @@ export async function getSubjectChildren(
     title: row.title,
     documentIds: (row.document_ids as unknown as string[]) || [],
     parentId: row.parent_id || undefined,
-    childIds: (row.child_ids as unknown as string[] | undefined) || undefined,
+    childIds: readStringArray(row.child_ids),
     narrative: row.narrative || undefined,
     access_weight: row.access_weight || undefined,
     idempotency_key: row.idempotency_key || undefined,
@@ -199,9 +209,7 @@ export async function listSubjects(
     title: row.title,
     documentIds: (row.document_ids as unknown as string[]) || [],
     parentId: row.parent_id || undefined,
-    childIds: (row.child_ids ? JSON.parse(row.child_ids) : undefined) as
-      | string[]
-      | undefined,
+    childIds: readStringArray(row.child_ids),
     narrative: row.narrative ?? undefined,
     access_weight: row.access_weight ?? undefined,
     idempotency_key: row.idempotency_key ?? undefined,

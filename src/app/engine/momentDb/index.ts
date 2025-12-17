@@ -581,6 +581,20 @@ export interface MicroMoment {
   sourceMetadata?: Record<string, any>;
 }
 
+function readMicroMomentItemsJson(value: unknown): MicroMoment[] {
+  if (!value) {
+    return [];
+  }
+  if (Array.isArray(value)) {
+    return value as MicroMoment[];
+  }
+  if (typeof value === "string") {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? (parsed as MicroMoment[]) : [];
+  }
+  return [];
+}
+
 export async function getMicroMoment(
   documentId: string,
   path: string
@@ -593,8 +607,8 @@ export async function getMicroMoment(
     .execute();
 
   for (const row of rows) {
-    const parsed = JSON.parse(row.items_json) as Array<MicroMoment>;
-    const match = parsed.find((m) => m.path === path);
+    const items = readMicroMomentItemsJson(row.items_json);
+    const match = items.find((m) => m.path === path);
     if (match) {
       return match;
     }
@@ -692,8 +706,7 @@ export async function getMicroMomentsForDocument(
 
   const out: MicroMoment[] = [];
   for (const row of rows) {
-    const parsed = JSON.parse(row.items_json) as Array<MicroMoment>;
-    out.push(...parsed);
+    out.push(...readMicroMomentItemsJson(row.items_json));
   }
 
   out.sort((a, b) => {

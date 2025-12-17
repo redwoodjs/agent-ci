@@ -39,13 +39,28 @@ export async function processChunkJob(
     const embedding = await generateEmbedding(chunk.content, env);
     const vectorId = await hashChunkId(chunk.metadata.chunkId);
 
-    await env.VECTORIZE_INDEX.insert([
-      {
-        id: vectorId,
-        values: embedding,
-        metadata: chunk.metadata,
-      },
-    ]);
+    const maxAttempts = 3;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await env.VECTORIZE_INDEX.insert([
+          {
+            id: vectorId,
+            values: embedding,
+            metadata: chunk.metadata,
+          },
+        ]);
+        break;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!message.includes("Network connection lost")) {
+          throw error;
+        }
+        if (attempt === maxAttempts) {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, attempt * 200));
+      }
+    }
   } catch (error) {
     console.error(
       `[chunk-processor] Error processing chunk ${chunk.id}: ${

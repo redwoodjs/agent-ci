@@ -265,3 +265,9 @@ I can imagine wanting to drill down from a macro-moment to the underlying micro-
 - treat that as a stable \"what this macro-moment was synthesized from\" view, rather than re-querying micro-moment storage as a live index
 
 Decision: move micro-moment persistence to per-batch JSON blobs (documentId + batchHash), and treat macro-moment drill-down as a separate, explicit snapshot on macro moments if/when we implement it.
+
+### Follow-up: non-SQL-var fixes to keep
+While switching micro-moment storage to batch blobs, there were a couple of other backfill fixes that are still useful and orthogonal:
+- Chunk-processing queue sends are batched to respect the 100 message `sendBatch` limit.
+- Cursor chunking treats non-string prompt/response fields as empty to avoid `.trim()` type errors.
+- Chunk processor retries Vectorize inserts on transient `Network connection lost` failures.

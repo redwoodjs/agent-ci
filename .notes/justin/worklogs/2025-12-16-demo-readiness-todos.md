@@ -146,3 +146,46 @@ The goal for the next few days is **polish + reliability**:
 - I am reverting the prompt + parsing so macro synthesis always returns macro-moment blocks.
 - I am also removing the explicit engine log branch that treats 0 macro moments as an expected outcome.
 
+## Investigation: narrative query failing with "Too many API requests"
+
+### Problem
+Queries against the `prod-2025-12-16` namespace are failing with "Too many API requests by single worker invocation." The error occurs during the narrative query path, forcing a fallback to RAG (which is disabled).
+
+From the logs:
+- Query finds 19 similar moments via vector search
+- Attempts to resolve root subjects for those moments (warnings: "Subject moment ... not found in database")
+- Fails with "Too many API requests by single worker invocation"
+- Falls back to RAG, but Evidence Locker is disabled, so query returns empty
+
+### Root cause analysis
+The narrative query path makes many individual requests to the Durable Object:
+
+1. `findSimilarMoments` queries Vectorize, then calls `getMoment` for each match (19 calls for 19 matches)
+2. `findAncestors` calls `getMoment` in a loop, one request per ancestor level
+3. `findDescendants` calls `getMoment` once for root, then makes database queries for children (each query counts as a subrequest)
+
+Each `getMoment` call and each database query counts as a subrequest to the Durable Object. Cloudflare Workers have a limit on subrequests per invocation (typically 50-1000 depending on plan). With 19 moments, multiple ancestor lookups, and a potentially deep/wide descendant tree, we're hitting this limit.
+
+### Current implementation issues
+- `findSimilarMoments` (line 247 in `momentDb/index.ts`): Calls `getMoment` individually for each match
+- `findAncestors` (line 260): Calls `getMoment` in a sequential loop
+- `findDescendants` (line 288): Uses direct DB queries but still makes one subrequest per query
+
+### Potential solutions
+1. Batch `getMoment` calls: Add a `getMoments(ids: string[])` function that fetches multiple moments in one query
+2. Optimize `findAncestors`: Fetch all ancestors in a single recursive query instead of individual lookups
+3. Optimize `findDescendants`: Use a single recursive query to fetch all descendants instead of per-level queries
+4. Reduce `findSimilarMoments` limit: Process fewer moments initially (e.g., top 5 instead of 20)
+
+The most impactful fix would be batching `getMoment` calls, as this is used in multiple places and currently makes N requests for N moments.
+
+### Attempt: batch getMoment calls
+- Added `getMoments(ids: string[])` function that batches queries using `.where("id", "in", batch)` with a max batch size of 100
+- Updated `findSimilarMoments` to collect all moment IDs first, then batch fetch them
+- Updated `findSimilarSubjects` to collect all subject IDs first, then batch fetch them
+- Optimized `findAncestors` to only select `parent_id` in the traversal loop, then batch fetch all ancestors at the end
+
+This reduces the number of Durable Object subrequests from N (one per moment) to ceil(N/100) batches. For 19 moments, this goes from 19 requests to 1 batch request.
+
+Still need to test this fix in the deployed environment to confirm it resolves the "Too many API requests" error.
+

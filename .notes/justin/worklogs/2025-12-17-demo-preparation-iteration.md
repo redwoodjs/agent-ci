@@ -245,3 +245,23 @@ Some indexing jobs (notably GitHub project documents) still hit:
 In the indexing path, micro-moments were being stored one row at a time (`upsertMicroMoment` inside a loop). For large documents this creates a large number of Durable Object database RPC calls in a single invocation.
 
 Fix: batch micro-moment persistence per chunk-batch (delete existing rows for the paths, then insert all rows in one insert). This reduces indexing DO database calls from O(micro moments) to O(chunk batches).
+
+## Decision: micro-moment batch storage as JSON blobs
+
+While backfilling a fresh namespace, indexing started failing with `too many SQL variables` errors. This is the SQLite bound-parameter limit showing up again. The immediate cause is micro-moment persistence: even after reducing the number of DO roundtrips, the batched SQL statements can still bind too many parameters in one statement for large documents (Cursor conversations are a common trigger).
+
+The micro-moment table shape is also not aligned with how we actually use micro-moments today. The engine almost always treats micro-moments as a bulk artifact:
+- caching: load micro-moments for a document to decide whether a chunk-batch is already computed
+- synthesis: feed a list of micro-moments into macro synthesis
+- linking: load micro-moments for a document for correlation
+
+Given that, I think it makes sense to store micro-moments as a small number of JSON blobs, keyed by the chunk-batch hash, rather than one row per micro-moment.
+
+This keeps the write path as \"replace one blob for one batch\" and avoids the large multi-row insert / large IN-list delete patterns that repeatedly hit SQLite limits.
+
+### Drill-down consideration
+I can imagine wanting to drill down from a macro-moment to the underlying micro-moments later. If we want that, I think it will work better as a macro-level snapshot:
+- store the relevant micro-moment summaries (and their canonical references) on the macro-moment record itself, as a JSON blob
+- treat that as a stable \"what this macro-moment was synthesized from\" view, rather than re-querying micro-moment storage as a live index
+
+Decision: move micro-moment persistence to per-batch JSON blobs (documentId + batchHash), and treat macro-moment drill-down as a separate, explicit snapshot on macro moments if/when we implement it.

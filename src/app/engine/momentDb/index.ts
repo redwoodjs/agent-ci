@@ -585,41 +585,22 @@ export async function getMicroMoment(
   documentId: string,
   path: string
 ): Promise<MicroMoment | null> {
-  const start = Date.now();
   const db = getMomentDb();
-  const row = await db
-    .selectFrom("micro_moments")
-    .selectAll()
+  const rows = await db
+    .selectFrom("micro_moment_batches")
+    .select(["items_json"])
     .where("document_id", "=", documentId)
-    .where("path", "=", path)
-    .executeTakeFirst();
-  const duration = Date.now() - start;
-  if (duration > 10) {
-    // Keep this one log if latency is high, otherwise silent
-    // console.log(`[momentDb] getMicroMoment slow query: ${duration}ms`);
+    .execute();
+
+  for (const row of rows) {
+    const parsed = JSON.parse(row.items_json) as Array<MicroMoment>;
+    const match = parsed.find((m) => m.path === path);
+    if (match) {
+      return match;
+    }
   }
 
-  if (!row) {
-    return null;
-  }
-
-  return {
-    id: row.id,
-    documentId: row.document_id,
-    path: row.path,
-    content: row.content,
-    summary: row.summary || null,
-    embedding: row.embedding
-      ? typeof row.embedding === "string"
-        ? (JSON.parse(row.embedding) as number[])
-        : (row.embedding as number[])
-      : null,
-    createdAt: row.created_at,
-    author: row.author,
-    sourceMetadata:
-      (row.source_metadata as unknown as Record<string, any> | null) ||
-      undefined,
-  };
+  return null;
 }
 
 export async function upsertMicroMoment(
@@ -628,37 +609,17 @@ export async function upsertMicroMoment(
   summary: string,
   embedding: number[]
 ): Promise<void> {
-  const db = getMomentDb();
-  const id = crypto.randomUUID();
-  const now = new Date().toISOString();
-
-  await db
-    .insertInto("micro_moments")
-    .values({
-      id,
-      document_id: documentId,
+  await upsertMicroMomentsBatch(documentId, [
+    {
       path: microMoment.path,
       content: microMoment.content,
-      summary: summary,
-      embedding: JSON.stringify(embedding),
-      created_at: microMoment.createdAt || now,
+      summary,
+      embedding,
+      createdAt: microMoment.createdAt,
       author: microMoment.author,
-      source_metadata: microMoment.sourceMetadata
-        ? JSON.stringify(microMoment.sourceMetadata)
-        : (null as any),
-    })
-    .onConflict((oc) =>
-      oc.columns(["document_id", "path"]).doUpdateSet({
-        content: microMoment.content,
-        summary: summary,
-        embedding: JSON.stringify(embedding),
-        author: microMoment.author,
-        source_metadata: microMoment.sourceMetadata
-          ? JSON.stringify(microMoment.sourceMetadata)
-          : undefined,
-      })
-    )
-    .execute();
+      sourceMetadata: microMoment.sourceMetadata,
+    },
+  ]);
 }
 
 export async function upsertMicroMomentsBatch(
@@ -679,31 +640,42 @@ export async function upsertMicroMomentsBatch(
 
   const db = getMomentDb();
   const now = new Date().toISOString();
-  const paths = items.map((i) => i.path);
 
-  // Avoid per-row upserts. This reduces DO subrequests in large indexing jobs.
-  await db
-    .deleteFrom("micro_moments")
-    .where("document_id", "=", documentId)
-    .where("path", "in", paths)
-    .execute();
+  const batchHashRaw = items[0]?.sourceMetadata?.chunkBatchHash;
+  const batchHash = typeof batchHashRaw === "string" ? batchHashRaw : null;
+  if (!batchHash) {
+    throw new Error(
+      "Micro-moment batch upsert requires sourceMetadata.chunkBatchHash"
+    );
+  }
+
+  const itemsJson = JSON.stringify(
+    items.map((item) => ({
+      id: crypto.randomUUID(),
+      documentId,
+      path: item.path,
+      content: item.content,
+      summary: item.summary,
+      embedding: item.embedding,
+      createdAt: item.createdAt || now,
+      author: item.author,
+      sourceMetadata: item.sourceMetadata,
+    }))
+  );
 
   await db
-    .insertInto("micro_moments")
-    .values(
-      items.map((item) => ({
-        id: crypto.randomUUID(),
-        document_id: documentId,
-        path: item.path,
-        content: item.content,
-        summary: item.summary,
-        embedding: JSON.stringify(item.embedding),
-        created_at: item.createdAt || now,
-        author: item.author,
-        source_metadata: item.sourceMetadata
-          ? JSON.stringify(item.sourceMetadata)
-          : (null as any),
-      }))
+    .insertInto("micro_moment_batches")
+    .values({
+      document_id: documentId,
+      batch_hash: batchHash,
+      items_json: itemsJson,
+      updated_at: now,
+    })
+    .onConflict((oc) =>
+      oc.columns(["document_id", "batch_hash"]).doUpdateSet({
+        items_json: itemsJson,
+        updated_at: now,
+      })
     )
     .execute();
 }
@@ -713,27 +685,25 @@ export async function getMicroMomentsForDocument(
 ): Promise<MicroMoment[]> {
   const db = getMomentDb();
   const rows = await db
-    .selectFrom("micro_moments")
-    .selectAll()
+    .selectFrom("micro_moment_batches")
+    .select(["items_json"])
     .where("document_id", "=", documentId)
-    .orderBy("created_at", "asc")
     .execute();
 
-  return rows.map((row) => ({
-    id: row.id,
-    documentId: row.document_id,
-    path: row.path,
-    content: row.content,
-    summary: row.summary || null,
-    embedding: row.embedding
-      ? typeof row.embedding === "string"
-        ? (JSON.parse(row.embedding) as number[])
-        : (row.embedding as number[])
-      : null,
-    createdAt: row.created_at,
-    author: row.author,
-    sourceMetadata:
-      (row.source_metadata as unknown as Record<string, any> | null) ||
-      undefined,
-  }));
+  const out: MicroMoment[] = [];
+  for (const row of rows) {
+    const parsed = JSON.parse(row.items_json) as Array<MicroMoment>;
+    out.push(...parsed);
+  }
+
+  out.sort((a, b) => {
+    const aMs = Date.parse(a.createdAt);
+    const bMs = Date.parse(b.createdAt);
+    if (Number.isFinite(aMs) && Number.isFinite(bMs) && aMs !== bMs) {
+      return aMs - bMs;
+    }
+    return a.path.localeCompare(b.path);
+  });
+
+  return out;
 }

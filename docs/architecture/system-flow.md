@@ -35,6 +35,8 @@ Concurrent with chunk processing, the scheduler triggers the Knowledge Synthesis
 2.  **Synthesis**: Micro-moments are synthesized by an LLM into higher-level "Macro-Moments." The synthesis prompt uses plugin-provided context (`getMacroSynthesisPromptContext`) to inject source formatting guidance and canonical reference tokens (`mchn://...`) so macro moments can identify their originating entities across sources.
 3.  **Graph Update**: Macro-moments are inserted into the Moment Graph with parent relationships. The first macro-moment can attach under an existing moment (Smart Linker) to stitch documents into a shared graph. Root moments are indexed as **Subjects**.
 
+    Note: For sources that often start with low-signal content (example: Cursor conversations), using the first macro-moment as the correlation representative can cause missed attachments. A correlation step can select a representative macro-moment (for example, the highest-importance macro-moment) to decide whether to attach the document under an existing timeline.
+
 ### 5. Query & Retrieval
 When a user asks a question, the system first attempts a narrative query path, then falls back to RAG. The query endpoint (`/query`) supports multiple output modes to serve both human users and agentic tools:
 

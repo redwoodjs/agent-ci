@@ -52,6 +52,14 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
     2.  **Attach**: If a strong match is found, the new document's timeline attaches as a branch under the existing Moment.
     3.  **Root**: If no match is found, the new timeline starts a new Subject (Root Moment).
 
+    Correlation has two separate decisions that should not be conflated:
+    - **Attach decision**: Decide whether a document belongs under an existing work item timeline, even when it is a different artifact (example: issue proposal vs implementation discussion vs documentation update).
+    - **Merge decision**: Decide whether two subjects refer to the same thread and should collapse into one subject.
+
+    The current storage model represents “attach” using parent links, so the attach decision must be treated as “place this under that work item”, not “these are the same object”.
+
+    For sources that often begin with low-signal content (example: Cursor conversations), the engine should not assume that the first synthesized macro moment is the best representative for correlation. A simple approach is to pick a representative macro moment (for example, the highest-importance macro moment) to drive the attach decision, while still attaching the document’s root macro moment when a parent is chosen.
+
 ### 3. Canonical references in macro moments (source labels and tokens)
 Macro moments are summaries, but they also need a lightweight way to identify where they came from. The system uses two layers:
 

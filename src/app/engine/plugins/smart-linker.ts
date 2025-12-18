@@ -261,22 +261,35 @@ export const smartLinkerPlugin: Plugin = {
             score,
           });
 
-          const prompt = `You are a strict knowledge graph linker.
-Your job is to decide if two concepts are actually the same specific conversation, thread, or topic, and should be merged.
+          decision.promptMode = "problem-workstream-attach";
+          const prompt = `You are a knowledge graph attachment classifier.
+Your job is to decide if a new moment should attach under an existing subject as part of the same problem/workstream.
 
 ## Existing Subject (Parent)
 Title: ${subject.title}
 Summary: ${subject.summary}
+Document: ${subject.documentId}
 
 ## New Moment (Child)
 Title: ${macroMoment.title}
 Summary: ${macroMoment.summary || "No summary provided"}
+Document: ${document.id}
 
 ## Task
-Are these two items referring to the same specific event, issue, conversation, or topic?
-- If they are the same topic/thread, answer YES.
-- If they are related but distinct (e.g. different issues about the same library), answer NO.
-- If they are unrelated, answer NO.
+Should the Child attach under the Parent subject as part of the same problem/workstream?
+
+Guidance:
+- Do NOT answer YES just because they are in the same project/repo/library.
+- Answer YES if the Parent and Child refer to the same problem being worked through, even when the Child is a different attempt, a partial fix, a follow-up, a test update, or a docs update.
+- Answer NO if the relationship is only "same area" or "same repo" without a shared problem.
+
+Examples:
+- YES: Parent: "RSC navigation should prefetch pages by switching requests so caching works." Child: "Implemented prefetch link scanning and caching; added tests for link scanning and cache behavior."
+- YES: Parent: "Prefetch links should exist for client navigation." Child: "Tried approach A, it failed; tried approach B, it worked; follow-up discussion about edge cases." (multiple attempts, same problem)
+- YES: Parent: "A PR introduced change X." Child: "Updated docs and tests to reflect change X." (same change, different artifact)
+- YES: Parent: "Investigating why caching does not work due to request method or headers." Child: "Debugged request method, updated it, and confirmed caching behavior." (same problem investigation)
+- NO: Parent: "Navigation caching / prefetch." Child: "Routing issue with unrelated endpoint or configuration." (same repo, different problem)
+- NO: Parent and Child both mention "navigation" or "cache", but the described failures, constraints, or changes are about different problems
 
 Answer with exactly one word: YES or NO.`;
 

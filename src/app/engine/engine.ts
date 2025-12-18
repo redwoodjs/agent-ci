@@ -454,6 +454,27 @@ export async function indexDocument(
           count: macroMomentDescriptions.length,
           firstTitle: macroMomentDescriptions[0]?.title,
         });
+
+        let anchorMacroMomentIndex = 0;
+        let anchorMacroMomentImportance: number | null = null;
+        for (let i = 0; i < macroMomentDescriptions.length; i++) {
+          const candidate = macroMomentDescriptions[i] as any;
+          const importance =
+            candidate && typeof candidate.importance === "number"
+              ? (candidate.importance as number)
+              : null;
+          if (importance === null) {
+            continue;
+          }
+          if (
+            anchorMacroMomentImportance === null ||
+            importance > anchorMacroMomentImportance
+          ) {
+            anchorMacroMomentIndex = i;
+            anchorMacroMomentImportance = importance;
+          }
+        }
+
         let resolvedParentIdForFirst: string | undefined = undefined;
         let previousMomentId: string | undefined = undefined;
 
@@ -484,14 +505,17 @@ export async function indexDocument(
                 momentId,
               });
             } else {
+              const anchorMacroMoment =
+                macroMomentDescriptions[anchorMacroMomentIndex] ??
+                macroMomentDescriptions[0];
               const parentProposal = await runFirstMatchHook(
                 context.plugins,
                 "proposeMacroMomentParent",
                 (plugin) =>
                   plugin.subjects?.proposeMacroMomentParent?.(
                     document,
-                    description,
-                    i,
+                    anchorMacroMoment,
+                    anchorMacroMomentIndex,
                     indexingContext
                   )
               );
@@ -500,6 +524,8 @@ export async function indexDocument(
                 console.log("[moment-linker] attachment proposal", {
                   documentId: document.id,
                   macroMomentIndex: i,
+                  proposalMacroMomentIndex: anchorMacroMomentIndex,
+                  proposalMacroMomentImportance: anchorMacroMomentImportance,
                   parentMomentId: parentProposal.parentMomentId,
                   matchedSubjectId: parentProposal.matchedSubjectId,
                   score: parentProposal.score,
@@ -508,6 +534,8 @@ export async function indexDocument(
                 console.log("[moment-linker] no attachment proposal", {
                   documentId: document.id,
                   macroMomentIndex: i,
+                  proposalMacroMomentIndex: anchorMacroMomentIndex,
+                  proposalMacroMomentImportance: anchorMacroMomentImportance,
                 });
               }
             }

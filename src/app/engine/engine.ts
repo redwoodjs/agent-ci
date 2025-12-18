@@ -1015,6 +1015,179 @@ export async function query(
         );
         const bestMatch = similarMoments[0];
         if (bestMatch) {
+          // If a GitHub issue or PR moment is in the top matches, anchor on it
+          // rather than anchoring on an unrelated high-importance root.
+          function isGithubWorkItemDocumentId(value: unknown): boolean {
+            if (typeof value !== "string") {
+              return false;
+            }
+            return /^github\/redwoodjs\/sdk\/(issues|pull-requests)\/\d+\/latest\.json$/i.test(
+              value
+            );
+          }
+
+          function isDiscordDocumentId(value: unknown): boolean {
+            if (typeof value !== "string") {
+              return false;
+            }
+            // Threads: discord/<guild>/<channel>/threads/<thread>/latest.json
+            // Channel day: discord/<guild>/<channel>/<YYYY-MM-DD>.jsonl
+            return /^discord\/\d+\/\d+\/(threads\/\d+\/latest\.json|\d{4}-\d{2}-\d{2}\.jsonl)$/i.test(
+              value
+            );
+          }
+
+          const workItemCandidates = similarMoments.filter((m) =>
+            isGithubWorkItemDocumentId(m.documentId)
+          );
+
+          const discordCandidates = similarMoments.filter((m) =>
+            isDiscordDocumentId(m.documentId)
+          );
+
+          const anchorCandidates =
+            workItemCandidates.length > 0
+              ? workItemCandidates
+              : discordCandidates;
+
+          if (anchorCandidates.length > 0) {
+            const candidatesToTry = anchorCandidates.slice(0, 5);
+            for (const candidate of candidatesToTry) {
+              console.log("[query:narrative] anchor candidate", {
+                id: candidate.id,
+                documentId: candidate.documentId,
+              });
+
+              const root = candidate;
+              const chosenMatchId = candidate.id;
+              const timeline = await findDescendants(
+                root.id,
+                momentGraphContext
+              );
+              console.log(
+                `[query:narrative] rootTimelineLen=${timeline.length} (anchoredOn=${candidate.documentId})`
+              );
+
+              if (timeline.length > 0) {
+                const maxMoments = readEnvNumber(
+                  "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
+                  200
+                ).value;
+                const queryImportanceCutoff = readEnvNumber(
+                  "MOMENT_GRAPH_QUERY_IMPORTANCE_CUTOFF",
+                  0.4
+                ).value;
+                const minImportance = readEnvNumber(
+                  "MOMENT_GRAPH_MIN_IMPORTANCE",
+                  0.8
+                ).value;
+                const neighborWindow = readEnvNumber(
+                  "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
+                  1
+                ).value;
+                const endBiasWeight = readEnvNumber(
+                  "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
+                  0.4
+                ).value;
+
+                const requiredIds = [root.id, chosenMatchId];
+                const cutoffApplied = applyImportanceCutoff({
+                  timeline,
+                  requiredIds,
+                  cutoff: queryImportanceCutoff,
+                });
+                console.log("[query:narrative] applied importance cutoff", {
+                  cutoff: clamp01(queryImportanceCutoff),
+                  removedCount: cutoffApplied.removedCount,
+                  beforeLen: timeline.length,
+                  afterLen: cutoffApplied.timeline.length,
+                });
+
+                let prunedTimeline = cutoffApplied.timeline;
+                if (prunedTimeline.length > maxMoments) {
+                  const keptIndices = pruneTimeline({
+                    timeline: prunedTimeline,
+                    requiredIds,
+                    maxMoments,
+                    minImportance,
+                    neighborWindow,
+                    endBiasWeight,
+                  });
+                  prunedTimeline = keptIndices
+                    .map((idx) => prunedTimeline[idx])
+                    .filter(Boolean);
+                }
+
+                const cutoffAfterPrune = applyImportanceCutoff({
+                  timeline: prunedTimeline,
+                  requiredIds,
+                  cutoff: queryImportanceCutoff,
+                });
+                if (cutoffAfterPrune.removedCount > 0) {
+                  console.log(
+                    "[query:narrative] applied importance cutoff post-prune",
+                    {
+                      cutoff: clamp01(queryImportanceCutoff),
+                      removedCount: cutoffAfterPrune.removedCount,
+                      beforeLen: prunedTimeline.length,
+                      afterLen: cutoffAfterPrune.timeline.length,
+                    }
+                  );
+                }
+                prunedTimeline = cutoffAfterPrune.timeline;
+
+                const timelineLines = prunedTimeline.map((moment, idx) =>
+                  formatTimelineLine(moment, idx)
+                );
+                const narrativeContext = timelineLines.join("\n\n");
+
+                const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
+
+## Subject
+${root.title}: ${root.summary}
+
+## Timeline
+${narrativeContext}
+
+## User Question
+${userQuery}
+
+## Instructions
+Rules:
+- You MUST only use timestamps that appear at the start of Timeline lines. Do not invent or guess dates.
+- When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
+- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
+- You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
+- You MUST NOT try to mention every event in the Timeline. Mention only events needed to answer the question.
+- If a Timeline line includes an importance=0..1 field, prefer higher importance events when selecting which events to mention.
+- If the Timeline does not contain enough information to answer part of the question, say that directly.
+
+Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
+
+                if (responseMode === "prompt") {
+                  return narrativePrompt;
+                }
+                if (responseMode === "brief") {
+                  return buildBriefingText({
+                    momentGraphNamespace,
+                    query: userQuery,
+                    subject: root,
+                    timelineLines,
+                  });
+                }
+                const narrativeAnswer = await callLLM(
+                  narrativePrompt,
+                  "slow-reasoning",
+                  {
+                    temperature: 0,
+                    reasoning: { effort: "low" },
+                  }
+                );
+                return narrativeAnswer;
+              }
+            }
+          }
+
           const minImportance = readEnvNumber(
             "MOMENT_GRAPH_MIN_IMPORTANCE",
             0.8

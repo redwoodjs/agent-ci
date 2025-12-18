@@ -36,3 +36,8 @@ Sort descending by sampledHighImportanceCount then sampledImportanceSum.
 ## Follow-up: use sampled stats in narrative query selection
 - I added a query-time heuristic for narrative queries that ranks candidate roots by sampled high-importance counts (computed from a bounded sample), then chooses the best-scoring root among the roots of the top vector matches.
 - This is intended to reduce cases where short test roots dominate root selection in large demo namespaces.
+
+## Follow-up: allow GitHub and Discord anchors
+- When the top vector matches include a GitHub issue/PR moment, the narrative query anchors on that moment and builds the timeline from it.
+- Otherwise, if the top matches include a Discord thread or channel-day moment, the narrative query anchors on that moment.
+- This is intended to keep the narrative path from defaulting to a Cursor conversation root when the query is generic.

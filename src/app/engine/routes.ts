@@ -14,7 +14,10 @@ import {
   enqueueUnprocessedFiles,
 } from "./services/scanner-service";
 import { clearAllIndexingState } from "./db";
-import { getMomentGraphNamespaceFromEnv } from "./momentGraphNamespace";
+import {
+  applyMomentGraphNamespacePrefix,
+  getMomentGraphNamespaceFromEnv,
+} from "./momentGraphNamespace";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const body = (ctx as any)?.parsedBody as
@@ -62,7 +65,11 @@ async function queryHandler({ request, ctx }: RequestInfo) {
   const previousExplicitNamespace = (env as any)
     .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
   if (momentGraphNamespace) {
-    (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+    const effectiveMomentGraphNamespace = applyMomentGraphNamespacePrefix(
+      momentGraphNamespace,
+      env as Cloudflare.Env
+    );
+    (env as any).MOMENT_GRAPH_NAMESPACE = effectiveMomentGraphNamespace;
     (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
   }
 
@@ -188,7 +195,11 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
     const previousExplicitNamespace = (env as any)
       .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
     if (momentGraphNamespace) {
-      (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+      const effectiveMomentGraphNamespace = applyMomentGraphNamespacePrefix(
+        momentGraphNamespace,
+        env as Cloudflare.Env
+      );
+      (env as any).MOMENT_GRAPH_NAMESPACE = effectiveMomentGraphNamespace;
       (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
     }
 
@@ -313,7 +324,11 @@ async function resyncHandler({ request }: RequestInfo) {
   const previousExplicitNamespace = (env as any)
     .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
   if (momentGraphNamespace) {
-    (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+    const effectiveMomentGraphNamespace = applyMomentGraphNamespacePrefix(
+      momentGraphNamespace,
+      env as Cloudflare.Env
+    );
+    (env as any).MOMENT_GRAPH_NAMESPACE = effectiveMomentGraphNamespace;
     (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
   }
 

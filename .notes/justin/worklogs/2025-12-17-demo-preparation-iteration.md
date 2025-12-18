@@ -417,3 +417,16 @@ I added an internal flag to mark explicit namespaces so backfills and manual que
 ### Added logging: scope router routing decisions
 
 To validate routing in logs, I added always-on logs in the scope router plugin for both indexing and query. The logs include the selected namespace, inferred project, and small metadata samples (repo/channel ids, workspace roots sample) to keep log volume bounded.
+
+2025-12-18 17:22:10 +0200
+
+### Add namespace prefix for demo dataset isolation
+
+I added support for `MOMENT_GRAPH_NAMESPACE_PREFIX` as an optional environment variable. When set, the engine prepends this prefix when assigning the Moment Graph namespace during:
+
+- Indexing (after the scoping plugin computes the base namespace)
+- Query (after the scoping plugin computes the base namespace)
+- Explicit namespace overrides passed to `/query`, `/admin/backfill`, and `/admin/resync`
+- Indexing queue messages that pass `momentGraphNamespace`
+
+This keeps the routing logic the same (for example `redwood:rwsdk`), but allows running a scoped dataset (for example `demo:redwood:rwsdk`) without changing client code or hard-coding a demo namespace.

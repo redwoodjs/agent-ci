@@ -25,6 +25,7 @@ import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { synthesizeMicroMoments } from "./synthesis/synthesizeMicroMoments";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
+import { applyMomentGraphNamespacePrefix } from "./momentGraphNamespace";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -160,8 +161,13 @@ export async function indexDocument(
           ? nsRaw.trim()
           : null;
       if (ns) {
-        (env as any).MOMENT_GRAPH_NAMESPACE = ns;
-        (indexingContext.env as any).MOMENT_GRAPH_NAMESPACE = ns;
+        const effectiveNamespace = applyMomentGraphNamespacePrefix(
+          ns,
+          indexingContext.env
+        );
+        (env as any).MOMENT_GRAPH_NAMESPACE = effectiveNamespace;
+        (indexingContext.env as any).MOMENT_GRAPH_NAMESPACE =
+          effectiveNamespace;
         didSetNamespace = true;
         break;
       }
@@ -611,8 +617,12 @@ export async function query(
             ? nsRaw.trim()
             : null;
         if (ns) {
-          (env as any).MOMENT_GRAPH_NAMESPACE = ns;
-          (context.env as any).MOMENT_GRAPH_NAMESPACE = ns;
+          const effectiveNamespace = applyMomentGraphNamespacePrefix(
+            ns,
+            context.env
+          );
+          (env as any).MOMENT_GRAPH_NAMESPACE = effectiveNamespace;
+          (context.env as any).MOMENT_GRAPH_NAMESPACE = effectiveNamespace;
           didSetNamespace = true;
           break;
         }

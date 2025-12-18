@@ -57,6 +57,7 @@ import type { QueueMessage } from "@/app/ingestors/github/services/backfill-type
 import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
 import { Chunk } from "./app/engine/types";
+import { applyMomentGraphNamespacePrefix } from "@/app/engine/momentGraphNamespace";
 
 export default {
   fetch: app.fetch,
@@ -133,9 +134,13 @@ export default {
               ? namespaceRaw.trim()
               : null;
 
+          const effectiveMomentGraphNamespace = momentGraphNamespace
+            ? applyMomentGraphNamespacePrefix(momentGraphNamespace, env)
+            : null;
+
           console.log(`[queue] Received indexing job from ${queueName}:`, {
             r2KeysCount: r2Keys?.length ?? 0,
-            momentGraphNamespace,
+            momentGraphNamespace: effectiveMomentGraphNamespace,
           });
 
           if (!r2Keys || r2Keys.length === 0) {
@@ -156,9 +161,10 @@ export default {
             .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
           const previousWorkerExplicitNamespace = (workerEnv as any)
             .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
-          if (momentGraphNamespace) {
-            (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
-            (workerEnv as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+          if (effectiveMomentGraphNamespace) {
+            (env as any).MOMENT_GRAPH_NAMESPACE = effectiveMomentGraphNamespace;
+            (workerEnv as any).MOMENT_GRAPH_NAMESPACE =
+              effectiveMomentGraphNamespace;
             (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
             (workerEnv as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
           }

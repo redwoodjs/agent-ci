@@ -87,12 +87,14 @@ export interface MicroMomentDescription {
 export interface IndexingHookContext {
   r2Key: string;
   env: Cloudflare.Env;
+  momentGraphNamespace?: string | null;
 }
 
 export interface QueryHookContext {
   query: string;
   env: Cloudflare.Env;
   clientContext?: Record<string, any>;
+  momentGraphNamespace?: string | null;
 }
 
 export interface MacroMomentParentProposal {

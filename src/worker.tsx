@@ -1,6 +1,5 @@
 import { defineApp } from "rwsdk/worker";
 import { render, prefix, route } from "rwsdk/router";
-import { env as workerEnv } from "cloudflare:workers";
 
 import { Document } from "@/app/Document";
 
@@ -57,7 +56,6 @@ import type { QueueMessage } from "@/app/ingestors/github/services/backfill-type
 import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
 import { Chunk } from "./app/engine/types";
-import { applyMomentGraphNamespacePrefix } from "@/app/engine/momentGraphNamespace";
 
 export default {
   fetch: app.fetch,
@@ -149,13 +147,10 @@ export default {
               ? namespacePrefixRaw.trim()
               : null;
 
-          const effectiveMomentGraphNamespace = momentGraphNamespace
-            ? applyMomentGraphNamespacePrefix(momentGraphNamespace, env)
-            : null;
-
           console.log(`[queue] Received indexing job from ${queueName}:`, {
             r2KeysCount: r2Keys?.length ?? 0,
-            momentGraphNamespace: effectiveMomentGraphNamespace,
+            momentGraphNamespace: momentGraphNamespace ?? null,
+            momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
           });
 
           if (!r2Keys || r2Keys.length === 0) {
@@ -169,47 +164,21 @@ export default {
             continue;
           }
 
-          const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
-          const previousWorkerNamespace = (workerEnv as any)
-            .MOMENT_GRAPH_NAMESPACE;
-          const previousExplicitNamespace = (env as any)
-            .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
-          const previousWorkerExplicitNamespace = (workerEnv as any)
-            .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
-          const previousNamespacePrefix = (env as any)
-            .MOMENT_GRAPH_NAMESPACE_PREFIX;
-          const previousWorkerNamespacePrefix = (workerEnv as any)
-            .MOMENT_GRAPH_NAMESPACE_PREFIX;
-
-          if (momentGraphNamespacePrefix) {
-            (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
-              momentGraphNamespacePrefix;
-            (workerEnv as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
-              momentGraphNamespacePrefix;
-          }
-          if (effectiveMomentGraphNamespace) {
-            (env as any).MOMENT_GRAPH_NAMESPACE = effectiveMomentGraphNamespace;
-            (workerEnv as any).MOMENT_GRAPH_NAMESPACE =
-              effectiveMomentGraphNamespace;
-            (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
-            (workerEnv as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
-          }
-
           try {
             for (const r2Key of r2Keys) {
-              await processIndexingJob({ r2Key }, env as Cloudflare.Env);
+              await processIndexingJob(
+                {
+                  r2Key,
+                  ...(momentGraphNamespace ? { momentGraphNamespace } : null),
+                  ...(momentGraphNamespacePrefix
+                    ? { momentGraphNamespacePrefix }
+                    : null),
+                },
+                env as Cloudflare.Env
+              );
             }
           } finally {
-            (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
-            (workerEnv as any).MOMENT_GRAPH_NAMESPACE = previousWorkerNamespace;
-            (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT =
-              previousExplicitNamespace;
-            (workerEnv as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT =
-              previousWorkerExplicitNamespace;
-            (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
-              previousNamespacePrefix;
-            (workerEnv as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
-              previousWorkerNamespacePrefix;
+            // no per-message env namespace mutation
           }
 
           message.ack();

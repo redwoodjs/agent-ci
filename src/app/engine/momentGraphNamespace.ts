@@ -42,6 +42,33 @@ export function applyMomentGraphNamespacePrefix(
   return `${prefixWithDelimiter}${namespace}`;
 }
 
+export function applyMomentGraphNamespacePrefixValue(
+  namespace: string | null,
+  prefix: string | null
+): string | null {
+  if (!namespace) {
+    return namespace;
+  }
+  if (!prefix) {
+    return namespace;
+  }
+  const normalized = prefix.trim().length > 0 ? prefix.trim() : "";
+  if (!normalized) {
+    return namespace;
+  }
+  const withoutDelimiter = normalized.endsWith(":")
+    ? normalized.slice(0, -1)
+    : normalized;
+  if (!withoutDelimiter) {
+    return namespace;
+  }
+  const prefixWithDelimiter = `${withoutDelimiter}:`;
+  if (namespace.startsWith(prefixWithDelimiter)) {
+    return namespace;
+  }
+  return `${prefixWithDelimiter}${namespace}`;
+}
+
 export function qualifyName(
   baseName: string,
   namespace: string | null

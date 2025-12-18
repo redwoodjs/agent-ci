@@ -15,17 +15,20 @@ import {
   addMoment,
   findSimilarMoments,
   findAncestors,
+  findDescendants,
   upsertMicroMomentsBatch,
   getMicroMomentsForDocument,
   findMomentByMicroPathsHash,
   type MicroMoment,
 } from "./momentDb";
-import { env } from "cloudflare:workers";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { synthesizeMicroMoments } from "./synthesis/synthesizeMicroMoments";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
-import { applyMomentGraphNamespacePrefix } from "./momentGraphNamespace";
+import {
+  applyMomentGraphNamespacePrefixValue,
+  getMomentGraphNamespacePrefixFromEnv,
+} from "./momentGraphNamespace";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -121,16 +124,18 @@ function chunkChunksForMicroComputation(
 
 export async function indexDocument(
   r2Key: string,
-  context: EngineContext
+  context: EngineContext,
+  options?: {
+    momentGraphNamespace?: string | null;
+    momentGraphNamespacePrefix?: string | null;
+  }
 ): Promise<Chunk[]> {
   const indexingContext: IndexingHookContext = {
     r2Key,
     env: context.env,
+    momentGraphNamespace: null,
   };
   console.log("[moment-linker] indexDocument start", { r2Key });
-
-  const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
-  let didSetNamespace = false;
 
   const document = await runFirstMatchHook(
     context.plugins,
@@ -142,14 +147,21 @@ export async function indexDocument(
     throw new Error(`No plugin could prepare document for R2 key: ${r2Key}`);
   }
 
-  const explicitNamespaceRaw = (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT;
-  const explicitNamespace =
-    typeof explicitNamespaceRaw === "string" &&
-    ["1", "true", "yes", "on"].includes(
-      explicitNamespaceRaw.trim().toLowerCase()
-    );
+  const overrideNamespace =
+    typeof options?.momentGraphNamespace === "string" &&
+    options.momentGraphNamespace.trim().length > 0
+      ? options.momentGraphNamespace.trim()
+      : null;
+  const overridePrefix =
+    typeof options?.momentGraphNamespacePrefix === "string" &&
+    options.momentGraphNamespacePrefix.trim().length > 0
+      ? options.momentGraphNamespacePrefix.trim()
+      : null;
 
-  if (!explicitNamespace) {
+  let baseNamespace: string | null = null;
+  if (overrideNamespace) {
+    baseNamespace = overrideNamespace;
+  } else {
     for (const plugin of context.plugins) {
       const nsRaw =
         await plugin.scoping?.computeMomentGraphNamespaceForIndexing?.(
@@ -161,18 +173,28 @@ export async function indexDocument(
           ? nsRaw.trim()
           : null;
       if (ns) {
-        const effectiveNamespace = applyMomentGraphNamespacePrefix(
-          ns,
-          indexingContext.env
-        );
-        (env as any).MOMENT_GRAPH_NAMESPACE = effectiveNamespace;
-        (indexingContext.env as any).MOMENT_GRAPH_NAMESPACE =
-          effectiveNamespace;
-        didSetNamespace = true;
+        baseNamespace = ns;
         break;
       }
     }
   }
+
+  const envPrefix = getMomentGraphNamespacePrefixFromEnv(indexingContext.env);
+  const effectiveNamespace = baseNamespace
+    ? overrideNamespace
+      ? applyMomentGraphNamespacePrefixValue(baseNamespace, overridePrefix)
+      : applyMomentGraphNamespacePrefixValue(
+          baseNamespace,
+          overridePrefix ?? envPrefix
+        )
+    : null;
+
+  indexingContext.momentGraphNamespace = effectiveNamespace;
+
+  const momentGraphContext = {
+    env: context.env,
+    momentGraphNamespace: effectiveNamespace,
+  };
 
   try {
     // 1. Split document into chunks BEFORE subject correlation
@@ -195,7 +217,10 @@ export async function indexDocument(
     }
 
     // 2. Diff against previously processed chunks to avoid redundant work
-    const oldChunkHashes = await getProcessedChunkHashes(r2Key);
+    const oldChunkHashes = await getProcessedChunkHashes(r2Key, {
+      env: context.env,
+      momentGraphNamespace: effectiveNamespace,
+    });
     const oldChunkHashSet = new Set(oldChunkHashes);
 
     const newChunks = chunks.filter(
@@ -210,7 +235,10 @@ export async function indexDocument(
     // 3. Compute and cache micro-moments from chunk batches, then synthesize into macro-moments
     // Subjects are now created automatically from root moments via the Moment Graph system.
     // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
-    const existingMicroMoments = await getMicroMomentsForDocument(document.id);
+    const existingMicroMoments = await getMicroMomentsForDocument(
+      document.id,
+      momentGraphContext
+    );
 
     const chunkBatchSizeRaw = (indexingContext.env as any)
       .MICRO_MOMENT_CHUNK_BATCH_SIZE;
@@ -408,7 +436,11 @@ export async function indexDocument(
         });
       }
 
-      await upsertMicroMomentsBatch(document.id, microMomentItems);
+      await upsertMicroMomentsBatch(
+        document.id,
+        microMomentItems,
+        momentGraphContext
+      );
     }
 
     if (microMomentsForSynthesis.length > 0) {
@@ -491,7 +523,11 @@ export async function indexDocument(
               : undefined;
           const existing =
             microPathsHash !== undefined
-              ? await findMomentByMicroPathsHash(document.id, microPathsHash)
+              ? await findMomentByMicroPathsHash(
+                  document.id,
+                  microPathsHash,
+                  momentGraphContext
+                )
               : null;
 
           const momentId = existing?.id ?? crypto.randomUUID();
@@ -571,7 +607,7 @@ export async function indexDocument(
             sourceMetadata: description.sourceMetadata,
           };
 
-          await addMoment(moment);
+          await addMoment(moment, momentGraphContext);
           previousMomentId = momentId;
         }
       }
@@ -597,14 +633,14 @@ export async function indexDocument(
 
     // 5. After successful processing, update the state with the hashes of *all* current chunks
     const allCurrentChunkHashes = chunks.map((c) => c.contentHash!);
-    await setProcessedChunkHashes(r2Key, allCurrentChunkHashes);
+    await setProcessedChunkHashes(r2Key, allCurrentChunkHashes, {
+      env: context.env,
+      momentGraphNamespace: effectiveNamespace,
+    });
 
     return enrichedChunks;
   } finally {
-    if (didSetNamespace) {
-      (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
-      (indexingContext.env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
-    }
+    // no global namespace mutation
   }
 }
 
@@ -614,27 +650,35 @@ export async function query(
   options?: {
     responseMode?: "answer" | "brief" | "prompt";
     clientContext?: Record<string, any>;
+    momentGraphNamespace?: string | null;
+    momentGraphNamespacePrefix?: string | null;
   }
 ): Promise<string> {
   const responseMode = options?.responseMode ?? "answer";
 
-  const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
-  let didSetNamespace = false;
-
   try {
-    const explicitNamespaceRaw = (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT;
-    const explicitNamespace =
-      typeof explicitNamespaceRaw === "string" &&
-      ["1", "true", "yes", "on"].includes(
-        explicitNamespaceRaw.trim().toLowerCase()
-      );
+    const overrideNamespace =
+      typeof options?.momentGraphNamespace === "string" &&
+      options.momentGraphNamespace.trim().length > 0
+        ? options.momentGraphNamespace.trim()
+        : null;
+    const overridePrefix =
+      typeof options?.momentGraphNamespacePrefix === "string" &&
+      options.momentGraphNamespacePrefix.trim().length > 0
+        ? options.momentGraphNamespacePrefix.trim()
+        : null;
 
-    if (!explicitNamespace) {
-      const queryContext: QueryHookContext = {
-        query: userQuery,
-        env: context.env,
-        clientContext: options?.clientContext,
-      };
+    const queryContext: QueryHookContext = {
+      query: userQuery,
+      env: context.env,
+      clientContext: options?.clientContext,
+      momentGraphNamespace: null,
+    };
+
+    let baseNamespace: string | null = null;
+    if (overrideNamespace) {
+      baseNamespace = overrideNamespace;
+    } else {
       for (const plugin of context.plugins) {
         const nsRaw =
           await plugin.scoping?.computeMomentGraphNamespaceForQuery?.(
@@ -645,17 +689,28 @@ export async function query(
             ? nsRaw.trim()
             : null;
         if (ns) {
-          const effectiveNamespace = applyMomentGraphNamespacePrefix(
-            ns,
-            context.env
-          );
-          (env as any).MOMENT_GRAPH_NAMESPACE = effectiveNamespace;
-          (context.env as any).MOMENT_GRAPH_NAMESPACE = effectiveNamespace;
-          didSetNamespace = true;
+          baseNamespace = ns;
           break;
         }
       }
     }
+
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(context.env);
+    const effectiveNamespace = baseNamespace
+      ? overrideNamespace
+        ? applyMomentGraphNamespacePrefixValue(baseNamespace, overridePrefix)
+        : applyMomentGraphNamespacePrefixValue(
+            baseNamespace,
+            overridePrefix ?? envPrefix
+          )
+      : null;
+
+    queryContext.momentGraphNamespace = effectiveNamespace;
+
+    const momentGraphContext = {
+      env: context.env,
+      momentGraphNamespace: effectiveNamespace,
+    };
 
     function formatIso8601(raw: unknown): string {
       if (typeof raw !== "string") {
@@ -939,20 +994,16 @@ export async function query(
 
     // Narrative Query Path: Find a moment match, resolve root, then descend
     try {
-      const momentGraphNamespaceRaw = (context.env as any)
-        ?.MOMENT_GRAPH_NAMESPACE;
-      const momentGraphNamespace =
-        typeof momentGraphNamespaceRaw === "string" &&
-        momentGraphNamespaceRaw.trim().length > 0
-          ? momentGraphNamespaceRaw.trim()
-          : "default";
+      const momentGraphNamespace = effectiveNamespace ?? "default";
       console.log(`[query:narrative] namespace=${momentGraphNamespace}`);
 
-      const queryEmbedding = await generateEmbedding(userQuery);
-      const { findSimilarMoments, findAncestors, findDescendants } =
-        await import("./momentDb");
+      const queryEmbedding = await generateEmbedding(context.env, userQuery);
 
-      const similarMoments = await findSimilarMoments(queryEmbedding, 20);
+      const similarMoments = await findSimilarMoments(
+        queryEmbedding,
+        20,
+        momentGraphContext
+      );
       console.log(`[query:narrative] similarMoments=${similarMoments.length}`);
       if (similarMoments.length > 0) {
         console.log(
@@ -963,13 +1014,16 @@ export async function query(
         );
         const bestMatch = similarMoments[0];
         if (bestMatch) {
-          const ancestors = await findAncestors(bestMatch.id);
+          const ancestors = await findAncestors(
+            bestMatch.id,
+            momentGraphContext
+          );
           const root = ancestors[0];
           if (root) {
             console.log(
               `[query:narrative] resolvedRootFromMatch root=${root.id} match=${bestMatch.id}`
             );
-            const timeline = await findDescendants(root.id);
+            const timeline = await findDescendants(root.id, momentGraphContext);
             console.log(`[query:narrative] rootTimelineLen=${timeline.length}`);
 
             if (timeline.length > 0) {
@@ -1103,10 +1157,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
     console.log(`[query] no narrative match; evidenceLockerDisabled=true`);
     return `No Moment Graph subject timeline matched this query. Evidence Locker is disabled.`;
   } finally {
-    if (didSetNamespace) {
-      (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
-      (context.env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
-    }
+    // no global namespace mutation
   }
 }
 
@@ -1134,6 +1185,7 @@ export async function queryEvidenceLocker(
   );
 
   const searchResults = await performVectorSearch(
+    context.env,
     processedQuery,
     filterClauses
   );
@@ -1338,10 +1390,11 @@ async function runCollectorHook<T>(
 }
 
 async function performVectorSearch(
+  env: Cloudflare.Env,
   query: string,
   filterClauses: Record<string, unknown>[]
 ): Promise<ChunkMetadata[]> {
-  const embedding = await generateEmbedding(query);
+  const embedding = await generateEmbedding(env, query);
 
   const combinedFilter = combineFilterClauses(
     filterClauses as Record<string, unknown>[]
@@ -1380,7 +1433,10 @@ function combineFilterClauses(
   };
 }
 
-async function generateEmbedding(text: string): Promise<number[]> {
+async function generateEmbedding(
+  env: Cloudflare.Env,
+  text: string
+): Promise<number[]> {
   const response = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
     text: [text],
   })) as { data: number[][] };

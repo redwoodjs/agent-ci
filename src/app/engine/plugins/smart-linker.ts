@@ -132,8 +132,21 @@ export const smartLinkerPlugin: Plugin = {
       }
 
       const momentGraphNamespace =
-        getMomentGraphNamespaceFromEnv(context.env) ?? "default";
-      const microMoments = await getMicroMomentsForDocument(document.id);
+        context.momentGraphNamespace ??
+        getMomentGraphNamespaceFromEnv(context.env) ??
+        "default";
+      const momentGraphContext = {
+        env: context.env,
+        momentGraphNamespace:
+          context.momentGraphNamespace ??
+          getMomentGraphNamespaceFromEnv(context.env) ??
+          null,
+      };
+
+      const microMoments = await getMicroMomentsForDocument(
+        document.id,
+        momentGraphContext
+      );
       const microTexts = microMoments.map((m) => m.summary ?? m.content);
       const built = buildCappedMicroMomentQueryTextWithIndices(
         microTexts,
@@ -217,7 +230,7 @@ export const smartLinkerPlugin: Plugin = {
           continue;
         }
 
-        const subject = await getMoment(match.id);
+        const subject = await getMoment(match.id, momentGraphContext);
         if (!subject) {
           decision.rejectReason = "missing-moment-row";
           candidateDecisions.push(decision);

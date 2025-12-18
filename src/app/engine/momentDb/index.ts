@@ -1,14 +1,10 @@
-import { env } from "cloudflare:workers";
 import { MomentGraphDO } from "./durableObject";
 import type { Moment, ChunkMetadata, MicroMomentDescription } from "../types";
 import { type Database, createDb } from "rwsdk/db";
 import { type momentMigrations } from "./migrations";
 import { getEmbedding } from "../utils/vector";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
-import {
-  getMomentGraphNamespaceFromEnv,
-  qualifyName,
-} from "../momentGraphNamespace";
+import { qualifyName } from "../momentGraphNamespace";
 
 export { MomentGraphDO };
 
@@ -30,17 +26,24 @@ type MicroMomentBatchRow = Override<
   }
 >;
 
-function getMomentDb() {
-  const namespace = getMomentGraphNamespaceFromEnv(env);
+export type MomentGraphContext = {
+  env: Cloudflare.Env;
+  momentGraphNamespace: string | null;
+};
+
+function getMomentDb(context: MomentGraphContext) {
   return createDb<MomentDatabase>(
-    env.MOMENT_GRAPH_DO as DurableObjectNamespace<MomentGraphDO>,
-    qualifyName("moment-graph-v2", namespace)
+    context.env.MOMENT_GRAPH_DO as DurableObjectNamespace<MomentGraphDO>,
+    qualifyName("moment-graph-v2", context.momentGraphNamespace)
   );
 }
 
-export async function addMoment(moment: Moment): Promise<void> {
-  const db = getMomentDb();
-  const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
+export async function addMoment(
+  moment: Moment,
+  context: MomentGraphContext
+): Promise<void> {
+  const db = getMomentDb(context);
+  const momentGraphNamespace = context.momentGraphNamespace ?? "default";
 
   function serializeSourceMetadata(value: unknown): string | null {
     if (value === null || value === undefined) {
@@ -97,7 +100,7 @@ export async function addMoment(moment: Moment): Promise<void> {
       documentId: moment.documentId,
       type: "moment",
     });
-    await env.MOMENT_INDEX.upsert([momentVector]);
+    await context.env.MOMENT_INDEX.upsert([momentVector]);
 
     console.log("[moment-linker] vector upsert (subject)", {
       id: moment.id,
@@ -106,7 +109,7 @@ export async function addMoment(moment: Moment): Promise<void> {
       type: "subject",
       isSubject: !moment.parentId,
     });
-    await env.SUBJECT_INDEX.upsert([
+    await context.env.SUBJECT_INDEX.upsert([
       {
         id: moment.id,
         values: embedding,
@@ -185,8 +188,11 @@ export async function addMoment(moment: Moment): Promise<void> {
   }
 }
 
-export async function getMoment(id: string): Promise<Moment | null> {
-  const db = getMomentDb();
+export async function getMoment(
+  id: string,
+  context: MomentGraphContext
+): Promise<Moment | null> {
+  const db = getMomentDb(context);
   const row = (await db
     .selectFrom("moments")
     .selectAll()
@@ -212,12 +218,15 @@ export async function getMoment(id: string): Promise<Moment | null> {
   };
 }
 
-export async function getMoments(ids: string[]): Promise<Map<string, Moment>> {
+export async function getMoments(
+  ids: string[],
+  context: MomentGraphContext
+): Promise<Map<string, Moment>> {
   if (ids.length === 0) {
     return new Map();
   }
 
-  const db = getMomentDb();
+  const db = getMomentDb(context);
   const moments = new Map<string, Moment>();
 
   const maxBatchSize = 100;
@@ -252,9 +261,10 @@ export async function getMoments(ids: string[]): Promise<Map<string, Moment>> {
 
 export async function findMomentByMicroPathsHash(
   documentId: string,
-  microPathsHash: string
+  microPathsHash: string,
+  context: MomentGraphContext
 ): Promise<Moment | null> {
-  const db = getMomentDb();
+  const db = getMomentDb(context);
   const row = (await db
     .selectFrom("moments")
     .selectAll()
@@ -283,9 +293,10 @@ export async function findMomentByMicroPathsHash(
 
 export async function findSimilarMoments(
   vector: number[],
-  limit: number = 5
+  limit: number = 5,
+  context: MomentGraphContext
 ): Promise<Moment[]> {
-  const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
+  const momentGraphNamespace = context.momentGraphNamespace ?? "default";
   const queryOptions: Record<string, unknown> = {
     topK: limit,
     returnMetadata: true,
@@ -293,7 +304,7 @@ export async function findSimilarMoments(
   if (momentGraphNamespace !== "default") {
     queryOptions.filter = { momentGraphNamespace };
   }
-  const searchResults = await env.MOMENT_INDEX.query(
+  const searchResults = await context.env.MOMENT_INDEX.query(
     vector,
     queryOptions as any
   );
@@ -309,7 +320,7 @@ export async function findSimilarMoments(
     )
   );
   const momentsMapAll =
-    matchIdsAll.length > 0 ? await getMoments(matchIdsAll) : null;
+    matchIdsAll.length > 0 ? await getMoments(matchIdsAll, context) : null;
 
   const momentIds: string[] = [];
   for (const match of searchResults.matches) {
@@ -349,14 +360,17 @@ export async function findSimilarMoments(
     return [];
   }
 
-  const momentsMap = momentsMapAll ?? (await getMoments(momentIds));
+  const momentsMap = momentsMapAll ?? (await getMoments(momentIds, context));
   return momentIds
     .map((id) => momentsMap.get(id))
     .filter((m): m is Moment => m !== undefined);
 }
 
-export async function findAncestors(momentId: string): Promise<Moment[]> {
-  const db = getMomentDb();
+export async function findAncestors(
+  momentId: string,
+  context: MomentGraphContext
+): Promise<Moment[]> {
+  const db = getMomentDb(context);
   const idRows = await db
     .selectFrom("moments")
     .select(["id", "parent_id"])
@@ -385,7 +399,7 @@ export async function findAncestors(momentId: string): Promise<Moment[]> {
     return [];
   }
 
-  const momentsMap = await getMoments(ancestorIds);
+  const momentsMap = await getMoments(ancestorIds, context);
   const ancestors: Moment[] = [];
   for (let i = ancestorIds.length - 1; i >= 0; i--) {
     const id = ancestorIds[i];
@@ -398,8 +412,11 @@ export async function findAncestors(momentId: string): Promise<Moment[]> {
   return ancestors;
 }
 
-export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
-  const db = getMomentDb();
+export async function findDescendants(
+  rootMomentId: string,
+  context: MomentGraphContext
+): Promise<Moment[]> {
+  const db = getMomentDb(context);
   const rows = (await db
     .selectFrom("moments")
     .selectAll()
@@ -488,9 +505,10 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
 
 export async function findSimilarSubjects(
   vector: number[],
-  limit: number = 5
+  limit: number = 5,
+  context: MomentGraphContext
 ): Promise<Moment[]> {
-  const momentGraphNamespace = getMomentGraphNamespaceFromEnv(env) ?? "default";
+  const momentGraphNamespace = context.momentGraphNamespace ?? "default";
   const queryOptions: Record<string, unknown> = {
     topK: limit,
     returnMetadata: true,
@@ -498,7 +516,7 @@ export async function findSimilarSubjects(
   if (momentGraphNamespace !== "default") {
     queryOptions.filter = { momentGraphNamespace };
   }
-  const searchResults = await env.SUBJECT_INDEX.query(
+  const searchResults = await context.env.SUBJECT_INDEX.query(
     vector,
     queryOptions as any
   );
@@ -524,7 +542,7 @@ export async function findSimilarSubjects(
   }
 
   const momentsMapAll =
-    matchIdsAll.length > 0 ? await getMoments(matchIdsAll) : null;
+    matchIdsAll.length > 0 ? await getMoments(matchIdsAll, context) : null;
   const candidates = searchResults.matches.map((match: any) => {
     const id = typeof match?.id === "string" ? match.id : null;
     const matchNamespace =
@@ -551,7 +569,7 @@ export async function findSimilarSubjects(
     return [];
   }
 
-  const momentsMap = momentsMapAll ?? (await getMoments(subjectIds));
+  const momentsMap = momentsMapAll ?? (await getMoments(subjectIds, context));
   const subjects: Moment[] = [];
   for (const id of subjectIds) {
     const moment = momentsMap.get(id);
@@ -568,9 +586,10 @@ export async function findSimilarSubjects(
 }
 
 export async function findLastMomentForDocument(
-  documentId: string
+  documentId: string,
+  context: MomentGraphContext
 ): Promise<Moment | null> {
-  const db = getMomentDb();
+  const db = getMomentDb(context);
   const rows = (await db
     .selectFrom("moments")
     .selectAll()
@@ -597,9 +616,10 @@ export async function findLastMomentForDocument(
 }
 
 export async function getDocumentStructureHash(
-  documentId: string
+  documentId: string,
+  context: MomentGraphContext
 ): Promise<string | null> {
-  const db = getMomentDb();
+  const db = getMomentDb(context);
   const row = await db
     .selectFrom("document_structure_hash")
     .selectAll()
@@ -611,9 +631,10 @@ export async function getDocumentStructureHash(
 
 export async function setDocumentStructureHash(
   documentId: string,
-  hash: string
+  hash: string,
+  context: MomentGraphContext
 ): Promise<void> {
-  const db = getMomentDb();
+  const db = getMomentDb(context);
   const now = new Date().toISOString();
 
   await db
@@ -646,9 +667,10 @@ export interface MicroMoment {
 
 export async function getMicroMoment(
   documentId: string,
-  path: string
+  path: string,
+  context: MomentGraphContext
 ): Promise<MicroMoment | null> {
-  const db = getMomentDb();
+  const db = getMomentDb(context);
   const rows = (await db
     .selectFrom("micro_moment_batches")
     .select(["items_json"])
@@ -669,19 +691,24 @@ export async function upsertMicroMoment(
   microMoment: MicroMomentDescription,
   documentId: string,
   summary: string,
-  embedding: number[]
+  embedding: number[],
+  context: MomentGraphContext
 ): Promise<void> {
-  await upsertMicroMomentsBatch(documentId, [
-    {
-      path: microMoment.path,
-      content: microMoment.content,
-      summary,
-      embedding,
-      createdAt: microMoment.createdAt,
-      author: microMoment.author,
-      sourceMetadata: microMoment.sourceMetadata,
-    },
-  ]);
+  await upsertMicroMomentsBatch(
+    documentId,
+    [
+      {
+        path: microMoment.path,
+        content: microMoment.content,
+        summary,
+        embedding,
+        createdAt: microMoment.createdAt,
+        author: microMoment.author,
+        sourceMetadata: microMoment.sourceMetadata,
+      },
+    ],
+    context
+  );
 }
 
 export async function upsertMicroMomentsBatch(
@@ -694,13 +721,14 @@ export async function upsertMicroMomentsBatch(
     createdAt?: string;
     author: string;
     sourceMetadata?: Record<string, any>;
-  }>
+  }>,
+  context: MomentGraphContext
 ): Promise<void> {
   if (items.length === 0) {
     return;
   }
 
-  const db = getMomentDb();
+  const db = getMomentDb(context);
   const now = new Date().toISOString();
 
   const batchHashRaw = items[0]?.sourceMetadata?.chunkBatchHash;
@@ -743,9 +771,10 @@ export async function upsertMicroMomentsBatch(
 }
 
 export async function getMicroMomentsForDocument(
-  documentId: string
+  documentId: string,
+  context: MomentGraphContext
 ): Promise<MicroMoment[]> {
-  const db = getMomentDb();
+  const db = getMomentDb(context);
   const rows = (await db
     .selectFrom("micro_moment_batches")
     .select(["items_json"])

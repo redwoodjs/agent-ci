@@ -42,7 +42,10 @@ export async function scanForUnprocessedFiles(
       if (batchKeys.length >= batchSize) {
         dbQueries++;
         try {
-          const states = await getIndexingStatesBatch(batchKeys);
+          const states = await getIndexingStatesBatch(batchKeys, {
+            env,
+            momentGraphNamespace: null,
+          });
 
           for (const { key, etag } of batchObjects) {
             const state = states.get(key);
@@ -73,7 +76,10 @@ export async function scanForUnprocessedFiles(
     if (batchKeys.length > 0) {
       dbQueries++;
       try {
-        const states = await getIndexingStatesBatch(batchKeys);
+        const states = await getIndexingStatesBatch(batchKeys, {
+          env,
+          momentGraphNamespace: null,
+        });
 
         for (const { key, etag } of batchObjects) {
           const state = states.get(key);

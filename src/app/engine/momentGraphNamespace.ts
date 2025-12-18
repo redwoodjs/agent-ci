@@ -21,7 +21,7 @@ export function getMomentGraphNamespacePrefixFromEnv(
   if (trimmed.length === 0) {
     return null;
   }
-  return trimmed;
+  return trimmed.endsWith(":") ? trimmed.slice(0, -1) : trimmed;
 }
 
 export function applyMomentGraphNamespacePrefix(
@@ -35,10 +35,11 @@ export function applyMomentGraphNamespacePrefix(
   if (!prefix) {
     return namespace;
   }
-  if (namespace.startsWith(prefix)) {
+  const prefixWithDelimiter = `${prefix}:`;
+  if (namespace.startsWith(prefixWithDelimiter)) {
     return namespace;
   }
-  return `${prefix}${namespace}`;
+  return `${prefixWithDelimiter}${namespace}`;
 }
 
 export function qualifyName(

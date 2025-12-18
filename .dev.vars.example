@@ -4,5 +4,5 @@ DISCORD_BOT_TOKEN=your_discord_bot_token_here
 # MOMENT_GRAPH_NAMESPACE=test-run-1
 
 # Optional prefix prepended to MOMENT_GRAPH_NAMESPACE
-# MOMENT_GRAPH_NAMESPACE_PREFIX=demo:
+# MOMENT_GRAPH_NAMESPACE_PREFIX=demo
 

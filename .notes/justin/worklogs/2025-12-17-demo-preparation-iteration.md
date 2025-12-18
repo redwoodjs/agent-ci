@@ -444,3 +444,14 @@ I added `momentGraphNamespacePrefix` (and `namespacePrefix`) as optional request
 When provided, the handler sets the prefix for the duration of the request and restores it afterward, similar to how explicit namespace overrides work.
 
 I also added support for the same prefix fields on indexing queue messages, and updated `scripts/query.sh` to pass the prefix field when `MOMENT_GRAPH_NAMESPACE_PREFIX` is set locally.
+
+2025-12-18 18:05:12 +0200
+
+### Prefix delimiter normalization
+
+I updated namespace prefix handling so callers do not need to include a trailing ":".
+
+Behavior:
+
+- If `MOMENT_GRAPH_NAMESPACE_PREFIX=demo`, the effective namespace becomes `demo:<namespace>`.
+- If `MOMENT_GRAPH_NAMESPACE_PREFIX=demo:`, it is treated the same as `demo`.

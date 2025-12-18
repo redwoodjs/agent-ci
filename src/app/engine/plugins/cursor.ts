@@ -44,17 +44,39 @@ function inferCursorUserHandle(
     }
   }
 
-  const roots = (data as any)?.workspace_roots;
-  if (Array.isArray(roots)) {
-    for (const root of roots) {
-      if (typeof root !== "string") {
+  const roots: string[] = [];
+
+  const rootsRaw = (data as any)?.workspace_roots;
+  if (Array.isArray(rootsRaw)) {
+    for (const root of rootsRaw) {
+      if (typeof root === "string" && root.trim().length > 0) {
+        roots.push(root.trim());
+      }
+    }
+  }
+
+  for (const gen of data.generations ?? []) {
+    const events = Array.isArray((gen as any)?.events)
+      ? (gen as any).events
+      : [];
+    for (const event of events) {
+      const eventRoots = (event as any)?.workspace_roots;
+      if (!Array.isArray(eventRoots)) {
         continue;
       }
-      const match = root.match(/\/Users\/([^\/]+)(\/|$)/);
-      const handle = normalizeCursorHandle(match?.[1]);
-      if (handle) {
-        return handle;
+      for (const root of eventRoots) {
+        if (typeof root === "string" && root.trim().length > 0) {
+          roots.push(root.trim());
+        }
       }
+    }
+  }
+
+  for (const root of roots) {
+    const match = root.match(/\/Users\/([^\/]+)(\/|$)/);
+    const handle = normalizeCursorHandle(match?.[1]);
+    if (handle) {
+      return handle;
     }
   }
 
@@ -147,13 +169,44 @@ export const cursorPlugin: Plugin = {
     const jsonText = await object.text();
     const data = JSON.parse(jsonText) as CursorConversationLatestJson;
     const userHandle = inferCursorUserHandle(data);
+    const workspaceRoots: string[] = [];
+    const workspaceRootsSeen = new Set<string>();
+
+    function addWorkspaceRoot(value: unknown) {
+      if (typeof value !== "string") {
+        return;
+      }
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return;
+      }
+      if (!workspaceRootsSeen.has(trimmed)) {
+        workspaceRootsSeen.add(trimmed);
+        workspaceRoots.push(trimmed);
+      }
+    }
+
     const workspaceRootsRaw = (data as any)?.workspace_roots;
-    const workspaceRoots = Array.isArray(workspaceRootsRaw)
-      ? workspaceRootsRaw.filter(
-          (r: unknown): r is string =>
-            typeof r === "string" && r.trim().length > 0
-        )
-      : [];
+    if (Array.isArray(workspaceRootsRaw)) {
+      for (const root of workspaceRootsRaw) {
+        addWorkspaceRoot(root);
+      }
+    }
+
+    for (const gen of data.generations ?? []) {
+      const events = Array.isArray((gen as any)?.events)
+        ? (gen as any).events
+        : [];
+      for (const event of events) {
+        const eventRoots = (event as any)?.workspace_roots;
+        if (!Array.isArray(eventRoots)) {
+          continue;
+        }
+        for (const root of eventRoots) {
+          addWorkspaceRoot(root);
+        }
+      }
+    }
 
     return {
       id: context.r2Key,

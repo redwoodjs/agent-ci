@@ -39,10 +39,17 @@ function getClientWorkspacePaths(context: QueryHookContext): string[] {
 
 function inferProjectFromPaths(paths: string[]): "rwsdk" | "machinen" | null {
   for (const p of paths) {
-    const lower = p.toLowerCase();
+    const lower = p.toLowerCase().replace(/\\/g, "/");
+    if (lower.includes("/redwoodjs/sdk")) {
+      return "rwsdk";
+    }
+    if (lower.includes("/redwoodjs/machinen")) {
+      return "machinen";
+    }
     if (
       lower.includes("/rw/sdk") ||
-      lower.includes("/sdk") ||
+      lower.includes("/sdk/") ||
+      lower.endsWith("/sdk") ||
       lower.includes("/rwsdk") ||
       lower.includes("/sdk_") ||
       lower.includes("redwoodsdk")
@@ -60,15 +67,36 @@ function inferProjectFromCursorDocument(
   document: Document
 ): "rwsdk" | "machinen" | null {
   const sm = document.metadata.sourceMetadata ?? {};
-  const roots = (sm as any)?.workspaceRoots;
-  if (Array.isArray(roots)) {
-    const paths = roots.filter(
-      (r: unknown): r is string => typeof r === "string"
-    );
-    const fromRoots = inferProjectFromPaths(paths);
-    if (fromRoots) {
-      return fromRoots;
+  const rootsRaw = (sm as any)?.workspaceRoots;
+  const roots = Array.isArray(rootsRaw)
+    ? rootsRaw.filter((r: unknown): r is string => typeof r === "string")
+    : [];
+
+  let hasMachinen = false;
+  let hasRwsdk = false;
+
+  for (const root of roots) {
+    const trimmed = root.trim();
+    if (!trimmed) {
+      continue;
     }
+    const project = inferProjectFromPaths([trimmed]);
+    if (!project) {
+      return null;
+    }
+    if (project === "machinen") {
+      hasMachinen = true;
+    }
+    if (project === "rwsdk") {
+      hasRwsdk = true;
+    }
+  }
+
+  if (hasMachinen) {
+    return "machinen";
+  }
+  if (hasRwsdk) {
+    return "rwsdk";
   }
   return null;
 }

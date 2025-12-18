@@ -37,3 +37,10 @@ I want to validate that the latest resync run is now:
 - The engine applies `MOMENT_GRAPH_NAMESPACE_PREFIX` to the base namespace and sets `MOMENT_GRAPH_NAMESPACE` to the prefixed value for the duration of the indexing/query call.
 - Moment DB and indexing-state DB routing both derive their Durable Object instance name from `MOMENT_GRAPH_NAMESPACE`, so they use the prefixed namespace string (via `qualifyName(...)`).
 - Vector writes also use `MOMENT_GRAPH_NAMESPACE` for `momentGraphNamespace` in metadata, and the logs show prefixed values like `demo-2025-12-18-attempt-3:redwood:rwsdk`.
+
+## Follow-up: query namespace was double-prefixed
+- I ran a query with `momentGraphNamespace="demo-2025-12-18-attempt-3:redwood:rwsdk"` while the worker environment still had `MOMENT_GRAPH_NAMESPACE_PREFIX="demo-2025-12-18-attempt-2"`.
+- The `/query` handler treated the provided namespace as a base namespace and applied the environment prefix on top of it, resulting in `demo-2025-12-18-attempt-2:demo-2025-12-18-attempt-3:redwood:rwsdk`.
+- Change: treat `momentGraphNamespace` as fully qualified unless the request also provides `momentGraphNamespacePrefix`.
+  - When `momentGraphNamespacePrefix` is present, apply it to `momentGraphNamespace`.
+  - When `momentGraphNamespacePrefix` is absent, do not apply any prefix to `momentGraphNamespace`.

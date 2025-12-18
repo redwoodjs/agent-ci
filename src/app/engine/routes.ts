@@ -80,10 +80,12 @@ async function queryHandler({ request, ctx }: RequestInfo) {
     (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX = momentGraphNamespacePrefix;
   }
   if (momentGraphNamespace) {
-    const effectiveMomentGraphNamespace = applyMomentGraphNamespacePrefix(
-      momentGraphNamespace,
-      env as Cloudflare.Env
-    );
+    const effectiveMomentGraphNamespace = momentGraphNamespacePrefix
+      ? applyMomentGraphNamespacePrefix(
+          momentGraphNamespace,
+          env as Cloudflare.Env
+        )
+      : momentGraphNamespace;
     (env as any).MOMENT_GRAPH_NAMESPACE = effectiveMomentGraphNamespace;
     (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
   }
@@ -229,10 +231,12 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
         momentGraphNamespacePrefix;
     }
     if (momentGraphNamespace) {
-      const effectiveMomentGraphNamespace = applyMomentGraphNamespacePrefix(
-        momentGraphNamespace,
-        env as Cloudflare.Env
-      );
+      const effectiveMomentGraphNamespace = momentGraphNamespacePrefix
+        ? applyMomentGraphNamespacePrefix(
+            momentGraphNamespace,
+            env as Cloudflare.Env
+          )
+        : momentGraphNamespace;
       (env as any).MOMENT_GRAPH_NAMESPACE = effectiveMomentGraphNamespace;
       (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
     }
@@ -249,10 +253,12 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
         return Response.json({
           success: true,
           momentGraphNamespace: momentGraphNamespace
-            ? applyMomentGraphNamespacePrefix(
-                momentGraphNamespace,
-                envCloudflare
-              )
+            ? momentGraphNamespacePrefix
+              ? applyMomentGraphNamespacePrefix(
+                  momentGraphNamespace,
+                  envCloudflare
+                )
+              : momentGraphNamespace
             : null,
           momentGraphNamespacePrefix,
           message: `Enqueued ${r2Keys.length} files for indexing`,
@@ -277,10 +283,12 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
         return Response.json({
           success: true,
           momentGraphNamespace: momentGraphNamespace
-            ? applyMomentGraphNamespacePrefix(
-                momentGraphNamespace,
-                envCloudflare
-              )
+            ? momentGraphNamespacePrefix
+              ? applyMomentGraphNamespacePrefix(
+                  momentGraphNamespace,
+                  envCloudflare
+                )
+              : momentGraphNamespace
             : null,
           momentGraphNamespacePrefix,
           message: `Backfill completed. Enqueued ${unprocessedKeys.length} files for indexing.`,
@@ -291,10 +299,12 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
         return Response.json({
           success: true,
           momentGraphNamespace: momentGraphNamespace
-            ? applyMomentGraphNamespacePrefix(
-                momentGraphNamespace,
-                envCloudflare
-              )
+            ? momentGraphNamespacePrefix
+              ? applyMomentGraphNamespacePrefix(
+                  momentGraphNamespace,
+                  envCloudflare
+                )
+              : momentGraphNamespace
             : null,
           momentGraphNamespacePrefix,
           message: "Backfill completed. No files need indexing.",
@@ -393,10 +403,12 @@ async function resyncHandler({ request }: RequestInfo) {
       momentGraphNamespacePrefix;
   }
   if (momentGraphNamespace) {
-    const effectiveMomentGraphNamespace = applyMomentGraphNamespacePrefix(
-      momentGraphNamespace,
-      env as Cloudflare.Env
-    );
+    const effectiveMomentGraphNamespace = momentGraphNamespacePrefix
+      ? applyMomentGraphNamespacePrefix(
+          momentGraphNamespace,
+          env as Cloudflare.Env
+        )
+      : momentGraphNamespace;
     (env as any).MOMENT_GRAPH_NAMESPACE = effectiveMomentGraphNamespace;
     (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
   }
@@ -430,7 +442,12 @@ async function resyncHandler({ request }: RequestInfo) {
         success: true,
         mode,
         momentGraphNamespace: momentGraphNamespace
-          ? applyMomentGraphNamespacePrefix(momentGraphNamespace, envCloudflare)
+          ? momentGraphNamespacePrefix
+            ? applyMomentGraphNamespacePrefix(
+                momentGraphNamespace,
+                envCloudflare
+              )
+            : momentGraphNamespace
           : null,
         momentGraphNamespacePrefix,
         r2KeysEnqueued: r2Keys.length,
@@ -462,7 +479,9 @@ async function resyncHandler({ request }: RequestInfo) {
       success: true,
       mode,
       momentGraphNamespace: momentGraphNamespace
-        ? applyMomentGraphNamespacePrefix(momentGraphNamespace, envCloudflare)
+        ? momentGraphNamespacePrefix
+          ? applyMomentGraphNamespacePrefix(momentGraphNamespace, envCloudflare)
+          : momentGraphNamespace
         : null,
       momentGraphNamespacePrefix,
       results,

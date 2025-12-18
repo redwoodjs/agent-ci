@@ -46,8 +46,7 @@ The retrieval logic remains the same regardless of the output mode:
 
 1.  **Identify anchor Moments**: The query is used to find similar Moments in the `MOMENT_INDEX`.
 2.  **Resolve Root & Build Timeline**: For matched Moments, the engine resolves the root Subject and retrieves the **full descendant timeline**. This ensures that linked work (like a Discord thread attached to a GitHub issue) is included in the narrative context.
-3.  **Fallback to Subject-First**: If there are no matched Moments, the query is used to find relevant Subjects (Root Moments) in the `SUBJECT_INDEX`, then the engine loads that Subject's descendant timeline.
-4.  **Fallback to Evidence Locker**: If no narrative context is found, the system falls back to a standard RAG search against the Evidence Locker.
+3.  **Fallback to Evidence Locker**: If no narrative context is found, the system falls back to a standard RAG search against the Evidence Locker.
 
 #### Root-to-leaf narrative context (primary retrieval mode)
 For cross-document, cross-source timelines, ancestor trails can omit linked descendant work (example: a Discord thread or PR attached under a root, while the query matches a moment higher up in the tree).
@@ -62,5 +61,5 @@ The primary retrieval mode for narrative queries is:
 ## Architecture Map
 
 *   **Evidence Locker (RAG)**: See `evidence-locker-engine.md` for details on vector indexing and incremental diffing.
-*   **Knowledge Synthesis**: See `knowledge-synthesis-engine.md` for details on the Moment Graph, Micro-Moments, and Subject-First querying.
+*   **Knowledge Synthesis**: See `knowledge-synthesis-engine.md` for details on the Moment Graph, Micro-Moments, and root-to-leaf narrative querying.
 *   **Plugin System**: See `plugin-system.md` for details on the hooks that power these pipelines.

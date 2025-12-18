@@ -322,3 +322,24 @@ While testing query output, I saw cases where the narrative path picks a semanti
 I added an opt-in debug log controlled by `MOMENT_GRAPH_DEBUG_QUERY_CANDIDATES`. When enabled, `findSimilarSubjects` and `findSimilarMoments` will log the top candidates from Vectorize including their ids, scores, namespace match, and (when present) the moment row's document id and parent id.
 
 Update: switched this to always-on for debugging. The candidate logs now always emit during `findSimilarSubjects` and `findSimilarMoments` calls. We can remove or re-guard this once query selection is behaving as expected.
+
+2025-12-18 12:57:40 +0200
+
+### Query root selection: use moment similarity, then resolve root
+
+During a test query about caching/prefetching, the candidate logs showed that the top semantic matches were non-root moments (mostly Cursor conversation moments). The query path was calling a subject search first and filtering to root moments, which dropped those candidates. The result was that the query picked a different root that happened to be in the topK and was a root (a Discord day), producing a short timeline that did not include the other sources.
+
+Direction: query should use moment similarity only, pick the best match moment, walk up to resolve the root subject, and then walk down to fetch the full descendant timeline under that root.
+
+2025-12-18 13:01:12 +0200
+
+### Implemented: moment-only query root selection
+
+I removed the subject-first branch from the narrative query handler. The query now:
+
+- queries the moment index for matches
+- picks the highest-scoring match
+- walks ancestors to resolve the root
+- walks descendants from that root to build the timeline
+
+I also trimmed moment candidate logging to the first 10 results to keep per-request logs smaller.

@@ -298,9 +298,12 @@ export async function findSimilarMoments(
     queryOptions as any
   );
 
+  const candidatesToLog = 10;
+
   const matchIdsAll = Array.from(
     new Set(
       searchResults.matches
+        .slice(0, candidatesToLog)
         .map((m: any) => m?.id)
         .filter((id: unknown): id is string => typeof id === "string")
     )
@@ -319,22 +322,24 @@ export async function findSimilarMoments(
     momentIds.push(match.id);
   }
 
-  const candidates = searchResults.matches.map((match: any) => {
-    const id = typeof match?.id === "string" ? match.id : null;
-    const matchNamespace =
-      (match?.metadata as any)?.momentGraphNamespace ?? null;
-    const normalizedMatchNamespace = matchNamespace ?? "default";
-    const moment = id && momentsMapAll ? momentsMapAll.get(id) : undefined;
-    return {
-      id,
-      score: typeof match?.score === "number" ? match.score : null,
-      matchNamespace: normalizedMatchNamespace,
-      inNamespace: normalizedMatchNamespace === momentGraphNamespace,
-      inDb: Boolean(moment),
-      parentId: moment?.parentId ?? null,
-      documentId: moment?.documentId ?? null,
-    };
-  });
+  const candidates = searchResults.matches
+    .slice(0, candidatesToLog)
+    .map((match: any) => {
+      const id = typeof match?.id === "string" ? match.id : null;
+      const matchNamespace =
+        (match?.metadata as any)?.momentGraphNamespace ?? null;
+      const normalizedMatchNamespace = matchNamespace ?? "default";
+      const moment = id && momentsMapAll ? momentsMapAll.get(id) : undefined;
+      return {
+        id,
+        score: typeof match?.score === "number" ? match.score : null,
+        matchNamespace: normalizedMatchNamespace,
+        inNamespace: normalizedMatchNamespace === momentGraphNamespace,
+        inDb: Boolean(moment),
+        parentId: moment?.parentId ?? null,
+        documentId: moment?.documentId ?? null,
+      };
+    });
   console.log("[momentDb:findSimilarMoments] candidates", {
     momentGraphNamespace,
     candidates,

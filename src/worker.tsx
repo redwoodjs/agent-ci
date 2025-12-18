@@ -106,11 +106,15 @@ export default {
             r2Keys?: unknown;
             momentGraphNamespace?: unknown;
             namespace?: unknown;
+            momentGraphNamespacePrefix?: unknown;
+            namespacePrefix?: unknown;
             body?: {
               r2Key?: unknown;
               r2Keys?: unknown;
               momentGraphNamespace?: unknown;
               namespace?: unknown;
+              momentGraphNamespacePrefix?: unknown;
+              namespacePrefix?: unknown;
             };
           };
 
@@ -132,6 +136,17 @@ export default {
           const momentGraphNamespace =
             typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
               ? namespaceRaw.trim()
+              : null;
+
+          const namespacePrefixRaw =
+            (indexingMessage.momentGraphNamespacePrefix ??
+              indexingMessage.namespacePrefix ??
+              indexingMessage.body?.momentGraphNamespacePrefix ??
+              indexingMessage.body?.namespacePrefix) as unknown;
+          const momentGraphNamespacePrefix =
+            typeof namespacePrefixRaw === "string" &&
+            namespacePrefixRaw.trim().length > 0
+              ? namespacePrefixRaw.trim()
               : null;
 
           const effectiveMomentGraphNamespace = momentGraphNamespace
@@ -161,6 +176,17 @@ export default {
             .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
           const previousWorkerExplicitNamespace = (workerEnv as any)
             .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
+          const previousNamespacePrefix = (env as any)
+            .MOMENT_GRAPH_NAMESPACE_PREFIX;
+          const previousWorkerNamespacePrefix = (workerEnv as any)
+            .MOMENT_GRAPH_NAMESPACE_PREFIX;
+
+          if (momentGraphNamespacePrefix) {
+            (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
+              momentGraphNamespacePrefix;
+            (workerEnv as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
+              momentGraphNamespacePrefix;
+          }
           if (effectiveMomentGraphNamespace) {
             (env as any).MOMENT_GRAPH_NAMESPACE = effectiveMomentGraphNamespace;
             (workerEnv as any).MOMENT_GRAPH_NAMESPACE =
@@ -180,6 +206,10 @@ export default {
               previousExplicitNamespace;
             (workerEnv as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT =
               previousWorkerExplicitNamespace;
+            (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
+              previousNamespacePrefix;
+            (workerEnv as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
+              previousWorkerNamespacePrefix;
           }
 
           message.ack();

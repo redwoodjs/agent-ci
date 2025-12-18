@@ -430,3 +430,17 @@ I added support for `MOMENT_GRAPH_NAMESPACE_PREFIX` as an optional environment v
 - Indexing queue messages that pass `momentGraphNamespace`
 
 This keeps the routing logic the same (for example `redwood:rwsdk`), but allows running a scoped dataset (for example `demo:redwood:rwsdk`) without changing client code or hard-coding a demo namespace.
+
+2025-12-18 17:44:31 +0200
+
+### Support request-scoped namespace prefix overrides
+
+I added `momentGraphNamespacePrefix` (and `namespacePrefix`) as optional request inputs for:
+
+- `/query`
+- `/admin/backfill`
+- `/admin/resync`
+
+When provided, the handler sets the prefix for the duration of the request and restores it afterward, similar to how explicit namespace overrides work.
+
+I also added support for the same prefix fields on indexing queue messages, and updated `scripts/query.sh` to pass the prefix field when `MOMENT_GRAPH_NAMESPACE_PREFIX` is set locally.

@@ -158,10 +158,16 @@ else
     MOMENT_GRAPH_NAMESPACE_JSON=$(echo "$MOMENT_GRAPH_NAMESPACE" | jq -R .)
   fi
 
+  # Optional namespace prefix override for Moment Graph queries
+  MOMENT_GRAPH_NAMESPACE_PREFIX_JSON="null"
+  if [ -n "${MOMENT_GRAPH_NAMESPACE_PREFIX:-}" ]; then
+    MOMENT_GRAPH_NAMESPACE_PREFIX_JSON=$(echo "$MOMENT_GRAPH_NAMESPACE_PREFIX" | jq -R .)
+  fi
+
 RESPONSE=$(curl -s -X POST \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{\"query\": $(echo "$QUERY" | jq -R .), \"momentGraphNamespace\": $MOMENT_GRAPH_NAMESPACE_JSON, \"responseMode\": $(echo "$RESPONSE_MODE" | jq -R .)}" \
+  -d "{\"query\": $(echo "$QUERY" | jq -R .), \"momentGraphNamespace\": $MOMENT_GRAPH_NAMESPACE_JSON, \"momentGraphNamespacePrefix\": $MOMENT_GRAPH_NAMESPACE_PREFIX_JSON, \"responseMode\": $(echo "$RESPONSE_MODE" | jq -R .)}" \
     "$ENDPOINT_URL")
 fi
 

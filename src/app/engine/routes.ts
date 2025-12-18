@@ -25,6 +25,8 @@ async function queryHandler({ request, ctx }: RequestInfo) {
         query?: unknown;
         momentGraphNamespace?: unknown;
         namespace?: unknown;
+        momentGraphNamespacePrefix?: unknown;
+        namespacePrefix?: unknown;
         responseMode?: unknown;
         clientContext?: unknown;
       }
@@ -54,6 +56,14 @@ async function queryHandler({ request, ctx }: RequestInfo) {
       ? namespaceRaw.trim()
       : null;
 
+  const namespacePrefixRaw =
+    body?.momentGraphNamespacePrefix ?? body?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
   const responseModeRaw =
     body?.responseMode ?? url.searchParams.get("responseMode");
   const responseMode =
@@ -64,6 +74,11 @@ async function queryHandler({ request, ctx }: RequestInfo) {
   const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
   const previousExplicitNamespace = (env as any)
     .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
+  const previousNamespacePrefix = (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX;
+
+  if (momentGraphNamespacePrefix) {
+    (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX = momentGraphNamespacePrefix;
+  }
   if (momentGraphNamespace) {
     const effectiveMomentGraphNamespace = applyMomentGraphNamespacePrefix(
       momentGraphNamespace,
@@ -104,6 +119,7 @@ async function queryHandler({ request, ctx }: RequestInfo) {
   } finally {
     (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
     (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = previousExplicitNamespace;
+    (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX = previousNamespacePrefix;
   }
 }
 
@@ -182,6 +198,15 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
         ? namespaceRaw.trim()
         : null;
 
+    const namespacePrefixRaw =
+      (body as any)?.momentGraphNamespacePrefix ??
+      (body as any)?.namespacePrefix;
+    const momentGraphNamespacePrefix =
+      typeof namespacePrefixRaw === "string" &&
+      namespacePrefixRaw.trim().length > 0
+        ? namespacePrefixRaw.trim()
+        : null;
+
     const r2KeysRaw = (body as any)?.r2Keys;
     const r2Keys =
       Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
@@ -194,6 +219,15 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
     const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
     const previousExplicitNamespace = (env as any)
       .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
+    const previousNamespacePrefix = (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX;
+    const previousEnvNamespacePrefix = (envCloudflare as any)
+      .MOMENT_GRAPH_NAMESPACE_PREFIX;
+
+    if (momentGraphNamespacePrefix) {
+      (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX = momentGraphNamespacePrefix;
+      (envCloudflare as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
+        momentGraphNamespacePrefix;
+    }
     if (momentGraphNamespace) {
       const effectiveMomentGraphNamespace = applyMomentGraphNamespacePrefix(
         momentGraphNamespace,
@@ -255,6 +289,9 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
     } finally {
       (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
       (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = previousExplicitNamespace;
+      (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX = previousNamespacePrefix;
+      (envCloudflare as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
+        previousEnvNamespacePrefix;
     }
   } catch (error) {
     console.error(
@@ -315,6 +352,14 @@ async function resyncHandler({ request }: RequestInfo) {
       ? namespaceRaw.trim()
       : null;
 
+  const namespacePrefixRaw =
+    (body as any)?.momentGraphNamespacePrefix ?? (body as any)?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
   const modeRaw = (body as any)?.mode;
   const mode = modeRaw === "enqueue" ? "enqueue" : "inline";
 
@@ -323,6 +368,15 @@ async function resyncHandler({ request }: RequestInfo) {
   const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
   const previousExplicitNamespace = (env as any)
     .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
+  const previousNamespacePrefix = (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX;
+  const previousEnvNamespacePrefix = (envCloudflare as any)
+    .MOMENT_GRAPH_NAMESPACE_PREFIX;
+
+  if (momentGraphNamespacePrefix) {
+    (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX = momentGraphNamespacePrefix;
+    (envCloudflare as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
+      momentGraphNamespacePrefix;
+  }
   if (momentGraphNamespace) {
     const effectiveMomentGraphNamespace = applyMomentGraphNamespacePrefix(
       momentGraphNamespace,
@@ -392,6 +446,9 @@ async function resyncHandler({ request }: RequestInfo) {
   } finally {
     (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
     (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = previousExplicitNamespace;
+    (env as any).MOMENT_GRAPH_NAMESPACE_PREFIX = previousNamespacePrefix;
+    (envCloudflare as any).MOMENT_GRAPH_NAMESPACE_PREFIX =
+      previousEnvNamespacePrefix;
   }
 }
 

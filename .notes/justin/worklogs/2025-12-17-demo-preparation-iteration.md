@@ -411,3 +411,9 @@ Current behavior:
 - Query: the MCP client forwards `cwd` and `workspaceRoots`, and query requests are routed using the same path heuristics.
 
 I added an internal flag to mark explicit namespaces so backfills and manual queries that pass a namespace keep working.
+
+2025-12-18 16:53:24 +0200
+
+### Added logging: scope router routing decisions
+
+To validate routing in logs, I added always-on logs in the scope router plugin for both indexing and query. The logs include the selected namespace, inferred project, and small metadata samples (repo/channel ids, workspace roots sample) to keep log volume bounded.

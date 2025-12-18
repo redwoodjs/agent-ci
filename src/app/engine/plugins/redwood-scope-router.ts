@@ -136,21 +136,84 @@ export const redwoodScopeRouterPlugin: Plugin = {
       context: IndexingHookContext
     ) {
       if (document.source === "cursor") {
-        return namespaceForProject(inferProjectFromCursorDocument(document));
+        const project = inferProjectFromCursorDocument(document);
+        const namespace = namespaceForProject(project);
+        const rootsRaw = (document.metadata.sourceMetadata as any)
+          ?.workspaceRoots;
+        const roots = Array.isArray(rootsRaw)
+          ? rootsRaw
+              .filter((r: unknown): r is string => typeof r === "string")
+              .slice(0, 3)
+          : [];
+        console.log("[scope-router] indexing", {
+          r2Key: context.r2Key,
+          source: document.source,
+          documentId: document.id,
+          project,
+          namespace,
+          workspaceRootsSample: roots,
+        });
+        return namespace;
       }
       if (document.source === "github") {
-        return namespaceForProject(inferProjectFromGithubDocument(document));
+        const project = inferProjectFromGithubDocument(document);
+        const namespace = namespaceForProject(project);
+        const sm = document.metadata.sourceMetadata ?? {};
+        console.log("[scope-router] indexing", {
+          r2Key: context.r2Key,
+          source: document.source,
+          documentId: document.id,
+          project,
+          namespace,
+          owner: (sm as any)?.owner ?? null,
+          repo: (sm as any)?.repo ?? null,
+        });
+        return namespace;
       }
       if (document.source === "discord") {
-        return namespaceForProject(inferProjectFromDiscordDocument(document));
+        const project = inferProjectFromDiscordDocument(document);
+        const namespace = namespaceForProject(project);
+        const sm = document.metadata.sourceMetadata ?? {};
+        console.log("[scope-router] indexing", {
+          r2Key: context.r2Key,
+          source: document.source,
+          documentId: document.id,
+          project,
+          namespace,
+          channelID: (sm as any)?.channelID ?? null,
+          type: (sm as any)?.type ?? null,
+        });
+        return namespace;
       }
 
-      return namespaceForProject(null);
+      const project = null;
+      const namespace = namespaceForProject(project);
+      console.log("[scope-router] indexing", {
+        r2Key: context.r2Key,
+        source: document.source,
+        documentId: document.id,
+        project,
+        namespace,
+      });
+      return namespace;
     },
     computeMomentGraphNamespaceForQuery(context: QueryHookContext) {
       const paths = getClientWorkspacePaths(context);
       const project = inferProjectFromPaths(paths);
-      return namespaceForProject(project);
+      const namespace = namespaceForProject(project);
+      console.log("[scope-router] query", {
+        queryPreview:
+          typeof context.query === "string" ? context.query.slice(0, 120) : "",
+        project,
+        namespace,
+        cwd: (context.clientContext as any)?.cwd ?? null,
+        workspaceRootsCount: Array.isArray(
+          (context.clientContext as any)?.workspaceRoots
+        )
+          ? (context.clientContext as any).workspaceRoots.length
+          : 0,
+      });
+      return namespace;
     },
   },
 };

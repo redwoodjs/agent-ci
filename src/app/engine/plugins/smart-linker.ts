@@ -14,6 +14,36 @@ const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
 const DEFAULT_SMART_LINKER_LLM_THRESHOLD = 0.5;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
 const DEFAULT_SMART_LINKER_MAX_LOG_MICRO_TEXT_CHARS = 2000;
+const DEFAULT_SMART_LINKER_EMPTY_MATCH_RETRY_DELAYS_MS = [50, 200];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryDelaysMs(value: unknown): number[] | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const parts = value
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+  if (parts.length === 0) {
+    return null;
+  }
+  const delays: number[] = [];
+  for (const part of parts) {
+    const parsed = Number(part);
+    if (!Number.isFinite(parsed)) {
+      continue;
+    }
+    if (parsed <= 0) {
+      continue;
+    }
+    delays.push(Math.floor(parsed));
+  }
+  return delays.length > 0 ? delays : null;
+}
 
 function previewText(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") {
@@ -174,14 +204,47 @@ export const smartLinkerPlugin: Plugin = {
       if (momentGraphNamespace !== "default") {
         queryOptions.filter = { momentGraphNamespace };
       }
-      const results = await context.env.SUBJECT_INDEX.query(
+      const retryDelaysMs =
+        parseRetryDelaysMs(
+          (context.env as any)?.SMART_LINKER_EMPTY_MATCH_RETRY_DELAYS_MS
+        ) ?? DEFAULT_SMART_LINKER_EMPTY_MATCH_RETRY_DELAYS_MS;
+
+      let results = await context.env.SUBJECT_INDEX.query(
         embedding,
         queryOptions as any
       );
 
+      let retryAttemptsUsed = 0;
+      let retryTotalWaitMs = 0;
+      if ((results.matches?.length ?? 0) === 0 && retryDelaysMs.length > 0) {
+        for (const delayMs of retryDelaysMs) {
+          retryAttemptsUsed += 1;
+          retryTotalWaitMs += delayMs;
+          console.log("[moment-linker] smart linker empty-match retry", {
+            documentId: document.id,
+            macroMomentIndex,
+            delayMs,
+            attempt: retryAttemptsUsed,
+            maxAttempts: retryDelaysMs.length,
+          });
+
+          await sleep(delayMs);
+          results = await context.env.SUBJECT_INDEX.query(
+            embedding,
+            queryOptions as any
+          );
+          if ((results.matches?.length ?? 0) > 0) {
+            break;
+          }
+        }
+      }
+
       console.log("[moment-linker] smart linker candidates", {
         documentId: document.id,
         macroMomentIndex,
+        emptyMatchRetryDelaysMs: retryDelaysMs,
+        emptyMatchRetryAttemptsUsed: retryAttemptsUsed,
+        emptyMatchRetryTotalWaitMs: retryTotalWaitMs,
         matches: results.matches.map((m) => ({
           id: m.id,
           score: m.score,

@@ -103,3 +103,59 @@ I want to validate that the latest resync run is now:
   - Pick an anchor macro moment index from the synthesized set (highest importance when present; otherwise 0).
   - Call `proposeMacroMomentParent(...)` with the anchor macro moment, but apply the returned parent id to macro moment 0 (so the whole document attaches as a unit).
   - Log both indices (proposal index and applied-to index).
+
+## Validation (from /tmp/out-index.log, attempt-5)
+- Indexing in `demo-2025-12-18-attempt-5:redwood:rwsdk` looks consistent (scope-router is selecting `redwood:rwsdk` and vector upserts use the prefixed namespace).
+
+- Anchor macro moment selection looks to be working:
+  - For `cursor/conversations/c0be8a78-20ef-41c8-861e-69538f801dc7/latest.json`, the smart linker query runs for macro moment index 1 (importance 0.9) and the logs show `proposalMacroMomentIndex: 1`.
+
+- In this run, the expected cross-document candidates are not showing up for the early documents:
+  - For `github/redwoodjs/sdk/issues/552/latest.json`, smart linker candidates are empty.
+  - For `discord/679514959968993311/1435702216315899948/threads/1373759907605516408/latest.json`, smart linker candidates are empty.
+  - For `github/redwoodjs/sdk/pull-requests/933/latest.json`, smart linker candidates are empty (so it cannot attach to issue 552 in this run).
+  - For `cursor/conversations/c0be8a78-20ef-41c8-861e-69538f801dc7/latest.json`, smart linker candidates are empty.
+  - For `cursor/conversations/00b2d1cf-151c-4681-bd9d-b778fcc2ea37/latest.json`, smart linker candidates are empty.
+  - For `cursor/conversations/3c22a3a5-b0d6-4833-a2ba-d31a559b4a19/latest.json`, smart linker candidates are empty.
+
+- Later in the same log, candidate sets do show up for other documents (including issue 552 and PR 933), which suggests this is not a namespace filter mismatch. It looks more like vector search availability timing when the namespace starts empty and subjects are created earlier in the same run.
+
+- When LLM gating does run, the rejection reason can be legitimate:
+  - Example: `cursor/conversations/58316af7-d819-45f5-8eb8-29e1be6d2040/latest.json` is compared against PR 933 (prefetch links), but the cursor macro moment is about a dual-environment architecture and SSR bridge, so the model answers NO.
+
+## Note (wording correction)
+- When I say "namespace starts empty" above, I mean "the run behaves like the relevant subjects are not yet discoverable via vector search when early documents run smart-linker", not necessarily that the namespace has no stored items at all.
+
+## Proposed fix direction: retry linking when matches are empty
+- Observation from attempt-5:
+  - Several documents that should have cross-document candidates (PR 933, discord thread, cursor conversations) get `matches: []` in the smart linker query.
+  - Later in the same run, other documents do see candidates that include those same items.
+
+- Proposed behavior:
+  - Treat `matches: []` as an "unknown yet" outcome, not "no attachment exists".
+  - Schedule a relink attempt for the document after a delay, limited to a small number of retries.
+
+- Retry trigger:
+  - Only retry when the smart linker query returns an empty match list.
+  - Do not retry when matches exist but are rejected (below threshold, LLM rejected, namespace mismatch, same-document, etc).
+
+- Retry scheduling:
+  - Enqueue a relink job with `documentId`, `momentGraphNamespace`, and `attempt`.
+  - Delay uses a backoff list read from environment (example shape: `SMART_LINKER_EMPTY_MATCH_RETRY_DELAYS_MS="5000,30000,120000"`).
+  - Stop retrying after the delay list is exhausted.
+
+- Idempotency / dedupe:
+  - Use a stable job key derived from `(momentGraphNamespace, documentId, attempt)` to avoid duplicate jobs when multiple parts of the pipeline hit the same empty-match condition.
+
+- What the relink job does:
+  - Load the stored macro moments for the document (from moment DB).
+  - Re-run the same smart-linker attachment proposal logic using the same anchor macro moment selection.
+  - If a parent proposal exists, write the parent id and update the subject/moment state as normal.
+
+- Expected outcome:
+  - In runs where upserts are not queryable immediately, PR 933 and the cursor/discord docs should link once Vectorize returns candidates.
+
+## Implementation (in-process retry, short and bounded)
+- I implemented an in-process retry for the Vectorize subject query when it returns `matches: []`.
+- The retry runs a small fixed number of attempts with short delays (default: 50ms, then 200ms), and then continues with whatever the final query returns.
+- The delays can be overridden with `SMART_LINKER_EMPTY_MATCH_RETRY_DELAYS_MS` as a comma-separated list of milliseconds.

@@ -6,7 +6,7 @@ import type {
   MacroMomentParentProposal,
 } from "../types";
 import { getEmbedding } from "../utils/vector";
-import { getMicroMomentsForDocument, getMoment } from "../momentDb";
+import { getMicroMomentsForDocument, getMoments } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 import { callLLM } from "../utils/llm";
 
@@ -181,7 +181,7 @@ export const smartLinkerPlugin: Plugin = {
 
       const embedding = await getEmbedding(queryText);
       const queryOptions: Record<string, unknown> = {
-        topK: 5,
+        topK: 20,
         returnMetadata: true,
       };
       if (momentGraphNamespace !== "default") {
@@ -207,6 +207,64 @@ export const smartLinkerPlugin: Plugin = {
 
       const candidateDecisions: Array<Record<string, unknown>> = [];
 
+      function parseTimeMs(value: unknown): number | null {
+        if (typeof value !== "string") {
+          return null;
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return null;
+        }
+        const ms = Date.parse(trimmed);
+        return Number.isFinite(ms) ? ms : null;
+      }
+
+      function readTimeRangeStartMs(value: unknown): number | null {
+        const range = (value as any)?.timeRange;
+        const start = range?.start;
+        return parseTimeMs(start);
+      }
+
+      function readTimeRangeEndMs(value: unknown): number | null {
+        const range = (value as any)?.timeRange;
+        const end = range?.end;
+        return parseTimeMs(end);
+      }
+
+      const childStartMs =
+        readTimeRangeStartMs(macroMoment.sourceMetadata) ??
+        parseTimeMs(macroMoment.createdAt);
+
+      function sourceRankForDocumentId(documentId: string): number {
+        const lower = documentId.toLowerCase();
+        if (lower.startsWith("github/")) {
+          return 0;
+        }
+        if (lower.startsWith("discord/")) {
+          return 1;
+        }
+        if (lower.startsWith("cursor/")) {
+          return 2;
+        }
+        return 3;
+      }
+
+      const matchIds = results.matches
+        .map((m) => m?.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      const momentsMap =
+        matchIds.length > 0
+          ? await getMoments(matchIds, momentGraphContext)
+          : null;
+
+      const scoredCandidates: Array<{
+        match: (typeof results.matches)[number];
+        decision: Record<string, unknown>;
+        subject: any;
+        rank: number;
+        parentEndMs: number | null;
+      }> = [];
+
       for (const match of results.matches) {
         const matchMetadata = (match.metadata as any) ?? null;
         const matchNamespace = matchMetadata?.momentGraphNamespace ?? null;
@@ -230,7 +288,7 @@ export const smartLinkerPlugin: Plugin = {
           continue;
         }
 
-        const subject = await getMoment(match.id, momentGraphContext);
+        const subject = momentsMap ? momentsMap.get(match.id) : null;
         if (!subject) {
           decision.rejectReason = "missing-moment-row";
           candidateDecisions.push(decision);
@@ -239,6 +297,9 @@ export const smartLinkerPlugin: Plugin = {
 
         decision.subjectDocumentId = subject.documentId;
         decision.subjectParentId = subject.parentId ?? null;
+        decision.subjectSourceRank = sourceRankForDocumentId(
+          subject.documentId
+        );
 
         if (subject.documentId === document.id) {
           decision.rejectReason = "same-document";
@@ -254,6 +315,48 @@ export const smartLinkerPlugin: Plugin = {
           candidateDecisions.push(decision);
           continue;
         }
+
+        const parentEndMs =
+          readTimeRangeEndMs(subject.sourceMetadata) ??
+          parseTimeMs(subject.createdAt);
+        decision.childStartMs = childStartMs;
+        decision.parentEndMs = parentEndMs;
+        if (
+          childStartMs !== null &&
+          parentEndMs !== null &&
+          parentEndMs > childStartMs
+        ) {
+          decision.rejectReason = "temporal-order";
+          candidateDecisions.push(decision);
+          continue;
+        }
+
+        scoredCandidates.push({
+          match,
+          decision,
+          subject,
+          rank: sourceRankForDocumentId(subject.documentId),
+          parentEndMs,
+        });
+      }
+
+      scoredCandidates.sort((a, b) => {
+        if (a.rank !== b.rank) {
+          return a.rank - b.rank;
+        }
+        if (a.match.score !== b.match.score) {
+          return b.match.score - a.match.score;
+        }
+        return a.match.id.localeCompare(b.match.id);
+      });
+
+      for (const entry of scoredCandidates) {
+        const match = entry.match;
+        const decision = entry.decision;
+        const subject = entry.subject;
+        const score = match.score;
+
+        decision.rankApplied = entry.rank;
 
         // Logic:
         // >= 0.75: Auto-accept
@@ -348,6 +451,9 @@ Answer with exactly one word: YES or NO.`;
           parentMomentId,
           subjectTitle: subject.title,
           subjectDocumentId: subject.documentId,
+          subjectSourceRank: entry.rank,
+          childStartMs,
+          parentEndMs: entry.parentEndMs,
           method: decision.method,
         });
 

@@ -173,3 +173,17 @@ I want to validate that the latest resync run is now:
 ## Follow-up: PR 933 attached to issue 552 without retries
 - In `demo-2025-12-18-attempt-7:redwood:rwsdk`, PR 933 (`github/redwoodjs/sdk/pull-requests/933/latest.json`) gets non-empty candidates and attaches to issue 552 (`github/redwoodjs/sdk/issues/552/latest.json`) via `auto-high-confidence` (score ~0.835).
 - Issue 552 is the first indexed document in that run and still gets an empty candidate list. Given that downstream documents can still attach to it, I removed the in-process empty-match retry logic from the smart linker.
+
+## PR: Fix Indexing Consistency and Timeline Relevance
+
+### Fix: Vectorize Index Rotation & Consistency
+
+We observed that the Smart Linker often failed to link related documents (e.g., PRs to Issues) during fresh backfills because Vectorize queries returned empty results (`matches: []`), likely due to eventual consistency or index staleness.
+
+We addressed this by rotating to fresh Vectorize indexes (`rag-index-v3`, `subject-index-v2`, `moment-index-v2`) and enabling **metadata indexing** on the `momentGraphNamespace` field. This resolved the query visibility issue, allowing PR #933 to successfully attach to Issue #552 with high confidence. Consequently, we removed the temporary in-process retry logic from the Smart Linker as it was no longer necessary.
+
+### Improvement: Always-On Importance Filtering
+
+Previously, timeline pruning based on "importance" only triggered when the total number of moments exceeded the safety cap (`maxMoments`). This meant short timelines could still include low-signal noise (moments with 0.1 or 0.3 importance).
+
+We updated the narrative query engine to apply an **always-on importance cutoff** (default 0.4). This filter runs *before* any other pruning logic, ensuring that even short timelines only surface significant moments. This improves the signal-to-noise ratio for all queries, regardless of result size.

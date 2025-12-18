@@ -174,16 +174,36 @@ I want to validate that the latest resync run is now:
 - In `demo-2025-12-18-attempt-7:redwood:rwsdk`, PR 933 (`github/redwoodjs/sdk/pull-requests/933/latest.json`) gets non-empty candidates and attaches to issue 552 (`github/redwoodjs/sdk/issues/552/latest.json`) via `auto-high-confidence` (score ~0.835).
 - Issue 552 is the first indexed document in that run and still gets an empty candidate list. Given that downstream documents can still attach to it, I removed the in-process empty-match retry logic from the smart linker.
 
-## PR: Fix Indexing Consistency and Timeline Relevance
+## PR: Scoped Routing, Namespace Prefixes, and Indexing Reliability
 
-### Fix: Vectorize Index Rotation & Consistency
+### Feature: Organization-Specific Scoping & Routing
 
-We observed that the Smart Linker often failed to link related documents (e.g., PRs to Issues) during fresh backfills because Vectorize queries returned empty results (`matches: []`), likely due to eventual consistency or index staleness.
+We introduced `redwood-scope-router`, a new plugin that dynamically routes documents and queries to isolated Moment Graph namespaces based on metadata. This prevents cross-project context pollution.
 
-We addressed this by rotating to fresh Vectorize indexes (`rag-index-v3`, `subject-index-v2`, `moment-index-v2`) and enabling **metadata indexing** on the `momentGraphNamespace` field. This resolved the query visibility issue, allowing PR #933 to successfully attach to Issue #552 with high confidence. Consequently, we removed the temporary in-process retry logic from the Smart Linker as it was no longer necessary.
+-   **Ingestion Routing**:
+    -   **Cursor**: Infers project from `workspace_roots` in the conversation export (routes to `redwood:rwsdk`, `redwood:machinen`, or `redwood:internal`).
+    -   **GitHub**: Routes based on repository identity.
+    -   **Discord**: Routes based on channel ID allowlists.
+-   **Query Routing**:
+    -   The MCP client now sends local context (`cwd`, `workspaceRoots`).
+    -   The router uses this context to direct the query to the matching namespace (e.g., querying from the SDK repo hits `redwood:rwsdk`).
 
-### Improvement: Always-On Importance Filtering
+### Feature: Namespace Prefix Support (`demo:...`)
 
-Previously, timeline pruning based on "importance" only triggered when the total number of moments exceeded the safety cap (`maxMoments`). This meant short timelines could still include low-signal noise (moments with 0.1 or 0.3 importance).
+To support isolated demo environments without altering core routing logic, we added a global `MOMENT_GRAPH_NAMESPACE_PREFIX` capability.
 
-We updated the narrative query engine to apply an **always-on importance cutoff** (default 0.4). This filter runs *before* any other pruning logic, ensuring that even short timelines only surface significant moments. This improves the signal-to-noise ratio for all queries, regardless of result size.
+-   When configured (via env or request param), the engine prepends the prefix to the routed namespace (e.g., `demo:redwood:rwsdk`).
+-   Admin endpoints (`/admin/backfill`, `/admin/resync`) and queue consumers were updated to respect and propagate this prefix, ensuring full-stack isolation for backfills.
+
+### Improvement: Cursor Context & Attribution
+
+Cursor exports often lacked explicit author handles or clear project context.
+
+-   **User Attribution**: The Cursor plugin now infers a stable user handle from `user_email` or username-like patterns in file paths, fixing generic "User" attribution in summaries.
+-   **Workspace Roots**: We now extract and store `workspace_roots` from the conversation metadata, which is the primary signal used by the new routing plugin.
+
+### Fix: Indexing Consistency & Query Relevance
+
+-   **Vectorize Index Rotation**: Rotated to fresh indexes (`rag-index-v3`, etc.) with **metadata indexing** enabled for `momentGraphNamespace`. This resolved eventual consistency issues where new documents returned empty query results (`matches: []`).
+-   **Always-On Importance Filtering**: Updated the narrative query engine to apply an **always-on importance cutoff** (default 0.4). This ensures that even short timelines exclude low-signal noise (0.1/0.3 importance), significantly improving answer quality.
+-   **Smart Linker Cleanup**: Removed temporary in-process retry logic for empty matches, as the index rotation resolved the underlying visibility issue.

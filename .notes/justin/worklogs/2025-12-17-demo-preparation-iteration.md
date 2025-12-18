@@ -201,7 +201,7 @@ We solved this with a **two-pass filtering system**:
     We updated the macro-moment synthesis prompt to emit an `IMPORTANCE` score (0-1 float) for every generated moment. This score is intrinsic to the event itself—capturing how significant a moment is to the project history—rather than being derived from a specific user query. This value is stored in the database and indexed.
 
 2.  **Engine Pruning (Query Time):**
-    The narrative query engine now performs a first pass of pruning before returning results. It always preserves the root and query anchor, but filters the rest of the timeline based on the importance score. To maintain a readable narrative, we also apply **position bias** (favoring the start and end of the timeline) and preserve **connective tissue** (neighbors of kept moments). A hard cap ensures the total size remains within limits (default 200 moments).
+    The narrative query engine now performs a first pass of pruning before returning results. It always preserves the root and query anchor, but filters the rest of the timeline based on the importance score, position bias (favoring the start and end of the timeline) and preserve **connective tissue** (neighbors of kept moments). A hard cap ensures the total size remains within limits (default 200 moments).
 
 3.  **Model Selection (Response Time):**
     The second pass happens at the consumption layer. We expose the `importance=0.xx` score directly in the text output for both Brief Mode and Answer Mode. We then instruct the consuming model (Cursor or the internal LLM) to use these scores as a signal when selecting which events to mention in its final answer. This allows the model to make the final judgment call on relevance while working with a pre-curated, high-quality list of candidates.
@@ -351,3 +351,24 @@ I also trimmed moment candidate logging to the first 10 results to keep per-requ
 In Cursor conversations, the chunk metadata author was always set to "User", which led micro-moment summaries and macro-moment timelines to attribute statements to "User" instead of a stable handle.
 
 I updated the cursor plugin to infer a user handle from the conversation JSON (prefer the email local-part, otherwise fall back to the workspace roots or file paths). The derived handle is used as the author for user prompt chunks.
+
+## PR: Fix Narrative Query Selection and Cursor Attribution
+
+### Fix: Narrative Query Root Selection
+
+Previously, the narrative query logic prioritized searching for "Subjects" (root nodes) before "Moments". This behavior frequently filtered out high-relevance matches that occurred deep within a document (non-root nodes), causing the engine to select inferior root-level matches (e.g., broad Discord threads) instead.
+
+We removed the subject-first search path. The query engine now:
+1. Searches the `MOMENT_INDEX` for the best semantic match, regardless of graph position.
+2. Resolves the root Subject by walking ancestors.
+3. Retrieves the full descendant timeline from that root.
+
+### Improvement: Cursor Author Attribution
+
+Cursor conversation exports lack explicit author handles, defaulting to "User" for human messages. This resulted in generic summaries.
+
+We updated the Cursor plugin to derive a stable user handle from the export metadata, attempting to resolve from:
+1. The `user_email` field.
+2. Usernames found in `workspace_roots` or file paths.
+
+This derived handle is now used as the chunk author, enabling correct attribution in generated summaries.

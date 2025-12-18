@@ -349,11 +349,11 @@ export async function indexDocument(
       };
 
       microMomentItems.push({
-          path,
-          content: text,
+        path,
+        content: text,
         summary: text,
         embedding,
-          createdAt: batchTimeRange.start,
+        createdAt: batchTimeRange.start,
         author: batchAuthor,
         sourceMetadata,
       });

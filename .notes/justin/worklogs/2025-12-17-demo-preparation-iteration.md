@@ -314,3 +314,11 @@ We implemented a major storage refactor and reliability hardening:
 ### Cursor Interaction Improvements
 
 We updated the **MCP tool description** to be strictly prescriptive, instructing the model to call the tool once and then answer using the returned text. We also added a dedicated **Instructions** section to the Brief Mode output to guide the model's summarization behavior.
+
+### Debugging: log query candidate subjects/moments (opt-in)
+
+While testing query output, I saw cases where the narrative path picks a semantically plausible subject (for example a Discord thread) but returns a short timeline that does not include the other sources I expected. The query handler currently short-circuits if any subject match is returned, so understanding the subject candidate list and scores is useful.
+
+I added an opt-in debug log controlled by `MOMENT_GRAPH_DEBUG_QUERY_CANDIDATES`. When enabled, `findSimilarSubjects` and `findSimilarMoments` will log the top candidates from Vectorize including their ids, scores, namespace match, and (when present) the moment row's document id and parent id.
+
+Update: switched this to always-on for debugging. The candidate logs now always emit during `findSimilarSubjects` and `findSimilarMoments` calls. We can remove or re-guard this once query selection is behaving as expected.

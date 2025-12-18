@@ -298,6 +298,16 @@ export async function findSimilarMoments(
     queryOptions as any
   );
 
+  const matchIdsAll = Array.from(
+    new Set(
+      searchResults.matches
+        .map((m: any) => m?.id)
+        .filter((id: unknown): id is string => typeof id === "string")
+    )
+  );
+  const momentsMapAll =
+    matchIdsAll.length > 0 ? await getMoments(matchIdsAll) : null;
+
   const momentIds: string[] = [];
   for (const match of searchResults.matches) {
     const matchNamespace =
@@ -309,11 +319,32 @@ export async function findSimilarMoments(
     momentIds.push(match.id);
   }
 
+  const candidates = searchResults.matches.map((match: any) => {
+    const id = typeof match?.id === "string" ? match.id : null;
+    const matchNamespace =
+      (match?.metadata as any)?.momentGraphNamespace ?? null;
+    const normalizedMatchNamespace = matchNamespace ?? "default";
+    const moment = id && momentsMapAll ? momentsMapAll.get(id) : undefined;
+    return {
+      id,
+      score: typeof match?.score === "number" ? match.score : null,
+      matchNamespace: normalizedMatchNamespace,
+      inNamespace: normalizedMatchNamespace === momentGraphNamespace,
+      inDb: Boolean(moment),
+      parentId: moment?.parentId ?? null,
+      documentId: moment?.documentId ?? null,
+    };
+  });
+  console.log("[momentDb:findSimilarMoments] candidates", {
+    momentGraphNamespace,
+    candidates,
+  });
+
   if (momentIds.length === 0) {
     return [];
   }
 
-  const momentsMap = await getMoments(momentIds);
+  const momentsMap = momentsMapAll ?? (await getMoments(momentIds));
   return momentIds
     .map((id) => momentsMap.get(id))
     .filter((m): m is Moment => m !== undefined);
@@ -365,8 +396,8 @@ export async function findAncestors(momentId: string): Promise<Moment[]> {
 export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
   const db = getMomentDb();
   const rows = (await db
-      .selectFrom("moments")
-      .selectAll()
+    .selectFrom("moments")
+    .selectAll()
     .execute()) as unknown as MomentRow[];
 
   const rowsById = new Map<string, MomentRow>();
@@ -400,17 +431,17 @@ export async function findDescendants(rootMomentId: string): Promise<Moment[]> {
 
   function rowToMoment(row: MomentRow): Moment {
     return {
-        id: row.id,
-        documentId: row.document_id,
-        summary: row.summary,
-        title: row.title,
-        parentId: row.parent_id || undefined,
+      id: row.id,
+      documentId: row.document_id,
+      summary: row.summary,
+      title: row.title,
+      parentId: row.parent_id || undefined,
       microPaths: row.micro_paths_json || undefined,
       microPathsHash: row.micro_paths_hash || undefined,
       importance:
         typeof row.importance === "number" ? row.importance : undefined,
-        createdAt: row.created_at,
-        author: row.author,
+      createdAt: row.created_at,
+      author: row.author,
       sourceMetadata: row.source_metadata || undefined,
     };
   }
@@ -467,6 +498,14 @@ export async function findSimilarSubjects(
     queryOptions as any
   );
 
+  const matchIdsAll = Array.from(
+    new Set(
+      searchResults.matches
+        .map((m: any) => m?.id)
+        .filter((id: unknown): id is string => typeof id === "string")
+    )
+  );
+
   const subjectIds: string[] = [];
   for (let i = 0; i < searchResults.matches.length; i++) {
     const match = searchResults.matches[i];
@@ -479,11 +518,35 @@ export async function findSimilarSubjects(
     subjectIds.push(match.id);
   }
 
+  const momentsMapAll =
+    matchIdsAll.length > 0 ? await getMoments(matchIdsAll) : null;
+  const candidates = searchResults.matches.map((match: any) => {
+    const id = typeof match?.id === "string" ? match.id : null;
+    const matchNamespace =
+      (match?.metadata as any)?.momentGraphNamespace ?? null;
+    const normalizedMatchNamespace = matchNamespace ?? "default";
+    const moment = id && momentsMapAll ? momentsMapAll.get(id) : undefined;
+    return {
+      id,
+      score: typeof match?.score === "number" ? match.score : null,
+      matchNamespace: normalizedMatchNamespace,
+      inNamespace: normalizedMatchNamespace === momentGraphNamespace,
+      inDb: Boolean(moment),
+      isRoot: moment ? !moment.parentId : null,
+      parentId: moment?.parentId ?? null,
+      documentId: moment?.documentId ?? null,
+    };
+  });
+  console.log("[momentDb:findSimilarSubjects] candidates", {
+    momentGraphNamespace,
+    candidates,
+  });
+
   if (subjectIds.length === 0) {
     return [];
   }
 
-  const momentsMap = await getMoments(subjectIds);
+  const momentsMap = momentsMapAll ?? (await getMoments(subjectIds));
   const subjects: Moment[] = [];
   for (const id of subjectIds) {
     const moment = momentsMap.get(id);
@@ -594,7 +657,7 @@ export async function getMicroMoment(
     }
   }
 
-    return null;
+  return null;
 }
 
 export async function upsertMicroMoment(

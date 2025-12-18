@@ -343,3 +343,11 @@ I removed the subject-first branch from the narrative query handler. The query n
 - walks descendants from that root to build the timeline
 
 I also trimmed moment candidate logging to the first 10 results to keep per-request logs smaller.
+
+2025-12-18 13:10:23 +0200
+
+### Cursor attribution: derive user handle for chunk authors
+
+In Cursor conversations, the chunk metadata author was always set to "User", which led micro-moment summaries and macro-moment timelines to attribute statements to "User" instead of a stable handle.
+
+I updated the cursor plugin to infer a user handle from the conversation JSON (prefer the email local-part, otherwise fall back to the workspace roots or file paths). The derived handle is used as the author for user prompt chunks.

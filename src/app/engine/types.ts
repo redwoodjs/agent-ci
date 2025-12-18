@@ -202,6 +202,8 @@ export interface VectorizeIndex {
 
 export interface CursorConversationLatestJson {
   id: string;
+  user_email?: string;
+  workspace_roots?: string[];
   generations: {
     id: string;
     events: any[];

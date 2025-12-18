@@ -15,6 +15,69 @@ interface CursorEvent {
   [key: string]: any;
 }
 
+function normalizeCursorHandle(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const withoutAt = trimmed.replace(/^@+/, "");
+  const cleaned = withoutAt.toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  if (!cleaned) {
+    return null;
+  }
+  return `@${cleaned}`;
+}
+
+function inferCursorUserHandle(
+  data: CursorConversationLatestJson
+): string | null {
+  const email = (data as any)?.user_email;
+  if (typeof email === "string") {
+    const at = email.indexOf("@");
+    const local = at > 0 ? email.slice(0, at) : email;
+    const handle = normalizeCursorHandle(local);
+    if (handle) {
+      return handle;
+    }
+  }
+
+  const roots = (data as any)?.workspace_roots;
+  if (Array.isArray(roots)) {
+    for (const root of roots) {
+      if (typeof root !== "string") {
+        continue;
+      }
+      const match = root.match(/\/Users\/([^\/]+)(\/|$)/);
+      const handle = normalizeCursorHandle(match?.[1]);
+      if (handle) {
+        return handle;
+      }
+    }
+  }
+
+  for (const gen of data.generations ?? []) {
+    const events = Array.isArray((gen as any)?.events)
+      ? (gen as any).events
+      : [];
+    for (const event of events) {
+      const filePath = (event as any)?.file_path;
+      if (typeof filePath !== "string") {
+        continue;
+      }
+      const match = filePath.match(/\/Users\/([^\/]+)(\/|$)/);
+      const handle = normalizeCursorHandle(match?.[1]);
+      if (handle) {
+        return handle;
+      }
+    }
+  }
+
+  return null;
+}
+
 export const cursorPlugin: Plugin = {
   name: "cursor",
 
@@ -83,6 +146,7 @@ export const cursorPlugin: Plugin = {
 
     const jsonText = await object.text();
     const data = JSON.parse(jsonText) as CursorConversationLatestJson;
+    const userHandle = inferCursorUserHandle(data);
 
     return {
       id: context.r2Key,
@@ -93,10 +157,11 @@ export const cursorPlugin: Plugin = {
         title: `Cursor Conversation ${data.id}`,
         url: `cursor://conversation/${data.id}`,
         createdAt: new Date().toISOString(),
-        author: "cursor-user",
+        author: userHandle ?? "cursor-user",
         sourceMetadata: {
           type: "cursor-conversation",
           conversationId: data.id,
+          userHandle: userHandle ?? undefined,
         },
       },
     };
@@ -120,6 +185,11 @@ export const cursorPlugin: Plugin = {
     const data = JSON.parse(jsonText) as CursorConversationLatestJson;
 
     const chunks: Chunk[] = [];
+    const userAuthor =
+      typeof document.metadata.author === "string" &&
+      document.metadata.author.trim().length > 0
+        ? document.metadata.author.trim()
+        : "User";
 
     const encoder = new TextEncoder();
     async function hashContent(content: string): Promise<string> {
@@ -171,7 +241,7 @@ export const cursorPlugin: Plugin = {
             source: "cursor",
             type: "cursor-user-prompt",
             documentTitle,
-            author: "User",
+            author: userAuthor,
             jsonPath: baseJsonPath,
             sourceMetadata: document.metadata.sourceMetadata,
           },
@@ -181,23 +251,23 @@ export const cursorPlugin: Plugin = {
       if (assistantResponse) {
         const chunkId = `${document.id}#gen-${gen.id}-assistant`;
         const trimmedContent = `Assistant: ${assistantResponse}`;
-      chunks.push({
-        id: chunkId,
-        documentId: document.id,
-        source: "cursor",
-        content: trimmedContent,
-        contentHash: await hashContent(trimmedContent),
-        metadata: {
-          chunkId: chunkId,
+        chunks.push({
+          id: chunkId,
           documentId: document.id,
           source: "cursor",
+          content: trimmedContent,
+          contentHash: await hashContent(trimmedContent),
+          metadata: {
+            chunkId: chunkId,
+            documentId: document.id,
+            source: "cursor",
             type: "cursor-assistant-response",
             documentTitle,
             author: "Assistant",
             jsonPath: baseJsonPath,
-          sourceMetadata: document.metadata.sourceMetadata,
-        },
-      });
+            sourceMetadata: document.metadata.sourceMetadata,
+          },
+        });
       }
     }
 

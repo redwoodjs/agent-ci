@@ -455,3 +455,16 @@ Behavior:
 
 - If `MOMENT_GRAPH_NAMESPACE_PREFIX=demo`, the effective namespace becomes `demo:<namespace>`.
 - If `MOMENT_GRAPH_NAMESPACE_PREFIX=demo:`, it is treated the same as `demo`.
+
+2025-12-18 18:24:13 +0200
+
+### Fix admin enqueue behavior: avoid implicit "default" namespace
+
+While running `/admin/resync` in inline mode, the JSON response reported `momentGraphNamespace: "default"`. This came from a fallback in the admin handler and did not reflect the routed namespace used during indexing.
+
+More importantly, in enqueue mode the same fallback could have forced queued indexing jobs into `default`, bypassing routing.
+
+Changes:
+
+- Queue messages from `/admin/backfill` and `/admin/resync` now only include `momentGraphNamespace` when the request explicitly provides it.
+- When a prefix is provided, queue messages include `momentGraphNamespacePrefix` so the worker can apply the prefix while still running routing.

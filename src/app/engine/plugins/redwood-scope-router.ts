@@ -43,6 +43,7 @@ function inferProjectFromPaths(paths: string[]): "rwsdk" | "machinen" | null {
     if (
       lower.includes("/rw/sdk") ||
       lower.includes("/rwsdk") ||
+      lower.includes("/sdk_") ||
       lower.includes("redwoodsdk")
     ) {
       return "rwsdk";

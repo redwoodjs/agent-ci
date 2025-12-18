@@ -780,6 +780,44 @@ export async function query(
       return value;
     }
 
+    function momentImportance(value: unknown): number {
+      if (typeof value !== "number" || !Number.isFinite(value)) {
+        return 0;
+      }
+      return clamp01(value);
+    }
+
+    function applyImportanceCutoff<
+      T extends { id?: string; importance?: number }
+    >(input: {
+      timeline: T[];
+      requiredIds: string[];
+      cutoff: number;
+    }): { timeline: T[]; removedCount: number } {
+      const required = new Set(
+        input.requiredIds.filter(
+          (id) => typeof id === "string" && id.trim().length > 0
+        )
+      );
+      const cutoff = clamp01(input.cutoff);
+
+      let removedCount = 0;
+      const timeline = input.timeline.filter((m) => {
+        const id = typeof m?.id === "string" ? m.id : null;
+        if (id && required.has(id)) {
+          return true;
+        }
+        const imp = momentImportance(m?.importance);
+        if (imp >= cutoff) {
+          return true;
+        }
+        removedCount += 1;
+        return false;
+      });
+
+      return { timeline, removedCount };
+    }
+
     function pruneTimeline(input: {
       timeline: Array<{
         id?: string;
@@ -808,11 +846,7 @@ export async function query(
       const safeEndBiasWeight = Math.max(0, input.endBiasWeight);
 
       function importanceAt(idx: number): number {
-        const raw = input.timeline[idx]?.importance;
-        if (typeof raw !== "number" || !Number.isFinite(raw)) {
-          return 0;
-        }
-        return clamp01(raw);
+        return momentImportance(input.timeline[idx]?.importance);
       }
 
       function endBiasAt(idx: number): number {
@@ -943,6 +977,10 @@ export async function query(
                 "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
                 200
               ).value;
+              const queryImportanceCutoff = readEnvNumber(
+                "MOMENT_GRAPH_QUERY_IMPORTANCE_CUTOFF",
+                0.4
+              ).value;
               const minImportance = readEnvNumber(
                 "MOMENT_GRAPH_MIN_IMPORTANCE",
                 0.8
@@ -956,17 +994,51 @@ export async function query(
                 0.4
               ).value;
 
-              const keptIndices = pruneTimeline({
+              const requiredIds = [root.id, bestMatch.id];
+              const cutoffApplied = applyImportanceCutoff({
                 timeline,
-                requiredIds: [root.id, bestMatch.id],
-                maxMoments,
-                minImportance,
-                neighborWindow,
-                endBiasWeight,
+                requiredIds,
+                cutoff: queryImportanceCutoff,
               });
-              const prunedTimeline = keptIndices
-                .map((idx) => timeline[idx])
-                .filter(Boolean);
+              console.log("[query:narrative] applied importance cutoff", {
+                cutoff: clamp01(queryImportanceCutoff),
+                removedCount: cutoffApplied.removedCount,
+                beforeLen: timeline.length,
+                afterLen: cutoffApplied.timeline.length,
+              });
+
+              let prunedTimeline = cutoffApplied.timeline;
+              if (prunedTimeline.length > maxMoments) {
+                const keptIndices = pruneTimeline({
+                  timeline: prunedTimeline,
+                  requiredIds,
+                  maxMoments,
+                  minImportance,
+                  neighborWindow,
+                  endBiasWeight,
+                });
+                prunedTimeline = keptIndices
+                  .map((idx) => prunedTimeline[idx])
+                  .filter(Boolean);
+              }
+
+              const cutoffAfterPrune = applyImportanceCutoff({
+                timeline: prunedTimeline,
+                requiredIds,
+                cutoff: queryImportanceCutoff,
+              });
+              if (cutoffAfterPrune.removedCount > 0) {
+                console.log(
+                  "[query:narrative] applied importance cutoff post-prune",
+                  {
+                    cutoff: clamp01(queryImportanceCutoff),
+                    removedCount: cutoffAfterPrune.removedCount,
+                    beforeLen: prunedTimeline.length,
+                    afterLen: cutoffAfterPrune.timeline.length,
+                  }
+                );
+              }
+              prunedTimeline = cutoffAfterPrune.timeline;
 
               const timelineLines = prunedTimeline.map((moment, idx) =>
                 formatTimelineLine(moment, idx)

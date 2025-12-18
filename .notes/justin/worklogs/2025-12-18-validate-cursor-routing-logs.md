@@ -246,3 +246,90 @@ Cursor exports often lacked explicit author handles or clear project context.
   - 1307974274145062912
   - 1449132150392750080
 - All other Discord channel IDs route to `redwood:internal`.
+
+## PR description (appended)
+
+## PR title
+
+Scoped routing, namespace prefixes, and narrative anchoring
+
+## Context
+
+This PR groups a few related changes around one theme: the system is only useful if it stays inside the intended Moment Graph namespace end-to-end (routing, indexing, vector writes, and queries), and if narrative queries anchor on the intended subject tree when a namespace contains a lot of short test runs.
+
+## Scoped routing
+
+We route documents to project namespaces based on source metadata:
+
+- **Cursor**: infer project from workspace roots in the conversation export, then route to `redwood:rwsdk`, `redwood:machinen`, or `redwood:internal`.
+- **GitHub**: route based on repository identity.
+- **Discord**: route based on an org-specific allowlist of channel IDs.
+
+On the query side, the MCP client sends local context (working directory and workspace roots) so the same routing logic can pick the namespace for the request.
+
+## Namespace prefixes
+
+We support a namespace prefix that is prepended to the routed base namespace (for example, `demo-2025-12-18:...`). This lets us run isolated backfills and resync loops without changing the routing logic.
+
+The request semantics are:
+
+- **If the request provides a prefix**: apply it to the selected base namespace.
+- **If the request provides a namespace without a prefix**: treat the namespace as already qualified and do not apply an environment prefix on top of it.
+
+Admin endpoints and queue messages propagate the prefix so indexing and queries stay consistent within the same prefixed namespace.
+
+## Indexing namespace consistency
+
+We stopped using mutable global environment state as the transport for the current namespace.
+
+Instead, indexing and query operations compute an effective namespace once (base namespace from routing, plus optional prefix) and thread it through:
+
+- indexing state reads and writes
+- moment db reads and writes
+- vector searches and upserts
+- plugin hook contexts (so plugins can read the effective namespace for the current operation)
+
+This avoids cases where overlapping operations in the same worker isolate write moments and vectors to different namespaces than the routing step selected.
+
+## Cursor context and attribution
+
+Cursor exports are normalized so the routing and summarization steps have stable metadata:
+
+- **Workspace roots**: collect roots from both top-level fields and event-level fields and store them in normalized metadata.
+- **User attribution**: infer a stable user handle from available Cursor metadata when possible.
+
+## Vector index rotation and query relevance
+
+- **Vectorize index rotation**: rotated to fresh indexes with metadata indexing for the namespace field, and use namespace metadata filters during queries.
+- **Narrative queries**: apply an importance cutoff so short timelines do not get dominated by low-importance moments.
+
+## Narrative root selection heuristics
+
+Narrative query root selection is updated so it does not default to the single best embedding match when a namespace contains many short, generic Cursor conversations:
+
+- Prefer GitHub issue and pull request moments as anchors when they appear in the top matches.
+- Otherwise prefer Discord thread and channel-day moments as anchors when they appear in the top matches.
+- Otherwise choose among the roots of the top matches using sampled tree stats (count and sum of high-importance moments).
+
+This includes an admin endpoint to inspect sampled tree stats:
+
+- `POST /admin/tree-stats`
+
+## Storage-time parent candidate filtering and ranking
+
+When proposing a parent for a document's root moment, we now:
+
+- **Filter candidates** when both timestamps are available, rejecting candidates that would place a later parent above an earlier child.
+- **Rank candidates** so GitHub candidates are considered before Discord, and Discord before Cursor, while keeping the existing similarity threshold and LLM gate.
+
+This is intended to shift attachment attempts toward GitHub and Discord roots without forcing a hard rule.
+
+## MCP client prefix support
+
+The MCP server script can now send a namespace prefix in query requests (as `momentGraphNamespacePrefix`) so the MCP client can target the same prefixed namespace used during indexing.
+
+## Notes
+
+- Architecture notes related to this PR:
+  - `docs/architecture/discord-scope-routing.md`
+  - `docs/architecture/storage-time-parent-selection.md`

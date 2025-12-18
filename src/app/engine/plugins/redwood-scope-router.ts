@@ -42,6 +42,7 @@ function inferProjectFromPaths(paths: string[]): "rwsdk" | "machinen" | null {
     const lower = p.toLowerCase();
     if (
       lower.includes("/rw/sdk") ||
+      lower.includes("/sdk") ||
       lower.includes("/rwsdk") ||
       lower.includes("/sdk_") ||
       lower.includes("redwoodsdk")

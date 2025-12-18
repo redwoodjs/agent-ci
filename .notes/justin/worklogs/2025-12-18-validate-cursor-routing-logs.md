@@ -207,3 +207,42 @@ Cursor exports often lacked explicit author handles or clear project context.
 -   **Vectorize Index Rotation**: Rotated to fresh indexes (`rag-index-v3`, etc.) with **metadata indexing** enabled for `momentGraphNamespace`. This resolved eventual consistency issues where new documents returned empty query results (`matches: []`).
 -   **Always-On Importance Filtering**: Updated the narrative query engine to apply an **always-on importance cutoff** (default 0.4). This ensures that even short timelines exclude low-signal noise (0.1/0.3 importance), significantly improving answer quality.
 -   **Smart Linker Cleanup**: Removed temporary in-process retry logic for empty matches, as the index rotation resolved the underlying visibility issue.
+
+## Investigation: Discord and Cursor source metadata vs scope router expectations
+
+### Cursor conversation exports
+- Cursor conversation exports contain `workspace_roots` (snake case) on events (and sometimes at the top level).
+- `src/app/engine/plugins/cursor.ts` normalizes these into `document.metadata.sourceMetadata.workspaceRoots` (camel case) by collecting roots from both the top-level field and each event.
+- `src/app/engine/plugins/redwood-scope-router.ts` routes Cursor documents using `sourceMetadata.workspaceRoots`, so it is not relying on fields that only exist in the raw export.
+
+### Discord channel/day JSONL exports
+- Discord message JSONL lines contain `guild_id` and `channel_id` fields (snake case), but the engine does not rely on those fields for routing.
+- `src/app/engine/plugins/discord.ts` derives `sourceMetadata.guildID` and `sourceMetadata.channelID` from the R2 key shape `discord/{guildID}/{channelID}/{YYYY-MM-DD}.jsonl` (and thread keys), and sets `sourceMetadata.type` to `discord-channel` or `discord-thread`.
+- `src/app/engine/plugins/redwood-scope-router.ts` currently routes Discord documents via an explicit allowlist of channel IDs. This explains why Discord channel/day docs can be routed to `redwood:rwsdk` even when their content is about machinen.
+
+### Follow-up: desired Discord routing behavior
+- Desired behavior: treat most public Discord channels as `rwsdk`, treat a small set of specific channel IDs as `machinen`, and otherwise route to `redwood:internal`.
+
+### Architecture note
+- Drafted `docs/architecture/discord-scope-routing.md` to describe routing based on public guild IDs and machinen channel IDs.
+
+### Investigation: local Discord mirror channel ids
+- Scanned `/Users/justin/rw/machinen/.tmp/machinen/discord/679514959968993311` and found 9 channel ids with data:
+  - 1307974274145062912 (264 day files, 71 thread dirs)
+  - 1435702216315899948 (2 day files, 10 thread dirs) - linked as 'machinen one'
+  - 679514959968993476 (2 day files, 5 thread dirs)
+  - 814534523055243265 (0 day files, 2 thread dirs)
+  - 1450088671213781094 (1 day file)
+  - 1449132150392750080 (1 day file)
+  - 1445511494774161639 (1 day file)
+  - 1445021460430192852 (1 day file)
+  - 1444959634376101938 (1 day file)
+- Sampled the first message of one day file per channel to help identify what each channel is used for.
+
+### Decision: Discord scoping allowlists for this org plugin
+- Machinen channel IDs:
+  - 1435702216315899948
+- rwsdk channel IDs:
+  - 1307974274145062912
+  - 1449132150392750080
+- All other Discord channel IDs route to `redwood:internal`.

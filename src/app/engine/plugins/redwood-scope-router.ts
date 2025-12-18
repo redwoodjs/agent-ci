@@ -126,15 +126,17 @@ function inferProjectFromDiscordDocument(
   document: Document
 ): "rwsdk" | "machinen" | null {
   const sm = document.metadata.sourceMetadata ?? {};
+  const guildID =
+    typeof (sm as any)?.guildID === "string" ? String((sm as any).guildID) : "";
   const channelID =
     typeof (sm as any)?.channelID === "string"
       ? String((sm as any).channelID)
       : "";
 
-  const machinenChannelIds = new Set<string>([]);
+  const machinenChannelIds = new Set<string>(["1435702216315899948"]);
   const rwsdkChannelIds = new Set<string>([
-    "1435702216315899948",
     "1307974274145062912",
+    "1449132150392750080",
   ]);
 
   if (machinenChannelIds.has(channelID)) {
@@ -142,6 +144,9 @@ function inferProjectFromDiscordDocument(
   }
   if (rwsdkChannelIds.has(channelID)) {
     return "rwsdk";
+  }
+  if (!guildID) {
+    return null;
   }
   return null;
 }
@@ -208,6 +213,7 @@ export const redwoodScopeRouterPlugin: Plugin = {
           documentId: document.id,
           project,
           namespace,
+          guildID: (sm as any)?.guildID ?? null,
           channelID: (sm as any)?.channelID ?? null,
           type: (sm as any)?.type ?? null,
         });

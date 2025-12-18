@@ -397,3 +397,17 @@ Query routing:
 
 Implementation note:
 - The proposal is to override the Moment Graph namespace at runtime for the current request, rather than threading a namespace parameter through many call sites.
+
+2025-12-18 16:27:39 +0200
+
+### Implemented: namespace routing plugin (redwood-scope-router)
+
+I added a deployment-specific routing plugin that sets the Moment Graph namespace at runtime for indexing and query.
+
+Current behavior:
+- Cursor ingestion: stores workspace roots in Cursor document metadata and uses them to route into `redwood:rwsdk`, `redwood:machinen`, or `redwood:internal`.
+- GitHub ingestion: routes based on owner/repo.
+- Discord ingestion: routes based on channel id (with a small hard-coded allowlist).
+- Query: the MCP client forwards `cwd` and `workspaceRoots`, and query requests are routed using the same path heuristics.
+
+I added an internal flag to mark explicit namespaces so backfills and manual queries that pass a namespace keep working.

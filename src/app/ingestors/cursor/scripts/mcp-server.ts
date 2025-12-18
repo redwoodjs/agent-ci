@@ -120,6 +120,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         query: string;
         responseMode: string;
         momentGraphNamespace?: string;
+        clientContext?: Record<string, any>;
       } = { query, responseMode: RESPONSE_MODE };
 
       if (typeof MOMENT_GRAPH_NAMESPACE === "string") {
@@ -128,6 +129,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           requestBody.momentGraphNamespace = trimmed;
         }
       }
+
+      requestBody.clientContext = {
+        cwd: process.cwd(),
+        workspaceRoots: [process.cwd()],
+      };
 
       log("Making API request", { url: `${API_URL}/query`, query });
       const response = await fetch(`${API_URL}/query`, {

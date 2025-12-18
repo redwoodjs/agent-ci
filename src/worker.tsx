@@ -152,9 +152,15 @@ export default {
           const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
           const previousWorkerNamespace = (workerEnv as any)
             .MOMENT_GRAPH_NAMESPACE;
+          const previousExplicitNamespace = (env as any)
+            .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
+          const previousWorkerExplicitNamespace = (workerEnv as any)
+            .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
           if (momentGraphNamespace) {
             (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
             (workerEnv as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+            (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
+            (workerEnv as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
           }
 
           try {
@@ -164,6 +170,10 @@ export default {
           } finally {
             (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
             (workerEnv as any).MOMENT_GRAPH_NAMESPACE = previousWorkerNamespace;
+            (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT =
+              previousExplicitNamespace;
+            (workerEnv as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT =
+              previousWorkerExplicitNamespace;
           }
 
           message.ack();

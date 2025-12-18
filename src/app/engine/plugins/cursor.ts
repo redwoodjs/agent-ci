@@ -147,6 +147,13 @@ export const cursorPlugin: Plugin = {
     const jsonText = await object.text();
     const data = JSON.parse(jsonText) as CursorConversationLatestJson;
     const userHandle = inferCursorUserHandle(data);
+    const workspaceRootsRaw = (data as any)?.workspace_roots;
+    const workspaceRoots = Array.isArray(workspaceRootsRaw)
+      ? workspaceRootsRaw.filter(
+          (r: unknown): r is string =>
+            typeof r === "string" && r.trim().length > 0
+        )
+      : [];
 
     return {
       id: context.r2Key,
@@ -162,6 +169,8 @@ export const cursorPlugin: Plugin = {
           type: "cursor-conversation",
           conversationId: data.id,
           userHandle: userHandle ?? undefined,
+          workspaceRoots:
+            workspaceRoots.length > 0 ? workspaceRoots : undefined,
         },
       },
     };

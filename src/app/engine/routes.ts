@@ -23,6 +23,7 @@ async function queryHandler({ request, ctx }: RequestInfo) {
         momentGraphNamespace?: unknown;
         namespace?: unknown;
         responseMode?: unknown;
+        clientContext?: unknown;
       }
     | undefined;
 
@@ -58,13 +59,23 @@ async function queryHandler({ request, ctx }: RequestInfo) {
       : "answer";
 
   const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
+  const previousExplicitNamespace = (env as any)
+    .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
   if (momentGraphNamespace) {
     (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+    (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
   }
 
   try {
     console.log(`[query] Starting query: "${queryText}"`);
-    const response = await query(queryText, context, { responseMode });
+    const clientContext =
+      body?.clientContext && typeof body.clientContext === "object"
+        ? (body.clientContext as Record<string, any>)
+        : undefined;
+    const response = await query(queryText, context, {
+      responseMode,
+      clientContext,
+    });
     console.log(`[query] Query completed successfully`);
     return new Response(response, {
       headers: {
@@ -85,6 +96,7 @@ async function queryHandler({ request, ctx }: RequestInfo) {
     });
   } finally {
     (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
+    (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = previousExplicitNamespace;
   }
 }
 
@@ -173,8 +185,11 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
     const prefix = typeof prefixRaw === "string" ? prefixRaw : "github/";
 
     const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
+    const previousExplicitNamespace = (env as any)
+      .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
     if (momentGraphNamespace) {
       (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+      (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
     }
 
     try {
@@ -228,6 +243,7 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
       }
     } finally {
       (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
+      (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = previousExplicitNamespace;
     }
   } catch (error) {
     console.error(
@@ -294,8 +310,11 @@ async function resyncHandler({ request }: RequestInfo) {
   const envCloudflare = env as Cloudflare.Env;
 
   const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
+  const previousExplicitNamespace = (env as any)
+    .MOMENT_GRAPH_NAMESPACE_EXPLICIT;
   if (momentGraphNamespace) {
     (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+    (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = "1";
   }
 
   try {
@@ -357,6 +376,7 @@ async function resyncHandler({ request }: RequestInfo) {
     });
   } finally {
     (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
+    (env as any).MOMENT_GRAPH_NAMESPACE_EXPLICIT = previousExplicitNamespace;
   }
 }
 

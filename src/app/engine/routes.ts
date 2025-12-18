@@ -7,7 +7,11 @@ import {
   validateQueryInput,
 } from "./interruptors";
 import { query, createEngineContext, indexDocument } from "./index";
-import { findAncestors, findLastMomentForDocument } from "./momentDb";
+import {
+  findAncestors,
+  findLastMomentForDocument,
+  getRootStatsByHighImportanceSample,
+} from "./momentDb";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
@@ -595,6 +599,93 @@ async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function treeStatsHandler({ request }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  let body:
+    | {
+        momentGraphNamespace?: unknown;
+        namespace?: unknown;
+        momentGraphNamespacePrefix?: unknown;
+        namespacePrefix?: unknown;
+        highImportanceCutoff?: unknown;
+        sampleLimit?: unknown;
+        limit?: unknown;
+      }
+    | undefined;
+
+  try {
+    body = (await request.json()) as any;
+  } catch {
+    body = undefined;
+  }
+
+  const namespaceRaw =
+    (body as any)?.momentGraphNamespace ?? (body as any)?.namespace;
+  const baseNamespace =
+    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+      ? namespaceRaw.trim()
+      : null;
+
+  if (!baseNamespace) {
+    return Response.json(
+      { error: "Missing or invalid 'momentGraphNamespace' parameter" },
+      { status: 400 }
+    );
+  }
+
+  const namespacePrefixRaw =
+    (body as any)?.momentGraphNamespacePrefix ?? (body as any)?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
+  const effectiveNamespace = momentGraphNamespacePrefix
+    ? applyMomentGraphNamespacePrefixValue(
+        baseNamespace,
+        momentGraphNamespacePrefix
+      )
+    : baseNamespace;
+
+  const highRaw = (body as any)?.highImportanceCutoff;
+  const highImportanceCutoff =
+    typeof highRaw === "number" && Number.isFinite(highRaw) ? highRaw : 0.8;
+
+  const sampleLimitRaw = (body as any)?.sampleLimit;
+  const sampleLimit =
+    typeof sampleLimitRaw === "number" &&
+    Number.isFinite(sampleLimitRaw) &&
+    sampleLimitRaw > 0
+      ? Math.floor(sampleLimitRaw)
+      : 2000;
+
+  const limitRaw = (body as any)?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 20;
+
+  const envCloudflare = env as Cloudflare.Env;
+
+  const roots = await getRootStatsByHighImportanceSample(
+    { env: envCloudflare, momentGraphNamespace: effectiveNamespace },
+    { highImportanceCutoff, sampleLimit, limit }
+  );
+
+  return Response.json({
+    momentGraphNamespace: effectiveNamespace,
+    momentGraphNamespacePrefix,
+    highImportanceCutoff,
+    sampleLimit,
+    limit,
+    roots,
+  });
+}
+
 export const routes = [
   route("/query", {
     post: [
@@ -616,6 +707,9 @@ export const routes = [
   }),
   route("/admin/clear-indexing-state", {
     post: [requireQueryApiKey, clearIndexingStateHandler],
+  }),
+  route("/admin/tree-stats", {
+    post: [requireQueryApiKey, treeStatsHandler],
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],

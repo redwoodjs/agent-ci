@@ -797,3 +797,194 @@ export async function getMicroMomentsForDocument(
 
   return out;
 }
+
+export async function getRootStatsByHighImportanceSample(
+  context: MomentGraphContext,
+  options?: {
+    highImportanceCutoff?: number;
+    sampleLimit?: number;
+    limit?: number;
+    maxParentHops?: number;
+  }
+): Promise<
+  Array<{
+    rootId: string;
+    rootTitle: string | null;
+    rootDocumentId: string | null;
+    sampledHighImportanceCount: number;
+    sampledImportanceSum: number;
+    sampledImportanceMax: number | null;
+  }>
+> {
+  const db = getMomentDb(context);
+
+  const highCutoffRaw = options?.highImportanceCutoff;
+  const highImportanceCutoff =
+    typeof highCutoffRaw === "number" && Number.isFinite(highCutoffRaw)
+      ? highCutoffRaw
+      : 0.8;
+
+  const sampleLimitRaw = options?.sampleLimit;
+  const sampleLimit =
+    typeof sampleLimitRaw === "number" &&
+    Number.isFinite(sampleLimitRaw) &&
+    sampleLimitRaw > 0
+      ? Math.floor(sampleLimitRaw)
+      : 2000;
+
+  const limitRaw = options?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 20;
+
+  const maxParentHopsRaw = options?.maxParentHops;
+  const maxParentHops =
+    typeof maxParentHopsRaw === "number" &&
+    Number.isFinite(maxParentHopsRaw) &&
+    maxParentHopsRaw > 0
+      ? Math.floor(maxParentHopsRaw)
+      : 200;
+
+  type MomentRowSlim = {
+    id: string;
+    parent_id: string | null;
+    title: string | null;
+    document_id: string | null;
+    importance: number | null;
+  };
+
+  const sampleRows = (await db
+    .selectFrom("moments")
+    .select(["id", "parent_id", "title", "document_id", "importance"])
+    .where("importance", ">=", highImportanceCutoff as any)
+    .orderBy("importance", "desc")
+    .limit(sampleLimit)
+    .execute()) as unknown as MomentRowSlim[];
+
+  if (sampleRows.length === 0) {
+    return [];
+  }
+
+  const sampledIds = new Set<string>();
+  for (const row of sampleRows) {
+    if (typeof row.id === "string" && row.id.length > 0) {
+      sampledIds.add(row.id);
+    }
+  }
+
+  const rowsById = new Map<string, MomentRowSlim>();
+  for (const row of sampleRows) {
+    rowsById.set(row.id, row);
+  }
+
+  let frontier = new Set<string>();
+  for (const row of sampleRows) {
+    if (typeof row.parent_id === "string" && row.parent_id.length > 0) {
+      if (!rowsById.has(row.parent_id)) {
+        frontier.add(row.parent_id);
+      }
+    }
+  }
+
+  const batchSize = 250;
+  for (let hop = 0; hop < maxParentHops && frontier.size > 0; hop++) {
+    const ids = Array.from(frontier);
+    frontier = new Set<string>();
+
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize);
+      const fetched = (await db
+        .selectFrom("moments")
+        .select(["id", "parent_id", "title", "document_id", "importance"])
+        .where("id", "in", batch)
+        .execute()) as unknown as MomentRowSlim[];
+
+      for (const row of fetched) {
+        if (!rowsById.has(row.id)) {
+          rowsById.set(row.id, row);
+        }
+      }
+
+      for (const row of fetched) {
+        const pid = typeof row.parent_id === "string" ? row.parent_id : null;
+        if (pid && !rowsById.has(pid)) {
+          frontier.add(pid);
+        }
+      }
+    }
+  }
+
+  function findRootId(startId: string): string {
+    let current = startId;
+    const visited = new Set<string>();
+    for (let depth = 0; depth < maxParentHops; depth++) {
+      if (visited.has(current)) {
+        return current;
+      }
+      visited.add(current);
+
+      const row = rowsById.get(current);
+      const parentId =
+        row && typeof row.parent_id === "string" && row.parent_id.length > 0
+          ? row.parent_id
+          : null;
+      if (!parentId) {
+        return current;
+      }
+      if (!rowsById.has(parentId)) {
+        return current;
+      }
+      current = parentId;
+    }
+    return current;
+  }
+
+  const aggByRoot = new Map<
+    string,
+    { count: number; sum: number; max: number | null }
+  >();
+
+  for (const row of sampleRows) {
+    const rootId = findRootId(row.id);
+    const agg = aggByRoot.get(rootId) ?? { count: 0, sum: 0, max: null };
+    agg.count += 1;
+
+    const importance =
+      typeof row.importance === "number" && Number.isFinite(row.importance)
+        ? row.importance
+        : null;
+    if (importance !== null) {
+      agg.sum += importance;
+      if (agg.max === null || importance > agg.max) {
+        agg.max = importance;
+      }
+    }
+
+    aggByRoot.set(rootId, agg);
+  }
+
+  const out = Array.from(aggByRoot.entries()).map(([rootId, agg]) => {
+    const rootRow = rowsById.get(rootId);
+    return {
+      rootId,
+      rootTitle: rootRow?.title ?? null,
+      rootDocumentId: rootRow?.document_id ?? null,
+      sampledHighImportanceCount: agg.count,
+      sampledImportanceSum: agg.sum,
+      sampledImportanceMax: agg.max,
+    };
+  });
+
+  out.sort((a, b) => {
+    if (a.sampledHighImportanceCount !== b.sampledHighImportanceCount) {
+      return b.sampledHighImportanceCount - a.sampledHighImportanceCount;
+    }
+    if (a.sampledImportanceSum !== b.sampledImportanceSum) {
+      return b.sampledImportanceSum - a.sampledImportanceSum;
+    }
+    return a.rootId.localeCompare(b.rootId);
+  });
+
+  return out.slice(0, limit);
+}

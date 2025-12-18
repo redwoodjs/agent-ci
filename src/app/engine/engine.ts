@@ -16,6 +16,7 @@ import {
   findSimilarMoments,
   findAncestors,
   findDescendants,
+  getRootStatsByHighImportanceSample,
   upsertMicroMomentsBatch,
   getMicroMomentsForDocument,
   findMomentByMicroPathsHash,
@@ -1014,14 +1015,155 @@ export async function query(
         );
         const bestMatch = similarMoments[0];
         if (bestMatch) {
-          const ancestors = await findAncestors(
+          const minImportance = readEnvNumber(
+            "MOMENT_GRAPH_MIN_IMPORTANCE",
+            0.8
+          ).value;
+          const sampleLimit = readEnvNumber(
+            "MOMENT_GRAPH_ROOT_SAMPLE_LIMIT",
+            2000
+          ).value;
+          const topRootsLimit = readEnvNumber(
+            "MOMENT_GRAPH_ROOT_TOP_LIMIT",
+            50
+          ).value;
+          const topKMatches = readEnvNumber(
+            "MOMENT_GRAPH_ROOT_MATCH_TOPK",
+            10
+          ).value;
+
+          const sampledRootStats = await getRootStatsByHighImportanceSample(
+            momentGraphContext,
+            {
+              highImportanceCutoff: clamp01(minImportance),
+              sampleLimit,
+              limit: topRootsLimit,
+            }
+          );
+          const rootOrder = new Map<string, number>();
+          const rootStats = new Map<
+            string,
+            {
+              sampledHighImportanceCount: number;
+              sampledImportanceSum: number;
+            }
+          >();
+          for (let i = 0; i < sampledRootStats.length; i++) {
+            const row = sampledRootStats[i];
+            rootOrder.set(row.rootId, i);
+            rootStats.set(row.rootId, {
+              sampledHighImportanceCount: row.sampledHighImportanceCount,
+              sampledImportanceSum: row.sampledImportanceSum,
+            });
+          }
+
+          const candidateRoots = new Map<
+            string,
+            { root: Moment; matchId: string; matchRank: number }
+          >();
+          const matchesToConsider = similarMoments.slice(
+            0,
+            Math.max(1, topKMatches)
+          );
+          for (let i = 0; i < matchesToConsider.length; i++) {
+            const match = matchesToConsider[i];
+            const ancestors = await findAncestors(match.id, momentGraphContext);
+            const root = ancestors[0];
+            if (!root) {
+              continue;
+            }
+            if (!candidateRoots.has(root.id)) {
+              candidateRoots.set(root.id, {
+                root,
+                matchId: match.id,
+                matchRank: i,
+              });
+            }
+          }
+
+          let chosenRootId: string | null = null;
+          let chosenMatchId: string = bestMatch.id;
+          let chosenMatchRank = 0;
+
+          const fallbackAncestors = await findAncestors(
             bestMatch.id,
             momentGraphContext
           );
-          const root = ancestors[0];
+          const fallbackRoot = fallbackAncestors[0];
+          if (fallbackRoot) {
+            chosenRootId = fallbackRoot.id;
+          }
+
+          for (const [rootId, candidate] of candidateRoots.entries()) {
+            const stats = rootStats.get(rootId);
+            if (!stats) {
+              continue;
+            }
+            if (chosenRootId === null) {
+              chosenRootId = rootId;
+              chosenMatchId = candidate.matchId;
+              chosenMatchRank = candidate.matchRank;
+              continue;
+            }
+            const chosenStats = rootStats.get(chosenRootId);
+            if (!chosenStats) {
+              chosenRootId = rootId;
+              chosenMatchId = candidate.matchId;
+              chosenMatchRank = candidate.matchRank;
+              continue;
+            }
+            if (
+              stats.sampledHighImportanceCount >
+              chosenStats.sampledHighImportanceCount
+            ) {
+              chosenRootId = rootId;
+              chosenMatchId = candidate.matchId;
+              chosenMatchRank = candidate.matchRank;
+              continue;
+            }
+            if (
+              stats.sampledHighImportanceCount ===
+                chosenStats.sampledHighImportanceCount &&
+              stats.sampledImportanceSum > chosenStats.sampledImportanceSum
+            ) {
+              chosenRootId = rootId;
+              chosenMatchId = candidate.matchId;
+              chosenMatchRank = candidate.matchRank;
+              continue;
+            }
+            if (
+              stats.sampledHighImportanceCount ===
+                chosenStats.sampledHighImportanceCount &&
+              stats.sampledImportanceSum === chosenStats.sampledImportanceSum
+            ) {
+              const currentOrder =
+                rootOrder.get(rootId) ?? Number.POSITIVE_INFINITY;
+              const chosenOrder =
+                rootOrder.get(chosenRootId) ?? Number.POSITIVE_INFINITY;
+              if (currentOrder < chosenOrder) {
+                chosenRootId = rootId;
+                chosenMatchId = candidate.matchId;
+                chosenMatchRank = candidate.matchRank;
+                continue;
+              }
+              if (currentOrder === chosenOrder) {
+                if (candidate.matchRank < chosenMatchRank) {
+                  chosenRootId = rootId;
+                  chosenMatchId = candidate.matchId;
+                  chosenMatchRank = candidate.matchRank;
+                  continue;
+                }
+              }
+            }
+          }
+
+          const root =
+            chosenRootId !== null
+              ? candidateRoots.get(chosenRootId)?.root ?? fallbackRoot ?? null
+              : null;
           if (root) {
             console.log(
-              `[query:narrative] resolvedRootFromMatch root=${root.id} match=${bestMatch.id}`
+              `[query:narrative] resolvedRootFromMatch root=${root.id} match=${chosenMatchId}`
             );
             const timeline = await findDescendants(root.id, momentGraphContext);
             console.log(`[query:narrative] rootTimelineLen=${timeline.length}`);
@@ -1035,10 +1177,6 @@ export async function query(
                 "MOMENT_GRAPH_QUERY_IMPORTANCE_CUTOFF",
                 0.4
               ).value;
-              const minImportance = readEnvNumber(
-                "MOMENT_GRAPH_MIN_IMPORTANCE",
-                0.8
-              ).value;
               const neighborWindow = readEnvNumber(
                 "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
                 1
@@ -1048,7 +1186,7 @@ export async function query(
                 0.4
               ).value;
 
-              const requiredIds = [root.id, bestMatch.id];
+              const requiredIds = [root.id, chosenMatchId];
               const cutoffApplied = applyImportanceCutoff({
                 timeline,
                 requiredIds,

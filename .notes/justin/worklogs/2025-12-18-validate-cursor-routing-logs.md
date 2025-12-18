@@ -159,3 +159,17 @@ I want to validate that the latest resync run is now:
 - I implemented an in-process retry for the Vectorize subject query when it returns `matches: []`.
 - The retry runs a small fixed number of attempts with short delays (default: 50ms, then 200ms), and then continues with whatever the final query returns.
 - The delays can be overridden with `SMART_LINKER_EMPTY_MATCH_RETRY_DELAYS_MS` as a comma-separated list of milliseconds.
+
+## Validation (from /tmp/out-index.log, after index rotation)
+- I scanned /tmp/out-index.log (lines 1-14665) for the Vectorize empty-match pattern and found 3 cases where the smart linker logged `matches: []` even after the 2 in-process retries (50ms + 200ms).
+- Empty matches still happen for:
+  - `github/redwoodjs/sdk/issues/552/latest.json` in `demo-2025-12-18-attempt-7:redwood:rwsdk`
+    - `emptyMatchRetryAttemptsUsed: 2`, `emptyMatchRetryTotalWaitMs: 250`, `matches: []`
+  - `cursor/conversations/f399dae1-9332-4fc1-85c1-704d277dd7d0/latest.json` in `prod-2025-12-18-17-26-scoping-before-backfill:redwood:rwsdk`
+    - `emptyMatchRetryAttemptsUsed: 2`, `emptyMatchRetryTotalWaitMs: 250`, `matches: []`
+  - `cursor/conversations/736f23a1-e794-4207-8bd0-5f5799e1abf4/latest.json` in `demo-2025-12-18-attempt-7:redwood:machinen` (query logged for `macroMomentIndex: 1`)
+    - `emptyMatchRetryAttemptsUsed: 2`, `emptyMatchRetryTotalWaitMs: 250`, `matches: []`
+
+## Follow-up: PR 933 attached to issue 552 without retries
+- In `demo-2025-12-18-attempt-7:redwood:rwsdk`, PR 933 (`github/redwoodjs/sdk/pull-requests/933/latest.json`) gets non-empty candidates and attaches to issue 552 (`github/redwoodjs/sdk/issues/552/latest.json`) via `auto-high-confidence` (score ~0.835).
+- Issue 552 is the first indexed document in that run and still gets an empty candidate list. Given that downstream documents can still attach to it, I removed the in-process empty-match retry logic from the smart linker.

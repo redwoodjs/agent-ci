@@ -99,6 +99,8 @@ To answer "why" questions, the query engine flips the traditional RAG model:
 3.  **Retrieve Descendant Timeline**: The engine retrieves the *full descendant timeline* under that root. This ensures that linked work (e.g., a Discord thread attached to a GitHub issue) is included in the context, even if the query matched the parent issue and not the thread.
 4.  **Synthesize Answer**: The LLM is given this full timeline—formatted with ISO8601 timestamps and canonical references—to generate an answer grounded in the chronological narrative.
 
+Note: the query path uses Moment similarity as the entry point. Subjects are identified by walking parent links to the root of the matched Moment, rather than by separately querying a subject index.
+
 #### Narrative Context
 The context provided to the LLM is a chronological list of macro-moments, ordered by their timestamp (derived from the underlying micro-moments). Each line includes:
 - ISO8601 timestamp

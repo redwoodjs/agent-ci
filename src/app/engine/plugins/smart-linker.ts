@@ -8,8 +8,10 @@ import type {
 import { getEmbedding } from "../utils/vector";
 import { getMicroMomentsForDocument, getMoment } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
+import { callLLM } from "../utils/llm";
 
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
+const DEFAULT_SMART_LINKER_LLM_THRESHOLD = 0.5;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
 const DEFAULT_SMART_LINKER_MAX_LOG_MICRO_TEXT_CHARS = 2000;
 
@@ -231,9 +233,77 @@ export const smartLinkerPlugin: Plugin = {
           continue;
         }
 
-        if (match.score < DEFAULT_SMART_LINKER_THRESHOLD) {
+        const score = match.score;
+
+        if (score < DEFAULT_SMART_LINKER_LLM_THRESHOLD) {
           decision.rejectReason = "below-threshold";
-          decision.threshold = DEFAULT_SMART_LINKER_THRESHOLD;
+          decision.threshold = DEFAULT_SMART_LINKER_LLM_THRESHOLD;
+          candidateDecisions.push(decision);
+          continue;
+        }
+
+        // Logic:
+        // >= 0.75: Auto-accept
+        // >= 0.50: LLM Check
+        // < 0.50: Rejected above
+
+        let shouldLink = false;
+
+        if (score >= DEFAULT_SMART_LINKER_THRESHOLD) {
+          shouldLink = true;
+          decision.method = "auto-high-confidence";
+        } else {
+          // Band: 0.5 <= score < 0.75
+          console.log("[moment-linker] invoking LLM reasoning for candidate", {
+            documentId: document.id,
+            macroMomentIndex,
+            candidateId: subject.id,
+            score,
+          });
+
+          const prompt = `You are a strict knowledge graph linker.
+Your job is to decide if two concepts are actually the same specific conversation, thread, or topic, and should be merged.
+
+## Existing Subject (Parent)
+Title: ${subject.title}
+Summary: ${subject.summary}
+
+## New Moment (Child)
+Title: ${macroMoment.title}
+Summary: ${macroMoment.summary || "No summary provided"}
+
+## Task
+Are these two items referring to the same specific event, issue, conversation, or topic?
+- If they are the same topic/thread, answer YES.
+- If they are related but distinct (e.g. different issues about the same library), answer NO.
+- If they are unrelated, answer NO.
+
+Answer with exactly one word: YES or NO.`;
+
+          try {
+            const llmResult = await callLLM(prompt, "slow-reasoning", {
+              temperature: 0,
+              reasoning: { effort: "low" },
+            });
+            const answer = llmResult.trim().toUpperCase();
+            decision.llmAnswer = answer;
+
+            if (answer.includes("YES")) {
+              shouldLink = true;
+              decision.method = "llm-confirmed";
+            } else {
+              shouldLink = false;
+              decision.rejectReason = "llm-rejected";
+            }
+          } catch (err) {
+            console.error("[moment-linker] LLM check failed", err);
+            decision.llmError = String(err);
+            decision.rejectReason = "llm-failed";
+            shouldLink = false;
+          }
+        }
+
+        if (!shouldLink) {
           candidateDecisions.push(decision);
           continue;
         }
@@ -252,6 +322,7 @@ export const smartLinkerPlugin: Plugin = {
           parentMomentId,
           subjectTitle: subject.title,
           subjectDocumentId: subject.documentId,
+          method: decision.method,
         });
 
         return {
@@ -264,7 +335,7 @@ export const smartLinkerPlugin: Plugin = {
       console.log("[moment-linker] smart linker no attachment", {
         documentId: document.id,
         macroMomentIndex,
-        threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+        threshold: DEFAULT_SMART_LINKER_LLM_THRESHOLD,
         candidates: candidateDecisions,
       });
 

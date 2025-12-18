@@ -201,7 +201,7 @@ We solved this with a **two-pass filtering system**:
     We updated the macro-moment synthesis prompt to emit an `IMPORTANCE` score (0-1 float) for every generated moment. This score is intrinsic to the event itself—capturing how significant a moment is to the project history—rather than being derived from a specific user query. This value is stored in the database and indexed.
 
 2.  **Engine Pruning (Query Time):**
-    The narrative query engine now performs a first pass of pruning before returning results. It always preserves the root and query anchor, but filters the rest of the timeline based on the importance score. To maintain a readable narrative, we also apply **position bias** (favoring the start and end of the timeline) and preserve **connective tissue** (neighbors of kept moments). A hard cap ensures the total size remains within limits (default 200 moments).
+    The narrative query engine now performs a first pass of pruning before returning results. It always preserves the root and query anchor, but filters the rest of the timeline based on the importance score, position bias (favoring the start and end of the timeline) and preserve **connective tissue** (neighbors of kept moments). A hard cap ensures the total size remains within limits (default 200 moments).
 
 3.  **Model Selection (Response Time):**
     The second pass happens at the consumption layer. We expose the `importance=0.xx` score directly in the text output for both Brief Mode and Answer Mode. We then instruct the consuming model (Cursor or the internal LLM) to use these scores as a signal when selecting which events to mention in its final answer. This allows the model to make the final judgment call on relevance while working with a pre-curated, high-quality list of candidates.
@@ -314,3 +314,61 @@ We implemented a major storage refactor and reliability hardening:
 ### Cursor Interaction Improvements
 
 We updated the **MCP tool description** to be strictly prescriptive, instructing the model to call the tool once and then answer using the returned text. We also added a dedicated **Instructions** section to the Brief Mode output to guide the model's summarization behavior.
+
+### Debugging: log query candidate subjects/moments (opt-in)
+
+While testing query output, I saw cases where the narrative path picks a semantically plausible subject (for example a Discord thread) but returns a short timeline that does not include the other sources I expected. The query handler currently short-circuits if any subject match is returned, so understanding the subject candidate list and scores is useful.
+
+I added an opt-in debug log controlled by `MOMENT_GRAPH_DEBUG_QUERY_CANDIDATES`. When enabled, `findSimilarSubjects` and `findSimilarMoments` will log the top candidates from Vectorize including their ids, scores, namespace match, and (when present) the moment row's document id and parent id.
+
+Update: switched this to always-on for debugging. The candidate logs now always emit during `findSimilarSubjects` and `findSimilarMoments` calls. We can remove or re-guard this once query selection is behaving as expected.
+
+2025-12-18 12:57:40 +0200
+
+### Query root selection: use moment similarity, then resolve root
+
+During a test query about caching/prefetching, the candidate logs showed that the top semantic matches were non-root moments (mostly Cursor conversation moments). The query path was calling a subject search first and filtering to root moments, which dropped those candidates. The result was that the query picked a different root that happened to be in the topK and was a root (a Discord day), producing a short timeline that did not include the other sources.
+
+Direction: query should use moment similarity only, pick the best match moment, walk up to resolve the root subject, and then walk down to fetch the full descendant timeline under that root.
+
+2025-12-18 13:01:12 +0200
+
+### Implemented: moment-only query root selection
+
+I removed the subject-first branch from the narrative query handler. The query now:
+
+- queries the moment index for matches
+- picks the highest-scoring match
+- walks ancestors to resolve the root
+- walks descendants from that root to build the timeline
+
+I also trimmed moment candidate logging to the first 10 results to keep per-request logs smaller.
+
+2025-12-18 13:10:23 +0200
+
+### Cursor attribution: derive user handle for chunk authors
+
+In Cursor conversations, the chunk metadata author was always set to "User", which led micro-moment summaries and macro-moment timelines to attribute statements to "User" instead of a stable handle.
+
+I updated the cursor plugin to infer a user handle from the conversation JSON (prefer the email local-part, otherwise fall back to the workspace roots or file paths). The derived handle is used as the author for user prompt chunks.
+
+## PR: Fix Narrative Query Selection and Cursor Attribution
+
+### Fix: Narrative Query Root Selection
+
+Previously, the narrative query logic prioritized searching for "Subjects" (root nodes) before "Moments". This behavior frequently filtered out high-relevance matches that occurred deep within a document (non-root nodes), causing the engine to select inferior root-level matches (e.g., broad Discord threads) instead.
+
+We removed the subject-first search path. The query engine now:
+1. Searches the `MOMENT_INDEX` for the best semantic match, regardless of graph position.
+2. Resolves the root Subject by walking ancestors.
+3. Retrieves the full descendant timeline from that root.
+
+### Improvement: Cursor Author Attribution
+
+Cursor conversation exports lack explicit author handles, defaulting to "User" for human messages. This resulted in generic summaries.
+
+We updated the Cursor plugin to derive a stable user handle from the export metadata, attempting to resolve from:
+1. The `user_email` field.
+2. Usernames found in `workspace_roots` or file paths.
+
+This derived handle is now used as the chunk author, enabling correct attribution in generated summaries.

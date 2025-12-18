@@ -42,13 +42,13 @@ export async function processChunkJob(
     const maxAttempts = 3;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        await env.VECTORIZE_INDEX.insert([
-          {
-            id: vectorId,
-            values: embedding,
-            metadata: chunk.metadata,
-          },
-        ]);
+    await env.VECTORIZE_INDEX.insert([
+      {
+        id: vectorId,
+        values: embedding,
+        metadata: chunk.metadata,
+      },
+    ]);
         break;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);

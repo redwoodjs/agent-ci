@@ -349,11 +349,11 @@ export async function indexDocument(
       };
 
       microMomentItems.push({
-          path,
-          content: text,
+        path,
+        content: text,
         summary: text,
         embedding,
-          createdAt: batchTimeRange.start,
+        createdAt: batchTimeRange.start,
         author: batchAuthor,
         sourceMetadata,
       });
@@ -787,7 +787,7 @@ export async function query(
     return Array.from(cappedExpanded).sort((a, b) => a - b);
   }
 
-  // Narrative Query Path: Try to answer using Subject (root moment) first
+  // Narrative Query Path: Find a moment match, resolve root, then descend
   try {
     const momentGraphNamespaceRaw = (context.env as any)
       ?.MOMENT_GRAPH_NAMESPACE;
@@ -799,107 +799,9 @@ export async function query(
     console.log(`[query:narrative] namespace=${momentGraphNamespace}`);
 
     const queryEmbedding = await generateEmbedding(userQuery);
-    const {
-      findSimilarSubjects,
-      findSimilarMoments,
-      findAncestors,
-      findDescendants,
-    } = await import("./momentDb");
-
-    const similarSubjects = await findSimilarSubjects(queryEmbedding, 5);
-    console.log(`[query:narrative] similarSubjects=${similarSubjects.length}`);
-
-    if (similarSubjects.length > 0) {
-      const subjectMoment = similarSubjects[0];
-      console.log(
-        `[query:narrative] choseSubject=${subjectMoment.id} doc=${subjectMoment.documentId}`
-      );
-
-      // Get the full narrative timeline (root moment + all descendants)
-      const timeline = await findDescendants(subjectMoment.id);
-      console.log(`[query:narrative] timelineLen=${timeline.length}`);
-
-      if (timeline.length > 0) {
-        const maxMoments = readEnvNumber(
-          "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
-          200
-        ).value;
-        const minImportance = readEnvNumber(
-          "MOMENT_GRAPH_MIN_IMPORTANCE",
-          0.8
-        ).value;
-        const neighborWindow = readEnvNumber(
-          "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
-          1
-        ).value;
-        const endBiasWeight = readEnvNumber(
-          "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
-          0.4
-        ).value;
-
-        const keptIndices = pruneTimeline({
-          timeline,
-          requiredIds: [subjectMoment.id],
-          maxMoments,
-          minImportance,
-          neighborWindow,
-          endBiasWeight,
-        });
-        const prunedTimeline = keptIndices
-          .map((idx) => timeline[idx])
-          .filter(Boolean);
-
-        // Build narrative context from moment summaries
-        const timelineLines = prunedTimeline.map((moment, idx) =>
-          formatTimelineLine(moment, idx)
-        );
-        const narrativeContext = timelineLines.join("\n\n");
-
-        const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
-
-## Subject
-${subjectMoment.title}: ${subjectMoment.summary}
-
-## Timeline
-${narrativeContext}
-
-## User Question
-${userQuery}
-
-## Instructions
-Rules:
-- You MUST only use timestamps that appear at the start of Timeline lines. Do not invent or guess dates.
-- When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
-- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
-- You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
-- You MUST NOT try to mention every event in the Timeline. Mention only events needed to answer the question.
-- If a Timeline line includes an importance=0..1 field, prefer higher importance events when selecting which events to mention.
-- If the Timeline does not contain enough information to answer part of the question, say that directly.
-
-Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
-
-        if (responseMode === "prompt") {
-          return narrativePrompt;
-        }
-        if (responseMode === "brief") {
-          return buildBriefingText({
-            momentGraphNamespace,
-            query: userQuery,
-            subject: subjectMoment,
-            timelineLines,
-          });
-        }
-        const narrativeAnswer = await callLLM(
-          narrativePrompt,
-          "slow-reasoning",
-          {
-            temperature: 0,
-            reasoning: { effort: "low" },
-          }
-        );
-        return narrativeAnswer;
-      }
-    }
+    const { findSimilarMoments, findAncestors, findDescendants } = await import(
+      "./momentDb"
+    );
 
     const similarMoments = await findSimilarMoments(queryEmbedding, 20);
     console.log(`[query:narrative] similarMoments=${similarMoments.length}`);

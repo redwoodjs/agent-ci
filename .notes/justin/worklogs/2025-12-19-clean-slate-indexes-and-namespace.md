@@ -61,3 +61,29 @@ I want a clean slate in production:
     - discord-gateway-events-queue-prod
     - discord-gateway-events-queue-prod-dlq
     - chunk-processing-queue-prod
+
+- Follow-up: rotating again for a clean slate iteration.
+  - Rotated production Vectorize bindings to:
+    - rag-index-v6
+    - moment-index-v6
+    - subject-index-v6
+  - Updated production `MOMENT_GRAPH_NAMESPACE_PREFIX` to `prod-2025-12-19-16-20`.
+  - Created Vectorize indexes:
+    - rag-index-v6
+    - moment-index-v6
+    - subject-index-v6
+  - Enqueued Vectorize metadata index creation for `momentGraphNamespace`:
+    - moment-index-v6 changeset: 1c20b61e-4d4b-4d88-9d6a-8f49987cf4c3
+    - subject-index-v6 changeset: 345aa048-2a5c-4875-af6f-b9a2a31d4c50
+  - Purged production queues (requires `--force` in non-interactive mode):
+    - github-scheduler-queue-prod
+    - github-processor-queue-prod
+    - github-processor-queue-prod-dlq
+    - engine-indexing-queue-prod
+    - r2-file-update-queue-prod
+    - discord-scheduler-queue-prod
+    - discord-processor-queue-prod
+    - discord-processor-queue-prod-dlq
+    - discord-gateway-events-queue-prod
+    - discord-gateway-events-queue-prod-dlq
+    - chunk-processing-queue-prod

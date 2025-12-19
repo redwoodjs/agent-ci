@@ -339,7 +339,9 @@ export const smartLinkerPlugin: Plugin = {
           decision.promptMode = "problem-workstream-same-thread";
           const parentStartMs = entry.parentStartMs;
           const parentTime =
-            parentStartMs !== null ? new Date(parentStartMs).toISOString() : null;
+            parentStartMs !== null
+              ? new Date(parentStartMs).toISOString()
+              : null;
           const childTime =
             childStartMs !== null ? new Date(childStartMs).toISOString() : null;
 

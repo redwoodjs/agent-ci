@@ -32,3 +32,11 @@ I want a clean slate in production:
   - subject-index-v4
 - Created the Vectorize indexes and queued metadata index creation for `momentGraphNamespace` on both moment and subject indexes.
 - Set production `MOMENT_GRAPH_NAMESPACE` to `redwood:rwsdk` so the worker has a default base namespace (so prefixing works without per-request overrides).
+
+- Follow-up: rotating again for a clean slate iteration.
+  - Rotated production Vectorize bindings to:
+    - rag-index-v5
+    - moment-index-v5
+    - subject-index-v5
+  - Updated production `MOMENT_GRAPH_NAMESPACE_PREFIX` to `prod-2025-12-19-16-01`.
+  - Plan: purge production queues to avoid old backlog processing under the rotated prefix.

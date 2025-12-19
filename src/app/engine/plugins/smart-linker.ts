@@ -13,6 +13,7 @@ import { callLLM } from "../utils/llm";
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.85;
 const DEFAULT_SMART_LINKER_LLM_THRESHOLD = 0.6;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
+const DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD = 0.618;
 
 function previewText(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") {
@@ -385,7 +386,7 @@ export const smartLinkerPlugin: Plugin = {
             parentStartMs > childStartMs;
 
           const prompt = `You are a knowledge graph attachment classifier.
-Your job is to decide whether two moments refer to the same problem/workstream.
+Your job is to decide whether two moments refer to the same specific problem/workstream.
 
 ## Moment A (chronologically earlier when known)
 Time: ${chronologicalEarlier.time ?? "unknown"}
@@ -400,36 +401,44 @@ Summary: ${chronologicalLater.summary}
 Document: ${chronologicalLater.documentId}
 
 ## Task
-Do Moment A and Moment B refer to the same problem/workstream?
+Return a single number from 0 to 1 indicating how likely it is that Moment A and Moment B refer to the same specific problem/workstream.
 
 Guidance:
-- Do NOT answer YES just because they are in the same project/repo/library.
-- Answer YES if the moments refer to the same problem being worked through, even when one is a different attempt, a partial fix, a follow-up, a test update, or a docs update.
-- Answer NO if the relationship is only "same area" or "same repo" without a shared problem.
+- Do not return 1 just because they are in the same project/repo/library.
+- Higher scores mean the moments describe the same problem being worked through, even when one is a follow-up discussion, an implementation step, a test update, or a docs update.
+- Lower scores mean the relationship is only "same area" or "same repo" without a shared problem.
 
 Examples:
-- YES: "RSC navigation should prefetch pages by switching requests so caching works." and "Implemented prefetch link scanning and caching; added tests for link scanning and cache behavior."
-- YES: "Prefetch links should exist for client navigation." and "Tried approach A, it failed; tried approach B, it worked; follow-up discussion about edge cases."
-- YES: "A PR introduced change X." and "Updated docs and tests to reflect change X."
-- YES: "Investigating why caching does not work due to request method or headers." and "Debugged request method, updated it, and confirmed caching behavior."
-- NO: "Navigation caching / prefetch." and "Routing issue with unrelated endpoint or configuration."
+- 0.9: "RSC navigation should prefetch pages by switching requests so caching works." and "Implemented prefetch link scanning and caching; added tests for link scanning and cache behavior."
+- 0.8: "A PR introduced change X." and "Updated docs and tests to reflect change X."
+- 0.1: "Navigation caching / prefetch." and "Routing issue with unrelated endpoint or configuration."
 
-Answer with exactly one word: YES or NO.`;
+Return only the number (no other text).`;
 
           try {
             const llmResult = await callLLM(prompt, "slow-reasoning", {
               temperature: 0,
               reasoning: { effort: "high" },
             });
-            const answer = llmResult.trim().toUpperCase();
-            decision.llmAnswer = answer;
-
-            if (answer.includes("YES")) {
+            const trimmed = llmResult.trim();
+            const scoreText = trimmed.split(/\s+/)[0] ?? "";
+            const parsedScore = Number.parseFloat(scoreText);
+            decision.llmScore = Number.isFinite(parsedScore)
+              ? parsedScore
+              : null;
+            decision.llmScoreThreshold =
+              DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD;
+            if (!Number.isFinite(parsedScore)) {
+              shouldLink = false;
+              decision.rejectReason = "llm-invalid-score";
+            } else if (
+              parsedScore >= DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD
+            ) {
               shouldLink = true;
-              decision.method = "llm-confirmed";
+              decision.method = "llm-score";
             } else {
               shouldLink = false;
-              decision.rejectReason = "llm-rejected";
+              decision.rejectReason = "llm-score-below-threshold";
             }
           } catch (err) {
             console.error("[moment-linker] LLM check failed", err);

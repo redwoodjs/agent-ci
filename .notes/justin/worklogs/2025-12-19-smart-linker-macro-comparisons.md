@@ -125,3 +125,7 @@ In this branch, a few issues showed up together:
   - Smart linker no longer rejects candidates solely due to time inversion (parentStart > childStart).
   - LLM classification prompt now treats the decision as "same problem/workstream" and formats the two moments in chronological order when timestamps exist, so the model sees "earlier vs later" consistently even when the graph attachment direction is based on insertion order.
   - Narrative query timeline formatting now sorts the selected timeline moments by timestamp before generating Timeline lines (time range start when present, otherwise createdAt; stable tie-break by id when available).
+
+- Follow-up: smart-linker LLM gating output shape.
+  - Observed a demo resync where the Discord thread matched issue 552 in the vector query but the LLM answered NO, leaving the thread as a separate root.
+  - Decided to keep the classifier scoped to a specific problem/workstream and switch the LLM output from YES/NO to a 0..1 score, accepting the candidate when the score is >= 0.618.

@@ -102,9 +102,9 @@ This architecture ensures that we only pay the "AI Tax" for new or modified cont
 ### 4. Narrative Querying (Root-to-Leaf Timeline)
 To answer "why" questions, the query engine flips the traditional RAG model:
 
-1.  **Find anchor Moments**: The query is embedded and matched against the **Moment Index** (all moments). Each match is treated as an anchor.
-2.  **Resolve Root Subject**: For each matched Moment, the engine identifies the root Subject of that timeline.
-3.  **Retrieve Descendant Timeline**: The engine retrieves the *full descendant timeline* under that root. This ensures that linked work (e.g., a Discord thread attached to a GitHub issue) is included in the context, even if the query matched the parent issue and not the thread.
+1.  **Find anchor Moments**: The query is embedded and matched against the **Moment Index** (all moments). The engine selects an anchor candidate from the top matches.
+2.  **Resolve Root Subject**: The engine walks parent links from the anchor to the root Subject of that timeline.
+3.  **Retrieve Descendant Timeline**: The engine retrieves the full descendant timeline under that root. This ensures that linked work (example: a Discord thread attached to a GitHub issue) is included in the context, even if the query matched the parent issue and not the thread.
 4.  **Synthesize Answer**: The LLM is given this full timeline—formatted with ISO8601 timestamps and canonical references—to generate an answer grounded in the chronological narrative.
 
 Note: the query path uses Moment similarity as the entry point. Subjects are identified by walking parent links to the root of the matched Moment, rather than by separately querying a subject index.

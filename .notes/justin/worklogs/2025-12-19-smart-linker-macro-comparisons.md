@@ -49,3 +49,60 @@ And I want the LLM classifier call to use reasoning effort high (instead of low)
   - Updated wrangler config to use fresh Vectorize indexes for subject and moment.
   - Updated engine README to include wrangler commands for creating Vectorize metadata indexes on momentGraphNamespace for both moment and subject indexes.
   - Added a smart-linker fallback: if SUBJECT_INDEX query returns zero matches, rerun the same vector query against MOMENT_INDEX (still filtered by momentGraphNamespace).
+
+## PR description (appended)
+
+## PR title
+
+Smart linker attachment, Vectorize namespace filtering, and narrative anchoring
+
+## Context
+
+The indexing and query path depends on the Moment Graph namespace being consistent across:
+- document routing
+- vector upserts
+- vector queries
+- narrative timeline assembly
+
+In this branch, a few issues showed up together:
+- Smart linker was using document micro-moment concatenation as the vector query text, which did not match the embedding input used for subjects.
+- Smart linker rejected some candidate parents due to a temporal check that treated overlapping time ranges as invalid.
+- Discord threads could route to a different namespace than the GitHub work item they should attach under.
+- Vectorize metadata filtering can return empty results unless the filter field is indexed.
+- The narrative query fast-path could anchor on the matched moment instead of the root subject, which dropped related descendants.
+
+## Smart linker macro query text and thresholds
+
+- Use the candidate macro moment summary (fallback to title) as the vector query text when proposing a parent.
+- Update thresholds:
+  - auto-accept: 0.85
+  - LLM gate lower bound: 0.6
+- Use reasoning effort high for the smart-linker classifier.
+
+## Storage-time attachment filtering and fallback
+
+- Change the temporal ordering check to reject only when the candidate parent starts after the child starts.
+- Keep a note when the candidate parent ends after the child starts.
+- If a SUBJECT_INDEX query returns zero matches, retry the same query against MOMENT_INDEX (still filtered by momentGraphNamespace).
+
+## Query-time narrative anchoring
+
+- When a GitHub work item or Discord thread is present in the top matches, anchor on the selected candidate.
+- Resolve its root ancestor before walking descendants.
+- Prune after assembling the full descendant timeline under that root.
+
+## Namespace routing and Vectorize metadata indexing
+
+- Route Discord channel `1435702216315899948` to `redwood:rwsdk`.
+- Rotate Vectorize index names in `wrangler.jsonc`.
+- Document the Vectorize metadata index requirement for momentGraphNamespace filtering in `src/app/engine/README.md`.
+
+## Testing
+
+- `pnpm types`: fails (pre-existing errors)
+  - `src/app/engine/utils/summarize.ts`: invalid LLM alias
+  - `src/app/ingestors/discord/services/gateway-service.ts`: unknown json type
+  - `src/app/ingestors/github/services/*-processor.ts`: string | null assignability
+  - `src/app/pages/audit/subpages/indexing-table.tsx`: string | undefined assignability
+  - `src/db/index.ts`: missing Env.DATABASE
+  - `wsproxy/proxy.ts`: Bun types and implicit any params

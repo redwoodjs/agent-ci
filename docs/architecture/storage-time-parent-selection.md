@@ -25,13 +25,13 @@ When multiple candidate parents are available:
 This is applied only to storage-time attachment choice. It does not change namespace routing.
 
 ### Rule 2: Parent must not be later than child
-Only consider candidates whose time range ends at or before the child's time range starts.
+Only consider candidates whose time range starts at or before the child's time range starts.
 
 Time range selection:
 - Use the stored time range metadata when present.
 - Otherwise use the moment createdAt timestamp.
 
-If a candidate has no usable time range, treat it as unknown and exclude it from attachment unless it is the only available option.
+If a time range start is missing on either side, skip this rule for that candidate.
 
 ## Functional outcomes
 - GitHub issues and pull requests are more likely to be the roots of their cross-source timelines.

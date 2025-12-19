@@ -2,7 +2,11 @@ import { getIndexingStatesBatch } from "../db";
 
 export async function scanForUnprocessedFiles(
   env: Cloudflare.Env,
-  prefix: string = "github/"
+  prefix: string = "github/",
+  options?: {
+    ignoreIndexingState?: boolean;
+    momentGraphNamespace?: string | null;
+  }
 ): Promise<string[]> {
   const unprocessedKeys: string[] = [];
   let cursor: string | undefined = undefined;
@@ -11,7 +15,17 @@ export async function scanForUnprocessedFiles(
   const logInterval = 100;
   const batchSize = 100;
 
-  console.log(`[scanner] Starting scan for prefix: ${prefix}`);
+  const ignoreIndexingState = Boolean(options?.ignoreIndexingState);
+  const momentGraphNamespace =
+    typeof options?.momentGraphNamespace === "string" &&
+    options.momentGraphNamespace.trim().length > 0
+      ? options.momentGraphNamespace.trim()
+      : null;
+
+  console.log(`[scanner] Starting scan for prefix: ${prefix}`, {
+    ignoreIndexingState,
+    momentGraphNamespace,
+  });
 
   do {
     const listed = await env.MACHINEN_BUCKET.list({
@@ -42,15 +56,21 @@ export async function scanForUnprocessedFiles(
       if (batchKeys.length >= batchSize) {
         dbQueries++;
         try {
-          const states = await getIndexingStatesBatch(batchKeys, {
-            env,
-            momentGraphNamespace: null,
-          });
-
-          for (const { key, etag } of batchObjects) {
-            const state = states.get(key);
-            if (!state || state.etag !== etag) {
+          if (ignoreIndexingState) {
+            for (const { key } of batchObjects) {
               unprocessedKeys.push(key);
+            }
+          } else {
+            const states = await getIndexingStatesBatch(batchKeys, {
+              env,
+              momentGraphNamespace,
+            });
+
+            for (const { key, etag } of batchObjects) {
+              const state = states.get(key);
+              if (!state || state.etag !== etag) {
+                unprocessedKeys.push(key);
+              }
             }
           }
         } catch (error) {
@@ -76,15 +96,21 @@ export async function scanForUnprocessedFiles(
     if (batchKeys.length > 0) {
       dbQueries++;
       try {
-        const states = await getIndexingStatesBatch(batchKeys, {
-          env,
-          momentGraphNamespace: null,
-        });
-
-        for (const { key, etag } of batchObjects) {
-          const state = states.get(key);
-          if (!state || state.etag !== etag) {
+        if (ignoreIndexingState) {
+          for (const { key } of batchObjects) {
             unprocessedKeys.push(key);
+          }
+        } else {
+          const states = await getIndexingStatesBatch(batchKeys, {
+            env,
+            momentGraphNamespace,
+          });
+
+          for (const { key, etag } of batchObjects) {
+            const state = states.get(key);
+            if (!state || state.etag !== etag) {
+              unprocessedKeys.push(key);
+            }
           }
         }
       } catch (error) {

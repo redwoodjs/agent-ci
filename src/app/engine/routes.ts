@@ -229,7 +229,10 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
 
     const unprocessedKeys = await scanForUnprocessedFiles(
       envCloudflare,
-      prefix
+      prefix,
+      {
+        ignoreIndexingState: Boolean(momentGraphNamespacePrefix),
+      }
     );
 
     if (unprocessedKeys.length > 0) {

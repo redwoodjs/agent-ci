@@ -31,6 +31,8 @@ export type MomentGraphContext = {
   momentGraphNamespace: string | null;
 };
 
+const MIN_VECTOR_IMPORTANCE_FOR_VECTORIZE = 0.4;
+
 function getMomentDb(context: MomentGraphContext) {
   return createDb<MomentDatabase>(
     context.env.MOMENT_GRAPH_DO as DurableObjectNamespace<MomentGraphDO>,
@@ -44,6 +46,51 @@ export async function addMoment(
 ): Promise<void> {
   const db = getMomentDb(context);
   const momentGraphNamespace = context.momentGraphNamespace ?? "default";
+  const safeParentId =
+    typeof moment.parentId === "string" && moment.parentId.length > 0
+      ? moment.parentId
+      : null;
+
+  async function wouldCreateCycle(
+    childId: string,
+    parentId: string
+  ): Promise<boolean> {
+    const visited = new Set<string>();
+    const maxDepth = 5_000;
+    let current: string | null = parentId;
+    for (let depth = 0; depth < maxDepth && current; depth++) {
+      if (current === childId) {
+        return true;
+      }
+      if (visited.has(current)) {
+        return false;
+      }
+      visited.add(current);
+      const row = (await db
+        .selectFrom("moments")
+        .select(["parent_id"])
+        .where("id", "=", current)
+        .executeTakeFirst()) as { parent_id: string | null } | undefined;
+      const pid: string | null =
+        typeof row?.parent_id === "string" ? row.parent_id : null;
+      current = pid;
+    }
+    return false;
+  }
+
+  let parentIdToWrite = safeParentId;
+  if (parentIdToWrite) {
+    const cycle = await wouldCreateCycle(moment.id, parentIdToWrite);
+    if (cycle) {
+      console.log("[moment-linker] cycle-prevention rejected attachment", {
+        momentId: moment.id,
+        documentId: moment.documentId,
+        attemptedParentId: parentIdToWrite,
+        momentGraphNamespace,
+      });
+      parentIdToWrite = null;
+    }
+  }
 
   function serializeSourceMetadata(value: unknown): string | null {
     if (value === null || value === undefined) {
@@ -68,61 +115,95 @@ export async function addMoment(
     return { start, end };
   }
 
+  const shouldVectorize =
+    typeof moment.importance === "number" &&
+    Number.isFinite(moment.importance) &&
+    moment.importance < MIN_VECTOR_IMPORTANCE_FOR_VECTORIZE
+      ? false
+      : true;
+
   try {
-    const embedding = await getEmbedding(moment.summary);
-    const timeRange = readTimeRange(moment.sourceMetadata);
-    const sourceMetadataJson = serializeSourceMetadata(moment.sourceMetadata);
-    const momentVector = {
-      id: moment.id,
-      values: embedding,
-      metadata: {
-        chunkId: moment.id, // Using moment ID as chunk ID for consistency
-        momentGraphNamespace,
-        documentId: moment.documentId,
-        source: "moment-graph",
-        type: "moment",
-        documentTitle: moment.title,
-        author: moment.author,
-        jsonPath: "$", // Root of the moment
-        sourceMetadataJson,
-        ...(timeRange ? { timeRangeStart: timeRange.start } : null),
-        ...(timeRange ? { timeRangeEnd: timeRange.end } : null),
-        summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
-        ...(typeof moment.importance === "number"
-          ? { importance: moment.importance }
-          : null),
-      } as unknown as ChunkMetadata,
-    };
-
-    console.log("[moment-linker] vector upsert (moment)", {
-      id: moment.id,
-      momentGraphNamespace,
-      documentId: moment.documentId,
-      type: "moment",
-    });
-    await context.env.MOMENT_INDEX.upsert([momentVector]);
-
-    console.log("[moment-linker] vector upsert (subject)", {
-      id: moment.id,
-      momentGraphNamespace,
-      documentId: moment.documentId,
-      type: "subject",
-      isSubject: !moment.parentId,
-    });
-    await context.env.SUBJECT_INDEX.upsert([
-      {
+    if (shouldVectorize) {
+      const embedding = await getEmbedding(moment.summary);
+      const timeRange = readTimeRange(moment.sourceMetadata);
+      const sourceMetadataJson = serializeSourceMetadata(moment.sourceMetadata);
+      const momentVector = {
         id: moment.id,
         values: embedding,
         metadata: {
+          chunkId: moment.id, // Using moment ID as chunk ID for consistency
           momentGraphNamespace,
-          title: moment.title,
-          summary: moment.summary,
           documentId: moment.documentId,
-          type: "subject",
-          isSubject: !moment.parentId,
+          source: "moment-graph",
+          type: "moment",
+          documentTitle: moment.title,
+          author: moment.author,
+          jsonPath: "$", // Root of the moment
+          sourceMetadataJson,
+          ...(timeRange ? { timeRangeStart: timeRange.start } : null),
+          ...(timeRange ? { timeRangeEnd: timeRange.end } : null),
+          summary: moment.summary, // Store summary in metadata for quick retrieval if needed (optional)
+          ...(typeof moment.importance === "number"
+            ? { importance: moment.importance }
+            : null),
+        } as unknown as ChunkMetadata,
+      };
+
+      console.log("[moment-linker] vector upsert (moment)", {
+        id: moment.id,
+        momentGraphNamespace,
+        documentId: moment.documentId,
+        type: "moment",
+      });
+      await context.env.MOMENT_INDEX.upsert([momentVector]);
+
+      console.log("[moment-linker] vector upsert (subject)", {
+        id: moment.id,
+        momentGraphNamespace,
+        documentId: moment.documentId,
+        type: "subject",
+        isSubject: !parentIdToWrite,
+      });
+      await context.env.SUBJECT_INDEX.upsert([
+        {
+          id: moment.id,
+          values: embedding,
+          metadata: {
+            momentGraphNamespace,
+            title: moment.title,
+            summary: moment.summary,
+            documentId: moment.documentId,
+            type: "subject",
+            isSubject: !parentIdToWrite,
+          },
         },
-      },
-    ]);
+      ]);
+    } else {
+      console.log("[moment-linker] vector upsert skipped (low importance)", {
+        id: moment.id,
+        momentGraphNamespace,
+        documentId: moment.documentId,
+        importance: moment.importance ?? null,
+        cutoff: MIN_VECTOR_IMPORTANCE_FOR_VECTORIZE,
+      });
+      try {
+        const momentIndexAny = context.env.MOMENT_INDEX as any;
+        if (typeof momentIndexAny?.deleteByIds === "function") {
+          await momentIndexAny.deleteByIds([moment.id]);
+        }
+        const subjectIndexAny = context.env.SUBJECT_INDEX as any;
+        if (typeof subjectIndexAny?.deleteByIds === "function") {
+          await subjectIndexAny.deleteByIds([moment.id]);
+        }
+      } catch (error) {
+        console.error("[moment-linker] vector delete failed (low importance)", {
+          id: moment.id,
+          momentGraphNamespace,
+          documentId: moment.documentId,
+          error: String(error),
+        });
+      }
+    }
   } catch (error) {
     console.error(
       `[momentDb] Failed to generate/insert embedding for moment ${moment.id}:`,
@@ -144,7 +225,7 @@ export async function addMoment(
         document_id: moment.documentId,
         summary: moment.summary,
         title: moment.title,
-        parent_id: (moment.parentId ?? null) as any,
+        parent_id: (parentIdToWrite ?? null) as any,
         micro_paths_json: moment.microPaths
           ? JSON.stringify(moment.microPaths)
           : (null as any),
@@ -169,7 +250,7 @@ export async function addMoment(
         document_id: moment.documentId,
         summary: moment.summary,
         title: moment.title,
-        parent_id: (moment.parentId ?? null) as any,
+        parent_id: (parentIdToWrite ?? null) as any,
         micro_paths_json: moment.microPaths
           ? JSON.stringify(moment.microPaths)
           : (null as any),

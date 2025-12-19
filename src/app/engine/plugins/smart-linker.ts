@@ -11,9 +11,9 @@ import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 import { callLLM } from "../utils/llm";
 
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
-const DEFAULT_SMART_LINKER_LLM_THRESHOLD = 0.6;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
 const DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD = 0.75;
+const DEFAULT_SMART_LINKER_MAX_LLM_CANDIDATES = 5;
 
 function previewText(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") {
@@ -259,13 +259,6 @@ export const smartLinkerPlugin: Plugin = {
 
         const score = match.score;
 
-        if (score < DEFAULT_SMART_LINKER_LLM_THRESHOLD) {
-          decision.rejectReason = "below-threshold";
-          decision.threshold = DEFAULT_SMART_LINKER_LLM_THRESHOLD;
-          candidateDecisions.push(decision);
-          continue;
-        }
-
         const parentStartMs =
           readTimeRangeStartMs(subject.sourceMetadata) ??
           parseTimeMs(subject.createdAt);
@@ -301,194 +294,196 @@ export const smartLinkerPlugin: Plugin = {
       }
 
       scoredCandidates.sort((a, b) => {
-        if (a.rank !== b.rank) {
-          return a.rank - b.rank;
-        }
         if (a.match.score !== b.match.score) {
           return b.match.score - a.match.score;
         }
         return a.match.id.localeCompare(b.match.id);
       });
 
+      const eligibleCandidates = scoredCandidates.filter(
+        (entry) => entry.match.score >= DEFAULT_SMART_LINKER_THRESHOLD
+      );
+
       for (const entry of scoredCandidates) {
-        const match = entry.match;
         const decision = entry.decision;
-        const subject = entry.subject;
-        const score = match.score;
-
         decision.rankApplied = entry.rank;
-
-        // Logic:
-        // >= threshold: Auto-accept
-        // >= llm-threshold: LLM Check
-        // < llm-threshold: Rejected above
-
-        let shouldLink = false;
-
-        if (score >= DEFAULT_SMART_LINKER_THRESHOLD) {
-          shouldLink = true;
-          decision.method = "auto-high-confidence";
+        if (entry.match.score < DEFAULT_SMART_LINKER_THRESHOLD) {
+          decision.rejectReason = "below-threshold";
+          decision.threshold = DEFAULT_SMART_LINKER_THRESHOLD;
         } else {
-          // Band: 0.5 <= score < 0.75
-          console.log("[moment-linker] invoking LLM reasoning for candidate", {
-            documentId: document.id,
-            macroMomentIndex,
-            candidateId: subject.id,
-            score,
-          });
-
-          decision.promptMode = "problem-workstream-same-thread";
-          const parentStartMs = entry.parentStartMs;
-          const parentTime =
-            parentStartMs !== null
-              ? new Date(parentStartMs).toISOString()
-              : null;
-          const childTime =
-            childStartMs !== null ? new Date(childStartMs).toISOString() : null;
-
-          const chronologicalEarlier =
-            childStartMs !== null &&
-            parentStartMs !== null &&
-            childStartMs < parentStartMs
-              ? {
-                  title: macroMoment.title,
-                  summary: macroMoment.summary || "No summary provided",
-                  documentId: document.id,
-                  time: childTime,
-                }
-              : {
-                  title: subject.title,
-                  summary: subject.summary,
-                  documentId: subject.documentId,
-                  time: parentTime,
-                };
-
-          const chronologicalLater =
-            childStartMs !== null &&
-            parentStartMs !== null &&
-            childStartMs < parentStartMs
-              ? {
-                  title: subject.title,
-                  summary: subject.summary,
-                  documentId: subject.documentId,
-                  time: parentTime,
-                }
-              : {
-                  title: macroMoment.title,
-                  summary: macroMoment.summary || "No summary provided",
-                  documentId: document.id,
-                  time: childTime,
-                };
-
-          decision.temporalInverted =
-            childStartMs !== null &&
-            parentStartMs !== null &&
-            parentStartMs > childStartMs;
-
-          const prompt = `You are a knowledge graph attachment classifier.
-Your job is to decide whether two moments refer to the same specific problem/workstream.
-
-## Moment A (chronologically earlier when known)
-Time: ${chronologicalEarlier.time ?? "unknown"}
-Title: ${chronologicalEarlier.title}
-Summary: ${chronologicalEarlier.summary}
-Document: ${chronologicalEarlier.documentId}
-
-## Moment B (chronologically later when known)
-Time: ${chronologicalLater.time ?? "unknown"}
-Title: ${chronologicalLater.title}
-Summary: ${chronologicalLater.summary}
-Document: ${chronologicalLater.documentId}
-
-## Task
-Return a single number from 0 to 1 indicating how likely it is that Moment A and Moment B refer to the same specific problem/workstream.
-
-Guidance:
-- Do not return 1 just because they are in the same project/repo/library.
-- Higher scores mean the moments describe the same problem being worked through, even when one is a follow-up discussion, an implementation step, a test update, or a docs update.
-- Lower scores mean the relationship is only "same area" or "same repo" without a shared problem.
-
-Examples:
-- 0.9: "RSC navigation should prefetch pages by switching requests so caching works." and "Implemented prefetch link scanning and caching; added tests for link scanning and cache behavior."
-- 0.8: "A PR introduced change X." and "Updated docs and tests to reflect change X."
-- 0.1: "Navigation caching / prefetch." and "Routing issue with unrelated endpoint or configuration."
-
-Return only the number (no other text).`;
-
-          try {
-            const llmResult = await callLLM(prompt, "slow-reasoning", {
-              temperature: 0,
-              reasoning: { effort: "high" },
-            });
-            const trimmed = llmResult.trim();
-            const scoreText = trimmed.split(/\s+/)[0] ?? "";
-            const parsedScore = Number.parseFloat(scoreText);
-            decision.llmScore = Number.isFinite(parsedScore)
-              ? parsedScore
-              : null;
-            decision.llmScoreThreshold =
-              DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD;
-            if (!Number.isFinite(parsedScore)) {
-              shouldLink = false;
-              decision.rejectReason = "llm-invalid-score";
-            } else if (
-              parsedScore >= DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD
-            ) {
-              shouldLink = true;
-              decision.method = "llm-score";
-            } else {
-              shouldLink = false;
-              decision.rejectReason = "llm-score-below-threshold";
-            }
-          } catch (err) {
-            console.error("[moment-linker] LLM check failed", err);
-            decision.llmError = String(err);
-            decision.rejectReason = "llm-failed";
-            shouldLink = false;
-          }
+          decision.shortlisted = true;
         }
-
-        if (!shouldLink) {
-          candidateDecisions.push(decision);
-          continue;
-        }
-
-        const parentMomentId = subject.id;
-
-        decision.accepted = true;
-        decision.parentMomentId = parentMomentId;
         candidateDecisions.push(decision);
-
-        console.log("[moment-linker] smart linker chose attachment", {
-          documentId: document.id,
-          macroMomentIndex,
-          matchedSubjectId: subject.id,
-          score: match.score,
-          parentMomentId,
-          subjectTitle: subject.title,
-          subjectDocumentId: subject.documentId,
-          subjectSourceRank: entry.rank,
-          childStartMs,
-          parentStartMs: entry.parentStartMs,
-          parentEndMs: entry.parentEndMs,
-          method: decision.method,
-        });
-
-        return {
-          parentMomentId,
-          matchedSubjectId: subject.id,
-          score: match.score,
-        };
       }
 
-      console.log("[moment-linker] smart linker no attachment", {
-        documentId: document.id,
-        macroMomentIndex,
-        threshold: DEFAULT_SMART_LINKER_LLM_THRESHOLD,
-        candidates: candidateDecisions,
+      if (eligibleCandidates.length === 0) {
+        console.log("[moment-linker] smart linker no attachment", {
+          documentId: document.id,
+          macroMomentIndex,
+          threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+          candidates: candidateDecisions,
+        });
+        return null;
+      }
+
+      const topCandidates = eligibleCandidates.slice(
+        0,
+        DEFAULT_SMART_LINKER_MAX_LLM_CANDIDATES
+      );
+
+      const childTime =
+        childStartMs !== null ? new Date(childStartMs).toISOString() : null;
+
+      const promptCandidates = topCandidates.map((entry) => {
+        const subject = entry.subject;
+        const parentStartMs = entry.parentStartMs;
+        const parentTime =
+          parentStartMs !== null ? new Date(parentStartMs).toISOString() : null;
+        const temporalInverted =
+          childStartMs !== null &&
+          parentStartMs !== null &&
+          parentStartMs > childStartMs;
+        return {
+          id: subject.id,
+          documentId: subject.documentId,
+          title: previewText(subject.title, 200) ?? subject.title,
+          summary: previewText(subject.summary, 900) ?? subject.summary,
+          time: parentTime,
+          temporalInverted,
+          vectorScore: entry.match.score,
+        };
       });
 
-      return null;
+      console.log("[moment-linker] smart linker invoking LLM for shortlist", {
+        documentId: document.id,
+        macroMomentIndex,
+        shortlistCount: promptCandidates.length,
+        threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+        candidateIds: promptCandidates.map((c) => c.id),
+      });
+
+      const prompt = `You are a knowledge graph attachment classifier.
+Your job is to decide whether a child moment refers to the same specific problem as one of the candidate parent moments.
+
+## Child moment
+Time: ${childTime ?? "unknown"}
+Title: ${macroMoment.title}
+Summary: ${macroMoment.summary || "No summary provided"}
+Document: ${document.id}
+
+## Candidate parent moments
+${JSON.stringify(promptCandidates, null, 2)}
+
+## Task
+Pick at most one candidate parent moment.
+Return JSON only, in this exact shape:
+{"selectedId": "<id or null>", "score": <number from 0 to 1>}
+
+Guidance:
+- Decide based on the same specific problem, not the same area.
+- If the relationship is only shared terms or shared repo/project, return selectedId=null with a low score.
+- The parent link is not strict time ordering. The time fields are just metadata.
+`;
+
+      let chosenId: string | null = null;
+      let llmScore: number | null = null;
+      try {
+        const llmResult = await callLLM(prompt, "slow-reasoning", {
+          temperature: 0,
+          reasoning: { effort: "high" },
+        });
+        const trimmed = llmResult.trim();
+        const jsonStart = trimmed.indexOf("{");
+        const jsonEnd = trimmed.lastIndexOf("}");
+        const jsonText =
+          jsonStart >= 0 && jsonEnd > jsonStart
+            ? trimmed.slice(jsonStart, jsonEnd + 1)
+            : null;
+        const parsed = jsonText ? JSON.parse(jsonText) : null;
+
+        const selectedIdRaw =
+          parsed && typeof parsed.selectedId === "string"
+            ? parsed.selectedId.trim()
+            : parsed?.selectedId === null
+            ? null
+            : null;
+        const scoreRaw =
+          parsed && typeof parsed.score === "number" ? parsed.score : null;
+
+        llmScore =
+          typeof scoreRaw === "number" && Number.isFinite(scoreRaw)
+            ? scoreRaw
+            : null;
+
+        if (selectedIdRaw && selectedIdRaw.toLowerCase() !== "null") {
+          chosenId = selectedIdRaw;
+        }
+      } catch (err) {
+        console.error("[moment-linker] LLM shortlist check failed", err);
+      }
+
+      const allowedIds = new Set(promptCandidates.map((c) => c.id));
+      const selectedAllowed = chosenId !== null && allowedIds.has(chosenId);
+      const shouldLink =
+        selectedAllowed &&
+        llmScore !== null &&
+        llmScore >= DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD;
+
+      console.log("[moment-linker] smart linker LLM shortlist decision", {
+        documentId: document.id,
+        macroMomentIndex,
+        selectedId: chosenId,
+        selectedAllowed,
+        llmScore,
+        llmScoreThreshold: DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD,
+        method: "llm-shortlist",
+      });
+
+      if (!shouldLink || chosenId === null) {
+        console.log("[moment-linker] smart linker no attachment", {
+          documentId: document.id,
+          macroMomentIndex,
+          threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+          candidates: candidateDecisions,
+        });
+        return null;
+      }
+
+      const chosen =
+        topCandidates.find((c) => c.subject.id === chosenId) ?? null;
+      if (!chosen) {
+        console.log("[moment-linker] smart linker no attachment", {
+          documentId: document.id,
+          macroMomentIndex,
+          threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+          candidates: candidateDecisions,
+        });
+        return null;
+      }
+
+      const parentMomentId = chosen.subject.id;
+
+      console.log("[moment-linker] smart linker chose attachment", {
+        documentId: document.id,
+        macroMomentIndex,
+        matchedSubjectId: chosen.subject.id,
+        score: chosen.match.score,
+        parentMomentId,
+        subjectTitle: chosen.subject.title,
+        subjectDocumentId: chosen.subject.documentId,
+        subjectSourceRank: chosen.rank,
+        childStartMs,
+        parentStartMs: chosen.parentStartMs,
+        parentEndMs: chosen.parentEndMs,
+        method: "llm-shortlist",
+        llmScore,
+      });
+
+      return {
+        parentMomentId,
+        matchedSubjectId: chosen.subject.id,
+        score: chosen.match.score,
+      };
     },
   },
 };

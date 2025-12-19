@@ -403,6 +403,7 @@ export const githubPlugin: Plugin = {
         return (
           `Context: These chunks are from a GitHub issue (body and/or comments).\n` +
           `Treat them as proposals, questions, or discussion unless the text explicitly states work was completed/merged/shipped.\n` +
+          `If a chunk is an automated status update (bot output, deployment status, preview build, CI status), treat it as low-signal unless it contains a concrete decision or a change in direction.\n` +
           `Attribute proposals and observations to the chunk author (author=...) when possible.\n` +
           `Prefer verbs like "described", "proposed", "requested", "discussed", "noted".\n`
         );
@@ -412,6 +413,7 @@ export const githubPlugin: Plugin = {
         return (
           `Context: These chunks are from a GitHub pull request (body and/or comments).\n` +
           `Summarize what was changed, reviewed, or decided.\n` +
+          `If a chunk is an automated status update (bot output, deployment status, preview build, CI status), treat it as low-signal unless it contains a concrete decision or points to a change in the implementation.\n` +
           `Attribute review feedback and decisions to the chunk author (author=...) when possible.\n` +
           `Avoid claiming work shipped to users unless the text explicitly says so.\n`
         );
@@ -534,6 +536,9 @@ export const githubPlugin: Plugin = {
           `- This is an issue. Treat the text as describing a problem, request, or proposal unless it explicitly says work was completed/merged/shipped.`
         );
         lines.push(
+          `- Treat automated status updates (bot output, deployment status, preview builds, CI status) as low-signal unless they contain a concrete decision or a change in direction.`
+        );
+        lines.push(
           `- Prefer verbs like "described", "proposed", "requested", "discussed", "noted".`
         );
         lines.push(
@@ -542,6 +547,9 @@ export const githubPlugin: Plugin = {
       } else if (isPullRequest) {
         lines.push(
           `- This is a pull request. Treat the text as describing changes, review feedback, and decisions.`
+        );
+        lines.push(
+          `- Treat automated status updates (bot output, deployment status, preview builds, CI status) as low-signal unless they contain a concrete decision or a change in the implementation.`
         );
         lines.push(
           `- Avoid claiming user-visible shipping unless the text explicitly says it shipped.`

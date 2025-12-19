@@ -6,14 +6,13 @@ import type {
   MacroMomentParentProposal,
 } from "../types";
 import { getEmbedding } from "../utils/vector";
-import { getMicroMomentsForDocument, getMoments } from "../momentDb";
+import { getMoments } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 import { callLLM } from "../utils/llm";
 
-const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
-const DEFAULT_SMART_LINKER_LLM_THRESHOLD = 0.5;
+const DEFAULT_SMART_LINKER_THRESHOLD = 0.85;
+const DEFAULT_SMART_LINKER_LLM_THRESHOLD = 0.6;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
-const DEFAULT_SMART_LINKER_MAX_LOG_MICRO_TEXT_CHARS = 2000;
 
 function previewText(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") {
@@ -41,69 +40,6 @@ function capText(
     return { text: trimmed.slice(0, maxChars), truncated: true };
   }
   return { text: trimmed, truncated: false };
-}
-
-function buildCappedMicroMomentQueryText(
-  microMomentTexts: string[],
-  maxChars: number
-): { text: string; usedCount: number } {
-  let out = "";
-  let usedCount = 0;
-
-  for (const rawText of microMomentTexts) {
-    const text = rawText.trim();
-    if (!text) {
-      continue;
-    }
-
-    const separator = out.length > 0 ? "\n\n" : "";
-    const remaining = maxChars - out.length - separator.length;
-    if (remaining <= 0) {
-      break;
-    }
-
-    const slice = text.length > remaining ? text.slice(0, remaining) : text;
-    out = `${out}${separator}${slice}`;
-    usedCount += 1;
-
-    if (out.length >= maxChars) {
-      break;
-    }
-  }
-
-  return { text: out, usedCount };
-}
-
-function buildCappedMicroMomentQueryTextWithIndices(
-  microMomentTexts: string[],
-  maxChars: number
-): { text: string; usedIndices: number[] } {
-  let out = "";
-  const usedIndices: number[] = [];
-
-  for (let i = 0; i < microMomentTexts.length; i++) {
-    const rawText = microMomentTexts[i];
-    const text = rawText.trim();
-    if (!text) {
-      continue;
-    }
-
-    const separator = out.length > 0 ? "\n\n" : "";
-    const remaining = maxChars - out.length - separator.length;
-    if (remaining <= 0) {
-      break;
-    }
-
-    const slice = text.length > remaining ? text.slice(0, remaining) : text;
-    out = `${out}${separator}${slice}`;
-    usedIndices.push(i);
-
-    if (out.length >= maxChars) {
-      break;
-    }
-  }
-
-  return { text: out, usedIndices };
 }
 
 export const smartLinkerPlugin: Plugin = {
@@ -143,40 +79,35 @@ export const smartLinkerPlugin: Plugin = {
           null,
       };
 
-      const microMoments = await getMicroMomentsForDocument(
-        document.id,
-        momentGraphContext
-      );
-      const microTexts = microMoments.map((m) => m.summary ?? m.content);
-      const built = buildCappedMicroMomentQueryTextWithIndices(
-        microTexts,
+      const rawQueryText =
+        typeof macroMoment.summary === "string" && macroMoment.summary.trim()
+          ? macroMoment.summary.trim()
+          : typeof macroMoment.title === "string" && macroMoment.title.trim()
+          ? macroMoment.title.trim()
+          : null;
+
+      if (!rawQueryText) {
+        console.log("[moment-linker] smart linker skipped (no query text)", {
+          documentId: document.id,
+          macroMomentIndex,
+          macroMomentTitle: macroMoment.title,
+        });
+        return null;
+      }
+
+      const cappedQuery = capText(
+        rawQueryText,
         DEFAULT_SMART_LINKER_MAX_QUERY_CHARS
       );
-      const queryText = built.text;
-      const usedMicroMoments = built.usedIndices.map((idx) => {
-        const m = microMoments[idx] as any;
-        const text = microTexts[idx] ?? "";
-        const capped = capText(
-          text,
-          DEFAULT_SMART_LINKER_MAX_LOG_MICRO_TEXT_CHARS
-        );
-        return {
-          path: m?.path ?? null,
-          summaryPreview: previewText(text, 160),
-          text: capped.text,
-          textTruncated: capped.truncated,
-        };
-      });
+      const queryText = cappedQuery.text ?? rawQueryText;
 
       console.log("[moment-linker] smart linker query", {
         documentId: document.id,
         macroMomentIndex,
         macroMomentTitle: macroMoment.title,
-        querySource: "micro-concat",
-        microMomentsUsed: built.usedIndices.length,
-        microMomentsTotal: microMoments.length,
+        querySource: "macro-summary",
+        queryTextTruncated: cappedQuery.truncated,
         queryPreview: queryText.slice(0, 200),
-        usedMicroMoments,
       });
 
       const embedding = await getEmbedding(queryText);
@@ -359,9 +290,9 @@ export const smartLinkerPlugin: Plugin = {
         decision.rankApplied = entry.rank;
 
         // Logic:
-        // >= 0.75: Auto-accept
-        // >= 0.50: LLM Check
-        // < 0.50: Rejected above
+        // >= threshold: Auto-accept
+        // >= llm-threshold: LLM Check
+        // < llm-threshold: Rejected above
 
         let shouldLink = false;
 
@@ -412,7 +343,7 @@ Answer with exactly one word: YES or NO.`;
           try {
             const llmResult = await callLLM(prompt, "slow-reasoning", {
               temperature: 0,
-              reasoning: { effort: "low" },
+              reasoning: { effort: "high" },
             });
             const answer = llmResult.trim().toUpperCase();
             decision.llmAnswer = answer;

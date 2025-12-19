@@ -1051,68 +1051,25 @@ export async function query(
               : discordCandidates;
 
           if (anchorCandidates.length > 0) {
-            const candidatesToTry = anchorCandidates.slice(0, 5);
-            const rootsToMergeLimit = 3;
+            const candidate = anchorCandidates[0];
+            console.log("[query:narrative] anchor candidate", {
+              id: candidate.id,
+              documentId: candidate.documentId,
+            });
 
-            const rootsById = new Map<string, Moment>();
-            const requiredIds = new Set<string>();
-            let primaryRoot: Moment | null = null;
-            let chosenMatchId: string | null = null;
+            const ancestors = await findAncestors(
+              candidate.id,
+              momentGraphContext
+            );
+            const root = ancestors[0] ?? candidate;
+            const chosenMatchId = candidate.id;
 
-            for (const candidate of candidatesToTry) {
-              console.log("[query:narrative] anchor candidate", {
-                id: candidate.id,
-                documentId: candidate.documentId,
-              });
-
-              const ancestors = await findAncestors(
-                candidate.id,
-                momentGraphContext
-              );
-              const root = ancestors[0] ?? candidate;
-
-              if (!rootsById.has(root.id)) {
-                rootsById.set(root.id, root);
-              }
-
-              requiredIds.add(root.id);
-              requiredIds.add(candidate.id);
-
-              if (!primaryRoot) {
-                primaryRoot = root;
-                chosenMatchId = candidate.id;
-              }
-            }
-
-            const rootsToFetch = Array.from(rootsById.values()).slice(
-              0,
-              rootsToMergeLimit
+            const timeline = await findDescendants(root.id, momentGraphContext);
+            console.log(
+              `[query:narrative] rootTimelineLen=${timeline.length} (anchoredOn=${root.documentId} matchedOn=${candidate.documentId})`
             );
 
-            const mergedById = new Map<string, Moment>();
-            for (const root of rootsToFetch) {
-              const partial = await findDescendants(
-                root.id,
-                momentGraphContext
-              );
-              console.log(
-                `[query:narrative] rootTimelineLen=${partial.length} (anchoredOn=${root.documentId})`
-              );
-              for (const moment of partial) {
-                mergedById.set(moment.id, moment);
-              }
-            }
-
-            const mergedTimeline = Array.from(mergedById.values()).sort(
-              (a, b) => {
-                if (a.createdAt !== b.createdAt) {
-                  return a.createdAt.localeCompare(b.createdAt);
-                }
-                return a.id.localeCompare(b.id);
-              }
-            );
-
-            if (mergedTimeline.length > 0 && primaryRoot && chosenMatchId) {
+            if (timeline.length > 0) {
               const maxMoments = readEnvNumber(
                 "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
                 200
@@ -1134,16 +1091,16 @@ export async function query(
                 0.4
               ).value;
 
-              const requiredIdsList = Array.from(requiredIds);
+              const requiredIdsList = [root.id, chosenMatchId];
               const cutoffApplied = applyImportanceCutoff({
-                timeline: mergedTimeline,
+                timeline,
                 requiredIds: requiredIdsList,
                 cutoff: queryImportanceCutoff,
               });
               console.log("[query:narrative] applied importance cutoff", {
                 cutoff: clamp01(queryImportanceCutoff),
                 removedCount: cutoffApplied.removedCount,
-                beforeLen: mergedTimeline.length,
+                beforeLen: timeline.length,
                 afterLen: cutoffApplied.timeline.length,
               });
 
@@ -1188,7 +1145,7 @@ export async function query(
               const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
 ## Subject
-${primaryRoot.title}: ${primaryRoot.summary}
+${root.title}: ${root.summary}
 
 ## Timeline
 ${narrativeContext}
@@ -1215,7 +1172,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
                 return buildBriefingText({
                   momentGraphNamespace,
                   query: userQuery,
-                  subject: primaryRoot,
+                  subject: root,
                   timelineLines,
                 });
               }

@@ -41,5 +41,5 @@ And I want the LLM classifier call to use reasoning effort high (instead of low)
 
 - Follow-up after improved results: still missing a Discord discussion in the timeline output.
   - Logs show the Discord thread was indexed into a different Moment Graph namespace than the one used when querying issue 552.
-  - Logs also show smart-linker rejecting candidate parents due to a temporal-order check that treats a parent ending after a child starts as invalid, which blocks otherwise reasonable attachments.
-  - At query time, the narrative path builds a timeline from a single root. If a relevant Discord discussion ends up as a separate root, it will not appear unless we merge timelines across roots.
+  - Logs show smart-linker rejecting candidate parents due to a temporal-order check that treats a parent ending after a child starts as invalid, which blocks otherwise reasonable attachments.
+  - Query-time behavior should stay as: pick the single chosen match, resolve its root ancestor, then include all descendants from that root before pruning.

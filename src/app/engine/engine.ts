@@ -24,7 +24,10 @@ import {
 } from "./momentDb";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
-import { synthesizeMicroMoments } from "./synthesis/synthesizeMicroMoments";
+import {
+  synthesizeMicroMoments,
+  synthesizeMicroMomentsIntoStreams,
+} from "./synthesis/synthesizeMicroMoments";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
 import {
   applyMomentGraphNamespacePrefixValue,
@@ -474,216 +477,236 @@ export async function indexDocument(
         });
       }
 
-      const macroMomentDescriptions = (await synthesizeMicroMoments(
+      const streams = await synthesizeMicroMomentsIntoStreams(
         microMomentsForSynthesis,
         {
           macroSynthesisPromptContext,
         }
-      )) as MacroMomentDescription[];
+      );
 
-      if (macroMomentDescriptions.length > 0) {
-        console.log("[moment-linker] macro moments synthesized", {
+      if (streams.length > 0) {
+        console.log("[moment-linker] macro streams synthesized", {
           documentId: document.id,
-          count: macroMomentDescriptions.length,
-          firstTitle: macroMomentDescriptions[0]?.title,
+          streams: streams.map((s) => ({
+            streamId: s.streamId,
+            macroCount: s.macroMoments.length,
+            firstTitle: s.macroMoments[0]?.title ?? null,
+          })),
         });
 
-        let anchorMacroMomentIndex = 0;
-        let anchorMacroMomentImportance: number | null = null;
-        let anchorMacroMomentForLinking: MacroMomentDescription | null = null;
-
-        const macroImportanceEntries: Array<{
-          index: number;
-          importance: number;
-        }> = [];
-        for (let i = 0; i < macroMomentDescriptions.length; i++) {
-          const candidate = macroMomentDescriptions[i] as any;
-          const importance =
-            candidate && typeof candidate.importance === "number"
-              ? (candidate.importance as number)
-              : null;
-          if (importance === null || !Number.isFinite(importance)) {
-            continue;
-          }
-          macroImportanceEntries.push({ index: i, importance });
-        }
-
-        if (macroImportanceEntries.length > 0) {
-          const sortedImportance = macroImportanceEntries
-            .map((e) => e.importance)
-            .sort((a, b) => a - b);
-          const p75Index =
-            sortedImportance.length === 1
-              ? 0
-              : Math.floor((sortedImportance.length - 1) * 0.75);
-          const p75Threshold =
-            sortedImportance[p75Index] ?? sortedImportance[0]!;
-
-          const importantChronological = macroImportanceEntries
-            .filter((e) => e.importance >= p75Threshold)
-            .sort((a, b) => a.index - b.index);
-
-          const minImportantCount = macroImportanceEntries.length >= 2 ? 2 : 1;
-          const ensuredImportant =
-            importantChronological.length >= minImportantCount
-              ? importantChronological
-              : macroImportanceEntries
-                  .slice()
-                  .sort(
-                    (a, b) => b.importance - a.importance || a.index - b.index
-                  )
-                  .slice(0, minImportantCount)
-                  .sort((a, b) => a.index - b.index);
-
-          const maxImportantCount = 3;
-          const limitedImportant = ensuredImportant
-            .slice()
-            .sort((a, b) => b.importance - a.importance || a.index - b.index)
-            .slice(0, maxImportantCount)
-            .sort((a, b) => a.index - b.index);
-
-          const firstImportantIndex = limitedImportant[0]?.index ?? 0;
-          const firstImportant =
-            macroMomentDescriptions[firstImportantIndex] ??
-            macroMomentDescriptions[0];
-
-          anchorMacroMomentIndex = firstImportantIndex;
-          anchorMacroMomentImportance = limitedImportant[0]?.importance ?? null;
-
-          const concatenated = limitedImportant
-            .map((entry) => {
-              const d = macroMomentDescriptions[entry.index];
-              if (!d) {
-                return null;
-              }
-              const title =
-                typeof d.title === "string" && d.title.trim().length > 0
-                  ? d.title.trim()
-                  : "";
-              const summary =
-                typeof d.summary === "string" && d.summary.trim().length > 0
-                  ? d.summary.trim()
-                  : "";
-              const combined = [title, summary].filter(Boolean).join("\n");
-              return combined.length > 0 ? combined : null;
-            })
-            .filter((v): v is string => typeof v === "string" && v.length > 0)
-            .join("\n\n");
-
-          if (firstImportant) {
-            anchorMacroMomentForLinking =
-              concatenated.length > 0
-                ? {
-                    ...firstImportant,
-                    summary: concatenated,
-                  }
-                : firstImportant;
-          }
-        }
-
-        let resolvedParentIdForFirst: string | undefined = undefined;
-        let previousMomentId: string | undefined = undefined;
-
-        for (let i = 0; i < macroMomentDescriptions.length; i++) {
-          const description = macroMomentDescriptions[i];
-          if (!description) {
+        for (const stream of streams) {
+          const macroMomentDescriptions =
+            stream.macroMoments as any as MacroMomentDescription[];
+          if (macroMomentDescriptions.length === 0) {
             continue;
           }
 
-          const microPaths = description.microPaths || [];
-          const microPathsHash =
-            microPaths.length > 0
-              ? await hashMicroPaths(microPaths)
-              : undefined;
-          const existing =
-            microPathsHash !== undefined
-              ? await findMomentByMicroPathsHash(
-                  document.id,
-                  microPathsHash,
-                  momentGraphContext
-                )
-              : null;
+          let anchorMacroMomentIndex = 0;
+          let anchorMacroMomentImportance: number | null = null;
+          let anchorMacroMomentForLinking: MacroMomentDescription | null = null;
 
-          const momentId = existing?.id ?? crypto.randomUUID();
-          if (i === 0) {
-            if (existing?.parentId) {
-              resolvedParentIdForFirst = existing.parentId;
-              console.log("[moment-linker] attachment reuse existing parent", {
-                documentId: document.id,
-                macroMomentIndex: i,
-                parentId: resolvedParentIdForFirst,
-                momentId,
-              });
-            } else {
-              const anchorMacroMoment =
-                anchorMacroMomentForLinking ??
-                macroMomentDescriptions[anchorMacroMomentIndex] ??
-                macroMomentDescriptions[0];
-              const parentProposal = await runFirstMatchHook(
-                context.plugins,
-                "proposeMacroMomentParent",
-                (plugin) =>
-                  plugin.subjects?.proposeMacroMomentParent?.(
-                    document,
-                    anchorMacroMoment,
-                    anchorMacroMomentIndex,
-                    indexingContext
-                  )
-              );
-              resolvedParentIdForFirst = parentProposal?.parentMomentId;
-              if (parentProposal) {
-                console.log("[moment-linker] attachment proposal", {
-                  documentId: document.id,
-                  macroMomentIndex: i,
-                  proposalMacroMomentIndex: anchorMacroMomentIndex,
-                  proposalMacroMomentImportance: anchorMacroMomentImportance,
-                  parentMomentId: parentProposal.parentMomentId,
-                  matchedSubjectId: parentProposal.matchedSubjectId,
-                  score: parentProposal.score,
-                });
-              } else {
-                console.log("[moment-linker] no attachment proposal", {
-                  documentId: document.id,
-                  macroMomentIndex: i,
-                  proposalMacroMomentIndex: anchorMacroMomentIndex,
-                  proposalMacroMomentImportance: anchorMacroMomentImportance,
-                });
-              }
+          const macroImportanceEntries: Array<{
+            index: number;
+            importance: number;
+          }> = [];
+          for (let i = 0; i < macroMomentDescriptions.length; i++) {
+            const candidate = macroMomentDescriptions[i] as any;
+            const importance =
+              candidate && typeof candidate.importance === "number"
+                ? (candidate.importance as number)
+                : null;
+            if (importance === null || !Number.isFinite(importance)) {
+              continue;
+            }
+            macroImportanceEntries.push({ index: i, importance });
+          }
+
+          if (macroImportanceEntries.length > 0) {
+            const sortedImportance = macroImportanceEntries
+              .map((e) => e.importance)
+              .sort((a, b) => a - b);
+            const p75Index =
+              sortedImportance.length === 1
+                ? 0
+                : Math.floor((sortedImportance.length - 1) * 0.75);
+            const p75Threshold =
+              sortedImportance[p75Index] ?? sortedImportance[0]!;
+
+            const importantChronological = macroImportanceEntries
+              .filter((e) => e.importance >= p75Threshold)
+              .sort((a, b) => a.index - b.index);
+
+            const minImportantCount =
+              macroImportanceEntries.length >= 2 ? 2 : 1;
+            const ensuredImportant =
+              importantChronological.length >= minImportantCount
+                ? importantChronological
+                : macroImportanceEntries
+                    .slice()
+                    .sort(
+                      (a, b) => b.importance - a.importance || a.index - b.index
+                    )
+                    .slice(0, minImportantCount)
+                    .sort((a, b) => a.index - b.index);
+
+            const maxImportantCount = 3;
+            const limitedImportant = ensuredImportant
+              .slice()
+              .sort((a, b) => b.importance - a.importance || a.index - b.index)
+              .slice(0, maxImportantCount)
+              .sort((a, b) => a.index - b.index);
+
+            const firstImportantIndex = limitedImportant[0]?.index ?? 0;
+            const firstImportant =
+              macroMomentDescriptions[firstImportantIndex] ??
+              macroMomentDescriptions[0];
+
+            anchorMacroMomentIndex = firstImportantIndex;
+            anchorMacroMomentImportance =
+              limitedImportant[0]?.importance ?? null;
+
+            const concatenated = limitedImportant
+              .map((entry) => {
+                const d = macroMomentDescriptions[entry.index];
+                if (!d) {
+                  return null;
+                }
+                const title =
+                  typeof d.title === "string" && d.title.trim().length > 0
+                    ? d.title.trim()
+                    : "";
+                const summary =
+                  typeof d.summary === "string" && d.summary.trim().length > 0
+                    ? d.summary.trim()
+                    : "";
+                const combined = [title, summary].filter(Boolean).join("\n");
+                return combined.length > 0 ? combined : null;
+              })
+              .filter((v): v is string => typeof v === "string" && v.length > 0)
+              .join("\n\n");
+
+            if (firstImportant) {
+              anchorMacroMomentForLinking =
+                concatenated.length > 0
+                  ? {
+                      ...firstImportant,
+                      summary: concatenated,
+                    }
+                  : firstImportant;
             }
           }
-          console.log("[moment-linker] macro correlation", {
-            documentId: document.id,
-            index: i,
-            title: description.title,
-            microPathsCount: microPaths.length,
-            microPathsHash,
-            reuseExisting: Boolean(existing),
-            momentId,
-            parentId:
-              i === 0
-                ? resolvedParentIdForFirst ?? null
-                : previousMomentId ?? null,
-          });
-          const moment: Moment = {
-            id: momentId,
-            documentId: document.id,
-            summary:
-              description.summary || description.content.substring(0, 200),
-            title: description.title,
-            parentId: i === 0 ? resolvedParentIdForFirst : previousMomentId,
-            microPaths,
-            microPathsHash,
-            importance:
-              typeof (description as any).importance === "number"
-                ? ((description as any).importance as number)
-                : undefined,
-            createdAt: description.createdAt,
-            author: description.author,
-            sourceMetadata: description.sourceMetadata,
-          };
 
-          await addMoment(moment, momentGraphContext);
-          previousMomentId = momentId;
+          let resolvedParentIdForFirst: string | undefined = undefined;
+          let previousMomentId: string | undefined = undefined;
+
+          for (let i = 0; i < macroMomentDescriptions.length; i++) {
+            const description = macroMomentDescriptions[i];
+            if (!description) {
+              continue;
+            }
+
+            const microPaths = description.microPaths || [];
+            const microPathsHash =
+              microPaths.length > 0
+                ? await hashMicroPaths(microPaths)
+                : undefined;
+            const existing =
+              microPathsHash !== undefined
+                ? await findMomentByMicroPathsHash(
+                    document.id,
+                    microPathsHash,
+                    momentGraphContext
+                  )
+                : null;
+
+            const momentId = existing?.id ?? crypto.randomUUID();
+            if (i === 0) {
+              if (existing?.parentId) {
+                resolvedParentIdForFirst = existing.parentId;
+                console.log(
+                  "[moment-linker] attachment reuse existing parent",
+                  {
+                    documentId: document.id,
+                    macroMomentIndex: i,
+                    parentId: resolvedParentIdForFirst,
+                    momentId,
+                    streamId: stream.streamId,
+                  }
+                );
+              } else {
+                const anchorMacroMoment =
+                  anchorMacroMomentForLinking ??
+                  macroMomentDescriptions[anchorMacroMomentIndex] ??
+                  macroMomentDescriptions[0];
+                const parentProposal = await runFirstMatchHook(
+                  context.plugins,
+                  "proposeMacroMomentParent",
+                  (plugin) =>
+                    plugin.subjects?.proposeMacroMomentParent?.(
+                      document,
+                      anchorMacroMoment,
+                      anchorMacroMomentIndex,
+                      indexingContext
+                    )
+                );
+                resolvedParentIdForFirst = parentProposal?.parentMomentId;
+                if (parentProposal) {
+                  console.log("[moment-linker] attachment proposal", {
+                    documentId: document.id,
+                    macroMomentIndex: i,
+                    proposalMacroMomentIndex: anchorMacroMomentIndex,
+                    proposalMacroMomentImportance: anchorMacroMomentImportance,
+                    parentMomentId: parentProposal.parentMomentId,
+                    matchedSubjectId: parentProposal.matchedSubjectId,
+                    score: parentProposal.score,
+                    streamId: stream.streamId,
+                  });
+                } else {
+                  console.log("[moment-linker] no attachment proposal", {
+                    documentId: document.id,
+                    macroMomentIndex: i,
+                    proposalMacroMomentIndex: anchorMacroMomentIndex,
+                    proposalMacroMomentImportance: anchorMacroMomentImportance,
+                    streamId: stream.streamId,
+                  });
+                }
+              }
+            }
+            console.log("[moment-linker] macro correlation", {
+              documentId: document.id,
+              index: i,
+              title: description.title,
+              microPathsCount: microPaths.length,
+              microPathsHash,
+              reuseExisting: Boolean(existing),
+              momentId,
+              parentId:
+                i === 0
+                  ? resolvedParentIdForFirst ?? null
+                  : previousMomentId ?? null,
+              streamId: stream.streamId,
+            });
+            const moment: Moment = {
+              id: momentId,
+              documentId: document.id,
+              summary:
+                description.summary || description.content.substring(0, 200),
+              title: description.title,
+              parentId: i === 0 ? resolvedParentIdForFirst : previousMomentId,
+              microPaths,
+              microPathsHash,
+              importance:
+                typeof (description as any).importance === "number"
+                  ? ((description as any).importance as number)
+                  : undefined,
+              createdAt: description.createdAt,
+              author: description.author,
+              sourceMetadata: description.sourceMetadata,
+            };
+
+            await addMoment(moment, momentGraphContext);
+            previousMomentId = momentId;
+          }
         }
       }
     }

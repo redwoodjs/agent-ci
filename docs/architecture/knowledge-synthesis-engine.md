@@ -13,7 +13,12 @@ Source data, especially chat logs (Cursor, Discord), is extremely noisy. A singl
 ### 3. The "Historian's Dilemma": Synthesis vs. Retrieval
 Retrieving raw chunks is not enough to tell a story. A list of 50 commit messages or chat logs does not constitute a narrative. To answer "How did the architecture evolve?", the system must act as a historian: it needs to *synthesize* raw events into a coherent narrative *before* query time. Doing this synthesis on-the-fly for every query is prohibitively expensive and slow.
 
-### 4. Efficiently Processing Evolving Conversations
+### 4. The "Single Document Timeline" Assumption
+A document can contain multiple unrelated threads of thought. This is common for Discord channel/day documents, and can also happen for long Cursor conversations and even pull requests that address multiple topics.
+
+If ingestion produces a single macro timeline per document and attaches that timeline under a single parent, then any attachment decision implicitly treats all macro moments in the document as relevant to the same subject. When that assumption is wrong, query timelines can include large amounts of unrelated context.
+
+### 5. Efficiently Processing Evolving Conversations
 Conversations evolve. An older part of a thread might remain static while new messages are added. Re-processing and re-summarizing the entire conversation for every new message is wasteful. The system requires a granular caching strategy that can recognize unchanged parts of a conversation to minimize LLM costs and latency.
 
 ## The Architecture
@@ -46,6 +51,9 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
     *   **Formatting rules**: Instructions for source labels in titles (e.g., `[GitHub Issue #552]`).
     *   **Reference context**: Canonical tokens to be included in the summary text.
 
+*   **Phase 2b: Threading (Multi-stream documents)**
+    Some sources produce documents that are better treated as multiple independent timelines (example: Discord channel/day documents). In those cases, the engine should partition micro moments into multiple streams of thought and preserve stream continuity across micro-moment batches. Macro synthesis is then performed per stream, rather than producing one macro timeline for the entire document.
+
 *   **Phase 3: Correlation (Smart Linker)**
     Before persisting, the engine attempts to stitch the new Macro-Moments into existing timelines.
     1.  **Search**: It queries the vector index for existing Moments that match the semantic content of the new document.
@@ -57,6 +65,8 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
     - **Merge decision**: Decide whether two subjects refer to the same thread and should collapse into one subject.
 
     The current storage model represents “attach” using parent links, so the attach decision must be treated as “place this under that work item”, not “these are the same object”.
+
+    When a document is partitioned into multiple streams, correlation should be applied per stream. Each stream is treated as its own timeline for attachment and persistence.
 
     For sources that often begin with low-signal content (example: Cursor conversations), the engine should not assume that the first synthesized macro moment is the best representative for correlation. One approach is to build the search query from a subset of macro moments chosen by importance (example: select macro moments at or above a per-document percentile cutoff, then concatenate their titles and summaries). When a parent is chosen, the attachment still uses the document's first selected macro moment as the anchor for timestamps and macro indexing, and the document's macro moments are persisted in chronological order under that attachment.
 

@@ -86,11 +86,27 @@ npx wrangler vectorize create moment-index \
   --metric=cosine
 ```
 
+If you use Moment Graph namespaces (filtering queries by momentGraphNamespace), create a metadata index for it:
+
+```bash
+npx wrangler vectorize create-metadata-index moment-index \
+  --property-name='momentGraphNamespace' \
+  --type='string'
+```
+
 **Subject Index (for root moments representing Subjects):**
 ```bash
 npx wrangler vectorize create subject-index \
   --dimensions=768 \
   --metric=cosine
+```
+
+If you use Moment Graph namespaces (filtering queries by momentGraphNamespace), create a metadata index for it:
+
+```bash
+npx wrangler vectorize create-metadata-index subject-index \
+  --property-name='momentGraphNamespace' \
+  --type='string'
 ```
 
 The default embedding model (`@cf/baai/bge-base-en-v1.5`) uses 768 dimensions. Update `wrangler.jsonc` if you use a different model.

@@ -43,3 +43,9 @@ And I want the LLM classifier call to use reasoning effort high (instead of low)
   - Logs show the Discord thread was indexed into a different Moment Graph namespace than the one used when querying issue 552.
   - Logs show smart-linker rejecting candidate parents due to a temporal-order check that treats a parent ending after a child starts as invalid, which blocks otherwise reasonable attachments.
   - Query-time behavior should stay as: pick the single chosen match, resolve its root ancestor, then include all descendants from that root before pruning.
+
+- Follow-up after backfill into a single namespace: smart-linker returned zero candidates (empty SUBJECT_INDEX query), so PR and Discord stayed as separate roots and the query timeline only contained issue 552.
+  - Suspected Vectorize metadata indexing: namespace filtering depends on momentGraphNamespace being indexed as a Vectorize metadata index.
+  - Updated wrangler config to use fresh Vectorize indexes for subject and moment.
+  - Updated engine README to include wrangler commands for creating Vectorize metadata indexes on momentGraphNamespace for both moment and subject indexes.
+  - Added a smart-linker fallback: if SUBJECT_INDEX query returns zero matches, rerun the same vector query against MOMENT_INDEX (still filtered by momentGraphNamespace).

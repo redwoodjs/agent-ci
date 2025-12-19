@@ -29,12 +29,12 @@
     },
     {
       "binding": "SUBJECT_INDEX",
-      "index_name": "subject-index-v2",
+      "index_name": "subject-index-v3",
       "remote": true
     },
     {
       "binding": "MOMENT_INDEX",
-      "index_name": "moment-index-v2",
+      "index_name": "moment-index-v3",
       "remote": true
     }
   ],
@@ -549,12 +549,12 @@
         },
         {
           "binding": "SUBJECT_INDEX",
-          "index_name": "subject-index-dev-justin",
+          "index_name": "subject-index-dev-justin-v2",
           "remote": true
         },
         {
           "binding": "MOMENT_INDEX",
-          "index_name": "moment-index-dev-justin",
+          "index_name": "moment-index-dev-justin-v2",
           "remote": true
         }
       ],

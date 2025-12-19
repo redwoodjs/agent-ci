@@ -118,10 +118,27 @@ export const smartLinkerPlugin: Plugin = {
       if (momentGraphNamespace !== "default") {
         queryOptions.filter = { momentGraphNamespace };
       }
-      const results = await context.env.SUBJECT_INDEX.query(
+      let results = await context.env.SUBJECT_INDEX.query(
         embedding,
         queryOptions as any
       );
+
+      if (!results.matches || results.matches.length === 0) {
+        if (
+          context.env.MOMENT_INDEX &&
+          typeof (context.env.MOMENT_INDEX as any).query === "function"
+        ) {
+          console.log("[moment-linker] smart linker fallback to MOMENT_INDEX", {
+            documentId: document.id,
+            macroMomentIndex,
+            momentGraphNamespace,
+          });
+          results = await context.env.MOMENT_INDEX.query(
+            embedding,
+            queryOptions as any
+          );
+        }
+      }
 
       console.log("[moment-linker] smart linker candidates", {
         documentId: document.id,

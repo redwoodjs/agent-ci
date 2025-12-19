@@ -1,5 +1,10 @@
 import { env } from "cloudflare:workers";
-import { getBackfillState, updateBackfillState } from "./backfill-state";
+import {
+  getBackfillState,
+  incrementBackfillEnqueuedCount,
+  markBackfillEnqueueCompleted,
+  updateBackfillState,
+} from "./backfill-state";
 import type { SchedulerJobMessage } from "./backfill-types";
 import { formatLog } from "../utils/inspect";
 
@@ -218,7 +223,8 @@ async function fetchGitHubPage<T>(
 export async function processSchedulerJob(
   message: SchedulerJobMessage
 ): Promise<void> {
-  const { repository_key, owner, repo, entity_type, cursor } = message;
+  const { repository_key, owner, repo, entity_type, cursor, backfill_run_id } =
+    message;
 
   console.log(
     formatLog("[scheduler] Processing scheduler job:", {
@@ -227,11 +233,13 @@ export async function processSchedulerJob(
       repo,
       entity_type,
       cursor,
+      backfill_run_id: backfill_run_id ?? null,
     })
   );
 
   const state = await getBackfillState(repository_key);
   console.log(formatLog("[scheduler] Current backfill state:", state));
+  const runId = backfill_run_id ?? state?.current_run_id ?? null;
 
   if (state?.status === "paused_on_error" || state?.status === "paused") {
     console.log(
@@ -299,13 +307,24 @@ export async function processSchedulerJob(
         for (const project of projectsData) {
           await projectsProcessorQueue.send({
             type: "processor",
-            repository_key: `${owner}/_projects`,
+            repository_key,
             owner,
             repo: "_projects",
             entity_type: "project",
             entity_data: project,
             event_type: "backfill",
+            moment_graph_namespace_prefix:
+              state?.moment_graph_namespace_prefix ?? null,
+            ...(runId ? { backfill_run_id: runId } : {}),
           });
+        }
+
+        if (runId) {
+          await incrementBackfillEnqueuedCount(
+            repository_key,
+            runId,
+            projectsData.length
+          );
         }
 
         console.log(
@@ -334,6 +353,7 @@ export async function processSchedulerJob(
           await (env as any).SCHEDULER_QUEUE.send({
             ...message,
             cursor: projectsNextPage,
+            ...(runId ? { backfill_run_id: runId } : {}),
           });
         } else {
           await updateBackfillState(repository_key, {
@@ -349,9 +369,22 @@ export async function processSchedulerJob(
               owner,
               repo,
               entity_type: nextEntityType,
+              ...(runId ? { backfill_run_id: runId } : {}),
             });
           } else {
             await updateBackfillState(repository_key, { status: "completed" });
+
+            if (runId) {
+              await markBackfillEnqueueCompleted(repository_key, runId);
+              const updated = await getBackfillState(repository_key);
+              console.log("[backfill] enqueue completed", {
+                repositoryKey: repository_key,
+                backfillRunId: runId,
+                momentGraphNamespacePrefix:
+                  updated?.moment_graph_namespace_prefix ?? null,
+                enqueuedCount: updated?.enqueued_count ?? 0,
+              });
+            }
           }
         }
         return;
@@ -391,7 +424,14 @@ export async function processSchedulerJob(
             : (entity_type.slice(0, -1) as any),
         entity_data: entity,
         event_type: "backfill",
+        moment_graph_namespace_prefix:
+          state?.moment_graph_namespace_prefix ?? null,
+        ...(runId ? { backfill_run_id: runId } : {}),
       });
+    }
+
+    if (runId) {
+      await incrementBackfillEnqueuedCount(repository_key, runId, data.length);
     }
 
     console.log(
@@ -420,6 +460,7 @@ export async function processSchedulerJob(
       await (env as any).SCHEDULER_QUEUE.send({
         ...message,
         cursor: nextPage,
+        ...(runId ? { backfill_run_id: runId } : {}),
       });
     } else {
       await updateBackfillState(repository_key, {
@@ -435,9 +476,22 @@ export async function processSchedulerJob(
           owner,
           repo,
           entity_type: nextEntityType,
+          ...(runId ? { backfill_run_id: runId } : {}),
         });
       } else {
         await updateBackfillState(repository_key, { status: "completed" });
+
+        if (runId) {
+          await markBackfillEnqueueCompleted(repository_key, runId);
+          const updated = await getBackfillState(repository_key);
+          console.log("[backfill] enqueue completed", {
+            repositoryKey: repository_key,
+            backfillRunId: runId,
+            momentGraphNamespacePrefix:
+              updated?.moment_graph_namespace_prefix ?? null,
+            enqueuedCount: updated?.enqueued_count ?? 0,
+          });
+        }
       }
     }
   } catch (error) {

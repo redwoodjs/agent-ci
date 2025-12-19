@@ -17,6 +17,7 @@ export interface SchedulerJobMessage {
     | "releases"
     | "projects";
   cursor?: string;
+  backfill_run_id?: string;
 }
 
 export interface ProcessorJobMessage {
@@ -33,6 +34,8 @@ export interface ProcessorJobMessage {
     | "project_item";
   entity_data: unknown;
   event_type: string;
+  backfill_run_id?: string;
+  moment_graph_namespace_prefix?: string | null;
 }
 
 export type QueueMessage = SchedulerJobMessage | ProcessorJobMessage;

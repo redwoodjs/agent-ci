@@ -133,10 +133,11 @@ function inferProjectFromDiscordDocument(
       ? String((sm as any).channelID)
       : "";
 
-  const machinenChannelIds = new Set<string>(["1435702216315899948"]);
+  const machinenChannelIds = new Set<string>([]);
   const rwsdkChannelIds = new Set<string>([
     "1307974274145062912",
     "1449132150392750080",
+    "1435702216315899948",
   ]);
 
   if (machinenChannelIds.has(channelID)) {

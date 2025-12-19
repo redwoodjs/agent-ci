@@ -10,6 +10,7 @@ import { processReleaseEvent } from "./services/release-processor";
 import { processProjectEvent } from "./services/project-processor";
 import { processProjectItemEvent } from "./services/project-item-processor";
 import { updateBackfillState } from "./services/backfill-state";
+import { getMomentGraphNamespacePrefixFromEnv } from "@/app/engine/momentGraphNamespace";
 import type { GitHubIssue } from "./utils/issue-to-markdown";
 import type { GitHubPullRequest } from "./utils/pr-to-markdown";
 import type { GitHubComment } from "./utils/comment-to-markdown";
@@ -26,7 +27,18 @@ declare module "rwsdk/worker" {
 
 interface GitHubWebhookPayload {
   action: string;
-  issue?: GitHubIssue | { id?: number; number?: number; pull_request?: { url?: string; html_url?: string; diff_url?: string; patch_url?: string } };
+  issue?:
+    | GitHubIssue
+    | {
+        id?: number;
+        number?: number;
+        pull_request?: {
+          url?: string;
+          html_url?: string;
+          diff_url?: string;
+          patch_url?: string;
+        };
+      };
   pull_request?: GitHubPullRequest | { id?: number; number?: number };
   comment?: GitHubComment;
   release?: GitHubRelease;
@@ -104,7 +116,9 @@ async function githubWebhookHandler({ request }: RequestInfo) {
         console.log("[github ingest] Processing issue event:", {
           action,
           issueNumber: issue?.number,
-          repo: repository?.full_name || `${repository?.owner?.login}/${repository?.name}`,
+          repo:
+            repository?.full_name ||
+            `${repository?.owner?.login}/${repository?.name}`,
         });
         await processIssueEvent(issue as GitHubIssue, action, repository);
         console.log("[github ingest] Issue event processed successfully");
@@ -176,12 +190,26 @@ async function githubWebhookHandler({ request }: RequestInfo) {
         const issueNumber =
           (issue as GitHubIssue)?.number ||
           (issue as { number?: number })?.number;
-        
-        const issueObj = issue as { number?: number; pull_request?: { url?: string; html_url?: string; diff_url?: string; patch_url?: string } };
+
+        const issueObj = issue as {
+          number?: number;
+          pull_request?: {
+            url?: string;
+            html_url?: string;
+            diff_url?: string;
+            patch_url?: string;
+          };
+        };
         const isPullRequest = !!issueObj?.pull_request;
-        
+
         if (isPullRequest) {
-          await processCommentEvent(comment, action, repository, undefined, issueNumber);
+          await processCommentEvent(
+            comment,
+            action,
+            repository,
+            undefined,
+            issueNumber
+          );
         } else {
           await processCommentEvent(comment, action, repository, issueNumber);
         }
@@ -452,6 +480,8 @@ async function backfillHandler({ request }: RequestInfo) {
   }
 
   const repositoryKey = `${owner}/${repo}`;
+  const backfillRunId = crypto.randomUUID();
+  const momentGraphNamespacePrefix = getMomentGraphNamespacePrefixFromEnv(env);
   const schedulerQueue = (env as any)
     .SCHEDULER_QUEUE as Queue<SchedulerJobMessage>;
 
@@ -465,6 +495,20 @@ async function backfillHandler({ request }: RequestInfo) {
     error_message: null,
     error_details: null,
     test_run: test_run ?? false,
+    current_run_id: backfillRunId,
+    moment_graph_namespace_prefix: momentGraphNamespacePrefix,
+    enqueued_count: 0,
+    processed_count: 0,
+    enqueue_completed: false,
+    processed_completed: false,
+    processed_completed_at: null,
+  });
+
+  console.log("[backfill] started", {
+    repositoryKey,
+    backfillRunId,
+    momentGraphNamespacePrefix,
+    testRun: test_run ?? false,
   });
 
   await schedulerQueue.send({
@@ -473,11 +517,13 @@ async function backfillHandler({ request }: RequestInfo) {
     owner,
     repo,
     entity_type: "issues",
+    backfill_run_id: backfillRunId,
   });
 
   return Response.json({
     success: true,
     repository_key: repositoryKey,
+    backfill_run_id: backfillRunId,
     message: test_run ? "Test backfill job started" : "Backfill job started",
     test_run: test_run ?? false,
   });

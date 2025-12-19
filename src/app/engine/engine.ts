@@ -490,21 +490,94 @@ export async function indexDocument(
 
         let anchorMacroMomentIndex = 0;
         let anchorMacroMomentImportance: number | null = null;
+        let anchorMacroMomentForLinking: MacroMomentDescription | null = null;
+
+        const macroImportanceEntries: Array<{
+          index: number;
+          importance: number;
+        }> = [];
         for (let i = 0; i < macroMomentDescriptions.length; i++) {
           const candidate = macroMomentDescriptions[i] as any;
           const importance =
             candidate && typeof candidate.importance === "number"
               ? (candidate.importance as number)
               : null;
-          if (importance === null) {
+          if (importance === null || !Number.isFinite(importance)) {
             continue;
           }
-          if (
-            anchorMacroMomentImportance === null ||
-            importance > anchorMacroMomentImportance
-          ) {
-            anchorMacroMomentIndex = i;
-            anchorMacroMomentImportance = importance;
+          macroImportanceEntries.push({ index: i, importance });
+        }
+
+        if (macroImportanceEntries.length > 0) {
+          const sortedImportance = macroImportanceEntries
+            .map((e) => e.importance)
+            .sort((a, b) => a - b);
+          const p75Index =
+            sortedImportance.length === 1
+              ? 0
+              : Math.floor((sortedImportance.length - 1) * 0.75);
+          const p75Threshold =
+            sortedImportance[p75Index] ?? sortedImportance[0]!;
+
+          const importantChronological = macroImportanceEntries
+            .filter((e) => e.importance >= p75Threshold)
+            .sort((a, b) => a.index - b.index);
+
+          const minImportantCount = macroImportanceEntries.length >= 2 ? 2 : 1;
+          const ensuredImportant =
+            importantChronological.length >= minImportantCount
+              ? importantChronological
+              : macroImportanceEntries
+                  .slice()
+                  .sort(
+                    (a, b) => b.importance - a.importance || a.index - b.index
+                  )
+                  .slice(0, minImportantCount)
+                  .sort((a, b) => a.index - b.index);
+
+          const maxImportantCount = 3;
+          const limitedImportant = ensuredImportant
+            .slice()
+            .sort((a, b) => b.importance - a.importance || a.index - b.index)
+            .slice(0, maxImportantCount)
+            .sort((a, b) => a.index - b.index);
+
+          const firstImportantIndex = limitedImportant[0]?.index ?? 0;
+          const firstImportant =
+            macroMomentDescriptions[firstImportantIndex] ??
+            macroMomentDescriptions[0];
+
+          anchorMacroMomentIndex = firstImportantIndex;
+          anchorMacroMomentImportance = limitedImportant[0]?.importance ?? null;
+
+          const concatenated = limitedImportant
+            .map((entry) => {
+              const d = macroMomentDescriptions[entry.index];
+              if (!d) {
+                return null;
+              }
+              const title =
+                typeof d.title === "string" && d.title.trim().length > 0
+                  ? d.title.trim()
+                  : "";
+              const summary =
+                typeof d.summary === "string" && d.summary.trim().length > 0
+                  ? d.summary.trim()
+                  : "";
+              const combined = [title, summary].filter(Boolean).join("\n");
+              return combined.length > 0 ? combined : null;
+            })
+            .filter((v): v is string => typeof v === "string" && v.length > 0)
+            .join("\n\n");
+
+          if (firstImportant) {
+            anchorMacroMomentForLinking =
+              concatenated.length > 0
+                ? {
+                    ...firstImportant,
+                    summary: concatenated,
+                  }
+                : firstImportant;
           }
         }
 
@@ -543,6 +616,7 @@ export async function indexDocument(
               });
             } else {
               const anchorMacroMoment =
+                anchorMacroMomentForLinking ??
                 macroMomentDescriptions[anchorMacroMomentIndex] ??
                 macroMomentDescriptions[0];
               const parentProposal = await runFirstMatchHook(
@@ -726,6 +800,33 @@ export async function query(
         return trimmed;
       }
       return date.toISOString();
+    }
+
+    function readTimeMs(raw: unknown): number | null {
+      if (typeof raw !== "string") {
+        return null;
+      }
+      const trimmed = raw.trim();
+      if (trimmed.length === 0) {
+        return null;
+      }
+      const date = new Date(trimmed);
+      const ms = date.getTime();
+      return Number.isFinite(ms) ? ms : null;
+    }
+
+    function timelineSortKey(moment: {
+      createdAt?: string;
+      sourceMetadata?: Record<string, any>;
+    }): number | null {
+      const timeRange = (moment.sourceMetadata as any)?.timeRange as
+        | { start?: unknown; end?: unknown }
+        | undefined;
+      const startMs = readTimeMs(timeRange?.start);
+      if (startMs !== null) {
+        return startMs;
+      }
+      return readTimeMs(moment.createdAt);
     }
 
     function formatTimelineLine(
@@ -1051,97 +1152,126 @@ export async function query(
               : discordCandidates;
 
           if (anchorCandidates.length > 0) {
-            const candidatesToTry = anchorCandidates.slice(0, 5);
-            for (const candidate of candidatesToTry) {
-              console.log("[query:narrative] anchor candidate", {
-                id: candidate.id,
-                documentId: candidate.documentId,
+            const candidate = anchorCandidates[0];
+            console.log("[query:narrative] anchor candidate", {
+              id: candidate.id,
+              documentId: candidate.documentId,
+            });
+
+            const ancestors = await findAncestors(
+              candidate.id,
+              momentGraphContext
+            );
+            const root = ancestors[0] ?? candidate;
+            const chosenMatchId = candidate.id;
+
+            const timeline = await findDescendants(root.id, momentGraphContext);
+            console.log(
+              `[query:narrative] rootTimelineLen=${timeline.length} (anchoredOn=${root.documentId} matchedOn=${candidate.documentId})`
+            );
+
+            if (timeline.length > 0) {
+              const maxMoments = readEnvNumber(
+                "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
+                200
+              ).value;
+              const queryImportanceCutoff = readEnvNumber(
+                "MOMENT_GRAPH_QUERY_IMPORTANCE_CUTOFF",
+                0.4
+              ).value;
+              const minImportance = readEnvNumber(
+                "MOMENT_GRAPH_MIN_IMPORTANCE",
+                0.8
+              ).value;
+              const neighborWindow = readEnvNumber(
+                "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
+                1
+              ).value;
+              const endBiasWeight = readEnvNumber(
+                "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
+                0.4
+              ).value;
+
+              const requiredIdsList = [root.id, chosenMatchId];
+              const cutoffApplied = applyImportanceCutoff({
+                timeline,
+                requiredIds: requiredIdsList,
+                cutoff: queryImportanceCutoff,
+              });
+              console.log("[query:narrative] applied importance cutoff", {
+                cutoff: clamp01(queryImportanceCutoff),
+                removedCount: cutoffApplied.removedCount,
+                beforeLen: timeline.length,
+                afterLen: cutoffApplied.timeline.length,
               });
 
-              const root = candidate;
-              const chosenMatchId = candidate.id;
-              const timeline = await findDescendants(
-                root.id,
-                momentGraphContext
-              );
-              console.log(
-                `[query:narrative] rootTimelineLen=${timeline.length} (anchoredOn=${candidate.documentId})`
-              );
-
-              if (timeline.length > 0) {
-                const maxMoments = readEnvNumber(
-                  "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
-                  200
-                ).value;
-                const queryImportanceCutoff = readEnvNumber(
-                  "MOMENT_GRAPH_QUERY_IMPORTANCE_CUTOFF",
-                  0.4
-                ).value;
-                const minImportance = readEnvNumber(
-                  "MOMENT_GRAPH_MIN_IMPORTANCE",
-                  0.8
-                ).value;
-                const neighborWindow = readEnvNumber(
-                  "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
-                  1
-                ).value;
-                const endBiasWeight = readEnvNumber(
-                  "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
-                  0.4
-                ).value;
-
-                const requiredIds = [root.id, chosenMatchId];
-                const cutoffApplied = applyImportanceCutoff({
-                  timeline,
-                  requiredIds,
-                  cutoff: queryImportanceCutoff,
-                });
-                console.log("[query:narrative] applied importance cutoff", {
-                  cutoff: clamp01(queryImportanceCutoff),
-                  removedCount: cutoffApplied.removedCount,
-                  beforeLen: timeline.length,
-                  afterLen: cutoffApplied.timeline.length,
-                });
-
-                let prunedTimeline = cutoffApplied.timeline;
-                if (prunedTimeline.length > maxMoments) {
-                  const keptIndices = pruneTimeline({
-                    timeline: prunedTimeline,
-                    requiredIds,
-                    maxMoments,
-                    minImportance,
-                    neighborWindow,
-                    endBiasWeight,
-                  });
-                  prunedTimeline = keptIndices
-                    .map((idx) => prunedTimeline[idx])
-                    .filter(Boolean);
-                }
-
-                const cutoffAfterPrune = applyImportanceCutoff({
+              let prunedTimeline = cutoffApplied.timeline;
+              if (prunedTimeline.length > maxMoments) {
+                const keptIndices = pruneTimeline({
                   timeline: prunedTimeline,
-                  requiredIds,
-                  cutoff: queryImportanceCutoff,
+                  requiredIds: requiredIdsList,
+                  maxMoments,
+                  minImportance,
+                  neighborWindow,
+                  endBiasWeight,
                 });
-                if (cutoffAfterPrune.removedCount > 0) {
-                  console.log(
-                    "[query:narrative] applied importance cutoff post-prune",
-                    {
-                      cutoff: clamp01(queryImportanceCutoff),
-                      removedCount: cutoffAfterPrune.removedCount,
-                      beforeLen: prunedTimeline.length,
-                      afterLen: cutoffAfterPrune.timeline.length,
-                    }
-                  );
-                }
-                prunedTimeline = cutoffAfterPrune.timeline;
+                prunedTimeline = keptIndices
+                  .map((idx) => prunedTimeline[idx])
+                  .filter(Boolean);
+              }
 
-                const timelineLines = prunedTimeline.map((moment, idx) =>
-                  formatTimelineLine(moment, idx)
+              const cutoffAfterPrune = applyImportanceCutoff({
+                timeline: prunedTimeline,
+                requiredIds: requiredIdsList,
+                cutoff: queryImportanceCutoff,
+              });
+              if (cutoffAfterPrune.removedCount > 0) {
+                console.log(
+                  "[query:narrative] applied importance cutoff post-prune",
+                  {
+                    cutoff: clamp01(queryImportanceCutoff),
+                    removedCount: cutoffAfterPrune.removedCount,
+                    beforeLen: prunedTimeline.length,
+                    afterLen: cutoffAfterPrune.timeline.length,
+                  }
                 );
-                const narrativeContext = timelineLines.join("\n\n");
+              }
+              prunedTimeline = cutoffAfterPrune.timeline;
 
-                const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
+              const sortedTimeline = [...prunedTimeline].sort((a, b) => {
+                const aKey = timelineSortKey(a);
+                const bKey = timelineSortKey(b);
+                if (aKey === null && bKey === null) {
+                  const aId = (a as any)?.id;
+                  const bId = (b as any)?.id;
+                  if (typeof aId === "string" && typeof bId === "string") {
+                    return aId.localeCompare(bId);
+                  }
+                  return 0;
+                }
+                if (aKey === null) {
+                  return 1;
+                }
+                if (bKey === null) {
+                  return -1;
+                }
+                if (aKey !== bKey) {
+                  return aKey - bKey;
+                }
+                const aId = (a as any)?.id;
+                const bId = (b as any)?.id;
+                if (typeof aId === "string" && typeof bId === "string") {
+                  return aId.localeCompare(bId);
+                }
+                return 0;
+              });
+
+              const timelineLines = sortedTimeline.map((moment, idx) =>
+                formatTimelineLine(moment, idx)
+              );
+              const narrativeContext = timelineLines.join("\n\n");
+
+              const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
 ## Subject
 ${root.title}: ${root.summary}
@@ -1164,27 +1294,26 @@ Rules:
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
 
-                if (responseMode === "prompt") {
-                  return narrativePrompt;
-                }
-                if (responseMode === "brief") {
-                  return buildBriefingText({
-                    momentGraphNamespace,
-                    query: userQuery,
-                    subject: root,
-                    timelineLines,
-                  });
-                }
-                const narrativeAnswer = await callLLM(
-                  narrativePrompt,
-                  "slow-reasoning",
-                  {
-                    temperature: 0,
-                    reasoning: { effort: "low" },
-                  }
-                );
-                return narrativeAnswer;
+              if (responseMode === "prompt") {
+                return narrativePrompt;
               }
+              if (responseMode === "brief") {
+                return buildBriefingText({
+                  momentGraphNamespace,
+                  query: userQuery,
+                  subject: root,
+                  timelineLines,
+                });
+              }
+              const narrativeAnswer = await callLLM(
+                narrativePrompt,
+                "slow-reasoning",
+                {
+                  temperature: 0,
+                  reasoning: { effort: "low" },
+                }
+              );
+              return narrativeAnswer;
             }
           }
 
@@ -1405,7 +1534,35 @@ Write a clear narrative answer that explains the sequence and causal relationshi
               }
               prunedTimeline = cutoffAfterPrune.timeline;
 
-              const timelineLines = prunedTimeline.map((moment, idx) =>
+              const sortedTimeline = [...prunedTimeline].sort((a, b) => {
+                const aKey = timelineSortKey(a);
+                const bKey = timelineSortKey(b);
+                if (aKey === null && bKey === null) {
+                  const aId = (a as any)?.id;
+                  const bId = (b as any)?.id;
+                  if (typeof aId === "string" && typeof bId === "string") {
+                    return aId.localeCompare(bId);
+                  }
+                  return 0;
+                }
+                if (aKey === null) {
+                  return 1;
+                }
+                if (bKey === null) {
+                  return -1;
+                }
+                if (aKey !== bKey) {
+                  return aKey - bKey;
+                }
+                const aId = (a as any)?.id;
+                const bId = (b as any)?.id;
+                if (typeof aId === "string" && typeof bId === "string") {
+                  return aId.localeCompare(bId);
+                }
+                return 0;
+              });
+
+              const timelineLines = sortedTimeline.map((moment, idx) =>
                 formatTimelineLine(moment, idx)
               );
               const narrativeContext = timelineLines.join("\n\n");

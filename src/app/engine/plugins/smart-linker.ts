@@ -6,12 +6,14 @@ import type {
   MacroMomentParentProposal,
 } from "../types";
 import { getEmbedding } from "../utils/vector";
-import { getMicroMomentsForDocument, getMoments } from "../momentDb";
+import { getMoments } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
+import { callLLM } from "../utils/llm";
 
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
+const DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD = 0.8;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
-const DEFAULT_SMART_LINKER_MAX_LOG_MICRO_TEXT_CHARS = 2000;
+const DEFAULT_SMART_LINKER_MAX_LLM_VETO_CANDIDATES = 3;
 
 function previewText(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") {
@@ -39,69 +41,6 @@ function capText(
     return { text: trimmed.slice(0, maxChars), truncated: true };
   }
   return { text: trimmed, truncated: false };
-}
-
-function buildCappedMicroMomentQueryText(
-  microMomentTexts: string[],
-  maxChars: number
-): { text: string; usedCount: number } {
-  let out = "";
-  let usedCount = 0;
-
-  for (const rawText of microMomentTexts) {
-    const text = rawText.trim();
-    if (!text) {
-      continue;
-    }
-
-    const separator = out.length > 0 ? "\n\n" : "";
-    const remaining = maxChars - out.length - separator.length;
-    if (remaining <= 0) {
-      break;
-    }
-
-    const slice = text.length > remaining ? text.slice(0, remaining) : text;
-    out = `${out}${separator}${slice}`;
-    usedCount += 1;
-
-    if (out.length >= maxChars) {
-      break;
-    }
-  }
-
-  return { text: out, usedCount };
-}
-
-function buildCappedMicroMomentQueryTextWithIndices(
-  microMomentTexts: string[],
-  maxChars: number
-): { text: string; usedIndices: number[] } {
-  let out = "";
-  const usedIndices: number[] = [];
-
-  for (let i = 0; i < microMomentTexts.length; i++) {
-    const rawText = microMomentTexts[i];
-    const text = rawText.trim();
-    if (!text) {
-      continue;
-    }
-
-    const separator = out.length > 0 ? "\n\n" : "";
-    const remaining = maxChars - out.length - separator.length;
-    if (remaining <= 0) {
-      break;
-    }
-
-    const slice = text.length > remaining ? text.slice(0, remaining) : text;
-    out = `${out}${separator}${slice}`;
-    usedIndices.push(i);
-
-    if (out.length >= maxChars) {
-      break;
-    }
-  }
-
-  return { text: out, usedIndices };
 }
 
 export const smartLinkerPlugin: Plugin = {
@@ -141,40 +80,35 @@ export const smartLinkerPlugin: Plugin = {
           null,
       };
 
-      const microMoments = await getMicroMomentsForDocument(
-        document.id,
-        momentGraphContext
-      );
-      const microTexts = microMoments.map((m) => m.summary ?? m.content);
-      const built = buildCappedMicroMomentQueryTextWithIndices(
-        microTexts,
+      const rawQueryText =
+        typeof macroMoment.summary === "string" && macroMoment.summary.trim()
+          ? macroMoment.summary.trim()
+          : typeof macroMoment.title === "string" && macroMoment.title.trim()
+          ? macroMoment.title.trim()
+          : null;
+
+      if (!rawQueryText) {
+        console.log("[moment-linker] smart linker skipped (no query text)", {
+          documentId: document.id,
+          macroMomentIndex,
+          macroMomentTitle: macroMoment.title,
+        });
+        return null;
+      }
+
+      const cappedQuery = capText(
+        rawQueryText,
         DEFAULT_SMART_LINKER_MAX_QUERY_CHARS
       );
-      const queryText = built.text;
-      const usedMicroMoments = built.usedIndices.map((idx) => {
-        const m = microMoments[idx] as any;
-        const text = microTexts[idx] ?? "";
-        const capped = capText(
-          text,
-          DEFAULT_SMART_LINKER_MAX_LOG_MICRO_TEXT_CHARS
-        );
-        return {
-          path: m?.path ?? null,
-          summaryPreview: previewText(text, 160),
-          text: capped.text,
-          textTruncated: capped.truncated,
-        };
-      });
+      const queryText = cappedQuery.text ?? rawQueryText;
 
       console.log("[moment-linker] smart linker query", {
         documentId: document.id,
         macroMomentIndex,
         macroMomentTitle: macroMoment.title,
-        querySource: "micro-concat",
-        microMomentsUsed: built.usedIndices.length,
-        microMomentsTotal: microMoments.length,
+        querySource: "macro-summary",
+        queryTextTruncated: cappedQuery.truncated,
         queryPreview: queryText.slice(0, 200),
-        usedMicroMoments,
       });
 
       const embedding = await getEmbedding(queryText);
@@ -185,10 +119,27 @@ export const smartLinkerPlugin: Plugin = {
       if (momentGraphNamespace !== "default") {
         queryOptions.filter = { momentGraphNamespace };
       }
-      const results = await context.env.SUBJECT_INDEX.query(
+      let results = await context.env.SUBJECT_INDEX.query(
         embedding,
         queryOptions as any
       );
+
+      if (!results.matches || results.matches.length === 0) {
+        if (
+          context.env.MOMENT_INDEX &&
+          typeof (context.env.MOMENT_INDEX as any).query === "function"
+        ) {
+          console.log("[moment-linker] smart linker fallback to MOMENT_INDEX", {
+            documentId: document.id,
+            macroMomentIndex,
+            momentGraphNamespace,
+          });
+          results = await context.env.MOMENT_INDEX.query(
+            embedding,
+            queryOptions as any
+          );
+        }
+      }
 
       console.log("[moment-linker] smart linker candidates", {
         documentId: document.id,
@@ -260,6 +211,7 @@ export const smartLinkerPlugin: Plugin = {
         decision: Record<string, unknown>;
         subject: any;
         rank: number;
+        parentStartMs: number | null;
         parentEndMs: number | null;
       }> = [];
 
@@ -307,26 +259,28 @@ export const smartLinkerPlugin: Plugin = {
 
         const score = match.score;
 
-        if (score < DEFAULT_SMART_LINKER_THRESHOLD) {
-          decision.rejectReason = "below-threshold";
-          decision.threshold = DEFAULT_SMART_LINKER_THRESHOLD;
-          candidateDecisions.push(decision);
-          continue;
-        }
-
+        const parentStartMs =
+          readTimeRangeStartMs(subject.sourceMetadata) ??
+          parseTimeMs(subject.createdAt);
         const parentEndMs =
           readTimeRangeEndMs(subject.sourceMetadata) ??
           parseTimeMs(subject.createdAt);
         decision.childStartMs = childStartMs;
+        decision.parentStartMs = parentStartMs;
         decision.parentEndMs = parentEndMs;
+        const temporalInverted =
+          childStartMs !== null &&
+          parentStartMs !== null &&
+          parentStartMs > childStartMs;
+        if (temporalInverted) {
+          decision.temporalInverted = true;
+        }
         if (
           childStartMs !== null &&
           parentEndMs !== null &&
           parentEndMs > childStartMs
         ) {
-          decision.rejectReason = "temporal-order";
-          candidateDecisions.push(decision);
-          continue;
+          decision.temporalNote = "parent-end-after-child-start";
         }
 
         scoredCandidates.push({
@@ -334,62 +288,177 @@ export const smartLinkerPlugin: Plugin = {
           decision,
           subject,
           rank: sourceRankForDocumentId(subject.documentId),
+          parentStartMs,
           parentEndMs,
         });
       }
 
       scoredCandidates.sort((a, b) => {
-        if (a.rank !== b.rank) {
-          return a.rank - b.rank;
-        }
         if (a.match.score !== b.match.score) {
           return b.match.score - a.match.score;
         }
         return a.match.id.localeCompare(b.match.id);
       });
 
+      const eligibleCandidates = scoredCandidates.filter(
+        (entry) => entry.match.score >= DEFAULT_SMART_LINKER_THRESHOLD
+      );
+
       for (const entry of scoredCandidates) {
-        const match = entry.match;
         const decision = entry.decision;
-        const subject = entry.subject;
-        const score = match.score;
-
         decision.rankApplied = entry.rank;
-
-        const shouldLink = score >= DEFAULT_SMART_LINKER_THRESHOLD;
-        decision.method = shouldLink
-          ? "score-only"
-          : "rejected-below-threshold";
-
-        if (!shouldLink) {
-          candidateDecisions.push(decision);
-          continue;
+        if (entry.match.score < DEFAULT_SMART_LINKER_THRESHOLD) {
+          decision.rejectReason = "below-threshold";
+          decision.threshold = DEFAULT_SMART_LINKER_THRESHOLD;
+        } else {
+          decision.shortlisted = true;
         }
+        candidateDecisions.push(decision);
+      }
 
+      if (eligibleCandidates.length === 0) {
+        console.log("[moment-linker] smart linker no attachment", {
+          documentId: document.id,
+          macroMomentIndex,
+          threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+          candidates: candidateDecisions,
+        });
+        return null;
+      }
+
+      const childTime =
+        childStartMs !== null ? new Date(childStartMs).toISOString() : null;
+
+      const candidatesForVeto = eligibleCandidates.slice(
+        0,
+        DEFAULT_SMART_LINKER_MAX_LLM_VETO_CANDIDATES
+      );
+
+      console.log("[moment-linker] smart linker invoking LLM veto", {
+        documentId: document.id,
+        macroMomentIndex,
+        threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+        autoAttachThreshold: DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD,
+        candidateIds: candidatesForVeto.map((c) => c.subject.id),
+      });
+
+      for (const entry of candidatesForVeto) {
+        const subject = entry.subject;
+        const score = entry.match.score;
         const parentMomentId = subject.id;
 
-        decision.accepted = true;
-        decision.parentMomentId = parentMomentId;
-        candidateDecisions.push(decision);
+        if (score >= DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD) {
+          console.log("[moment-linker] smart linker chose attachment", {
+            documentId: document.id,
+            macroMomentIndex,
+            matchedSubjectId: subject.id,
+            score,
+            parentMomentId,
+            subjectTitle: subject.title,
+            subjectDocumentId: subject.documentId,
+            subjectSourceRank: entry.rank,
+            childStartMs,
+            parentStartMs: entry.parentStartMs,
+            parentEndMs: entry.parentEndMs,
+            method: "auto-high-confidence",
+          });
+
+          return {
+            parentMomentId,
+            matchedSubjectId: subject.id,
+            score,
+          };
+        }
+
+        const parentStartMs = entry.parentStartMs;
+        const parentTime =
+          parentStartMs !== null ? new Date(parentStartMs).toISOString() : null;
+        const temporalInverted =
+          childStartMs !== null &&
+          parentStartMs !== null &&
+          parentStartMs > childStartMs;
+
+        const vetoPrompt = `You are a knowledge graph attachment veto checker.
+Your job is to decide whether an attachment is clearly wrong.
+
+Return YES if the attachment is plausible.
+Return NO if the attachment is clearly wrong / unrelated.
+Return only YES or NO.
+
+## Child moment
+Time: ${childTime ?? "unknown"}
+Title: ${macroMoment.title}
+Summary: ${macroMoment.summary || "No summary provided"}
+Document: ${document.id}
+
+## Candidate parent moment
+Time: ${parentTime ?? "unknown"}
+Title: ${previewText(subject.title, 200) ?? subject.title}
+Summary: ${previewText(subject.summary, 900) ?? subject.summary}
+Document: ${subject.documentId}
+VectorScore: ${score}
+TemporalInverted: ${temporalInverted ? "true" : "false"}
+
+Guidance:
+- Say NO when it is clearly unrelated.
+- Say YES when it could be the same specific problem, or when it is a related step in the same work.
+- Do not say NO only because the two moments are not identical in wording.
+
+Examples (NO):
+- One is about SSR bridge architecture and the other is about deployment status noise.
+- One is about an unrelated endpoint or configuration issue.
+
+Examples (YES):
+- One is about rwsdk client navigation mechanics and the other is about improving that same navigation system (prefetching/caching, switching navigation requests to GET).
+`;
+
+        let vetoAnswer: string | null = null;
+        try {
+          const llmResult = await callLLM(vetoPrompt, "slow-reasoning", {
+            temperature: 0,
+            reasoning: { effort: "high" },
+          });
+          vetoAnswer = llmResult.trim().split(/\s+/)[0]?.toUpperCase() ?? null;
+        } catch (err) {
+          console.error("[moment-linker] LLM veto check failed", err);
+        }
+
+        const allowed =
+          vetoAnswer === "YES" || vetoAnswer === "Y" || vetoAnswer === "TRUE";
+
+        console.log("[moment-linker] smart linker LLM veto decision", {
+          documentId: document.id,
+          macroMomentIndex,
+          candidateId: subject.id,
+          score,
+          vetoAnswer,
+          allowed,
+          method: "llm-veto",
+        });
+
+        if (!allowed) {
+          continue;
+        }
 
         console.log("[moment-linker] smart linker chose attachment", {
           documentId: document.id,
           macroMomentIndex,
           matchedSubjectId: subject.id,
-          score: match.score,
+          score,
           parentMomentId,
           subjectTitle: subject.title,
           subjectDocumentId: subject.documentId,
           subjectSourceRank: entry.rank,
           childStartMs,
+          parentStartMs: entry.parentStartMs,
           parentEndMs: entry.parentEndMs,
-          method: decision.method,
+          method: "llm-veto",
         });
 
         return {
           parentMomentId,
           matchedSubjectId: subject.id,
-          score: match.score,
+          score,
         };
       }
 
@@ -397,6 +466,7 @@ export const smartLinkerPlugin: Plugin = {
         documentId: document.id,
         macroMomentIndex,
         threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+        autoAttachThreshold: DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD,
         candidates: candidateDecisions,
       });
 

@@ -1,0 +1,89 @@
+## Problem
+
+I want a clean slate in production:
+
+- fresh Vectorize indexes
+- fresh Moment Graph / Subject Graph durable object databases
+- a single production namespace prefix configured on the worker
+- stop passing namespace/prefix overrides in admin backfill/resync calls
+
+## Context
+
+- Vectorize indexes are configured in wrangler bindings.
+- Engine durable object databases are keyed by a durable object id string.
+- Engine durable object id selection is based on the effective moment graph namespace, which can include a prefix.
+
+## Plan
+
+- Confirm how the engine durable object ids are constructed.
+- Rotate Vectorize index names in wrangler.
+- Provide wrangler commands to create the indexes and metadata indexes.
+- Set production env vars so the worker has a default base namespace + prefix.
+
+## Work log
+
+### 2025-12-19
+
+- Started verifying that Moment Graph DO, Subject DO, and Engine Indexing State DO ids are derived from the effective moment graph namespace.
+- Preparing a Vectorize index rotation so production can start indexing into empty indexes.
+- Rotated wrangler Vectorize bindings to:
+  - rag-index-v4
+  - moment-index-v4
+  - subject-index-v4
+- Created the Vectorize indexes and queued metadata index creation for `momentGraphNamespace` on both moment and subject indexes.
+- Set production `MOMENT_GRAPH_NAMESPACE` to `redwood:rwsdk` so the worker has a default base namespace (so prefixing works without per-request overrides).
+
+- Follow-up: rotating again for a clean slate iteration.
+  - Rotated production Vectorize bindings to:
+    - rag-index-v5
+    - moment-index-v5
+    - subject-index-v5
+  - Updated production `MOMENT_GRAPH_NAMESPACE_PREFIX` to `prod-2025-12-19-16-01`.
+  - Plan: purge production queues to avoid old backlog processing under the rotated prefix.
+
+- Executed the clean slate actions:
+  - Created Vectorize indexes:
+    - rag-index-v5
+    - moment-index-v5
+    - subject-index-v5
+  - Enqueued Vectorize metadata index creation for `momentGraphNamespace`:
+    - moment-index-v5 changeset: 74668dea-342b-42d3-86c1-5c513af93f76
+    - subject-index-v5 changeset: 822a073d-cff5-4b49-82c1-3c836f540cc9
+  - Purged production queues (requires `--force` in non-interactive mode):
+    - github-scheduler-queue-prod
+    - github-processor-queue-prod
+    - github-processor-queue-prod-dlq
+    - engine-indexing-queue-prod
+    - r2-file-update-queue-prod
+    - discord-scheduler-queue-prod
+    - discord-processor-queue-prod
+    - discord-processor-queue-prod-dlq
+    - discord-gateway-events-queue-prod
+    - discord-gateway-events-queue-prod-dlq
+    - chunk-processing-queue-prod
+
+- Follow-up: rotating again for a clean slate iteration.
+  - Rotated production Vectorize bindings to:
+    - rag-index-v6
+    - moment-index-v6
+    - subject-index-v6
+  - Updated production `MOMENT_GRAPH_NAMESPACE_PREFIX` to `prod-2025-12-19-16-20`.
+  - Created Vectorize indexes:
+    - rag-index-v6
+    - moment-index-v6
+    - subject-index-v6
+  - Enqueued Vectorize metadata index creation for `momentGraphNamespace`:
+    - moment-index-v6 changeset: 1c20b61e-4d4b-4d88-9d6a-8f49987cf4c3
+    - subject-index-v6 changeset: 345aa048-2a5c-4875-af6f-b9a2a31d4c50
+  - Purged production queues (requires `--force` in non-interactive mode):
+    - github-scheduler-queue-prod
+    - github-processor-queue-prod
+    - github-processor-queue-prod-dlq
+    - engine-indexing-queue-prod
+    - r2-file-update-queue-prod
+    - discord-scheduler-queue-prod
+    - discord-processor-queue-prod
+    - discord-processor-queue-prod-dlq
+    - discord-gateway-events-queue-prod
+    - discord-gateway-events-queue-prod-dlq
+    - chunk-processing-queue-prod

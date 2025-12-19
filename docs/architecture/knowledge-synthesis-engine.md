@@ -24,7 +24,7 @@ The solution is a graph-based architecture that creates a layer of abstraction b
 Instead of a flat list of documents, we model knowledge as a graph of **Moments**.
 *   **Moments (Macro-Moments)**: The nodes of the graph. These are high-level, synthesized events (e.g., "Identified root cause in router", "Decided to switch databases"). They contain rich, LLM-generated summaries, not raw text.
 *   **Subjects (Root Moments)**: The entry points of the graph. A Subject is simply a Moment with no parent. It defines the start of a topic or stream of work.
-*   **Edges**: Represent chronological and causal relationships. A single Subject can have multiple branches when later documents attach under non-root Moments.
+*   **Edges**: Represent storage-time attachment between related Moments. A single Subject can have multiple branches when later documents attach under non-root Moments. Parent links are not a strict time ordering.
 
 ### 2. The "Segmentation and Synthesis" Pipeline
 To solve the signal-to-noise problem, ingestion is split into two distinct phases:
@@ -58,7 +58,9 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 
     The current storage model represents “attach” using parent links, so the attach decision must be treated as “place this under that work item”, not “these are the same object”.
 
-    For sources that often begin with low-signal content (example: Cursor conversations), the engine should not assume that the first synthesized macro moment is the best representative for correlation. A simple approach is to pick a representative macro moment (for example, the highest-importance macro moment) to drive the attach decision, while still attaching the document’s root macro moment when a parent is chosen.
+    For sources that often begin with low-signal content (example: Cursor conversations), the engine should not assume that the first synthesized macro moment is the best representative for correlation. One approach is to build the search query from a subset of macro moments chosen by importance (example: select macro moments at or above a per-document percentile cutoff, then concatenate their titles and summaries). When a parent is chosen, the attachment still uses the document's first selected macro moment as the anchor for timestamps and macro indexing, and the document's macro moments are persisted in chronological order under that attachment.
+
+    Correlation prefers candidates whose timestamps are not later than their child. When timestamps indicate a time inversion, the candidate can be routed through a stricter classification step rather than rejected solely on time ordering.
 
 ### 3. Canonical references in macro moments (source labels and tokens)
 Macro moments are summaries, but they also need a lightweight way to identify where they came from. The system uses two layers:
@@ -102,9 +104,9 @@ This architecture ensures that we only pay the "AI Tax" for new or modified cont
 ### 4. Narrative Querying (Root-to-Leaf Timeline)
 To answer "why" questions, the query engine flips the traditional RAG model:
 
-1.  **Find anchor Moments**: The query is embedded and matched against the **Moment Index** (all moments). Each match is treated as an anchor.
-2.  **Resolve Root Subject**: For each matched Moment, the engine identifies the root Subject of that timeline.
-3.  **Retrieve Descendant Timeline**: The engine retrieves the *full descendant timeline* under that root. This ensures that linked work (e.g., a Discord thread attached to a GitHub issue) is included in the context, even if the query matched the parent issue and not the thread.
+1.  **Find anchor Moments**: The query is embedded and matched against the **Moment Index** (all moments). The engine selects an anchor candidate from the top matches.
+2.  **Resolve Root Subject**: The engine walks parent links from the anchor to the root Subject of that timeline.
+3.  **Retrieve Descendant Timeline**: The engine retrieves the full descendant timeline under that root. This ensures that linked work (example: a Discord thread attached to a GitHub issue) is included in the context, even if the query matched the parent issue and not the thread.
 4.  **Synthesize Answer**: The LLM is given this full timeline—formatted with ISO8601 timestamps and canonical references—to generate an answer grounded in the chronological narrative.
 
 Note: the query path uses Moment similarity as the entry point. Subjects are identified by walking parent links to the root of the matched Moment, rather than by separately querying a subject index.

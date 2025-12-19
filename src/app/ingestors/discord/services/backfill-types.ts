@@ -12,6 +12,7 @@ export interface SchedulerJobMessage {
   channelID: string;
   entity_type: "messages" | "threads";
   cursor?: string;
+  backfill_run_id?: string;
 }
 
 export interface ProcessorJobMessage {
@@ -22,6 +23,8 @@ export interface ProcessorJobMessage {
   entity_type: "channel" | "thread";
   entity_id?: string;
   event_type: string;
+  backfill_run_id?: string;
+  moment_graph_namespace_prefix?: string | null;
 }
 
 export interface GatewayEventMessage {
@@ -32,6 +35,7 @@ export interface GatewayEventMessage {
   d: any;
 }
 
-export type QueueMessage = SchedulerJobMessage | ProcessorJobMessage | GatewayEventMessage;
-
-
+export type QueueMessage =
+  | SchedulerJobMessage
+  | ProcessorJobMessage
+  | GatewayEventMessage;

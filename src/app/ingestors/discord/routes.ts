@@ -5,6 +5,7 @@ import {
   updateBackfillState,
   getBackfillState,
 } from "@/app/ingestors/discord/services/backfill-state";
+import { getMomentGraphNamespacePrefixFromEnv } from "@/app/engine/momentGraphNamespace";
 import type {
   SchedulerJobMessage,
   GatewayEventMessage,
@@ -68,6 +69,9 @@ const backfillRoute = route("/backfill", [
       const { guildID, channelID } = backfillRequestSchema.parse(parsed.value);
 
       const guildChannelKey = `${guildID}/${channelID}`;
+      const backfillRunId = crypto.randomUUID();
+      const momentGraphNamespacePrefix =
+        getMomentGraphNamespacePrefixFromEnv(env);
       const schedulerQueue = (env as any)
         .DISCORD_SCHEDULER_QUEUE as Queue<SchedulerJobMessage>;
 
@@ -77,6 +81,19 @@ const backfillRoute = route("/backfill", [
         threads_cursor: null,
         error_message: null,
         error_details: null,
+        current_run_id: backfillRunId,
+        moment_graph_namespace_prefix: momentGraphNamespacePrefix,
+        enqueued_count: 0,
+        processed_count: 0,
+        enqueue_completed: false,
+        processed_completed: false,
+        processed_completed_at: null,
+      });
+
+      console.log("[backfill] started", {
+        guildChannelKey,
+        backfillRunId,
+        momentGraphNamespacePrefix,
       });
 
       await schedulerQueue.send({
@@ -85,11 +102,13 @@ const backfillRoute = route("/backfill", [
         guildID,
         channelID,
         entity_type: "messages",
+        backfill_run_id: backfillRunId,
       });
 
       const apiResponse = Response.json({
         success: true,
         guild_channel_key: guildChannelKey,
+        backfill_run_id: backfillRunId,
         message: "Backfill job started",
       });
       ctx.logCompletion?.(apiResponse);

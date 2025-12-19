@@ -42,7 +42,10 @@ export async function scanForUnprocessedFiles(
       if (batchKeys.length >= batchSize) {
         dbQueries++;
         try {
-          const states = await getIndexingStatesBatch(batchKeys);
+          const states = await getIndexingStatesBatch(batchKeys, {
+            env,
+            momentGraphNamespace: null,
+          });
 
           for (const { key, etag } of batchObjects) {
             const state = states.get(key);
@@ -73,7 +76,10 @@ export async function scanForUnprocessedFiles(
     if (batchKeys.length > 0) {
       dbQueries++;
       try {
-        const states = await getIndexingStatesBatch(batchKeys);
+        const states = await getIndexingStatesBatch(batchKeys, {
+          env,
+          momentGraphNamespace: null,
+        });
 
         for (const { key, etag } of batchObjects) {
           const state = states.get(key);
@@ -104,7 +110,10 @@ export async function scanForUnprocessedFiles(
 export async function enqueueUnprocessedFiles(
   unprocessedKeys: string[],
   env: Cloudflare.Env,
-  options?: { momentGraphNamespace?: string | null }
+  options?: {
+    momentGraphNamespace?: string | null;
+    momentGraphNamespacePrefix?: string | null;
+  }
 ): Promise<void> {
   if (!env.ENGINE_INDEXING_QUEUE) {
     throw new Error("ENGINE_INDEXING_QUEUE binding not found");
@@ -116,14 +125,22 @@ export async function enqueueUnprocessedFiles(
       ? options.momentGraphNamespace.trim()
       : null;
 
+  const momentGraphNamespacePrefix =
+    typeof options?.momentGraphNamespacePrefix === "string" &&
+    options.momentGraphNamespacePrefix.trim().length > 0
+      ? options.momentGraphNamespacePrefix.trim()
+      : null;
+
   const batchSize = 10;
   for (let i = 0; i < unprocessedKeys.length; i += batchSize) {
     const batch = unprocessedKeys.slice(i, i + batchSize);
     await env.ENGINE_INDEXING_QUEUE.sendBatch(
       batch.map((r2Key) => ({
-        body: momentGraphNamespace
-          ? { r2Key, momentGraphNamespace }
-          : { r2Key },
+        body: {
+          r2Key,
+          ...(momentGraphNamespace ? { momentGraphNamespace } : {}),
+          ...(momentGraphNamespacePrefix ? { momentGraphNamespacePrefix } : {}),
+        },
       }))
     );
     console.log(

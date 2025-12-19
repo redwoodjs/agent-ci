@@ -4,17 +4,22 @@ import { Chunk } from "../types";
 
 interface IndexingMessage {
   r2Key: string;
+  momentGraphNamespace?: string;
+  momentGraphNamespacePrefix?: string;
 }
 
 export async function processIndexingJob(
   message: IndexingMessage,
   env: Cloudflare.Env
 ): Promise<void> {
-  const { r2Key } = message;
+  const { r2Key, momentGraphNamespace, momentGraphNamespacePrefix } = message;
 
   try {
     const context = createEngineContext(env, "indexing");
-    const newChunks = await indexDocument(r2Key, context);
+    const newChunks = await indexDocument(r2Key, context, {
+      momentGraphNamespace: momentGraphNamespace ?? null,
+      momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
+    });
 
     if (newChunks.length === 0) {
       return;

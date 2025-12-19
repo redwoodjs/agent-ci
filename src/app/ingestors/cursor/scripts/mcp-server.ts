@@ -36,6 +36,9 @@ const API_URL =
   process.env.MACHINEN_API_URL || "https://machinen.redwoodjs.workers.dev";
 const RESPONSE_MODE = process.env.MACHINEN_RESPONSE_MODE || "brief";
 const MOMENT_GRAPH_NAMESPACE = process.env.MOMENT_GRAPH_NAMESPACE;
+const MOMENT_GRAPH_NAMESPACE_PREFIX =
+  process.env.MOMENT_GRAPH_NAMESPACE_PREFIX ??
+  process.env.MACHINEN_MOMENT_GRAPH_NAMESPACE_PREFIX;
 
 if (!API_KEY) {
   const error = "Error: MACHINEN_API_KEY environment variable is required.";
@@ -48,6 +51,7 @@ log("Configuration loaded", {
   API_URL,
   hasApiKey: !!API_KEY,
   hasMomentGraphNamespace: !!MOMENT_GRAPH_NAMESPACE,
+  hasMomentGraphNamespacePrefix: !!MOMENT_GRAPH_NAMESPACE_PREFIX,
 });
 
 // --- Server Setup ---
@@ -120,6 +124,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         query: string;
         responseMode: string;
         momentGraphNamespace?: string;
+        momentGraphNamespacePrefix?: string;
+        clientContext?: Record<string, any>;
       } = { query, responseMode: RESPONSE_MODE };
 
       if (typeof MOMENT_GRAPH_NAMESPACE === "string") {
@@ -128,6 +134,18 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           requestBody.momentGraphNamespace = trimmed;
         }
       }
+
+      if (typeof MOMENT_GRAPH_NAMESPACE_PREFIX === "string") {
+        const trimmed = MOMENT_GRAPH_NAMESPACE_PREFIX.trim();
+        if (trimmed.length > 0) {
+          requestBody.momentGraphNamespacePrefix = trimmed;
+        }
+      }
+
+      requestBody.clientContext = {
+        cwd: process.cwd(),
+        workspaceRoots: [process.cwd()],
+      };
 
       log("Making API request", { url: `${API_URL}/query`, query });
       const response = await fetch(`${API_URL}/query`, {

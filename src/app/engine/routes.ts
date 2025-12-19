@@ -7,14 +7,21 @@ import {
   validateQueryInput,
 } from "./interruptors";
 import { query, createEngineContext, indexDocument } from "./index";
-import { findAncestors, findLastMomentForDocument } from "./momentDb";
+import {
+  findAncestors,
+  findLastMomentForDocument,
+  getRootStatsByHighImportanceSample,
+} from "./momentDb";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
   enqueueUnprocessedFiles,
 } from "./services/scanner-service";
 import { clearAllIndexingState } from "./db";
-import { getMomentGraphNamespaceFromEnv } from "./momentGraphNamespace";
+import {
+  getMomentGraphNamespaceFromEnv,
+  applyMomentGraphNamespacePrefixValue,
+} from "./momentGraphNamespace";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const body = (ctx as any)?.parsedBody as
@@ -22,7 +29,10 @@ async function queryHandler({ request, ctx }: RequestInfo) {
         query?: unknown;
         momentGraphNamespace?: unknown;
         namespace?: unknown;
+        momentGraphNamespacePrefix?: unknown;
+        namespacePrefix?: unknown;
         responseMode?: unknown;
+        clientContext?: unknown;
       }
     | undefined;
 
@@ -50,6 +60,14 @@ async function queryHandler({ request, ctx }: RequestInfo) {
       ? namespaceRaw.trim()
       : null;
 
+  const namespacePrefixRaw =
+    body?.momentGraphNamespacePrefix ?? body?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
   const responseModeRaw =
     body?.responseMode ?? url.searchParams.get("responseMode");
   const responseMode =
@@ -57,14 +75,18 @@ async function queryHandler({ request, ctx }: RequestInfo) {
       ? responseModeRaw
       : "answer";
 
-  const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
-  if (momentGraphNamespace) {
-    (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
-  }
-
   try {
     console.log(`[query] Starting query: "${queryText}"`);
-    const response = await query(queryText, context, { responseMode });
+    const clientContext =
+      body?.clientContext && typeof body.clientContext === "object"
+        ? (body.clientContext as Record<string, any>)
+        : undefined;
+    const response = await query(queryText, context, {
+      responseMode,
+      clientContext,
+      momentGraphNamespace,
+      momentGraphNamespacePrefix,
+    });
     console.log(`[query] Query completed successfully`);
     return new Response(response, {
       headers: {
@@ -83,8 +105,6 @@ async function queryHandler({ request, ctx }: RequestInfo) {
         "Content-Type": "text/plain; charset=utf-8",
       },
     });
-  } finally {
-    (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
   }
 }
 
@@ -163,6 +183,15 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
         ? namespaceRaw.trim()
         : null;
 
+    const namespacePrefixRaw =
+      (body as any)?.momentGraphNamespacePrefix ??
+      (body as any)?.namespacePrefix;
+    const momentGraphNamespacePrefix =
+      typeof namespacePrefixRaw === "string" &&
+      namespacePrefixRaw.trim().length > 0
+        ? namespacePrefixRaw.trim()
+        : null;
+
     const r2KeysRaw = (body as any)?.r2Keys;
     const r2Keys =
       Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
@@ -172,62 +201,61 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
     const prefixRaw = (body as any)?.prefix;
     const prefix = typeof prefixRaw === "string" ? prefixRaw : "github/";
 
-    const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
-    if (momentGraphNamespace) {
-      (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
+    const effectiveNamespaceForResponse =
+      momentGraphNamespace && momentGraphNamespacePrefix
+        ? applyMomentGraphNamespacePrefixValue(
+            momentGraphNamespace,
+            momentGraphNamespacePrefix
+          )
+        : momentGraphNamespace;
+
+    if (r2Keys) {
+      console.log(
+        `[backfill] Indexing ${r2Keys.length} specific R2 keys directly`
+      );
+      await enqueueUnprocessedFiles(r2Keys, envCloudflare, {
+        momentGraphNamespace: momentGraphNamespace,
+        momentGraphNamespacePrefix: momentGraphNamespacePrefix,
+      });
+      return Response.json({
+        success: true,
+        momentGraphNamespace: effectiveNamespaceForResponse,
+        momentGraphNamespacePrefix,
+        message: `Enqueued ${r2Keys.length} files for indexing`,
+      });
     }
 
-    try {
-      const effectiveNamespace =
-        getMomentGraphNamespaceFromEnv(envCloudflare) ?? "default";
+    console.log(`[backfill] Starting manual backfill for prefix: ${prefix}`);
 
-      if (r2Keys) {
-        console.log(
-          `[backfill] Indexing ${r2Keys.length} specific R2 keys directly`
-        );
-        await enqueueUnprocessedFiles(r2Keys, envCloudflare, {
-          momentGraphNamespace: effectiveNamespace,
-        });
-        return Response.json({
-          success: true,
-          momentGraphNamespace: effectiveNamespace,
-          message: `Enqueued ${r2Keys.length} files for indexing`,
-        });
-      }
+    const unprocessedKeys = await scanForUnprocessedFiles(
+      envCloudflare,
+      prefix
+    );
 
+    if (unprocessedKeys.length > 0) {
+      await enqueueUnprocessedFiles(unprocessedKeys, envCloudflare, {
+        momentGraphNamespace: momentGraphNamespace,
+        momentGraphNamespacePrefix: momentGraphNamespacePrefix,
+      });
       console.log(
-        `[backfill] Starting manual backfill for prefix: ${prefix} (namespace=${effectiveNamespace})`
+        `[backfill] Manual backfill completed. Enqueued ${unprocessedKeys.length} files.`
       );
-
-      const unprocessedKeys = await scanForUnprocessedFiles(
-        envCloudflare,
-        prefix
-      );
-
-      if (unprocessedKeys.length > 0) {
-        await enqueueUnprocessedFiles(unprocessedKeys, envCloudflare, {
-          momentGraphNamespace: effectiveNamespace,
-        });
-        console.log(
-          `[backfill] Manual backfill completed. Enqueued ${unprocessedKeys.length} files.`
-        );
-        return Response.json({
-          success: true,
-          momentGraphNamespace: effectiveNamespace,
-          message: `Backfill completed. Enqueued ${unprocessedKeys.length} files for indexing.`,
-          filesEnqueued: unprocessedKeys.length,
-        });
-      } else {
-        console.log(`[backfill] Manual backfill completed. No files to index.`);
-        return Response.json({
-          success: true,
-          momentGraphNamespace: effectiveNamespace,
-          message: "Backfill completed. No files need indexing.",
-          filesEnqueued: 0,
-        });
-      }
-    } finally {
-      (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
+      return Response.json({
+        success: true,
+        momentGraphNamespace: effectiveNamespaceForResponse,
+        momentGraphNamespacePrefix,
+        message: `Backfill completed. Enqueued ${unprocessedKeys.length} files for indexing.`,
+        filesEnqueued: unprocessedKeys.length,
+      });
+    } else {
+      console.log(`[backfill] Manual backfill completed. No files to index.`);
+      return Response.json({
+        success: true,
+        momentGraphNamespace: effectiveNamespaceForResponse,
+        momentGraphNamespacePrefix,
+        message: "Backfill completed. No files need indexing.",
+        filesEnqueued: 0,
+      });
     }
   } catch (error) {
     console.error(
@@ -288,20 +316,27 @@ async function resyncHandler({ request }: RequestInfo) {
       ? namespaceRaw.trim()
       : null;
 
+  const namespacePrefixRaw =
+    (body as any)?.momentGraphNamespacePrefix ?? (body as any)?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
   const modeRaw = (body as any)?.mode;
   const mode = modeRaw === "enqueue" ? "enqueue" : "inline";
 
   const envCloudflare = env as Cloudflare.Env;
-
-  const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
-  if (momentGraphNamespace) {
-    (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
-  }
+  const effectiveNamespaceForResponse =
+    momentGraphNamespace && momentGraphNamespacePrefix
+      ? applyMomentGraphNamespacePrefixValue(
+          momentGraphNamespace,
+          momentGraphNamespacePrefix
+        )
+      : momentGraphNamespace;
 
   try {
-    const effectiveNamespace =
-      getMomentGraphNamespaceFromEnv(envCloudflare) ?? "default";
-
     if (mode === "enqueue") {
       if (!envCloudflare.ENGINE_INDEXING_QUEUE) {
         return Response.json(
@@ -315,7 +350,13 @@ async function resyncHandler({ request }: RequestInfo) {
         const batch = r2Keys.slice(i, i + batchSize);
         await envCloudflare.ENGINE_INDEXING_QUEUE.sendBatch(
           batch.map((r2Key) => ({
-            body: { r2Key, momentGraphNamespace: effectiveNamespace },
+            body: {
+              r2Key,
+              ...(momentGraphNamespace ? { momentGraphNamespace } : {}),
+              ...(momentGraphNamespacePrefix
+                ? { momentGraphNamespacePrefix }
+                : {}),
+            },
           }))
         );
       }
@@ -323,7 +364,8 @@ async function resyncHandler({ request }: RequestInfo) {
       return Response.json({
         success: true,
         mode,
-        momentGraphNamespace: effectiveNamespace,
+        momentGraphNamespace: effectiveNamespaceForResponse,
+        momentGraphNamespacePrefix,
         r2KeysEnqueued: r2Keys.length,
       });
     }
@@ -338,7 +380,10 @@ async function resyncHandler({ request }: RequestInfo) {
 
     for (const r2Key of r2Keys) {
       try {
-        const chunks = await indexDocument(r2Key, context);
+        const chunks = await indexDocument(r2Key, context, {
+          momentGraphNamespace,
+          momentGraphNamespacePrefix,
+        });
         results.push({ r2Key, chunks: chunks.length });
       } catch (error) {
         results.push({
@@ -352,11 +397,23 @@ async function resyncHandler({ request }: RequestInfo) {
     return Response.json({
       success: true,
       mode,
-      momentGraphNamespace: effectiveNamespace,
+      momentGraphNamespace: effectiveNamespaceForResponse,
+      momentGraphNamespacePrefix,
       results,
     });
-  } finally {
-    (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
+  } catch (error) {
+    console.error(
+      `[resync] Error processing resync: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return Response.json(
+      {
+        error: "Failed to resync",
+        details: error instanceof Error ? error.message : String(error),
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -405,7 +462,15 @@ async function timelineHandler({ request, ctx }: RequestInfo) {
   try {
     console.log(`[timeline] Getting timeline for document: ${documentId}`);
 
-    const lastMoment = await findLastMomentForDocument(documentId);
+    const momentGraphContext = {
+      env: envCloudflare,
+      momentGraphNamespace: getMomentGraphNamespaceFromEnv(envCloudflare),
+    };
+
+    const lastMoment = await findLastMomentForDocument(
+      documentId,
+      momentGraphContext
+    );
 
     if (!lastMoment) {
       return Response.json(
@@ -414,7 +479,7 @@ async function timelineHandler({ request, ctx }: RequestInfo) {
       );
     }
 
-    const timeline = await findAncestors(lastMoment.id);
+    const timeline = await findAncestors(lastMoment.id, momentGraphContext);
 
     console.log(
       `[timeline] Found timeline with ${timeline.length} moments for document ${documentId}`
@@ -534,6 +599,93 @@ async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function treeStatsHandler({ request }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  let body:
+    | {
+        momentGraphNamespace?: unknown;
+        namespace?: unknown;
+        momentGraphNamespacePrefix?: unknown;
+        namespacePrefix?: unknown;
+        highImportanceCutoff?: unknown;
+        sampleLimit?: unknown;
+        limit?: unknown;
+      }
+    | undefined;
+
+  try {
+    body = (await request.json()) as any;
+  } catch {
+    body = undefined;
+  }
+
+  const namespaceRaw =
+    (body as any)?.momentGraphNamespace ?? (body as any)?.namespace;
+  const baseNamespace =
+    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+      ? namespaceRaw.trim()
+      : null;
+
+  if (!baseNamespace) {
+    return Response.json(
+      { error: "Missing or invalid 'momentGraphNamespace' parameter" },
+      { status: 400 }
+    );
+  }
+
+  const namespacePrefixRaw =
+    (body as any)?.momentGraphNamespacePrefix ?? (body as any)?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
+  const effectiveNamespace = momentGraphNamespacePrefix
+    ? applyMomentGraphNamespacePrefixValue(
+        baseNamespace,
+        momentGraphNamespacePrefix
+      )
+    : baseNamespace;
+
+  const highRaw = (body as any)?.highImportanceCutoff;
+  const highImportanceCutoff =
+    typeof highRaw === "number" && Number.isFinite(highRaw) ? highRaw : 0.8;
+
+  const sampleLimitRaw = (body as any)?.sampleLimit;
+  const sampleLimit =
+    typeof sampleLimitRaw === "number" &&
+    Number.isFinite(sampleLimitRaw) &&
+    sampleLimitRaw > 0
+      ? Math.floor(sampleLimitRaw)
+      : 2000;
+
+  const limitRaw = (body as any)?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 20;
+
+  const envCloudflare = env as Cloudflare.Env;
+
+  const roots = await getRootStatsByHighImportanceSample(
+    { env: envCloudflare, momentGraphNamespace: effectiveNamespace },
+    { highImportanceCutoff, sampleLimit, limit }
+  );
+
+  return Response.json({
+    momentGraphNamespace: effectiveNamespace,
+    momentGraphNamespacePrefix,
+    highImportanceCutoff,
+    sampleLimit,
+    limit,
+    roots,
+  });
+}
+
 export const routes = [
   route("/query", {
     post: [
@@ -555,6 +707,9 @@ export const routes = [
   }),
   route("/admin/clear-indexing-state", {
     post: [requireQueryApiKey, clearIndexingStateHandler],
+  }),
+  route("/admin/tree-stats", {
+    post: [requireQueryApiKey, treeStatsHandler],
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],

@@ -372,3 +372,99 @@ We updated the Cursor plugin to derive a stable user handle from the export meta
 2. Usernames found in `workspace_roots` or file paths.
 
 This derived handle is now used as the chunk author, enabling correct attribution in generated summaries.
+
+2025-12-18 16:14:32 +0200
+
+### Scoping and nested scopes: org-specific routing plugin (idea capture)
+
+Problem: a query can match content from the wrong project because Cursor, GitHub, and Discord documents are currently routed into the same Moment Graph namespace. This makes results look confident but can be from a different context.
+
+Direction: add an organization-specific plugin (hard-coded into the plugin list for this deployment) that decides which Moment Graph namespace to use for both ingestion and query.
+
+Ingestion routing:
+- Cursor: infer project from Cursor conversation metadata and file paths (workspace roots, file paths). Use find-up logic over directories when possible.
+- GitHub: infer project from repo identity. Route issues, pull requests, and comments for a repo into the corresponding namespace.
+- Discord: infer project from channel or thread identity. Route messages in known channels into the corresponding namespace.
+
+Namespace shape:
+- Use organization-prefixed namespaces like `redwood:rwsdk`, `redwood:machinen`, `redwood:internal`.
+- Nested scopes are acknowledged as the longer-term need (org vs project vs repo), but the short-term implementation routes into a single namespace per project to avoid cross-project mixing.
+
+Query routing:
+- Queries need to be routed to a namespace using local context from the MCP client.
+- The MCP client should send metadata describing where it is being run (workspace directory or similar).
+- The organization-specific plugin uses the query text plus this metadata to select the namespace, using the same inference logic as Cursor ingestion (for example, detect which project the current workspace corresponds to).
+
+Implementation note:
+- The proposal is to override the Moment Graph namespace at runtime for the current request, rather than threading a namespace parameter through many call sites.
+
+2025-12-18 16:27:39 +0200
+
+### Implemented: namespace routing plugin (redwood-scope-router)
+
+I added a deployment-specific routing plugin that sets the Moment Graph namespace at runtime for indexing and query.
+
+Current behavior:
+- Cursor ingestion: stores workspace roots in Cursor document metadata and uses them to route into `redwood:rwsdk`, `redwood:machinen`, or `redwood:internal`.
+- GitHub ingestion: routes based on owner/repo.
+- Discord ingestion: routes based on channel id (with a small hard-coded allowlist).
+- Query: the MCP client forwards `cwd` and `workspaceRoots`, and query requests are routed using the same path heuristics.
+
+I added an internal flag to mark explicit namespaces so backfills and manual queries that pass a namespace keep working.
+
+2025-12-18 16:53:24 +0200
+
+### Added logging: scope router routing decisions
+
+To validate routing in logs, I added always-on logs in the scope router plugin for both indexing and query. The logs include the selected namespace, inferred project, and small metadata samples (repo/channel ids, workspace roots sample) to keep log volume bounded.
+
+2025-12-18 17:22:10 +0200
+
+### Add namespace prefix for demo dataset isolation
+
+I added support for `MOMENT_GRAPH_NAMESPACE_PREFIX` as an optional environment variable. When set, the engine prepends this prefix when assigning the Moment Graph namespace during:
+
+- Indexing (after the scoping plugin computes the base namespace)
+- Query (after the scoping plugin computes the base namespace)
+- Explicit namespace overrides passed to `/query`, `/admin/backfill`, and `/admin/resync`
+- Indexing queue messages that pass `momentGraphNamespace`
+
+This keeps the routing logic the same (for example `redwood:rwsdk`), but allows running a scoped dataset (for example `demo:redwood:rwsdk`) without changing client code or hard-coding a demo namespace.
+
+2025-12-18 17:44:31 +0200
+
+### Support request-scoped namespace prefix overrides
+
+I added `momentGraphNamespacePrefix` (and `namespacePrefix`) as optional request inputs for:
+
+- `/query`
+- `/admin/backfill`
+- `/admin/resync`
+
+When provided, the handler sets the prefix for the duration of the request and restores it afterward, similar to how explicit namespace overrides work.
+
+I also added support for the same prefix fields on indexing queue messages, and updated `scripts/query.sh` to pass the prefix field when `MOMENT_GRAPH_NAMESPACE_PREFIX` is set locally.
+
+2025-12-18 18:05:12 +0200
+
+### Prefix delimiter normalization
+
+I updated namespace prefix handling so callers do not need to include a trailing ":".
+
+Behavior:
+
+- If `MOMENT_GRAPH_NAMESPACE_PREFIX=demo`, the effective namespace becomes `demo:<namespace>`.
+- If `MOMENT_GRAPH_NAMESPACE_PREFIX=demo:`, it is treated the same as `demo`.
+
+2025-12-18 18:24:13 +0200
+
+### Fix admin enqueue behavior: avoid implicit "default" namespace
+
+While running `/admin/resync` in inline mode, the JSON response reported `momentGraphNamespace: "default"`. This came from a fallback in the admin handler and did not reflect the routed namespace used during indexing.
+
+More importantly, in enqueue mode the same fallback could have forced queued indexing jobs into `default`, bypassing routing.
+
+Changes:
+
+- Queue messages from `/admin/backfill` and `/admin/resync` now only include `momentGraphNamespace` when the request explicitly provides it.
+- When a prefix is provided, queue messages include `momentGraphNamespacePrefix` so the worker can apply the prefix while still running routing.

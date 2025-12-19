@@ -6,7 +6,7 @@ import type {
   MacroMomentParentProposal,
 } from "../types";
 import { getEmbedding } from "../utils/vector";
-import { getMicroMomentsForDocument, getMoment } from "../momentDb";
+import { getMicroMomentsForDocument, getMoments } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 import { callLLM } from "../utils/llm";
 
@@ -132,8 +132,21 @@ export const smartLinkerPlugin: Plugin = {
       }
 
       const momentGraphNamespace =
-        getMomentGraphNamespaceFromEnv(context.env) ?? "default";
-      const microMoments = await getMicroMomentsForDocument(document.id);
+        context.momentGraphNamespace ??
+        getMomentGraphNamespaceFromEnv(context.env) ??
+        "default";
+      const momentGraphContext = {
+        env: context.env,
+        momentGraphNamespace:
+          context.momentGraphNamespace ??
+          getMomentGraphNamespaceFromEnv(context.env) ??
+          null,
+      };
+
+      const microMoments = await getMicroMomentsForDocument(
+        document.id,
+        momentGraphContext
+      );
       const microTexts = microMoments.map((m) => m.summary ?? m.content);
       const built = buildCappedMicroMomentQueryTextWithIndices(
         microTexts,
@@ -168,7 +181,7 @@ export const smartLinkerPlugin: Plugin = {
 
       const embedding = await getEmbedding(queryText);
       const queryOptions: Record<string, unknown> = {
-        topK: 5,
+        topK: 20,
         returnMetadata: true,
       };
       if (momentGraphNamespace !== "default") {
@@ -194,6 +207,64 @@ export const smartLinkerPlugin: Plugin = {
 
       const candidateDecisions: Array<Record<string, unknown>> = [];
 
+      function parseTimeMs(value: unknown): number | null {
+        if (typeof value !== "string") {
+          return null;
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return null;
+        }
+        const ms = Date.parse(trimmed);
+        return Number.isFinite(ms) ? ms : null;
+      }
+
+      function readTimeRangeStartMs(value: unknown): number | null {
+        const range = (value as any)?.timeRange;
+        const start = range?.start;
+        return parseTimeMs(start);
+      }
+
+      function readTimeRangeEndMs(value: unknown): number | null {
+        const range = (value as any)?.timeRange;
+        const end = range?.end;
+        return parseTimeMs(end);
+      }
+
+      const childStartMs =
+        readTimeRangeStartMs(macroMoment.sourceMetadata) ??
+        parseTimeMs(macroMoment.createdAt);
+
+      function sourceRankForDocumentId(documentId: string): number {
+        const lower = documentId.toLowerCase();
+        if (lower.startsWith("github/")) {
+          return 0;
+        }
+        if (lower.startsWith("discord/")) {
+          return 1;
+        }
+        if (lower.startsWith("cursor/")) {
+          return 2;
+        }
+        return 3;
+      }
+
+      const matchIds = results.matches
+        .map((m) => m?.id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0);
+      const momentsMap =
+        matchIds.length > 0
+          ? await getMoments(matchIds, momentGraphContext)
+          : null;
+
+      const scoredCandidates: Array<{
+        match: (typeof results.matches)[number];
+        decision: Record<string, unknown>;
+        subject: any;
+        rank: number;
+        parentEndMs: number | null;
+      }> = [];
+
       for (const match of results.matches) {
         const matchMetadata = (match.metadata as any) ?? null;
         const matchNamespace = matchMetadata?.momentGraphNamespace ?? null;
@@ -217,7 +288,7 @@ export const smartLinkerPlugin: Plugin = {
           continue;
         }
 
-        const subject = await getMoment(match.id);
+        const subject = momentsMap ? momentsMap.get(match.id) : null;
         if (!subject) {
           decision.rejectReason = "missing-moment-row";
           candidateDecisions.push(decision);
@@ -226,6 +297,9 @@ export const smartLinkerPlugin: Plugin = {
 
         decision.subjectDocumentId = subject.documentId;
         decision.subjectParentId = subject.parentId ?? null;
+        decision.subjectSourceRank = sourceRankForDocumentId(
+          subject.documentId
+        );
 
         if (subject.documentId === document.id) {
           decision.rejectReason = "same-document";
@@ -241,6 +315,48 @@ export const smartLinkerPlugin: Plugin = {
           candidateDecisions.push(decision);
           continue;
         }
+
+        const parentEndMs =
+          readTimeRangeEndMs(subject.sourceMetadata) ??
+          parseTimeMs(subject.createdAt);
+        decision.childStartMs = childStartMs;
+        decision.parentEndMs = parentEndMs;
+        if (
+          childStartMs !== null &&
+          parentEndMs !== null &&
+          parentEndMs > childStartMs
+        ) {
+          decision.rejectReason = "temporal-order";
+          candidateDecisions.push(decision);
+          continue;
+        }
+
+        scoredCandidates.push({
+          match,
+          decision,
+          subject,
+          rank: sourceRankForDocumentId(subject.documentId),
+          parentEndMs,
+        });
+      }
+
+      scoredCandidates.sort((a, b) => {
+        if (a.rank !== b.rank) {
+          return a.rank - b.rank;
+        }
+        if (a.match.score !== b.match.score) {
+          return b.match.score - a.match.score;
+        }
+        return a.match.id.localeCompare(b.match.id);
+      });
+
+      for (const entry of scoredCandidates) {
+        const match = entry.match;
+        const decision = entry.decision;
+        const subject = entry.subject;
+        const score = match.score;
+
+        decision.rankApplied = entry.rank;
 
         // Logic:
         // >= 0.75: Auto-accept
@@ -261,22 +377,35 @@ export const smartLinkerPlugin: Plugin = {
             score,
           });
 
-          const prompt = `You are a strict knowledge graph linker.
-Your job is to decide if two concepts are actually the same specific conversation, thread, or topic, and should be merged.
+          decision.promptMode = "problem-workstream-attach";
+          const prompt = `You are a knowledge graph attachment classifier.
+Your job is to decide if a new moment should attach under an existing subject as part of the same problem/workstream.
 
 ## Existing Subject (Parent)
 Title: ${subject.title}
 Summary: ${subject.summary}
+Document: ${subject.documentId}
 
 ## New Moment (Child)
 Title: ${macroMoment.title}
 Summary: ${macroMoment.summary || "No summary provided"}
+Document: ${document.id}
 
 ## Task
-Are these two items referring to the same specific event, issue, conversation, or topic?
-- If they are the same topic/thread, answer YES.
-- If they are related but distinct (e.g. different issues about the same library), answer NO.
-- If they are unrelated, answer NO.
+Should the Child attach under the Parent subject as part of the same problem/workstream?
+
+Guidance:
+- Do NOT answer YES just because they are in the same project/repo/library.
+- Answer YES if the Parent and Child refer to the same problem being worked through, even when the Child is a different attempt, a partial fix, a follow-up, a test update, or a docs update.
+- Answer NO if the relationship is only "same area" or "same repo" without a shared problem.
+
+Examples:
+- YES: Parent: "RSC navigation should prefetch pages by switching requests so caching works." Child: "Implemented prefetch link scanning and caching; added tests for link scanning and cache behavior."
+- YES: Parent: "Prefetch links should exist for client navigation." Child: "Tried approach A, it failed; tried approach B, it worked; follow-up discussion about edge cases." (multiple attempts, same problem)
+- YES: Parent: "A PR introduced change X." Child: "Updated docs and tests to reflect change X." (same change, different artifact)
+- YES: Parent: "Investigating why caching does not work due to request method or headers." Child: "Debugged request method, updated it, and confirmed caching behavior." (same problem investigation)
+- NO: Parent: "Navigation caching / prefetch." Child: "Routing issue with unrelated endpoint or configuration." (same repo, different problem)
+- NO: Parent and Child both mention "navigation" or "cache", but the described failures, constraints, or changes are about different problems
 
 Answer with exactly one word: YES or NO.`;
 
@@ -322,6 +451,9 @@ Answer with exactly one word: YES or NO.`;
           parentMomentId,
           subjectTitle: subject.title,
           subjectDocumentId: subject.documentId,
+          subjectSourceRank: entry.rank,
+          childStartMs,
+          parentEndMs: entry.parentEndMs,
           method: decision.method,
         });
 

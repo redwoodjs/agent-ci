@@ -55,7 +55,10 @@ async function IndexingContent({
   const allKeys = list.objects.map((obj) => obj.key);
 
   // Get indexing states once
-  const indexingStates = await getIndexingStatesBatch(allKeys);
+  const indexingStates = await getIndexingStatesBatch(allKeys, {
+    env,
+    momentGraphNamespace: null,
+  });
 
   // Build combined view once
   const files = list.objects.map((obj) => {

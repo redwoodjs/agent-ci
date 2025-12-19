@@ -51,7 +51,10 @@ async function DashboardContent() {
     ...cursorList.objects.map((obj) => obj.key),
   ];
 
-  const indexingStates = await getIndexingStatesBatch(allKeys);
+  const indexingStates = await getIndexingStatesBatch(allKeys, {
+    env,
+    momentGraphNamespace: null,
+  });
   const indexedCount = indexingStates.size;
   const pendingCount = totalFiles - indexedCount;
 

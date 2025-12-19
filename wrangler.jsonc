@@ -24,17 +24,17 @@
   "vectorize": [
     {
       "binding": "VECTORIZE_INDEX",
-      "index_name": "rag-index-v2",
+      "index_name": "rag-index-v3",
       "remote": true
     },
     {
       "binding": "SUBJECT_INDEX",
-      "index_name": "subject-index",
+      "index_name": "subject-index-v2",
       "remote": true
     },
     {
       "binding": "MOMENT_INDEX",
-      "index_name": "moment-index",
+      "index_name": "moment-index-v2",
       "remote": true
     }
   ],
@@ -222,11 +222,7 @@
     ]
   },
   "vars": {
-    "MOMENT_GRAPH_NAMESPACE": "prod-2025-12-16",
-    "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS": "1000000",
-    "MOMENT_GRAPH_MIN_IMPORTANCE": "0",
-    "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW": "0",
-    "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT": "0"
+    "MOMENT_GRAPH_NAMESPACE_PREFIX": "prod-2025-12-18-17-26-scoping-before-backfill"
   },
   "env": {
     "test": {

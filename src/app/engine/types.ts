@@ -87,11 +87,14 @@ export interface MicroMomentDescription {
 export interface IndexingHookContext {
   r2Key: string;
   env: Cloudflare.Env;
+  momentGraphNamespace?: string | null;
 }
 
 export interface QueryHookContext {
   query: string;
   env: Cloudflare.Env;
+  clientContext?: Record<string, any>;
+  momentGraphNamespace?: string | null;
 }
 
 export interface MacroMomentParentProposal {
@@ -102,6 +105,15 @@ export interface MacroMomentParentProposal {
 
 export interface Plugin {
   name: string;
+  scoping?: {
+    computeMomentGraphNamespaceForIndexing?: (
+      document: Document,
+      context: IndexingHookContext
+    ) => Promise<string | null> | string | null;
+    computeMomentGraphNamespaceForQuery?: (
+      context: QueryHookContext
+    ) => Promise<string | null> | string | null;
+  };
   prepareSourceDocument?: (
     context: IndexingHookContext
   ) => Promise<Document | null>;

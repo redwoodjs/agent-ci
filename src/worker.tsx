@@ -1,6 +1,5 @@
 import { defineApp } from "rwsdk/worker";
 import { render, prefix, route } from "rwsdk/router";
-import { env as workerEnv } from "cloudflare:workers";
 
 import { Document } from "@/app/Document";
 
@@ -105,11 +104,15 @@ export default {
             r2Keys?: unknown;
             momentGraphNamespace?: unknown;
             namespace?: unknown;
+            momentGraphNamespacePrefix?: unknown;
+            namespacePrefix?: unknown;
             body?: {
               r2Key?: unknown;
               r2Keys?: unknown;
               momentGraphNamespace?: unknown;
               namespace?: unknown;
+              momentGraphNamespacePrefix?: unknown;
+              namespacePrefix?: unknown;
             };
           };
 
@@ -133,9 +136,21 @@ export default {
               ? namespaceRaw.trim()
               : null;
 
+          const namespacePrefixRaw =
+            (indexingMessage.momentGraphNamespacePrefix ??
+              indexingMessage.namespacePrefix ??
+              indexingMessage.body?.momentGraphNamespacePrefix ??
+              indexingMessage.body?.namespacePrefix) as unknown;
+          const momentGraphNamespacePrefix =
+            typeof namespacePrefixRaw === "string" &&
+            namespacePrefixRaw.trim().length > 0
+              ? namespacePrefixRaw.trim()
+              : null;
+
           console.log(`[queue] Received indexing job from ${queueName}:`, {
             r2KeysCount: r2Keys?.length ?? 0,
-            momentGraphNamespace,
+            momentGraphNamespace: momentGraphNamespace ?? null,
+            momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
           });
 
           if (!r2Keys || r2Keys.length === 0) {
@@ -149,21 +164,21 @@ export default {
             continue;
           }
 
-          const previousNamespace = (env as any).MOMENT_GRAPH_NAMESPACE;
-          const previousWorkerNamespace = (workerEnv as any)
-            .MOMENT_GRAPH_NAMESPACE;
-          if (momentGraphNamespace) {
-            (env as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
-            (workerEnv as any).MOMENT_GRAPH_NAMESPACE = momentGraphNamespace;
-          }
-
           try {
             for (const r2Key of r2Keys) {
-              await processIndexingJob({ r2Key }, env as Cloudflare.Env);
+              await processIndexingJob(
+                {
+                  r2Key,
+                  ...(momentGraphNamespace ? { momentGraphNamespace } : null),
+                  ...(momentGraphNamespacePrefix
+                    ? { momentGraphNamespacePrefix }
+                    : null),
+                },
+                env as Cloudflare.Env
+              );
             }
           } finally {
-            (env as any).MOMENT_GRAPH_NAMESPACE = previousNamespace;
-            (workerEnv as any).MOMENT_GRAPH_NAMESPACE = previousWorkerNamespace;
+            // no per-message env namespace mutation
           }
 
           message.ack();

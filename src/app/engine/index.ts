@@ -11,6 +11,7 @@ export type {
 } from "./types";
 import type { EngineContext } from "./types";
 import {
+  redwoodScopeRouterPlugin,
   githubPlugin,
   discordPlugin,
   cursorPlugin,
@@ -24,6 +25,7 @@ export function createEngineContext(
 ): EngineContext {
   return {
     plugins: [
+      redwoodScopeRouterPlugin,
       smartLinkerPlugin,
       githubPlugin,
       discordPlugin,

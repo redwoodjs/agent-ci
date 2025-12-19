@@ -5,6 +5,7 @@ import { processReleaseEvent } from "./release-processor";
 import { processProjectEvent } from "./project-processor";
 import { processProjectItemEvent } from "./project-item-processor";
 import type { ProcessorJobMessage } from "./backfill-types";
+import { incrementBackfillProcessedCountAndMaybeComplete } from "./backfill-state";
 import type { GitHubIssue } from "../utils/issue-to-markdown";
 import type { GitHubPullRequest } from "../utils/pr-to-markdown";
 import type { GitHubComment } from "../utils/comment-to-markdown";
@@ -17,6 +18,10 @@ export async function processProcessorJob(
 ): Promise<void> {
   const { repository_key, owner, repo, entity_type, entity_data, event_type } =
     message;
+  const backfillRunId = message.backfill_run_id ?? null;
+  const isBackfill = event_type === "backfill";
+  const momentGraphNamespacePrefix =
+    message.moment_graph_namespace_prefix ?? null;
   const repository = { owner: { login: owner }, name: repo };
 
   // Extract entity identifier for logging
@@ -43,7 +48,13 @@ export async function processProcessorJob(
   console.log(
     `[processor] Processing ${entity_type} ${
       entityId ? `#${entityId}` : ""
-    } for ${repository_key} (event: ${event_type})`
+    } for ${repository_key} (event: ${event_type}${
+      isBackfill && backfillRunId ? ` runId=${backfillRunId}` : ""
+    }${
+      isBackfill && momentGraphNamespacePrefix
+        ? ` prefix=${momentGraphNamespacePrefix}`
+        : ""
+    })`
   );
 
   try {
@@ -176,6 +187,22 @@ export async function processProcessorJob(
       }
       default:
         throw new Error(`Unknown entity type: ${entity_type}`);
+    }
+
+    if (isBackfill && backfillRunId) {
+      const completion = await incrementBackfillProcessedCountAndMaybeComplete(
+        repository_key,
+        backfillRunId
+      );
+      if (completion?.shouldLogCompletion) {
+        console.log("[backfill] processed completed", {
+          repositoryKey: repository_key,
+          backfillRunId,
+          momentGraphNamespacePrefix: completion.momentGraphNamespacePrefix,
+          processedCount: completion.processedCount,
+          enqueuedCount: completion.enqueuedCount,
+        });
+      }
     }
   } catch (error) {
     console.error(

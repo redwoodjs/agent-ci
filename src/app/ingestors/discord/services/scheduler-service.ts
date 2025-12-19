@@ -1,6 +1,14 @@
 import { env } from "cloudflare:workers";
-import { getBackfillState, updateBackfillState } from "./backfill-state";
-import type { SchedulerJobMessage, ProcessorJobMessage } from "./backfill-types";
+import {
+  getBackfillState,
+  incrementBackfillEnqueuedCount,
+  markBackfillEnqueueCompleted,
+  updateBackfillState,
+} from "./backfill-state";
+import type {
+  SchedulerJobMessage,
+  ProcessorJobMessage,
+} from "./backfill-types";
 import { fetchDiscordEntity } from "../utils/discord-api";
 import type { components } from "../discord-api-types";
 
@@ -16,13 +24,13 @@ declare module "rwsdk/worker" {
 
 function extractThreadInfo(messages: DiscordMessage[]): Set<string> {
   const threadIDs = new Set<string>();
-  
+
   for (const message of messages) {
     if (message.thread?.id) {
       threadIDs.add(message.thread.id);
     }
   }
-  
+
   return threadIDs;
 }
 
@@ -34,24 +42,27 @@ async function fetchDiscordMessagesPage(
   if (cursor) params.set("before", cursor);
 
   const url = `https://discord.com/api/v10/channels/${channelID}/messages?${params}`;
-  
+
   const data = await fetchDiscordEntity<DiscordMessage[]>(url);
-  
+
   const nextPage = data.length === 100 ? data[data.length - 1].id : undefined;
-  
+
   return { data, nextPage };
 }
 
-async function fetchActiveThreads(
-  channelID: string
-): Promise<DiscordThread[]> {
+async function fetchActiveThreads(channelID: string): Promise<DiscordThread[]> {
   const url = `https://discord.com/api/v10/channels/${channelID}/threads/active`;
-  
+
   try {
-    const response = await fetchDiscordEntity<{ threads: DiscordThread[] }>(url);
+    const response = await fetchDiscordEntity<{ threads: DiscordThread[] }>(
+      url
+    );
     return response.threads || [];
   } catch (error) {
-    console.warn(`[scheduler] Failed to fetch active threads for channel ${channelID}:`, error);
+    console.warn(
+      `[scheduler] Failed to fetch active threads for channel ${channelID}:`,
+      error
+    );
     return [];
   }
 }
@@ -59,14 +70,24 @@ async function fetchActiveThreads(
 export async function processSchedulerJob(
   message: SchedulerJobMessage
 ): Promise<void> {
-  const { guild_channel_key, guildID, channelID, entity_type, cursor } = message;
+  const {
+    guild_channel_key,
+    guildID,
+    channelID,
+    entity_type,
+    cursor,
+    backfill_run_id,
+  } = message;
 
   console.log(
-    `[scheduler] Processing scheduler job: ${guild_channel_key}, entity_type: ${entity_type}, cursor: ${cursor || "none"}`
+    `[scheduler] Processing scheduler job: ${guild_channel_key}, entity_type: ${entity_type}, cursor: ${
+      cursor || "none"
+    }`
   );
 
   const state = await getBackfillState(guild_channel_key);
   console.log(`[scheduler] Current backfill state:`, state);
+  const runId = backfill_run_id ?? state?.current_run_id ?? null;
 
   if (state?.status === "paused_on_error" || state?.status === "paused") {
     console.log(
@@ -78,13 +99,19 @@ export async function processSchedulerJob(
   await updateBackfillState(guild_channel_key, { status: "in_progress" });
 
   try {
-    const processorQueue = (env as any).DISCORD_PROCESSOR_QUEUE as Queue<ProcessorJobMessage>;
+    const processorQueue = (env as any)
+      .DISCORD_PROCESSOR_QUEUE as Queue<ProcessorJobMessage>;
 
     if (entity_type === "messages") {
-      const { data, nextPage } = await fetchDiscordMessagesPage(channelID, cursor);
+      const { data, nextPage } = await fetchDiscordMessagesPage(
+        channelID,
+        cursor
+      );
 
       console.log(
-        `[scheduler] Fetched ${data.length} messages, hasNextPage: ${!!nextPage}`
+        `[scheduler] Fetched ${
+          data.length
+        } messages, hasNextPage: ${!!nextPage}`
       );
 
       if (data.length > 0) {
@@ -95,6 +122,9 @@ export async function processSchedulerJob(
           channelID,
           entity_type: "channel",
           event_type: "backfill",
+          moment_graph_namespace_prefix:
+            state?.moment_graph_namespace_prefix ?? null,
+          ...(runId ? { backfill_run_id: runId } : {}),
         });
 
         const threadIDs = extractThreadInfo(data);
@@ -109,7 +139,18 @@ export async function processSchedulerJob(
             entity_type: "thread",
             entity_id: threadID,
             event_type: "backfill",
+            moment_graph_namespace_prefix:
+              state?.moment_graph_namespace_prefix ?? null,
+            ...(runId ? { backfill_run_id: runId } : {}),
           });
+        }
+
+        if (runId) {
+          await incrementBackfillEnqueuedCount(
+            guild_channel_key,
+            runId,
+            1 + threadIDs.size
+          );
         }
       }
 
@@ -121,6 +162,7 @@ export async function processSchedulerJob(
         await (env as any).DISCORD_SCHEDULER_QUEUE.send({
           ...message,
           cursor: nextPage,
+          ...(runId ? { backfill_run_id: runId } : {}),
         });
       } else {
         await updateBackfillState(guild_channel_key, {
@@ -133,6 +175,7 @@ export async function processSchedulerJob(
           guildID,
           channelID,
           entity_type: "threads",
+          ...(runId ? { backfill_run_id: runId } : {}),
         });
       }
     } else if (entity_type === "threads") {
@@ -149,7 +192,18 @@ export async function processSchedulerJob(
           entity_type: "thread",
           entity_id: thread.id,
           event_type: "backfill",
+          moment_graph_namespace_prefix:
+            state?.moment_graph_namespace_prefix ?? null,
+          ...(runId ? { backfill_run_id: runId } : {}),
         });
+      }
+
+      if (runId) {
+        await incrementBackfillEnqueuedCount(
+          guild_channel_key,
+          runId,
+          activeThreads.length
+        );
       }
 
       await updateBackfillState(guild_channel_key, {
@@ -157,7 +211,19 @@ export async function processSchedulerJob(
         status: "completed",
       });
 
-      console.log(`[scheduler] Backfill completed for ${guild_channel_key}`);
+      if (runId) {
+        await markBackfillEnqueueCompleted(guild_channel_key, runId);
+        const updated = await getBackfillState(guild_channel_key);
+        console.log("[backfill] enqueue completed", {
+          guildChannelKey: guild_channel_key,
+          backfillRunId: runId,
+          momentGraphNamespacePrefix:
+            updated?.moment_graph_namespace_prefix ?? null,
+          enqueuedCount: updated?.enqueued_count ?? 0,
+        });
+      } else {
+        console.log(`[scheduler] Backfill completed for ${guild_channel_key}`);
+      }
     }
   } catch (error) {
     console.error(`[scheduler] Error processing scheduler job:`, error);
@@ -169,5 +235,3 @@ export async function processSchedulerJob(
     throw error;
   }
 }
-
-

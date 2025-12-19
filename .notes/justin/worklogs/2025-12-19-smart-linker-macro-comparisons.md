@@ -106,3 +106,11 @@ In this branch, a few issues showed up together:
   - `src/app/pages/audit/subpages/indexing-table.tsx`: string | undefined assignability
   - `src/db/index.ts`: missing Env.DATABASE
   - `wsproxy/proxy.ts`: Bun types and implicit any params
+
+### 2025-12-19
+
+- Ran a query with `MOMENT_GRAPH_NAMESPACE=prod-2025-12-19-14-06:redwood:rwsdk`.
+  - Worker log shows `momentDb:findSimilarMoments` returned `candidates: []` and `similarMoments=0`.
+  - This explains the CLI output 'No Moment Graph subject timeline matched this query'.
+- Searched `backfill.log` for `prod-2025-12-19-14-06` and found no entries.
+  - Current working assumption: the `14-06` prefix namespace has not been populated via backfill, so subject lookup returns zero matches.

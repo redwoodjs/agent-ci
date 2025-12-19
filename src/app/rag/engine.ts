@@ -7,6 +7,7 @@ import type {
   QueryHookContext,
   EngineContext,
 } from "./types";
+import { callLLM } from "../engine/utils/llm";
 
 export async function indexDocument(
   r2Key: string,
@@ -100,7 +101,7 @@ export async function query(
     throw new Error("No plugin could compose LLM prompt");
   }
 
-  const llmResponse = await callLlm(prompt, context.env);
+  const llmResponse = await callLlm(prompt);
 
   const formattedResponse = await runWaterfallHook(
     context.plugins,
@@ -218,8 +219,6 @@ async function generateEmbedding(
   return response.data[0];
 }
 
-import { callLLM } from "../engine/utils/llm";
-
-async function callLlm(prompt: string, env: Cloudflare.Env): Promise<string> {
-  return callLLM(prompt, env);
+async function callLlm(prompt: string): Promise<string> {
+  return callLLM(prompt);
 }

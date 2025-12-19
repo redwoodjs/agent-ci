@@ -81,3 +81,8 @@ This replaces the current behavior where a vector score >= 0.75 attaches without
 - Reduced macro noise impact on vector search:
   - GitHub micro summarization and macro synthesis prompt contexts now treat automated status updates as low-signal.
   - Vector upserts are skipped when a macro moment importance is below 0.4 (still stored in the moment graph DB).
+
+- Switched smart-linker from LLM selection to an LLM veto:
+  - Auto-attach is restored for vector score >= 0.8.
+  - For vector score >= 0.75 and < 0.8, smart-linker calls the LLM with a yes/no prompt: return NO only when the attachment is clearly wrong.
+  - The LLM veto is attempted for up to 3 candidates, in vector-score order.

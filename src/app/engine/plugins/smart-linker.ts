@@ -11,9 +11,9 @@ import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 import { callLLM } from "../utils/llm";
 
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
+const DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD = 0.8;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
-const DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD = 0.75;
-const DEFAULT_SMART_LINKER_MAX_LLM_CANDIDATES = 5;
+const DEFAULT_SMART_LINKER_MAX_LLM_VETO_CANDIDATES = 3;
 
 function previewText(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") {
@@ -326,16 +326,50 @@ export const smartLinkerPlugin: Plugin = {
         return null;
       }
 
-      const topCandidates = eligibleCandidates.slice(
-        0,
-        DEFAULT_SMART_LINKER_MAX_LLM_CANDIDATES
-      );
-
       const childTime =
         childStartMs !== null ? new Date(childStartMs).toISOString() : null;
 
-      const promptCandidates = topCandidates.map((entry) => {
+      const candidatesForVeto = eligibleCandidates.slice(
+        0,
+        DEFAULT_SMART_LINKER_MAX_LLM_VETO_CANDIDATES
+      );
+
+      console.log("[moment-linker] smart linker invoking LLM veto", {
+        documentId: document.id,
+        macroMomentIndex,
+        threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+        autoAttachThreshold: DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD,
+        candidateIds: candidatesForVeto.map((c) => c.subject.id),
+      });
+
+      for (const entry of candidatesForVeto) {
         const subject = entry.subject;
+        const score = entry.match.score;
+        const parentMomentId = subject.id;
+
+        if (score >= DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD) {
+          console.log("[moment-linker] smart linker chose attachment", {
+            documentId: document.id,
+            macroMomentIndex,
+            matchedSubjectId: subject.id,
+            score,
+            parentMomentId,
+            subjectTitle: subject.title,
+            subjectDocumentId: subject.documentId,
+            subjectSourceRank: entry.rank,
+            childStartMs,
+            parentStartMs: entry.parentStartMs,
+            parentEndMs: entry.parentEndMs,
+            method: "auto-high-confidence",
+          });
+
+          return {
+            parentMomentId,
+            matchedSubjectId: subject.id,
+            score,
+          };
+        }
+
         const parentStartMs = entry.parentStartMs;
         const parentTime =
           parentStartMs !== null ? new Date(parentStartMs).toISOString() : null;
@@ -343,27 +377,13 @@ export const smartLinkerPlugin: Plugin = {
           childStartMs !== null &&
           parentStartMs !== null &&
           parentStartMs > childStartMs;
-        return {
-          id: subject.id,
-          documentId: subject.documentId,
-          title: previewText(subject.title, 200) ?? subject.title,
-          summary: previewText(subject.summary, 900) ?? subject.summary,
-          time: parentTime,
-          temporalInverted,
-          vectorScore: entry.match.score,
-        };
-      });
 
-      console.log("[moment-linker] smart linker invoking LLM for shortlist", {
-        documentId: document.id,
-        macroMomentIndex,
-        shortlistCount: promptCandidates.length,
-        threshold: DEFAULT_SMART_LINKER_THRESHOLD,
-        candidateIds: promptCandidates.map((c) => c.id),
-      });
+        const vetoPrompt = `You are a knowledge graph attachment veto checker.
+Your job is to decide whether an attachment is clearly wrong.
 
-      const prompt = `You are a knowledge graph attachment classifier.
-Your job is to decide whether a child moment refers to the same specific problem as one of the candidate parent moments.
+Return YES if the attachment is plausible.
+Return NO if the attachment is clearly wrong / unrelated.
+Return only YES or NO.
 
 ## Child moment
 Time: ${childTime ?? "unknown"}
@@ -371,119 +391,86 @@ Title: ${macroMoment.title}
 Summary: ${macroMoment.summary || "No summary provided"}
 Document: ${document.id}
 
-## Candidate parent moments
-${JSON.stringify(promptCandidates, null, 2)}
-
-## Task
-Pick at most one candidate parent moment.
-Return JSON only, in this exact shape:
-{"selectedId": "<id or null>", "score": <number from 0 to 1>}
+## Candidate parent moment
+Time: ${parentTime ?? "unknown"}
+Title: ${previewText(subject.title, 200) ?? subject.title}
+Summary: ${previewText(subject.summary, 900) ?? subject.summary}
+Document: ${subject.documentId}
+VectorScore: ${score}
+TemporalInverted: ${temporalInverted ? "true" : "false"}
 
 Guidance:
-- Decide based on the same specific problem, not the same area.
-- If the relationship is only shared terms or shared repo/project, return selectedId=null with a low score.
-- The parent link is not strict time ordering. The time fields are just metadata.
+- Say NO when it is clearly unrelated.
+- Say YES when it could be the same specific problem, or when it is a related step in the same work.
+- Do not say NO only because the two moments are not identical in wording.
+
+Examples (NO):
+- One is about SSR bridge architecture and the other is about deployment status noise.
+- One is about an unrelated endpoint or configuration issue.
+
+Examples (YES):
+- One is about rwsdk client navigation mechanics and the other is about improving that same navigation system (prefetching/caching, switching navigation requests to GET).
 `;
 
-      let chosenId: string | null = null;
-      let llmScore: number | null = null;
-      try {
-        const llmResult = await callLLM(prompt, "slow-reasoning", {
-          temperature: 0,
-          reasoning: { effort: "high" },
-        });
-        const trimmed = llmResult.trim();
-        const jsonStart = trimmed.indexOf("{");
-        const jsonEnd = trimmed.lastIndexOf("}");
-        const jsonText =
-          jsonStart >= 0 && jsonEnd > jsonStart
-            ? trimmed.slice(jsonStart, jsonEnd + 1)
-            : null;
-        const parsed = jsonText ? JSON.parse(jsonText) : null;
-
-        const selectedIdRaw =
-          parsed && typeof parsed.selectedId === "string"
-            ? parsed.selectedId.trim()
-            : parsed?.selectedId === null
-            ? null
-            : null;
-        const scoreRaw =
-          parsed && typeof parsed.score === "number" ? parsed.score : null;
-
-        llmScore =
-          typeof scoreRaw === "number" && Number.isFinite(scoreRaw)
-            ? scoreRaw
-            : null;
-
-        if (selectedIdRaw && selectedIdRaw.toLowerCase() !== "null") {
-          chosenId = selectedIdRaw;
+        let vetoAnswer: string | null = null;
+        try {
+          const llmResult = await callLLM(vetoPrompt, "slow-reasoning", {
+            temperature: 0,
+            reasoning: { effort: "high" },
+          });
+          vetoAnswer = llmResult.trim().split(/\s+/)[0]?.toUpperCase() ?? null;
+        } catch (err) {
+          console.error("[moment-linker] LLM veto check failed", err);
         }
-      } catch (err) {
-        console.error("[moment-linker] LLM shortlist check failed", err);
-      }
 
-      const allowedIds = new Set(promptCandidates.map((c) => c.id));
-      const selectedAllowed = chosenId !== null && allowedIds.has(chosenId);
-      const shouldLink =
-        selectedAllowed &&
-        llmScore !== null &&
-        llmScore >= DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD;
+        const allowed =
+          vetoAnswer === "YES" || vetoAnswer === "Y" || vetoAnswer === "TRUE";
 
-      console.log("[moment-linker] smart linker LLM shortlist decision", {
-        documentId: document.id,
-        macroMomentIndex,
-        selectedId: chosenId,
-        selectedAllowed,
-        llmScore,
-        llmScoreThreshold: DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD,
-        method: "llm-shortlist",
-      });
-
-      if (!shouldLink || chosenId === null) {
-        console.log("[moment-linker] smart linker no attachment", {
+        console.log("[moment-linker] smart linker LLM veto decision", {
           documentId: document.id,
           macroMomentIndex,
-          threshold: DEFAULT_SMART_LINKER_THRESHOLD,
-          candidates: candidateDecisions,
+          candidateId: subject.id,
+          score,
+          vetoAnswer,
+          allowed,
+          method: "llm-veto",
         });
-        return null;
-      }
 
-      const chosen =
-        topCandidates.find((c) => c.subject.id === chosenId) ?? null;
-      if (!chosen) {
-        console.log("[moment-linker] smart linker no attachment", {
+        if (!allowed) {
+          continue;
+        }
+
+        console.log("[moment-linker] smart linker chose attachment", {
           documentId: document.id,
           macroMomentIndex,
-          threshold: DEFAULT_SMART_LINKER_THRESHOLD,
-          candidates: candidateDecisions,
+          matchedSubjectId: subject.id,
+          score,
+          parentMomentId,
+          subjectTitle: subject.title,
+          subjectDocumentId: subject.documentId,
+          subjectSourceRank: entry.rank,
+          childStartMs,
+          parentStartMs: entry.parentStartMs,
+          parentEndMs: entry.parentEndMs,
+          method: "llm-veto",
         });
-        return null;
+
+        return {
+          parentMomentId,
+          matchedSubjectId: subject.id,
+          score,
+        };
       }
 
-      const parentMomentId = chosen.subject.id;
-
-      console.log("[moment-linker] smart linker chose attachment", {
+      console.log("[moment-linker] smart linker no attachment", {
         documentId: document.id,
         macroMomentIndex,
-        matchedSubjectId: chosen.subject.id,
-        score: chosen.match.score,
-        parentMomentId,
-        subjectTitle: chosen.subject.title,
-        subjectDocumentId: chosen.subject.documentId,
-        subjectSourceRank: chosen.rank,
-        childStartMs,
-        parentStartMs: chosen.parentStartMs,
-        parentEndMs: chosen.parentEndMs,
-        method: "llm-shortlist",
-        llmScore,
+        threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+        autoAttachThreshold: DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD,
+        candidates: candidateDecisions,
       });
 
-      return {
-        parentMomentId,
-        matchedSubjectId: chosen.subject.id,
-        score: chosen.match.score,
-      };
+      return null;
     },
   },
 };

@@ -13,7 +13,7 @@ import { callLLM } from "../utils/llm";
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
 const DEFAULT_SMART_LINKER_LLM_THRESHOLD = 0.6;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
-const DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD = 0.618;
+const DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD = 0.75;
 
 function previewText(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") {

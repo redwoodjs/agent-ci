@@ -58,7 +58,7 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 
     The current storage model represents “attach” using parent links, so the attach decision must be treated as “place this under that work item”, not “these are the same object”.
 
-    For sources that often begin with low-signal content (example: Cursor conversations), the engine should not assume that the first synthesized macro moment is the best representative for correlation. A simple approach is to pick a representative macro moment (for example, the highest-importance macro moment) to drive the attach decision, while still attaching the document’s root macro moment when a parent is chosen.
+    For sources that often begin with low-signal content (example: Cursor conversations), the engine should not assume that the first synthesized macro moment is the best representative for correlation. One approach is to build the search query from a subset of macro moments chosen by importance (example: select macro moments at or above a per-document percentile cutoff, then concatenate their titles and summaries). When a parent is chosen, the attachment still uses the document's first selected macro moment as the anchor for timestamps and macro indexing, and the document's macro moments are persisted in chronological order under that attachment.
 
     Correlation prefers candidates whose timestamps are not later than their child. When timestamps indicate a time inversion, the candidate can be routed through a stricter classification step rather than rejected solely on time ordering.
 

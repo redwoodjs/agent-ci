@@ -490,21 +490,94 @@ export async function indexDocument(
 
         let anchorMacroMomentIndex = 0;
         let anchorMacroMomentImportance: number | null = null;
+        let anchorMacroMomentForLinking: MacroMomentDescription | null = null;
+
+        const macroImportanceEntries: Array<{
+          index: number;
+          importance: number;
+        }> = [];
         for (let i = 0; i < macroMomentDescriptions.length; i++) {
           const candidate = macroMomentDescriptions[i] as any;
           const importance =
             candidate && typeof candidate.importance === "number"
               ? (candidate.importance as number)
               : null;
-          if (importance === null) {
+          if (importance === null || !Number.isFinite(importance)) {
             continue;
           }
-          if (
-            anchorMacroMomentImportance === null ||
-            importance > anchorMacroMomentImportance
-          ) {
-            anchorMacroMomentIndex = i;
-            anchorMacroMomentImportance = importance;
+          macroImportanceEntries.push({ index: i, importance });
+        }
+
+        if (macroImportanceEntries.length > 0) {
+          const sortedImportance = macroImportanceEntries
+            .map((e) => e.importance)
+            .sort((a, b) => a - b);
+          const p75Index =
+            sortedImportance.length === 1
+              ? 0
+              : Math.floor((sortedImportance.length - 1) * 0.75);
+          const p75Threshold =
+            sortedImportance[p75Index] ?? sortedImportance[0]!;
+
+          const importantChronological = macroImportanceEntries
+            .filter((e) => e.importance >= p75Threshold)
+            .sort((a, b) => a.index - b.index);
+
+          const minImportantCount = macroImportanceEntries.length >= 2 ? 2 : 1;
+          const ensuredImportant =
+            importantChronological.length >= minImportantCount
+              ? importantChronological
+              : macroImportanceEntries
+                  .slice()
+                  .sort(
+                    (a, b) => b.importance - a.importance || a.index - b.index
+                  )
+                  .slice(0, minImportantCount)
+                  .sort((a, b) => a.index - b.index);
+
+          const maxImportantCount = 3;
+          const limitedImportant = ensuredImportant
+            .slice()
+            .sort((a, b) => b.importance - a.importance || a.index - b.index)
+            .slice(0, maxImportantCount)
+            .sort((a, b) => a.index - b.index);
+
+          const firstImportantIndex = limitedImportant[0]?.index ?? 0;
+          const firstImportant =
+            macroMomentDescriptions[firstImportantIndex] ??
+            macroMomentDescriptions[0];
+
+          anchorMacroMomentIndex = firstImportantIndex;
+          anchorMacroMomentImportance = limitedImportant[0]?.importance ?? null;
+
+          const concatenated = limitedImportant
+            .map((entry) => {
+              const d = macroMomentDescriptions[entry.index];
+              if (!d) {
+                return null;
+              }
+              const title =
+                typeof d.title === "string" && d.title.trim().length > 0
+                  ? d.title.trim()
+                  : "";
+              const summary =
+                typeof d.summary === "string" && d.summary.trim().length > 0
+                  ? d.summary.trim()
+                  : "";
+              const combined = [title, summary].filter(Boolean).join("\n");
+              return combined.length > 0 ? combined : null;
+            })
+            .filter((v): v is string => typeof v === "string" && v.length > 0)
+            .join("\n\n");
+
+          if (firstImportant) {
+            anchorMacroMomentForLinking =
+              concatenated.length > 0
+                ? {
+                    ...firstImportant,
+                    summary: concatenated,
+                  }
+                : firstImportant;
           }
         }
 
@@ -543,6 +616,7 @@ export async function indexDocument(
               });
             } else {
               const anchorMacroMoment =
+                anchorMacroMomentForLinking ??
                 macroMomentDescriptions[anchorMacroMomentIndex] ??
                 macroMomentDescriptions[0];
               const parentProposal = await runFirstMatchHook(

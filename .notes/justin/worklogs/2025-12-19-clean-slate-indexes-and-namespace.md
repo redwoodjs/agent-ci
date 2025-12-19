@@ -40,3 +40,24 @@ I want a clean slate in production:
     - subject-index-v5
   - Updated production `MOMENT_GRAPH_NAMESPACE_PREFIX` to `prod-2025-12-19-16-01`.
   - Plan: purge production queues to avoid old backlog processing under the rotated prefix.
+
+- Executed the clean slate actions:
+  - Created Vectorize indexes:
+    - rag-index-v5
+    - moment-index-v5
+    - subject-index-v5
+  - Enqueued Vectorize metadata index creation for `momentGraphNamespace`:
+    - moment-index-v5 changeset: 74668dea-342b-42d3-86c1-5c513af93f76
+    - subject-index-v5 changeset: 822a073d-cff5-4b49-82c1-3c836f540cc9
+  - Purged production queues (requires `--force` in non-interactive mode):
+    - github-scheduler-queue-prod
+    - github-processor-queue-prod
+    - github-processor-queue-prod-dlq
+    - engine-indexing-queue-prod
+    - r2-file-update-queue-prod
+    - discord-scheduler-queue-prod
+    - discord-processor-queue-prod
+    - discord-processor-queue-prod-dlq
+    - discord-gateway-events-queue-prod
+    - discord-gateway-events-queue-prod-dlq
+    - chunk-processing-queue-prod

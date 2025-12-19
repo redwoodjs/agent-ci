@@ -222,7 +222,7 @@
     ]
   },
   "vars": {
-    "MOMENT_GRAPH_NAMESPACE_PREFIX": "prod-2025-12-18-17-26-scoping-before-backfill"
+    "MOMENT_GRAPH_NAMESPACE_PREFIX": "prod-2025-12-19-03-07"
   },
   "env": {
     "test": {

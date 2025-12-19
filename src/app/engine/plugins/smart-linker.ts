@@ -10,7 +10,7 @@ import { getMoments } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 import { callLLM } from "../utils/llm";
 
-const DEFAULT_SMART_LINKER_THRESHOLD = 0.7;
+const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
 const DEFAULT_SMART_LINKER_LLM_THRESHOLD = 0.6;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
 const DEFAULT_SMART_LINKER_LLM_SCORE_THRESHOLD = 0.618;

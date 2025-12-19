@@ -27,3 +27,5 @@ And I want the LLM classifier call to use reasoning effort high (instead of low)
 - Updated smart-linker query embedding input from document micro-moment concat to the candidate macro moment summary (fallback to title), and removed the micro-moment query plumbing.
 - Updated thresholds: auto-accept 0.85, LLM gate 0.6.
 - Updated LLM call options: reasoning effort high.
+
+- Confirmed how “anchor macro moment” is used during indexing: pick the macro moment with the highest importance score in the synthesized list, and pass that moment to proposeMacroMomentParent to get a parent for the document’s first macro moment. The rest of the document’s macro moments attach as a chain under that first macro moment.

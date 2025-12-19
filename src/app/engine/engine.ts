@@ -1052,6 +1052,13 @@ export async function query(
 
           if (anchorCandidates.length > 0) {
             const candidatesToTry = anchorCandidates.slice(0, 5);
+            const rootsToMergeLimit = 3;
+
+            const rootsById = new Map<string, Moment>();
+            const requiredIds = new Set<string>();
+            let primaryRoot: Moment | null = null;
+            let chosenMatchId: string | null = null;
+
             for (const candidate of candidatesToTry) {
               console.log("[query:narrative] anchor candidate", {
                 id: candidate.id,
@@ -1063,92 +1070,125 @@ export async function query(
                 momentGraphContext
               );
               const root = ancestors[0] ?? candidate;
-              const chosenMatchId = candidate.id;
-              const timeline = await findDescendants(
+
+              if (!rootsById.has(root.id)) {
+                rootsById.set(root.id, root);
+              }
+
+              requiredIds.add(root.id);
+              requiredIds.add(candidate.id);
+
+              if (!primaryRoot) {
+                primaryRoot = root;
+                chosenMatchId = candidate.id;
+              }
+            }
+
+            const rootsToFetch = Array.from(rootsById.values()).slice(
+              0,
+              rootsToMergeLimit
+            );
+
+            const mergedById = new Map<string, Moment>();
+            for (const root of rootsToFetch) {
+              const partial = await findDescendants(
                 root.id,
                 momentGraphContext
               );
               console.log(
-                `[query:narrative] rootTimelineLen=${timeline.length} (anchoredOn=${root.documentId} matchedOn=${candidate.documentId})`
+                `[query:narrative] rootTimelineLen=${partial.length} (anchoredOn=${root.documentId})`
               );
+              for (const moment of partial) {
+                mergedById.set(moment.id, moment);
+              }
+            }
 
-              if (timeline.length > 0) {
-                const maxMoments = readEnvNumber(
-                  "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
-                  200
-                ).value;
-                const queryImportanceCutoff = readEnvNumber(
-                  "MOMENT_GRAPH_QUERY_IMPORTANCE_CUTOFF",
-                  0.4
-                ).value;
-                const minImportance = readEnvNumber(
-                  "MOMENT_GRAPH_MIN_IMPORTANCE",
-                  0.8
-                ).value;
-                const neighborWindow = readEnvNumber(
-                  "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
-                  1
-                ).value;
-                const endBiasWeight = readEnvNumber(
-                  "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
-                  0.4
-                ).value;
-
-                const requiredIds = [root.id, chosenMatchId];
-                const cutoffApplied = applyImportanceCutoff({
-                  timeline,
-                  requiredIds,
-                  cutoff: queryImportanceCutoff,
-                });
-                console.log("[query:narrative] applied importance cutoff", {
-                  cutoff: clamp01(queryImportanceCutoff),
-                  removedCount: cutoffApplied.removedCount,
-                  beforeLen: timeline.length,
-                  afterLen: cutoffApplied.timeline.length,
-                });
-
-                let prunedTimeline = cutoffApplied.timeline;
-                if (prunedTimeline.length > maxMoments) {
-                  const keptIndices = pruneTimeline({
-                    timeline: prunedTimeline,
-                    requiredIds,
-                    maxMoments,
-                    minImportance,
-                    neighborWindow,
-                    endBiasWeight,
-                  });
-                  prunedTimeline = keptIndices
-                    .map((idx) => prunedTimeline[idx])
-                    .filter(Boolean);
+            const mergedTimeline = Array.from(mergedById.values()).sort(
+              (a, b) => {
+                if (a.createdAt !== b.createdAt) {
+                  return a.createdAt.localeCompare(b.createdAt);
                 }
+                return a.id.localeCompare(b.id);
+              }
+            );
 
-                const cutoffAfterPrune = applyImportanceCutoff({
+            if (mergedTimeline.length > 0 && primaryRoot && chosenMatchId) {
+              const maxMoments = readEnvNumber(
+                "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
+                200
+              ).value;
+              const queryImportanceCutoff = readEnvNumber(
+                "MOMENT_GRAPH_QUERY_IMPORTANCE_CUTOFF",
+                0.4
+              ).value;
+              const minImportance = readEnvNumber(
+                "MOMENT_GRAPH_MIN_IMPORTANCE",
+                0.8
+              ).value;
+              const neighborWindow = readEnvNumber(
+                "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
+                1
+              ).value;
+              const endBiasWeight = readEnvNumber(
+                "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
+                0.4
+              ).value;
+
+              const requiredIdsList = Array.from(requiredIds);
+              const cutoffApplied = applyImportanceCutoff({
+                timeline: mergedTimeline,
+                requiredIds: requiredIdsList,
+                cutoff: queryImportanceCutoff,
+              });
+              console.log("[query:narrative] applied importance cutoff", {
+                cutoff: clamp01(queryImportanceCutoff),
+                removedCount: cutoffApplied.removedCount,
+                beforeLen: mergedTimeline.length,
+                afterLen: cutoffApplied.timeline.length,
+              });
+
+              let prunedTimeline = cutoffApplied.timeline;
+              if (prunedTimeline.length > maxMoments) {
+                const keptIndices = pruneTimeline({
                   timeline: prunedTimeline,
-                  requiredIds,
-                  cutoff: queryImportanceCutoff,
+                  requiredIds: requiredIdsList,
+                  maxMoments,
+                  minImportance,
+                  neighborWindow,
+                  endBiasWeight,
                 });
-                if (cutoffAfterPrune.removedCount > 0) {
-                  console.log(
-                    "[query:narrative] applied importance cutoff post-prune",
-                    {
-                      cutoff: clamp01(queryImportanceCutoff),
-                      removedCount: cutoffAfterPrune.removedCount,
-                      beforeLen: prunedTimeline.length,
-                      afterLen: cutoffAfterPrune.timeline.length,
-                    }
-                  );
-                }
-                prunedTimeline = cutoffAfterPrune.timeline;
+                prunedTimeline = keptIndices
+                  .map((idx) => prunedTimeline[idx])
+                  .filter(Boolean);
+              }
 
-                const timelineLines = prunedTimeline.map((moment, idx) =>
-                  formatTimelineLine(moment, idx)
+              const cutoffAfterPrune = applyImportanceCutoff({
+                timeline: prunedTimeline,
+                requiredIds: requiredIdsList,
+                cutoff: queryImportanceCutoff,
+              });
+              if (cutoffAfterPrune.removedCount > 0) {
+                console.log(
+                  "[query:narrative] applied importance cutoff post-prune",
+                  {
+                    cutoff: clamp01(queryImportanceCutoff),
+                    removedCount: cutoffAfterPrune.removedCount,
+                    beforeLen: prunedTimeline.length,
+                    afterLen: cutoffAfterPrune.timeline.length,
+                  }
                 );
-                const narrativeContext = timelineLines.join("\n\n");
+              }
+              prunedTimeline = cutoffAfterPrune.timeline;
 
-                const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
+              const timelineLines = prunedTimeline.map((moment, idx) =>
+                formatTimelineLine(moment, idx)
+              );
+              const narrativeContext = timelineLines.join("\n\n");
+
+              const narrativePrompt = `Based on the following Subject and its timeline of events, answer the user's question. The Subject represents the main topic, and the timeline shows the sequence of related moments in chronological order.
 
 ## Subject
-${root.title}: ${root.summary}
+${primaryRoot.title}: ${primaryRoot.summary}
 
 ## Timeline
 ${narrativeContext}
@@ -1168,27 +1208,26 @@ Rules:
 
 Write a clear narrative answer that explains the sequence and causal relationships between events using the Timeline order.`;
 
-                if (responseMode === "prompt") {
-                  return narrativePrompt;
-                }
-                if (responseMode === "brief") {
-                  return buildBriefingText({
-                    momentGraphNamespace,
-                    query: userQuery,
-                    subject: root,
-                    timelineLines,
-                  });
-                }
-                const narrativeAnswer = await callLLM(
-                  narrativePrompt,
-                  "slow-reasoning",
-                  {
-                    temperature: 0,
-                    reasoning: { effort: "low" },
-                  }
-                );
-                return narrativeAnswer;
+              if (responseMode === "prompt") {
+                return narrativePrompt;
               }
+              if (responseMode === "brief") {
+                return buildBriefingText({
+                  momentGraphNamespace,
+                  query: userQuery,
+                  subject: primaryRoot,
+                  timelineLines,
+                });
+              }
+              const narrativeAnswer = await callLLM(
+                narrativePrompt,
+                "slow-reasoning",
+                {
+                  temperature: 0,
+                  reasoning: { effort: "low" },
+                }
+              );
+              return narrativeAnswer;
             }
           }
 

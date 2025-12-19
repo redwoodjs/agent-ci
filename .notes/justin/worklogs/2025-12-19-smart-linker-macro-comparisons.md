@@ -21,13 +21,25 @@ And I want the LLM classifier call to use reasoning effort high (instead of low)
 - Adjust thresholds and LLM reasoning effort.
 - Run TypeScript typecheck.
 
-## Notes
+## Work log
+
+### 2025-12-19
 
 - Confirmed SUBJECT_INDEX embeddings are computed with getEmbedding(moment.summary).
 - Updated smart-linker query embedding input from document micro-moment concat to the candidate macro moment summary (fallback to title), and removed the micro-moment query plumbing.
 - Updated thresholds: auto-accept 0.85, LLM gate 0.6.
-- Updated LLM call options: reasoning effort high.
+- Updated LLM call options for the smart-linker classifier: reasoning effort high.
 
-- Confirmed how “anchor macro moment” is used during indexing: pick the macro moment with the highest importance score in the synthesized list, and pass that moment to proposeMacroMomentParent to get a parent for the document’s first macro moment. The rest of the document’s macro moments attach as a chain under that first macro moment.
+- Confirmed how the anchor macro moment is used during indexing:
+  - Pick the macro moment with the highest importance score in the synthesized list.
+  - Pass that moment to proposeMacroMomentParent to get a parent for the document's first macro moment.
+  - Attach the rest of the document's macro moments as a chain under the first macro moment.
 
-- Found a bug in the narrative query fast-path for GitHub work items / Discord: it was treating the matched moment as the root and only walking descendants from that moment. Updated it to resolve the root ancestor first (via findAncestors) and then walk descendants from the root.
+- Found a bug in the narrative query fast-path for GitHub work items / Discord:
+  - It was treating the matched moment as the root and only walking descendants from that moment.
+  - Updated it to resolve the root ancestor first (via findAncestors) and then walk descendants from the root.
+
+- Follow-up after improved results: still missing a Discord discussion in the timeline output.
+  - Logs show the Discord thread was indexed into a different Moment Graph namespace than the one used when querying issue 552.
+  - Logs also show smart-linker rejecting candidate parents due to a temporal-order check that treats a parent ending after a child starts as invalid, which blocks otherwise reasonable attachments.
+  - At query time, the narrative path builds a timeline from a single root. If a relevant Discord discussion ends up as a separate root, it will not appear unless we merge timelines across roots.

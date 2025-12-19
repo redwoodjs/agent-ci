@@ -193,6 +193,7 @@ export const smartLinkerPlugin: Plugin = {
         decision: Record<string, unknown>;
         subject: any;
         rank: number;
+        parentStartMs: number | null;
         parentEndMs: number | null;
       }> = [];
 
@@ -247,19 +248,30 @@ export const smartLinkerPlugin: Plugin = {
           continue;
         }
 
+        const parentStartMs =
+          readTimeRangeStartMs(subject.sourceMetadata) ??
+          parseTimeMs(subject.createdAt);
         const parentEndMs =
           readTimeRangeEndMs(subject.sourceMetadata) ??
           parseTimeMs(subject.createdAt);
         decision.childStartMs = childStartMs;
+        decision.parentStartMs = parentStartMs;
         decision.parentEndMs = parentEndMs;
+        if (
+          childStartMs !== null &&
+          parentStartMs !== null &&
+          parentStartMs > childStartMs
+        ) {
+          decision.rejectReason = "temporal-order";
+          candidateDecisions.push(decision);
+          continue;
+        }
         if (
           childStartMs !== null &&
           parentEndMs !== null &&
           parentEndMs > childStartMs
         ) {
-          decision.rejectReason = "temporal-order";
-          candidateDecisions.push(decision);
-          continue;
+          decision.temporalNote = "parent-end-after-child-start";
         }
 
         scoredCandidates.push({
@@ -267,6 +279,7 @@ export const smartLinkerPlugin: Plugin = {
           decision,
           subject,
           rank: sourceRankForDocumentId(subject.documentId),
+          parentStartMs,
           parentEndMs,
         });
       }
@@ -384,6 +397,7 @@ Answer with exactly one word: YES or NO.`;
           subjectDocumentId: subject.documentId,
           subjectSourceRank: entry.rank,
           childStartMs,
+          parentStartMs: entry.parentStartMs,
           parentEndMs: entry.parentEndMs,
           method: decision.method,
         });

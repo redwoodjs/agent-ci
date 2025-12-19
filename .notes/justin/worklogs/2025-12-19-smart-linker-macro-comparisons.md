@@ -29,3 +29,5 @@ And I want the LLM classifier call to use reasoning effort high (instead of low)
 - Updated LLM call options: reasoning effort high.
 
 - Confirmed how “anchor macro moment” is used during indexing: pick the macro moment with the highest importance score in the synthesized list, and pass that moment to proposeMacroMomentParent to get a parent for the document’s first macro moment. The rest of the document’s macro moments attach as a chain under that first macro moment.
+
+- Found a bug in the narrative query fast-path for GitHub work items / Discord: it was treating the matched moment as the root and only walking descendants from that moment. Updated it to resolve the root ancestor first (via findAncestors) and then walk descendants from the root.

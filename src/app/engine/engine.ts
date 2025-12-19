@@ -1058,14 +1058,18 @@ export async function query(
                 documentId: candidate.documentId,
               });
 
-              const root = candidate;
+              const ancestors = await findAncestors(
+                candidate.id,
+                momentGraphContext
+              );
+              const root = ancestors[0] ?? candidate;
               const chosenMatchId = candidate.id;
               const timeline = await findDescendants(
                 root.id,
                 momentGraphContext
               );
               console.log(
-                `[query:narrative] rootTimelineLen=${timeline.length} (anchoredOn=${candidate.documentId})`
+                `[query:narrative] rootTimelineLen=${timeline.length} (anchoredOn=${root.documentId} matchedOn=${candidate.documentId})`
               );
 
               if (timeline.length > 0) {

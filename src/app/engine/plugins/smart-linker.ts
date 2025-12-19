@@ -8,8 +8,10 @@ import type {
 import { getEmbedding } from "../utils/vector";
 import { getMicroMomentsForDocument, getMoments } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
+import { callLLM } from "../utils/llm";
 
 const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
+const DEFAULT_SMART_LINKER_LLM_THRESHOLD = 0.5;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
 const DEFAULT_SMART_LINKER_MAX_LOG_MICRO_TEXT_CHARS = 2000;
 
@@ -307,9 +309,9 @@ export const smartLinkerPlugin: Plugin = {
 
         const score = match.score;
 
-        if (score < DEFAULT_SMART_LINKER_THRESHOLD) {
+        if (score < DEFAULT_SMART_LINKER_LLM_THRESHOLD) {
           decision.rejectReason = "below-threshold";
-          decision.threshold = DEFAULT_SMART_LINKER_THRESHOLD;
+          decision.threshold = DEFAULT_SMART_LINKER_LLM_THRESHOLD;
           candidateDecisions.push(decision);
           continue;
         }
@@ -356,10 +358,79 @@ export const smartLinkerPlugin: Plugin = {
 
         decision.rankApplied = entry.rank;
 
-        const shouldLink = score >= DEFAULT_SMART_LINKER_THRESHOLD;
-        decision.method = shouldLink
-          ? "score-only"
-          : "rejected-below-threshold";
+        // Logic:
+        // >= 0.75: Auto-accept
+        // >= 0.50: LLM Check
+        // < 0.50: Rejected above
+
+        let shouldLink = false;
+
+        if (score >= DEFAULT_SMART_LINKER_THRESHOLD) {
+          shouldLink = true;
+          decision.method = "auto-high-confidence";
+        } else {
+          // Band: 0.5 <= score < 0.75
+          console.log("[moment-linker] invoking LLM reasoning for candidate", {
+            documentId: document.id,
+            macroMomentIndex,
+            candidateId: subject.id,
+            score,
+          });
+
+          decision.promptMode = "problem-workstream-attach";
+          const prompt = `You are a knowledge graph attachment classifier.
+Your job is to decide if a new moment should attach under an existing subject as part of the same problem/workstream.
+
+## Existing Subject (Parent)
+Title: ${subject.title}
+Summary: ${subject.summary}
+Document: ${subject.documentId}
+
+## New Moment (Child)
+Title: ${macroMoment.title}
+Summary: ${macroMoment.summary || "No summary provided"}
+Document: ${document.id}
+
+## Task
+Should the Child attach under the Parent subject as part of the same problem/workstream?
+
+Guidance:
+- Do NOT answer YES just because they are in the same project/repo/library.
+- Answer YES if the Parent and Child refer to the same problem being worked through, even when the Child is a different attempt, a partial fix, a follow-up, a test update, or a docs update.
+- Answer NO if the relationship is only "same area" or "same repo" without a shared problem.
+
+Examples:
+- YES: Parent: "RSC navigation should prefetch pages by switching requests so caching works." Child: "Implemented prefetch link scanning and caching; added tests for link scanning and cache behavior."
+- YES: Parent: "Prefetch links should exist for client navigation." Child: "Tried approach A, it failed; tried approach B, it worked; follow-up discussion about edge cases." (multiple attempts, same problem)
+- YES: Parent: "A PR introduced change X." Child: "Updated docs and tests to reflect change X." (same change, different artifact)
+- YES: Parent: "Investigating why caching does not work due to request method or headers." Child: "Debugged request method, updated it, and confirmed caching behavior." (same problem investigation)
+- NO: Parent: "Navigation caching / prefetch." Child: "Routing issue with unrelated endpoint or configuration." (same repo, different problem)
+- NO: Parent and Child both mention "navigation" or "cache", but the described failures, constraints, or changes are about different problems
+
+Answer with exactly one word: YES or NO.`;
+
+          try {
+            const llmResult = await callLLM(prompt, "slow-reasoning", {
+              temperature: 0,
+              reasoning: { effort: "low" },
+            });
+            const answer = llmResult.trim().toUpperCase();
+            decision.llmAnswer = answer;
+
+            if (answer.includes("YES")) {
+              shouldLink = true;
+              decision.method = "llm-confirmed";
+            } else {
+              shouldLink = false;
+              decision.rejectReason = "llm-rejected";
+            }
+          } catch (err) {
+            console.error("[moment-linker] LLM check failed", err);
+            decision.llmError = String(err);
+            decision.rejectReason = "llm-failed";
+            shouldLink = false;
+          }
+        }
 
         if (!shouldLink) {
           candidateDecisions.push(decision);
@@ -396,7 +467,7 @@ export const smartLinkerPlugin: Plugin = {
       console.log("[moment-linker] smart linker no attachment", {
         documentId: document.id,
         macroMomentIndex,
-        threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+        threshold: DEFAULT_SMART_LINKER_LLM_THRESHOLD,
         candidates: candidateDecisions,
       });
 

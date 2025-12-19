@@ -697,15 +697,15 @@ export async function upsertMicroMoment(
   await upsertMicroMomentsBatch(
     documentId,
     [
-    {
-      path: microMoment.path,
-      content: microMoment.content,
-      summary,
-      embedding,
-      createdAt: microMoment.createdAt,
-      author: microMoment.author,
-      sourceMetadata: microMoment.sourceMetadata,
-    },
+      {
+        path: microMoment.path,
+        content: microMoment.content,
+        summary,
+        embedding,
+        createdAt: microMoment.createdAt,
+        author: microMoment.author,
+        sourceMetadata: microMoment.sourceMetadata,
+      },
     ],
     context
   );

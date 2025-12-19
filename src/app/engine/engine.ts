@@ -477,35 +477,12 @@ export async function indexDocument(
         });
       }
 
-      const sourceType = String(
-        (document.metadata.sourceMetadata as any)?.type ?? ""
-      );
-
-      let streams: Array<{
-        streamId: string;
-        macroMoments: MacroMomentDescription[];
-      }> = [];
-
-      if (sourceType === "discord-channel") {
-        streams = (await synthesizeMicroMomentsIntoStreams(
-          microMomentsForSynthesis,
-          {
-            macroSynthesisPromptContext,
-          }
-        )) as any;
-      } else {
-        const macroMomentDescriptions = (await synthesizeMicroMoments(
-          microMomentsForSynthesis,
-          {
-            macroSynthesisPromptContext,
-          }
-        )) as MacroMomentDescription[];
-        if (macroMomentDescriptions.length > 0) {
-          streams = [
-            { streamId: "stream-1", macroMoments: macroMomentDescriptions },
-          ];
+      const streams = await synthesizeMicroMomentsIntoStreams(
+        microMomentsForSynthesis,
+        {
+          macroSynthesisPromptContext,
         }
-      }
+      );
 
       if (streams.length > 0) {
         console.log("[moment-linker] macro streams synthesized", {

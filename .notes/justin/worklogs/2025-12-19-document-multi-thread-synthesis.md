@@ -46,8 +46,8 @@ This changes the unit of correlation from "document" to "stream".
 - Interpreting this as a design flaw: the engine treats a document's macro moments as a single subject timeline, but in practice only a subset of moments are relevant to a subject.
 - Proposed changing macro synthesis to split a document into multiple streams of thought, continue those streams across batches, and then run correlation + storage per stream.
 
-- Implemented multi-stream macro synthesis for Discord channel/day documents:
+- Implemented multi-stream macro synthesis for documents.
   - Added an alternate synthesis mode that asks the LLM to output multiple STREAM blocks, each with its own macro-moment sequence.
-  - Applied this only when the document source metadata type is "discord-channel".
+  - Applied stream synthesis to all document types, including Discord threads.
   - For each stream, ran smart-linker attachment selection and persisted the stream's macro moments as a separate chain.
   - Included the stream id in macro moment source metadata and in indexing logs.

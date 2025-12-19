@@ -85,7 +85,9 @@ if [ -f "$GLOBAL_MCP_CONFIG" ]; then
       args: ['\${userHome}/.cursor/hooks/machinen-mcp-server.mjs'],
       env: {
         MACHINEN_API_KEY: '\${env:MACHINEN_API_KEY}',
-        MACHINEN_API_URL: 'https://machinen.redwoodjs.workers.dev'
+        MACHINEN_API_URL: 'https://machinen.redwoodjs.workers.dev',
+        MACHINEN_MCP_CONTEXT_CWD: '\${workspaceFolder}',
+        MACHINEN_MCP_CONTEXT_WORKSPACE_ROOTS: '\${workspaceFolder}'
       }
     };
     
@@ -103,7 +105,9 @@ else
       "args": ["${userHome}/.cursor/hooks/machinen-mcp-server.mjs"],
       "env": {
         "MACHINEN_API_KEY": "${env:MACHINEN_API_KEY}",
-        "MACHINEN_API_URL": "https://machinen.redwoodjs.workers.dev"
+        "MACHINEN_API_URL": "https://machinen.redwoodjs.workers.dev",
+        "MACHINEN_MCP_CONTEXT_CWD": "${workspaceFolder}",
+        "MACHINEN_MCP_CONTEXT_WORKSPACE_ROOTS": "${workspaceFolder}"
       }
     }
   }

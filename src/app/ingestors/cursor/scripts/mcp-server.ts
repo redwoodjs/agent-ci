@@ -39,6 +39,11 @@ const MOMENT_GRAPH_NAMESPACE = process.env.MOMENT_GRAPH_NAMESPACE;
 const MOMENT_GRAPH_NAMESPACE_PREFIX =
   process.env.MOMENT_GRAPH_NAMESPACE_PREFIX ??
   process.env.MACHINEN_MOMENT_GRAPH_NAMESPACE_PREFIX;
+const MCP_CONTEXT_CWD = process.env.MACHINEN_MCP_CONTEXT_CWD;
+const MCP_CONTEXT_WORKSPACE_ROOTS =
+  process.env.MACHINEN_MCP_CONTEXT_WORKSPACE_ROOTS;
+const MCP_CONTEXT_WORKSPACE_ROOTS_JSON =
+  process.env.MACHINEN_MCP_CONTEXT_WORKSPACE_ROOTS_JSON;
 
 if (!API_KEY) {
   const error = "Error: MACHINEN_API_KEY environment variable is required.";
@@ -52,6 +57,10 @@ log("Configuration loaded", {
   hasApiKey: !!API_KEY,
   hasMomentGraphNamespace: !!MOMENT_GRAPH_NAMESPACE,
   hasMomentGraphNamespacePrefix: !!MOMENT_GRAPH_NAMESPACE_PREFIX,
+  processCwd: process.cwd(),
+  hasMcpContextCwdOverride: !!MCP_CONTEXT_CWD,
+  hasMcpContextWorkspaceRootsOverride: !!MCP_CONTEXT_WORKSPACE_ROOTS,
+  hasMcpContextWorkspaceRootsJsonOverride: !!MCP_CONTEXT_WORKSPACE_ROOTS_JSON,
 });
 
 // --- Server Setup ---
@@ -142,12 +151,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         }
       }
 
+      const cwdOverride =
+        typeof MCP_CONTEXT_CWD === "string" && MCP_CONTEXT_CWD.trim().length > 0
+          ? MCP_CONTEXT_CWD.trim()
+          : null;
+
+      let workspaceRootsOverride: string[] | null = null;
+      if (
+        typeof MCP_CONTEXT_WORKSPACE_ROOTS_JSON === "string" &&
+        MCP_CONTEXT_WORKSPACE_ROOTS_JSON.trim().length > 0
+      ) {
+        try {
+          const parsed = JSON.parse(MCP_CONTEXT_WORKSPACE_ROOTS_JSON);
+          if (Array.isArray(parsed)) {
+            workspaceRootsOverride = parsed
+              .filter((v) => typeof v === "string")
+              .map((v) => v.trim())
+              .filter((v) => v.length > 0);
+          }
+        } catch {
+          workspaceRootsOverride = null;
+        }
+      }
+      if (!workspaceRootsOverride) {
+        workspaceRootsOverride =
+          typeof MCP_CONTEXT_WORKSPACE_ROOTS === "string" &&
+          MCP_CONTEXT_WORKSPACE_ROOTS.trim().length > 0
+            ? MCP_CONTEXT_WORKSPACE_ROOTS.split(",")
+                .map((s) => s.trim())
+                .filter((s) => s.length > 0)
+            : null;
+      }
+
+      const effectiveCwd = cwdOverride ?? process.cwd();
+      const effectiveWorkspaceRoots =
+        workspaceRootsOverride ?? [effectiveCwd].filter(Boolean);
+
       requestBody.clientContext = {
-        cwd: process.cwd(),
-        workspaceRoots: [process.cwd()],
+        cwd: effectiveCwd,
+        workspaceRoots: effectiveWorkspaceRoots,
       };
 
-      log("Making API request", { url: `${API_URL}/query`, query });
+      log("Making API request", {
+        url: `${API_URL}/query`,
+        query,
+        momentGraphNamespace: requestBody.momentGraphNamespace ?? null,
+        momentGraphNamespacePrefix:
+          requestBody.momentGraphNamespacePrefix ?? null,
+        clientContext: requestBody.clientContext ?? null,
+      });
       const response = await fetch(`${API_URL}/query`, {
         method: "POST",
         headers: {

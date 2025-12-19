@@ -20,4 +20,8 @@ This showed up in `prod-2025-12-19-17-01:redwood:rwsdk` where a Discord thread c
   - Use the first selected macro as the anchor for macro index and timestamps.
   - Concatenate the selected macros (title + summary) into the anchor macro summary so smart-linker queries Vectorize using that combined text.
 - Ran `pnpm types`; typecheck fails in existing files unrelated to this change, so it is not a reliable gate for this diff.
-- Updated architecture doc to describe the percentile-based macro subset + concatenated query approach.
+
+## Validation notes
+- Re-indexed the Discord thread in `prod-2025-12-19-17-30:redwood:rwsdk` after indexing issue 552.
+- Smart-linker still returned no candidates for the Discord thread and created a new root moment (macro 0 had `parentId: null`, macro 1 chained under it).
+- The smart-linker query log now shows `macroMomentIndex: 0` for the Discord thread, which is consistent with anchoring on the first selected macro moment.

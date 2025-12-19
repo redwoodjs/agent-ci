@@ -74,14 +74,14 @@ Create Vectorize indexes with the appropriate dimensions for your embedding mode
 
 **Evidence Locker index (raw content chunks):**
 ```bash
-npx wrangler vectorize create rag-index \
+npx wrangler vectorize create rag-index-v4 \
   --dimensions=768 \
   --metric=cosine
 ```
 
-**Moment Index (for moment summaries):**
+**Moment Index (moment summaries):**
 ```bash
-npx wrangler vectorize create moment-index \
+npx wrangler vectorize create moment-index-v4 \
   --dimensions=768 \
   --metric=cosine
 ```
@@ -89,16 +89,24 @@ npx wrangler vectorize create moment-index \
 If you use Moment Graph namespaces (filtering queries by momentGraphNamespace), create a metadata index for it:
 
 ```bash
-npx wrangler vectorize create-metadata-index moment-index \
+npx wrangler vectorize create-metadata-index moment-index-v4 \
   --property-name='momentGraphNamespace' \
   --type='string'
 ```
 
 **Subject Index (for root moments representing Subjects):**
 ```bash
-npx wrangler vectorize create subject-index \
+npx wrangler vectorize create subject-index-v4 \
   --dimensions=768 \
   --metric=cosine
+```
+
+If you use Moment Graph namespaces (filtering queries by momentGraphNamespace), create a metadata index for it:
+
+```bash
+npx wrangler vectorize create-metadata-index subject-index-v4 \
+  --property-name='momentGraphNamespace' \
+  --type='string'
 ```
 
 If you use Moment Graph namespaces (filtering queries by momentGraphNamespace), create a metadata index for it:

@@ -114,3 +114,14 @@ In this branch, a few issues showed up together:
   - This explains the CLI output 'No Moment Graph subject timeline matched this query'.
 - Searched `backfill.log` for `prod-2025-12-19-14-06` and found no entries.
   - Current working assumption: the `14-06` prefix namespace has not been populated via backfill, so subject lookup returns zero matches.
+
+- Follow-up: backfill ordering and storage-time parent selection.
+  - Observed that backfill can ingest out of chronological order, which can leave multiple roots when an earlier work item arrives after later related content.
+  - Decided to treat time ordering as a preference rather than a hard reject during parent selection:
+    - If a candidate parent starts after the child starts (time-inverted), route the candidate through an LLM scrutiny check instead of rejecting it outright.
+    - Query timelines should be sorted by timestamp when flattened for narrative context, regardless of parent link ordering.
+
+- Implemented the storage-time and query-time changes:
+  - Smart linker no longer rejects candidates solely due to time inversion (parentStart > childStart).
+  - LLM classification prompt now treats the decision as "same problem/workstream" and formats the two moments in chronological order when timestamps exist, so the model sees "earlier vs later" consistently even when the graph attachment direction is based on insertion order.
+  - Narrative query timeline formatting now sorts the selected timeline moments by timestamp before generating Timeline lines (time range start when present, otherwise createdAt; stable tie-break by id when available).

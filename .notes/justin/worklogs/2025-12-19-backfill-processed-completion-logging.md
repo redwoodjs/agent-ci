@@ -34,3 +34,6 @@ Backfill state also marks completion at the point where work is enqueued (schedu
 - Scheduler increments `enqueued_count` while sending processor messages and logs when enqueueing has finished for the run.
 - Processor increments `processed_count` on successful processing and logs once when `processed_count >= enqueued_count` and enqueueing has completed.
 - Adjusted GitHub projects backfill processor messages to keep `repository_key` aligned with the backfill state key so processed counts match enqueued counts.
+- Checked local log captures (`out.log`, `backfill.log`, and the running `pnpm dev:log` terminal output) for the run tracking markers (`[backfill] started`, `[backfill] enqueue completed`, `[backfill] processed completed`, `backfill_run_id`).
+  - No matches found.
+  - This looks like the captured logs were from query/indexing paths, not from ingestor backfill routes/scheduler/processor execution.

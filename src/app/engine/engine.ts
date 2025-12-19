@@ -728,6 +728,33 @@ export async function query(
       return date.toISOString();
     }
 
+    function readTimeMs(raw: unknown): number | null {
+      if (typeof raw !== "string") {
+        return null;
+      }
+      const trimmed = raw.trim();
+      if (trimmed.length === 0) {
+        return null;
+      }
+      const date = new Date(trimmed);
+      const ms = date.getTime();
+      return Number.isFinite(ms) ? ms : null;
+    }
+
+    function timelineSortKey(moment: {
+      createdAt?: string;
+      sourceMetadata?: Record<string, any>;
+    }): number | null {
+      const timeRange = (moment.sourceMetadata as any)?.timeRange as
+        | { start?: unknown; end?: unknown }
+        | undefined;
+      const startMs = readTimeMs(timeRange?.start);
+      if (startMs !== null) {
+        return startMs;
+      }
+      return readTimeMs(moment.createdAt);
+    }
+
     function formatTimelineLine(
       moment: {
         createdAt?: string;
@@ -1137,7 +1164,35 @@ export async function query(
               }
               prunedTimeline = cutoffAfterPrune.timeline;
 
-              const timelineLines = prunedTimeline.map((moment, idx) =>
+              const sortedTimeline = [...prunedTimeline].sort((a, b) => {
+                const aKey = timelineSortKey(a);
+                const bKey = timelineSortKey(b);
+                if (aKey === null && bKey === null) {
+                  const aId = (a as any)?.id;
+                  const bId = (b as any)?.id;
+                  if (typeof aId === "string" && typeof bId === "string") {
+                    return aId.localeCompare(bId);
+                  }
+                  return 0;
+                }
+                if (aKey === null) {
+                  return 1;
+                }
+                if (bKey === null) {
+                  return -1;
+                }
+                if (aKey !== bKey) {
+                  return aKey - bKey;
+                }
+                const aId = (a as any)?.id;
+                const bId = (b as any)?.id;
+                if (typeof aId === "string" && typeof bId === "string") {
+                  return aId.localeCompare(bId);
+                }
+                return 0;
+              });
+
+              const timelineLines = sortedTimeline.map((moment, idx) =>
                 formatTimelineLine(moment, idx)
               );
               const narrativeContext = timelineLines.join("\n\n");
@@ -1405,7 +1460,35 @@ Write a clear narrative answer that explains the sequence and causal relationshi
               }
               prunedTimeline = cutoffAfterPrune.timeline;
 
-              const timelineLines = prunedTimeline.map((moment, idx) =>
+              const sortedTimeline = [...prunedTimeline].sort((a, b) => {
+                const aKey = timelineSortKey(a);
+                const bKey = timelineSortKey(b);
+                if (aKey === null && bKey === null) {
+                  const aId = (a as any)?.id;
+                  const bId = (b as any)?.id;
+                  if (typeof aId === "string" && typeof bId === "string") {
+                    return aId.localeCompare(bId);
+                  }
+                  return 0;
+                }
+                if (aKey === null) {
+                  return 1;
+                }
+                if (bKey === null) {
+                  return -1;
+                }
+                if (aKey !== bKey) {
+                  return aKey - bKey;
+                }
+                const aId = (a as any)?.id;
+                const bId = (b as any)?.id;
+                if (typeof aId === "string" && typeof bId === "string") {
+                  return aId.localeCompare(bId);
+                }
+                return 0;
+              });
+
+              const timelineLines = sortedTimeline.map((moment, idx) =>
                 formatTimelineLine(moment, idx)
               );
               const narrativeContext = timelineLines.join("\n\n");

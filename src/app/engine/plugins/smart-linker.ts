@@ -274,14 +274,12 @@ export const smartLinkerPlugin: Plugin = {
         decision.childStartMs = childStartMs;
         decision.parentStartMs = parentStartMs;
         decision.parentEndMs = parentEndMs;
-        if (
+        const temporalInverted =
           childStartMs !== null &&
           parentStartMs !== null &&
-          parentStartMs > childStartMs
-        ) {
-          decision.rejectReason = "temporal-order";
-          candidateDecisions.push(decision);
-          continue;
+          parentStartMs > childStartMs;
+        if (temporalInverted) {
+          decision.temporalInverted = true;
         }
         if (
           childStartMs !== null &&
@@ -338,35 +336,81 @@ export const smartLinkerPlugin: Plugin = {
             score,
           });
 
-          decision.promptMode = "problem-workstream-attach";
+          decision.promptMode = "problem-workstream-same-thread";
+          const parentStartMs = entry.parentStartMs;
+          const parentTime =
+            parentStartMs !== null ? new Date(parentStartMs).toISOString() : null;
+          const childTime =
+            childStartMs !== null ? new Date(childStartMs).toISOString() : null;
+
+          const chronologicalEarlier =
+            childStartMs !== null &&
+            parentStartMs !== null &&
+            childStartMs < parentStartMs
+              ? {
+                  title: macroMoment.title,
+                  summary: macroMoment.summary || "No summary provided",
+                  documentId: document.id,
+                  time: childTime,
+                }
+              : {
+                  title: subject.title,
+                  summary: subject.summary,
+                  documentId: subject.documentId,
+                  time: parentTime,
+                };
+
+          const chronologicalLater =
+            childStartMs !== null &&
+            parentStartMs !== null &&
+            childStartMs < parentStartMs
+              ? {
+                  title: subject.title,
+                  summary: subject.summary,
+                  documentId: subject.documentId,
+                  time: parentTime,
+                }
+              : {
+                  title: macroMoment.title,
+                  summary: macroMoment.summary || "No summary provided",
+                  documentId: document.id,
+                  time: childTime,
+                };
+
+          decision.temporalInverted =
+            childStartMs !== null &&
+            parentStartMs !== null &&
+            parentStartMs > childStartMs;
+
           const prompt = `You are a knowledge graph attachment classifier.
-Your job is to decide if a new moment should attach under an existing subject as part of the same problem/workstream.
+Your job is to decide whether two moments refer to the same problem/workstream.
 
-## Existing Subject (Parent)
-Title: ${subject.title}
-Summary: ${subject.summary}
-Document: ${subject.documentId}
+## Moment A (chronologically earlier when known)
+Time: ${chronologicalEarlier.time ?? "unknown"}
+Title: ${chronologicalEarlier.title}
+Summary: ${chronologicalEarlier.summary}
+Document: ${chronologicalEarlier.documentId}
 
-## New Moment (Child)
-Title: ${macroMoment.title}
-Summary: ${macroMoment.summary || "No summary provided"}
-Document: ${document.id}
+## Moment B (chronologically later when known)
+Time: ${chronologicalLater.time ?? "unknown"}
+Title: ${chronologicalLater.title}
+Summary: ${chronologicalLater.summary}
+Document: ${chronologicalLater.documentId}
 
 ## Task
-Should the Child attach under the Parent subject as part of the same problem/workstream?
+Do Moment A and Moment B refer to the same problem/workstream?
 
 Guidance:
 - Do NOT answer YES just because they are in the same project/repo/library.
-- Answer YES if the Parent and Child refer to the same problem being worked through, even when the Child is a different attempt, a partial fix, a follow-up, a test update, or a docs update.
+- Answer YES if the moments refer to the same problem being worked through, even when one is a different attempt, a partial fix, a follow-up, a test update, or a docs update.
 - Answer NO if the relationship is only "same area" or "same repo" without a shared problem.
 
 Examples:
-- YES: Parent: "RSC navigation should prefetch pages by switching requests so caching works." Child: "Implemented prefetch link scanning and caching; added tests for link scanning and cache behavior."
-- YES: Parent: "Prefetch links should exist for client navigation." Child: "Tried approach A, it failed; tried approach B, it worked; follow-up discussion about edge cases." (multiple attempts, same problem)
-- YES: Parent: "A PR introduced change X." Child: "Updated docs and tests to reflect change X." (same change, different artifact)
-- YES: Parent: "Investigating why caching does not work due to request method or headers." Child: "Debugged request method, updated it, and confirmed caching behavior." (same problem investigation)
-- NO: Parent: "Navigation caching / prefetch." Child: "Routing issue with unrelated endpoint or configuration." (same repo, different problem)
-- NO: Parent and Child both mention "navigation" or "cache", but the described failures, constraints, or changes are about different problems
+- YES: "RSC navigation should prefetch pages by switching requests so caching works." and "Implemented prefetch link scanning and caching; added tests for link scanning and cache behavior."
+- YES: "Prefetch links should exist for client navigation." and "Tried approach A, it failed; tried approach B, it worked; follow-up discussion about edge cases."
+- YES: "A PR introduced change X." and "Updated docs and tests to reflect change X."
+- YES: "Investigating why caching does not work due to request method or headers." and "Debugged request method, updated it, and confirmed caching behavior."
+- NO: "Navigation caching / prefetch." and "Routing issue with unrelated endpoint or configuration."
 
 Answer with exactly one word: YES or NO.`;
 

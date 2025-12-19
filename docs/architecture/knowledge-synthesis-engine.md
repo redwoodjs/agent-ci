@@ -24,7 +24,7 @@ The solution is a graph-based architecture that creates a layer of abstraction b
 Instead of a flat list of documents, we model knowledge as a graph of **Moments**.
 *   **Moments (Macro-Moments)**: The nodes of the graph. These are high-level, synthesized events (e.g., "Identified root cause in router", "Decided to switch databases"). They contain rich, LLM-generated summaries, not raw text.
 *   **Subjects (Root Moments)**: The entry points of the graph. A Subject is simply a Moment with no parent. It defines the start of a topic or stream of work.
-*   **Edges**: Represent chronological and causal relationships. A single Subject can have multiple branches when later documents attach under non-root Moments.
+*   **Edges**: Represent storage-time attachment between related Moments. A single Subject can have multiple branches when later documents attach under non-root Moments. Parent links are not a strict time ordering.
 
 ### 2. The "Segmentation and Synthesis" Pipeline
 To solve the signal-to-noise problem, ingestion is split into two distinct phases:
@@ -59,6 +59,8 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
     The current storage model represents “attach” using parent links, so the attach decision must be treated as “place this under that work item”, not “these are the same object”.
 
     For sources that often begin with low-signal content (example: Cursor conversations), the engine should not assume that the first synthesized macro moment is the best representative for correlation. A simple approach is to pick a representative macro moment (for example, the highest-importance macro moment) to drive the attach decision, while still attaching the document’s root macro moment when a parent is chosen.
+
+    Correlation prefers candidates whose timestamps are not later than their child. When timestamps indicate a time inversion, the candidate can be routed through a stricter classification step rather than rejected solely on time ordering.
 
 ### 3. Canonical references in macro moments (source labels and tokens)
 Macro moments are summaries, but they also need a lightweight way to identify where they came from. The system uses two layers:

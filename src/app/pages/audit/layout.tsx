@@ -46,6 +46,12 @@ export function AuditLayout({ children }: LayoutProps) {
                   Query
                 </a>
                 <a
+                  href="/audit/knowledge-graph"
+                  className={getNavLinkClass("/audit/knowledge-graph")}
+                >
+                  Knowledge Graph
+                </a>
+                <a
                   href="/audit/gateway"
                   className={getNavLinkClass("/audit/gateway")}
                 >

@@ -9,6 +9,10 @@ import {
   defaultPlugin,
 } from "@/app/engine/plugins";
 import type { EngineContext } from "@/app/engine/types";
+import {
+  getKnowledgeGraphStructure,
+  getKnowledgeGraphStats,
+} from "@/app/engine/momentDb";
 
 export async function enqueueFile(r2Key: string) {
   try {
@@ -122,6 +126,66 @@ export async function queryRag(queryText: string) {
     return {
       success: false,
       error: "Failed to query RAG engine",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getKnowledgeGraph(options?: {
+  limit?: number;
+  momentGraphNamespace?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const momentGraphNamespace = options?.momentGraphNamespace ?? null;
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace,
+    };
+
+    const graphData = await getKnowledgeGraphStructure(context, {
+      limit: options?.limit ?? 1000,
+    });
+
+    return {
+      success: true,
+      data: graphData,
+      count: graphData.length,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching knowledge graph:", error);
+    return {
+      success: false,
+      error: "Failed to fetch knowledge graph",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getKnowledgeGraphStatsAction(options?: {
+  momentGraphNamespace?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const momentGraphNamespace = options?.momentGraphNamespace ?? null;
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace,
+    };
+
+    const stats = await getKnowledgeGraphStats(context);
+
+    return {
+      success: true,
+      stats,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching knowledge graph stats:", error);
+    return {
+      success: false,
+      error: "Failed to fetch knowledge graph stats",
       details: error instanceof Error ? error.message : String(error),
     };
   }

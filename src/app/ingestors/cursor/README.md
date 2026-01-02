@@ -119,6 +119,10 @@ The setup script automatically builds and installs the MCP server and creates th
 
 Once connected, the AI will automatically search the knowledge base when you ask questions about project history or architecture.
 
+## Machinen (VS Code Extension)
+
+There is also a companion **[VS Code Extension](../../../../vscode-extension/README.md)** that shows a pop-over when hovering over `//?` in your code. This can be used to display information retrieved from the Machinen knowledge base directly in your editor.
+
 ## How It Works
 
 1. Cursor hooks trigger the hook script (`hook.sh`) at various stages of the agent loop

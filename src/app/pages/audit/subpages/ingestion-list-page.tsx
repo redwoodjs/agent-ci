@@ -118,9 +118,12 @@ async function FilesTable({
     return bTime - aTime;
   });
 
-  // Serialize Date objects to ISO strings for client component
+  // Serialize objects for client component, ensuring we only pass plain data.
+  // We explicitly select fields to avoid passing non-serializable objects like R2's Checksums.
   const serializedObjects = sortedObjects.map((obj) => ({
-    ...obj,
+    key: obj.key,
+    size: obj.size,
+    etag: obj.etag,
     uploaded:
       obj.uploaded instanceof Date
         ? obj.uploaded.toISOString()

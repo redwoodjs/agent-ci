@@ -90,6 +90,12 @@ export function activate(context: vscode.ExtensionContext) {
     // Format git blame information for display
     let gitInfoHtml = "";
     if (gitInfo) {
+      // Debug logging
+      logger.appendLine(
+        `Rendering webview: hotness=${gitInfo.hotness}, authorStats.length=${
+          gitInfo.authorStats?.length || 0
+        }`
+      );
       // Basic blame info
       const basicInfo = `
         <div style="display: grid; grid-template-columns: auto 1fr; gap: 8px 16px;">
@@ -162,13 +168,18 @@ export function activate(context: vscode.ExtensionContext) {
           ? "Low frequency"
           : "No changes";
 
+      // Ensure authorStats is an array
+      const authorStatsArray = Array.isArray(gitInfo.authorStats)
+        ? gitInfo.authorStats
+        : [];
+
       const authorImpactHtml =
-        gitInfo.authorStats && gitInfo.authorStats.length > 0
+        authorStatsArray.length > 0
           ? `
             <div>
               <strong style="display: block; margin-bottom: 8px;">Author Impact:</strong>
               <div style="display: flex; flex-direction: column; gap: 8px;">
-                ${gitInfo.authorStats
+                ${authorStatsArray
                   .map(
                     (stat) => `
                   <div>
@@ -319,14 +330,36 @@ export function activate(context: vscode.ExtensionContext) {
       return;
     }
 
-    // Check each change to see if ? was just typed after //
+    // Check each change to see if ? was just typed after // or if //? was removed
     event.contentChanges.forEach((change) => {
-      // Only trigger if text was inserted (not deleted)
+      const position = change.range.start;
+      const lineNumber = position.line;
+      const documentKey = `${event.document.uri.toString()}:${lineNumber}`;
+
+      // Check if text was deleted (removed)
+      if (change.text.length === 0 && change.rangeLength > 0) {
+        // Text was deleted, check if //? is no longer on this line
+        const updatedLine = event.document.lineAt(lineNumber);
+        if (!updatedLine.text.includes("//?")) {
+          // //? was removed, close the webview if it exists
+          if (openWebviews.has(documentKey)) {
+            const panel = openWebviews.get(documentKey);
+            if (panel) {
+              panel.dispose();
+              logger.appendLine(
+                `Closed webview for line ${lineNumber} after //? was removed`
+              );
+            }
+          }
+        }
+        return;
+      }
+
+      // Only process insertions
       if (change.text.length === 0) {
         return;
       }
 
-      const position = change.range.start;
       const insertedText = change.text;
 
       // Check if the inserted text is "?" or contains "?"
@@ -516,32 +549,68 @@ async function getFileInsights(
       }
     );
 
-    const lines = shortlogOutput.trim().split("\n");
+    const rawOutput = shortlogOutput.trim();
+    logger.appendLine(`Author stats raw output: "${rawOutput}"`);
+
+    if (!rawOutput) {
+      logger.appendLine("No author stats output from git shortlog");
+      return { hotness, authorStats: [] };
+    }
+
+    const lines = rawOutput.split("\n");
     const totalCommits = hotness || 1; // Avoid division by zero
 
-    logger.appendLine(`Author stats: ${lines.length} authors found`);
+    logger.appendLine(`Author stats: ${lines.length} lines to process`);
 
     for (const line of lines) {
-      if (!line.trim()) continue;
-      const match = line.match(/^\s*(\d+)\s+(.+)$/);
+      const trimmedLine = line.trim();
+      if (!trimmedLine) continue;
+
+      // Try multiple regex patterns to match different git shortlog formats
+      // Format 1: "     5  Author Name" (with spaces)
+      // Format 2: "5\tAuthor Name" (with tabs)
+      // Format 3: "5 Author Name" (single space)
+      let match = trimmedLine.match(/^(\d+)\s+(.+)$/);
+      if (!match) {
+        // Try with tabs
+        match = trimmedLine.match(/^(\d+)\t(.+)$/);
+      }
+      if (!match) {
+        // Try with any whitespace
+        match = trimmedLine.match(/^(\d+)[\s\t]+(.+)$/);
+      }
+
       if (match) {
         const commits = parseInt(match[1], 10);
         const name = match[2].trim();
         const percentage = Math.round((commits / totalCommits) * 100);
+
+        logger.appendLine(
+          `Parsed author: ${name} - ${commits} commits (${percentage}%)`
+        );
 
         authorStats.push({
           name,
           commits,
           percentage,
         });
+      } else {
+        logger.appendLine(`Failed to parse line: "${trimmedLine}"`);
       }
     }
 
     // Sort by commits descending
     authorStats.sort((a, b) => b.commits - a.commits);
-    logger.appendLine(`Author stats: ${authorStats.length} authors processed`);
+    logger.appendLine(
+      `Author stats: ${authorStats.length} authors successfully processed`
+    );
   } catch (error) {
     logger.appendLine(`Error getting author stats: ${error}`);
+    // Log the full error for debugging
+    if (error instanceof Error) {
+      logger.appendLine(`Error message: ${error.message}`);
+      logger.appendLine(`Error stack: ${error.stack}`);
+    }
   }
 
   return { hotness, authorStats };

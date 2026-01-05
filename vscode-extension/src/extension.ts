@@ -73,10 +73,15 @@ export function activate(context: vscode.ExtensionContext) {
     const info = getInformationCallback(document, position);
     const infoLines = info.split("\n");
 
+    // Get filename and line number for the panel title
+    const fileName = path.basename(document.fileName);
+    const lineNumber = position.line + 1; // Line numbers are 1-indexed for display
+    const panelTitle = `${fileName}:${lineNumber}`;
+
     // Create webview panel
     const panel = vscode.window.createWebviewPanel(
       "machinen",
-      "Information",
+      panelTitle,
       {
         viewColumn: vscode.ViewColumn.Beside,
         preserveFocus: true,
@@ -86,6 +91,14 @@ export function activate(context: vscode.ExtensionContext) {
         retainContextWhenHidden: false,
       }
     );
+
+    // Set icon for the panel using comment-discussion-sparkle icon
+    const iconPath = vscode.Uri.joinPath(
+      context.extensionUri,
+      "resources",
+      "comment-discussion-sparkle.svg"
+    );
+    panel.iconPath = iconPath;
 
     // Format git blame information for display
     let gitInfoHtml = "";

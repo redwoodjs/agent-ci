@@ -8,6 +8,7 @@ import {
   CardDescription,
 } from "@/app/components/ui/card";
 import { getIndexingStatesBatch } from "@/app/engine/db";
+import { getMomentGraphNamespacePrefixFromEnv } from "@/app/engine/momentGraphNamespace";
 
 export function AuditDashboardPage() {
   return (
@@ -76,8 +77,11 @@ async function DashboardContent() {
     )
     .slice(0, 10);
 
+  const prefix = getMomentGraphNamespacePrefixFromEnv(env);
+
   return (
     <>
+      <SystemContext prefix={prefix} />
       <StatsGrid
         totalFiles={totalFiles}
         indexedCount={indexedCount}
@@ -93,6 +97,32 @@ async function DashboardContent() {
         indexedEntries={indexedEntries}
       />
     </>
+  );
+}
+
+function SystemContext({ prefix }: { prefix: string | null }) {
+  return (
+    <Card className="mb-6">
+      <CardHeader>
+        <CardTitle>System Context</CardTitle>
+        <CardDescription>
+          Current namespace prefix configuration
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="p-3 bg-gray-50 rounded border font-mono text-sm">
+          {prefix ? (
+            <span className="text-blue-600">{prefix}</span>
+          ) : (
+            <span className="text-gray-400">Not set</span>
+          )}
+        </div>
+        <p className="text-xs text-gray-500 mt-2">
+          This prefix is automatically applied to all namespace queries. Data is
+          stored in namespaced Durable Objects.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

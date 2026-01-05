@@ -12,7 +12,13 @@ import type { EngineContext } from "@/app/engine/types";
 import {
   getKnowledgeGraphStructure,
   getKnowledgeGraphStats,
+  getRootMoments,
+  getDescendantsForRoot,
 } from "@/app/engine/momentDb";
+import {
+  getMomentGraphNamespacePrefixFromEnv,
+  applyMomentGraphNamespacePrefixValue,
+} from "@/app/engine/momentGraphNamespace";
 
 export async function enqueueFile(r2Key: string) {
   try {
@@ -137,11 +143,16 @@ export async function getKnowledgeGraph(options?: {
 }) {
   try {
     const envCloudflare = env as Cloudflare.Env;
-    const momentGraphNamespace = options?.momentGraphNamespace ?? null;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      envPrefix
+    );
 
     const context = {
       env: envCloudflare,
-      momentGraphNamespace,
+      momentGraphNamespace: effectiveNamespace,
     };
 
     const graphData = await getKnowledgeGraphStructure(context, {
@@ -152,6 +163,8 @@ export async function getKnowledgeGraph(options?: {
       success: true,
       data: graphData,
       count: graphData.length,
+      effectiveNamespace,
+      prefix: envPrefix,
     };
   } catch (error) {
     console.error("[actions] Error fetching knowledge graph:", error);
@@ -168,11 +181,16 @@ export async function getKnowledgeGraphStatsAction(options?: {
 }) {
   try {
     const envCloudflare = env as Cloudflare.Env;
-    const momentGraphNamespace = options?.momentGraphNamespace ?? null;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      envPrefix
+    );
 
     const context = {
       env: envCloudflare,
-      momentGraphNamespace,
+      momentGraphNamespace: effectiveNamespace,
     };
 
     const stats = await getKnowledgeGraphStats(context);
@@ -180,12 +198,111 @@ export async function getKnowledgeGraphStatsAction(options?: {
     return {
       success: true,
       stats,
+      effectiveNamespace,
+      prefix: envPrefix,
     };
   } catch (error) {
     console.error("[actions] Error fetching knowledge graph stats:", error);
     return {
       success: false,
       error: "Failed to fetch knowledge graph stats",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getMomentGraphNamespacePrefix() {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const prefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    return {
+      success: true,
+      prefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching namespace prefix:", error);
+    return {
+      success: false,
+      error: "Failed to fetch namespace prefix",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getRootMomentsAction(options?: {
+  limit?: number;
+  momentGraphNamespace?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      envPrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const rootMoments = await getRootMoments(context, {
+      limit: options?.limit ?? 1000,
+    });
+
+    return {
+      success: true,
+      data: rootMoments,
+      count: rootMoments.length,
+      effectiveNamespace,
+      prefix: envPrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching root moments:", error);
+    return {
+      success: false,
+      error: "Failed to fetch root moments",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getDescendantsForRootAction(
+  rootId: string,
+  options?: {
+    momentGraphNamespace?: string | null;
+  }
+) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      envPrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const descendants = await getDescendantsForRoot(rootId, context);
+
+    return {
+      success: true,
+      data: descendants,
+      count: descendants.length,
+      rootId,
+      effectiveNamespace,
+      prefix: envPrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching descendants:", error);
+    return {
+      success: false,
+      error: "Failed to fetch descendants",
       details: error instanceof Error ? error.message : String(error),
     };
   }

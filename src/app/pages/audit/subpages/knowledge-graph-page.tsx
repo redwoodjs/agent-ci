@@ -9,10 +9,23 @@ import {
   CardDescription,
 } from "@/app/components/ui/card";
 import { Button } from "@/app/components/ui/button";
+import { Input } from "@/app/components/ui/input";
 import {
   getKnowledgeGraph,
   getKnowledgeGraphStatsAction,
+  getMomentGraphNamespacePrefix,
+  getRootMomentsAction,
+  getDescendantsForRootAction,
 } from "./actions";
+import type { Moment } from "@/app/engine/types";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/app/components/ui/table";
 
 // Declare mermaid for TypeScript
 declare global {
@@ -20,10 +33,7 @@ declare global {
     mermaid?: {
       initialize: (config: { startOnLoad: boolean; theme?: string }) => void;
       contentLoaded: () => void;
-      render: (
-        id: string,
-        definition: string
-      ) => Promise<{ svg: string }>;
+      render: (id: string, definition: string) => Promise<{ svg: string }>;
       parse: (definition: string) => Promise<boolean>;
     };
   }
@@ -35,22 +45,55 @@ function escapeMermaidId(id: string): string {
   return id.replace(/[^a-zA-Z0-9]/g, "_");
 }
 
-function escapeMermaidLabel(label: string): string {
-  // Escape special characters in labels
-  return label
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, " ")
-    .substring(0, 50); // Limit length
+function escapeMermaidLabel(label: string, maxLength: number = 150): string {
+  // Clean the label - preserve newlines for HTML rendering
+  let cleaned = label.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  
+  // Truncate if too long (before wrapping)
+  if (cleaned.length > maxLength) {
+    cleaned = cleaned.substring(0, maxLength) + "...";
+  }
+  
+  // Split on existing newlines first
+  const paragraphs = cleaned.split("\n");
+  const wrappedParagraphs: string[] = [];
+  
+  // For each paragraph, add word wrapping if needed
+  for (const paragraph of paragraphs) {
+    if (paragraph.length <= 40) {
+      // Short enough, no wrapping needed
+      wrappedParagraphs.push(paragraph);
+    } else {
+      // Split on spaces and add breaks every ~35 characters
+      const words = paragraph.split(" ");
+      const wrapped: string[] = [];
+      let currentLine = "";
+      
+      for (const word of words) {
+        if (currentLine.length + word.length + 1 > 35 && currentLine.length > 0) {
+          wrapped.push(currentLine);
+          currentLine = word;
+        } else {
+          currentLine = currentLine ? `${currentLine} ${word}` : word;
+        }
+      }
+      if (currentLine) {
+        wrapped.push(currentLine);
+      }
+      wrappedParagraphs.push(...wrapped);
+    }
+  }
+  
+  // Join with <br/> for HTML rendering in Mermaid
+  return wrappedParagraphs.join("<br/>");
 }
 
-function generateMermaidGraph(
-  data: Array<{ id: string; title: string; parentId: string | null }>
-): string {
+function generateMermaidGraph(data: Moment[]): string {
   if (data.length === 0) {
-    return "graph TD\n  Empty[No moments found]";
+    return "graph LR\n  Empty[No moments found]";
   }
 
-  const lines: string[] = ["graph TD"];
+  const lines: string[] = ["graph LR"];
   const nodeIds = new Set<string>();
 
   // First, collect all node IDs
@@ -59,11 +102,14 @@ function generateMermaidGraph(
     nodeIds.add(nodeId);
   }
 
-  // Create nodes
+  // Create nodes with HTML labels for word wrapping
   for (const item of data) {
     const nodeId = escapeMermaidId(item.id);
     const label = escapeMermaidLabel(item.title);
-    lines.push(`  ${nodeId}["${label}"]`);
+    // Use HTML-style labels - Mermaid will render <br/> tags as line breaks
+    // Escape quotes in the label content for proper Mermaid syntax
+    const escapedLabel = label.replace(/"/g, '&quot;');
+    lines.push(`  ${nodeId}["${escapedLabel}"]`);
   }
 
   // Create edges
@@ -81,9 +127,7 @@ function generateMermaidGraph(
 }
 
 export function KnowledgeGraphPage() {
-  const [graphData, setGraphData] = useState<
-    Array<{ id: string; title: string; parentId: string | null }>
-  >([]);
+  const [graphData, setGraphData] = useState<Moment[]>([]);
   const [stats, setStats] = useState<{
     totalMoments: number;
     rootMoments: number;
@@ -94,23 +138,63 @@ export function KnowledgeGraphPage() {
   const [statsLoading, setStatsLoading] = useState(true);
   const [mermaidLoaded, setMermaidLoaded] = useState(false);
   const [showRawCode, setShowRawCode] = useState(false);
+  const [showRawData, setShowRawData] = useState(false);
   const [mermaidCode, setMermaidCode] = useState<string>("");
+  const [selectedNamespace, setSelectedNamespace] = useState<string | null>(
+    null
+  );
+  const [prefix, setPrefix] = useState<string | null>(null);
+  const [effectiveNamespace, setEffectiveNamespace] = useState<string | null>(
+    null
+  );
+  const [selectedRootId, setSelectedRootId] = useState<string | null>(null);
+  const [rootMoments, setRootMoments] = useState<
+    Array<{
+      id: string;
+      title: string;
+      parentId: string | null;
+      createdAt: string;
+      descendantCount: number;
+    }>
+  >([]);
+  const [rootMomentsLoading, setRootMomentsLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState<string>("");
   const mermaidContainerRef = useRef<HTMLDivElement>(null);
   const mermaidScriptRef = useRef<HTMLScriptElement | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+  const svgContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     // Load Mermaid.js from CDN
     if (!window.mermaid && !mermaidScriptRef.current) {
       const script = document.createElement("script");
-      script.src = "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
+      script.src =
+        "https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js";
       script.async = true;
       script.onload = () => {
         if (window.mermaid) {
-          window.mermaid.initialize({ 
+          window.mermaid.initialize({
             startOnLoad: false,
-            theme: 'default',
-            securityLevel: 'loose',
-          });
+            theme: "default",
+            flowchart: {
+              htmlLabels: true,
+              curve: "basis",
+              padding: 8,
+            },
+            themeVariables: {
+              fontSize: "12px",
+              fontFamily: "inherit",
+              primaryColor: "#e0e0e0",
+              primaryTextColor: "#000",
+              primaryBorderColor: "#999",
+              lineColor: "#999",
+              secondaryColor: "#f4f4f4",
+              tertiaryColor: "#fff",
+            },
+          } as any);
           setMermaidLoaded(true);
         }
       };
@@ -124,13 +208,56 @@ export function KnowledgeGraphPage() {
     }
   }, []);
 
+  // Initialize selectedRootId from URL on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const rootIdFromUrl = urlParams.get("rootId");
+    if (rootIdFromUrl) {
+      setSelectedRootId(rootIdFromUrl);
+    }
+  }, []);
+
+  // Update URL when selectedRootId changes (using pushState for shareable links)
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (selectedRootId) {
+      url.searchParams.set("rootId", selectedRootId);
+    } else {
+      url.searchParams.delete("rootId");
+    }
+    window.history.pushState({}, "", url.toString());
+  }, [selectedRootId]);
+
+  useEffect(() => {
+    async function fetchPrefix() {
+      try {
+        const result = await getMomentGraphNamespacePrefix();
+        if (result.success) {
+          setPrefix(result.prefix ?? null);
+        }
+      } catch (err) {
+        console.error("Error fetching prefix:", err);
+      }
+    }
+
+    fetchPrefix();
+  }, []);
+
   useEffect(() => {
     async function fetchStats() {
       setStatsLoading(true);
       try {
-        const result = await getKnowledgeGraphStatsAction();
+        const result = await getKnowledgeGraphStatsAction({
+          momentGraphNamespace: selectedNamespace,
+        });
         if (result.success && result.stats) {
           setStats(result.stats);
+          if (result.effectiveNamespace !== undefined) {
+            setEffectiveNamespace(result.effectiveNamespace);
+          }
+          if (result.prefix !== undefined) {
+            setPrefix(result.prefix ?? null);
+          }
         } else {
           console.error("Failed to fetch stats:", result.error);
         }
@@ -141,15 +268,63 @@ export function KnowledgeGraphPage() {
       }
     }
 
+    fetchStats();
+  }, [selectedNamespace]);
+
+  useEffect(() => {
+    async function fetchRootMoments() {
+      setRootMomentsLoading(true);
+      try {
+        const result = await getRootMomentsAction({
+          limit: 1000,
+          momentGraphNamespace: selectedNamespace,
+        });
+        if (result.success && result.data) {
+          setRootMoments(result.data);
+          if (result.effectiveNamespace !== undefined) {
+            setEffectiveNamespace(result.effectiveNamespace);
+          }
+          if (result.prefix !== undefined) {
+            setPrefix(result.prefix ?? null);
+          }
+        } else {
+          console.error("Failed to fetch root moments:", result.error);
+        }
+      } catch (err) {
+        console.error("Error fetching root moments:", err);
+      } finally {
+        setRootMomentsLoading(false);
+      }
+    }
+
+    if (!selectedRootId) {
+      fetchRootMoments();
+    }
+  }, [selectedNamespace, selectedRootId]);
+
+  useEffect(() => {
     async function fetchGraph() {
+      if (!selectedRootId) {
+        setGraphData([]);
+        return;
+      }
+
       setLoading(true);
       setError(null);
       try {
-        const result = await getKnowledgeGraph({ limit: 500 });
+        const result = await getDescendantsForRootAction(selectedRootId, {
+          momentGraphNamespace: selectedNamespace,
+        });
         if (result.success && result.data) {
           setGraphData(result.data);
+          if (result.effectiveNamespace !== undefined) {
+            setEffectiveNamespace(result.effectiveNamespace);
+          }
+          if (result.prefix !== undefined) {
+            setPrefix(result.prefix ?? null);
+          }
         } else {
-          setError(result.error || "Failed to fetch knowledge graph");
+          setError(result.error || "Failed to fetch descendants");
         }
       } catch (err) {
         setError(
@@ -160,9 +335,8 @@ export function KnowledgeGraphPage() {
       }
     }
 
-    fetchStats();
     fetchGraph();
-  }, []);
+  }, [selectedRootId, selectedNamespace]);
 
   useEffect(() => {
     if (mermaidLoaded && graphData.length > 0 && mermaidContainerRef.current) {
@@ -171,7 +345,9 @@ export function KnowledgeGraphPage() {
 
       const mermaidDefinition = generateMermaidGraph(graphData);
       setMermaidCode(mermaidDefinition); // Store for debug view
-      const id = `mermaid-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const id = `mermaid-${Date.now()}-${Math.random()
+        .toString(36)
+        .substr(2, 9)}`;
 
       if (window.mermaid) {
         // First validate the syntax
@@ -187,18 +363,23 @@ export function KnowledgeGraphPage() {
           .then((result) => {
             if (container) {
               container.innerHTML = result.svg;
-              // Make SVG responsive
+              // Make SVG responsive and prepare for zoom/pan
               const svg = container.querySelector("svg");
               if (svg) {
-                svg.style.maxWidth = "100%";
+                svg.style.maxWidth = "none";
                 svg.style.height = "auto";
+                // Reset zoom/pan when new graph is rendered
+                setZoom(1);
+                setPan({ x: 0, y: 0 });
               }
             }
           })
           .catch((err) => {
             console.error("Mermaid rendering error:", err);
             setError(
-              `Failed to render graph: ${err instanceof Error ? err.message : String(err)}. The graph may be too complex.`
+              `Failed to render graph: ${
+                err instanceof Error ? err.message : String(err)
+              }. The graph may be too complex.`
             );
             if (container) {
               container.innerHTML = `<div class="p-4">
@@ -208,15 +389,81 @@ export function KnowledgeGraphPage() {
             }
           });
       }
-    } else if (!loading && graphData.length === 0 && mermaidContainerRef.current) {
+    } else if (
+      !loading &&
+      graphData.length === 0 &&
+      mermaidContainerRef.current
+    ) {
       mermaidContainerRef.current.innerHTML =
         '<p class="text-gray-500 text-center py-8">No graph data available</p>';
     }
   }, [mermaidLoaded, graphData, loading]);
 
+  const namespaceOptions = [
+    { value: null, label: "Default (all namespaces)" },
+    { value: "redwood:machinen", label: "redwood:machinen" },
+    { value: "redwood:rwsdk", label: "redwood:rwsdk" },
+    { value: "redwood:internal", label: "redwood:internal" },
+  ];
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <h1 className="text-3xl font-bold mb-8">Knowledge Graph</h1>
+
+      {/* System Context Card */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>System Context</CardTitle>
+          <CardDescription>
+            Namespace configuration and active prefix
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Namespace Prefix (from environment)
+              </label>
+              <div className="p-3 bg-gray-50 rounded border font-mono text-sm">
+                {prefix ? (
+                  <span className="text-blue-600">{prefix}</span>
+                ) : (
+                  <span className="text-gray-400">Not set</span>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Select Namespace
+              </label>
+              <select
+                value={selectedNamespace || ""}
+                onChange={(e) => setSelectedNamespace(e.target.value || null)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              >
+                {namespaceOptions.map((option) => (
+                  <option
+                    key={option.value || "null"}
+                    value={option.value || ""}
+                  >
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {effectiveNamespace && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Effective Namespace (being queried)
+                </label>
+                <div className="p-3 bg-blue-50 rounded border font-mono text-sm text-blue-900">
+                  {effectiveNamespace}
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Database Stats Card */}
       <Card className="mb-6">
@@ -268,16 +515,43 @@ export function KnowledgeGraphPage() {
 
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Moment Graph Visualization</CardTitle>
-          <CardDescription>
-            Visual representation of the knowledge graph showing relationships
-            between moments. Root moments (subjects) are shown at the top.
-          </CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>
+                {selectedRootId
+                  ? "Subject Tree Visualization"
+                  : "Root Subjects (Select to Drill Down)"}
+              </CardTitle>
+              <CardDescription>
+                {selectedRootId
+                  ? "Visual representation of a specific subject's moment tree"
+                  : "Select a root subject below to view its complete tree structure"}
+              </CardDescription>
+            </div>
+            {selectedRootId && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setSelectedRootId(null);
+                  setSearchQuery("");
+                }}
+              >
+                ← Back to Roots
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           {loading && (
             <div className="text-center py-8">
               <p className="text-gray-500">Loading graph data...</p>
+            </div>
+          )}
+
+          {rootMomentsLoading && !selectedRootId && (
+            <div className="text-center py-8">
+              <p className="text-gray-500">Loading root subjects...</p>
             </div>
           )}
 
@@ -287,76 +561,285 @@ export function KnowledgeGraphPage() {
             </div>
           )}
 
-          {!loading && !error && stats && stats.totalMoments === 0 && (
-            <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
-              <p className="text-yellow-800 font-medium mb-2">
-                ⚠️ No moments found in database
-              </p>
-              <p className="text-sm text-yellow-700">
-                The knowledge graph database is empty. You need to index some
-                documents first. Go to the{" "}
-                <a href="/audit/indexing" className="underline">
-                  Indexing
-                </a>{" "}
-                page to process documents and create moments.
-              </p>
+          {!loading &&
+            !rootMomentsLoading &&
+            !error &&
+            stats &&
+            stats.totalMoments === 0 && (
+              <div className="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded">
+                <p className="text-yellow-800 font-medium mb-2">
+                  ⚠️ No moments found in database
+                </p>
+                <p className="text-sm text-yellow-700">
+                  The knowledge graph database is empty. You need to index some
+                  documents first. Go to the{" "}
+                  <a href="/audit/indexing" className="underline">
+                    Indexing
+                  </a>{" "}
+                  page to process documents and create moments.
+                </p>
+              </div>
+            )}
+
+          {!selectedRootId && !rootMomentsLoading && (
+            <div className="space-y-4">
+              {rootMoments.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  No root subjects found. Try selecting a different namespace.
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <p className="text-sm text-gray-600">
+                      Found {rootMoments.length} root subject
+                      {rootMoments.length !== 1 ? "s" : ""}. Click on any
+                      subject to view its complete tree.
+                    </p>
+                  </div>
+                  <div className="mb-4">
+                    <Input
+                      type="text"
+                      placeholder="Search subjects by title or ID..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {rootMoments
+                      .filter((root) => {
+                        if (!searchQuery.trim()) return true;
+                        const query = searchQuery.toLowerCase();
+                        return (
+                          root.title.toLowerCase().includes(query) ||
+                          root.id.toLowerCase().includes(query)
+                        );
+                      })
+                      .map((root) => {
+                        const date = new Date(root.createdAt);
+                        const formattedDate = date.toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        });
+                        return (
+                          <button
+                            key={root.id}
+                            onClick={() => setSelectedRootId(root.id)}
+                            className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                          >
+                            <div className="font-medium text-gray-900 mb-2">
+                              {root.title}
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                              <span>{formattedDate}</span>
+                              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                                {root.descendantCount} moment
+                                {root.descendantCount !== 1 ? "s" : ""}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-400 font-mono mt-1">
+                              {root.id.substring(0, 8)}...
+                            </div>
+                          </button>
+                        );
+                      })}
+                  </div>
+                  {searchQuery.trim() &&
+                    rootMoments.filter((root) => {
+                      const query = searchQuery.toLowerCase();
+                      return (
+                        root.title.toLowerCase().includes(query) ||
+                        root.id.toLowerCase().includes(query)
+                      );
+                    }).length === 0 && (
+                      <div className="text-center py-8 text-gray-500">
+                        No subjects found matching "{searchQuery}"
+                      </div>
+                    )}
+                </>
+              )}
             </div>
           )}
 
-          {!loading && !error && (
+          {selectedRootId && !loading && !error && (
             <>
               <div className="mb-4 flex items-center justify-between">
                 <div className="text-sm text-gray-600">
                   <div>
-                    Showing {graphData.length} moments (limited to 500 for
-                    visualization)
-                    {stats && stats.totalMoments > 500 && (
-                      <span className="ml-2 text-orange-600">
-                        (of {stats.totalMoments} total in database)
-                      </span>
-                    )}
+                    Showing {graphData.length} moment
+                    {graphData.length !== 1 ? "s" : ""} in this subject tree
                   </div>
-                  {graphData.filter((m) => !m.parentId).length > 0 && (
-                    <div className="mt-1">
-                      {graphData.filter((m) => !m.parentId).length} root
-                      subjects in this view
-                      {stats && stats.rootMoments > 0 && (
-                        <span className="ml-2">
-                          ({stats.rootMoments} total in database)
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {graphData.length === 0 && stats && stats.totalMoments > 0 && (
+                  {graphData.length === 0 && (
                     <div className="mt-2 text-orange-600">
-                      ⚠️ Database has {stats.totalMoments} moments but none were
-                      returned. Check namespace or query filters.
+                      ⚠️ No descendants found for this root subject.
                     </div>
                   )}
                 </div>
-                {mermaidCode && (
+                <div className="flex gap-2">
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={() => setShowRawCode(!showRawCode)}
+                    onClick={() => setShowRawData(!showRawData)}
                   >
-                    {showRawCode ? "Hide" : "Show"} Raw Mermaid Code
+                    {showRawData ? "Hide" : "Show"} Raw Data
                   </Button>
-                )}
+                  {mermaidCode && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowRawCode(!showRawCode)}
+                    >
+                      {showRawCode ? "Hide" : "Show"} Raw Mermaid Code
+                    </Button>
+                  )}
+                </div>
               </div>
+              {showRawData && (
+                <div className="mb-4 p-4 bg-gray-50 border rounded">
+                  <p className="text-sm font-medium mb-2">Raw Graph Data (JSON):</p>
+                  <pre className="text-xs overflow-auto max-h-96 p-2 bg-white border rounded">
+                    {JSON.stringify(graphData, null, 2)}
+                  </pre>
+                </div>
+              )}
               {showRawCode && mermaidCode && (
                 <div className="mb-4 p-4 bg-gray-50 border rounded">
-                  <p className="text-sm font-medium mb-2">Mermaid Diagram Code:</p>
+                  <p className="text-sm font-medium mb-2">
+                    Mermaid Diagram Code:
+                  </p>
                   <pre className="text-xs overflow-auto max-h-64 p-2 bg-white border rounded">
                     {mermaidCode}
                   </pre>
                 </div>
               )}
-              <div
-                ref={mermaidContainerRef}
-                className="w-full overflow-auto border rounded p-4 bg-white min-h-[400px] flex items-center justify-center"
-                style={{ maxHeight: "80vh" }}
-              />
+              <div className="mb-4">
+                <div className="flex items-center justify-end gap-2 mb-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setZoom(Math.max(0.5, zoom - 0.25))}
+                    disabled={zoom <= 0.5}
+                  >
+                    Zoom Out
+                  </Button>
+                  <span className="text-sm text-gray-600 min-w-[80px] text-center">
+                    {Math.round(zoom * 100)}%
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setZoom(Math.min(3, zoom + 0.25))}
+                    disabled={zoom >= 3}
+                  >
+                    Zoom In
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setZoom(1);
+                      setPan({ x: 0, y: 0 });
+                    }}
+                  >
+                    Reset
+                  </Button>
+                </div>
+                <div
+                  ref={svgContainerRef}
+                  className="relative w-full border rounded bg-white overflow-auto"
+                  style={{ maxHeight: "80vh", minHeight: "400px" }}
+                  onMouseDown={(e) => {
+                    if (e.button === 0 && e.currentTarget === e.target) {
+                      setIsPanning(true);
+                      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
+                    }
+                  }}
+                  onMouseMove={(e) => {
+                    if (isPanning) {
+                      setPan({
+                        x: e.clientX - panStart.x,
+                        y: e.clientY - panStart.y,
+                      });
+                    }
+                  }}
+                  onMouseUp={() => setIsPanning(false)}
+                  onMouseLeave={() => setIsPanning(false)}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                    setZoom(Math.max(0.5, Math.min(3, zoom + delta)));
+                  }}
+                >
+                  <div
+                    ref={mermaidContainerRef}
+                    className="flex items-center justify-center p-4"
+                    style={{
+                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                      transformOrigin: "center center",
+                      transition: isPanning ? "none" : "transform 0.1s ease-out",
+                      minWidth: "100%",
+                      minHeight: "100%",
+                    }}
+                  />
+                </div>
+              </div>
+              
+              {graphData.length > 0 && (
+                <div className="mt-6">
+                  <h3 className="text-lg font-semibold mb-4">Audit Table</h3>
+                  <div className="border rounded overflow-auto max-h-[600px]">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>ID</TableHead>
+                          <TableHead>Document ID</TableHead>
+                          <TableHead>Title</TableHead>
+                          <TableHead>Summary</TableHead>
+                          <TableHead>Parent ID</TableHead>
+                          <TableHead>Created At</TableHead>
+                          <TableHead>Author</TableHead>
+                          <TableHead>Importance</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {graphData.map((moment) => (
+                          <TableRow key={moment.id}>
+                            <TableCell className="font-mono text-xs">
+                              {moment.id.substring(0, 8)}...
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {moment.documentId?.substring(0, 8) || "N/A"}...
+                            </TableCell>
+                            <TableCell className="max-w-[200px] truncate">
+                              {moment.title || "Untitled"}
+                            </TableCell>
+                            <TableCell className="max-w-[300px] truncate">
+                              {moment.summary || "N/A"}
+                            </TableCell>
+                            <TableCell className="font-mono text-xs">
+                              {moment.parentId ? `${moment.parentId.substring(0, 8)}...` : "Root"}
+                            </TableCell>
+                            <TableCell className="text-xs whitespace-nowrap">
+                              {moment.createdAt
+                                ? new Date(moment.createdAt).toLocaleString()
+                                : "N/A"}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {moment.author || "N/A"}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {moment.importance !== undefined
+                                ? moment.importance.toFixed(3)
+                                : "N/A"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </CardContent>
@@ -364,4 +847,3 @@ export function KnowledgeGraphPage() {
     </div>
   );
 }
-

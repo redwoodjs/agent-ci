@@ -6,6 +6,7 @@ import { IngestionListPage } from "./subpages/ingestion-list-page";
 import { IngestionFilePage } from "./subpages/ingestion-file-page";
 import { IndexingStatusPage } from "./subpages/indexing-status-page";
 import { QueryPage } from "./subpages/query-page";
+import { KnowledgeGraphPage } from "./subpages/knowledge-graph-page";
 import { requireBasicAuth } from "@/app/ingestors/interruptors";
 
 export const auditRoutes = [
@@ -16,5 +17,6 @@ export const auditRoutes = [
     route("/ingestion/file/*", IngestionFilePage),
     route("/indexing", IndexingStatusPage),
     route("/query", QueryPage),
+    route("/knowledge-graph", KnowledgeGraphPage),
   ]),
 ];

@@ -87,6 +87,11 @@ wrangler queues list
 
 - **[RAG Engine](./src/app/engine/README.md)**: Plugin-based architecture for indexing and querying documents using Vectorize and Cloudflare AI
 
+### Tools & Extensions
+
+- **[VS Code Extension](./vscode-extension/README.md)**: A helper extension that provides inline information in Cursor/VS Code by hovering over `//?` comments.
+- **[MCP Server](./src/app/ingestors/cursor/README.md)**: Model Context Protocol server for integrating Machinen knowledge into Cursor.
+
 ### Query Script
 
 The `scripts/query.sh` script provides a convenient way to query the RAG engine from the command line.

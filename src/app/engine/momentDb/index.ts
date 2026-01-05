@@ -1069,3 +1069,69 @@ export async function getRootStatsByHighImportanceSample(
 
   return out.slice(0, limit);
 }
+
+export async function getKnowledgeGraphStructure(
+  context: MomentGraphContext,
+  options?: {
+    limit?: number;
+    maxDepth?: number;
+  }
+): Promise<Array<{ id: string; title: string; parentId: string | null }>> {
+  const db = getMomentDb(context);
+  
+  const limitRaw = options?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 1000; // Default limit to prevent overwhelming the UI
+
+  const rows = (await db
+    .selectFrom("moments")
+    .select(["id", "title", "parent_id"])
+    .orderBy("created_at", "asc")
+    .limit(limit)
+    .execute()) as Array<{
+    id: string;
+    title: string;
+    parent_id: string | null;
+  }>;
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title || `Moment ${row.id.substring(0, 8)}`,
+    parentId: row.parent_id,
+  }));
+}
+
+export async function getKnowledgeGraphStats(
+  context: MomentGraphContext
+): Promise<{
+  totalMoments: number;
+  rootMoments: number;
+  momentsWithParent: number;
+}> {
+  const db = getMomentDb(context);
+
+  const totalCount = await db
+    .selectFrom("moments")
+    .select(({ fn }) => [fn.count<number>("id").as("count")])
+    .executeTakeFirst();
+
+  const rootCount = await db
+    .selectFrom("moments")
+    .select(({ fn }) => [fn.count<number>("id").as("count")])
+    .where("parent_id", "is", null)
+    .executeTakeFirst();
+
+  const withParentCount = await db
+    .selectFrom("moments")
+    .select(({ fn }) => [fn.count<number>("id").as("count")])
+    .where("parent_id", "is not", null)
+    .executeTakeFirst();
+
+  return {
+    totalMoments: Number(totalCount?.count ?? 0),
+    rootMoments: Number(rootCount?.count ?? 0),
+    momentsWithParent: Number(withParentCount?.count ?? 0),
+  };
+}

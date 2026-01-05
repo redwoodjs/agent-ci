@@ -1,0 +1,48 @@
+{
+  "name": "machinen",
+  "displayName": "Machinen",
+  "description": "Shows code origin and decisions when hovering over //? in code",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+      "configuration": {
+        "title": "Machinen",
+      "properties": {
+        "machinen.overrideCursorCompletions": {
+          "type": "boolean",
+          "default": true,
+          "description": "When true, this extension's completions will take precedence when //? pattern is detected. Note: You may need to disable 'editor.inlineSuggest.enabled' or Cursor's completions separately."
+        },
+        "machinen.apiUrl": {
+          "type": "string",
+          "default": "https://machinen.redwoodjs.workers.dev",
+          "description": "The base URL for the Machinen API"
+        },
+        "machinen.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for authenticating with the Machinen API"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.0.0"
+  }
+}

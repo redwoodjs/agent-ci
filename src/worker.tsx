@@ -10,6 +10,7 @@ import { routes as discordRoutes } from "./app/ingestors/discord/routes";
 import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
 import { routes as engineRoutes } from "./app/engine/routes";
+import { ghRoutes } from "./app/gh/routes";
 import { HomePage } from "./app/pages/HomePage";
 
 export type AppContext = {
@@ -27,6 +28,9 @@ const app = defineApp([
 
   // Engine endpoints live at their top-level paths (e.g. /query, /admin/index, /admin/resync).
   ...engineRoutes,
+
+  // GitHub audit endpoints
+  ...ghRoutes,
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";

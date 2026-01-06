@@ -15,6 +15,7 @@ type MomentRow = Override<
   {
     micro_paths_json: string[] | null;
     source_metadata: Record<string, any> | null;
+    link_audit_log: Record<string, any> | null;
   }
 >;
 
@@ -102,6 +103,8 @@ export async function addMoment(
       return String(value);
     }
   }
+
+  const linkAuditLogJson = serializeSourceMetadata(moment.linkAuditLog);
 
   function readTimeRange(
     value: unknown
@@ -234,6 +237,7 @@ export async function addMoment(
           typeof moment.importance === "number"
             ? moment.importance
             : (null as any),
+        link_audit_log: (linkAuditLogJson ?? null) as any,
         created_at: moment.createdAt,
         author: moment.author,
         source_metadata: (moment.sourceMetadata
@@ -259,6 +263,7 @@ export async function addMoment(
           typeof moment.importance === "number"
             ? moment.importance
             : (null as any),
+        link_audit_log: (linkAuditLogJson ?? null) as any,
         created_at: moment.createdAt,
         author: moment.author,
         source_metadata: (moment.sourceMetadata
@@ -293,6 +298,7 @@ export async function getMoment(
     microPaths: row.micro_paths_json || undefined,
     microPathsHash: row.micro_paths_hash || undefined,
     importance: typeof row.importance === "number" ? row.importance : undefined,
+    linkAuditLog: row.link_audit_log || undefined,
     createdAt: row.created_at,
     author: row.author,
     sourceMetadata: row.source_metadata || undefined,
@@ -330,6 +336,7 @@ export async function getMoments(
         microPathsHash: row.micro_paths_hash || undefined,
         importance:
           typeof row.importance === "number" ? row.importance : undefined,
+        linkAuditLog: row.link_audit_log || undefined,
         createdAt: row.created_at,
         author: row.author,
         sourceMetadata: row.source_metadata || undefined,
@@ -366,6 +373,7 @@ export async function findMomentByMicroPathsHash(
     microPaths: row.micro_paths_json || undefined,
     microPathsHash: row.micro_paths_hash || undefined,
     importance: typeof row.importance === "number" ? row.importance : undefined,
+    linkAuditLog: row.link_audit_log || undefined,
     createdAt: row.created_at,
     author: row.author,
     sourceMetadata: row.source_metadata || undefined,
@@ -543,6 +551,7 @@ export async function findDescendants(
       microPathsHash: row.micro_paths_hash || undefined,
       importance:
         typeof row.importance === "number" ? row.importance : undefined,
+      linkAuditLog: row.link_audit_log || undefined,
       createdAt: row.created_at,
       author: row.author,
       sourceMetadata: row.source_metadata || undefined,

@@ -65,7 +65,18 @@ export const smartLinkerPlugin: Plugin = {
           documentId: document.id,
           macroMomentIndex,
         });
-        return null;
+        return {
+          parentMomentId: null,
+          matchedSubjectId: null,
+          score: null,
+          auditLog: {
+            plugin: "smart-linker",
+            skipped: true,
+            skippedReason: "no-subject-index",
+            documentId: document.id,
+            macroMomentIndex,
+          },
+        };
       }
 
       const momentGraphNamespace =
@@ -93,7 +104,19 @@ export const smartLinkerPlugin: Plugin = {
           macroMomentIndex,
           macroMomentTitle: macroMoment.title,
         });
-        return null;
+        return {
+          parentMomentId: null,
+          matchedSubjectId: null,
+          score: null,
+          auditLog: {
+            plugin: "smart-linker",
+            skipped: true,
+            skippedReason: "no-query-text",
+            documentId: document.id,
+            macroMomentIndex,
+            macroMomentTitle: macroMoment.title ?? null,
+          },
+        };
       }
 
       const cappedQuery = capText(
@@ -101,6 +124,26 @@ export const smartLinkerPlugin: Plugin = {
         DEFAULT_SMART_LINKER_MAX_QUERY_CHARS
       );
       const queryText = cappedQuery.text ?? rawQueryText;
+
+      const auditLog: Record<string, any> = {
+        plugin: "smart-linker",
+        documentId: document.id,
+        macroMomentIndex,
+        momentGraphNamespace,
+        thresholds: {
+          threshold: DEFAULT_SMART_LINKER_THRESHOLD,
+          autoAttachThreshold: DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD,
+          maxQueryChars: DEFAULT_SMART_LINKER_MAX_QUERY_CHARS,
+          maxLlmVetoCandidates: DEFAULT_SMART_LINKER_MAX_LLM_VETO_CANDIDATES,
+        },
+        query: {
+          source: "macro-summary",
+          truncated: cappedQuery.truncated,
+          preview: queryText.slice(0, 200),
+        },
+        candidates: [],
+        outcome: null,
+      };
 
       console.log("[moment-linker] smart linker query", {
         documentId: document.id,
@@ -316,6 +359,8 @@ export const smartLinkerPlugin: Plugin = {
         candidateDecisions.push(decision);
       }
 
+      auditLog.candidates = candidateDecisions;
+
       if (eligibleCandidates.length === 0) {
         console.log("[moment-linker] smart linker no attachment", {
           documentId: document.id,
@@ -323,7 +368,16 @@ export const smartLinkerPlugin: Plugin = {
           threshold: DEFAULT_SMART_LINKER_THRESHOLD,
           candidates: candidateDecisions,
         });
-        return null;
+        auditLog.outcome = {
+          attached: false,
+          reason: "no-eligible-candidates",
+        };
+        return {
+          parentMomentId: null,
+          matchedSubjectId: null,
+          score: null,
+          auditLog,
+        };
       }
 
       const childTime =
@@ -348,6 +402,8 @@ export const smartLinkerPlugin: Plugin = {
         const parentMomentId = subject.id;
 
         if (score >= DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD) {
+          entry.decision.chosen = true;
+          entry.decision.chosenMethod = "auto-high-confidence";
           console.log("[moment-linker] smart linker chose attachment", {
             documentId: document.id,
             macroMomentIndex,
@@ -363,10 +419,18 @@ export const smartLinkerPlugin: Plugin = {
             method: "auto-high-confidence",
           });
 
+          auditLog.outcome = {
+            attached: true,
+            method: "auto-high-confidence",
+            parentMomentId,
+            matchedSubjectId: subject.id,
+            score,
+          };
           return {
             parentMomentId,
             matchedSubjectId: subject.id,
             score,
+            auditLog,
           };
         }
 
@@ -426,6 +490,9 @@ Examples (YES):
         const allowed =
           vetoAnswer === "YES" || vetoAnswer === "Y" || vetoAnswer === "TRUE";
 
+        entry.decision.vetoAnswer = vetoAnswer;
+        entry.decision.vetoAllowed = allowed;
+
         console.log("[moment-linker] smart linker LLM veto decision", {
           documentId: document.id,
           macroMomentIndex,
@@ -437,8 +504,12 @@ Examples (YES):
         });
 
         if (!allowed) {
+          entry.decision.rejectReason = "llm-veto";
           continue;
         }
+
+        entry.decision.chosen = true;
+        entry.decision.chosenMethod = "llm-veto";
 
         console.log("[moment-linker] smart linker chose attachment", {
           documentId: document.id,
@@ -455,10 +526,18 @@ Examples (YES):
           method: "llm-veto",
         });
 
+        auditLog.outcome = {
+          attached: true,
+          method: "llm-veto",
+          parentMomentId,
+          matchedSubjectId: subject.id,
+          score,
+        };
         return {
           parentMomentId,
           matchedSubjectId: subject.id,
           score,
+          auditLog,
         };
       }
 
@@ -470,7 +549,16 @@ Examples (YES):
         candidates: candidateDecisions,
       });
 
-      return null;
+      auditLog.outcome = {
+        attached: false,
+        reason: "llm-veto-rejected-all",
+      };
+      return {
+        parentMomentId: null,
+        matchedSubjectId: null,
+        score: null,
+        auditLog,
+      };
     },
   },
 };

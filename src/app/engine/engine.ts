@@ -598,6 +598,7 @@ export async function indexDocument(
 
           let resolvedParentIdForFirst: string | undefined = undefined;
           let previousMomentId: string | undefined = undefined;
+          let linkAuditLogForFirst: Record<string, any> | null = null;
 
           for (let i = 0; i < macroMomentDescriptions.length; i++) {
             const description = macroMomentDescriptions[i];
@@ -623,6 +624,10 @@ export async function indexDocument(
             if (i === 0) {
               if (existing?.parentId) {
                 resolvedParentIdForFirst = existing.parentId;
+                linkAuditLogForFirst = {
+                  kind: "reuse-existing-parent",
+                  parentId: resolvedParentIdForFirst,
+                };
                 console.log(
                   "[moment-linker] attachment reuse existing parent",
                   {
@@ -638,27 +643,71 @@ export async function indexDocument(
                   anchorMacroMomentForLinking ??
                   macroMomentDescriptions[anchorMacroMomentIndex] ??
                   macroMomentDescriptions[0];
-                const parentProposal = await runFirstMatchHook(
-                  context.plugins,
-                  "proposeMacroMomentParent",
-                  (plugin) =>
-                    plugin.subjects?.proposeMacroMomentParent?.(
-                      document,
-                      anchorMacroMoment,
-                      anchorMacroMomentIndex,
-                      indexingContext
-                    )
-                );
-                resolvedParentIdForFirst = parentProposal?.parentMomentId;
-                if (parentProposal) {
+                let parentProposal: {
+                  parentMomentId: string | null;
+                  matchedSubjectId: string | null;
+                  score: number | null;
+                  auditLog?: Record<string, any>;
+                } | null = null;
+                let parentAuditLog: Record<string, any> | null = null;
+
+                for (const plugin of context.plugins) {
+                  const propose = plugin.subjects?.proposeMacroMomentParent;
+                  if (!propose) {
+                    continue;
+                  }
+                  const attempt = await propose(
+                    document,
+                    anchorMacroMoment,
+                    anchorMacroMomentIndex,
+                    indexingContext
+                  );
+                  if (attempt?.auditLog && !parentAuditLog) {
+                    parentAuditLog = attempt.auditLog;
+                  }
+                  if (
+                    typeof attempt?.parentMomentId === "string" &&
+                    attempt.parentMomentId.length > 0
+                  ) {
+                    parentProposal = attempt;
+                    if (attempt.auditLog) {
+                      parentAuditLog = attempt.auditLog;
+                    }
+                    break;
+                  }
+                }
+
+                resolvedParentIdForFirst =
+                  typeof parentProposal?.parentMomentId === "string" &&
+                  parentProposal.parentMomentId.length > 0
+                    ? parentProposal.parentMomentId
+                    : undefined;
+
+                linkAuditLogForFirst = parentAuditLog
+                  ? {
+                      ...parentAuditLog,
+                      proposalMacroMomentIndex: anchorMacroMomentIndex,
+                      proposalMacroMomentImportance:
+                        anchorMacroMomentImportance ?? null,
+                      proposalMacroMomentTitle: anchorMacroMoment.title ?? null,
+                    }
+                  : {
+                      kind: "no-plugin-attempts",
+                      proposalMacroMomentIndex: anchorMacroMomentIndex,
+                      proposalMacroMomentImportance:
+                        anchorMacroMomentImportance ?? null,
+                      proposalMacroMomentTitle: anchorMacroMoment.title ?? null,
+                    };
+
+                if (resolvedParentIdForFirst) {
                   console.log("[moment-linker] attachment proposal", {
                     documentId: document.id,
                     macroMomentIndex: i,
                     proposalMacroMomentIndex: anchorMacroMomentIndex,
                     proposalMacroMomentImportance: anchorMacroMomentImportance,
-                    parentMomentId: parentProposal.parentMomentId,
-                    matchedSubjectId: parentProposal.matchedSubjectId,
-                    score: parentProposal.score,
+                    parentMomentId: resolvedParentIdForFirst,
+                    matchedSubjectId: parentProposal?.matchedSubjectId ?? null,
+                    score: parentProposal?.score ?? null,
                     streamId: stream.streamId,
                   });
                 } else {
@@ -668,6 +717,7 @@ export async function indexDocument(
                     proposalMacroMomentIndex: anchorMacroMomentIndex,
                     proposalMacroMomentImportance: anchorMacroMomentImportance,
                     streamId: stream.streamId,
+                    hasAuditLog: Boolean(linkAuditLogForFirst),
                   });
                 }
               }
@@ -699,6 +749,7 @@ export async function indexDocument(
                 typeof (description as any).importance === "number"
                   ? ((description as any).importance as number)
                   : undefined,
+              linkAuditLog: i === 0 ? linkAuditLogForFirst ?? undefined : undefined,
               createdAt: description.createdAt,
               author: description.author,
               sourceMetadata: description.sourceMetadata,

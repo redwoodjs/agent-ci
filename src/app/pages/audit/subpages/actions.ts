@@ -14,11 +14,15 @@ import {
   getKnowledgeGraphStats,
   getRootMoments,
   getDescendantsForRoot,
+  getRootStatsByHighImportanceSample,
+  findAncestors,
+  getMoments,
 } from "@/app/engine/momentDb";
 import {
   getMomentGraphNamespacePrefixFromEnv,
   applyMomentGraphNamespacePrefixValue,
 } from "@/app/engine/momentGraphNamespace";
+import { getEmbedding } from "@/app/engine/utils/vector";
 
 export async function enqueueFile(r2Key: string) {
   try {
@@ -331,6 +335,193 @@ export async function getDescendantsForRootAction(
     return {
       success: false,
       error: "Failed to fetch descendants",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getRootSampleStatsAction(options?: {
+  momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
+  highImportanceCutoff?: number;
+  sampleLimit?: number;
+  limit?: number;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const highImportanceCutoff =
+      typeof options?.highImportanceCutoff === "number" &&
+      Number.isFinite(options.highImportanceCutoff)
+        ? options.highImportanceCutoff
+        : 0.8;
+    const sampleLimit =
+      typeof options?.sampleLimit === "number" && Number.isFinite(options.sampleLimit)
+        ? options.sampleLimit
+        : 2000;
+    const limit =
+      typeof options?.limit === "number" && Number.isFinite(options.limit)
+        ? options.limit
+        : 50;
+
+    if (!effectiveNamespace) {
+      return {
+        success: false,
+        error: "Missing namespace",
+      };
+    }
+
+    const roots = await getRootStatsByHighImportanceSample(
+      { env: envCloudflare, momentGraphNamespace: effectiveNamespace },
+      {
+        highImportanceCutoff,
+        sampleLimit,
+        limit,
+      }
+    );
+
+    return {
+      success: true,
+      roots,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+      highImportanceCutoff,
+      sampleLimit,
+      limit,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching root sample stats:", error);
+    return {
+      success: false,
+      error: "Failed to fetch root sample stats",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function searchMomentsAction(options: {
+  query: string;
+  limit?: number;
+  momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+
+    const queryText =
+      typeof options.query === "string" ? options.query.trim() : "";
+    if (!queryText) {
+      return {
+        success: false,
+        error: "Missing query",
+      };
+    }
+
+    const limitRaw = options.limit;
+    const limit =
+      typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+        ? Math.floor(limitRaw)
+        : 10;
+
+    const baseNamespace = options.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const embedding = await getEmbedding(queryText);
+    const queryOptions: Record<string, unknown> = {
+      topK: limit,
+      returnMetadata: true,
+    };
+    if (effectiveNamespace && effectiveNamespace !== "default") {
+      queryOptions.filter = { momentGraphNamespace: effectiveNamespace };
+    }
+
+    const results = await envCloudflare.MOMENT_INDEX.query(
+      embedding,
+      queryOptions as any
+    );
+
+    const matchIds = (results.matches ?? [])
+      .map((m) => m?.id)
+      .filter((id): id is string => typeof id === "string" && id.length > 0);
+    const momentsMap =
+      matchIds.length > 0 ? await getMoments(matchIds, context) : new Map();
+
+    const out: Array<{
+      matchId: string;
+      score: number;
+      matchTitle: string;
+      matchSummary: string;
+      matchDocumentId: string;
+      rootId: string;
+      rootTitle: string;
+    }> = [];
+
+    for (const match of results.matches ?? []) {
+      const id = typeof match?.id === "string" ? match.id : null;
+      const score = typeof match?.score === "number" ? match.score : null;
+      if (!id || score === null) {
+        continue;
+      }
+      const moment = momentsMap.get(id);
+      if (!moment) {
+        continue;
+      }
+      const ancestors = await findAncestors(moment.id, context);
+      const root = ancestors[0];
+      if (!root) {
+        continue;
+      }
+      out.push({
+        matchId: moment.id,
+        score,
+        matchTitle: moment.title,
+        matchSummary: moment.summary,
+        matchDocumentId: moment.documentId,
+        rootId: root.id,
+        rootTitle: root.title,
+      });
+    }
+
+    out.sort((a, b) => b.score - a.score);
+
+    return {
+      success: true,
+      results: out,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error searching moments:", error);
+    return {
+      success: false,
+      error: "Failed to search moments",
       details: error instanceof Error ? error.message : String(error),
     };
   }

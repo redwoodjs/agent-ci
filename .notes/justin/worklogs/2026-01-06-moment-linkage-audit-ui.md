@@ -29,6 +29,8 @@ We do not have a durable, queryable record of Smart Linker decisions:
 - Updated the knowledge graph page to support node selection and to display the stored linkage audit log (candidate list with title/summary previews, scores, and reject reasons).
 - Ran `npm run types` and saw existing typecheck failures in other parts of the repo; the edited files were not flagged by the compiler output in that run.
 - Added an optional namespace prefix override in the knowledge graph page and threaded it through the audit server actions so a demo prefix can be queried without changing worker environment configuration.
+- Added a sampled root list mode (based on high-importance sampling) to reduce noise from singleton roots.
+- Added semantic search on the knowledge graph page that finds matching moments and jumps to the resolved root tree, highlighting the matched node.
 
 ## PR Title: Audit UI for Smart Linker Decisions
 

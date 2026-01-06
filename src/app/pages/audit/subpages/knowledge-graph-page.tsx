@@ -16,6 +16,8 @@ import {
   getMomentGraphNamespacePrefix,
   getRootMomentsAction,
   getDescendantsForRootAction,
+  getRootSampleStatsAction,
+  searchMomentsAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -170,6 +172,41 @@ export function KnowledgeGraphPage() {
   >([]);
   const [rootMomentsLoading, setRootMomentsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [rootListMode, setRootListMode] = useState<"all" | "sampled">(
+    "sampled"
+  );
+  const [hideSingletons, setHideSingletons] = useState(true);
+  const [rootSort, setRootSort] = useState<"descendants" | "createdAt">(
+    "descendants"
+  );
+  const [sampledRoots, setSampledRoots] = useState<
+    Array<{
+      rootId: string;
+      rootTitle: string | null;
+      rootDocumentId: string | null;
+      sampledHighImportanceCount: number;
+      sampledImportanceSum: number;
+      sampledImportanceMax: number | null;
+    }>
+  >([]);
+  const [sampledRootsLoading, setSampledRootsLoading] = useState(false);
+  const [semanticQuery, setSemanticQuery] = useState<string>("");
+  const [semanticResults, setSemanticResults] = useState<
+    Array<{
+      matchId: string;
+      score: number;
+      matchTitle: string;
+      matchSummary: string;
+      matchDocumentId: string;
+      rootId: string;
+      rootTitle: string;
+    }>
+  >([]);
+  const [semanticLoading, setSemanticLoading] = useState(false);
+  const [semanticError, setSemanticError] = useState<string | null>(null);
+  const [pendingHighlightMomentId, setPendingHighlightMomentId] = useState<
+    string | null
+  >(null);
   const mermaidContainerRef = useRef<HTMLDivElement>(null);
   const mermaidScriptRef = useRef<HTMLScriptElement | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -328,6 +365,39 @@ export function KnowledgeGraphPage() {
   }, [selectedNamespace, selectedRootId, prefixOverride]);
 
   useEffect(() => {
+    async function fetchSampledRoots() {
+      if (rootListMode !== "sampled" || selectedRootId) {
+        return;
+      }
+      setSampledRootsLoading(true);
+      try {
+        const result = await getRootSampleStatsAction({
+          momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+          highImportanceCutoff: 0.8,
+          sampleLimit: 2000,
+          limit: 100,
+        });
+        if (result.success && result.roots) {
+          setSampledRoots(result.roots);
+          if (result.effectiveNamespace !== undefined) {
+            setEffectiveNamespace(result.effectiveNamespace);
+          }
+        } else {
+          console.error("Failed to fetch root sample stats:", result.error);
+        }
+      } catch (err) {
+        console.error("Error fetching root sample stats:", err);
+      } finally {
+        setSampledRootsLoading(false);
+      }
+    }
+
+    fetchSampledRoots();
+  }, [rootListMode, selectedRootId, selectedNamespace, prefixOverride]);
+
+  useEffect(() => {
     async function fetchGraph() {
       if (!selectedRootId) {
         setGraphData([]);
@@ -361,6 +431,20 @@ export function KnowledgeGraphPage() {
 
     fetchGraph();
   }, [selectedRootId, selectedNamespace, prefixOverride]);
+
+  useEffect(() => {
+    if (!selectedRootId || loading) {
+      return;
+    }
+    if (!pendingHighlightMomentId) {
+      return;
+    }
+    const match = graphData.find((m) => m.id === pendingHighlightMomentId);
+    if (match) {
+      setSelectedMomentId(pendingHighlightMomentId);
+    }
+    setPendingHighlightMomentId(null);
+  }, [selectedRootId, loading, graphData, pendingHighlightMomentId]);
 
   useEffect(() => {
     if (mermaidLoaded && graphData.length > 0 && mermaidContainerRef.current) {
@@ -474,6 +558,33 @@ export function KnowledgeGraphPage() {
     { value: "redwood:rwsdk", label: "redwood:rwsdk" },
     { value: "redwood:internal", label: "redwood:internal" },
   ];
+
+  const filteredRootMoments = rootMoments
+    .filter((root) => {
+      if (hideSingletons && root.descendantCount === 0) {
+        return false;
+      }
+      if (!searchQuery.trim()) {
+        return true;
+      }
+      const query = searchQuery.toLowerCase();
+      return (
+        root.title.toLowerCase().includes(query) ||
+        root.id.toLowerCase().includes(query)
+      );
+    })
+    .slice()
+    .sort((a, b) => {
+      if (rootSort === "descendants") {
+        if (a.descendantCount !== b.descendantCount) {
+          return b.descendantCount - a.descendantCount;
+        }
+      }
+      if (a.createdAt !== b.createdAt) {
+        return a.createdAt.localeCompare(b.createdAt);
+      }
+      return a.id.localeCompare(b.id);
+    });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -668,7 +779,200 @@ export function KnowledgeGraphPage() {
 
           {!selectedRootId && !rootMomentsLoading && (
             <div className="space-y-4">
-              {rootMoments.length === 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="border rounded p-4">
+                  <div className="text-sm font-medium text-gray-900 mb-2">
+                    Root List Controls
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Root List Mode
+                      </label>
+                      <select
+                        value={rootListMode}
+                        onChange={(e) =>
+                          setRootListMode(
+                            e.target.value === "sampled" ? "sampled" : "all"
+                          )
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="sampled">Top roots (sampled)</option>
+                        <option value="all">All roots</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Sort (all roots)
+                      </label>
+                      <select
+                        value={rootSort}
+                        onChange={(e) =>
+                          setRootSort(
+                            e.target.value === "createdAt"
+                              ? "createdAt"
+                              : "descendants"
+                          )
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        disabled={rootListMode !== "all"}
+                      >
+                        <option value="descendants">Descendant count</option>
+                        <option value="createdAt">Created time</option>
+                      </select>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={hideSingletons}
+                          onChange={(e) => setHideSingletons(e.target.checked)}
+                          disabled={rootListMode !== "all"}
+                        />
+                        Hide singletons (all roots)
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border rounded p-4">
+                  <div className="text-sm font-medium text-gray-900 mb-2">
+                    Semantic Search (jump to tree)
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      placeholder="Search by meaning (example: prefetch navigation GET)"
+                      value={semanticQuery}
+                      onChange={(e) => setSemanticQuery(e.target.value)}
+                      className="w-full"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        setSemanticError(null);
+                        setSemanticResults([]);
+                        const q = semanticQuery.trim();
+                        if (!q) {
+                          return;
+                        }
+                        setSemanticLoading(true);
+                        try {
+                          const res = await searchMomentsAction({
+                            query: q,
+                            limit: 10,
+                            momentGraphNamespace: selectedNamespace,
+                            momentGraphNamespacePrefix:
+                              prefixOverride.trim().length > 0
+                                ? prefixOverride.trim()
+                                : null,
+                          });
+                          if (res.success && res.results) {
+                            setSemanticResults(res.results);
+                          } else {
+                            setSemanticError(res.error || "Search failed");
+                          }
+                        } catch (err) {
+                          setSemanticError(
+                            err instanceof Error ? err.message : "Search failed"
+                          );
+                        } finally {
+                          setSemanticLoading(false);
+                        }
+                      }}
+                      disabled={semanticLoading}
+                    >
+                      {semanticLoading ? "Searching..." : "Search"}
+                    </Button>
+                  </div>
+                  {semanticError && (
+                    <div className="text-sm text-red-600 mt-2">
+                      {semanticError}
+                    </div>
+                  )}
+                  {semanticResults.length > 0 && (
+                    <div className="mt-3 space-y-2 max-h-64 overflow-auto">
+                      {semanticResults.map((r) => (
+                        <button
+                          key={`${r.matchId}-${r.rootId}`}
+                          onClick={() => {
+                            setSelectedRootId(r.rootId);
+                            setPendingHighlightMomentId(r.matchId);
+                          }}
+                          className="w-full text-left border rounded p-2 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-medium text-gray-900">
+                              {r.matchTitle || "Untitled"}
+                            </div>
+                            <div className="text-xs font-mono text-gray-600">
+                              {r.score.toFixed(3)}
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1 line-clamp-2">
+                            {r.matchSummary}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            Root: <span className="font-mono">{r.rootId}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {rootListMode === "sampled" && sampledRootsLoading && (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">Loading top roots...</p>
+                </div>
+              )}
+
+              {rootListMode === "sampled" &&
+                !sampledRootsLoading &&
+                sampledRoots.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-sm text-gray-600">
+                      Showing {sampledRoots.length} roots (sampled)
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {sampledRoots.map((root) => (
+                        <button
+                          key={root.rootId}
+                          onClick={() => setSelectedRootId(root.rootId)}
+                          className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="font-medium text-gray-900 mb-2">
+                            {root.rootTitle ??
+                              `Moment ${root.rootId.substring(0, 8)}`}
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                              {root.sampledHighImportanceCount} hi
+                            </span>
+                            <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                              sum {root.sampledImportanceSum.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-400 font-mono mt-1">
+                            {root.rootId.substring(0, 8)}...
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {rootListMode === "sampled" &&
+                !sampledRootsLoading &&
+                sampledRoots.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    No sampled roots found. Try selecting a different namespace.
+                  </div>
+                )}
+
+              {rootListMode === "all" && rootMoments.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   No root subjects found. Try selecting a different namespace.
                 </div>
@@ -676,9 +980,9 @@ export function KnowledgeGraphPage() {
                 <>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm text-gray-600">
-                      Found {rootMoments.length} root subject
-                      {rootMoments.length !== 1 ? "s" : ""}. Click on any
-                      subject to view its complete tree.
+                      Found {filteredRootMoments.length} root subject
+                      {filteredRootMoments.length !== 1 ? "s" : ""}. Click on
+                      any subject to view its complete tree.
                     </p>
                   </div>
                   <div className="mb-4">
@@ -688,56 +992,43 @@ export function KnowledgeGraphPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full"
+                      disabled={rootListMode !== "all"}
                     />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {rootMoments
-                      .filter((root) => {
-                        if (!searchQuery.trim()) return true;
-                        const query = searchQuery.toLowerCase();
-                        return (
-                          root.title.toLowerCase().includes(query) ||
-                          root.id.toLowerCase().includes(query)
-                        );
-                      })
-                      .map((root) => {
-                        const date = new Date(root.createdAt);
-                        const formattedDate = date.toLocaleDateString("en-US", {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        });
-                        return (
-                          <button
-                            key={root.id}
-                            onClick={() => setSelectedRootId(root.id)}
-                            className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                          >
-                            <div className="font-medium text-gray-900 mb-2">
-                              {root.title}
-                            </div>
-                            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                              <span>{formattedDate}</span>
-                              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                                {root.descendantCount} moment
-                                {root.descendantCount !== 1 ? "s" : ""}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-400 font-mono mt-1">
-                              {root.id.substring(0, 8)}...
-                            </div>
-                          </button>
-                        );
-                      })}
-                  </div>
-                  {searchQuery.trim() &&
-                    rootMoments.filter((root) => {
-                      const query = searchQuery.toLowerCase();
+                    {filteredRootMoments.map((root) => {
+                      const date = new Date(root.createdAt);
+                      const formattedDate = date.toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      });
                       return (
-                        root.title.toLowerCase().includes(query) ||
-                        root.id.toLowerCase().includes(query)
+                        <button
+                          key={root.id}
+                          onClick={() => setSelectedRootId(root.id)}
+                          className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="font-medium text-gray-900 mb-2">
+                            {root.title}
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                            <span>{formattedDate}</span>
+                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                              {root.descendantCount} moment
+                              {root.descendantCount !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-400 font-mono mt-1">
+                            {root.id.substring(0, 8)}...
+                          </div>
+                        </button>
                       );
-                    }).length === 0 && (
+                    })}
+                  </div>
+                  {rootListMode === "all" &&
+                    searchQuery.trim() &&
+                    filteredRootMoments.length === 0 && (
                       <div className="text-center py-8 text-gray-500">
                         No subjects found matching "{searchQuery}"
                       </div>

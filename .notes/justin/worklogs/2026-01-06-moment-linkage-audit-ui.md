@@ -34,12 +34,8 @@ We do not have a durable, queryable record of Smart Linker decisions:
 
 ### Description
 
-This change persists the decision logic of the Smart Linker (why it attached to a parent, or why it rejected candidates) and surfaces it in the Knowledge Graph visualization.
+Debugging the knowledge graph's connectivity is difficult because the decision logic for linking moments—why a document attached to a specific parent, or why it failed to attach—is lost in ephemeral logs. We are "flying blind" when trying to improve the Smart Linker's precision.
 
-**Changes:**
-- **Database**: Added `moments.link_audit_log` column.
-- **Engine**: Smart Linker now returns a detailed audit log (candidates considered, scores, titles, reject reasons) which is stored on the first macro moment of every indexed document.
-- **Visualization**:
-  - Added interactivity to the Knowledge Graph page: clicking a node opens a **Moment Details** panel.
-  - The panel includes a **Linkage** section showing the ranked list of candidates, their scores, and why they were rejected (or chosen).
-  - Added a **Namespace Prefix Override** control to allow inspecting specific demo/backfill namespaces without redeploying the worker configuration.
+This change persists the full decision tree of the Smart Linker directly onto the moment record. It captures the list of candidates considered, their similarity scores, and the specific reasons for rejection (e.g., low score, LLM veto, or temporal mismatch).
+
+The Knowledge Graph visualization has been updated to surface this data. Clicking any node now opens a details panel that reveals its linkage history, allowing us to inspect exactly why connections were made or missed. Additionally, a new "Namespace Prefix Override" control allows us to safely inspect backfilled demo data without needing to redeploy the worker configuration.

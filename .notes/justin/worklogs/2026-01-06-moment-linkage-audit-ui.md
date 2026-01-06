@@ -54,3 +54,7 @@ This change upgrades the visualization into a scalable explorer:
 - **Noise Reduction**: Added a "Top Roots" view that uses importance sampling to surface trees with meaningful activity, filtering out the long tail of empty roots.
 - **Semantic Search**: Added a search control that finds moments by meaning (vector search) and jumps directly to the relevant root tree, highlighting the matched node.
 - **Scalability**: Replaced the full-tree fetch with a "slim" graph query (id/title/parent only) capped at 5,000 nodes to stay well under the 32MiB RPC limit. Full moment details (including the linkage audit log) are now fetched on-demand when a node is selected.
+
+## Log (Continued)
+
+- Added `/admin/moment-debug` endpoint to return a JSON payload equivalent to the knowledge graph node details view for a given moment id (moment details, resolved root, and stored linkage audit log).

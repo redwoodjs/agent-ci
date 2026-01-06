@@ -9,6 +9,8 @@ import {
 import { query, createEngineContext, indexDocument } from "./index";
 import {
   findAncestors,
+  getMoment,
+  getMoments,
   findLastMomentForDocument,
   getRootStatsByHighImportanceSample,
 } from "./momentDb";
@@ -689,6 +691,153 @@ async function treeStatsHandler({ request }: RequestInfo) {
   });
 }
 
+async function momentDebugHandler({ request }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  let body:
+    | {
+        momentId?: unknown;
+        momentGraphNamespace?: unknown;
+        namespace?: unknown;
+        momentGraphNamespacePrefix?: unknown;
+        namespacePrefix?: unknown;
+        candidateLimit?: unknown;
+        includeCandidateMoments?: unknown;
+      }
+    | undefined;
+
+  try {
+    body = (await request.json()) as any;
+  } catch {
+    body = undefined;
+  }
+
+  const momentIdRaw = (body as any)?.momentId;
+  const momentId =
+    typeof momentIdRaw === "string" && momentIdRaw.trim().length > 0
+      ? momentIdRaw.trim()
+      : null;
+  if (!momentId) {
+    return Response.json(
+      { error: "Missing or invalid 'momentId' parameter" },
+      { status: 400 }
+    );
+  }
+
+  const namespaceRaw =
+    (body as any)?.momentGraphNamespace ?? (body as any)?.namespace;
+  const baseNamespace =
+    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+      ? namespaceRaw.trim()
+      : null;
+
+  const namespacePrefixRaw =
+    (body as any)?.momentGraphNamespacePrefix ?? (body as any)?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
+  const envCloudflare = env as Cloudflare.Env;
+  const effectiveNamespace =
+    momentGraphNamespacePrefix && baseNamespace
+      ? applyMomentGraphNamespacePrefixValue(
+          baseNamespace,
+          momentGraphNamespacePrefix
+        )
+      : baseNamespace ?? getMomentGraphNamespaceFromEnv(envCloudflare);
+
+  const momentGraphContext = {
+    env: envCloudflare,
+    momentGraphNamespace: effectiveNamespace,
+  };
+
+  const moment = await getMoment(momentId, momentGraphContext);
+  if (!moment) {
+    return Response.json({ error: "Moment not found" }, { status: 404 });
+  }
+
+  const ancestors = await findAncestors(moment.id, momentGraphContext);
+  const root = ancestors[0] ?? null;
+
+  const candidateLimitRaw = (body as any)?.candidateLimit;
+  const candidateLimit =
+    typeof candidateLimitRaw === "number" &&
+    Number.isFinite(candidateLimitRaw) &&
+    candidateLimitRaw > 0
+      ? Math.floor(candidateLimitRaw)
+      : 10;
+
+  const includeCandidateMoments = Boolean(
+    (body as any)?.includeCandidateMoments
+  );
+
+  const auditLog = moment.linkAuditLog ?? null;
+
+  let candidateMoments: Record<string, any> | null = null;
+  if (
+    includeCandidateMoments &&
+    auditLog &&
+    Array.isArray((auditLog as any).candidates)
+  ) {
+    const candidateIds = ((auditLog as any).candidates as any[])
+      .map((c) => c?.id)
+      .filter(
+        (id: unknown): id is string => typeof id === "string" && id.length > 0
+      )
+      .slice(0, candidateLimit);
+    const uniqueIds = Array.from(new Set(candidateIds));
+    if (uniqueIds.length > 0) {
+      const map = await getMoments(uniqueIds, momentGraphContext);
+      const out: Record<string, any> = {};
+      for (const id of uniqueIds) {
+        const m = map.get(id);
+        if (m) {
+          out[id] = {
+            id: m.id,
+            title: m.title,
+            summary: m.summary,
+            documentId: m.documentId,
+            parentId: m.parentId ?? null,
+            createdAt: m.createdAt,
+          };
+        }
+      }
+      candidateMoments = out;
+    }
+  }
+
+  return Response.json({
+    momentGraphNamespace: effectiveNamespace ?? null,
+    momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
+    moment: {
+      id: moment.id,
+      documentId: moment.documentId,
+      title: moment.title,
+      summary: moment.summary,
+      parentId: moment.parentId ?? null,
+      createdAt: moment.createdAt,
+      author: moment.author,
+      importance: moment.importance ?? null,
+    },
+    root: root
+      ? {
+          id: root.id,
+          title: root.title,
+          documentId: root.documentId,
+        }
+      : null,
+    linkage: {
+      auditLog,
+      candidateLimit,
+      candidateMoments,
+    },
+  });
+}
+
 export const routes = [
   route("/query", {
     post: [
@@ -713,6 +862,9 @@ export const routes = [
   }),
   route("/admin/tree-stats", {
     post: [requireQueryApiKey, treeStatsHandler],
+  }),
+  route("/admin/moment-debug", {
+    post: [requireQueryApiKey, momentDebugHandler],
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],

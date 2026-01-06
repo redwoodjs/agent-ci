@@ -57,6 +57,7 @@ export interface Moment {
   microPaths?: string[];
   microPathsHash?: string;
   importance?: number;
+  linkAuditLog?: Record<string, any>;
   createdAt: string;
   author: string;
   sourceMetadata?: Record<string, any>;
@@ -98,9 +99,10 @@ export interface QueryHookContext {
 }
 
 export interface MacroMomentParentProposal {
-  parentMomentId: string;
-  matchedSubjectId: string;
-  score: number;
+  parentMomentId: string | null;
+  matchedSubjectId: string | null;
+  score: number | null;
+  auditLog?: Record<string, any>;
 }
 
 export interface Plugin {

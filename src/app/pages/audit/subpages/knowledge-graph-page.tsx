@@ -39,25 +39,32 @@ declare global {
   }
 }
 
+function hashToBase36(input: string): string {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = (hash * 33) ^ input.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function escapeMermaidId(id: string): string {
-  // Mermaid IDs must be alphanumeric, so we'll use a hash or sanitize
-  // Replace non-alphanumeric characters with underscores
-  return id.replace(/[^a-zA-Z0-9]/g, "_");
+  const sanitized = id.replace(/[^a-zA-Z0-9]/g, "_");
+  return `m_${sanitized}_${hashToBase36(id)}`;
 }
 
 function escapeMermaidLabel(label: string, maxLength: number = 150): string {
   // Clean the label - preserve newlines for HTML rendering
   let cleaned = label.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  
+
   // Truncate if too long (before wrapping)
   if (cleaned.length > maxLength) {
     cleaned = cleaned.substring(0, maxLength) + "...";
   }
-  
+
   // Split on existing newlines first
   const paragraphs = cleaned.split("\n");
   const wrappedParagraphs: string[] = [];
-  
+
   // For each paragraph, add word wrapping if needed
   for (const paragraph of paragraphs) {
     if (paragraph.length <= 40) {
@@ -68,9 +75,12 @@ function escapeMermaidLabel(label: string, maxLength: number = 150): string {
       const words = paragraph.split(" ");
       const wrapped: string[] = [];
       let currentLine = "";
-      
+
       for (const word of words) {
-        if (currentLine.length + word.length + 1 > 35 && currentLine.length > 0) {
+        if (
+          currentLine.length + word.length + 1 > 35 &&
+          currentLine.length > 0
+        ) {
           wrapped.push(currentLine);
           currentLine = word;
         } else {
@@ -83,7 +93,7 @@ function escapeMermaidLabel(label: string, maxLength: number = 150): string {
       wrappedParagraphs.push(...wrapped);
     }
   }
-  
+
   // Join with <br/> for HTML rendering in Mermaid
   return wrappedParagraphs.join("<br/>");
 }
@@ -108,7 +118,7 @@ function generateMermaidGraph(data: Moment[]): string {
     const label = escapeMermaidLabel(item.title);
     // Use HTML-style labels - Mermaid will render <br/> tags as line breaks
     // Escape quotes in the label content for proper Mermaid syntax
-    const escapedLabel = label.replace(/"/g, '&quot;');
+    const escapedLabel = label.replace(/"/g, "&quot;");
     lines.push(`  ${nodeId}["${escapedLabel}"]`);
   }
 
@@ -144,6 +154,7 @@ export function KnowledgeGraphPage() {
     null
   );
   const [prefix, setPrefix] = useState<string | null>(null);
+  const [prefixOverride, setPrefixOverride] = useState<string>("");
   const [effectiveNamespace, setEffectiveNamespace] = useState<string | null>(
     null
   );
@@ -166,6 +177,13 @@ export function KnowledgeGraphPage() {
   const [isPanning, setIsPanning] = useState(false);
   const [panStart, setPanStart] = useState({ x: 0, y: 0 });
   const svgContainerRef = useRef<HTMLDivElement>(null);
+  const [selectedMomentId, setSelectedMomentId] = useState<string | null>(null);
+  const nodeClickCleanupRef = useRef<null | (() => void)>(null);
+
+  const selectedMoment =
+    selectedMomentId && graphData.length > 0
+      ? graphData.find((m) => m.id === selectedMomentId) ?? null
+      : null;
 
   useEffect(() => {
     // Load Mermaid.js from CDN
@@ -215,6 +233,10 @@ export function KnowledgeGraphPage() {
     if (rootIdFromUrl) {
       setSelectedRootId(rootIdFromUrl);
     }
+    const prefixFromUrl = urlParams.get("namespacePrefix");
+    if (typeof prefixFromUrl === "string" && prefixFromUrl.trim().length > 0) {
+      setPrefixOverride(prefixFromUrl.trim());
+    }
   }, []);
 
   // Update URL when selectedRootId changes (using pushState for shareable links)
@@ -225,8 +247,13 @@ export function KnowledgeGraphPage() {
     } else {
       url.searchParams.delete("rootId");
     }
+    if (prefixOverride.trim().length > 0) {
+      url.searchParams.set("namespacePrefix", prefixOverride.trim());
+    } else {
+      url.searchParams.delete("namespacePrefix");
+    }
     window.history.pushState({}, "", url.toString());
-  }, [selectedRootId]);
+  }, [selectedRootId, prefixOverride]);
 
   useEffect(() => {
     async function fetchPrefix() {
@@ -249,14 +276,13 @@ export function KnowledgeGraphPage() {
       try {
         const result = await getKnowledgeGraphStatsAction({
           momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
         });
         if (result.success && result.stats) {
           setStats(result.stats);
           if (result.effectiveNamespace !== undefined) {
             setEffectiveNamespace(result.effectiveNamespace);
-          }
-          if (result.prefix !== undefined) {
-            setPrefix(result.prefix ?? null);
           }
         } else {
           console.error("Failed to fetch stats:", result.error);
@@ -269,7 +295,7 @@ export function KnowledgeGraphPage() {
     }
 
     fetchStats();
-  }, [selectedNamespace]);
+  }, [selectedNamespace, prefixOverride]);
 
   useEffect(() => {
     async function fetchRootMoments() {
@@ -278,14 +304,13 @@ export function KnowledgeGraphPage() {
         const result = await getRootMomentsAction({
           limit: 1000,
           momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
         });
         if (result.success && result.data) {
           setRootMoments(result.data);
           if (result.effectiveNamespace !== undefined) {
             setEffectiveNamespace(result.effectiveNamespace);
-          }
-          if (result.prefix !== undefined) {
-            setPrefix(result.prefix ?? null);
           }
         } else {
           console.error("Failed to fetch root moments:", result.error);
@@ -300,7 +325,7 @@ export function KnowledgeGraphPage() {
     if (!selectedRootId) {
       fetchRootMoments();
     }
-  }, [selectedNamespace, selectedRootId]);
+  }, [selectedNamespace, selectedRootId, prefixOverride]);
 
   useEffect(() => {
     async function fetchGraph() {
@@ -314,14 +339,13 @@ export function KnowledgeGraphPage() {
       try {
         const result = await getDescendantsForRootAction(selectedRootId, {
           momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
         });
         if (result.success && result.data) {
           setGraphData(result.data);
           if (result.effectiveNamespace !== undefined) {
             setEffectiveNamespace(result.effectiveNamespace);
-          }
-          if (result.prefix !== undefined) {
-            setPrefix(result.prefix ?? null);
           }
         } else {
           setError(result.error || "Failed to fetch descendants");
@@ -336,12 +360,16 @@ export function KnowledgeGraphPage() {
     }
 
     fetchGraph();
-  }, [selectedRootId, selectedNamespace]);
+  }, [selectedRootId, selectedNamespace, prefixOverride]);
 
   useEffect(() => {
     if (mermaidLoaded && graphData.length > 0 && mermaidContainerRef.current) {
       const container = mermaidContainerRef.current;
       container.innerHTML = ""; // Clear previous content
+      if (nodeClickCleanupRef.current) {
+        nodeClickCleanupRef.current();
+        nodeClickCleanupRef.current = null;
+      }
 
       const mermaidDefinition = generateMermaidGraph(graphData);
       setMermaidCode(mermaidDefinition); // Store for debug view
@@ -371,6 +399,30 @@ export function KnowledgeGraphPage() {
                 // Reset zoom/pan when new graph is rendered
                 setZoom(1);
                 setPan({ x: 0, y: 0 });
+
+                const cleanups: Array<() => void> = [];
+                for (const moment of graphData) {
+                  const escapedId = escapeMermaidId(moment.id);
+                  const nodes = svg.querySelectorAll(
+                    `g[id*="${escapedId}"]`
+                  ) as NodeListOf<SVGGElement>;
+                  for (const node of nodes) {
+                    node.style.cursor = "pointer";
+                    const handler = (e: Event) => {
+                      e.stopPropagation();
+                      setSelectedMomentId(moment.id);
+                    };
+                    node.addEventListener("click", handler);
+                    cleanups.push(() =>
+                      node.removeEventListener("click", handler)
+                    );
+                  }
+                }
+                nodeClickCleanupRef.current = () => {
+                  for (const cleanup of cleanups) {
+                    cleanup();
+                  }
+                };
               }
             }
           })
@@ -397,7 +449,24 @@ export function KnowledgeGraphPage() {
       mermaidContainerRef.current.innerHTML =
         '<p class="text-gray-500 text-center py-8">No graph data available</p>';
     }
+
+    return () => {
+      if (nodeClickCleanupRef.current) {
+        nodeClickCleanupRef.current();
+        nodeClickCleanupRef.current = null;
+      }
+    };
   }, [mermaidLoaded, graphData, loading]);
+
+  useEffect(() => {
+    if (!selectedMomentId) {
+      return;
+    }
+    const stillPresent = graphData.some((m) => m.id === selectedMomentId);
+    if (!stillPresent) {
+      setSelectedMomentId(null);
+    }
+  }, [graphData, selectedMomentId]);
 
   const namespaceOptions = [
     { value: null, label: "Default (all namespaces)" },
@@ -430,6 +499,22 @@ export function KnowledgeGraphPage() {
                 ) : (
                   <span className="text-gray-400">Not set</span>
                 )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Namespace Prefix Override (optional)
+              </label>
+              <Input
+                type="text"
+                placeholder="demo-2026-01-06"
+                value={prefixOverride}
+                onChange={(e) => setPrefixOverride(e.target.value)}
+                className="w-full font-mono"
+              />
+              <div className="text-xs text-gray-500 mt-1">
+                When set, this prefix is used instead of the environment prefix
+                for graph queries.
               </div>
             </div>
             <div>
@@ -697,7 +782,9 @@ export function KnowledgeGraphPage() {
               </div>
               {showRawData && (
                 <div className="mb-4 p-4 bg-gray-50 border rounded">
-                  <p className="text-sm font-medium mb-2">Raw Graph Data (JSON):</p>
+                  <p className="text-sm font-medium mb-2">
+                    Raw Graph Data (JSON):
+                  </p>
                   <pre className="text-xs overflow-auto max-h-96 p-2 bg-white border rounded">
                     {JSON.stringify(graphData, null, 2)}
                   </pre>
@@ -745,46 +832,318 @@ export function KnowledgeGraphPage() {
                     Reset
                   </Button>
                 </div>
-                <div
-                  ref={svgContainerRef}
-                  className="relative w-full border rounded bg-white overflow-auto"
-                  style={{ maxHeight: "80vh", minHeight: "400px" }}
-                  onMouseDown={(e) => {
-                    if (e.button === 0 && e.currentTarget === e.target) {
-                      setIsPanning(true);
-                      setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
-                    }
-                  }}
-                  onMouseMove={(e) => {
-                    if (isPanning) {
-                      setPan({
-                        x: e.clientX - panStart.x,
-                        y: e.clientY - panStart.y,
-                      });
-                    }
-                  }}
-                  onMouseUp={() => setIsPanning(false)}
-                  onMouseLeave={() => setIsPanning(false)}
-                  onWheel={(e) => {
-                    e.preventDefault();
-                    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                    setZoom(Math.max(0.5, Math.min(3, zoom + delta)));
-                  }}
-                >
+                <div className="flex flex-col lg:flex-row gap-4">
                   <div
-                    ref={mermaidContainerRef}
-                    className="flex items-center justify-center p-4"
-                    style={{
-                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                      transformOrigin: "center center",
-                      transition: isPanning ? "none" : "transform 0.1s ease-out",
-                      minWidth: "100%",
-                      minHeight: "100%",
+                    ref={svgContainerRef}
+                    className="relative w-full border rounded bg-white overflow-auto lg:flex-1"
+                    style={{ maxHeight: "80vh", minHeight: "400px" }}
+                    onMouseDown={(e) => {
+                      if (e.button === 0 && e.currentTarget === e.target) {
+                        setIsPanning(true);
+                        setPanStart({
+                          x: e.clientX - pan.x,
+                          y: e.clientY - pan.y,
+                        });
+                      }
                     }}
-                  />
+                    onMouseMove={(e) => {
+                      if (isPanning) {
+                        setPan({
+                          x: e.clientX - panStart.x,
+                          y: e.clientY - panStart.y,
+                        });
+                      }
+                    }}
+                    onMouseUp={() => setIsPanning(false)}
+                    onMouseLeave={() => setIsPanning(false)}
+                    onWheel={(e) => {
+                      e.preventDefault();
+                      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                      setZoom(Math.max(0.5, Math.min(3, zoom + delta)));
+                    }}
+                  >
+                    <div
+                      ref={mermaidContainerRef}
+                      className="flex items-center justify-center p-4"
+                      style={{
+                        transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                        transformOrigin: "center center",
+                        transition: isPanning
+                          ? "none"
+                          : "transform 0.1s ease-out",
+                        minWidth: "100%",
+                        minHeight: "100%",
+                      }}
+                    />
+                  </div>
+
+                  <div className="w-full lg:w-[420px] border rounded bg-white">
+                    <div className="p-4 border-b">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-medium text-gray-900">
+                          Moment Details
+                        </div>
+                        {selectedMomentId && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedMomentId(null)}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1">
+                        Click a node (or a row in the table) to inspect linkage
+                        decisions
+                      </div>
+                    </div>
+
+                    <div className="p-4 space-y-4 max-h-[80vh] overflow-auto">
+                      {!selectedMoment && (
+                        <div className="text-sm text-gray-600">
+                          No moment selected.
+                        </div>
+                      )}
+
+                      {selectedMoment && (
+                        <>
+                          <div>
+                            <div className="text-xs font-medium text-gray-500 mb-1">
+                              ID
+                            </div>
+                            <div className="font-mono text-xs break-all">
+                              {selectedMoment.id}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-xs font-medium text-gray-500 mb-1">
+                              Title
+                            </div>
+                            <div className="text-sm text-gray-900">
+                              {selectedMoment.title || "Untitled"}
+                            </div>
+                          </div>
+
+                          <div>
+                            <div className="text-xs font-medium text-gray-500 mb-1">
+                              Summary
+                            </div>
+                            <div className="text-sm text-gray-700 whitespace-pre-wrap">
+                              {selectedMoment.summary || "N/A"}
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <div className="text-xs font-medium text-gray-500 mb-1">
+                                Document
+                              </div>
+                              <div className="font-mono text-xs break-all">
+                                {selectedMoment.documentId || "N/A"}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs font-medium text-gray-500 mb-1">
+                                Parent
+                              </div>
+                              <div className="font-mono text-xs break-all">
+                                {selectedMoment.parentId || "Root"}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="border-t pt-3">
+                            <div className="text-sm font-medium text-gray-900 mb-2">
+                              Linkage
+                            </div>
+
+                            {!selectedMoment.linkAuditLog && (
+                              <div className="text-sm text-gray-600">
+                                No linkage audit log stored on this moment.
+                              </div>
+                            )}
+
+                            {selectedMoment.linkAuditLog && (
+                              <div className="space-y-3">
+                                {typeof (selectedMoment.linkAuditLog as any)
+                                  ?.kind === "string" && (
+                                  <div className="text-xs text-gray-600">
+                                    Kind:{" "}
+                                    <span className="font-mono">
+                                      {
+                                        (selectedMoment.linkAuditLog as any)
+                                          .kind
+                                      }
+                                    </span>
+                                  </div>
+                                )}
+
+                                {typeof (selectedMoment.linkAuditLog as any)
+                                  ?.plugin === "string" && (
+                                  <div className="text-xs text-gray-600">
+                                    Plugin:{" "}
+                                    <span className="font-mono">
+                                      {
+                                        (selectedMoment.linkAuditLog as any)
+                                          .plugin
+                                      }
+                                    </span>
+                                  </div>
+                                )}
+
+                                {Array.isArray(
+                                  (selectedMoment.linkAuditLog as any)
+                                    ?.candidates
+                                ) && (
+                                  <div>
+                                    <div className="text-xs font-medium text-gray-500 mb-2">
+                                      Candidates
+                                    </div>
+                                    <div className="space-y-2">
+                                      {(
+                                        (selectedMoment.linkAuditLog as any)
+                                          .candidates as any[]
+                                      )
+                                        .slice()
+                                        .sort((a, b) => {
+                                          const aScore =
+                                            typeof a?.score === "number"
+                                              ? a.score
+                                              : -1;
+                                          const bScore =
+                                            typeof b?.score === "number"
+                                              ? b.score
+                                              : -1;
+                                          if (aScore !== bScore) {
+                                            return bScore - aScore;
+                                          }
+                                          const aId =
+                                            typeof a?.id === "string"
+                                              ? a.id
+                                              : "";
+                                          const bId =
+                                            typeof b?.id === "string"
+                                              ? b.id
+                                              : "";
+                                          return aId.localeCompare(bId);
+                                        })
+                                        .map((c, idx) => {
+                                          const chosen = Boolean(c?.chosen);
+                                          const score =
+                                            typeof c?.score === "number"
+                                              ? c.score.toFixed(3)
+                                              : "N/A";
+                                          const title =
+                                            typeof c?.matchTitlePreview ===
+                                              "string" && c.matchTitlePreview
+                                              ? c.matchTitlePreview
+                                              : typeof c?.matchTitlePreview ===
+                                                "object"
+                                              ? "N/A"
+                                              : "N/A";
+                                          const summary =
+                                            typeof c?.matchSummaryPreview ===
+                                              "string" && c.matchSummaryPreview
+                                              ? c.matchSummaryPreview
+                                              : null;
+                                          const rejectReason =
+                                            typeof c?.rejectReason === "string"
+                                              ? c.rejectReason
+                                              : null;
+
+                                          return (
+                                            <div
+                                              key={`${idx}-${String(
+                                                c?.id ?? ""
+                                              )}`}
+                                              className={`border rounded p-2 ${
+                                                chosen
+                                                  ? "bg-green-50 border-green-200"
+                                                  : "bg-gray-50 border-gray-200"
+                                              }`}
+                                            >
+                                              <div className="flex items-start justify-between gap-2">
+                                                <div className="text-xs font-medium text-gray-900">
+                                                  {chosen
+                                                    ? "Chosen"
+                                                    : "Candidate"}
+                                                  :{" "}
+                                                  <span className="font-normal">
+                                                    {title}
+                                                  </span>
+                                                </div>
+                                                <div className="text-xs font-mono text-gray-600">
+                                                  {score}
+                                                </div>
+                                              </div>
+                                              {summary && (
+                                                <div className="text-xs text-gray-700 mt-1">
+                                                  {summary}
+                                                </div>
+                                              )}
+                                              <div className="text-xs text-gray-600 mt-1">
+                                                {rejectReason ? (
+                                                  <span>
+                                                    Reject:{" "}
+                                                    <span className="font-mono">
+                                                      {rejectReason}
+                                                    </span>
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-gray-500">
+                                                    Reject: N/A
+                                                  </span>
+                                                )}
+                                              </div>
+                                              {typeof c?.vetoAnswer ===
+                                                "string" && (
+                                                <div className="text-xs text-gray-600 mt-1">
+                                                  Veto:{" "}
+                                                  <span className="font-mono">
+                                                    {c.vetoAnswer}
+                                                  </span>
+                                                </div>
+                                              )}
+                                              {typeof c?.subjectDocumentId ===
+                                                "string" && (
+                                                <div className="text-xs text-gray-500 mt-1">
+                                                  Document:{" "}
+                                                  <span className="font-mono">
+                                                    {c.subjectDocumentId}
+                                                  </span>
+                                                </div>
+                                              )}
+                                            </div>
+                                          );
+                                        })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                <details className="border rounded p-2 bg-gray-50">
+                                  <summary className="text-xs font-medium text-gray-700 cursor-pointer">
+                                    Raw linkage audit log
+                                  </summary>
+                                  <pre className="text-xs overflow-auto max-h-64 mt-2 p-2 bg-white border rounded">
+                                    {JSON.stringify(
+                                      selectedMoment.linkAuditLog,
+                                      null,
+                                      2
+                                    )}
+                                  </pre>
+                                </details>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </div>
-              
+
               {graphData.length > 0 && (
                 <div className="mt-6">
                   <h3 className="text-lg font-semibold mb-4">Audit Table</h3>
@@ -804,7 +1163,13 @@ export function KnowledgeGraphPage() {
                       </TableHeader>
                       <TableBody>
                         {graphData.map((moment) => (
-                          <TableRow key={moment.id}>
+                          <TableRow
+                            key={moment.id}
+                            onClick={() => setSelectedMomentId(moment.id)}
+                            className={`cursor-pointer ${
+                              selectedMomentId === moment.id ? "bg-blue-50" : ""
+                            }`}
+                          >
                             <TableCell className="font-mono text-xs">
                               {moment.id.substring(0, 8)}...
                             </TableCell>
@@ -818,7 +1183,9 @@ export function KnowledgeGraphPage() {
                               {moment.summary || "N/A"}
                             </TableCell>
                             <TableCell className="font-mono text-xs">
-                              {moment.parentId ? `${moment.parentId.substring(0, 8)}...` : "Root"}
+                              {moment.parentId
+                                ? `${moment.parentId.substring(0, 8)}...`
+                                : "Root"}
                             </TableCell>
                             <TableCell className="text-xs whitespace-nowrap">
                               {moment.createdAt

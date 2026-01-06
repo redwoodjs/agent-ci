@@ -151,4 +151,20 @@ export const momentMigrations = {
       await db.schema.dropTable("micro_moment_batches").execute();
     },
   },
+  "007_add_moment_link_audit_log": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("moments")
+          .addColumn("link_audit_log", "text")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema
+        .alterTable("moments")
+        .dropColumn("link_audit_log")
+        .execute();
+    },
+  },
 } satisfies Migrations;

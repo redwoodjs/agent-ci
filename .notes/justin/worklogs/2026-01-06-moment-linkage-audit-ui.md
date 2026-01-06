@@ -30,4 +30,16 @@ We do not have a durable, queryable record of Smart Linker decisions:
 - Ran `npm run types` and saw existing typecheck failures in other parts of the repo; the edited files were not flagged by the compiler output in that run.
 - Added an optional namespace prefix override in the knowledge graph page and threaded it through the audit server actions so a demo prefix can be queried without changing worker environment configuration.
 
+## PR Title: Audit UI for Smart Linker Decisions
 
+### Description
+
+This change persists the decision logic of the Smart Linker (why it attached to a parent, or why it rejected candidates) and surfaces it in the Knowledge Graph visualization.
+
+**Changes:**
+- **Database**: Added `moments.link_audit_log` column.
+- **Engine**: Smart Linker now returns a detailed audit log (candidates considered, scores, titles, reject reasons) which is stored on the first macro moment of every indexed document.
+- **Visualization**:
+  - Added interactivity to the Knowledge Graph page: clicking a node opens a **Moment Details** panel.
+  - The panel includes a **Linkage** section showing the ranked list of candidates, their scores, and why they were rejected (or chosen).
+  - Added a **Namespace Prefix Override** control to allow inspecting specific demo/backfill namespaces without redeploying the worker configuration.

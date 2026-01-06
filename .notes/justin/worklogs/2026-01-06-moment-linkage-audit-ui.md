@@ -31,6 +31,7 @@ We do not have a durable, queryable record of Smart Linker decisions:
 - Added an optional namespace prefix override in the knowledge graph page and threaded it through the audit server actions so a demo prefix can be queried without changing worker environment configuration.
 - Added a sampled root list mode (based on high-importance sampling) to reduce noise from singleton roots.
 - Added semantic search on the knowledge graph page that finds matching moments and jumps to the resolved root tree, highlighting the matched node.
+- Fixed a knowledge graph UI failure caused by Redwood server-function RPC payload size limits (32 MiB) by fetching a slim descendant list (capped by a max-nodes setting) and fetching full moment details on demand when a node is selected.
 
 ## PR Title: Audit UI for Smart Linker Decisions
 

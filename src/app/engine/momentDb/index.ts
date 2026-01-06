@@ -593,6 +593,128 @@ export async function findDescendants(
   return out;
 }
 
+export type DescendantNode = {
+  id: string;
+  documentId: string;
+  title: string;
+  parentId?: string;
+  createdAt: string;
+  importance?: number;
+};
+
+export async function findDescendantsSlim(
+  rootMomentId: string,
+  context: MomentGraphContext,
+  options?: { maxNodes?: number }
+): Promise<{ nodes: DescendantNode[]; truncated: boolean }> {
+  const db = getMomentDb(context);
+  const rows = (await db
+    .selectFrom("moments")
+    .select([
+      "id",
+      "document_id",
+      "title",
+      "parent_id",
+      "created_at",
+      "importance",
+    ])
+    .execute()) as Array<{
+    id: string;
+    document_id: string;
+    title: string;
+    parent_id: string | null;
+    created_at: string;
+    importance: number | null;
+  }>;
+
+  const rowsById = new Map<string, (typeof rows)[number]>();
+  const childrenByParentId = new Map<string, Array<(typeof rows)[number]>>();
+
+  for (const row of rows) {
+    rowsById.set(row.id, row);
+    const parentId = row.parent_id || undefined;
+    if (!parentId) {
+      continue;
+    }
+    const list = childrenByParentId.get(parentId) ?? [];
+    list.push(row);
+    childrenByParentId.set(parentId, list);
+  }
+
+  for (const [parentId, list] of childrenByParentId.entries()) {
+    list.sort((a, b) => {
+      if (a.created_at !== b.created_at) {
+        return a.created_at.localeCompare(b.created_at);
+      }
+      return a.id.localeCompare(b.id);
+    });
+    childrenByParentId.set(parentId, list);
+  }
+
+  const rootRow = rowsById.get(rootMomentId);
+  if (!rootRow) {
+    return { nodes: [], truncated: false };
+  }
+
+  function rowToNode(row: (typeof rows)[number]): DescendantNode {
+    return {
+      id: row.id,
+      documentId: row.document_id,
+      title: row.title || `Moment ${row.id.substring(0, 8)}`,
+      parentId: row.parent_id || undefined,
+      createdAt: row.created_at,
+      importance:
+        typeof row.importance === "number" ? row.importance : undefined,
+    };
+  }
+
+  const maxNodesRaw = options?.maxNodes;
+  const maxNodes =
+    typeof maxNodesRaw === "number" &&
+    Number.isFinite(maxNodesRaw) &&
+    maxNodesRaw > 0
+      ? Math.floor(maxNodesRaw)
+      : 5000;
+
+  const out: DescendantNode[] = [];
+  const visited = new Set<string>();
+  let truncated = false;
+
+  function visit(id: string) {
+    if (out.length >= maxNodes) {
+      truncated = true;
+      return;
+    }
+    if (visited.has(id)) {
+      return;
+    }
+    visited.add(id);
+    const row = rowsById.get(id);
+    if (!row) {
+      return;
+    }
+    out.push(rowToNode(row));
+    const children = childrenByParentId.get(id) ?? [];
+    for (const child of children) {
+      visit(child.id);
+      if (truncated) {
+        return;
+      }
+    }
+  }
+
+  visit(rootMomentId);
+
+  out.sort((a, b) => {
+    if (a.createdAt !== b.createdAt) {
+      return a.createdAt.localeCompare(b.createdAt);
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  return { nodes: out, truncated };
+}
+
 export async function findSimilarSubjects(
   vector: number[],
   limit: number = 5,
@@ -1200,6 +1322,14 @@ export async function getDescendantsForRoot(
 ): Promise<Moment[]> {
   const descendants = await findDescendants(rootId, context);
   return descendants;
+}
+
+export async function getDescendantsForRootSlim(
+  rootId: string,
+  context: MomentGraphContext,
+  options?: { maxNodes?: number }
+): Promise<{ nodes: DescendantNode[]; truncated: boolean }> {
+  return await findDescendantsSlim(rootId, context, options);
 }
 
 export async function getKnowledgeGraphStats(

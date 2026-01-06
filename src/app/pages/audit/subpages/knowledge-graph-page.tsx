@@ -15,9 +15,10 @@ import {
   getKnowledgeGraphStatsAction,
   getMomentGraphNamespacePrefix,
   getRootMomentsAction,
-  getDescendantsForRootAction,
+  getDescendantsForRootSlimAction,
   getRootSampleStatsAction,
   searchMomentsAction,
+  getMomentDetailsAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -100,7 +101,16 @@ function escapeMermaidLabel(label: string, maxLength: number = 150): string {
   return wrappedParagraphs.join("<br/>");
 }
 
-function generateMermaidGraph(data: Moment[]): string {
+type GraphNode = {
+  id: string;
+  title: string;
+  parentId?: string;
+  createdAt?: string;
+  documentId?: string;
+  importance?: number;
+};
+
+function generateMermaidGraph(data: GraphNode[]): string {
   if (data.length === 0) {
     return "graph LR\n  Empty[No moments found]";
   }
@@ -139,7 +149,9 @@ function generateMermaidGraph(data: Moment[]): string {
 }
 
 export function KnowledgeGraphPage() {
-  const [graphData, setGraphData] = useState<Moment[]>([]);
+  const [graphData, setGraphData] = useState<GraphNode[]>([]);
+  const [graphTruncated, setGraphTruncated] = useState(false);
+  const [graphMaxNodes, setGraphMaxNodes] = useState(5000);
   const [stats, setStats] = useState<{
     totalMoments: number;
     rootMoments: number;
@@ -217,10 +229,13 @@ export function KnowledgeGraphPage() {
   const [selectedMomentId, setSelectedMomentId] = useState<string | null>(null);
   const nodeClickCleanupRef = useRef<null | (() => void)>(null);
 
-  const selectedMoment =
-    selectedMomentId && graphData.length > 0
-      ? graphData.find((m) => m.id === selectedMomentId) ?? null
-      : null;
+  const [selectedMomentDetails, setSelectedMomentDetails] =
+    useState<Moment | null>(null);
+  const [selectedMomentDetailsLoading, setSelectedMomentDetailsLoading] =
+    useState(false);
+  const [selectedMomentDetailsError, setSelectedMomentDetailsError] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     // Load Mermaid.js from CDN
@@ -401,19 +416,22 @@ export function KnowledgeGraphPage() {
     async function fetchGraph() {
       if (!selectedRootId) {
         setGraphData([]);
+        setGraphTruncated(false);
         return;
       }
 
       setLoading(true);
       setError(null);
       try {
-        const result = await getDescendantsForRootAction(selectedRootId, {
+        const result = await getDescendantsForRootSlimAction(selectedRootId, {
           momentGraphNamespace: selectedNamespace,
           momentGraphNamespacePrefix:
             prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+          maxNodes: graphMaxNodes,
         });
         if (result.success && result.data) {
           setGraphData(result.data);
+          setGraphTruncated(Boolean((result as any).truncated));
           if (result.effectiveNamespace !== undefined) {
             setEffectiveNamespace(result.effectiveNamespace);
           }
@@ -430,7 +448,40 @@ export function KnowledgeGraphPage() {
     }
 
     fetchGraph();
-  }, [selectedRootId, selectedNamespace, prefixOverride]);
+  }, [selectedRootId, selectedNamespace, prefixOverride, graphMaxNodes]);
+
+  useEffect(() => {
+    async function fetchSelectedMomentDetails() {
+      if (!selectedMomentId) {
+        setSelectedMomentDetails(null);
+        setSelectedMomentDetailsError(null);
+        return;
+      }
+      setSelectedMomentDetailsLoading(true);
+      setSelectedMomentDetailsError(null);
+      try {
+        const res = await getMomentDetailsAction(selectedMomentId, {
+          momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+        });
+        if (res.success) {
+          setSelectedMomentDetails(res.data ?? null);
+        } else {
+          setSelectedMomentDetails(null);
+          setSelectedMomentDetailsError(res.error || "Failed to fetch moment");
+        }
+      } catch (err) {
+        setSelectedMomentDetails(null);
+        setSelectedMomentDetailsError(
+          err instanceof Error ? err.message : "Failed to fetch moment"
+        );
+      } finally {
+        setSelectedMomentDetailsLoading(false);
+      }
+    }
+    fetchSelectedMomentDetails();
+  }, [selectedMomentId, selectedNamespace, prefixOverride]);
 
   useEffect(() => {
     if (!selectedRootId || loading) {
@@ -1046,6 +1097,11 @@ export function KnowledgeGraphPage() {
                     Showing {graphData.length} moment
                     {graphData.length !== 1 ? "s" : ""} in this subject tree
                   </div>
+                  {graphTruncated && (
+                    <div className="mt-2 text-orange-600">
+                      Tree truncated at {graphMaxNodes} nodes (RPC payload cap).
+                    </div>
+                  )}
                   {graphData.length === 0 && (
                     <div className="mt-2 text-orange-600">
                       ⚠️ No descendants found for this root subject.
@@ -1093,6 +1149,23 @@ export function KnowledgeGraphPage() {
               )}
               <div className="mb-4">
                 <div className="flex items-center justify-end gap-2 mb-2">
+                  <div className="flex items-center gap-2 mr-auto">
+                    <span className="text-sm text-gray-600">Max nodes</span>
+                    <Input
+                      type="number"
+                      value={String(graphMaxNodes)}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        if (!Number.isFinite(n)) {
+                          return;
+                        }
+                        setGraphMaxNodes(
+                          Math.max(100, Math.min(20000, Math.floor(n)))
+                        );
+                      }}
+                      className="w-[140px] font-mono"
+                    />
+                  </div>
                   <Button
                     variant="outline"
                     size="sm"
@@ -1191,20 +1264,34 @@ export function KnowledgeGraphPage() {
                     </div>
 
                     <div className="p-4 space-y-4 max-h-[80vh] overflow-auto">
-                      {!selectedMoment && (
+                      {selectedMomentDetailsLoading && (
                         <div className="text-sm text-gray-600">
-                          No moment selected.
+                          Loading moment details...
                         </div>
                       )}
 
-                      {selectedMoment && (
+                      {selectedMomentDetailsError && (
+                        <div className="text-sm text-red-600">
+                          {selectedMomentDetailsError}
+                        </div>
+                      )}
+
+                      {!selectedMomentDetailsLoading &&
+                        !selectedMomentDetails &&
+                        !selectedMomentDetailsError && (
+                          <div className="text-sm text-gray-600">
+                            No moment selected.
+                          </div>
+                        )}
+
+                      {selectedMomentDetails && (
                         <>
                           <div>
                             <div className="text-xs font-medium text-gray-500 mb-1">
                               ID
                             </div>
                             <div className="font-mono text-xs break-all">
-                              {selectedMoment.id}
+                              {selectedMomentDetails.id}
                             </div>
                           </div>
 
@@ -1213,7 +1300,7 @@ export function KnowledgeGraphPage() {
                               Title
                             </div>
                             <div className="text-sm text-gray-900">
-                              {selectedMoment.title || "Untitled"}
+                              {selectedMomentDetails.title || "Untitled"}
                             </div>
                           </div>
 
@@ -1222,7 +1309,7 @@ export function KnowledgeGraphPage() {
                               Summary
                             </div>
                             <div className="text-sm text-gray-700 whitespace-pre-wrap">
-                              {selectedMoment.summary || "N/A"}
+                              {selectedMomentDetails.summary || "N/A"}
                             </div>
                           </div>
 
@@ -1232,7 +1319,7 @@ export function KnowledgeGraphPage() {
                                 Document
                               </div>
                               <div className="font-mono text-xs break-all">
-                                {selectedMoment.documentId || "N/A"}
+                                {selectedMomentDetails.documentId || "N/A"}
                               </div>
                             </div>
                             <div>
@@ -1240,7 +1327,7 @@ export function KnowledgeGraphPage() {
                                 Parent
                               </div>
                               <div className="font-mono text-xs break-all">
-                                {selectedMoment.parentId || "Root"}
+                                {selectedMomentDetails.parentId || "Root"}
                               </div>
                             </div>
                           </div>
@@ -1250,42 +1337,46 @@ export function KnowledgeGraphPage() {
                               Linkage
                             </div>
 
-                            {!selectedMoment.linkAuditLog && (
+                            {!selectedMomentDetails.linkAuditLog && (
                               <div className="text-sm text-gray-600">
                                 No linkage audit log stored on this moment.
                               </div>
                             )}
 
-                            {selectedMoment.linkAuditLog && (
+                            {selectedMomentDetails.linkAuditLog && (
                               <div className="space-y-3">
-                                {typeof (selectedMoment.linkAuditLog as any)
-                                  ?.kind === "string" && (
+                                {typeof (
+                                  selectedMomentDetails.linkAuditLog as any
+                                )?.kind === "string" && (
                                   <div className="text-xs text-gray-600">
                                     Kind:{" "}
                                     <span className="font-mono">
                                       {
-                                        (selectedMoment.linkAuditLog as any)
-                                          .kind
+                                        (
+                                          selectedMomentDetails.linkAuditLog as any
+                                        ).kind
                                       }
                                     </span>
                                   </div>
                                 )}
 
-                                {typeof (selectedMoment.linkAuditLog as any)
-                                  ?.plugin === "string" && (
+                                {typeof (
+                                  selectedMomentDetails.linkAuditLog as any
+                                )?.plugin === "string" && (
                                   <div className="text-xs text-gray-600">
                                     Plugin:{" "}
                                     <span className="font-mono">
                                       {
-                                        (selectedMoment.linkAuditLog as any)
-                                          .plugin
+                                        (
+                                          selectedMomentDetails.linkAuditLog as any
+                                        ).plugin
                                       }
                                     </span>
                                   </div>
                                 )}
 
                                 {Array.isArray(
-                                  (selectedMoment.linkAuditLog as any)
+                                  (selectedMomentDetails.linkAuditLog as any)
                                     ?.candidates
                                 ) && (
                                   <div>
@@ -1294,8 +1385,9 @@ export function KnowledgeGraphPage() {
                                     </div>
                                     <div className="space-y-2">
                                       {(
-                                        (selectedMoment.linkAuditLog as any)
-                                          .candidates as any[]
+                                        (
+                                          selectedMomentDetails.linkAuditLog as any
+                                        ).candidates as any[]
                                       )
                                         .slice()
                                         .sort((a, b) => {
@@ -1419,7 +1511,7 @@ export function KnowledgeGraphPage() {
                                   </summary>
                                   <pre className="text-xs overflow-auto max-h-64 mt-2 p-2 bg-white border rounded">
                                     {JSON.stringify(
-                                      selectedMoment.linkAuditLog,
+                                      selectedMomentDetails.linkAuditLog,
                                       null,
                                       2
                                     )}
@@ -1471,7 +1563,7 @@ export function KnowledgeGraphPage() {
                               {moment.title || "Untitled"}
                             </TableCell>
                             <TableCell className="max-w-[300px] truncate">
-                              {moment.summary || "N/A"}
+                              N/A
                             </TableCell>
                             <TableCell className="font-mono text-xs">
                               {moment.parentId
@@ -1483,9 +1575,7 @@ export function KnowledgeGraphPage() {
                                 ? new Date(moment.createdAt).toLocaleString()
                                 : "N/A"}
                             </TableCell>
-                            <TableCell className="text-xs">
-                              {moment.author || "N/A"}
-                            </TableCell>
+                            <TableCell className="text-xs">N/A</TableCell>
                             <TableCell className="text-xs">
                               {moment.importance !== undefined
                                 ? moment.importance.toFixed(3)

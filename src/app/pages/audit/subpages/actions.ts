@@ -14,9 +14,11 @@ import {
   getKnowledgeGraphStats,
   getRootMoments,
   getDescendantsForRoot,
+  getDescendantsForRootSlim,
   getRootStatsByHighImportanceSample,
   findAncestors,
   getMoments,
+  getMoment,
 } from "@/app/engine/momentDb";
 import {
   getMomentGraphNamespacePrefixFromEnv,
@@ -335,6 +337,106 @@ export async function getDescendantsForRootAction(
     return {
       success: false,
       error: "Failed to fetch descendants",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getDescendantsForRootSlimAction(
+  rootId: string,
+  options?: {
+    momentGraphNamespace?: string | null;
+    momentGraphNamespacePrefix?: string | null;
+    maxNodes?: number;
+  }
+) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const maxNodesRaw = options?.maxNodes;
+    const maxNodes =
+      typeof maxNodesRaw === "number" && Number.isFinite(maxNodesRaw) && maxNodesRaw > 0
+        ? Math.floor(maxNodesRaw)
+        : 5000;
+
+    const result = await getDescendantsForRootSlim(rootId, context, { maxNodes });
+
+    return {
+      success: true,
+      data: result.nodes,
+      count: result.nodes.length,
+      truncated: result.truncated,
+      maxNodes,
+      rootId,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching slim descendants:", error);
+    return {
+      success: false,
+      error: "Failed to fetch descendants",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getMomentDetailsAction(
+  id: string,
+  options?: {
+    momentGraphNamespace?: string | null;
+    momentGraphNamespacePrefix?: string | null;
+  }
+) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const moment = await getMoment(id, context);
+    return {
+      success: true,
+      data: moment,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching moment details:", error);
+    return {
+      success: false,
+      error: "Failed to fetch moment",
       details: error instanceof Error ? error.message : String(error),
     };
   }

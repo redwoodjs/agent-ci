@@ -140,14 +140,21 @@ export async function queryRag(queryText: string) {
 export async function getKnowledgeGraph(options?: {
   limit?: number;
   momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
 }) {
   try {
     const envCloudflare = env as Cloudflare.Env;
     const baseNamespace = options?.momentGraphNamespace ?? null;
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
     const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
       baseNamespace,
-      envPrefix
+      effectivePrefix
     );
 
     const context = {
@@ -164,7 +171,7 @@ export async function getKnowledgeGraph(options?: {
       data: graphData,
       count: graphData.length,
       effectiveNamespace,
-      prefix: envPrefix,
+      prefix: effectivePrefix,
     };
   } catch (error) {
     console.error("[actions] Error fetching knowledge graph:", error);
@@ -178,14 +185,21 @@ export async function getKnowledgeGraph(options?: {
 
 export async function getKnowledgeGraphStatsAction(options?: {
   momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
 }) {
   try {
     const envCloudflare = env as Cloudflare.Env;
     const baseNamespace = options?.momentGraphNamespace ?? null;
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
     const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
       baseNamespace,
-      envPrefix
+      effectivePrefix
     );
 
     const context = {
@@ -199,7 +213,7 @@ export async function getKnowledgeGraphStatsAction(options?: {
       success: true,
       stats,
       effectiveNamespace,
-      prefix: envPrefix,
+      prefix: effectivePrefix,
     };
   } catch (error) {
     console.error("[actions] Error fetching knowledge graph stats:", error);
@@ -232,14 +246,21 @@ export async function getMomentGraphNamespacePrefix() {
 export async function getRootMomentsAction(options?: {
   limit?: number;
   momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
 }) {
   try {
     const envCloudflare = env as Cloudflare.Env;
     const baseNamespace = options?.momentGraphNamespace ?? null;
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
     const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
       baseNamespace,
-      envPrefix
+      effectivePrefix
     );
 
     const context = {
@@ -256,7 +277,7 @@ export async function getRootMomentsAction(options?: {
       data: rootMoments,
       count: rootMoments.length,
       effectiveNamespace,
-      prefix: envPrefix,
+      prefix: effectivePrefix,
     };
   } catch (error) {
     console.error("[actions] Error fetching root moments:", error);
@@ -272,15 +293,22 @@ export async function getDescendantsForRootAction(
   rootId: string,
   options?: {
     momentGraphNamespace?: string | null;
+    momentGraphNamespacePrefix?: string | null;
   }
 ) {
   try {
     const envCloudflare = env as Cloudflare.Env;
     const baseNamespace = options?.momentGraphNamespace ?? null;
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
     const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
       baseNamespace,
-      envPrefix
+      effectivePrefix
     );
 
     const context = {
@@ -296,7 +324,7 @@ export async function getDescendantsForRootAction(
       count: descendants.length,
       rootId,
       effectiveNamespace,
-      prefix: envPrefix,
+      prefix: effectivePrefix,
     };
   } catch (error) {
     console.error("[actions] Error fetching descendants:", error);

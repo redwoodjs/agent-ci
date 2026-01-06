@@ -28,5 +28,6 @@ We do not have a durable, queryable record of Smart Linker decisions:
 - Changed the Smart Linker parent proposal hook to return a structured audit payload even when no parent is selected, and stored that payload on the first macro moment for the document during indexing.
 - Updated the knowledge graph page to support node selection and to display the stored linkage audit log (candidate list with title/summary previews, scores, and reject reasons).
 - Ran `npm run types` and saw existing typecheck failures in other parts of the repo; the edited files were not flagged by the compiler output in that run.
+- Added an optional namespace prefix override in the knowledge graph page and threaded it through the audit server actions so a demo prefix can be queried without changing worker environment configuration.
 
 

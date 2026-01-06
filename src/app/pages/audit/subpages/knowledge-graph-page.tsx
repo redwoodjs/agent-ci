@@ -154,6 +154,7 @@ export function KnowledgeGraphPage() {
     null
   );
   const [prefix, setPrefix] = useState<string | null>(null);
+  const [prefixOverride, setPrefixOverride] = useState<string>("");
   const [effectiveNamespace, setEffectiveNamespace] = useState<string | null>(
     null
   );
@@ -232,6 +233,10 @@ export function KnowledgeGraphPage() {
     if (rootIdFromUrl) {
       setSelectedRootId(rootIdFromUrl);
     }
+    const prefixFromUrl = urlParams.get("namespacePrefix");
+    if (typeof prefixFromUrl === "string" && prefixFromUrl.trim().length > 0) {
+      setPrefixOverride(prefixFromUrl.trim());
+    }
   }, []);
 
   // Update URL when selectedRootId changes (using pushState for shareable links)
@@ -242,8 +247,13 @@ export function KnowledgeGraphPage() {
     } else {
       url.searchParams.delete("rootId");
     }
+    if (prefixOverride.trim().length > 0) {
+      url.searchParams.set("namespacePrefix", prefixOverride.trim());
+    } else {
+      url.searchParams.delete("namespacePrefix");
+    }
     window.history.pushState({}, "", url.toString());
-  }, [selectedRootId]);
+  }, [selectedRootId, prefixOverride]);
 
   useEffect(() => {
     async function fetchPrefix() {
@@ -266,14 +276,13 @@ export function KnowledgeGraphPage() {
       try {
         const result = await getKnowledgeGraphStatsAction({
           momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
         });
         if (result.success && result.stats) {
           setStats(result.stats);
           if (result.effectiveNamespace !== undefined) {
             setEffectiveNamespace(result.effectiveNamespace);
-          }
-          if (result.prefix !== undefined) {
-            setPrefix(result.prefix ?? null);
           }
         } else {
           console.error("Failed to fetch stats:", result.error);
@@ -286,7 +295,7 @@ export function KnowledgeGraphPage() {
     }
 
     fetchStats();
-  }, [selectedNamespace]);
+  }, [selectedNamespace, prefixOverride]);
 
   useEffect(() => {
     async function fetchRootMoments() {
@@ -295,14 +304,13 @@ export function KnowledgeGraphPage() {
         const result = await getRootMomentsAction({
           limit: 1000,
           momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
         });
         if (result.success && result.data) {
           setRootMoments(result.data);
           if (result.effectiveNamespace !== undefined) {
             setEffectiveNamespace(result.effectiveNamespace);
-          }
-          if (result.prefix !== undefined) {
-            setPrefix(result.prefix ?? null);
           }
         } else {
           console.error("Failed to fetch root moments:", result.error);
@@ -317,7 +325,7 @@ export function KnowledgeGraphPage() {
     if (!selectedRootId) {
       fetchRootMoments();
     }
-  }, [selectedNamespace, selectedRootId]);
+  }, [selectedNamespace, selectedRootId, prefixOverride]);
 
   useEffect(() => {
     async function fetchGraph() {
@@ -331,14 +339,13 @@ export function KnowledgeGraphPage() {
       try {
         const result = await getDescendantsForRootAction(selectedRootId, {
           momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
         });
         if (result.success && result.data) {
           setGraphData(result.data);
           if (result.effectiveNamespace !== undefined) {
             setEffectiveNamespace(result.effectiveNamespace);
-          }
-          if (result.prefix !== undefined) {
-            setPrefix(result.prefix ?? null);
           }
         } else {
           setError(result.error || "Failed to fetch descendants");
@@ -353,7 +360,7 @@ export function KnowledgeGraphPage() {
     }
 
     fetchGraph();
-  }, [selectedRootId, selectedNamespace]);
+  }, [selectedRootId, selectedNamespace, prefixOverride]);
 
   useEffect(() => {
     if (mermaidLoaded && graphData.length > 0 && mermaidContainerRef.current) {
@@ -492,6 +499,22 @@ export function KnowledgeGraphPage() {
                 ) : (
                   <span className="text-gray-400">Not set</span>
                 )}
+              </div>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Namespace Prefix Override (optional)
+              </label>
+              <Input
+                type="text"
+                placeholder="demo-2026-01-06"
+                value={prefixOverride}
+                onChange={(e) => setPrefixOverride(e.target.value)}
+                className="w-full font-mono"
+              />
+              <div className="text-xs text-gray-500 mt-1">
+                When set, this prefix is used instead of the environment prefix
+                for graph queries.
               </div>
             </div>
             <div>

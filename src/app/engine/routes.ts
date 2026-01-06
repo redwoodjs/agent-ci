@@ -706,11 +706,8 @@ async function momentDebugHandler({ request }: RequestInfo) {
         namespacePrefix?: unknown;
         candidateLimit?: unknown;
         includeCandidateMoments?: unknown;
-<<<<<<< HEAD
         includeTree?: unknown;
         treeMaxNodes?: unknown;
-=======
->>>>>>> main
       }
     | undefined;
 

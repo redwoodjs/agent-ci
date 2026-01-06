@@ -63,6 +63,6 @@ This change upgrades the visualization into a scalable explorer:
 
 ### Description
 
-When debugging linkage decisions, it helps to capture an exact JSON snapshot of what the knowledge graph UI shows for a specific moment id. Doing this via the UI makes it harder to share a single reproducible input/output pair.
+When debugging linkage decisions, it helps to capture an exact JSON snapshot of what the knowledge graph UI shows for a specific moment id. Inspecting via the UI is really helpful starting point, but once we find something to improve on, it helps to be able to be able to share this example with AI.
 
 This change adds `POST /admin/moment-debug`, which returns the moment row, resolved root context, and stored linkage audit log for a provided moment id. Optionally, it can include a small set of candidate moment details referenced by the audit log.

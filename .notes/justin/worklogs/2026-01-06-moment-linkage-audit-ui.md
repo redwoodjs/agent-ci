@@ -1,3 +1,5 @@
+# 2026-01-06 - Moment linkage audit UI
+
 ## Context
 
 The moment graph links documents together by attaching the first macro moment of a document under an existing root moment (a Subject). Attachment decisions currently happen in the Smart Linker plugin and are primarily visible via console logs.
@@ -75,3 +77,11 @@ This change adds `POST /admin/moment-debug`, which returns the moment row, resol
 When diagnosing unexpected edges, it helps to inspect the entire root tree in the same JSON payload as the selected moment’s debug information. Relying on the UI makes it harder to share and review the exact structure that led to a confusing link.
 
 This change extends `POST /admin/moment-debug` with an `includeTree` option that returns the resolved root tree as a slim node list, capped by `treeMaxNodes` and accompanied by a `truncated` flag.
+
+## PR Title: Fix merge conflict markers in routes.ts
+
+### Description
+
+A previous merge introduced conflict markers (`<<<<<<< HEAD`) into `src/app/engine/routes.ts` that were missed during resolution, breaking the worker build.
+
+This change removes the conflict markers while preserving the intended feature (the `includeTree` logic in the debug endpoint handler).

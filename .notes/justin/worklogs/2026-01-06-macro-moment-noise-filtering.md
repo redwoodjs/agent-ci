@@ -82,4 +82,17 @@ Example: a macro moment like “Justin apologized for delay due to car ownership
   - moment debug endpoint can now include a provenance section (stream id, time range, micro paths count, chunk id sample, Discord message id sample, ingestion file path).
   - audit UI moment details now links to the ingestion file and displays stream/time range/message id samples when available.
 
+## PR Title: Macro moment noise filtering and provenance debugging
 
+### Description
+
+Currently, the knowledge graph can become cluttered with "noise" moments—low-signal events like social chatter, administrative updates ("back in 5"), or off-topic tangents that get promoted into the graph. This makes moment trees hard to read and complicates the smart linker's job by providing irrelevant candidates for attachment.
+
+This change implements a two-stage noise reduction strategy:
+
+1.  **Prompt-level Selection**: The macro synthesis prompt now explicitly instructs the LLM to exclude social chatter, jokes, and purely logistical updates, and allows it to omit low-signal micro-moments entirely from the output.
+2.  **Importance Gating**: Before persistence, macro moments are now filtered by a deterministic importance gate. We keep the top N moments per stream (default 12) and drop anything below a minimum importance threshold (default 0.25), ensuring only significant turning points enter the graph.
+
+To support debugging "why did this moment exist?" or "where did this come from?", I've also added provenance features:
+- The `/admin/moment-debug` endpoint can now return provenance metadata: stream ID, derived time range, and a sample of source message IDs (e.g. Discord message IDs).
+- The Knowledge Graph audit UI now displays this provenance in the moment details panel and provides a direct link to inspect the raw ingestion file in the browser.

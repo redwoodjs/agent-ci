@@ -43,17 +43,14 @@ This change persists the full decision tree of the Smart Linker directly onto th
 
 The Knowledge Graph visualization has been updated to surface this data. Clicking any node now opens a details panel that reveals its linkage history, allowing us to inspect exactly why connections were made or missed. Additionally, a new "Namespace Prefix Override" control allows us to safely inspect backfilled demo data without needing to redeploy the worker configuration.
 
-## PR Title: Audit UI for Smart Linker Decisions & Graph Explorer
+## PR Title: Knowledge Graph Explorer & Scalability Fixes
 
 ### Description
 
-Debugging the knowledge graph is difficult because linkage decisions are ephemeral and the graph itself is noisy and hard to navigate. We were "flying blind" on why documents connected (or didn't), and often couldn't find relevant subtrees in the visualization.
+The initial Knowledge Graph visualization proved difficult to use on real datasets: it was overwhelmed by thousands of singleton (unconnected) roots, lacked a way to find specific content, and crashed when trying to load large trees due to RPC payload limits.
 
-This change persists the full decision tree of the Smart Linker (candidates, scores, reject reasons) onto the moment record. It also significantly upgrades the Knowledge Graph visualization to be a scalable explorer.
+This change upgrades the visualization into a scalable explorer:
 
-**Key Changes:**
-- **Linkage Audit Trail**: Every moment now stores why it attached (or why it rejected candidates), and this is surfaced in a new details panel when clicking a node.
-- **Noise Reduction**: Added a "Top Roots" view driven by importance sampling to surface meaningful trees instead of thousands of singletons.
-- **Semantic Search**: Added a vector-search control to find moments by meaning and jump directly to their root tree, highlighting the match.
-- **Scalability**: Switched the graph fetch to a "slim" format (capped at 5k nodes) with on-demand detail fetching, preventing 32MiB RPC payload crashes on large trees.
-- **Demo Support**: Added a "Namespace Prefix Override" to safely inspect backfilled data without redeploying the worker.
+- **Noise Reduction**: Added a "Top Roots" view that uses importance sampling to surface trees with meaningful activity, filtering out the long tail of empty roots.
+- **Semantic Search**: Added a search control that finds moments by meaning (vector search) and jumps directly to the relevant root tree, highlighting the matched node.
+- **Scalability**: Replaced the full-tree fetch with a "slim" graph query (id/title/parent only) capped at 5,000 nodes to stay well under the 32MiB RPC limit. Full moment details (including the linkage audit log) are now fetched on-demand when a node is selected.

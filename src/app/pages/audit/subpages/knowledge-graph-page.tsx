@@ -15,7 +15,10 @@ import {
   getKnowledgeGraphStatsAction,
   getMomentGraphNamespacePrefix,
   getRootMomentsAction,
-  getDescendantsForRootAction,
+  getDescendantsForRootSlimAction,
+  getRootSampleStatsAction,
+  searchMomentsAction,
+  getMomentDetailsAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -98,7 +101,16 @@ function escapeMermaidLabel(label: string, maxLength: number = 150): string {
   return wrappedParagraphs.join("<br/>");
 }
 
-function generateMermaidGraph(data: Moment[]): string {
+type GraphNode = {
+  id: string;
+  title: string;
+  parentId?: string;
+  createdAt?: string;
+  documentId?: string;
+  importance?: number;
+};
+
+function generateMermaidGraph(data: GraphNode[]): string {
   if (data.length === 0) {
     return "graph LR\n  Empty[No moments found]";
   }
@@ -137,7 +149,9 @@ function generateMermaidGraph(data: Moment[]): string {
 }
 
 export function KnowledgeGraphPage() {
-  const [graphData, setGraphData] = useState<Moment[]>([]);
+  const [graphData, setGraphData] = useState<GraphNode[]>([]);
+  const [graphTruncated, setGraphTruncated] = useState(false);
+  const [graphMaxNodes, setGraphMaxNodes] = useState(5000);
   const [stats, setStats] = useState<{
     totalMoments: number;
     rootMoments: number;
@@ -170,6 +184,41 @@ export function KnowledgeGraphPage() {
   >([]);
   const [rootMomentsLoading, setRootMomentsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [rootListMode, setRootListMode] = useState<"all" | "sampled">(
+    "sampled"
+  );
+  const [hideSingletons, setHideSingletons] = useState(true);
+  const [rootSort, setRootSort] = useState<"descendants" | "createdAt">(
+    "descendants"
+  );
+  const [sampledRoots, setSampledRoots] = useState<
+    Array<{
+      rootId: string;
+      rootTitle: string | null;
+      rootDocumentId: string | null;
+      sampledHighImportanceCount: number;
+      sampledImportanceSum: number;
+      sampledImportanceMax: number | null;
+    }>
+  >([]);
+  const [sampledRootsLoading, setSampledRootsLoading] = useState(false);
+  const [semanticQuery, setSemanticQuery] = useState<string>("");
+  const [semanticResults, setSemanticResults] = useState<
+    Array<{
+      matchId: string;
+      score: number;
+      matchTitle: string;
+      matchSummary: string;
+      matchDocumentId: string;
+      rootId: string;
+      rootTitle: string;
+    }>
+  >([]);
+  const [semanticLoading, setSemanticLoading] = useState(false);
+  const [semanticError, setSemanticError] = useState<string | null>(null);
+  const [pendingHighlightMomentId, setPendingHighlightMomentId] = useState<
+    string | null
+  >(null);
   const mermaidContainerRef = useRef<HTMLDivElement>(null);
   const mermaidScriptRef = useRef<HTMLScriptElement | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -180,10 +229,13 @@ export function KnowledgeGraphPage() {
   const [selectedMomentId, setSelectedMomentId] = useState<string | null>(null);
   const nodeClickCleanupRef = useRef<null | (() => void)>(null);
 
-  const selectedMoment =
-    selectedMomentId && graphData.length > 0
-      ? graphData.find((m) => m.id === selectedMomentId) ?? null
-      : null;
+  const [selectedMomentDetails, setSelectedMomentDetails] =
+    useState<Moment | null>(null);
+  const [selectedMomentDetailsLoading, setSelectedMomentDetailsLoading] =
+    useState(false);
+  const [selectedMomentDetailsError, setSelectedMomentDetailsError] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
     // Load Mermaid.js from CDN
@@ -328,22 +380,58 @@ export function KnowledgeGraphPage() {
   }, [selectedNamespace, selectedRootId, prefixOverride]);
 
   useEffect(() => {
+    async function fetchSampledRoots() {
+      if (rootListMode !== "sampled" || selectedRootId) {
+        return;
+      }
+      setSampledRootsLoading(true);
+      try {
+        const result = await getRootSampleStatsAction({
+          momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+          highImportanceCutoff: 0.8,
+          sampleLimit: 2000,
+          limit: 100,
+        });
+        if (result.success && result.roots) {
+          setSampledRoots(result.roots);
+          if (result.effectiveNamespace !== undefined) {
+            setEffectiveNamespace(result.effectiveNamespace);
+          }
+        } else {
+          console.error("Failed to fetch root sample stats:", result.error);
+        }
+      } catch (err) {
+        console.error("Error fetching root sample stats:", err);
+      } finally {
+        setSampledRootsLoading(false);
+      }
+    }
+
+    fetchSampledRoots();
+  }, [rootListMode, selectedRootId, selectedNamespace, prefixOverride]);
+
+  useEffect(() => {
     async function fetchGraph() {
       if (!selectedRootId) {
         setGraphData([]);
+        setGraphTruncated(false);
         return;
       }
 
       setLoading(true);
       setError(null);
       try {
-        const result = await getDescendantsForRootAction(selectedRootId, {
+        const result = await getDescendantsForRootSlimAction(selectedRootId, {
           momentGraphNamespace: selectedNamespace,
           momentGraphNamespacePrefix:
             prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+          maxNodes: graphMaxNodes,
         });
         if (result.success && result.data) {
           setGraphData(result.data);
+          setGraphTruncated(Boolean((result as any).truncated));
           if (result.effectiveNamespace !== undefined) {
             setEffectiveNamespace(result.effectiveNamespace);
           }
@@ -360,7 +448,54 @@ export function KnowledgeGraphPage() {
     }
 
     fetchGraph();
-  }, [selectedRootId, selectedNamespace, prefixOverride]);
+  }, [selectedRootId, selectedNamespace, prefixOverride, graphMaxNodes]);
+
+  useEffect(() => {
+    async function fetchSelectedMomentDetails() {
+      if (!selectedMomentId) {
+        setSelectedMomentDetails(null);
+        setSelectedMomentDetailsError(null);
+        return;
+      }
+      setSelectedMomentDetailsLoading(true);
+      setSelectedMomentDetailsError(null);
+      try {
+        const res = await getMomentDetailsAction(selectedMomentId, {
+          momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+        });
+        if (res.success) {
+          setSelectedMomentDetails(res.data ?? null);
+        } else {
+          setSelectedMomentDetails(null);
+          setSelectedMomentDetailsError(res.error || "Failed to fetch moment");
+        }
+      } catch (err) {
+        setSelectedMomentDetails(null);
+        setSelectedMomentDetailsError(
+          err instanceof Error ? err.message : "Failed to fetch moment"
+        );
+      } finally {
+        setSelectedMomentDetailsLoading(false);
+      }
+    }
+    fetchSelectedMomentDetails();
+  }, [selectedMomentId, selectedNamespace, prefixOverride]);
+
+  useEffect(() => {
+    if (!selectedRootId || loading) {
+      return;
+    }
+    if (!pendingHighlightMomentId) {
+      return;
+    }
+    const match = graphData.find((m) => m.id === pendingHighlightMomentId);
+    if (match) {
+      setSelectedMomentId(pendingHighlightMomentId);
+    }
+    setPendingHighlightMomentId(null);
+  }, [selectedRootId, loading, graphData, pendingHighlightMomentId]);
 
   useEffect(() => {
     if (mermaidLoaded && graphData.length > 0 && mermaidContainerRef.current) {
@@ -474,6 +609,33 @@ export function KnowledgeGraphPage() {
     { value: "redwood:rwsdk", label: "redwood:rwsdk" },
     { value: "redwood:internal", label: "redwood:internal" },
   ];
+
+  const filteredRootMoments = rootMoments
+    .filter((root) => {
+      if (hideSingletons && root.descendantCount === 0) {
+        return false;
+      }
+      if (!searchQuery.trim()) {
+        return true;
+      }
+      const query = searchQuery.toLowerCase();
+      return (
+        root.title.toLowerCase().includes(query) ||
+        root.id.toLowerCase().includes(query)
+      );
+    })
+    .slice()
+    .sort((a, b) => {
+      if (rootSort === "descendants") {
+        if (a.descendantCount !== b.descendantCount) {
+          return b.descendantCount - a.descendantCount;
+        }
+      }
+      if (a.createdAt !== b.createdAt) {
+        return a.createdAt.localeCompare(b.createdAt);
+      }
+      return a.id.localeCompare(b.id);
+    });
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -668,7 +830,200 @@ export function KnowledgeGraphPage() {
 
           {!selectedRootId && !rootMomentsLoading && (
             <div className="space-y-4">
-              {rootMoments.length === 0 ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="border rounded p-4">
+                  <div className="text-sm font-medium text-gray-900 mb-2">
+                    Root List Controls
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Root List Mode
+                      </label>
+                      <select
+                        value={rootListMode}
+                        onChange={(e) =>
+                          setRootListMode(
+                            e.target.value === "sampled" ? "sampled" : "all"
+                          )
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="sampled">Top roots (sampled)</option>
+                        <option value="all">All roots</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Sort (all roots)
+                      </label>
+                      <select
+                        value={rootSort}
+                        onChange={(e) =>
+                          setRootSort(
+                            e.target.value === "createdAt"
+                              ? "createdAt"
+                              : "descendants"
+                          )
+                        }
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        disabled={rootListMode !== "all"}
+                      >
+                        <option value="descendants">Descendant count</option>
+                        <option value="createdAt">Created time</option>
+                      </select>
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="inline-flex items-center gap-2 text-sm text-gray-700">
+                        <input
+                          type="checkbox"
+                          checked={hideSingletons}
+                          onChange={(e) => setHideSingletons(e.target.checked)}
+                          disabled={rootListMode !== "all"}
+                        />
+                        Hide singletons (all roots)
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="border rounded p-4">
+                  <div className="text-sm font-medium text-gray-900 mb-2">
+                    Semantic Search (jump to tree)
+                  </div>
+                  <div className="flex gap-2">
+                    <Input
+                      type="text"
+                      placeholder="Search by meaning (example: prefetch navigation GET)"
+                      value={semanticQuery}
+                      onChange={(e) => setSemanticQuery(e.target.value)}
+                      className="w-full"
+                    />
+                    <Button
+                      variant="outline"
+                      onClick={async () => {
+                        setSemanticError(null);
+                        setSemanticResults([]);
+                        const q = semanticQuery.trim();
+                        if (!q) {
+                          return;
+                        }
+                        setSemanticLoading(true);
+                        try {
+                          const res = await searchMomentsAction({
+                            query: q,
+                            limit: 10,
+                            momentGraphNamespace: selectedNamespace,
+                            momentGraphNamespacePrefix:
+                              prefixOverride.trim().length > 0
+                                ? prefixOverride.trim()
+                                : null,
+                          });
+                          if (res.success && res.results) {
+                            setSemanticResults(res.results);
+                          } else {
+                            setSemanticError(res.error || "Search failed");
+                          }
+                        } catch (err) {
+                          setSemanticError(
+                            err instanceof Error ? err.message : "Search failed"
+                          );
+                        } finally {
+                          setSemanticLoading(false);
+                        }
+                      }}
+                      disabled={semanticLoading}
+                    >
+                      {semanticLoading ? "Searching..." : "Search"}
+                    </Button>
+                  </div>
+                  {semanticError && (
+                    <div className="text-sm text-red-600 mt-2">
+                      {semanticError}
+                    </div>
+                  )}
+                  {semanticResults.length > 0 && (
+                    <div className="mt-3 space-y-2 max-h-64 overflow-auto">
+                      {semanticResults.map((r) => (
+                        <button
+                          key={`${r.matchId}-${r.rootId}`}
+                          onClick={() => {
+                            setSelectedRootId(r.rootId);
+                            setPendingHighlightMomentId(r.matchId);
+                          }}
+                          className="w-full text-left border rounded p-2 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-medium text-gray-900">
+                              {r.matchTitle || "Untitled"}
+                            </div>
+                            <div className="text-xs font-mono text-gray-600">
+                              {r.score.toFixed(3)}
+                            </div>
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1 line-clamp-2">
+                            {r.matchSummary}
+                          </div>
+                          <div className="text-xs text-gray-500 mt-1">
+                            Root: <span className="font-mono">{r.rootId}</span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {rootListMode === "sampled" && sampledRootsLoading && (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">Loading top roots...</p>
+                </div>
+              )}
+
+              {rootListMode === "sampled" &&
+                !sampledRootsLoading &&
+                sampledRoots.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="text-sm text-gray-600">
+                      Showing {sampledRoots.length} roots (sampled)
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {sampledRoots.map((root) => (
+                        <button
+                          key={root.rootId}
+                          onClick={() => setSelectedRootId(root.rootId)}
+                          className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="font-medium text-gray-900 mb-2">
+                            {root.rootTitle ??
+                              `Moment ${root.rootId.substring(0, 8)}`}
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                              {root.sampledHighImportanceCount} hi
+                            </span>
+                            <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
+                              sum {root.sampledImportanceSum.toFixed(2)}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-400 font-mono mt-1">
+                            {root.rootId.substring(0, 8)}...
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+              {rootListMode === "sampled" &&
+                !sampledRootsLoading &&
+                sampledRoots.length === 0 && (
+                  <div className="text-center py-8 text-gray-500">
+                    No sampled roots found. Try selecting a different namespace.
+                  </div>
+                )}
+
+              {rootListMode === "all" && rootMoments.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   No root subjects found. Try selecting a different namespace.
                 </div>
@@ -676,9 +1031,9 @@ export function KnowledgeGraphPage() {
                 <>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm text-gray-600">
-                      Found {rootMoments.length} root subject
-                      {rootMoments.length !== 1 ? "s" : ""}. Click on any
-                      subject to view its complete tree.
+                      Found {filteredRootMoments.length} root subject
+                      {filteredRootMoments.length !== 1 ? "s" : ""}. Click on
+                      any subject to view its complete tree.
                     </p>
                   </div>
                   <div className="mb-4">
@@ -688,56 +1043,43 @@ export function KnowledgeGraphPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full"
+                      disabled={rootListMode !== "all"}
                     />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {rootMoments
-                      .filter((root) => {
-                        if (!searchQuery.trim()) return true;
-                        const query = searchQuery.toLowerCase();
-                        return (
-                          root.title.toLowerCase().includes(query) ||
-                          root.id.toLowerCase().includes(query)
-                        );
-                      })
-                      .map((root) => {
-                        const date = new Date(root.createdAt);
-                        const formattedDate = date.toLocaleDateString("en-US", {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        });
-                        return (
-                          <button
-                            key={root.id}
-                            onClick={() => setSelectedRootId(root.id)}
-                            className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                          >
-                            <div className="font-medium text-gray-900 mb-2">
-                              {root.title}
-                            </div>
-                            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                              <span>{formattedDate}</span>
-                              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                                {root.descendantCount} moment
-                                {root.descendantCount !== 1 ? "s" : ""}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-400 font-mono mt-1">
-                              {root.id.substring(0, 8)}...
-                            </div>
-                          </button>
-                        );
-                      })}
-                  </div>
-                  {searchQuery.trim() &&
-                    rootMoments.filter((root) => {
-                      const query = searchQuery.toLowerCase();
+                    {filteredRootMoments.map((root) => {
+                      const date = new Date(root.createdAt);
+                      const formattedDate = date.toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      });
                       return (
-                        root.title.toLowerCase().includes(query) ||
-                        root.id.toLowerCase().includes(query)
+                        <button
+                          key={root.id}
+                          onClick={() => setSelectedRootId(root.id)}
+                          className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="font-medium text-gray-900 mb-2">
+                            {root.title}
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                            <span>{formattedDate}</span>
+                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                              {root.descendantCount} moment
+                              {root.descendantCount !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-400 font-mono mt-1">
+                            {root.id.substring(0, 8)}...
+                          </div>
+                        </button>
                       );
-                    }).length === 0 && (
+                    })}
+                  </div>
+                  {rootListMode === "all" &&
+                    searchQuery.trim() &&
+                    filteredRootMoments.length === 0 && (
                       <div className="text-center py-8 text-gray-500">
                         No subjects found matching "{searchQuery}"
                       </div>
@@ -755,6 +1097,11 @@ export function KnowledgeGraphPage() {
                     Showing {graphData.length} moment
                     {graphData.length !== 1 ? "s" : ""} in this subject tree
                   </div>
+                  {graphTruncated && (
+                    <div className="mt-2 text-orange-600">
+                      Tree truncated at {graphMaxNodes} nodes (RPC payload cap).
+                    </div>
+                  )}
                   {graphData.length === 0 && (
                     <div className="mt-2 text-orange-600">
                       ⚠️ No descendants found for this root subject.
@@ -802,6 +1149,23 @@ export function KnowledgeGraphPage() {
               )}
               <div className="mb-4">
                 <div className="flex items-center justify-end gap-2 mb-2">
+                  <div className="flex items-center gap-2 mr-auto">
+                    <span className="text-sm text-gray-600">Max nodes</span>
+                    <Input
+                      type="number"
+                      value={String(graphMaxNodes)}
+                      onChange={(e) => {
+                        const n = Number(e.target.value);
+                        if (!Number.isFinite(n)) {
+                          return;
+                        }
+                        setGraphMaxNodes(
+                          Math.max(100, Math.min(20000, Math.floor(n)))
+                        );
+                      }}
+                      className="w-[140px] font-mono"
+                    />
+                  </div>
                   <Button
                     variant="outline"
                     size="sm"
@@ -900,20 +1264,34 @@ export function KnowledgeGraphPage() {
                     </div>
 
                     <div className="p-4 space-y-4 max-h-[80vh] overflow-auto">
-                      {!selectedMoment && (
+                      {selectedMomentDetailsLoading && (
                         <div className="text-sm text-gray-600">
-                          No moment selected.
+                          Loading moment details...
                         </div>
                       )}
 
-                      {selectedMoment && (
+                      {selectedMomentDetailsError && (
+                        <div className="text-sm text-red-600">
+                          {selectedMomentDetailsError}
+                        </div>
+                      )}
+
+                      {!selectedMomentDetailsLoading &&
+                        !selectedMomentDetails &&
+                        !selectedMomentDetailsError && (
+                          <div className="text-sm text-gray-600">
+                            No moment selected.
+                          </div>
+                        )}
+
+                      {selectedMomentDetails && (
                         <>
                           <div>
                             <div className="text-xs font-medium text-gray-500 mb-1">
                               ID
                             </div>
                             <div className="font-mono text-xs break-all">
-                              {selectedMoment.id}
+                              {selectedMomentDetails.id}
                             </div>
                           </div>
 
@@ -922,7 +1300,7 @@ export function KnowledgeGraphPage() {
                               Title
                             </div>
                             <div className="text-sm text-gray-900">
-                              {selectedMoment.title || "Untitled"}
+                              {selectedMomentDetails.title || "Untitled"}
                             </div>
                           </div>
 
@@ -931,7 +1309,7 @@ export function KnowledgeGraphPage() {
                               Summary
                             </div>
                             <div className="text-sm text-gray-700 whitespace-pre-wrap">
-                              {selectedMoment.summary || "N/A"}
+                              {selectedMomentDetails.summary || "N/A"}
                             </div>
                           </div>
 
@@ -941,7 +1319,7 @@ export function KnowledgeGraphPage() {
                                 Document
                               </div>
                               <div className="font-mono text-xs break-all">
-                                {selectedMoment.documentId || "N/A"}
+                                {selectedMomentDetails.documentId || "N/A"}
                               </div>
                             </div>
                             <div>
@@ -949,7 +1327,7 @@ export function KnowledgeGraphPage() {
                                 Parent
                               </div>
                               <div className="font-mono text-xs break-all">
-                                {selectedMoment.parentId || "Root"}
+                                {selectedMomentDetails.parentId || "Root"}
                               </div>
                             </div>
                           </div>
@@ -959,42 +1337,46 @@ export function KnowledgeGraphPage() {
                               Linkage
                             </div>
 
-                            {!selectedMoment.linkAuditLog && (
+                            {!selectedMomentDetails.linkAuditLog && (
                               <div className="text-sm text-gray-600">
                                 No linkage audit log stored on this moment.
                               </div>
                             )}
 
-                            {selectedMoment.linkAuditLog && (
+                            {selectedMomentDetails.linkAuditLog && (
                               <div className="space-y-3">
-                                {typeof (selectedMoment.linkAuditLog as any)
-                                  ?.kind === "string" && (
+                                {typeof (
+                                  selectedMomentDetails.linkAuditLog as any
+                                )?.kind === "string" && (
                                   <div className="text-xs text-gray-600">
                                     Kind:{" "}
                                     <span className="font-mono">
                                       {
-                                        (selectedMoment.linkAuditLog as any)
-                                          .kind
+                                        (
+                                          selectedMomentDetails.linkAuditLog as any
+                                        ).kind
                                       }
                                     </span>
                                   </div>
                                 )}
 
-                                {typeof (selectedMoment.linkAuditLog as any)
-                                  ?.plugin === "string" && (
+                                {typeof (
+                                  selectedMomentDetails.linkAuditLog as any
+                                )?.plugin === "string" && (
                                   <div className="text-xs text-gray-600">
                                     Plugin:{" "}
                                     <span className="font-mono">
                                       {
-                                        (selectedMoment.linkAuditLog as any)
-                                          .plugin
+                                        (
+                                          selectedMomentDetails.linkAuditLog as any
+                                        ).plugin
                                       }
                                     </span>
                                   </div>
                                 )}
 
                                 {Array.isArray(
-                                  (selectedMoment.linkAuditLog as any)
+                                  (selectedMomentDetails.linkAuditLog as any)
                                     ?.candidates
                                 ) && (
                                   <div>
@@ -1003,8 +1385,9 @@ export function KnowledgeGraphPage() {
                                     </div>
                                     <div className="space-y-2">
                                       {(
-                                        (selectedMoment.linkAuditLog as any)
-                                          .candidates as any[]
+                                        (
+                                          selectedMomentDetails.linkAuditLog as any
+                                        ).candidates as any[]
                                       )
                                         .slice()
                                         .sort((a, b) => {
@@ -1128,7 +1511,7 @@ export function KnowledgeGraphPage() {
                                   </summary>
                                   <pre className="text-xs overflow-auto max-h-64 mt-2 p-2 bg-white border rounded">
                                     {JSON.stringify(
-                                      selectedMoment.linkAuditLog,
+                                      selectedMomentDetails.linkAuditLog,
                                       null,
                                       2
                                     )}
@@ -1180,7 +1563,7 @@ export function KnowledgeGraphPage() {
                               {moment.title || "Untitled"}
                             </TableCell>
                             <TableCell className="max-w-[300px] truncate">
-                              {moment.summary || "N/A"}
+                              N/A
                             </TableCell>
                             <TableCell className="font-mono text-xs">
                               {moment.parentId
@@ -1192,9 +1575,7 @@ export function KnowledgeGraphPage() {
                                 ? new Date(moment.createdAt).toLocaleString()
                                 : "N/A"}
                             </TableCell>
-                            <TableCell className="text-xs">
-                              {moment.author || "N/A"}
-                            </TableCell>
+                            <TableCell className="text-xs">N/A</TableCell>
                             <TableCell className="text-xs">
                               {moment.importance !== undefined
                                 ? moment.importance.toFixed(3)

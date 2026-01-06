@@ -58,6 +58,7 @@ This change upgrades the visualization into a scalable explorer:
 ## Log (Continued)
 
 - Added `/admin/moment-debug` endpoint to return a JSON payload equivalent to the knowledge graph node details view for a given moment id (moment details, resolved root, and stored linkage audit log).
+- Extended `/admin/moment-debug` to optionally include the resolved root tree as a slim node list, capped by a max-nodes parameter, to support inspecting unexpected edges without relying on the UI.
 
 ## PR Title: Add moment debug endpoint
 
@@ -66,3 +67,11 @@ This change upgrades the visualization into a scalable explorer:
 When debugging linkage decisions, it helps to capture an exact JSON snapshot of what the knowledge graph UI shows for a specific moment id. Inspecting via the UI is really helpful starting point, but once we find something to improve on, it helps to be able to be able to share this example with AI.
 
 This change adds `POST /admin/moment-debug`, which returns the moment row, resolved root context, and stored linkage audit log for a provided moment id. Optionally, it can include a small set of candidate moment details referenced by the audit log.
+
+## PR Title: Extend moment debug endpoint with root tree
+
+### Description
+
+When diagnosing unexpected edges, it helps to inspect the entire root tree in the same JSON payload as the selected moment’s debug information. Relying on the UI makes it harder to share and review the exact structure that led to a confusing link.
+
+This change extends `POST /admin/moment-debug` with an `includeTree` option that returns the resolved root tree as a slim node list, capped by `treeMaxNodes` and accompanied by a `truncated` flag.

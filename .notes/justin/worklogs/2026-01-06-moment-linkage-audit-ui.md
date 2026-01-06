@@ -58,3 +58,11 @@ This change upgrades the visualization into a scalable explorer:
 ## Log (Continued)
 
 - Added `/admin/moment-debug` endpoint to return a JSON payload equivalent to the knowledge graph node details view for a given moment id (moment details, resolved root, and stored linkage audit log).
+
+## PR Title: Add moment debug endpoint
+
+### Description
+
+When debugging linkage decisions, it helps to capture an exact JSON snapshot of what the knowledge graph UI shows for a specific moment id. Doing this via the UI makes it harder to share a single reproducible input/output pair.
+
+This change adds `POST /admin/moment-debug`, which returns the moment row, resolved root context, and stored linkage audit log for a provided moment id. Optionally, it can include a small set of candidate moment details referenced by the audit log.

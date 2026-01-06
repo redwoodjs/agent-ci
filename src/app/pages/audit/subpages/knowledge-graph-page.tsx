@@ -110,6 +110,17 @@ type GraphNode = {
   importance?: number;
 };
 
+type MomentDetails = Moment & {
+  provenance?: {
+    streamId?: string | null;
+    timeRange?: { start: string; end: string } | null;
+    microPathsCount?: number;
+    chunkIdsSample?: string[];
+    discordMessageIdsSample?: string[];
+    ingestionFilePath?: string;
+  } | null;
+};
+
 function generateMermaidGraph(data: GraphNode[]): string {
   if (data.length === 0) {
     return "graph LR\n  Empty[No moments found]";
@@ -230,7 +241,7 @@ export function KnowledgeGraphPage() {
   const nodeClickCleanupRef = useRef<null | (() => void)>(null);
 
   const [selectedMomentDetails, setSelectedMomentDetails] =
-    useState<Moment | null>(null);
+    useState<MomentDetails | null>(null);
   const [selectedMomentDetailsLoading, setSelectedMomentDetailsLoading] =
     useState(false);
   const [selectedMomentDetailsError, setSelectedMomentDetailsError] = useState<
@@ -464,6 +475,8 @@ export function KnowledgeGraphPage() {
           momentGraphNamespace: selectedNamespace,
           momentGraphNamespacePrefix:
             prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+          includeProvenance: true,
+          provenanceMaxChunkIds: 40,
         });
         if (res.success) {
           setSelectedMomentDetails(res.data ?? null);
@@ -1318,8 +1331,22 @@ export function KnowledgeGraphPage() {
                               <div className="text-xs font-medium text-gray-500 mb-1">
                                 Document
                               </div>
-                              <div className="font-mono text-xs break-all">
-                                {selectedMomentDetails.documentId || "N/A"}
+                              <div className="space-y-1">
+                                <div className="font-mono text-xs break-all">
+                                  {selectedMomentDetails.documentId || "N/A"}
+                                </div>
+                                {selectedMomentDetails.documentId && (
+                                  <a
+                                    className="text-xs text-blue-600 hover:text-blue-800"
+                                    href={`/audit/ingestion/file/${encodeURIComponent(
+                                      selectedMomentDetails.documentId
+                                    )}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    Open ingestion file
+                                  </a>
+                                )}
                               </div>
                             </div>
                             <div>
@@ -1331,6 +1358,74 @@ export function KnowledgeGraphPage() {
                               </div>
                             </div>
                           </div>
+
+                          {selectedMomentDetails.provenance && (
+                            <div className="border-t pt-3 space-y-2">
+                              <div className="text-sm font-medium text-gray-900">
+                                Provenance
+                              </div>
+
+                              {typeof selectedMomentDetails.provenance
+                                .streamId === "string" && (
+                                <div className="text-xs text-gray-600">
+                                  Stream:{" "}
+                                  <span className="font-mono">
+                                    {selectedMomentDetails.provenance.streamId}
+                                  </span>
+                                </div>
+                              )}
+
+                              {selectedMomentDetails.provenance.timeRange && (
+                                <div className="text-xs text-gray-600">
+                                  Time range:{" "}
+                                  <span className="font-mono">
+                                    {
+                                      selectedMomentDetails.provenance.timeRange
+                                        .start
+                                    }
+                                  </span>{" "}
+                                  -{" "}
+                                  <span className="font-mono">
+                                    {
+                                      selectedMomentDetails.provenance.timeRange
+                                        .end
+                                    }
+                                  </span>
+                                </div>
+                              )}
+
+                              {typeof selectedMomentDetails.provenance
+                                .microPathsCount === "number" && (
+                                <div className="text-xs text-gray-600">
+                                  Micro paths:{" "}
+                                  <span className="font-mono">
+                                    {
+                                      selectedMomentDetails.provenance
+                                        .microPathsCount
+                                    }
+                                  </span>
+                                </div>
+                              )}
+
+                              {Array.isArray(
+                                selectedMomentDetails.provenance
+                                  .discordMessageIdsSample
+                              ) &&
+                                selectedMomentDetails.provenance
+                                  .discordMessageIdsSample.length > 0 && (
+                                  <div>
+                                    <div className="text-xs font-medium text-gray-500 mb-1">
+                                      Discord message ids (sample)
+                                    </div>
+                                    <div className="font-mono text-xs break-all text-gray-700">
+                                      {selectedMomentDetails.provenance.discordMessageIdsSample.join(
+                                        ", "
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+                            </div>
+                          )}
 
                           <div className="border-t pt-3">
                             <div className="text-sm font-medium text-gray-900 mb-2">

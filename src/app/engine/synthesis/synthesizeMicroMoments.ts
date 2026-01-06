@@ -336,6 +336,17 @@ Goal:
 - A stream should be coherent (one topic/work item/problem) across its macro-moments.
 - Do not assume the entire document is one subject.
 - Do not merge unrelated topics into one stream.
+- Macro moments are for turning points in the work timeline, not a chronological transcript.
+- Prefer emitting fewer macro moments over emitting low-signal macro moments.
+
+Selection rules (macro moments to exclude):
+- Do not emit macro moments for social chatter, jokes, greetings, reactions, emojis, memes, gifs, or off-topic banter.
+- Do not emit macro moments for administrative or status updates (examples: "back now", "will continue later") unless they change the technical direction of the work.
+- Do not emit macro moments for generic encouragement or gratitude.
+
+Selection rules (macro moments to include):
+- Prefer macro moments that contain concrete anchors (examples: error messages, commands, PR/issue links, canonical reference tokens).
+- Prefer decisions, hypotheses, experiments and results, fixes, merges, and follow-up actions.
 
 ${formattingRules}
 
@@ -371,6 +382,7 @@ Your response must:
   }).
 - Each Index value should appear in at most one MACRO-MOMENT across the entire response.
 - Within each stream, macro moments must be in chronological order.
+- It is allowed to omit low-signal micro-moments entirely (their Index values do not need to appear in any MACRO-MOMENT).
 
 Input micro-moments:
 ${formattedMoments}

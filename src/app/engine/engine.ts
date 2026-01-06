@@ -495,8 +495,71 @@ export async function indexDocument(
         });
 
         for (const stream of streams) {
-          const macroMomentDescriptions =
+          const macroMomentDescriptionsRaw =
             stream.macroMoments as any as MacroMomentDescription[];
+          if (macroMomentDescriptionsRaw.length === 0) {
+            continue;
+          }
+
+          const macroMaxPerStreamRaw = (indexingContext.env as any)
+            .MACRO_MOMENT_MAX_PER_STREAM;
+          const macroMaxPerStream =
+            typeof macroMaxPerStreamRaw === "string"
+              ? Number.parseInt(macroMaxPerStreamRaw, 10)
+              : typeof macroMaxPerStreamRaw === "number"
+              ? macroMaxPerStreamRaw
+              : 12;
+
+          const macroMinImportanceRaw = (indexingContext.env as any)
+            .MACRO_MOMENT_MIN_IMPORTANCE;
+          const macroMinImportance =
+            typeof macroMinImportanceRaw === "string"
+              ? Number.parseFloat(macroMinImportanceRaw)
+              : typeof macroMinImportanceRaw === "number"
+              ? macroMinImportanceRaw
+              : 0.25;
+
+          const macroMomentDescriptions = (() => {
+            const withIndex = macroMomentDescriptionsRaw.map((m, idx) => ({
+              idx,
+              m,
+              importance:
+                m && typeof (m as any).importance === "number"
+                  ? ((m as any).importance as number)
+                  : 0,
+            }));
+
+            const sortedByImportance = withIndex
+              .slice()
+              .sort((a, b) => b.importance - a.importance || a.idx - b.idx);
+
+            const max =
+              Number.isFinite(macroMaxPerStream) && macroMaxPerStream > 0
+                ? Math.floor(macroMaxPerStream)
+                : 12;
+
+            const capped = sortedByImportance.slice(0, max);
+            const cappedSortedByIndex = capped
+              .slice()
+              .sort((a, b) => a.idx - b.idx);
+
+            const minImportance =
+              Number.isFinite(macroMinImportance) && macroMinImportance >= 0
+                ? macroMinImportance
+                : 0;
+
+            const filtered = cappedSortedByIndex.filter(
+              (x) => x.importance >= minImportance
+            );
+
+            if (filtered.length > 0) {
+              return filtered.map((x) => x.m);
+            }
+
+            const fallback = cappedSortedByIndex[0] ?? sortedByImportance[0];
+            return fallback ? [fallback.m] : [];
+          })();
+
           if (macroMomentDescriptions.length === 0) {
             continue;
           }

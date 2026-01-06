@@ -899,6 +899,50 @@ export async function getMicroMoment(
   return null;
 }
 
+export async function getMicroMomentsByPaths(
+  documentId: string,
+  paths: string[],
+  context: MomentGraphContext
+): Promise<MicroMoment[]> {
+  if (paths.length === 0) {
+    return [];
+  }
+
+  const uniquePaths = Array.from(
+    new Set(paths.filter((p) => typeof p === "string" && p.length > 0))
+  );
+  if (uniquePaths.length === 0) {
+    return [];
+  }
+
+  const remaining = new Set(uniquePaths);
+  const outByPath = new Map<string, MicroMoment>();
+
+  const db = getMomentDb(context);
+  const rows = (await db
+    .selectFrom("micro_moment_batches")
+    .select(["items_json"])
+    .where("document_id", "=", documentId)
+    .execute()) as unknown as Pick<MicroMomentBatchRow, "items_json">[];
+
+  for (const row of rows) {
+    for (const item of row.items_json) {
+      if (remaining.has(item.path)) {
+        outByPath.set(item.path, item);
+        remaining.delete(item.path);
+        if (remaining.size === 0) {
+          break;
+        }
+      }
+    }
+    if (remaining.size === 0) {
+      break;
+    }
+  }
+
+  return uniquePaths.map((p) => outByPath.get(p)).filter(Boolean) as MicroMoment[];
+}
+
 export async function upsertMicroMoment(
   microMoment: MicroMomentDescription,
   documentId: string,

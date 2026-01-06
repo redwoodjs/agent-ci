@@ -58,6 +58,7 @@ This change upgrades the visualization into a scalable explorer:
 ## Log (Continued)
 
 - Added `/admin/moment-debug` endpoint to return a JSON payload equivalent to the knowledge graph node details view for a given moment id (moment details, resolved root, and stored linkage audit log).
+- Extended `/admin/moment-debug` to optionally include the resolved root tree as a slim node list, capped by a max-nodes parameter, to support inspecting unexpected edges without relying on the UI.
 
 ## PR Title: Add moment debug endpoint
 

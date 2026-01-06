@@ -12,6 +12,7 @@ import {
   getMoment,
   getMoments,
   findLastMomentForDocument,
+  getDescendantsForRootSlim,
   getRootStatsByHighImportanceSample,
 } from "./momentDb";
 import {
@@ -705,6 +706,8 @@ async function momentDebugHandler({ request }: RequestInfo) {
         namespacePrefix?: unknown;
         candidateLimit?: unknown;
         includeCandidateMoments?: unknown;
+        includeTree?: unknown;
+        treeMaxNodes?: unknown;
       }
     | undefined;
 
@@ -810,6 +813,22 @@ async function momentDebugHandler({ request }: RequestInfo) {
     }
   }
 
+  const includeTree = Boolean((body as any)?.includeTree);
+  const treeMaxNodesRaw = (body as any)?.treeMaxNodes;
+  const treeMaxNodes =
+    typeof treeMaxNodesRaw === "number" &&
+    Number.isFinite(treeMaxNodesRaw) &&
+    treeMaxNodesRaw > 0
+      ? Math.floor(treeMaxNodesRaw)
+      : 5000;
+
+  const tree =
+    includeTree && root
+      ? await getDescendantsForRootSlim(root.id, momentGraphContext, {
+          maxNodes: treeMaxNodes,
+        })
+      : null;
+
   return Response.json({
     momentGraphNamespace: effectiveNamespace ?? null,
     momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
@@ -828,6 +847,13 @@ async function momentDebugHandler({ request }: RequestInfo) {
           id: root.id,
           title: root.title,
           documentId: root.documentId,
+        }
+      : null,
+    tree: tree
+      ? {
+          nodes: tree.nodes,
+          truncated: tree.truncated,
+          maxNodes: treeMaxNodes,
         }
       : null,
     linkage: {

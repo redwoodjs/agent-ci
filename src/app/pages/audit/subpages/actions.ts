@@ -19,6 +19,7 @@ import {
   findAncestors,
   getMoments,
   getMoment,
+  getMicroMomentsByPaths,
 } from "@/app/engine/momentDb";
 import {
   getMomentGraphNamespacePrefixFromEnv,
@@ -403,6 +404,8 @@ export async function getMomentDetailsAction(
   options?: {
     momentGraphNamespace?: string | null;
     momentGraphNamespacePrefix?: string | null;
+    includeProvenance?: boolean;
+    provenanceMaxChunkIds?: number;
   }
 ) {
   try {
@@ -426,9 +429,82 @@ export async function getMomentDetailsAction(
     };
 
     const moment = await getMoment(id, context);
+    const includeProvenance = Boolean(options?.includeProvenance);
+    const provenanceMaxChunkIdsRaw = options?.provenanceMaxChunkIds;
+    const provenanceMaxChunkIds =
+      typeof provenanceMaxChunkIdsRaw === "number" &&
+      Number.isFinite(provenanceMaxChunkIdsRaw) &&
+      provenanceMaxChunkIdsRaw > 0
+        ? Math.floor(provenanceMaxChunkIdsRaw)
+        : 40;
+
+    let provenance: Record<string, any> | null = null;
+    if (includeProvenance && moment) {
+      const sourceMetadata = moment.sourceMetadata ?? null;
+      const streamIdRaw =
+        sourceMetadata && typeof (sourceMetadata as any).streamId === "string"
+          ? ((sourceMetadata as any).streamId as string)
+          : null;
+      const timeRangeRaw =
+        sourceMetadata && typeof (sourceMetadata as any).timeRange === "object"
+          ? ((sourceMetadata as any).timeRange as any)
+          : null;
+      const timeRange =
+        timeRangeRaw &&
+        typeof timeRangeRaw?.start === "string" &&
+        typeof timeRangeRaw?.end === "string"
+          ? { start: timeRangeRaw.start, end: timeRangeRaw.end }
+          : null;
+
+      const microPaths = Array.isArray(moment.microPaths) ? moment.microPaths : [];
+      const microMoments =
+        microPaths.length > 0
+          ? await getMicroMomentsByPaths(moment.documentId, microPaths, context)
+          : [];
+
+      const chunkIds: string[] = [];
+      for (const mm of microMoments) {
+        const idsRaw = (mm.sourceMetadata as any)?.chunkIds;
+        if (Array.isArray(idsRaw)) {
+          for (const id of idsRaw) {
+            if (typeof id === "string" && id.length > 0) {
+              chunkIds.push(id);
+            }
+          }
+        }
+      }
+
+      const uniqueChunkIds = Array.from(new Set(chunkIds)).slice(
+        0,
+        provenanceMaxChunkIds
+      );
+
+      const discordMessageIds: string[] = [];
+      for (const id of uniqueChunkIds) {
+        const idx = id.indexOf("#message-");
+        if (idx >= 0) {
+          const msgId = id.slice(idx + "#message-".length);
+          if (msgId && /^\d+$/.test(msgId)) {
+            discordMessageIds.push(msgId);
+          }
+        }
+      }
+
+      provenance = {
+        streamId: streamIdRaw,
+        timeRange,
+        microPathsCount: microPaths.length,
+        chunkIdsSample: uniqueChunkIds,
+        discordMessageIdsSample: Array.from(new Set(discordMessageIds)).slice(0, 40),
+        ingestionFilePath: `/audit/ingestion/file/${encodeURIComponent(
+          moment.documentId
+        )}`,
+      };
+    }
+
     return {
       success: true,
-      data: moment,
+      data: moment ? { ...(moment as any), provenance } : moment,
       effectiveNamespace,
       prefix: effectivePrefix,
     };

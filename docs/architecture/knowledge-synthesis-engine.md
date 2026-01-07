@@ -18,6 +18,8 @@ A document can contain multiple unrelated threads of thought. This is common for
 
 If ingestion produces a single macro timeline per document and attaches that timeline under a single parent, then any attachment decision implicitly treats all macro moments in the document as relevant to the same subject. When that assumption is wrong, query timelines can include large amounts of unrelated context.
 
+Related issue: even when a document is correctly partitioned into multiple streams, the macro synthesis step can still promote low-signal conversation events (greetings, jokes, logistics) into macro moments. This makes moment trees harder to read and makes correlation decisions harder to interpret.
+
 ### 5. Efficiently Processing Evolving Conversations
 Conversations evolve. An older part of a thread might remain static while new messages are added. Re-processing and re-summarizing the entire conversation for every new message is wasteful. The system requires a granular caching strategy that can recognize unchanged parts of a conversation to minimize LLM costs and latency.
 
@@ -54,6 +56,8 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 *   **Phase 2b: Threading (Multi-stream documents)**
     Some sources produce documents that are better treated as multiple independent timelines (example: Discord channel/day documents). In those cases, the engine should partition micro moments into multiple streams of thought and preserve stream continuity across micro-moment batches. Macro synthesis is then performed per stream, rather than producing one macro timeline for the entire document.
 
+    Threading does not solve low-signal promotion on its own. Macro synthesis must also be selective about what is persisted as a macro moment.
+
 *   **Phase 3: Correlation (Smart Linker)**
     Before persisting, the engine attempts to stitch the new Macro-Moments into existing timelines.
     1.  **Search**: It queries the vector index for existing Moments that match the semantic content of the new document.
@@ -68,9 +72,38 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 
     When a document is partitioned into multiple streams, correlation should be applied per stream. Each stream is treated as its own timeline for attachment and persistence.
 
+    Correlation depends on macro moment selection. If macro moments include social chatter or administrative updates unrelated to a work item, the resulting timelines become noisy and attachment decisions are harder to interpret.
+
     For sources that often begin with low-signal content (example: Cursor conversations), the engine should not assume that the first synthesized macro moment is the best representative for correlation. One approach is to build the search query from a subset of macro moments chosen by importance (example: select macro moments at or above a per-document percentile cutoff, then concatenate their titles and summaries). When a parent is chosen, the attachment still uses the document's first selected macro moment as the anchor for timestamps and macro indexing, and the document's macro moments are persisted in chronological order under that attachment.
 
     Correlation prefers candidates whose timestamps are not later than their child. When timestamps indicate a time inversion, the candidate can be routed through a stricter classification step rather than rejected solely on time ordering.
+
+### 3. Macro moment selection (noise filtering)
+
+Macro moments are intended to represent turning points in a work item timeline. In practice, some sources (notably Discord channel/day logs) contain interleaved low-signal messages that should not be promoted into macro moments.
+
+The engine should apply two layers of selection:
+
+1. Prompt-level constraints during synthesis:
+   - Macro moments should be emitted only for events that materially affect the work timeline (examples: problem statements, hypotheses, experiments and results, decisions, fixes, merges, follow-up actions).
+   - Macro moments should not be emitted for social chatter, reactions, greetings, jokes, administrative status updates, or logistics unless they change the technical direction of the work item.
+   - Macro moments should include concrete anchors when applicable (example: canonical reference tokens, error messages, commands, links to issues/pull requests).
+
+2. Post-synthesis gating before persistence:
+   - Macro moments should be scored for importance by the synthesizer.
+   - The engine should drop low-importance macro moments before persisting them to the Moment Graph.
+   - The gating rule should be deterministic and configurable (example: keep top N macro moments per stream, keep any above a minimum importance threshold, or keep any above a percentile cutoff).
+
+When macro moments are dropped, provenance is still available for debugging and query expansion via micro moments and raw documents.
+
+#### Debugging provenance for macro selection
+
+To understand why a macro moment was emitted (or why a conversation event was promoted), the system should preserve enough provenance to trace macro moments back to source records:
+
+- Document id (R2 key)
+- Macro moment membership (micro moment paths)
+- Source time range derived from member micro moments
+- Source chunk ids for member micro moments (for Discord, chunk ids include message ids)
 
 ### 3. Canonical references in macro moments (source labels and tokens)
 Macro moments are summaries, but they also need a lightweight way to identify where they came from. The system uses two layers:

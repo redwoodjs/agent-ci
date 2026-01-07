@@ -27,6 +27,14 @@ type MicroMomentBatchRow = Override<
   }
 >;
 
+type DocumentAuditInput = MomentDatabase["document_audit_logs"];
+type DocumentAuditRow = Override<
+  DocumentAuditInput,
+  {
+    payload_json: Record<string, any>;
+  }
+>;
+
 export type MomentGraphContext = {
   env: Cloudflare.Env;
   momentGraphNamespace: string | null;
@@ -769,6 +777,86 @@ export async function findMomentsBySearch(
     createdAt: row.created_at,
     author: row.author,
     sourceMetadata: row.source_metadata || undefined,
+  }));
+}
+
+export async function addDocumentAuditLog(
+  documentId: string,
+  kind: string,
+  payload: Record<string, any>,
+  context: MomentGraphContext
+): Promise<void> {
+  const db = getMomentDb(context);
+  const safeDocumentId = typeof documentId === "string" ? documentId.trim() : "";
+  const safeKind = typeof kind === "string" ? kind.trim() : "";
+  if (safeDocumentId.length === 0 || safeKind.length === 0) {
+    return;
+  }
+
+  const createdAt = new Date().toISOString();
+  await db
+    .insertInto("document_audit_logs")
+    .values({
+      id: crypto.randomUUID(),
+      document_id: safeDocumentId,
+      kind: safeKind,
+      payload_json: JSON.stringify(payload ?? {}),
+      created_at: createdAt,
+    })
+    .execute();
+}
+
+export async function getDocumentAuditLogsForDocument(
+  documentId: string,
+  context: MomentGraphContext,
+  options?: { kindPrefix?: string | null; limit?: number }
+): Promise<
+  Array<{
+    id: string;
+    documentId: string;
+    kind: string;
+    createdAt: string;
+    payload: Record<string, any>;
+  }>
+> {
+  const db = getMomentDb(context);
+  const safeDocumentId = typeof documentId === "string" ? documentId.trim() : "";
+  if (safeDocumentId.length === 0) {
+    return [];
+  }
+
+  const kindPrefixRaw = options?.kindPrefix;
+  const kindPrefix =
+    typeof kindPrefixRaw === "string" && kindPrefixRaw.trim().length > 0
+      ? kindPrefixRaw.trim()
+      : null;
+
+  const limitRaw = options?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 20;
+
+  let query = db
+    .selectFrom("document_audit_logs")
+    .selectAll()
+    .where("document_id", "=", safeDocumentId);
+
+  if (kindPrefix) {
+    query = query.where("kind", "like", `${kindPrefix}%`);
+  }
+
+  const rows = (await query
+    .orderBy("created_at", "desc")
+    .limit(limit)
+    .execute()) as unknown as DocumentAuditRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    documentId: row.document_id,
+    kind: row.kind,
+    createdAt: row.created_at,
+    payload: row.payload_json ?? {},
   }));
 }
 

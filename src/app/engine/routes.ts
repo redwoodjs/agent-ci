@@ -15,6 +15,7 @@ import {
   findLastMomentForDocument,
   getDescendantsForRootSlim,
   getRootStatsByHighImportanceSample,
+  getDocumentAuditLogsForDocument,
 } from "./momentDb";
 import {
   processScannerJob,
@@ -709,6 +710,8 @@ async function momentDebugHandler({ request }: RequestInfo) {
         includeCandidateMoments?: unknown;
         includeTree?: unknown;
         treeMaxNodes?: unknown;
+        includeDocumentAudit?: unknown;
+        documentAuditLimit?: unknown;
       }
     | undefined;
 
@@ -830,6 +833,28 @@ async function momentDebugHandler({ request }: RequestInfo) {
         })
       : null;
 
+  const includeDocumentAudit = (body as any)?.includeDocumentAudit;
+  const includeDocumentAuditResolved =
+    typeof includeDocumentAudit === "boolean" ? includeDocumentAudit : true;
+  const documentAuditLimitRaw = (body as any)?.documentAuditLimit;
+  const documentAuditLimit =
+    typeof documentAuditLimitRaw === "number" &&
+    Number.isFinite(documentAuditLimitRaw) &&
+    documentAuditLimitRaw > 0
+      ? Math.floor(documentAuditLimitRaw)
+      : 20;
+
+  const documentAudit = includeDocumentAuditResolved
+    ? await getDocumentAuditLogsForDocument(
+        moment.documentId,
+        momentGraphContext,
+        {
+          kindPrefix: "synthesis:",
+          limit: documentAuditLimit,
+        }
+      )
+    : null;
+
   return Response.json({
     momentGraphNamespace: effectiveNamespace ?? null,
     momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
@@ -843,6 +868,7 @@ async function momentDebugHandler({ request }: RequestInfo) {
       author: moment.author,
       importance: moment.importance ?? null,
     },
+    documentAudit,
     root: root
       ? {
           id: root.id,

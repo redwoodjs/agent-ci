@@ -20,6 +20,7 @@ import {
   getMoments,
   getMoment,
   getMicroMomentsByPaths,
+  getDocumentAuditLogsForDocument,
 } from "@/app/engine/momentDb";
 import {
   getMomentGraphNamespacePrefixFromEnv,
@@ -406,6 +407,8 @@ export async function getMomentDetailsAction(
     momentGraphNamespacePrefix?: string | null;
     includeProvenance?: boolean;
     provenanceMaxChunkIds?: number;
+    includeDocumentAudit?: boolean;
+    documentAuditLimit?: number;
   }
 ) {
   try {
@@ -502,9 +505,28 @@ export async function getMomentDetailsAction(
       };
     }
 
+    const includeDocumentAuditRaw = options?.includeDocumentAudit;
+    const includeDocumentAudit =
+      typeof includeDocumentAuditRaw === "boolean" ? includeDocumentAuditRaw : true;
+    const documentAuditLimitRaw = options?.documentAuditLimit;
+    const documentAuditLimit =
+      typeof documentAuditLimitRaw === "number" &&
+      Number.isFinite(documentAuditLimitRaw) &&
+      documentAuditLimitRaw > 0
+        ? Math.floor(documentAuditLimitRaw)
+        : 10;
+
+    const documentAudit =
+      includeDocumentAudit && moment
+        ? await getDocumentAuditLogsForDocument(moment.documentId, context, {
+            kindPrefix: "synthesis:",
+            limit: documentAuditLimit,
+          })
+        : null;
+
     return {
       success: true,
-      data: moment ? { ...(moment as any), provenance } : moment,
+      data: moment ? { ...(moment as any), provenance, documentAudit } : moment,
       effectiveNamespace,
       prefix: effectivePrefix,
     };

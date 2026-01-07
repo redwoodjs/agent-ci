@@ -13,10 +13,42 @@ export type MacroMomentStream = {
   macroMoments: MacroMoment[];
 };
 
+export type SynthesisAuditEvent = {
+  kind:
+    | "macro-synthesis-parse-failure"
+    | "macro-synthesis-error"
+    | "macro-stream-synthesis-error";
+  message: string;
+  promptHash16: string | null;
+  responsePreview: string | null;
+  responseLength: number | null;
+};
+
+async function hashText16(input: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(input);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  return hashHex.slice(0, 16);
+}
+
+function safePreview(value: unknown, maxChars: number): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return trimmed.length > maxChars ? trimmed.slice(0, maxChars) : trimmed;
+}
+
 export async function synthesizeMicroMoments(
   microMoments: MicroMoment[],
   options?: {
     macroSynthesisPromptContext?: string | null;
+    auditSink?: (event: SynthesisAuditEvent) => void;
   }
 ): Promise<
   Array<
@@ -135,6 +167,11 @@ ${formattedMoments}
   }).
 - Focus on the story of the work, not just a chronological list.`;
 
+  const promptHash16 =
+    typeof synthesisPrompt === "string" && synthesisPrompt.length > 0
+      ? await hashText16(synthesisPrompt)
+      : null;
+
   try {
     const response = await callLLM(synthesisPrompt, "slow-reasoning", {
       temperature: 0,
@@ -244,6 +281,13 @@ ${formattedMoments}
       console.error(
         `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`
       );
+      options?.auditSink?.({
+        kind: "macro-synthesis-parse-failure",
+        message: "Failed to parse any macro moments from synthesis response.",
+        promptHash16,
+        responsePreview: safePreview(response, 2000),
+        responseLength: typeof response === "string" ? response.length : null,
+      });
       return [];
     }
 
@@ -253,6 +297,13 @@ ${formattedMoments}
       `[engine] Error during synthesis:`,
       error instanceof Error ? error.message : String(error)
     );
+    options?.auditSink?.({
+      kind: "macro-synthesis-error",
+      message: error instanceof Error ? error.message : String(error),
+      promptHash16: null,
+      responsePreview: null,
+      responseLength: null,
+    });
     return [];
   }
 }
@@ -261,6 +312,7 @@ export async function synthesizeMicroMomentsIntoStreams(
   microMoments: MicroMoment[],
   options?: {
     macroSynthesisPromptContext?: string | null;
+    auditSink?: (event: SynthesisAuditEvent) => void;
   }
 ): Promise<MacroMomentStream[]> {
   if (microMoments.length === 0) {
@@ -407,6 +459,11 @@ ${formattedMoments}
     /MACRO-MOMENT \d+\s*TITLE:\s*(.*?)\s*INDICES:\s*(.*?)\s*IMPORTANCE:\s*(.*?)\s*SUMMARY:\s*([\s\S]*?)(?=\s*MACRO-MOMENT \d+|\s*$)/g;
   const streamRegex = /STREAM\s+(\d+)\s*([\s\S]*?)(?=\n\s*STREAM\s+\d+\s*|$)/g;
 
+  const promptHash16 =
+    typeof synthesisPrompt === "string" && synthesisPrompt.length > 0
+      ? await hashText16(synthesisPrompt)
+      : null;
+
   try {
     const response = await callLLM(synthesisPrompt, "slow-reasoning", {
       temperature: 0,
@@ -518,6 +575,13 @@ ${formattedMoments}
       `[engine] Error during stream synthesis:`,
       error instanceof Error ? error.message : String(error)
     );
+    options?.auditSink?.({
+      kind: "macro-stream-synthesis-error",
+      message: error instanceof Error ? error.message : String(error),
+      promptHash16,
+      responsePreview: null,
+      responseLength: null,
+    });
     return [];
   }
 }

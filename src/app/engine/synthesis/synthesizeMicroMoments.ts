@@ -88,9 +88,17 @@ export async function synthesizeMicroMoments(
 `
       : "";
 
-  const synthesisPrompt = `You are an expert at analyzing sequences of events to build a coherent narrative. Your task is to consolidate a series of low-level "micro-moments" into a smaller number of high-level "macro-moments" that tell a story of progress, discovery, and decision-making.
+  const synthesisPrompt = `You are an expert at analyzing sequences of events to build a coherent narrative. Your task is to consolidate a series of low-level "micro-moments" into a smaller number of high-level "macro-moments" that summarize the turning points in the work timeline.
 
-**Your Goal:** Identify and record the most significant events. Specifically look for turning points, key discoveries or realizations, newly identified problems, new insights, important decisions, changes in approach, new attempts at solving the problem
+Selection rules (macro moments to exclude):
+- Do not emit macro moments for automated system or bot status updates (examples: deployment previews, CI status, preview builds, dependency bot updates) unless they contain a concrete decision or a change in technical direction.
+- Do not emit macro moments for administrative state changes (examples: closing an issue, adding labels, assigning reviewers) unless the text includes a concrete technical decision or an implementation change.
+- Do not emit macro moments for social chatter, jokes, greetings, reactions, emojis, memes, gifs, or off-topic banter.
+- Do not emit macro moments for generic encouragement, praise, or gratitude.
+
+Selection rules (macro moments to include):
+- Prefer decisions, hypotheses, experiments and results, fixes, merges, and follow-up actions.
+- Prefer moments that contain concrete anchors (examples: error messages, commands, PR/issue links, canonical reference tokens).
 
 ${formattingRules}
 
@@ -340,6 +348,8 @@ Goal:
 - Prefer emitting fewer macro moments over emitting low-signal macro moments.
 
 Selection rules (macro moments to exclude):
+- Do not emit macro moments for automated system or bot status updates (examples: deployment previews, CI status, preview builds, dependency bot updates) unless they contain a concrete decision or a change in technical direction.
+- Do not emit macro moments for administrative state changes (examples: closing an issue, adding labels, assigning reviewers) unless the text includes a concrete technical decision or an implementation change.
 - Do not emit macro moments for social chatter, jokes, greetings, reactions, emojis, memes, gifs, or off-topic banter.
 - Do not emit macro moments for administrative or status updates (examples: "back now", "will continue later") unless they change the technical direction of the work.
 - Do not emit macro moments for generic encouragement or gratitude.

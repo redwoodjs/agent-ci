@@ -797,6 +797,40 @@ export async function findSimilarSubjects(
   return subjects;
 }
 
+export async function findMomentsBySearch(
+  searchText: string,
+  context: MomentGraphContext,
+  limit: number = 10
+): Promise<Moment[]> {
+  const db = getMomentDb(context);
+  const rows = (await db
+    .selectFrom("moments")
+    .selectAll()
+    .where((eb) =>
+      eb.or([
+        eb("title", "like", `%${searchText}%`),
+        eb("summary", "like", `%${searchText}%`),
+      ])
+    )
+    .limit(limit)
+    .execute()) as unknown as MomentRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    documentId: row.document_id,
+    summary: row.summary,
+    title: row.title,
+    parentId: row.parent_id || undefined,
+    microPaths: row.micro_paths_json || undefined,
+    microPathsHash: row.micro_paths_hash || undefined,
+    importance: typeof row.importance === "number" ? row.importance : undefined,
+    linkAuditLog: row.link_audit_log || undefined,
+    createdAt: row.created_at,
+    author: row.author,
+    sourceMetadata: row.source_metadata || undefined,
+  }));
+}
+
 export async function findLastMomentForDocument(
   documentId: string,
   context: MomentGraphContext

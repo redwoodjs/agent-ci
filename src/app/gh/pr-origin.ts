@@ -4,10 +4,13 @@ import {
   findAncestors,
   findLastMomentForDocument,
   findDescendants,
+  findSimilarMoments,
+  findMomentsBySearch,
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
 import { getPullRequestsForCommit, parseGitHubRepo } from "./github-utils";
 import { callLLM } from "@/app/engine/utils/llm";
+import { getEmbedding } from "@/app/engine/utils/vector";
 import { getMomentGraphNamespaceFromEnv } from "@/app/engine/momentGraphNamespace";
 import type { Moment } from "@/app/engine/types";
 
@@ -154,7 +157,10 @@ function extractCitations(moments: Moment[]): Citation[] {
 }
 
 export async function prOriginHandler({ request, ctx }: RequestInfo) {
+  console.log(`[pr-origin] Handler called: ${request.method} ${request.url}`);
+
   if (request.method !== "POST") {
+    console.log(`[pr-origin] Method not allowed: ${request.method}`);
     return new Response("Method not allowed", { status: 405 });
   }
 
@@ -294,6 +300,9 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
         momentGraphContext
       );
       if (lastMoment) {
+        console.log(
+          `[pr-origin] Found direct match for PR #${prNumber} in graph`
+        );
         const ancestors = await findAncestors(
           lastMoment.id,
           momentGraphContext
@@ -302,21 +311,46 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
         const descendants = await findDescendants(root.id, momentGraphContext);
 
         allRelatedMoments.push(...ancestors, ...descendants);
-      }
-    }
+      } else {
+        console.log(
+          `[pr-origin] PR #${prNumber} not indexed. Searching for related moments...`
+        );
 
-    if (allRelatedMoments.length === 0) {
-      return new Response(
-        `Found PRs (${prNumbers.join(
-          ", "
-        )}) but none of them have been indexed in the knowledge base yet.`,
-        {
-          status: 404,
-          headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-          },
+        // Fallback 1: Search by PR reference (e.g. "PR #804")
+        const referenceSearch = await findMomentsBySearch(
+          `#${prNumber}`,
+          momentGraphContext,
+          10
+        );
+        allRelatedMoments.push(...referenceSearch);
+        console.log(
+          `[pr-origin] Found ${referenceSearch.length} moments by reference search for PR #${prNumber}`
+        );
+
+        // Fallback 2: Semantic search by PR title/body
+        const queryText = `${prData.title || ""}\n\n${
+          prData.body || ""
+        }`.substring(0, 1000);
+        if (queryText.trim().length > 0) {
+          try {
+            const embedding = await getEmbedding(queryText);
+            const similarMoments = await findSimilarMoments(
+              embedding,
+              10,
+              momentGraphContext
+            );
+            allRelatedMoments.push(...similarMoments);
+            console.log(
+              `[pr-origin] Found ${similarMoments.length} moments by semantic search for PR #${prNumber}`
+            );
+          } catch (err) {
+            console.error(
+              `[pr-origin] Semantic search failed for PR #${prNumber}:`,
+              err
+            );
+          }
         }
-      );
+      }
     }
 
     // 3. deduplicate and build timeline
@@ -352,7 +386,10 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
     const timelineLines = sortedTimeline.map((moment, idx) =>
       formatTimelineLine(moment, idx)
     );
-    const narrativeContext = timelineLines.join("\n\n");
+    const narrativeContext =
+      timelineLines.length > 0
+        ? timelineLines.join("\n\n")
+        : "No related events found in the knowledge base for these pull requests yet.";
 
     // 4. LLM Synthesis
     // Build code location section if code context is available
@@ -380,7 +417,7 @@ ${prSummaries.join("\n")}
 ${narrativeContext}
 
 ## Instructions
-Based on the timeline above, explain:
+Based on the information provided above (Code Location, Related Pull Requests, and Timeline), explain:
 1. How has ${
       file && line !== null ? "this specific code" : "this code"
     } evolved over time across these different pull requests?
@@ -395,15 +432,16 @@ Based on the timeline above, explain:
     } at different stages?
 
 Rules:
-- You MUST only use timestamps that appear at the start of Timeline lines. Do not invent or guess dates.
-- When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
-- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]").
-- You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
-- Mention only events needed to answer the questions.
+- You MUST only use timestamps that appear at the start of Timeline lines or in Pull Request Information. Do not invent or guess dates.
+- When you mention a Timeline event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
+- When you mention a Pull Request, you MUST include its number and the provided metadata (author, title, etc.).
+- You MUST include the data source label when you mention a Timeline event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]").
+- You MUST NOT mention events, sources, or pull requests/issues that are not present in the text above.
+- Mention only events and PRs needed to answer the questions.
 - If a Timeline line includes an importance=0..1 field, prefer higher importance events.
 - If information is missing for part of the question, say so directly.
 
-Write a clear narrative that explains the sequence and causal relationships between events using the Timeline order.`;
+Write a clear narrative that explains the sequence and causal relationships between events and pull requests.`;
 
     console.log(
       `[pr-origin] Calling LLM to synthesize narrative for ${prNumbers.length} PRs`

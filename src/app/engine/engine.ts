@@ -520,14 +520,105 @@ export async function indexDocument(
               : 0.25;
 
           const macroMomentDescriptions = (() => {
-            const withIndex = macroMomentDescriptionsRaw.map((m, idx) => ({
-              idx,
-              m,
-              importance:
-                m && typeof (m as any).importance === "number"
-                  ? ((m as any).importance as number)
-                  : 0,
-            }));
+            const noisePatternsFromEnvRaw = (indexingContext.env as any)
+              .MACRO_MOMENT_NOISE_PATTERNS;
+            const noisePatternStringsFromEnv =
+              typeof noisePatternsFromEnvRaw === "string"
+                ? noisePatternsFromEnvRaw
+                    .split(/\r?\n|,/g)
+                    .map((s: string) => s.trim())
+                    .filter((s: string) => s.length > 0)
+                : [];
+
+            const noisePatternStrings = [
+              "\\bdependabot\\b",
+              "\\bdeployment preview\\b",
+              "\\bpreview deployment\\b",
+              "\\bcloudflare pages\\b",
+              "\\b(successful deployment|deployed successfully)\\b",
+              ...noisePatternStringsFromEnv,
+            ];
+
+            const noiseRegexes = noisePatternStrings
+              .map((p) => {
+                try {
+                  return new RegExp(p, "i");
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean) as RegExp[];
+
+            function isNoiseMacroMoment(m: MacroMomentDescription): boolean {
+              const title = typeof m?.title === "string" ? m.title : "";
+              const summary = typeof (m as any)?.summary === "string"
+                ? ((m as any).summary as string)
+                : "";
+              const author = typeof m?.author === "string" ? m.author : "";
+
+              const combinedLower = `${title}\n${summary}`.toLowerCase();
+              const isGitHub = combinedLower.includes("mchn://gh/");
+              if (!isGitHub) {
+                return false;
+              }
+
+              const authorLower = author.toLowerCase();
+              if (
+                authorLower.includes("dependabot") ||
+                authorLower.includes("[bot]") ||
+                authorLower.endsWith("-bot") ||
+                authorLower.endsWith(" bot") ||
+                authorLower.includes(" bot ")
+              ) {
+                return true;
+              }
+
+              const strippedTitleLower = title
+                .replace(/^\s*\[[^\]]+\]\s*/g, "")
+                .trim()
+                .toLowerCase();
+
+              if (
+                strippedTitleLower.startsWith("praise") ||
+                strippedTitleLower.startsWith("thanks") ||
+                strippedTitleLower.startsWith("thank you") ||
+                strippedTitleLower.startsWith("kudos")
+              ) {
+                return true;
+              }
+
+              for (const re of noiseRegexes) {
+                if (re.test(title) || re.test(summary)) {
+                  return true;
+                }
+              }
+
+              if (combinedLower.includes("closed issue")) {
+                const hasTechnicalSignal = /\b(fix|fixed|bug|error|investigat|regression|implement|implemented|add|added|remove|removed|merge|merged|release|released|ship|shipped|deploy|deployed|rollback)\b/i.test(
+                  `${title}\n${summary}`
+                );
+                if (!hasTechnicalSignal) {
+                  return true;
+                }
+              }
+
+              return false;
+            }
+
+            const withIndex = macroMomentDescriptionsRaw
+              .map((m, idx) => ({
+                idx,
+                m,
+                importance:
+                  m && typeof (m as any).importance === "number"
+                    ? ((m as any).importance as number)
+                    : 0,
+              }))
+              .filter((x) => !isNoiseMacroMoment(x.m));
+
+            if (withIndex.length === 0) {
+              return [];
+            }
 
             const sortedByImportance = withIndex
               .slice()

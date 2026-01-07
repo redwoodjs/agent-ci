@@ -134,6 +134,7 @@ function extractGitHubUrlFromDocumentId(documentId: string): string | null {
 
 /**
  * Extract citations from moments in the timeline
+ * Only extracts GitHub URLs (PRs, issues, projects)
  */
 function extractCitations(moments: Moment[]): Citation[] {
   const citations: Citation[] = [];
@@ -154,6 +155,16 @@ function extractCitations(moments: Moment[]): Citation[] {
   }
 
   return citations;
+}
+
+/**
+ * Get source type from documentId (e.g., "github", "discord", "cursor")
+ */
+function getSourceType(documentId: string): string {
+  if (documentId.startsWith("github/")) return "github";
+  if (documentId.startsWith("discord/")) return "discord";
+  if (documentId.startsWith("cursor/")) return "cursor";
+  return "unknown";
 }
 
 export async function prOriginHandler({ request, ctx }: RequestInfo) {
@@ -299,6 +310,7 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
         }, Created: ${prData.created_at || "N/A"})`
       );
 
+      // Always start with direct graph lookup if available
       const lastMoment = await findLastMomentForDocument(
         r2Key,
         momentGraphContext
@@ -315,44 +327,67 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
         const descendants = await findDescendants(root.id, momentGraphContext);
 
         allRelatedMoments.push(...ancestors, ...descendants);
-      } else {
-        console.log(
-          `[pr-origin] PR #${prNumber} not indexed. Searching for related moments...`
-        );
+      }
 
-        // Fallback 1: Search by PR reference (e.g. "PR #804")
-        const referenceSearch = await findMomentsBySearch(
-          `#${prNumber}`,
-          momentGraphContext,
-          10
-        );
-        allRelatedMoments.push(...referenceSearch);
-        console.log(
-          `[pr-origin] Found ${referenceSearch.length} moments by reference search for PR #${prNumber}`
-        );
+      // Always perform additional searches to find unlinked but related moments
+      // This ensures we discover Discord threads, Cursor chats, and other sources
+      // that may be semantically related but not directly linked in the graph
+      console.log(
+        `[pr-origin] Performing additional searches for PR #${prNumber} to find related context from all sources...`
+      );
 
-        // Fallback 2: Semantic search by PR title/body
-        const queryText = `${prData.title || ""}\n\n${
-          prData.body || ""
-        }`.substring(0, 1000);
-        if (queryText.trim().length > 0) {
-          try {
-            const embedding = await getEmbedding(queryText);
-            const similarMoments = await findSimilarMoments(
-              embedding,
-              10,
-              momentGraphContext
-            );
-            allRelatedMoments.push(...similarMoments);
-            console.log(
-              `[pr-origin] Found ${similarMoments.length} moments by semantic search for PR #${prNumber}`
-            );
-          } catch (err) {
-            console.error(
-              `[pr-origin] Semantic search failed for PR #${prNumber}:`,
-              err
-            );
+      // Search 1: Reference search by PR number (e.g. "PR #804" or "#804")
+      const referenceSearch = await findMomentsBySearch(
+        `#${prNumber}`,
+        momentGraphContext,
+        10
+      );
+      allRelatedMoments.push(...referenceSearch);
+      
+      // Log source breakdown for reference search
+      const referenceSources = new Map<string, number>();
+      for (const moment of referenceSearch) {
+        if (moment.documentId) {
+          const source = getSourceType(moment.documentId);
+          referenceSources.set(source, (referenceSources.get(source) || 0) + 1);
+        }
+      }
+      console.log(
+        `[pr-origin] Found ${referenceSearch.length} moments by reference search for PR #${prNumber}`,
+        Object.fromEntries(referenceSources)
+      );
+
+      // Search 2: Semantic search by PR title/body
+      const queryText = `${prData.title || ""}\n\n${
+        prData.body || ""
+      }`.substring(0, 1000);
+      if (queryText.trim().length > 0) {
+        try {
+          const embedding = await getEmbedding(queryText);
+          const similarMoments = await findSimilarMoments(
+            embedding,
+            10,
+            momentGraphContext
+          );
+          allRelatedMoments.push(...similarMoments);
+          
+          // Log source breakdown for semantic search
+          const semanticSources = new Map<string, number>();
+          for (const moment of similarMoments) {
+            if (moment.documentId) {
+              const source = getSourceType(moment.documentId);
+              semanticSources.set(source, (semanticSources.get(source) || 0) + 1);
+            }
           }
+          console.log(
+            `[pr-origin] Found ${similarMoments.length} moments by semantic search for PR #${prNumber}`,
+            Object.fromEntries(semanticSources)
+          );
+        } catch (err) {
+          console.error(
+            `[pr-origin] Semantic search failed for PR #${prNumber}:`,
+            err
+          );
         }
       }
     }
@@ -362,6 +397,19 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
     for (const m of allRelatedMoments) {
       uniqueMomentsMap.set(m.id, m);
     }
+    
+    // Log final source breakdown
+    const finalSources = new Map<string, number>();
+    for (const moment of uniqueMomentsMap.values()) {
+      if (moment.documentId) {
+        const source = getSourceType(moment.documentId);
+        finalSources.set(source, (finalSources.get(source) || 0) + 1);
+      }
+    }
+    console.log(
+      `[pr-origin] Final timeline contains ${uniqueMomentsMap.size} unique moments from sources:`,
+      Object.fromEntries(finalSources)
+    );
     const sortedTimeline = Array.from(uniqueMomentsMap.values()).sort(
       (a, b) => {
         const aKey = timelineSortKey(a);
@@ -421,7 +469,13 @@ ${prSummaries.join("\n")}
 ${narrativeContext}
 
 ## Instructions
-Based on the information provided above (Code Location, Related Pull Requests, and Timeline), explain:
+Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format:
+
+### TL;DR
+[Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed.]
+
+### Full Analysis
+[Write a detailed narrative that explains:]
 1. How has ${
       file && line !== null ? "this specific code" : "this code"
     } evolved over time across these different pull requests?
@@ -444,22 +498,41 @@ Rules:
 - Mention only events and PRs needed to answer the questions.
 - If a Timeline line includes an importance=0..1 field, prefer higher importance events.
 - If information is missing for part of the question, say so directly.
+- IMPORTANT: The Timeline may contain events from multiple sources (GitHub PRs/issues, Discord threads, Cursor chats, etc.). When available, actively incorporate information from all these sources to provide a comprehensive narrative. Discord threads and Cursor chats often contain valuable context and discussions that influenced the code decisions, even if they are not directly linked in the graph.
 
-Write a clear narrative that explains the sequence and causal relationships between events and pull requests.`;
+Write a clear narrative that explains the sequence and causal relationships between events and pull requests, drawing from all available sources in the Timeline.`;
 
     console.log(
       `[pr-origin] Calling LLM to synthesize narrative for ${prNumbers.length} PRs`
     );
-    const narrative = await callLLM(prompt, "slow-reasoning", {
+    const fullResponse = await callLLM(prompt, "slow-reasoning", {
       temperature: 0,
       reasoning: { effort: "low" },
     });
 
+    // Parse TL;DR and narrative from the response
+    let tldr = "";
+    let narrative = fullResponse;
+    
+    const tldrMatch = fullResponse.match(/###\s*TL;DR\s*\n([\s\S]*?)(?=\n###\s*Full\s*Analysis|$)/i);
+    const fullAnalysisMatch = fullResponse.match(/###\s*Full\s*Analysis\s*\n([\s\S]*?)$/i);
+    
+    if (tldrMatch) {
+      tldr = tldrMatch[1].trim();
+    }
+    if (fullAnalysisMatch) {
+      narrative = fullAnalysisMatch[1].trim();
+    } else if (!tldrMatch) {
+      // If no sections found, use the whole response as narrative
+      narrative = fullResponse.trim();
+    }
+
     // Extract citations from the timeline moments
     const citations = extractCitations(sortedTimeline);
 
-    // Return JSON response with narrative, citations, commits, and PRs
+    // Return JSON response with tldr, narrative, citations, commits, and PRs
     const response = {
+      tldr: tldr || null,
       narrative,
       citations,
       commitHashes,

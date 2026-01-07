@@ -813,25 +813,6 @@ async function momentDebugHandler({ request }: RequestInfo) {
     }
   }
 
-<<<<<<< HEAD
-  const includeTree = Boolean((body as any)?.includeTree);
-  const treeMaxNodesRaw = (body as any)?.treeMaxNodes;
-  const treeMaxNodes =
-    typeof treeMaxNodesRaw === "number" &&
-    Number.isFinite(treeMaxNodesRaw) &&
-    treeMaxNodesRaw > 0
-      ? Math.floor(treeMaxNodesRaw)
-      : 5000;
-
-  const tree =
-    includeTree && root
-      ? await getDescendantsForRootSlim(root.id, momentGraphContext, {
-          maxNodes: treeMaxNodes,
-        })
-      : null;
-
-=======
->>>>>>> main
   return Response.json({
     momentGraphNamespace: effectiveNamespace ?? null,
     momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
@@ -852,16 +833,6 @@ async function momentDebugHandler({ request }: RequestInfo) {
           documentId: root.documentId,
         }
       : null,
-<<<<<<< HEAD
-    tree: tree
-      ? {
-          nodes: tree.nodes,
-          truncated: tree.truncated,
-          maxNodes: treeMaxNodes,
-        }
-      : null,
-=======
->>>>>>> main
     linkage: {
       auditLog,
       candidateLimit,

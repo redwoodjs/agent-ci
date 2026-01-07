@@ -1520,6 +1520,7 @@ async function getPrOrigin(
   const config = vscode.workspace.getConfiguration("machinen");
   const apiUrl = config.get<string>("apiUrl", "");
   const apiKey = config.get<string>("apiKey", "");
+  const namespace = config.get<string>("namespace", "");
 
   if (!apiUrl || !apiKey) {
     logger.appendLine(
@@ -1557,6 +1558,7 @@ async function getPrOrigin(
       ...(codeContext?.line !== undefined && { line: codeContext.line }),
       ...(codeContext?.codeContent && { codeContent: codeContext.codeContent }),
       ...(codeContext?.context && { context: codeContext.context }),
+      ...(namespace && { namespace: namespace }),
     });
 
     const response = await new Promise<{
@@ -1652,6 +1654,7 @@ async function getCodeOrigin(
   const config = vscode.workspace.getConfiguration("machinen");
   const apiUrl = config.get<string>("apiUrl", "");
   const apiKey = config.get<string>("apiKey", "");
+  const namespace = config.get<string>("namespace", "");
 
   if (!apiUrl || !apiKey) {
     logger.appendLine(
@@ -1726,6 +1729,7 @@ async function getCodeOrigin(
       commitHash: commitHash,
       owner: ownerRepo.owner,
       repo: ownerRepo.repo,
+      ...(namespace && { namespace: namespace }),
     });
 
     const response = await new Promise<{

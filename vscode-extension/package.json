@@ -31,6 +31,11 @@
           "type": "string",
           "default": "",
           "description": "API key for authenticating with the Machinen API"
+        },
+        "machinen.namespace": {
+          "type": "string",
+          "default": "",
+          "description": "Moment graph namespace to use for queries. If not set, uses the default namespace configured on the backend (MOMENT_GRAPH_NAMESPACE environment variable)."
         }
       }
     },

@@ -173,6 +173,7 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
       line?: unknown;
       codeContent?: unknown;
       context?: unknown;
+      namespace?: unknown;
     } = {};
     try {
       body = (await request.json()) as typeof body;
@@ -193,6 +194,8 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
     const codeContent =
       typeof body.codeContent === "string" ? body.codeContent : null;
     const context = typeof body.context === "string" ? body.context : null;
+    const namespaceOverride =
+      typeof body.namespace === "string" ? body.namespace : null;
 
     if (!commitHashes || commitHashes.length === 0 || !repoInput) {
       return new Response(
@@ -270,7 +273,8 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
 
     // 2. Fetch data for each PR from R2 and find moments in the graph
     const bucket = envCloudflare.MACHINEN_BUCKET;
-    const momentGraphNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
+    const momentGraphNamespace =
+      namespaceOverride ?? getMomentGraphNamespaceFromEnv(envCloudflare);
     const momentGraphContext: MomentGraphContext = {
       env: envCloudflare,
       momentGraphNamespace: momentGraphNamespace,

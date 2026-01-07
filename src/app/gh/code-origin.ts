@@ -102,6 +102,7 @@ export async function codeOriginHandler({ request, ctx }: RequestInfo) {
       commitHash?: unknown;
       owner?: unknown;
       repo?: unknown;
+      namespace?: unknown;
     } = {};
     try {
       body = (await request.json()) as typeof body;
@@ -115,6 +116,8 @@ export async function codeOriginHandler({ request, ctx }: RequestInfo) {
       typeof body.commitHash === "string" ? body.commitHash : null;
     const owner = typeof body.owner === "string" ? body.owner : null;
     const repo = typeof body.repo === "string" ? body.repo : null;
+    const namespaceOverride =
+      typeof body.namespace === "string" ? body.namespace : null;
 
     if (!file || line === null || !commitHash || !owner || !repo) {
       return new Response(
@@ -173,7 +176,8 @@ export async function codeOriginHandler({ request, ctx }: RequestInfo) {
     console.log(`[code-origin] Fetched PR data from R2: ${r2Key}`);
 
     // 4. Find Moment in Graph
-    const momentGraphNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
+    const momentGraphNamespace =
+      namespaceOverride ?? getMomentGraphNamespaceFromEnv(envCloudflare);
     const momentGraphContext: MomentGraphContext = {
       env: envCloudflare,
       momentGraphNamespace: momentGraphNamespace,

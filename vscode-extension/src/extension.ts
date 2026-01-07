@@ -8,6 +8,8 @@ const logger = vscode.window.createOutputChannel("Machinen");
 
 // Track open webviews to avoid duplicates
 const openWebviews = new Map<string, vscode.WebviewPanel>();
+// Store codeOrigin data for each webview (for "Add to Chat" button)
+const webviewCodeOriginData = new Map<string, CodeOriginInfo | null>();
 
 /**
  * Interface for author statistics
@@ -23,6 +25,7 @@ interface AuthorStat {
  */
 interface LineHistoryEntry {
   hash: string;
+  shortHash: string;
   author: string;
   date: string;
   message: string;
@@ -48,6 +51,20 @@ interface GitBlameInfo {
 interface CodeOriginInfo {
   narrative?: string;
   error?: string;
+  citations?: Citation[];
+  commitHashes?: string[];
+  prNumbers?: number[];
+  owner?: string;
+  repo?: string;
+}
+
+/**
+ * Interface for citation
+ */
+interface Citation {
+  title: string;
+  url: string;
+  momentId: string;
 }
 
 /**
@@ -56,58 +73,47 @@ interface CodeOriginInfo {
 interface PrOriginInfo {
   narrative?: string;
   error?: string;
+  citations?: Citation[];
+  commitHashes?: string[];
+  prNumbers?: number[];
 }
 
 export function activate(context: vscode.ExtensionContext) {
   logger.appendLine("Machinen is now active!");
 
-  // Function to create and show pop-over webview
-  function showPopOver(
+  /**
+   * Format PR origin analysis as markdown for Cursor chat
+   */
+  function formatPrOriginForChat(codeOrigin: CodeOriginInfo): string {
+    if (!codeOrigin.narrative) {
+      return "";
+    }
+
+    let markdown = "## PR Origin Analysis\n\n";
+    markdown += codeOrigin.narrative;
+
+    if (codeOrigin.citations && codeOrigin.citations.length > 0) {
+      markdown += "\n\n### References\n\n";
+      for (const citation of codeOrigin.citations) {
+        markdown += `- [${citation.title}](${citation.url})\n`;
+      }
+    }
+
+    return markdown;
+  }
+
+  // Internal helper to render pop-over content into an existing panel
+  function renderPopOverContent(
+    panel: vscode.WebviewPanel,
     document: vscode.TextDocument,
     position: vscode.Position,
     gitInfo: GitBlameInfo | null = null,
     codeOrigin: CodeOriginInfo | null = null
   ) {
     const documentKey = `${document.uri.toString()}:${position.line}`;
-
-    // Close existing webview for this location if open
-    if (openWebviews.has(documentKey)) {
-      const existingPanel = openWebviews.get(documentKey);
-      if (existingPanel) {
-        existingPanel.dispose();
-      }
-    }
-
-    const info = getInformationCallback(document, position);
-    const infoLines = info.split("\n");
-
-    // Get filename and line number for the panel title
-    const fileName = path.basename(document.fileName);
-    const lineNumber = position.line + 1; // Line numbers are 1-indexed for display
-    const panelTitle = `${fileName}:${lineNumber}`;
-
-    // Create webview panel
-    const panel = vscode.window.createWebviewPanel(
-      "machinen",
-      panelTitle,
-      {
-        viewColumn: vscode.ViewColumn.Beside,
-        preserveFocus: true,
-      },
-      {
-        enableScripts: false,
-        retainContextWhenHidden: false,
-      }
-    );
-
-    // Set icon for the panel using comment-discussion-sparkle icon
-    const iconPath = vscode.Uri.joinPath(
-      context.extensionUri,
-      "resources",
-      "comment-discussion-sparkle.svg"
-    );
-    panel.iconPath = iconPath;
-
+    
+    // Store codeOrigin data for "Add to Chat" button
+    webviewCodeOriginData.set(documentKey, codeOrigin);
     // Format git blame information for display
     let gitInfoHtml = "";
     if (gitInfo) {
@@ -158,7 +164,7 @@ export function activate(context: vscode.ExtensionContext) {
               <div style="padding: 8px; background-color: var(--vscode-editor-background); border-left: 3px solid var(--vscode-textLink-foreground); padding-left: 12px;">
                 <div style="display: flex; gap: 12px; margin-bottom: 4px;">
                   <span style="font-family: monospace; color: var(--vscode-textLink-foreground);">${escapeHtml(
-                    entry.hash
+                    entry.shortHash
                   )}</span>
                   <span style="color: var(--vscode-descriptionForeground);">${escapeHtml(
                     entry.author
@@ -262,18 +268,140 @@ export function activate(context: vscode.ExtensionContext) {
           </div>
         `;
       } else if (codeOrigin.narrative) {
+        // Build commits section
+        const commitHashes = codeOrigin.commitHashes || [];
+        let commitsHtml = "";
+        if (commitHashes.length > 0 && codeOrigin.owner && codeOrigin.repo) {
+          const commitsList = commitHashes
+            .map(
+              (hash) => `
+              <li style="margin-bottom: 4px;">
+                <a href="https://github.com/${escapeHtml(codeOrigin.owner)}/${escapeHtml(codeOrigin.repo)}/commit/${escapeHtml(hash)}" style="color: var(--vscode-textLink-foreground); text-decoration: underline; font-family: monospace;" target="_blank">${escapeHtml(hash.substring(0, 7))}</a>
+              </li>
+            `
+            )
+            .join("");
+          commitsHtml = `
+            <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--vscode-panel-border);">
+              <h4 style="margin-top: 0; margin-bottom: 8px; color: var(--vscode-textLink-foreground);">Commits Analyzed</h4>
+              <ul style="margin: 0; padding-left: 20px; list-style-type: disc;">
+                ${commitsList}
+              </ul>
+            </div>
+          `;
+        }
+
+        // Build PRs section
+        const prNumbers = codeOrigin.prNumbers || [];
+        let prsHtml = "";
+        if (prNumbers.length > 0 && codeOrigin.owner && codeOrigin.repo) {
+          const prsList = prNumbers
+            .map(
+              (prNum) => `
+              <li style="margin-bottom: 4px;">
+                <a href="https://github.com/${escapeHtml(codeOrigin.owner)}/${escapeHtml(codeOrigin.repo)}/pull/${prNum}" style="color: var(--vscode-textLink-foreground); text-decoration: underline;" target="_blank">PR #${prNum}</a>
+              </li>
+            `
+            )
+            .join("");
+          prsHtml = `
+            <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--vscode-panel-border);">
+              <h4 style="margin-top: 0; margin-bottom: 8px; color: var(--vscode-textLink-foreground);">Related Pull Requests</h4>
+              <ul style="margin: 0; padding-left: 20px; list-style-type: disc;">
+                ${prsList}
+              </ul>
+            </div>
+          `;
+        }
+
+        // Process narrative to add clickable links for citations
+        let processedNarrative = escapeHtml(codeOrigin.narrative);
+        const citations = codeOrigin.citations || [];
+
+        // Create a map for citation lookup - try exact match first, then partial match
+        const citationMap = new Map<string, string>();
+        for (const citation of citations) {
+          citationMap.set(citation.title, citation.url);
+          // Also try matching without brackets for flexibility
+          const titleWithoutBrackets = citation.title.replace(/^\[|\]$/g, "");
+          if (titleWithoutBrackets !== citation.title) {
+            citationMap.set(titleWithoutBrackets, citation.url);
+          }
+        }
+
+        // Replace citation references in the narrative with clickable links
+        // Pattern: [GitHub Issue #123] or [GitHub Pull Request #456]
+        // Also match variations like "GitHub Issue #123" without brackets
+        processedNarrative = processedNarrative.replace(
+          /\[([^\]]+)\]/g,
+          (match, title) => {
+            // Try exact match first
+            let url = citationMap.get(title);
+            if (!url) {
+              // Try without brackets
+              url = citationMap.get(title.replace(/^\[|\]$/g, ""));
+            }
+            if (url) {
+              return `<a href="${escapeHtml(url)}" style="color: var(--vscode-textLink-foreground); text-decoration: underline;" target="_blank">${match}</a>`;
+            }
+            return match;
+          }
+        );
+
+        // Build citations section
+        let citationsHtml = "";
+        if (citations.length > 0) {
+          const citationsList = citations
+            .map(
+              (citation) => `
+              <li style="margin-bottom: 8px;">
+                <a href="${escapeHtml(citation.url)}" style="color: var(--vscode-textLink-foreground); text-decoration: underline;" target="_blank">${escapeHtml(citation.title)}</a>
+              </li>
+            `
+            )
+            .join("");
+          citationsHtml = `
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--vscode-panel-border);">
+              <h4 style="margin-top: 0; margin-bottom: 12px; color: var(--vscode-textLink-foreground);">References</h4>
+              <ul style="margin: 0; padding-left: 20px; list-style-type: disc;">
+                ${citationsList}
+              </ul>
+            </div>
+          `;
+        }
+
+        // Add button to copy to Cursor chat
+        const addToChatButton = citations.length > 0 || codeOrigin.narrative
+          ? `
+            <div style="margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--vscode-panel-border);">
+              <button id="add-to-chat-btn" style="
+                background-color: var(--vscode-button-background);
+                color: var(--vscode-button-foreground);
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 0.9em;
+                font-family: var(--vscode-font-family);
+              ">Add to Cursor Chat</button>
+            </div>
+          `
+          : "";
+
         codeOriginHtml = `
           <div style="margin-bottom: 16px; padding: 12px; background-color: var(--vscode-textBlockQuote-background); border-radius: 4px;">
             <h3 style="margin-top: 0; margin-bottom: 12px; color: var(--vscode-textLink-foreground);">Code Origin & Decisions</h3>
-            <div style="white-space: pre-wrap; color: var(--vscode-foreground); line-height: 1.6;">${escapeHtml(
-              codeOrigin.narrative
-            )}</div>
+            ${commitsHtml}
+            ${prsHtml}
+            <div style="white-space: pre-wrap; color: var(--vscode-foreground); line-height: 1.6;">${processedNarrative}</div>
+            ${citationsHtml}
+            ${addToChatButton}
           </div>
         `;
       }
     }
 
-    // Format the information as HTML
+    // Format the information as HTML (no extra debug \"Information\" block)
     const htmlContent = `
       <!DOCTYPE html>
       <html>
@@ -312,29 +440,125 @@ export function activate(context: vscode.ExtensionContext) {
           code {
             font-family: var(--vscode-editor-font-family);
           }
+          a {
+            cursor: pointer;
+          }
         </style>
+        <script>
+          const vscode = acquireVsCodeApi();
+          // Handle all link clicks to open in external browser
+          document.addEventListener('click', (event) => {
+            const target = event.target.closest('a');
+            if (target && target.href) {
+              event.preventDefault();
+              vscode.postMessage({
+                command: 'openExternal',
+                url: target.href
+              });
+            }
+            // Handle "Add to Cursor Chat" button
+            if (event.target.id === 'add-to-chat-btn') {
+              vscode.postMessage({
+                command: 'addToChat'
+              });
+            }
+          });
+        </script>
       </head>
       <body>
-        <h2>Information</h2>
         ${codeOriginHtml}
         ${gitInfoHtml}
-        <pre><code>${infoLines
-          .map((line) => escapeHtml(line))
-          .join("\n")}</code></pre>
       </body>
       </html>
     `;
 
     panel.webview.html = htmlContent;
 
+    logger.appendLine(
+      `Pop-over content rendered for document ${document.fileName} at line ${position.line}`
+    );
+  }
+
+  // Function to create and show pop-over webview
+  function showPopOver(
+    document: vscode.TextDocument,
+    position: vscode.Position,
+    gitInfo: GitBlameInfo | null = null,
+    codeOrigin: CodeOriginInfo | null = null
+  ) {
+    const documentKey = `${document.uri.toString()}:${position.line}`;
+
+    // Close existing webview for this location if open
+    if (openWebviews.has(documentKey)) {
+      const existingPanel = openWebviews.get(documentKey);
+      if (existingPanel) {
+        existingPanel.dispose();
+      }
+    }
+
+    // Get filename and line number for the panel title
+    const fileName = path.basename(document.fileName);
+    const lineNumber = position.line + 1; // Line numbers are 1-indexed for display
+    const panelTitle = `${fileName}:${lineNumber}`;
+
+    // Create webview panel
+    const panel = vscode.window.createWebviewPanel(
+      "machinen",
+      panelTitle,
+      {
+        viewColumn: vscode.ViewColumn.Beside,
+        preserveFocus: true,
+      },
+      {
+        enableScripts: true,
+        retainContextWhenHidden: false,
+      }
+    );
+
+    // Set icon for the panel using comment-discussion-sparkle icon
+    const iconPath = vscode.Uri.joinPath(
+      context.extensionUri,
+      "resources",
+      "comment-discussion-sparkle.svg"
+    );
+    panel.iconPath = iconPath;
+
     // Track this webview
     openWebviews.set(documentKey, panel);
+
+    // Store codeOrigin data for the "Add to Chat" button
+    webviewCodeOriginData.set(documentKey, codeOrigin);
+
+    // Handle messages from webview (for opening external links and adding to chat)
+    panel.webview.onDidReceiveMessage(
+      async (message) => {
+        if (message.command === "openExternal" && message.url) {
+          vscode.env.openExternal(vscode.Uri.parse(message.url));
+        } else if (message.command === "addToChat") {
+          const storedCodeOrigin = webviewCodeOriginData.get(documentKey);
+          if (storedCodeOrigin && storedCodeOrigin.narrative) {
+            const markdown = formatPrOriginForChat(storedCodeOrigin);
+            await vscode.env.clipboard.writeText(markdown);
+            vscode.window.showInformationMessage(
+              "PR origin analysis copied to clipboard! Paste it into Cursor chat."
+            );
+          }
+        }
+      },
+      null,
+      context.subscriptions
+    );
 
     // Clean up when panel is closed
     panel.onDidDispose(() => {
       openWebviews.delete(documentKey);
+      webviewCodeOriginData.delete(documentKey);
     });
 
+    // Initial render (may be a loading state)
+    renderPopOverContent(panel, document, position, gitInfo, codeOrigin);
+
+    // Track this webview
     logger.appendLine(
       `Pop-over opened for document ${document.fileName} at line ${position.line}`
     );
@@ -402,12 +626,9 @@ export function activate(context: vscode.ExtensionContext) {
         const updatedLine = event.document.lineAt(position.line);
         logger.appendLine(`Updated line: "${updatedLine.text}"`);
 
-        // Get git blame information for this line, then show pop-over with the info
+        // Get git blame information first (fast, local operation)
         const filePath = event.document.uri.fsPath;
-        Promise.all([
-          getGitInfo(filePath, position.line),
-          getCodeOrigin(filePath, position.line),
-        ]).then(([gitInfo, codeOrigin]) => {
+        getGitInfo(filePath, position.line).then((gitInfo) => {
           if (gitInfo) {
             logger.appendLine(
               `Git info: Branch: ${gitInfo.branch} | Author: ${gitInfo.author} | Hash: ${gitInfo.hash} | When: ${gitInfo.date}`
@@ -415,15 +636,28 @@ export function activate(context: vscode.ExtensionContext) {
           } else {
             logger.appendLine("Could not retrieve git blame information");
           }
-          if (codeOrigin) {
-            logger.appendLine(
-              `Code origin: ${
-                codeOrigin.error ? "Error: " + codeOrigin.error : "Success"
-              }`
-            );
-          }
-          // Show pop-over with git info and code origin
-          showPopOver(event.document, position, gitInfo, codeOrigin);
+
+          // Show pop-over immediately with git info and loading state for PR origin
+          showPopOver(event.document, position, gitInfo, {
+            narrative: "Loading Machinen analysis…",
+          });
+
+          // Then fetch PR origin and update the pop-over when it completes
+          getPrOriginForLine(filePath, position.line, event.document).then((prOrigin) => {
+            if (prOrigin) {
+              logger.appendLine(
+                `PR origin: ${
+                  prOrigin.error ? "Error: " + prOrigin.error : "Success"
+                }`
+              );
+            }
+            // Update existing pop-over with PR origin narrative
+            const documentKey = `${event.document.uri.toString()}:${position.line}`;
+            const panel = openWebviews.get(documentKey);
+            if (panel) {
+              renderPopOverContent(panel, event.document, position, gitInfo, prOrigin);
+            }
+          });
         });
       }
     });
@@ -458,14 +692,24 @@ export function activate(context: vscode.ExtensionContext) {
           return;
         }
 
-        // Get commit hash for current line (or ask user)
-        const commitHash = await getFullCommitHash(
-          fileDir,
-          fileName,
-          position.line
-        );
-        if (!commitHash) {
-          // If no commit hash for current line, ask user to input one
+        // Get all commits that have touched this line
+        const history = await getLineHistory(fileDir, fileName, position.line + 1);
+        let commitHashes = history.map(h => h.hash);
+
+        if (commitHashes.length === 0) {
+          // If no history, try to get current commit hash
+          const commitHash = await getFullCommitHash(
+            fileDir,
+            fileName,
+            position.line
+          );
+          if (commitHash) {
+            commitHashes = [commitHash];
+          }
+        }
+
+        if (commitHashes.length === 0) {
+          // If still no commit hash for current line, ask user to input one
           const inputCommitHash = await vscode.window.showInputBox({
             prompt: "Enter the commit hash to analyze",
             placeHolder: "e.g., abc123def456...",
@@ -473,10 +717,10 @@ export function activate(context: vscode.ExtensionContext) {
           if (!inputCommitHash) {
             return;
           }
-          await showPrOriginResult(inputCommitHash, ownerRepo);
-        } else {
-          await showPrOriginResult(commitHash, ownerRepo);
+          commitHashes = [inputCommitHash];
         }
+        
+        await showPrOriginResult(commitHashes, ownerRepo);
       } catch (error) {
         logger.appendLine(`Error in PR origin command: ${error}`);
         vscode.window.showErrorMessage(
@@ -496,7 +740,7 @@ export function activate(context: vscode.ExtensionContext) {
  * Show PR origin result in a webview
  */
 async function showPrOriginResult(
-  commitHash: string,
+  commitHashes: string[],
   ownerRepo: { owner: string; repo: string }
 ): Promise<void> {
   // Construct repo identifier (can be owner/repo or remote URL)
@@ -511,7 +755,7 @@ async function showPrOriginResult(
     async (progress) => {
       progress.report({ increment: 0 });
 
-      const prOrigin = await getPrOrigin(commitHash, repoInput);
+      const prOrigin = await getPrOrigin(commitHashes, repoInput);
       progress.report({ increment: 100 });
 
       if (!prOrigin) {
@@ -521,10 +765,11 @@ async function showPrOriginResult(
         return;
       }
 
+      const firstHash = commitHashes[0] || "unknown";
       // Create webview panel
       const panel = vscode.window.createWebviewPanel(
         "machinen-pr-origin",
-        `PR Origin: ${commitHash.substring(0, 7)}`,
+        `PR Origin: ${firstHash.substring(0, 7)}${commitHashes.length > 1 ? "..." : ""}`,
         vscode.ViewColumn.Beside,
         {
           enableScripts: false,
@@ -580,7 +825,7 @@ async function showPrOriginResult(
         <body>
           <h2>PR Origin Analysis</h2>
           <div style="margin-bottom: 16px; color: var(--vscode-descriptionForeground);">
-            <strong>Commit:</strong> <code>${escapeHtml(commitHash)}</code><br>
+            <strong>Commits:</strong> <code>${escapeHtml(commitHashes.join(", "))}</code><br>
             <strong>Repository:</strong> ${escapeHtml(ownerRepo.owner)}/${escapeHtml(ownerRepo.repo)}
           </div>
           ${prOriginHtml}
@@ -652,7 +897,8 @@ async function getLineHistory(
         const message = parts.slice(3).join("|"); // In case message contains |
 
         entries.push({
-          hash: hash.substring(0, 7),
+          hash: hash,
+          shortHash: hash.substring(0, 7),
           author,
           date: new Date(timestamp * 1000).toLocaleString(),
           message,
@@ -1053,11 +1299,179 @@ async function getFullCommitHash(
 }
 
 /**
+ * Extract code context (function/class) from a document at a specific line
+ */
+function extractCodeContext(
+  document: vscode.TextDocument,
+  line: number
+): { codeContent: string; context: string | null } {
+  // Get the code content at the line
+  const lineText = document.lineAt(line).text;
+  const codeContent = lineText.trim();
+
+  // Search backwards for function/class declarations
+  let context: string | null = null;
+  
+  // Patterns for common function/class declarations
+  const patterns = [
+    // TypeScript/JavaScript: function declarations
+    /^(export\s+)?(async\s+)?function\s+(\w+)\s*\([^)]*\)/,
+    // TypeScript/JavaScript: arrow functions assigned to const/let/var
+    /^(export\s+)?(const|let|var)\s+(\w+)\s*[:=]\s*(async\s+)?\([^)]*\)\s*[=:>]/,
+    // TypeScript/JavaScript: method in class
+    /^\s*(public|private|protected)?\s*(static\s+)?(async\s+)?(\w+)\s*\([^)]*\)\s*[:{]/,
+    // TypeScript/JavaScript: class declarations
+    /^(export\s+)?(abstract\s+)?class\s+(\w+)/,
+    // Python: function definitions
+    /^def\s+(\w+)\s*\([^)]*\)/,
+    // Python: class definitions
+    /^class\s+(\w+)/,
+  ];
+
+  // Search backwards from the target line
+  for (let i = line; i >= 0 && i >= line - 50; i--) {
+    const currentLine = document.lineAt(i).text;
+    
+    for (const pattern of patterns) {
+      const match = currentLine.match(pattern);
+      if (match) {
+        // Extract the function/class name and signature
+        const fullMatch = currentLine.trim();
+        // Try to get a reasonable signature (up to 120 chars)
+        if (fullMatch.length > 120) {
+          context = fullMatch.substring(0, 117) + "...";
+        } else {
+          context = fullMatch;
+        }
+        break;
+      }
+    }
+    
+    if (context) {
+      break;
+    }
+  }
+
+  return { codeContent, context };
+}
+
+/**
+ * Get PR origin information for a specific file and line
+ * (used by the //? flow)
+ */
+async function getPrOriginForLine(
+  filePath: string,
+  line: number,
+  document?: vscode.TextDocument
+): Promise<CodeOriginInfo | null> {
+  try {
+    const fileDir = path.dirname(filePath);
+    const fileName = path.basename(filePath);
+
+    // Get owner/repo from git remote
+    const ownerRepo = await getGitRemoteOwnerRepo(fileDir);
+    if (!ownerRepo) {
+      return {
+        error:
+          "Could not determine repository owner and name from git remote",
+      };
+    }
+
+    // Get full commit hash for this line
+    const commitHash = await getFullCommitHash(fileDir, fileName, line);
+    if (!commitHash) {
+      return {
+        error: "Line is uncommitted or commit hash could not be determined",
+      };
+    }
+
+    const repoInput = `${ownerRepo.owner}/${ownerRepo.repo}`;
+    
+    // Get all commits that have touched this line
+    const history = await getLineHistory(fileDir, fileName, line + 1);
+    const commitHashes = history.map(h => h.hash);
+    
+    // Fallback to the specific commit if history is empty (should not happen for a committed line)
+    if (commitHashes.length === 0) {
+      const commitHash = await getFullCommitHash(fileDir, fileName, line);
+      if (commitHash) {
+        commitHashes.push(commitHash);
+      }
+    }
+
+    if (commitHashes.length === 0) {
+      return {
+        error: "Line is uncommitted or commit hash could not be determined",
+      };
+    }
+
+    // Extract code context if document is available
+    let file: string | undefined;
+    let codeContent: string | undefined;
+    let context: string | undefined;
+
+    if (document) {
+      // Get relative file path from git root
+      try {
+        const gitRoot = child_process
+          .execSync(`git rev-parse --show-toplevel`, {
+            cwd: fileDir,
+            encoding: "utf-8",
+            stdio: ["pipe", "pipe", "pipe"],
+          })
+          .trim();
+        const fullPath = path.join(fileDir, fileName);
+        file = path.relative(gitRoot, fullPath).replace(/\\/g, "/");
+      } catch (e) {
+        // Fall back to just filename if we can't get git root
+        file = fileName;
+      }
+
+      const codeContext = extractCodeContext(document, line);
+      codeContent = codeContext.codeContent;
+      context = codeContext.context || undefined;
+    }
+
+    const prOrigin = await getPrOrigin(commitHashes, repoInput, {
+      file,
+      line: line + 1, // API expects 1-indexed line numbers
+      codeContent,
+      context,
+    });
+
+    if (!prOrigin) {
+      return null;
+    }
+
+    return {
+      narrative: prOrigin.narrative,
+      error: prOrigin.error,
+      citations: prOrigin.citations,
+      commitHashes: prOrigin.commitHashes,
+      prNumbers: prOrigin.prNumbers,
+      owner: ownerRepo.owner,
+      repo: ownerRepo.repo,
+    };
+  } catch (error) {
+    logger.appendLine(`Error getting PR origin for line: ${error}`);
+    return {
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
  * Get PR origin information from Machinen API
  */
 async function getPrOrigin(
-  commitHash: string,
-  repoInput: string
+  commitHashes: string[],
+  repoInput: string,
+  codeContext?: {
+    file?: string;
+    line?: number;
+    codeContent?: string;
+    context?: string;
+  }
 ): Promise<PrOriginInfo | null> {
   const config = vscode.workspace.getConfiguration("machinen");
   const apiUrl = config.get<string>("apiUrl", "");
@@ -1067,7 +1481,15 @@ async function getPrOrigin(
     logger.appendLine(
       "Machinen API URL or API key not configured. Skipping PR origin lookup."
     );
-    return null;
+    return {
+      error:
+        "Machinen API is not configured.\n\n" +
+        "To fix this:\n" +
+        "1. Open VS Code Settings.\n" +
+        "2. Search for \"Machinen\".\n" +
+        "3. Set \"Machinen: Api Url\" to https://machinen.redwoodjs.workers.dev\n" +
+        "4. Set \"Machinen: Api Key\" to your Machinen query API key.",
+    };
   }
 
   try {
@@ -1077,12 +1499,16 @@ async function getPrOrigin(
     // Call the API using Node's https/http modules
     const url = new URL(`${normalizedApiUrl}/api/gh/pr-origin`);
     logger.appendLine(
-      `Calling PR origin API: ${url.toString()} for commit ${commitHash} in repo ${repoInput}`
+      `Calling PR origin API: ${url.toString()} for ${commitHashes.length} commits in repo ${repoInput}`
     );
 
     const requestBody = JSON.stringify({
-      commitHash: commitHash,
+      commitHashes: commitHashes,
       repo: repoInput,
+      ...(codeContext?.file && { file: codeContext.file }),
+      ...(codeContext?.line !== undefined && { line: codeContext.line }),
+      ...(codeContext?.codeContent && { codeContent: codeContext.codeContent }),
+      ...(codeContext?.context && { context: codeContext.context }),
     });
 
     const response = await new Promise<{
@@ -1134,9 +1560,32 @@ async function getPrOrigin(
       };
     }
 
-    return {
-      narrative: response.body,
-    };
+    // Parse JSON response
+    try {
+      const jsonResponse = JSON.parse(response.body) as {
+        narrative?: string;
+        citations?: Citation[];
+        commitHashes?: string[];
+        prNumbers?: number[];
+      };
+      return {
+        narrative: jsonResponse.narrative || response.body,
+        citations: jsonResponse.citations || [],
+        commitHashes: jsonResponse.commitHashes || [],
+        prNumbers: jsonResponse.prNumbers || [],
+      };
+    } catch (parseError) {
+      // Fallback to plain text if JSON parsing fails (backward compatibility)
+      logger.appendLine(
+        `Failed to parse PR origin response as JSON, using plain text: ${parseError}`
+      );
+      return {
+        narrative: response.body,
+        citations: [],
+        commitHashes: [],
+        prNumbers: [],
+      };
+    }
   } catch (error) {
     logger.appendLine(`Error fetching PR origin: ${error}`);
     return {
@@ -1160,7 +1609,15 @@ async function getCodeOrigin(
     logger.appendLine(
       "Machinen API URL or API key not configured. Skipping code origin lookup."
     );
-    return null;
+    return {
+      error:
+        "Machinen API is not configured.\n\n" +
+        "To fix this:\n" +
+        "1. Open VS Code Settings.\n" +
+        "2. Search for \"Machinen\".\n" +
+        "3. Set \"Machinen: Api Url\" to https://machinen.redwoodjs.workers.dev\n" +
+        "4. Set \"Machinen: Api Key\" to your Machinen query API key.",
+    };
   }
 
   try {

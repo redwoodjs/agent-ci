@@ -50,12 +50,12 @@ export function parseGitHubRepo(
   return null;
 }
 
-export async function getPullRequestForCommit(
+export async function getPullRequestsForCommit(
   owner: string,
   repo: string,
   commitSha: string,
   env: Cloudflare.Env
-): Promise<number | null> {
+): Promise<number[]> {
   const token = (env as any).GITHUB_TOKEN as string | undefined;
   if (!token) {
     throw new Error("GITHUB_TOKEN is not set");
@@ -78,7 +78,7 @@ export async function getPullRequestForCommit(
   }
 
   const pulls = (await response.json()) as Array<{ number: number }>;
-  return pulls.length > 0 ? pulls[0].number : null;
+  return pulls.map((p) => p.number);
 }
 
 

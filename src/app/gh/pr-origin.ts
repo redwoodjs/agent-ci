@@ -7,11 +7,18 @@ import {
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
 import {
-  getPullRequestForCommit,
+  getPullRequestsForCommit,
   parseGitHubRepo,
 } from "./github-utils";
 import { callLLM } from "@/app/engine/utils/llm";
 import { getMomentGraphNamespaceFromEnv } from "@/app/engine/momentGraphNamespace";
+import type { Moment } from "@/app/engine/types";
+
+interface Citation {
+  title: string;
+  url: string;
+  momentId: string;
+}
 
 function formatIso8601(raw: unknown): string {
   if (typeof raw !== "string") {
@@ -93,6 +100,62 @@ function formatTimelineLine(
   }`;
 }
 
+/**
+ * Extract GitHub URL from a moment's documentId (R2 key)
+ */
+function extractGitHubUrlFromDocumentId(documentId: string): string | null {
+  // Parse R2 key format: github/owner/repo/pull-requests/123/latest.json
+  // or: github/owner/repo/issues/123/latest.json
+  // or: github/owner/projects/123/latest.json
+  const prIssueMatch = documentId.match(
+    /^github\/([^\/]+)\/([^\/]+)\/(pull-requests|issues)\/(\d+)\/latest\.json$/
+  );
+  if (prIssueMatch) {
+    const owner = prIssueMatch[1];
+    const repo = prIssueMatch[2];
+    const type = prIssueMatch[3];
+    const number = prIssueMatch[4];
+    return `https://github.com/${owner}/${repo}/${
+      type === "pull-requests" ? "pull" : "issues"
+    }/${number}`;
+  }
+
+  const projectMatch = documentId.match(
+    /^github\/([^\/]+)\/projects\/(\d+)\/latest\.json$/
+  );
+  if (projectMatch) {
+    const owner = projectMatch[1];
+    const number = projectMatch[2];
+    return `https://github.com/orgs/${owner}/projects/${number}`;
+  }
+
+  return null;
+}
+
+/**
+ * Extract citations from moments in the timeline
+ */
+function extractCitations(moments: Moment[]): Citation[] {
+  const citations: Citation[] = [];
+  const seenUrls = new Set<string>();
+
+  for (const moment of moments) {
+    if (!moment.documentId) continue;
+
+    const url = extractGitHubUrlFromDocumentId(moment.documentId);
+    if (!url || seenUrls.has(url)) continue;
+
+    seenUrls.add(url);
+    citations.push({
+      title: moment.title || "Untitled",
+      url,
+      momentId: moment.id,
+    });
+  }
+
+  return citations;
+}
+
 export async function prOriginHandler({ request, ctx }: RequestInfo) {
   if (request.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -100,8 +163,13 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
 
   try {
     let body: {
-      commitHash?: unknown;
+      commitHashes?: unknown;
+      commitHash?: unknown; // Backward compatibility
       repo?: unknown;
+      file?: unknown;
+      line?: unknown;
+      codeContent?: unknown;
+      context?: unknown;
     } = {};
     try {
       body = (await request.json()) as typeof body;
@@ -109,13 +177,22 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
       body = {};
     }
 
-    const commitHash =
-      typeof body.commitHash === "string" ? body.commitHash : null;
-    const repoInput = typeof body.repo === "string" ? body.repo : null;
+    // Support both single commitHash and array of commitHashes
+    const commitHashes = Array.isArray(body.commitHashes)
+      ? (body.commitHashes as string[])
+      : typeof body.commitHash === "string"
+      ? [body.commitHash]
+      : null;
 
-    if (!commitHash || !repoInput) {
+    const repoInput = typeof body.repo === "string" ? body.repo : null;
+    const file = typeof body.file === "string" ? body.file : null;
+    const line = typeof body.line === "number" ? body.line : null;
+    const codeContent = typeof body.codeContent === "string" ? body.codeContent : null;
+    const context = typeof body.context === "string" ? body.context : null;
+
+    if (!commitHashes || commitHashes.length === 0 || !repoInput) {
       return new Response(
-        "Missing required parameters: commitHash, repo",
+        "Missing required parameters: commitHashes (or commitHash), repo",
         {
           status: 400,
           headers: {
@@ -140,23 +217,35 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
     }
 
     const { owner, repo } = parsedRepo;
-
     const envCloudflare = env as Cloudflare.Env;
 
-    // 1. Get PR number from GitHub API
+    // 1. Get all unique PR numbers for all commits
     console.log(
-      `[pr-origin] Fetching PR for commit ${commitHash} in ${owner}/${repo}`
+      `[pr-origin] Fetching PRs for ${commitHashes.length} commits in ${owner}/${repo}`
     );
-    const prNumber = await getPullRequestForCommit(
-      owner,
-      repo,
-      commitHash,
-      envCloudflare
-    );
+    
+    const prNumbersSet = new Set<number>();
+    for (const hash of commitHashes) {
+      try {
+        const prs = await getPullRequestsForCommit(
+          owner,
+          repo,
+          hash,
+          envCloudflare
+        );
+        for (const pr of prs) {
+          prNumbersSet.add(pr);
+        }
+      } catch (err) {
+        console.warn(`[pr-origin] Failed to fetch PRs for commit ${hash}:`, err);
+      }
+    }
 
-    if (!prNumber) {
+    const prNumbers = Array.from(prNumbersSet).sort((a, b) => b - a);
+
+    if (prNumbers.length === 0) {
       return new Response(
-        `No pull request found for commit ${commitHash}`,
+        `No pull requests found for the provided commits in ${owner}/${repo}`,
         {
           status: 404,
           headers: {
@@ -166,44 +255,46 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
       );
     }
 
-    console.log(`[pr-origin] Found PR #${prNumber} for commit ${commitHash}`);
+    console.log(`[pr-origin] Found ${prNumbers.length} unique PRs: ${prNumbers.join(", ")}`);
 
-    // 2. Map PR to R2 key
-    const r2Key = `github/${owner}/${repo}/pull-requests/${prNumber}/latest.json`;
-
-    // 3. Fetch PR data from R2
+    // 2. Fetch data for each PR from R2 and find moments in the graph
     const bucket = envCloudflare.MACHINEN_BUCKET;
-    const prObject = await bucket.get(r2Key);
-    if (!prObject) {
-      return new Response(
-        `PR data not found in R2: ${r2Key}`,
-        {
-          status: 404,
-          headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-          },
-        }
-      );
-    }
-
-    const prData = await prObject.json();
-    console.log(`[pr-origin] Fetched PR data from R2: ${r2Key}`);
-
-    // 4. Find Moment in Graph
     const momentGraphNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
     const momentGraphContext: MomentGraphContext = {
       env: envCloudflare,
       momentGraphNamespace: momentGraphNamespace,
     };
 
-    const lastMoment = await findLastMomentForDocument(
-      r2Key,
-      momentGraphContext
-    );
+    const allRelatedMoments: Moment[] = [];
+    const prSummaries: string[] = [];
 
-    if (!lastMoment) {
+    for (const prNumber of prNumbers) {
+      const r2Key = `github/${owner}/${repo}/pull-requests/${prNumber}/latest.json`;
+      const prObject = await bucket.get(r2Key);
+      
+      if (!prObject) {
+        console.warn(`[pr-origin] PR data not found in R2: ${r2Key}`);
+        continue;
+      }
+
+      const prData = await prObject.json() as any;
+      prSummaries.push(
+        `- PR #${prNumber}: ${prData.title || "N/A"} (Author: ${prData.author || "N/A"}, Created: ${prData.created_at || "N/A"})`
+      );
+
+      const lastMoment = await findLastMomentForDocument(r2Key, momentGraphContext);
+      if (lastMoment) {
+        const ancestors = await findAncestors(lastMoment.id, momentGraphContext);
+        const root = ancestors[0] ?? lastMoment;
+        const descendants = await findDescendants(root.id, momentGraphContext);
+        
+        allRelatedMoments.push(...ancestors, ...descendants);
+      }
+    }
+
+    if (allRelatedMoments.length === 0) {
       return new Response(
-        `No indexed moments found for PR #${prNumber}. The PR may not have been indexed yet.`,
+        `Found PRs (${prNumbers.join(", ")}) but none of them have been indexed in the knowledge base yet.`,
         {
           status: 404,
           headers: {
@@ -213,22 +304,12 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
       );
     }
 
-    console.log(
-      `[pr-origin] Found moment ${lastMoment.id} for document ${r2Key}`
-    );
-
-    // 5. Extract Decisions & Timeline
-    const ancestors = await findAncestors(lastMoment.id, momentGraphContext);
-    const root = ancestors[0] ?? lastMoment;
-    const descendants = await findDescendants(root.id, momentGraphContext);
-
-    console.log(
-      `[pr-origin] Found ${ancestors.length} ancestors and ${descendants.length} descendants`
-    );
-
-    // 6. Build timeline
-    const allMoments = [...ancestors, ...descendants];
-    const sortedTimeline = [...allMoments].sort((a, b) => {
+    // 3. deduplicate and build timeline
+    const uniqueMomentsMap = new Map<string, Moment>();
+    for (const m of allRelatedMoments) {
+      uniqueMomentsMap.set(m.id, m);
+    }
+    const sortedTimeline = Array.from(uniqueMomentsMap.values()).sort((a, b) => {
       const aKey = timelineSortKey(a);
       const bKey = timelineSortKey(b);
       if (aKey === null && bKey === null) {
@@ -239,15 +320,10 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
         }
         return 0;
       }
-      if (aKey === null) {
-        return 1;
-      }
-      if (bKey === null) {
-        return -1;
-      }
-      if (aKey !== bKey) {
-        return aKey - bKey;
-      }
+      if (aKey === null) return 1;
+      if (bKey === null) return -1;
+      if (aKey !== bKey) return aKey - bKey;
+      
       const aId = a?.id;
       const bId = b?.id;
       if (typeof aId === "string" && typeof bId === "string") {
@@ -261,52 +337,66 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
     );
     const narrativeContext = timelineLines.join("\n\n");
 
-    // 7. LLM Synthesis
-    const prompt = `You are analyzing the origin and context of a pull request. A developer wants to understand what decisions led to the creation of this PR and what problem it addresses.
+    // 4. LLM Synthesis
+    // Build code location section if code context is available
+    const codeLocationSection = file && line !== null
+      ? `## Code Location
+- File: ${file}
+- Line: ${line}
+${codeContent ? `- Code: ${codeContent}` : ""}
+${context ? `- Context: ${context}` : ""}
 
-## Pull Request Information
-- Pull Request: #${prNumber}
-- Commit: ${commitHash}
-- Repository: ${owner}/${repo}
-- Title: ${prData.title || "N/A"}
-- Author: ${prData.author || "N/A"}
-- Created: ${prData.created_at || "N/A"}
-- State: ${prData.state || "N/A"}
-${prData.body ? `- Description: ${prData.body.substring(0, 500)}${prData.body.length > 500 ? "..." : ""}` : ""}
+`
+      : "";
 
-## Subject
-${root.title}: ${root.summary}
+    const prompt = `You are analyzing the evolution and origin of ${file && line !== null ? "this specific code" : "a specific piece of code"}. A developer wants to understand what decisions led to the current state of this code and what problems were addressed across its history.
 
-## Timeline of Related Events
+${codeLocationSection}## Repository: ${owner}/${repo}
+
+## Related Pull Requests
+${prSummaries.join("\n")}
+
+## Timeline of Related Events (Combined from all PRs)
 ${narrativeContext}
 
 ## Instructions
 Based on the timeline above, explain:
-1. What decisions led to this pull request being created?
-2. What was the underlying problem or need that this PR addresses?
-3. What is the timeline of events that led to this PR being created?
-4. What related discussions, issues, or decisions influenced this PR?
+1. How has ${file && line !== null ? "this specific code" : "this code"} evolved over time across these different pull requests?
+2. What were the key decisions or problems that triggered each major change to ${file && line !== null ? "this code" : "this piece of code"}?
+3. What is the overarching narrative of how ${file && line !== null ? "this specific code" : "this piece of code"} came to exist in its current form?
+4. What related discussions, issues, or decisions influenced ${file && line !== null ? "this code" : "this code"} at different stages?
 
 Rules:
 - You MUST only use timestamps that appear at the start of Timeline lines. Do not invent or guess dates.
 - When you mention an event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
-- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]" that appears in the Timeline text).
+- You MUST include the data source label when you mention an event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]").
 - You MUST NOT mention events, sources, or pull requests/issues that are not present in the Timeline text.
-- You MUST NOT try to mention every event in the Timeline. Mention only events needed to answer the questions.
-- If a Timeline line includes an importance=0..1 field, prefer higher importance events when selecting which events to mention.
-- If the Timeline does not contain enough information to answer part of the question, say that directly.
+- Mention only events needed to answer the questions.
+- If a Timeline line includes an importance=0..1 field, prefer higher importance events.
+- If information is missing for part of the question, say so directly.
 
 Write a clear narrative that explains the sequence and causal relationships between events using the Timeline order.`;
 
-    console.log(`[pr-origin] Calling LLM to synthesize narrative`);
+    console.log(`[pr-origin] Calling LLM to synthesize narrative for ${prNumbers.length} PRs`);
     const narrative = await callLLM(prompt, "slow-reasoning", {
       temperature: 0,
       reasoning: { effort: "low" },
     });
 
-    return new Response(narrative, {
+    // Extract citations from the timeline moments
+    const citations = extractCitations(sortedTimeline);
+
+    // Return JSON response with narrative, citations, commits, and PRs
+    const response = {
+      narrative,
+      citations,
+      commitHashes,
+      prNumbers,
+    };
+
+    return new Response(JSON.stringify(response, null, 2), {
       headers: {
-        "Content-Type": "text/plain; charset=utf-8",
+        "Content-Type": "application/json; charset=utf-8",
       },
     });
   } catch (error) {

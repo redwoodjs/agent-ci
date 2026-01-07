@@ -6,10 +6,7 @@ import {
   findDescendants,
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
-import {
-  getPullRequestsForCommit,
-  parseGitHubRepo,
-} from "./github-utils";
+import { getPullRequestsForCommit, parseGitHubRepo } from "./github-utils";
 import { callLLM } from "@/app/engine/utils/llm";
 import { getMomentGraphNamespaceFromEnv } from "@/app/engine/momentGraphNamespace";
 import type { Moment } from "@/app/engine/types";
@@ -187,7 +184,8 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
     const repoInput = typeof body.repo === "string" ? body.repo : null;
     const file = typeof body.file === "string" ? body.file : null;
     const line = typeof body.line === "number" ? body.line : null;
-    const codeContent = typeof body.codeContent === "string" ? body.codeContent : null;
+    const codeContent =
+      typeof body.codeContent === "string" ? body.codeContent : null;
     const context = typeof body.context === "string" ? body.context : null;
 
     if (!commitHashes || commitHashes.length === 0 || !repoInput) {
@@ -223,7 +221,7 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
     console.log(
       `[pr-origin] Fetching PRs for ${commitHashes.length} commits in ${owner}/${repo}`
     );
-    
+
     const prNumbersSet = new Set<number>();
     for (const hash of commitHashes) {
       try {
@@ -237,7 +235,10 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
           prNumbersSet.add(pr);
         }
       } catch (err) {
-        console.warn(`[pr-origin] Failed to fetch PRs for commit ${hash}:`, err);
+        console.warn(
+          `[pr-origin] Failed to fetch PRs for commit ${hash}:`,
+          err
+        );
       }
     }
 
@@ -255,7 +256,11 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
       );
     }
 
-    console.log(`[pr-origin] Found ${prNumbers.length} unique PRs: ${prNumbers.join(", ")}`);
+    console.log(
+      `[pr-origin] Found ${prNumbers.length} unique PRs: ${prNumbers.join(
+        ", "
+      )}`
+    );
 
     // 2. Fetch data for each PR from R2 and find moments in the graph
     const bucket = envCloudflare.MACHINEN_BUCKET;
@@ -271,30 +276,40 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
     for (const prNumber of prNumbers) {
       const r2Key = `github/${owner}/${repo}/pull-requests/${prNumber}/latest.json`;
       const prObject = await bucket.get(r2Key);
-      
+
       if (!prObject) {
         console.warn(`[pr-origin] PR data not found in R2: ${r2Key}`);
         continue;
       }
 
-      const prData = await prObject.json() as any;
+      const prData = (await prObject.json()) as any;
       prSummaries.push(
-        `- PR #${prNumber}: ${prData.title || "N/A"} (Author: ${prData.author || "N/A"}, Created: ${prData.created_at || "N/A"})`
+        `- PR #${prNumber}: ${prData.title || "N/A"} (Author: ${
+          prData.author || "N/A"
+        }, Created: ${prData.created_at || "N/A"})`
       );
 
-      const lastMoment = await findLastMomentForDocument(r2Key, momentGraphContext);
+      const lastMoment = await findLastMomentForDocument(
+        r2Key,
+        momentGraphContext
+      );
       if (lastMoment) {
-        const ancestors = await findAncestors(lastMoment.id, momentGraphContext);
+        const ancestors = await findAncestors(
+          lastMoment.id,
+          momentGraphContext
+        );
         const root = ancestors[0] ?? lastMoment;
         const descendants = await findDescendants(root.id, momentGraphContext);
-        
+
         allRelatedMoments.push(...ancestors, ...descendants);
       }
     }
 
     if (allRelatedMoments.length === 0) {
       return new Response(
-        `Found PRs (${prNumbers.join(", ")}) but none of them have been indexed in the knowledge base yet.`,
+        `Found PRs (${prNumbers.join(
+          ", "
+        )}) but none of them have been indexed in the knowledge base yet.`,
         {
           status: 404,
           headers: {
@@ -309,10 +324,22 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
     for (const m of allRelatedMoments) {
       uniqueMomentsMap.set(m.id, m);
     }
-    const sortedTimeline = Array.from(uniqueMomentsMap.values()).sort((a, b) => {
-      const aKey = timelineSortKey(a);
-      const bKey = timelineSortKey(b);
-      if (aKey === null && bKey === null) {
+    const sortedTimeline = Array.from(uniqueMomentsMap.values()).sort(
+      (a, b) => {
+        const aKey = timelineSortKey(a);
+        const bKey = timelineSortKey(b);
+        if (aKey === null && bKey === null) {
+          const aId = a?.id;
+          const bId = b?.id;
+          if (typeof aId === "string" && typeof bId === "string") {
+            return aId.localeCompare(bId);
+          }
+          return 0;
+        }
+        if (aKey === null) return 1;
+        if (bKey === null) return -1;
+        if (aKey !== bKey) return aKey - bKey;
+
         const aId = a?.id;
         const bId = b?.id;
         if (typeof aId === "string" && typeof bId === "string") {
@@ -320,17 +347,7 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
         }
         return 0;
       }
-      if (aKey === null) return 1;
-      if (bKey === null) return -1;
-      if (aKey !== bKey) return aKey - bKey;
-      
-      const aId = a?.id;
-      const bId = b?.id;
-      if (typeof aId === "string" && typeof bId === "string") {
-        return aId.localeCompare(bId);
-      }
-      return 0;
-    });
+    );
 
     const timelineLines = sortedTimeline.map((moment, idx) =>
       formatTimelineLine(moment, idx)
@@ -339,17 +356,20 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
 
     // 4. LLM Synthesis
     // Build code location section if code context is available
-    const codeLocationSection = file && line !== null
-      ? `## Code Location
+    const codeLocationSection =
+      file && line !== null
+        ? `## Code Location
 - File: ${file}
 - Line: ${line}
 ${codeContent ? `- Code: ${codeContent}` : ""}
 ${context ? `- Context: ${context}` : ""}
 
 `
-      : "";
+        : "";
 
-    const prompt = `You are analyzing the evolution and origin of ${file && line !== null ? "this specific code" : "a specific piece of code"}. A developer wants to understand what decisions led to the current state of this code and what problems were addressed across its history.
+    const prompt = `You are analyzing the evolution and origin of ${
+      file && line !== null ? "this specific code" : "a specific piece of code"
+    }. A developer wants to understand what decisions led to the current state of this code and what problems were addressed across its history.
 
 ${codeLocationSection}## Repository: ${owner}/${repo}
 
@@ -361,10 +381,18 @@ ${narrativeContext}
 
 ## Instructions
 Based on the timeline above, explain:
-1. How has ${file && line !== null ? "this specific code" : "this code"} evolved over time across these different pull requests?
-2. What were the key decisions or problems that triggered each major change to ${file && line !== null ? "this code" : "this piece of code"}?
-3. What is the overarching narrative of how ${file && line !== null ? "this specific code" : "this piece of code"} came to exist in its current form?
-4. What related discussions, issues, or decisions influenced ${file && line !== null ? "this code" : "this code"} at different stages?
+1. How has ${
+      file && line !== null ? "this specific code" : "this code"
+    } evolved over time across these different pull requests?
+2. What were the key decisions or problems that triggered each major change to ${
+      file && line !== null ? "this code" : "this piece of code"
+    }?
+3. What is the overarching narrative of how ${
+      file && line !== null ? "this specific code" : "this piece of code"
+    } came to exist in its current form?
+4. What related discussions, issues, or decisions influenced ${
+      file && line !== null ? "this code" : "this code"
+    } at different stages?
 
 Rules:
 - You MUST only use timestamps that appear at the start of Timeline lines. Do not invent or guess dates.
@@ -377,7 +405,9 @@ Rules:
 
 Write a clear narrative that explains the sequence and causal relationships between events using the Timeline order.`;
 
-    console.log(`[pr-origin] Calling LLM to synthesize narrative for ${prNumbers.length} PRs`);
+    console.log(
+      `[pr-origin] Calling LLM to synthesize narrative for ${prNumbers.length} PRs`
+    );
     const narrative = await callLLM(prompt, "slow-reasoning", {
       temperature: 0,
       reasoning: { effort: "low" },
@@ -418,4 +448,3 @@ Write a clear narrative that explains the sequence and causal relationships betw
     );
   }
 }
-

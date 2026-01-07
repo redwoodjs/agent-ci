@@ -33,7 +33,14 @@
           "description": "API key for authenticating with the Machinen API"
         }
       }
-    }
+    },
+    "commands": [
+      {
+        "command": "machinen.getPrOrigin",
+        "title": "Get PR Origin",
+        "category": "Machinen"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",

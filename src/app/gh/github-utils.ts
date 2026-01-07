@@ -6,6 +6,50 @@ declare module "rwsdk/worker" {
   }
 }
 
+/**
+ * Parse a GitHub repository identifier into owner and repo.
+ * Supports formats:
+ * - owner/repo
+ * - https://github.com/owner/repo.git
+ * - https://github.com/owner/repo
+ * - git@github.com:owner/repo.git
+ * - git@github.com:owner/repo
+ */
+export function parseGitHubRepo(
+  input: string
+): { owner: string; repo: string } | null {
+  if (!input || typeof input !== "string") {
+    return null;
+  }
+
+  const trimmed = input.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  // Try owner/repo format first
+  const simpleMatch = trimmed.match(/^([^/]+)\/([^/]+?)(?:\.git)?$/);
+  if (simpleMatch) {
+    return {
+      owner: simpleMatch[1],
+      repo: simpleMatch[2],
+    };
+  }
+
+  // Try GitHub URL formats (https://github.com/owner/repo.git or git@github.com:owner/repo.git)
+  const urlMatch = trimmed.match(
+    /github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?$/
+  );
+  if (urlMatch) {
+    return {
+      owner: urlMatch[1],
+      repo: urlMatch[2],
+    };
+  }
+
+  return null;
+}
+
 export async function getPullRequestForCommit(
   owner: string,
   repo: string,

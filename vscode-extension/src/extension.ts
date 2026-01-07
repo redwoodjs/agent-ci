@@ -50,6 +50,14 @@ interface CodeOriginInfo {
   error?: string;
 }
 
+/**
+ * Interface for PR origin information
+ */
+interface PrOriginInfo {
+  narrative?: string;
+  error?: string;
+}
+
 export function activate(context: vscode.ExtensionContext) {
   logger.appendLine("Machinen is now active!");
 
@@ -423,7 +431,166 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(changeListener);
 
+  // Register command to get PR origin for current commit
+  const prOriginCommand = vscode.commands.registerCommand(
+    "machinen.getPrOrigin",
+    async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage(
+          "No active editor. Please open a file first."
+        );
+        return;
+      }
+
+      const filePath = editor.document.uri.fsPath;
+      const fileDir = path.dirname(filePath);
+      const fileName = path.basename(filePath);
+      const position = editor.selection.active;
+
+      try {
+        // Get git remote for repo
+        const ownerRepo = await getGitRemoteOwnerRepo(fileDir);
+        if (!ownerRepo) {
+          vscode.window.showErrorMessage(
+            "Could not determine repository from git remote. Make sure you're in a git repository with a GitHub remote."
+          );
+          return;
+        }
+
+        // Get commit hash for current line (or ask user)
+        const commitHash = await getFullCommitHash(
+          fileDir,
+          fileName,
+          position.line
+        );
+        if (!commitHash) {
+          // If no commit hash for current line, ask user to input one
+          const inputCommitHash = await vscode.window.showInputBox({
+            prompt: "Enter the commit hash to analyze",
+            placeHolder: "e.g., abc123def456...",
+          });
+          if (!inputCommitHash) {
+            return;
+          }
+          await showPrOriginResult(inputCommitHash, ownerRepo);
+        } else {
+          await showPrOriginResult(commitHash, ownerRepo);
+        }
+      } catch (error) {
+        logger.appendLine(`Error in PR origin command: ${error}`);
+        vscode.window.showErrorMessage(
+          `Error getting PR origin: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    }
+  );
+
+  context.subscriptions.push(prOriginCommand);
+
   logger.appendLine("Document change listener registered successfully");
+  logger.appendLine("PR origin command registered successfully");
+}
+
+/**
+ * Show PR origin result in a webview
+ */
+async function showPrOriginResult(
+  commitHash: string,
+  ownerRepo: { owner: string; repo: string }
+): Promise<void> {
+  // Construct repo identifier (can be owner/repo or remote URL)
+  const repoInput = `${ownerRepo.owner}/${ownerRepo.repo}`;
+
+  vscode.window.withProgress(
+    {
+      location: vscode.ProgressLocation.Notification,
+      title: "Fetching PR origin...",
+      cancellable: false,
+    },
+    async (progress) => {
+      progress.report({ increment: 0 });
+
+      const prOrigin = await getPrOrigin(commitHash, repoInput);
+      progress.report({ increment: 100 });
+
+      if (!prOrigin) {
+        vscode.window.showErrorMessage(
+          "Could not fetch PR origin. Check your API configuration."
+        );
+        return;
+      }
+
+      // Create webview panel
+      const panel = vscode.window.createWebviewPanel(
+        "machinen-pr-origin",
+        `PR Origin: ${commitHash.substring(0, 7)}`,
+        vscode.ViewColumn.Beside,
+        {
+          enableScripts: false,
+          retainContextWhenHidden: false,
+        }
+      );
+
+      // Format PR origin information for display
+      let prOriginHtml = "";
+      if (prOrigin.error) {
+        prOriginHtml = `
+          <div style="margin-bottom: 16px; padding: 12px; background-color: var(--vscode-inputValidation-errorBackground); border-radius: 4px; border-left: 3px solid var(--vscode-errorForeground);">
+            <h3 style="margin-top: 0; margin-bottom: 8px; color: var(--vscode-errorForeground);">PR Origin Error</h3>
+            <div style="color: var(--vscode-errorForeground);">${escapeHtml(
+              prOrigin.error
+            )}</div>
+          </div>
+        `;
+      } else if (prOrigin.narrative) {
+        prOriginHtml = `
+          <div style="margin-bottom: 16px; padding: 12px; background-color: var(--vscode-textBlockQuote-background); border-radius: 4px;">
+            <h3 style="margin-top: 0; margin-bottom: 12px; color: var(--vscode-textLink-foreground);">PR Origin & Decisions</h3>
+            <div style="white-space: pre-wrap; color: var(--vscode-foreground); line-height: 1.6;">${escapeHtml(
+              prOrigin.narrative
+            )}</div>
+          </div>
+        `;
+      }
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <style>
+            body {
+              font-family: var(--vscode-font-family);
+              padding: 16px;
+              color: var(--vscode-foreground);
+              background-color: var(--vscode-editor-background);
+            }
+            h2 {
+              margin-top: 0;
+              color: var(--vscode-textLink-foreground);
+            }
+            h3 {
+              margin-top: 0;
+              color: var(--vscode-textLink-foreground);
+            }
+          </style>
+        </head>
+        <body>
+          <h2>PR Origin Analysis</h2>
+          <div style="margin-bottom: 16px; color: var(--vscode-descriptionForeground);">
+            <strong>Commit:</strong> <code>${escapeHtml(commitHash)}</code><br>
+            <strong>Repository:</strong> ${escapeHtml(ownerRepo.owner)}/${escapeHtml(ownerRepo.repo)}
+          </div>
+          ${prOriginHtml}
+        </body>
+        </html>
+      `;
+
+      panel.webview.html = htmlContent;
+    }
+  );
 }
 
 // Helper function to escape HTML
@@ -886,6 +1053,99 @@ async function getFullCommitHash(
 }
 
 /**
+ * Get PR origin information from Machinen API
+ */
+async function getPrOrigin(
+  commitHash: string,
+  repoInput: string
+): Promise<PrOriginInfo | null> {
+  const config = vscode.workspace.getConfiguration("machinen");
+  const apiUrl = config.get<string>("apiUrl", "");
+  const apiKey = config.get<string>("apiKey", "");
+
+  if (!apiUrl || !apiKey) {
+    logger.appendLine(
+      "Machinen API URL or API key not configured. Skipping PR origin lookup."
+    );
+    return null;
+  }
+
+  try {
+    // Normalize API URL (remove trailing slash if present)
+    const normalizedApiUrl = apiUrl.replace(/\/$/, "");
+
+    // Call the API using Node's https/http modules
+    const url = new URL(`${normalizedApiUrl}/api/gh/pr-origin`);
+    logger.appendLine(
+      `Calling PR origin API: ${url.toString()} for commit ${commitHash} in repo ${repoInput}`
+    );
+
+    const requestBody = JSON.stringify({
+      commitHash: commitHash,
+      repo: repoInput,
+    });
+
+    const response = await new Promise<{
+      statusCode: number;
+      statusMessage: string;
+      body: string;
+    }>((resolve, reject) => {
+      const options = {
+        hostname: url.hostname,
+        port: url.port || (url.protocol === "https:" ? 443 : 80),
+        path: url.pathname + url.search,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Length": Buffer.byteLength(requestBody),
+        },
+      };
+
+      const client = url.protocol === "https:" ? https : http;
+      const req = client.request(options, (res) => {
+        let body = "";
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => {
+          resolve({
+            statusCode: res.statusCode || 500,
+            statusMessage: res.statusMessage || "Unknown",
+            body,
+          });
+        });
+      });
+
+      req.on("error", (error) => {
+        reject(error);
+      });
+
+      req.write(requestBody);
+      req.end();
+    });
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      logger.appendLine(
+        `PR origin API error: ${response.statusCode} ${response.statusMessage} - ${response.body}`
+      );
+      return {
+        error: `API error: ${response.statusCode} ${response.statusMessage}`,
+      };
+    }
+
+    return {
+      narrative: response.body,
+    };
+  } catch (error) {
+    logger.appendLine(`Error fetching PR origin: ${error}`);
+    return {
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+/**
  * Get code origin information from Machinen API
  */
 async function getCodeOrigin(
@@ -942,8 +1202,11 @@ async function getCodeOrigin(
       };
     }
 
+    // Normalize API URL (remove trailing slash if present)
+    const normalizedApiUrl = apiUrl.replace(/\/$/, "");
+
     // Call the API using Node's https/http modules
-    const url = new URL(`${apiUrl}/api/gh/code-origin`);
+    const url = new URL(`${normalizedApiUrl}/api/gh/code-origin`);
     logger.appendLine(
       `Calling code origin API: ${url.toString()} for ${ownerRepo.owner}/${
         ownerRepo.repo

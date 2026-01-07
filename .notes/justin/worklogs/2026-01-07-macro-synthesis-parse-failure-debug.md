@@ -65,3 +65,14 @@ These placeholders are then persisted and indexed, so they show up in smart-link
 
 This change removes the placeholder persistence behavior by treating parse failures as producing zero macro moments for that stream. It also adds a filter so any existing placeholder moments found via vector search are explicitly rejected as smart-linker candidates with a dedicated reject reason.
 
+## Follow-up: persist synthesis failures for audit UI + debug endpoint
+
+The placeholder removal means parse failures no longer result in a macro moment being persisted, which is correct for graph quality but makes it harder to inspect the failure after the fact.
+
+I added a document-level audit log table in the moment DB and wrote parse failure details there during indexing. The audit UI moment panel and `/admin/moment-debug` now include these records for the moment's document.
+
+- Stored fields are intentionally small:
+  - kind (namespaced as `synthesis:<kind>`)
+  - message
+  - prompt hash (first 16 chars of sha256)
+  - response preview (first 2000 chars) and response length

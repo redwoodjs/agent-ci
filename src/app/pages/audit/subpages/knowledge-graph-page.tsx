@@ -58,16 +58,16 @@ function escapeMermaidId(id: string): string {
 function escapeMermaidLabel(label: string, maxLength: number = 150): string {
   // Clean the label - preserve newlines for HTML rendering
   let cleaned = label.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
+  
   // Truncate if too long (before wrapping)
   if (cleaned.length > maxLength) {
     cleaned = cleaned.substring(0, maxLength) + "...";
   }
-
+  
   // Split on existing newlines first
   const paragraphs = cleaned.split("\n");
   const wrappedParagraphs: string[] = [];
-
+  
   // For each paragraph, add word wrapping if needed
   for (const paragraph of paragraphs) {
     if (paragraph.length <= 40) {
@@ -78,7 +78,7 @@ function escapeMermaidLabel(label: string, maxLength: number = 150): string {
       const words = paragraph.split(" ");
       const wrapped: string[] = [];
       let currentLine = "";
-
+      
       for (const word of words) {
         if (
           currentLine.length + word.length + 1 > 35 &&
@@ -96,7 +96,7 @@ function escapeMermaidLabel(label: string, maxLength: number = 150): string {
       wrappedParagraphs.push(...wrapped);
     }
   }
-
+  
   // Join with <br/> for HTML rendering in Mermaid
   return wrappedParagraphs.join("<br/>");
 }
@@ -119,6 +119,13 @@ type MomentDetails = Moment & {
     discordMessageIdsSample?: string[];
     ingestionFilePath?: string;
   } | null;
+  documentAudit?: Array<{
+    id: string;
+    documentId: string;
+    kind: string;
+    createdAt: string;
+    payload: Record<string, any>;
+  }> | null;
 };
 
 function generateMermaidGraph(data: GraphNode[]): string {
@@ -1061,34 +1068,34 @@ export function KnowledgeGraphPage() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {filteredRootMoments.map((root) => {
-                      const date = new Date(root.createdAt);
-                      const formattedDate = date.toLocaleDateString("en-US", {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      });
-                      return (
-                        <button
-                          key={root.id}
-                          onClick={() => setSelectedRootId(root.id)}
-                          className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                        >
-                          <div className="font-medium text-gray-900 mb-2">
-                            {root.title}
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                            <span>{formattedDate}</span>
-                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                              {root.descendantCount} moment
-                              {root.descendantCount !== 1 ? "s" : ""}
-                            </span>
-                          </div>
-                          <div className="text-xs text-gray-400 font-mono mt-1">
-                            {root.id.substring(0, 8)}...
-                          </div>
-                        </button>
-                      );
-                    })}
+                        const date = new Date(root.createdAt);
+                        const formattedDate = date.toLocaleDateString("en-US", {
+                          year: "numeric",
+                          month: "short",
+                          day: "numeric",
+                        });
+                        return (
+                          <button
+                            key={root.id}
+                            onClick={() => setSelectedRootId(root.id)}
+                            className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                          >
+                            <div className="font-medium text-gray-900 mb-2">
+                              {root.title}
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                              <span>{formattedDate}</span>
+                              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                                {root.descendantCount} moment
+                                {root.descendantCount !== 1 ? "s" : ""}
+                              </span>
+                            </div>
+                            <div className="text-xs text-gray-400 font-mono mt-1">
+                              {root.id.substring(0, 8)}...
+                            </div>
+                          </button>
+                        );
+                      })}
                   </div>
                   {rootListMode === "all" &&
                     searchQuery.trim() &&
@@ -1210,48 +1217,48 @@ export function KnowledgeGraphPage() {
                   </Button>
                 </div>
                 <div className="flex flex-col lg:flex-row gap-4">
-                  <div
-                    ref={svgContainerRef}
+                <div
+                  ref={svgContainerRef}
                     className="relative w-full border rounded bg-white overflow-auto lg:flex-1"
-                    style={{ maxHeight: "80vh", minHeight: "400px" }}
-                    onMouseDown={(e) => {
-                      if (e.button === 0 && e.currentTarget === e.target) {
-                        setIsPanning(true);
+                  style={{ maxHeight: "80vh", minHeight: "400px" }}
+                  onMouseDown={(e) => {
+                    if (e.button === 0 && e.currentTarget === e.target) {
+                      setIsPanning(true);
                         setPanStart({
                           x: e.clientX - pan.x,
                           y: e.clientY - pan.y,
                         });
-                      }
-                    }}
-                    onMouseMove={(e) => {
-                      if (isPanning) {
-                        setPan({
-                          x: e.clientX - panStart.x,
-                          y: e.clientY - panStart.y,
-                        });
-                      }
-                    }}
-                    onMouseUp={() => setIsPanning(false)}
-                    onMouseLeave={() => setIsPanning(false)}
-                    onWheel={(e) => {
-                      e.preventDefault();
-                      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                      setZoom(Math.max(0.5, Math.min(3, zoom + delta)));
-                    }}
-                  >
-                    <div
-                      ref={mermaidContainerRef}
-                      className="flex items-center justify-center p-4"
-                      style={{
-                        transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                        transformOrigin: "center center",
+                    }
+                  }}
+                  onMouseMove={(e) => {
+                    if (isPanning) {
+                      setPan({
+                        x: e.clientX - panStart.x,
+                        y: e.clientY - panStart.y,
+                      });
+                    }
+                  }}
+                  onMouseUp={() => setIsPanning(false)}
+                  onMouseLeave={() => setIsPanning(false)}
+                  onWheel={(e) => {
+                    e.preventDefault();
+                    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                    setZoom(Math.max(0.5, Math.min(3, zoom + delta)));
+                  }}
+                >
+                  <div
+                    ref={mermaidContainerRef}
+                    className="flex items-center justify-center p-4"
+                    style={{
+                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                      transformOrigin: "center center",
                         transition: isPanning
                           ? "none"
                           : "transform 0.1s ease-out",
-                        minWidth: "100%",
-                        minHeight: "100%",
-                      }}
-                    />
+                      minWidth: "100%",
+                      minHeight: "100%",
+                    }}
+                  />
                   </div>
 
                   <div className="w-full lg:w-[420px] border rounded bg-white">
@@ -1615,13 +1622,96 @@ export function KnowledgeGraphPage() {
                               </div>
                             )}
                           </div>
+
+                          <div className="border-t pt-3">
+                            <div className="text-sm font-medium text-gray-900 mb-2">
+                              Synthesis
+                            </div>
+
+                            {!Array.isArray(selectedMomentDetails.documentAudit) ||
+                            selectedMomentDetails.documentAudit.length === 0 ? (
+                              <div className="text-sm text-gray-600">
+                                No synthesis audit records found for this document.
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                {selectedMomentDetails.documentAudit.map((e) => {
+                                  const message =
+                                    typeof e?.payload?.message === "string"
+                                      ? e.payload.message
+                                      : null;
+                                  const promptHash =
+                                    typeof e?.payload?.promptHash16 === "string"
+                                      ? e.payload.promptHash16
+                                      : null;
+                                  const responsePreview =
+                                    typeof e?.payload?.responsePreview === "string"
+                                      ? e.payload.responsePreview
+                                      : null;
+                                  const responseLength =
+                                    typeof e?.payload?.responseLength === "number"
+                                      ? e.payload.responseLength
+                                      : null;
+                                  return (
+                                    <div
+                                      key={e.id}
+                                      className="border rounded p-2 bg-gray-50"
+                                    >
+                                      <div className="text-xs text-gray-600">
+                                        <span className="font-mono">{e.kind}</span>{" "}
+                                        <span className="text-gray-400">
+                                          {e.createdAt}
+                                        </span>
+                                      </div>
+                                      {message && (
+                                        <div className="text-xs text-gray-700 mt-1">
+                                          {message}
+                                        </div>
+                                      )}
+                                      {(promptHash ||
+                                        responseLength !== null) && (
+                                        <div className="text-xs text-gray-600 mt-1">
+                                          {promptHash && (
+                                            <span>
+                                              Prompt:{" "}
+                                              <span className="font-mono">
+                                                {promptHash}
+                                              </span>{" "}
+                                            </span>
+                                          )}
+                                          {responseLength !== null && (
+                                            <span>
+                                              Response chars:{" "}
+                                              <span className="font-mono">
+                                                {responseLength}
+                                              </span>
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
+                                      {responsePreview && (
+                                        <details className="mt-2">
+                                          <summary className="text-xs font-medium text-gray-700 cursor-pointer">
+                                            Response preview
+                                          </summary>
+                                          <pre className="text-xs overflow-auto max-h-48 mt-2 p-2 bg-white border rounded">
+                                            {responsePreview}
+                                          </pre>
+                                        </details>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
                         </>
                       )}
                     </div>
                   </div>
                 </div>
               </div>
-
+              
               {graphData.length > 0 && (
                 <div className="mt-6">
                   <h3 className="text-lg font-semibold mb-4">Audit Table</h3>

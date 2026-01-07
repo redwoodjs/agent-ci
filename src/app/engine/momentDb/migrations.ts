@@ -167,4 +167,31 @@ export const momentMigrations = {
         .execute();
     },
   },
+  "008_add_document_audit_logs": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("document_audit_logs")
+          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("document_id", "text", (col) => col.notNull())
+          .addColumn("kind", "text", (col) => col.notNull())
+          .addColumn("payload_json", "text", (col) => col.notNull())
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .execute(),
+        await db.schema
+          .createIndex("document_audit_logs_document_id_idx")
+          .on("document_audit_logs")
+          .column("document_id")
+          .execute(),
+        await db.schema
+          .createIndex("document_audit_logs_document_kind_created_idx")
+          .on("document_audit_logs")
+          .columns(["document_id", "kind", "created_at"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("document_audit_logs").execute();
+    },
+  },
 } satisfies Migrations;

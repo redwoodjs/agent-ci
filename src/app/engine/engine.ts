@@ -13,6 +13,7 @@ import type {
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
 import {
   addMoment,
+  addDocumentAuditLog,
   findSimilarMoments,
   findAncestors,
   findDescendants,
@@ -27,6 +28,7 @@ import { getEmbedding, getEmbeddings } from "./utils/vector";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,
+  type SynthesisAuditEvent,
 } from "./synthesis/synthesizeMicroMoments";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
 import {
@@ -477,12 +479,30 @@ export async function indexDocument(
         });
       }
 
+      const synthesisAuditEvents: SynthesisAuditEvent[] = [];
       const streams = await synthesizeMicroMomentsIntoStreams(
         microMomentsForSynthesis,
         {
           macroSynthesisPromptContext,
+          auditSink: (event) => {
+            synthesisAuditEvents.push(event);
+          },
         }
       );
+
+      for (const event of synthesisAuditEvents) {
+        await addDocumentAuditLog(
+          document.id,
+          `synthesis:${event.kind}`,
+          {
+            ...event,
+            documentId: document.id,
+            r2Key,
+            momentGraphNamespace: momentGraphContext.momentGraphNamespace,
+          },
+          momentGraphContext
+        );
+      }
 
       if (streams.length > 0) {
         console.log("[moment-linker] macro streams synthesized", {

@@ -556,6 +556,13 @@ export async function indexDocument(
                 : "";
               const author = typeof m?.author === "string" ? m.author : "";
 
+              if (
+                title.trim() === "Summarized micro-moments" &&
+                summary.trim() === "Synthesized macro-moments could not be parsed."
+              ) {
+                return true;
+              }
+
               const combinedLower = `${title}\n${summary}`.toLowerCase();
               const isGitHub = combinedLower.includes("mchn://gh/");
               if (!isGitHub) {

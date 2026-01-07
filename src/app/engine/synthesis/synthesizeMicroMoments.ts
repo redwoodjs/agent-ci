@@ -244,20 +244,7 @@ ${formattedMoments}
       console.error(
         `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`
       );
-      return [
-        {
-          title: "Summarized micro-moments",
-          summary: "Synthesized macro-moments could not be parsed.",
-          microPaths: microMoments.map((m) => m.path),
-          content: microMoments
-            .map((m) => m.content)
-            .filter(Boolean)
-            .join("\n\n---\n\n"),
-          author: microMoments[0]?.author || "unknown",
-          createdAt: microMoments[0]?.createdAt || new Date().toISOString(),
-          sourceMetadata: microMoments[0]?.sourceMetadata,
-        },
-      ];
+      return [];
     }
 
     return macroMoments;

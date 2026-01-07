@@ -6,7 +6,7 @@ import {
   findDescendants,
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
-import { getPullRequestForCommit } from "./github-utils";
+import { getPullRequestsForCommit } from "./github-utils";
 import { callLLM } from "@/app/engine/utils/llm";
 import { getMomentGraphNamespaceFromEnv } from "@/app/engine/momentGraphNamespace";
 
@@ -134,23 +134,22 @@ export async function codeOriginHandler({ request, ctx }: RequestInfo) {
     console.log(
       `[code-origin] Fetching PR for commit ${commitHash} in ${owner}/${repo}`
     );
-    const prNumber = await getPullRequestForCommit(
+    const prNumbers = await getPullRequestsForCommit(
       owner,
       repo,
       commitHash,
       envCloudflare
     );
 
+    const prNumber = prNumbers.length > 0 ? prNumbers[0] : null;
+
     if (!prNumber) {
-      return new Response(
-        `No pull request found for commit ${commitHash}`,
-        {
-          status: 404,
-          headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-          },
-        }
-      );
+      return new Response(`No pull request found for commit ${commitHash}`, {
+        status: 404,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+      });
     }
 
     console.log(`[code-origin] Found PR #${prNumber} for commit ${commitHash}`);
@@ -162,18 +161,15 @@ export async function codeOriginHandler({ request, ctx }: RequestInfo) {
     const bucket = envCloudflare.MACHINEN_BUCKET;
     const prObject = await bucket.get(r2Key);
     if (!prObject) {
-      return new Response(
-        `PR data not found in R2: ${r2Key}`,
-        {
-          status: 404,
-          headers: {
-            "Content-Type": "text/plain; charset=utf-8",
-          },
-        }
-      );
+      return new Response(`PR data not found in R2: ${r2Key}`, {
+        status: 404,
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+      });
     }
 
-    const prData = await prObject.json();
+    const prData = (await prObject.json()) as any;
     console.log(`[code-origin] Fetched PR data from R2: ${r2Key}`);
 
     // 4. Find Moment in Graph
@@ -317,4 +313,3 @@ Write a clear narrative that explains the sequence and causal relationships betw
     );
   }
 }
-

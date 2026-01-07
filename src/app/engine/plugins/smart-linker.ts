@@ -294,6 +294,15 @@ export const smartLinkerPlugin: Plugin = {
           subject.documentId
         );
 
+        if (
+          subject.title?.trim() === "Summarized micro-moments" &&
+          subject.summary?.trim() === "Synthesized macro-moments could not be parsed."
+        ) {
+          decision.rejectReason = "macro-synthesis-parse-failure-placeholder";
+          candidateDecisions.push(decision);
+          continue;
+        }
+
         if (subject.documentId === document.id) {
           decision.rejectReason = "same-document";
           candidateDecisions.push(decision);

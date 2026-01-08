@@ -72,3 +72,19 @@ In the same tree, an unrelated moment is connected to the root, while expected r
   - Added scripts/cleanup-github-issue-pr-overlaps.mjs to call the endpoint.
 - Added a temporary indexing-time hack for known misfiled GitHub PR ids.
   - In the github plugin, issues/{n} keys in FORCE_PULL_REQUEST_NUMBERS are treated as pull-requests during prepareSourceDocument, so macro synthesis uses PR formatting and canonical PR refs.
+
+## PR Title: Fix GitHub issue vs pull request misclassification and clean up overlaps
+
+### Description
+
+Some GitHub pull requests were ingested and stored under the issues keyspace, which caused them to be indexed and summarized as issues. In a smaller set of cases, both an issues/{n} and pull-requests/{n} copy existed for the same number. The issues copy could become stale while indexing still picked it up, which then produced incorrect moment titles, canonical reference tokens, and linking behavior.
+
+This change set fixes the ingestion and indexing paths and adds a one-off cleanup endpoint for the known overlap ids:
+
+- Skips pull requests returned by the GitHub issues list endpoint during backfills (items with a pull_request field).
+- When fetching a single issue by number, detects pull_request entries and delegates to the pull request processor instead of writing issues/{n}.
+- Skips indexing github/*/*/issues/{n}/latest.json when pull-requests/{n}/latest.json exists and writes an audit event (indexing:skip-duplicate-github-issue).
+- Adds an admin cleanup endpoint to delete stored moments/micro-moments/audit logs for the stale issues/{n} documents in the overlap set and then resync the corresponding pull request documents.
+- Adds a temporary indexing-time allowlist to treat specific known ids as pull requests even if stored under issues/{n}, as a stopgap until the stored objects are rewritten.
+
+Testing: npm run build

@@ -51,3 +51,20 @@ We already persist document-level synthesis failures (parse failure and error) t
   - allows tuning via `MACRO_MOMENT_DISCORD_NOISE_PATTERNS`
   - writes `noiseDroppedCount` (and a small sample) into the gating audit record
 
+## PR Title: Document audit for synthesis decisions and indexing failures
+
+### Description
+
+When a moment in the knowledge graph looks wrong, we can trace it back to the source document and micro-moment provenance, but we have not been able to inspect the macro synthesis output and the gating decisions that led to the moment being persisted. Separately, when indexing fails to produce moments, it has been hard to identify which documents failed without digging through logs.
+
+This change persists document-level audit records for the moment generation pipeline and exposes them in both the UI and debug endpoints:
+
+- Records macro synthesis events for both success and failure (prompt hash + truncated response preview).
+- Records per-stream summaries and per-stream gating summaries, including the chosen link anchor macro and the query preview used for smart-linker attachment.
+- Records indexing failures with a stage tag, plus micro-moment batch and embedding errors.
+- Adds admin endpoints to fetch audit logs for a document and to list recent documents with audit events.
+- Updates the knowledge graph audit UI to show document audit records and a “Recent failures” list with links to ingestion files.
+
+This change also reduces graph noise by filtering out low-signal Discord coordination/status macro moments (afk, apology, sync, meeting/call, scheduling) unless the moment includes technical anchors. The filter can be tuned via `MACRO_MOMENT_DISCORD_NOISE_PATTERNS`.
+
+Testing: `npm run build`

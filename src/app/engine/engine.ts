@@ -202,7 +202,9 @@ export async function indexDocument(
     momentGraphNamespace: effectiveNamespace,
   };
 
+  let stage = "start";
   try {
+    stage = "split-document";
     // 1. Split document into chunks BEFORE subject correlation
     let chunks: Chunk[] | null = null;
     for (const plugin of context.plugins) {
@@ -222,6 +224,7 @@ export async function indexDocument(
       throw new Error(`No plugin could split document into chunks: ${r2Key}`);
     }
 
+    stage = "diff-chunks";
     // 2. Diff against previously processed chunks to avoid redundant work
     const oldChunkHashes = await getProcessedChunkHashes(r2Key, {
       env: context.env,
@@ -238,6 +241,7 @@ export async function indexDocument(
       return []; // Nothing more to do
     }
 
+    stage = "micro-moments";
     // 3. Compute and cache micro-moments from chunk batches, then synthesize into macro-moments
     // Subjects are now created automatically from root moments via the Moment Graph system.
     // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
@@ -374,10 +378,26 @@ export async function indexDocument(
         `Context: These chunks are from a single document.\n` +
           `Focus on concrete details and avoid generic summaries.\n`;
 
-      const computedItems =
-        (await computeMicroMomentsForChunkBatch(batchChunks, {
-          promptContext,
-        })) ?? [];
+      let computedItems: string[] = [];
+      try {
+        computedItems =
+          (await computeMicroMomentsForChunkBatch(batchChunks, {
+            promptContext,
+          })) ?? [];
+      } catch (error) {
+        await addDocumentAuditLog(
+          document.id,
+          "indexing:micro-moment-batch-error",
+          {
+            message: error instanceof Error ? error.message : String(error),
+            batchHash,
+            batchIndex,
+            chunkIds: batchChunks.map((c) => c.id),
+          },
+          momentGraphContext
+        );
+        computedItems = [];
+      }
 
       const itemsToStore =
         computedItems.length > 0
@@ -388,7 +408,22 @@ export async function indexDocument(
               .slice(0, 1)
               .map((c) => c.substring(0, 300));
 
-      const embeddings = await getEmbeddings(itemsToStore);
+      let embeddings: number[][] = [];
+      try {
+        embeddings = await getEmbeddings(itemsToStore);
+      } catch (error) {
+        await addDocumentAuditLog(
+          document.id,
+          "indexing:micro-moment-embedding-error",
+          {
+            message: error instanceof Error ? error.message : String(error),
+            batchHash,
+            batchIndex,
+          },
+          momentGraphContext
+        );
+        embeddings = [];
+      }
       const batchTimeRange = inferBatchTimeRange(
         batchChunks,
         document.metadata.createdAt
@@ -504,6 +539,19 @@ export async function indexDocument(
         );
       }
 
+      if (streams.length === 0) {
+        await addDocumentAuditLog(
+          document.id,
+          "indexing:no-macro-streams",
+          {
+            message: "No macro streams were produced for this document.",
+            documentId: document.id,
+            r2Key,
+          },
+          momentGraphContext
+        );
+      }
+
       if (streams.length > 0) {
         console.log("[moment-linker] macro streams synthesized", {
           documentId: document.id,
@@ -515,6 +563,27 @@ export async function indexDocument(
         });
 
         for (const stream of streams) {
+          await addDocumentAuditLog(
+            document.id,
+            "synthesis:macro-stream-summary",
+            {
+              streamId: stream.streamId,
+              macroCount: stream.macroMoments.length,
+              macroTitles: stream.macroMoments
+                .slice(0, 20)
+                .map((m) => (typeof m?.title === "string" ? m.title : null))
+                .filter((t) => typeof t === "string" && t.length > 0),
+              macroImportances: stream.macroMoments
+                .slice(0, 20)
+                .map((m) =>
+                  typeof (m as any)?.importance === "number"
+                    ? (m as any).importance
+                    : null
+                ),
+            },
+            momentGraphContext
+          );
+
           const macroMomentDescriptionsRaw =
             stream.macroMoments as any as MacroMomentDescription[];
           if (macroMomentDescriptionsRaw.length === 0) {
@@ -539,12 +608,22 @@ export async function indexDocument(
               ? macroMinImportanceRaw
               : 0.25;
 
-          const macroMomentDescriptions = (() => {
+          const macroGateResult = (() => {
             const noisePatternsFromEnvRaw = (indexingContext.env as any)
               .MACRO_MOMENT_NOISE_PATTERNS;
             const noisePatternStringsFromEnv =
               typeof noisePatternsFromEnvRaw === "string"
                 ? noisePatternsFromEnvRaw
+                    .split(/\r?\n|,/g)
+                    .map((s: string) => s.trim())
+                    .filter((s: string) => s.length > 0)
+                : [];
+
+            const discordNoisePatternsFromEnvRaw = (indexingContext.env as any)
+              .MACRO_MOMENT_DISCORD_NOISE_PATTERNS;
+            const discordNoisePatternStringsFromEnv =
+              typeof discordNoisePatternsFromEnvRaw === "string"
+                ? discordNoisePatternsFromEnvRaw
                     .split(/\r?\n|,/g)
                     .map((s: string) => s.trim())
                     .filter((s: string) => s.length > 0)
@@ -569,6 +648,50 @@ export async function indexDocument(
               })
               .filter(Boolean) as RegExp[];
 
+            const discordNoisePatternStrings = [
+              "\\bafk\\b",
+              "\\bbrb\\b",
+              "\\bback\\s+now\\b",
+              "\\bapologiz(e|ed|ing)\\b",
+              "\\bsync\\b",
+              "\\bpair(ing)?\\b",
+              "\\btour\\b",
+              "\\bmeeting\\b",
+              "\\bcall\\b",
+              "\\btimezone\\b",
+              "\\bschedul(e|ed|ing)\\b",
+              ...discordNoisePatternStringsFromEnv,
+            ];
+
+            const discordNoiseRegexes = discordNoisePatternStrings
+              .map((p) => {
+                try {
+                  return new RegExp(p, "i");
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean) as RegExp[];
+
+            function hasTechnicalAnchors(text: string): boolean {
+              if (!text) {
+                return false;
+              }
+              if (text.includes("mchn://gh/")) {
+                return true;
+              }
+              if (text.includes("```")) {
+                return true;
+              }
+              if (/\b(error|exception|stack trace|traceback)\b/i.test(text)) {
+                return true;
+              }
+              if (/\b(fix|fixed|bug|regression|implement|implemented|add|added|remove|removed|merge|merged)\b/i.test(text)) {
+                return true;
+              }
+              return false;
+            }
+
             function isNoiseMacroMoment(m: MacroMomentDescription): boolean {
               const title = typeof m?.title === "string" ? m.title : "";
               const summary = typeof (m as any)?.summary === "string"
@@ -585,6 +708,23 @@ export async function indexDocument(
 
               const combinedLower = `${title}\n${summary}`.toLowerCase();
               const isGitHub = combinedLower.includes("mchn://gh/");
+              const isDiscord =
+                combinedLower.includes("mchn://dc/") ||
+                title.trim().toLowerCase().startsWith("[discord");
+
+              if (isDiscord) {
+                const combined = `${title}\n${summary}`;
+                if (hasTechnicalAnchors(combined)) {
+                  return false;
+                }
+                for (const re of discordNoiseRegexes) {
+                  if (re.test(title) || re.test(summary)) {
+                    return true;
+                  }
+                }
+                return false;
+              }
+
               if (!isGitHub) {
                 return false;
               }
@@ -644,7 +784,18 @@ export async function indexDocument(
               .filter((x) => !isNoiseMacroMoment(x.m));
 
             if (withIndex.length === 0) {
-              return [];
+              return {
+                macroMomentDescriptions: [] as MacroMomentDescription[],
+                gatingAudit: {
+                  inputMacroCount: macroMomentDescriptionsRaw.length,
+                  outputMacroCount: 0,
+                  noiseDroppedCount: macroMomentDescriptionsRaw.length,
+                  noiseDroppedTitlesSample: macroMomentDescriptionsRaw
+                    .slice(0, 20)
+                    .map((m) => (typeof m?.title === "string" ? m.title : null))
+                    .filter((t) => typeof t === "string" && t.length > 0),
+                },
+              };
             }
 
             const sortedByImportance = withIndex
@@ -671,17 +822,57 @@ export async function indexDocument(
             );
 
             if (filtered.length > 0) {
-              return filtered.map((x) => x.m);
+              return {
+                macroMomentDescriptions: filtered.map((x) => x.m),
+                gatingAudit: {
+                  inputMacroCount: macroMomentDescriptionsRaw.length,
+                  outputMacroCount: filtered.length,
+                  noiseDroppedCount:
+                    macroMomentDescriptionsRaw.length - withIndex.length,
+                },
+              };
             }
 
             const fallback = cappedSortedByIndex[0] ?? sortedByImportance[0];
-            return fallback ? [fallback.m] : [];
+            return {
+              macroMomentDescriptions: fallback ? [fallback.m] : [],
+              gatingAudit: {
+                inputMacroCount: macroMomentDescriptionsRaw.length,
+                outputMacroCount: fallback ? 1 : 0,
+                noiseDroppedCount:
+                  macroMomentDescriptionsRaw.length - withIndex.length,
+              },
+            };
           })();
+
+          const macroMomentDescriptions = macroGateResult.macroMomentDescriptions;
+
+          await addDocumentAuditLog(
+            document.id,
+            "synthesis:macro-gating",
+            {
+              streamId: stream.streamId,
+              inputMacroCount: macroGateResult.gatingAudit.inputMacroCount,
+              outputMacroCount: macroGateResult.gatingAudit.outputMacroCount,
+              noiseDroppedCount: macroGateResult.gatingAudit.noiseDroppedCount,
+              noiseDroppedTitlesSample:
+                (macroGateResult.gatingAudit as any).noiseDroppedTitlesSample ??
+                null,
+              macroMaxPerStream,
+              macroMinImportance,
+              keptTitles: macroMomentDescriptions
+                .slice(0, 20)
+                .map((m) => (typeof m?.title === "string" ? m.title : null))
+                .filter((t) => typeof t === "string" && t.length > 0),
+            },
+            momentGraphContext
+          );
 
           if (macroMomentDescriptions.length === 0) {
             continue;
           }
 
+          stage = "persist-macro-moments";
           let anchorMacroMomentIndex = 0;
           let anchorMacroMomentImportance: number | null = null;
           let anchorMacroMomentForLinking: MacroMomentDescription | null = null;
@@ -774,6 +965,21 @@ export async function indexDocument(
                       summary: concatenated,
                     }
                   : firstImportant;
+
+              await addDocumentAuditLog(
+                document.id,
+                "synthesis:link-anchor",
+                {
+                  streamId: stream.streamId,
+                  proposalMacroMomentIndex: firstImportantIndex,
+                  proposalMacroMomentTitle: firstImportant.title ?? null,
+                  proposalMacroMomentImportance: anchorMacroMomentImportance,
+                  concatenatedPreview:
+                    concatenated.length > 0 ? concatenated.slice(0, 800) : null,
+                  concatenatedLength: concatenated.length,
+                },
+                momentGraphContext
+              );
             }
           }
 
@@ -943,6 +1149,7 @@ export async function indexDocument(
       }
     }
 
+    stage = "enrich-chunks";
     // 4. Enrich chunks (optional, original logic for the new chunks)
     const enrichedChunks: Chunk[] = [];
     for (const chunk of newChunks) {
@@ -961,6 +1168,7 @@ export async function indexDocument(
       enrichedChunks.push(enrichedChunk);
     }
 
+    stage = "persist-chunk-hashes";
     // 5. After successful processing, update the state with the hashes of *all* current chunks
     const allCurrentChunkHashes = chunks.map((c) => c.contentHash!);
     await setProcessedChunkHashes(r2Key, allCurrentChunkHashes, {
@@ -969,6 +1177,19 @@ export async function indexDocument(
     });
 
     return enrichedChunks;
+  } catch (error) {
+    await addDocumentAuditLog(
+      document.id,
+      "indexing:error",
+      {
+        stage,
+        message: error instanceof Error ? error.message : String(error),
+        r2Key,
+        documentId: document.id,
+      },
+      momentGraphContext
+    );
+    throw error;
   } finally {
     // no global namespace mutation
   }

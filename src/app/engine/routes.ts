@@ -16,6 +16,7 @@ import {
   getDescendantsForRootSlim,
   getRootStatsByHighImportanceSample,
   getDocumentAuditLogsForDocument,
+  getRecentDocumentAuditEvents,
 } from "./momentDb";
 import {
   processScannerJob,
@@ -891,6 +892,176 @@ async function momentDebugHandler({ request }: RequestInfo) {
   });
 }
 
+async function documentAuditHandler({ request }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  let body:
+    | {
+        documentId?: unknown;
+        momentGraphNamespace?: unknown;
+        namespace?: unknown;
+        momentGraphNamespacePrefix?: unknown;
+        namespacePrefix?: unknown;
+        kindPrefix?: unknown;
+        limit?: unknown;
+      }
+    | undefined;
+
+  try {
+    body = (await request.json()) as any;
+  } catch {
+    body = undefined;
+  }
+
+  const documentIdRaw = (body as any)?.documentId;
+  const documentId =
+    typeof documentIdRaw === "string" && documentIdRaw.trim().length > 0
+      ? documentIdRaw.trim()
+      : null;
+  if (!documentId) {
+    return Response.json(
+      { error: "Missing or invalid 'documentId' parameter" },
+      { status: 400 }
+    );
+  }
+
+  const namespaceRaw =
+    (body as any)?.momentGraphNamespace ?? (body as any)?.namespace;
+  const baseNamespace =
+    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+      ? namespaceRaw.trim()
+      : null;
+
+  const namespacePrefixRaw =
+    (body as any)?.momentGraphNamespacePrefix ?? (body as any)?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
+  const envCloudflare = env as Cloudflare.Env;
+  const effectiveNamespace =
+    momentGraphNamespacePrefix && baseNamespace
+      ? applyMomentGraphNamespacePrefixValue(
+          baseNamespace,
+          momentGraphNamespacePrefix
+        )
+      : baseNamespace ?? getMomentGraphNamespaceFromEnv(envCloudflare);
+
+  const kindPrefixRaw = (body as any)?.kindPrefix;
+  const kindPrefix =
+    typeof kindPrefixRaw === "string" && kindPrefixRaw.trim().length > 0
+      ? kindPrefixRaw.trim()
+      : null;
+
+  const limitRaw = (body as any)?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 50;
+
+  const logs = await getDocumentAuditLogsForDocument(
+    documentId,
+    { env: envCloudflare, momentGraphNamespace: effectiveNamespace },
+    { kindPrefix, limit }
+  );
+
+  return Response.json({
+    momentGraphNamespace: effectiveNamespace ?? null,
+    momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
+    documentId,
+    logs,
+  });
+}
+
+async function documentAuditRecentHandler({ request }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  let body:
+    | {
+        momentGraphNamespace?: unknown;
+        namespace?: unknown;
+        momentGraphNamespacePrefix?: unknown;
+        namespacePrefix?: unknown;
+        kindPrefixes?: unknown;
+        limitEvents?: unknown;
+        limitDocuments?: unknown;
+      }
+    | undefined;
+
+  try {
+    body = (await request.json()) as any;
+  } catch {
+    body = undefined;
+  }
+
+  const namespaceRaw =
+    (body as any)?.momentGraphNamespace ?? (body as any)?.namespace;
+  const baseNamespace =
+    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+      ? namespaceRaw.trim()
+      : null;
+
+  const namespacePrefixRaw =
+    (body as any)?.momentGraphNamespacePrefix ?? (body as any)?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
+  const envCloudflare = env as Cloudflare.Env;
+  const effectiveNamespace =
+    momentGraphNamespacePrefix && baseNamespace
+      ? applyMomentGraphNamespacePrefixValue(
+          baseNamespace,
+          momentGraphNamespacePrefix
+        )
+      : baseNamespace ?? getMomentGraphNamespaceFromEnv(envCloudflare);
+
+  const kindPrefixesRaw = (body as any)?.kindPrefixes;
+  const kindPrefixes =
+    Array.isArray(kindPrefixesRaw) &&
+    kindPrefixesRaw.every((s) => typeof s === "string")
+      ? (kindPrefixesRaw as string[])
+      : ["indexing:", "synthesis:"];
+
+  const limitEventsRaw = (body as any)?.limitEvents;
+  const limitEvents =
+    typeof limitEventsRaw === "number" &&
+    Number.isFinite(limitEventsRaw) &&
+    limitEventsRaw > 0
+      ? Math.floor(limitEventsRaw)
+      : 200;
+
+  const limitDocumentsRaw = (body as any)?.limitDocuments;
+  const limitDocuments =
+    typeof limitDocumentsRaw === "number" &&
+    Number.isFinite(limitDocumentsRaw) &&
+    limitDocumentsRaw > 0
+      ? Math.floor(limitDocumentsRaw)
+      : 30;
+
+  const docs = await getRecentDocumentAuditEvents(
+    { env: envCloudflare, momentGraphNamespace: effectiveNamespace },
+    { kindPrefixes, limitEvents, limitDocuments }
+  );
+
+  return Response.json({
+    momentGraphNamespace: effectiveNamespace ?? null,
+    momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
+    kindPrefixes,
+    limitEvents,
+    limitDocuments,
+    docs,
+  });
+}
+
 export const routes = [
   route("/query", {
     post: [
@@ -918,6 +1089,12 @@ export const routes = [
   }),
   route("/admin/moment-debug", {
     post: [requireQueryApiKey, momentDebugHandler],
+  }),
+  route("/admin/document-audit", {
+    post: [requireQueryApiKey, documentAuditHandler],
+  }),
+  route("/admin/document-audit-recent", {
+    post: [requireQueryApiKey, documentAuditRecentHandler],
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],

@@ -17,6 +17,8 @@ export type SynthesisAuditEvent = {
   kind:
     | "macro-synthesis-parse-failure"
     | "macro-synthesis-error"
+    | "macro-synthesis-success"
+    | "macro-stream-synthesis-success"
     | "macro-stream-synthesis-error";
   message: string;
   promptHash16: string | null;
@@ -290,6 +292,14 @@ ${formattedMoments}
       });
       return [];
     }
+
+    options?.auditSink?.({
+      kind: "macro-synthesis-success",
+      message: `Parsed ${macroMoments.length} macro moments.`,
+      promptHash16,
+      responsePreview: safePreview(response, 2000),
+      responseLength: typeof response === "string" ? response.length : null,
+    });
 
     return macroMoments;
   } catch (error) {
@@ -568,6 +578,14 @@ ${formattedMoments}
         ? [{ streamId: "stream-1", macroMoments: single }]
         : [];
     }
+
+    options?.auditSink?.({
+      kind: "macro-stream-synthesis-success",
+      message: `Parsed ${streams.length} streams.`,
+      promptHash16,
+      responsePreview: safePreview(response, 2000),
+      responseLength: typeof response === "string" ? response.length : null,
+    });
 
     return streams;
   } catch (error) {

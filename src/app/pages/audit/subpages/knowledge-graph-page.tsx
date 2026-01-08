@@ -19,6 +19,7 @@ import {
   getRootSampleStatsAction,
   searchMomentsAction,
   getMomentDetailsAction,
+  getRecentDocumentAuditEventsAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -237,6 +238,12 @@ export function KnowledgeGraphPage() {
   const [pendingHighlightMomentId, setPendingHighlightMomentId] = useState<
     string | null
   >(null);
+
+  const [recentAuditDocs, setRecentAuditDocs] = useState<any[] | null>(null);
+  const [recentAuditDocsLoading, setRecentAuditDocsLoading] = useState(false);
+  const [recentAuditDocsError, setRecentAuditDocsError] = useState<string | null>(
+    null
+  );
   const mermaidContainerRef = useRef<HTMLDivElement>(null);
   const mermaidScriptRef = useRef<HTMLScriptElement | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -504,6 +511,37 @@ export function KnowledgeGraphPage() {
   }, [selectedMomentId, selectedNamespace, prefixOverride]);
 
   useEffect(() => {
+    async function fetchRecentFailures() {
+      setRecentAuditDocsLoading(true);
+      setRecentAuditDocsError(null);
+      try {
+        const res = await getRecentDocumentAuditEventsAction({
+          momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+          kindPrefixes: ["indexing:", "synthesis:"],
+          limitDocuments: 20,
+          limitEvents: 200,
+        });
+        if (res.success) {
+          setRecentAuditDocs(res.docs ?? []);
+        } else {
+          setRecentAuditDocs(null);
+          setRecentAuditDocsError(res.error || "Failed to fetch recent failures");
+        }
+      } catch (err) {
+        setRecentAuditDocs(null);
+        setRecentAuditDocsError(
+          err instanceof Error ? err.message : "Failed to fetch recent failures"
+        );
+      } finally {
+        setRecentAuditDocsLoading(false);
+      }
+    }
+    fetchRecentFailures();
+  }, [selectedNamespace, prefixOverride]);
+
+  useEffect(() => {
     if (!selectedRootId || loading) {
       return;
     }
@@ -729,6 +767,73 @@ export function KnowledgeGraphPage() {
               </div>
             )}
           </div>
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Recent failures</CardTitle>
+          <CardDescription>
+            Documents with recent indexing or synthesis audit events
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {recentAuditDocsLoading && (
+            <div className="text-sm text-gray-600">Loading…</div>
+          )}
+          {recentAuditDocsError && (
+            <div className="text-sm text-red-600">{recentAuditDocsError}</div>
+          )}
+          {!recentAuditDocsLoading &&
+            !recentAuditDocsError &&
+            (!Array.isArray(recentAuditDocs) || recentAuditDocs.length === 0) && (
+              <div className="text-sm text-gray-600">
+                No recent audit events found.
+              </div>
+            )}
+          {Array.isArray(recentAuditDocs) && recentAuditDocs.length > 0 && (
+            <div className="space-y-2">
+              {recentAuditDocs.map((d) => {
+                const docId = typeof d?.documentId === "string" ? d.documentId : "";
+                const kind = typeof d?.kind === "string" ? d.kind : "unknown";
+                const createdAt = typeof d?.createdAt === "string" ? d.createdAt : "";
+                const message =
+                  typeof d?.payload?.message === "string" ? d.payload.message : null;
+                const ingestionPath =
+                  docId.length > 0
+                    ? `/audit/ingestion/file/${encodeURIComponent(docId)}`
+                    : null;
+                return (
+                  <div key={String(d?.id ?? docId)} className="border rounded p-2">
+                    <div className="text-xs text-gray-600">
+                      <span className="font-mono">{kind}</span>{" "}
+                      <span className="text-gray-400">{createdAt}</span>
+                    </div>
+                    {docId && (
+                      <div className="text-xs mt-1">
+                        Document: <span className="font-mono break-all">{docId}</span>
+                      </div>
+                    )}
+                    {message && (
+                      <div className="text-xs text-gray-700 mt-1">{message}</div>
+                    )}
+                    {ingestionPath && (
+                      <div className="text-xs mt-1">
+                        <a
+                          href={ingestionPath}
+                          className="text-blue-600 hover:underline"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Open ingestion file
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 

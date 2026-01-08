@@ -6,12 +6,16 @@ import {
   findDescendants,
   findSimilarMoments,
   findMomentsBySearch,
+  getDiagnosticInfo,
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
 import { getPullRequestsForCommit, parseGitHubRepo } from "./github-utils";
 import { callLLM } from "@/app/engine/utils/llm";
 import { getEmbedding } from "@/app/engine/utils/vector";
-import { getMomentGraphNamespaceFromEnv } from "@/app/engine/momentGraphNamespace";
+import {
+  getMomentGraphNamespaceFromEnv,
+  qualifyName,
+} from "@/app/engine/momentGraphNamespace";
 import type { Moment } from "@/app/engine/types";
 
 interface Citation {
@@ -370,6 +374,18 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
       momentGraphNamespace: momentGraphNamespace,
     };
 
+    // Log namespace verification details
+    // The namespace you provide is combined with base name "moment-graph-v2"
+    // to create the full Durable Object name (same as getMomentDb uses)
+    const qualifiedDbName = qualifyName(
+      "moment-graph-v2",
+      momentGraphNamespace
+    );
+    console.log(
+      `[pr-origin] Using namespace: ${momentGraphNamespace ?? "null (default)"}`
+    );
+    console.log(`[pr-origin] Qualified database name: ${qualifiedDbName}`);
+
     const allRelatedMoments: Moment[] = [];
     const prSummaries: string[] = [];
 
@@ -391,7 +407,12 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
 
       // Always start with direct graph lookup if available
       console.log(
-        `[pr-origin] Looking for moment with documentId: ${r2Key} in namespace: ${momentGraphContext.momentGraphNamespace}`
+        `[pr-origin] Looking for moment with documentId: ${r2Key} in namespace: ${
+          momentGraphContext.momentGraphNamespace ?? "null (default)"
+        }`
+      );
+      console.log(
+        `[pr-origin] Searching in qualified database: ${qualifiedDbName}`
       );
       const lastMoment = await findLastMomentForDocument(
         r2Key,
@@ -419,6 +440,7 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
         console.log(
           `[pr-origin] No direct moment found for PR #${prNumber} with documentId: ${r2Key}`
         );
+        console.log(`[pr-origin] DocumentId format being searched: "${r2Key}"`);
       }
 
       // Always perform additional searches to find unlinked but related moments
@@ -482,6 +504,35 @@ export async function prOriginHandler({ request, ctx }: RequestInfo) {
           console.error(
             `[pr-origin] Semantic search failed for PR #${prNumber}:`,
             err
+          );
+        }
+      }
+
+      // Diagnostic queries when no results found
+      if (allRelatedMoments.length === 0) {
+        console.log(
+          `[pr-origin:diagnostics] No moments found for PR #${prNumber}, running diagnostic queries...`
+        );
+
+        try {
+          const diagnosticInfo = await getDiagnosticInfo(momentGraphContext, [
+            String(prNumber),
+            `pull-requests/${prNumber}`,
+          ]);
+
+          console.log(
+            `[pr-origin:diagnostics] Total moments in namespace "${
+              momentGraphNamespace ?? "default"
+            }": ${diagnosticInfo.totalMoments}`
+          );
+          console.log(
+            `[pr-origin:diagnostics] Found ${diagnosticInfo.matchingDocumentIds.length} moments with matching documentIds:`,
+            diagnosticInfo.matchingDocumentIds.map((m) => m.documentId)
+          );
+        } catch (diagError) {
+          console.error(
+            `[pr-origin:diagnostics] Error running diagnostic queries:`,
+            diagError
           );
         }
       }

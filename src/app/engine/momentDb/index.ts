@@ -394,6 +394,17 @@ export async function findSimilarMoments(
   context: MomentGraphContext
 ): Promise<Moment[]> {
   const momentGraphNamespace = context.momentGraphNamespace ?? "default";
+  const qualifiedDbName = context.momentGraphNamespace
+    ? `${context.momentGraphNamespace}:moment-graph-v2`
+    : "moment-graph-v2";
+
+  console.log(
+    `[momentDb:findSimilarMoments] Starting semantic search with vector length: ${vector.length}`
+  );
+  console.log(
+    `[momentDb:findSimilarMoments] Namespace: ${momentGraphNamespace}, Qualified DB: ${qualifiedDbName}, Limit: ${limit}`
+  );
+
   const queryOptions: Record<string, unknown> = {
     topK: limit,
     returnMetadata: true,
@@ -401,9 +412,21 @@ export async function findSimilarMoments(
   if (momentGraphNamespace !== "default") {
     queryOptions.filter = { momentGraphNamespace };
   }
+
+  console.log(
+    `[momentDb:findSimilarMoments] Vector index query options:`,
+    JSON.stringify(queryOptions)
+  );
+
   const searchResults = await context.env.MOMENT_INDEX.query(
     vector,
     queryOptions as any
+  );
+
+  console.log(
+    `[momentDb:findSimilarMoments] Vector index returned ${
+      searchResults.matches?.length ?? 0
+    } matches`
   );
 
   const candidatesToLog = 10;
@@ -453,14 +476,29 @@ export async function findSimilarMoments(
     candidates,
   });
 
+  console.log(
+    `[momentDb:findSimilarMoments] After namespace filtering: ${momentIds.length} moments match namespace "${momentGraphNamespace}"`
+  );
+
   if (momentIds.length === 0) {
+    console.log(
+      `[momentDb:findSimilarMoments] No moments found after namespace filtering. Total vector matches: ${
+        searchResults.matches?.length ?? 0
+      }`
+    );
     return [];
   }
 
   const momentsMap = momentsMapAll ?? (await getMoments(momentIds, context));
-  return momentIds
+  const results = momentIds
     .map((id) => momentsMap.get(id))
     .filter((m): m is Moment => m !== undefined);
+
+  console.log(
+    `[momentDb:findSimilarMoments] Returning ${results.length} moments`
+  );
+
+  return results;
 }
 
 export async function findAncestors(
@@ -728,15 +766,30 @@ export async function findMomentsBySearch(
   context: MomentGraphContext,
   limit: number = 20
 ): Promise<Moment[]> {
+  const momentGraphNamespace = context.momentGraphNamespace ?? "default";
+  const qualifiedDbName = context.momentGraphNamespace
+    ? `${context.momentGraphNamespace}:moment-graph-v2`
+    : "moment-graph-v2";
+
   const db = getMomentDb(context);
   const trimmed = typeof searchText === "string" ? searchText.trim() : "";
   if (trimmed.length === 0) {
+    console.log(
+      `[momentDb:findMomentsBySearch] Empty search text, returning empty array`
+    );
     return [];
   }
 
   const safeLimit =
     Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 20;
   const pattern = `%${trimmed}%`;
+
+  console.log(
+    `[momentDb:findMomentsBySearch] Searching for: "${trimmed}" with pattern: "${pattern}"`
+  );
+  console.log(
+    `[momentDb:findMomentsBySearch] Namespace: ${momentGraphNamespace}, Qualified DB: ${qualifiedDbName}, Limit: ${safeLimit}`
+  );
 
   const rows = (await db
     .selectFrom("moments")
@@ -763,6 +816,31 @@ export async function findMomentsBySearch(
     )
     .limit(safeLimit)
     .execute()) as unknown as MomentRow[];
+
+  console.log(
+    `[momentDb:findMomentsBySearch] Found ${rows.length} moments matching pattern "${pattern}"`
+  );
+
+  if (rows.length > 0) {
+    console.log(
+      `[momentDb:findMomentsBySearch] Sample matches:`,
+      rows.slice(0, 3).map((r) => ({
+        id: r.id,
+        title: r.title,
+        documentId: r.document_id,
+      }))
+    );
+  } else {
+    // Diagnostic: Check if there are any moments at all
+    const totalCount = await db
+      .selectFrom("moments")
+      .select(({ fn }) => [fn.count<number>("id").as("count")])
+      .executeTakeFirst();
+    const totalMoments = Number(totalCount?.count ?? 0);
+    console.log(
+      `[momentDb:findMomentsBySearch] No matches found. Total moments in namespace: ${totalMoments}`
+    );
+  }
 
   return rows.map((row) => ({
     id: row.id,
@@ -1030,7 +1108,46 @@ export async function findLastMomentForDocument(
   documentId: string,
   context: MomentGraphContext
 ): Promise<Moment | null> {
+  const momentGraphNamespace = context.momentGraphNamespace ?? "default";
+  const qualifiedDbName = context.momentGraphNamespace
+    ? `${context.momentGraphNamespace}:moment-graph-v2`
+    : "moment-graph-v2";
+
+  console.log(
+    `[momentDb:findLastMomentForDocument] Querying for documentId: "${documentId}"`
+  );
+  console.log(
+    `[momentDb:findLastMomentForDocument] Namespace: ${momentGraphNamespace}, Qualified DB: ${qualifiedDbName}`
+  );
+
   const db = getMomentDb(context);
+
+  // First, check if ANY moments exist for this documentId (for debugging)
+  const allRows = (await db
+    .selectFrom("moments")
+    .select(["id", "document_id", "created_at"])
+    .where("document_id", "=", documentId)
+    .execute()) as unknown as Array<{
+    id: string;
+    document_id: string;
+    created_at: string;
+  }>;
+
+  console.log(
+    `[momentDb:findLastMomentForDocument] Found ${allRows.length} total moments with documentId "${documentId}"`
+  );
+
+  if (allRows.length > 0) {
+    console.log(
+      `[momentDb:findLastMomentForDocument] Sample moments:`,
+      allRows.slice(0, 3).map((r) => ({
+        id: r.id,
+        documentId: r.document_id,
+        createdAt: r.created_at,
+      }))
+    );
+  }
+
   const rows = (await db
     .selectFrom("moments")
     .selectAll()
@@ -1040,10 +1157,28 @@ export async function findLastMomentForDocument(
     .execute()) as unknown as MomentRow[];
 
   if (rows.length === 0) {
+    // Diagnostic: Check if there are any moments with similar documentIds
+    const similarRows = (await db
+      .selectFrom("moments")
+      .select(["document_id"])
+      .where("document_id", "like", `%${documentId.split("/").pop()}%`)
+      .limit(5)
+      .execute()) as unknown as Array<{ document_id: string }>;
+
+    if (similarRows.length > 0) {
+      console.log(
+        `[momentDb:findLastMomentForDocument] Found ${similarRows.length} moments with similar documentIds:`,
+        similarRows.map((r) => r.document_id)
+      );
+    }
+
     return null;
   }
 
   const row = rows[0];
+  console.log(
+    `[momentDb:findLastMomentForDocument] Found moment: ${row.id}, documentId: "${row.document_id}"`
+  );
   return {
     id: row.id,
     documentId: row.document_id,
@@ -1637,5 +1772,50 @@ export async function getKnowledgeGraphStats(
     totalMoments: Number(totalCount?.count ?? 0),
     rootMoments: Number(rootCount?.count ?? 0),
     momentsWithParent: Number(withParentCount?.count ?? 0),
+  };
+}
+
+export async function getDiagnosticInfo(
+  context: MomentGraphContext,
+  searchPatterns: string[]
+): Promise<{
+  totalMoments: number;
+  matchingDocumentIds: Array<{ documentId: string; count: number }>;
+}> {
+  const db = getMomentDb(context);
+
+  const totalCount = await db
+    .selectFrom("moments")
+    .select(({ fn }) => [fn.count<number>("id").as("count")])
+    .executeTakeFirst();
+
+  const totalMoments = Number(totalCount?.count ?? 0);
+
+  const matchingDocumentIds: Array<{ documentId: string; count: number }> = [];
+
+  for (const pattern of searchPatterns) {
+    const rows = (await db
+      .selectFrom("moments")
+      .select(["document_id"])
+      .where("document_id", "like", `%${pattern}%`)
+      .limit(10)
+      .execute()) as unknown as Array<{ document_id: string }>;
+
+    for (const row of rows) {
+      const existing = matchingDocumentIds.find(
+        (m) => m.documentId === row.document_id
+      );
+      if (!existing) {
+        matchingDocumentIds.push({
+          documentId: row.document_id,
+          count: 1,
+        });
+      }
+    }
+  }
+
+  return {
+    totalMoments,
+    matchingDocumentIds,
   };
 }

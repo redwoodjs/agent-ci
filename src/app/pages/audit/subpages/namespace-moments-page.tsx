@@ -7,6 +7,7 @@ import {
   CardDescription,
 } from "@/app/components/ui/card";
 import { SearchInput } from "./search-input";
+import { ViewInGraphButton } from "./view-in-graph-button";
 import { searchMomentsByTextAction } from "./actions";
 import {
   getMomentGraphNamespacePrefixFromEnv,
@@ -369,6 +370,11 @@ function MomentsList({
                   <div className="text-xs text-gray-400 mt-1 font-mono truncate">
                     {moment.documentId}
                   </div>
+                  <ViewInGraphButton
+                    momentId={moment.id}
+                    namespace={namespace}
+                    prefix={prefix}
+                  />
                 </div>
               ))}
             </div>

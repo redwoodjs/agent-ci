@@ -68,3 +68,5 @@ This change persists document-level audit records for the moment generation pipe
 This change also reduces graph noise by filtering out low-signal Discord coordination/status macro moments (afk, apology, sync, meeting/call, scheduling) unless the moment includes technical anchors. The filter can be tuned via `MACRO_MOMENT_DISCORD_NOISE_PATTERNS`.
 
 Testing: `npm run build`
+
+- Resolved a merge conflict in the audit actions module (document audit imports).

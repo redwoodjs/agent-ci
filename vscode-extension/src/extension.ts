@@ -49,6 +49,7 @@ interface GitBlameInfo {
  * Interface for code origin information
  */
 interface CodeOriginInfo {
+  tldr?: string | null;
   narrative?: string;
   error?: string;
   citations?: Citation[];
@@ -71,6 +72,7 @@ interface Citation {
  * Interface for PR origin information
  */
 interface PrOriginInfo {
+  tldr?: string | null;
   narrative?: string;
   error?: string;
   citations?: Citation[];
@@ -90,6 +92,9 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     let markdown = "## PR Origin Analysis\n\n";
+    if (codeOrigin.tldr) {
+      markdown += `**TL;DR:** ${codeOrigin.tldr}\n\n`;
+    }
     markdown += codeOrigin.narrative;
 
     if (codeOrigin.citations && codeOrigin.citations.length > 0) {
@@ -290,7 +295,7 @@ export function activate(context: vscode.ExtensionContext) {
             )
             .join("");
           commitsHtml = `
-            <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--vscode-panel-border);">
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--vscode-panel-border);">
               <h4 style="margin-top: 0; margin-bottom: 8px; color: var(--vscode-textLink-foreground);">Commits Analyzed</h4>
               <ul style="margin: 0; padding-left: 20px; list-style-type: disc;">
                 ${commitsList}
@@ -317,11 +322,23 @@ export function activate(context: vscode.ExtensionContext) {
             )
             .join("");
           prsHtml = `
-            <div style="margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--vscode-panel-border);">
+            <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--vscode-panel-border);">
               <h4 style="margin-top: 0; margin-bottom: 8px; color: var(--vscode-textLink-foreground);">Related Pull Requests</h4>
               <ul style="margin: 0; padding-left: 20px; list-style-type: disc;">
                 ${prsList}
               </ul>
+            </div>
+          `;
+        }
+
+        // Process TL;DR if available
+        let tldrHtml = "";
+        if (codeOrigin.tldr) {
+          const processedTldr = escapeHtml(codeOrigin.tldr);
+          tldrHtml = `
+            <div style="margin-bottom: 16px; padding: 12px; background-color: var(--vscode-textBlockQuote-background); border-left: 3px solid var(--vscode-textLink-foreground); border-radius: 4px;">
+              <h4 style="margin-top: 0; margin-bottom: 8px; color: var(--vscode-textLink-foreground); font-weight: 600;">TL;DR</h4>
+              <div style="white-space: pre-wrap; color: var(--vscode-foreground); line-height: 1.6; font-style: italic;">${processedTldr}</div>
             </div>
           `;
         }
@@ -410,9 +427,10 @@ export function activate(context: vscode.ExtensionContext) {
         codeOriginHtml = `
           <div style="margin-bottom: 16px; padding: 12px; background-color: var(--vscode-textBlockQuote-background); border-radius: 4px;">
             <h3 style="margin-top: 0; margin-bottom: 12px; color: var(--vscode-textLink-foreground);">Code Origin & Decisions</h3>
+            ${tldrHtml}
+            <div style="white-space: pre-wrap; color: var(--vscode-foreground); line-height: 1.6;">${processedNarrative}</div>
             ${commitsHtml}
             ${prsHtml}
-            <div style="white-space: pre-wrap; color: var(--vscode-foreground); line-height: 1.6;">${processedNarrative}</div>
             ${citationsHtml}
             ${addToChatButton}
           </div>
@@ -1613,12 +1631,14 @@ async function getPrOrigin(
     // Parse JSON response
     try {
       const jsonResponse = JSON.parse(response.body) as {
+        tldr?: string | null;
         narrative?: string;
         citations?: Citation[];
         commitHashes?: string[];
         prNumbers?: number[];
       };
       return {
+        tldr: jsonResponse.tldr || null,
         narrative: jsonResponse.narrative || response.body,
         citations: jsonResponse.citations || [],
         commitHashes: jsonResponse.commitHashes || [],

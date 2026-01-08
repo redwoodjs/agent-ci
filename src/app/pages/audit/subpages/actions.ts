@@ -22,12 +22,55 @@ import {
   getMicroMomentsByPaths,
   getDocumentAuditLogsForDocument,
   getRecentDocumentAuditEvents,
+  type MomentGraphContext,
 } from "@/app/engine/momentDb";
+import { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
+import { type Database, createDb } from "rwsdk/db";
+import { type momentMigrations } from "@/app/engine/momentDb/migrations";
+import { Override } from "@/app/shared/kyselyTypeOverrides";
+import { qualifyName } from "@/app/engine/momentGraphNamespace";
 import {
   getMomentGraphNamespacePrefixFromEnv,
   applyMomentGraphNamespacePrefixValue,
 } from "@/app/engine/momentGraphNamespace";
 import { getEmbedding } from "@/app/engine/utils/vector";
+
+// Local types and helpers for audit-specific functions
+type MomentDatabase = Database<typeof momentMigrations>;
+type MomentInput = MomentDatabase["moments"];
+type MomentRow = Override<
+  MomentInput,
+  {
+    micro_paths_json: string[] | null;
+    source_metadata: Record<string, any> | null;
+    link_audit_log: Record<string, any> | null;
+  }
+>;
+
+function getMomentDb(context: MomentGraphContext) {
+  return createDb<MomentDatabase>(
+    context.env.MOMENT_GRAPH_DO as DurableObjectNamespace<MomentGraphDO>,
+    qualifyName("moment-graph-v2", context.momentGraphNamespace)
+  );
+}
+
+function parseSourceFromDocumentId(
+  documentId: string
+): "github" | "discord" | "cursor" | "unknown" {
+  if (typeof documentId !== "string" || documentId.length === 0) {
+    return "unknown";
+  }
+  if (documentId.startsWith("github/")) {
+    return "github";
+  }
+  if (documentId.startsWith("discord/")) {
+    return "discord";
+  }
+  if (documentId.startsWith("cursor/")) {
+    return "cursor";
+  }
+  return "unknown";
+}
 
 export async function enqueueFile(r2Key: string) {
   try {
@@ -157,7 +200,8 @@ export async function getKnowledgeGraph(options?: {
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -202,7 +246,8 @@ export async function getKnowledgeGraphStatsAction(options?: {
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -263,7 +308,8 @@ export async function getRootMomentsAction(options?: {
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -311,7 +357,8 @@ export async function getDescendantsForRootAction(
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -359,7 +406,8 @@ export async function getDescendantsForRootSlimAction(
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -375,11 +423,15 @@ export async function getDescendantsForRootSlimAction(
 
     const maxNodesRaw = options?.maxNodes;
     const maxNodes =
-      typeof maxNodesRaw === "number" && Number.isFinite(maxNodesRaw) && maxNodesRaw > 0
+      typeof maxNodesRaw === "number" &&
+      Number.isFinite(maxNodesRaw) &&
+      maxNodesRaw > 0
         ? Math.floor(maxNodesRaw)
         : 5000;
 
-    const result = await getDescendantsForRootSlim(rootId, context, { maxNodes });
+    const result = await getDescendantsForRootSlim(rootId, context, {
+      maxNodes,
+    });
 
     return {
       success: true,
@@ -418,7 +470,8 @@ export async function getMomentDetailsAction(
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -460,7 +513,9 @@ export async function getMomentDetailsAction(
           ? { start: timeRangeRaw.start, end: timeRangeRaw.end }
           : null;
 
-      const microPaths = Array.isArray(moment.microPaths) ? moment.microPaths : [];
+      const microPaths = Array.isArray(moment.microPaths)
+        ? moment.microPaths
+        : [];
       const microMoments =
         microPaths.length > 0
           ? await getMicroMomentsByPaths(moment.documentId, microPaths, context)
@@ -499,7 +554,10 @@ export async function getMomentDetailsAction(
         timeRange,
         microPathsCount: microPaths.length,
         chunkIdsSample: uniqueChunkIds,
-        discordMessageIdsSample: Array.from(new Set(discordMessageIds)).slice(0, 40),
+        discordMessageIdsSample: Array.from(new Set(discordMessageIds)).slice(
+          0,
+          40
+        ),
         ingestionFilePath: `/audit/ingestion/file/${encodeURIComponent(
           moment.documentId
         )}`,
@@ -508,7 +566,9 @@ export async function getMomentDetailsAction(
 
     const includeDocumentAuditRaw = options?.includeDocumentAudit;
     const includeDocumentAudit =
-      typeof includeDocumentAuditRaw === "boolean" ? includeDocumentAuditRaw : true;
+      typeof includeDocumentAuditRaw === "boolean"
+        ? includeDocumentAuditRaw
+        : true;
     const documentAuditLimitRaw = options?.documentAuditLimit;
     const documentAuditLimit =
       typeof documentAuditLimitRaw === "number" &&
@@ -554,7 +614,8 @@ export async function getRootSampleStatsAction(options?: {
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -569,7 +630,8 @@ export async function getRootSampleStatsAction(options?: {
         ? options.highImportanceCutoff
         : 0.8;
     const sampleLimit =
-      typeof options?.sampleLimit === "number" && Number.isFinite(options.sampleLimit)
+      typeof options?.sampleLimit === "number" &&
+      Number.isFinite(options.sampleLimit)
         ? options.sampleLimit
         : 2000;
     const limit =
@@ -627,7 +689,8 @@ export async function getDocumentAuditLogsAction(
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -682,7 +745,8 @@ export async function getRecentDocumentAuditEventsAction(options?: {
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -693,7 +757,8 @@ export async function getRecentDocumentAuditEventsAction(options?: {
 
     const kindPrefixesRaw = options?.kindPrefixes;
     const kindPrefixes =
-      Array.isArray(kindPrefixesRaw) && kindPrefixesRaw.every((s) => typeof s === "string")
+      Array.isArray(kindPrefixesRaw) &&
+      kindPrefixesRaw.every((s) => typeof s === "string")
         ? kindPrefixesRaw
         : ["indexing:", "synthesis:"];
 
@@ -728,7 +793,10 @@ export async function getRecentDocumentAuditEventsAction(options?: {
       prefix: effectivePrefix,
     };
   } catch (error) {
-    console.error("[actions] Error fetching recent document audit events:", error);
+    console.error(
+      "[actions] Error fetching recent document audit events:",
+      error
+    );
     return {
       success: false,
       error: "Failed to fetch recent document audit events",
@@ -765,7 +833,8 @@ export async function searchMomentsAction(options: {
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -851,4 +920,527 @@ export async function searchMomentsAction(options: {
       details: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function getNamespaceSourceStatsAction(options?: {
+  momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const stats = await getNamespaceSourceStatsLocal(context);
+
+    return {
+      success: true,
+      stats,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching namespace source stats:", error);
+    return {
+      success: false,
+      error: "Failed to fetch namespace source stats",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getMomentsBySourceAction(options: {
+  source: "github" | "discord" | "cursor" | "unknown";
+  limit?: number;
+  offset?: number;
+  momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const result = await getMomentsBySourceLocal(options.source, context, {
+      limit: options.limit,
+      offset: options.offset,
+    });
+
+    return {
+      success: true,
+      moments: result.moments,
+      totalCount: result.totalCount,
+      limit: options.limit ?? 10,
+      offset: options.offset ?? 0,
+      source: options.source,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching moments by source:", error);
+    return {
+      success: false,
+      error: "Failed to fetch moments by source",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function searchMomentsByTextAction(options: {
+  query: string;
+  source?: "github" | "discord" | "cursor" | "unknown" | null;
+  limit?: number;
+  offset?: number;
+  momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const result = await findMomentsByTextSearchLocal(options.query, context, {
+      source: options.source ?? null,
+      limit: options.limit,
+      offset: options.offset,
+    });
+
+    return {
+      success: true,
+      moments: result.moments,
+      totalCount: result.totalCount,
+      limit: options.limit ?? 50,
+      offset: options.offset ?? 0,
+      query: options.query,
+      source: options.source ?? null,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error searching moments by text:", error);
+    return {
+      success: false,
+      error: "Failed to search moments",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// Audit-specific functions moved from momentDb/index.ts
+
+async function findMomentsByTextSearchLocal(
+  searchText: string,
+  context: MomentGraphContext,
+  options?: {
+    source?: "github" | "discord" | "cursor" | "unknown" | null;
+    limit?: number;
+    offset?: number;
+  }
+): Promise<{
+  moments: Array<{
+    id: string;
+    documentId: string;
+    title: string;
+    summary: string;
+    parentId?: string;
+    importance?: number;
+    createdAt: string;
+    author: string;
+  }>;
+  totalCount: number;
+}> {
+  const db = getMomentDb(context);
+  const trimmed = typeof searchText === "string" ? searchText.trim() : "";
+
+  const limitRaw = options?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 50;
+
+  const offsetRaw = options?.offset;
+  const offset =
+    typeof offsetRaw === "number" &&
+    Number.isFinite(offsetRaw) &&
+    offsetRaw >= 0
+      ? Math.floor(offsetRaw)
+      : 0;
+
+  const source = options?.source ?? null;
+
+  const sourcePrefix =
+    source === "github"
+      ? "github/"
+      : source === "discord"
+      ? "discord/"
+      : source === "cursor"
+      ? "cursor/"
+      : null;
+
+  let query = db
+    .selectFrom("moments")
+    .select([
+      "id",
+      "document_id",
+      "summary",
+      "title",
+      "parent_id",
+      "importance",
+      "created_at",
+      "author",
+    ])
+    .orderBy("created_at", "desc");
+
+  // Apply filters
+  if (trimmed.length > 0 || sourcePrefix || source === "unknown") {
+    query = query.where((eb) => {
+      const conditions: any[] = [];
+
+      // Add source filter if provided
+      if (sourcePrefix) {
+        conditions.push(eb("document_id", "like", `${sourcePrefix}%`));
+      } else if (source === "unknown") {
+        conditions.push(
+          eb.and([
+            eb("document_id", "not like", "github/%"),
+            eb("document_id", "not like", "discord/%"),
+            eb("document_id", "not like", "cursor/%"),
+          ])
+        );
+      }
+
+      // Add text search if provided
+      if (trimmed.length > 0) {
+        const pattern = `%${trimmed}%`;
+        conditions.push(
+          eb.or([
+            eb("title", "like", pattern),
+            eb("summary", "like", pattern),
+            eb("author", "like", pattern),
+            eb("document_id", "like", pattern),
+          ])
+        );
+      }
+
+      // Combine all conditions with AND
+      if (conditions.length === 1) {
+        return conditions[0];
+      } else if (conditions.length > 1) {
+        return eb.and(conditions);
+      }
+      return eb.and([]);
+    });
+  }
+
+  const rows = (await query
+    .limit(limit)
+    .offset(offset)
+    .execute()) as unknown as MomentRow[];
+
+  // Get total count with same filters
+  let countQuery = db
+    .selectFrom("moments")
+    .select(({ fn }) => [fn.count<number>("id").as("count")]);
+
+  if (trimmed.length > 0 || sourcePrefix || source === "unknown") {
+    countQuery = countQuery.where((eb) => {
+      const conditions: any[] = [];
+
+      // Add source filter if provided
+      if (sourcePrefix) {
+        conditions.push(eb("document_id", "like", `${sourcePrefix}%`));
+      } else if (source === "unknown") {
+        conditions.push(
+          eb.and([
+            eb("document_id", "not like", "github/%"),
+            eb("document_id", "not like", "discord/%"),
+            eb("document_id", "not like", "cursor/%"),
+          ])
+        );
+      }
+
+      // Add text search if provided
+      if (trimmed.length > 0) {
+        const pattern = `%${trimmed}%`;
+        conditions.push(
+          eb.or([
+            eb("title", "like", pattern),
+            eb("summary", "like", pattern),
+            eb("author", "like", pattern),
+            eb("document_id", "like", pattern),
+          ])
+        );
+      }
+
+      // Combine all conditions with AND
+      if (conditions.length === 1) {
+        return conditions[0];
+      } else if (conditions.length > 1) {
+        return eb.and(conditions);
+      }
+      return eb.and([]);
+    });
+  }
+
+  const totalCountResult = await countQuery.executeTakeFirst();
+  const totalCount = Number(totalCountResult?.count ?? 0);
+
+  const moments = rows.map((row) => ({
+    id: row.id,
+    documentId: row.document_id,
+    title: row.title || "Untitled",
+    summary: row.summary,
+    parentId: row.parent_id || undefined,
+    importance: typeof row.importance === "number" ? row.importance : undefined,
+    createdAt: row.created_at,
+    author: row.author,
+  }));
+
+  return {
+    moments,
+    totalCount,
+  };
+}
+
+async function getNamespaceSourceStatsLocal(
+  context: MomentGraphContext
+): Promise<
+  Array<{
+    source: "github" | "discord" | "cursor" | "unknown";
+    totalMoments: number;
+    rootMoments: number;
+    linkedMoments: number;
+    avgImportance: number | null;
+    lastUpdated: string | null;
+  }>
+> {
+  const db = getMomentDb(context);
+  const rows = (await db
+    .selectFrom("moments")
+    .select(["document_id", "parent_id", "importance", "created_at"])
+    .execute()) as Array<{
+    document_id: string;
+    parent_id: string | null;
+    importance: number | null;
+    created_at: string;
+  }>;
+
+  const statsBySource = new Map<
+    "github" | "discord" | "cursor" | "unknown",
+    {
+      totalMoments: number;
+      rootMoments: number;
+      linkedMoments: number;
+      importanceSum: number;
+      importanceCount: number;
+      lastUpdated: string | null;
+    }
+  >();
+
+  for (const source of ["github", "discord", "cursor", "unknown"] as const) {
+    statsBySource.set(source, {
+      totalMoments: 0,
+      rootMoments: 0,
+      linkedMoments: 0,
+      importanceSum: 0,
+      importanceCount: 0,
+      lastUpdated: null,
+    });
+  }
+
+  for (const row of rows) {
+    const source = parseSourceFromDocumentId(row.document_id);
+    const stats = statsBySource.get(source);
+    if (!stats) continue;
+
+    stats.totalMoments += 1;
+    if (row.parent_id === null) {
+      stats.rootMoments += 1;
+    } else {
+      stats.linkedMoments += 1;
+    }
+
+    if (typeof row.importance === "number" && Number.isFinite(row.importance)) {
+      stats.importanceSum += row.importance;
+      stats.importanceCount += 1;
+    }
+
+    if (row.created_at) {
+      if (!stats.lastUpdated || row.created_at > stats.lastUpdated) {
+        stats.lastUpdated = row.created_at;
+      }
+    }
+  }
+
+  return Array.from(statsBySource.entries())
+    .map(([source, stats]) => ({
+      source,
+      totalMoments: stats.totalMoments,
+      rootMoments: stats.rootMoments,
+      linkedMoments: stats.linkedMoments,
+      avgImportance:
+        stats.importanceCount > 0
+          ? stats.importanceSum / stats.importanceCount
+          : null,
+      lastUpdated: stats.lastUpdated,
+    }))
+    .filter((s) => s.totalMoments > 0)
+    .sort((a, b) => b.totalMoments - a.totalMoments);
+}
+
+async function getMomentsBySourceLocal(
+  source: "github" | "discord" | "cursor" | "unknown",
+  context: MomentGraphContext,
+  options?: {
+    limit?: number;
+    offset?: number;
+  }
+): Promise<{
+  moments: Array<{
+    id: string;
+    documentId: string;
+    title: string;
+    summary: string;
+    parentId?: string;
+    importance?: number;
+    createdAt: string;
+    author: string;
+  }>;
+  totalCount: number;
+}> {
+  const db = getMomentDb(context);
+
+  const limitRaw = options?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 10;
+
+  const offsetRaw = options?.offset;
+  const offset =
+    typeof offsetRaw === "number" &&
+    Number.isFinite(offsetRaw) &&
+    offsetRaw >= 0
+      ? Math.floor(offsetRaw)
+      : 0;
+
+  const sourcePrefix =
+    source === "github"
+      ? "github/"
+      : source === "discord"
+      ? "discord/"
+      : source === "cursor"
+      ? "cursor/"
+      : null;
+
+  let query = db
+    .selectFrom("moments")
+    .selectAll()
+    .orderBy("created_at", "desc");
+
+  if (sourcePrefix) {
+    query = query.where("document_id", "like", `${sourcePrefix}%`);
+  } else if (source === "unknown") {
+    query = query.where((eb) =>
+      eb.and([
+        eb("document_id", "not like", "github/%"),
+        eb("document_id", "not like", "discord/%"),
+        eb("document_id", "not like", "cursor/%"),
+      ])
+    );
+  }
+
+  const rows = (await query
+    .limit(limit)
+    .offset(offset)
+    .execute()) as unknown as MomentRow[];
+
+  const totalCountResult = await (sourcePrefix
+    ? db
+        .selectFrom("moments")
+        .select(({ fn }) => [fn.count<number>("id").as("count")])
+        .where("document_id", "like", `${sourcePrefix}%`)
+        .executeTakeFirst()
+    : source === "unknown"
+    ? db
+        .selectFrom("moments")
+        .select(({ fn }) => [fn.count<number>("id").as("count")])
+        .where((eb) =>
+          eb.and([
+            eb("document_id", "not like", "github/%"),
+            eb("document_id", "not like", "discord/%"),
+            eb("document_id", "not like", "cursor/%"),
+          ])
+        )
+        .executeTakeFirst()
+    : db
+        .selectFrom("moments")
+        .select(({ fn }) => [fn.count<number>("id").as("count")])
+        .executeTakeFirst());
+
+  const totalCount = Number(totalCountResult?.count ?? 0);
+
+  const moments = rows.map((row) => ({
+    id: row.id,
+    documentId: row.document_id,
+    title: row.title || "Untitled",
+    summary: row.summary,
+    parentId: row.parent_id || undefined,
+    importance: typeof row.importance === "number" ? row.importance : undefined,
+    createdAt: row.created_at,
+    author: row.author,
+  }));
+
+  return {
+    moments,
+    totalCount,
+  };
 }

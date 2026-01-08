@@ -47,44 +47,45 @@ In the same tree, an unrelated moment is connected to the root, while expected r
   - The github plugin sets the document type based on the R2 key path segment (issues vs pull-requests), so if a PR is stored under an issues key, it will be treated as an issue during synthesis and labeling.
   - The issue ingestor fetches GitHub entities from the `/issues/<number>` API and does not check whether the returned entity is a PR (GitHub includes PRs in the issues API, with a `pull_request` field).
   - This explains how a PR could be stored under an issues key and then show up as 'GitHub Issue #...' in moments, even if the underlying discussion is about a PR.
-  - The backfill scheduler fetches the issues list from `/repos/<owner>/<repo>/issues` and enqueues each entry as entity_type `issue`. GitHub's issues list includes pull requests, so PRs can enter the issue processing path during backfills unless filtered.
-  - Once a PR enters the issue processing path, the issue processor writes it to `github/<owner>/<repo>/issues/<n>/latest.json`, which locks in the document type for later indexing.
 
 - Follow-up on 'documentation updates' appearing in the tree.
   - The 'Discussion on automated documentation updates' node is not a cross-document attachment. It is a second macro moment synthesized from the same GitHub issue document (#804) and chained under the issue's first macro moment.
   - The issue document itself attached to the root due to the first macro moment (client navigation) scoring above threshold and passing the LLM veto step. The other macros in the same stream then appear as descendants even if they are off-topic relative to the root.
 
-- Inspected the local rclone mirror for redwoodjs/sdk under /Users/justin/rw/machinen/.tmp/machinen/github/redwoodjs/sdk.
-  - issues/530/latest.json exists and url is https://github.com/redwoodjs/sdk/issues/530.
-  - issues/804/latest.json exists and url is https://github.com/redwoodjs/sdk/issues/804. There is no pull-requests/804/latest.json in the mirror.
-  - pull-requests coverage in this mirror starts at 812 and goes up to 961.
-  - Some numbers exist in both issues/{id}/latest.json and pull-requests/{id}/latest.json (observed: 812, 871, 875, 878).
-    - In these overlaps, the issues/{id} file has url /issues/{id} and state open, while the pull-requests/{id} file has url /pull/{id} and state closed or merged.
-    - This suggests PRs can be ingested via the issues path and then become stale, because PR lifecycle events continue updating only the pull-request record.
-  - The issue and PR JSON outputs have the same shape in the current format, so misclassification is hard to detect after the fact unless both versions exist.
-- Implemented ignore and prevention for GitHub PRs showing up under issues.
-  - Backfill scheduler now skips items from the issues list that include a pull_request field.
-  - Issue processor now detects when the issue API returns a PR-shaped entity and delegates to the PR processor instead of writing issues/{n}.
-  - Indexing now skips github/*/*/issues/{n}/latest.json when the corresponding pull-requests/{n}/latest.json exists, and writes an audit event: indexing:skip-duplicate-github-issue.
-- Implemented a one-off cleanup path for the known GitHub issue/PR overlap ids.
-  - Added momentDb deleteDocumentData() to delete moments, micro moments, micro moment batches, document audit logs, and structure hash for a given document id, and to null parent links for any remaining moments that pointed at deleted moment ids.
-  - Added /admin/cleanup-github-issue-pr-overlaps to delete the stale issues/{n} document data (default ids: 812, 871, 875, 878) and then resync the corresponding pull-requests/{n} document.
-  - Added scripts/cleanup-github-issue-pr-overlaps.mjs to call the endpoint.
-- Added a temporary indexing-time hack for known misfiled GitHub PR ids.
-  - In the github plugin, issues/{n} keys in FORCE_PULL_REQUEST_NUMBERS are treated as pull-requests during prepareSourceDocument, so macro synthesis uses PR formatting and canonical PR refs.
+- Direction for improving chain attachment decisions.
+  - Current behavior is dominated by pairwise semantic similarity (macro summary vs candidate moment/subject) plus a narrow LLM veto step over a small shortlist.
+  - A better question seems to be "does this moment fit into this timeline", where the "timeline" is the chain (or local subgraph) under the candidate root, not a single node.
+  - This framing could apply in two places:
+    - link-time: use chain context to decide whether to attach and where
+    - synthesis-time: when a document yields multiple semantic threads, avoid forcing all macros into one chain by selecting a per-thread anchor and attaching each thread independently
 
-## PR Title: Fix GitHub issue vs pull request misclassification and clean up overlaps
+- Decision: implement chain-aware linking first.
+  - Use the existing vector search shortlist as a candidate generator.
+  - Replace the current LLM veto question with a chain-aware question: does the proposed moment fit into the candidate chain's timeline.
+  - Keep the context bounded by including:
+    - root moment title and summary
+    - the last N moments in the chain (title, summary, timestamp)
+    - a small set of higher-importance moments
+  - Treat this as an attachment gate rather than a full re-parenting system:
+    - if no candidate chain accepts the proposed moment, keep it as a root
+    - if a chain accepts, attach under the chosen parent as today
+  - Defer multi-stream attachment changes until after chain-aware linking is working, since it changes fewer moving parts.
 
-### Description
+- Implemented chain-aware linking.
+  - Added `getChainContextForMoment` in momentDb, which composes:
+    - root moment
+    - tail moments on the root->candidate path
+    - a bounded high-importance sample under the root (excluding the path)
+  - Updated smart-linker to replace the pairwise LLM veto with a timeline fit check using the chain context.
+  - Added env-configurable caps:
+    - `SMART_LINKER_TIMELINE_MAX_TAIL`
+    - `SMART_LINKER_TIMELINE_HIGH_IMPORTANCE_CUTOFF`
+    - `SMART_LINKER_TIMELINE_MAX_HIGH_IMPORTANCE`
+    - `SMART_LINKER_TIMELINE_MAX_DESCENDANT_SCAN_NODES`
+    - `SMART_LINKER_TIMELINE_MAX_CONTEXT_CHARS`
+  - Extended the linkage audit log to include the timeline context parameters and the timeline fit decision per candidate.
+  - Restored missing exports used elsewhere in the worktree (`getDiagnosticInfo` and `getRootAncestorAction`) and ran `npm run build`.
 
-Some GitHub pull requests were ingested and stored under the issues keyspace, which caused them to be indexed and summarized as issues. In a smaller set of cases, both an issues/{n} and pull-requests/{n} copy existed for the same number. The issues copy could become stale while indexing still picked it up, which then produced incorrect moment titles, canonical reference tokens, and linking behavior.
-
-This change set fixes the ingestion and indexing paths and adds a one-off cleanup endpoint for the known overlap ids:
-
-- Skips pull requests returned by the GitHub issues list endpoint during backfills (items with a pull_request field).
-- When fetching a single issue by number, detects pull_request entries and delegates to the pull request processor instead of writing issues/{n}.
-- Skips indexing github/*/*/issues/{n}/latest.json when pull-requests/{n}/latest.json exists and writes an audit event (indexing:skip-duplicate-github-issue).
-- Adds an admin cleanup endpoint to delete stored moments/micro-moments/audit logs for the stale issues/{n} documents in the overlap set and then resync the corresponding pull request documents.
-- Adds a temporary indexing-time allowlist to treat specific known ids as pull requests even if stored under issues/{n}, as a stopgap until the stored objects are rewritten.
-
-Testing: npm run build
+- Updated architecture docs to reflect chain-aware correlation.
+  - Added a chain-aware attachment gate description to docs/architecture/knowledge-synthesis-engine.md.
+  - Updated the correlation step list to remove the older pairwise attachment framing and describe shortlist + timeline fit + attach/root.

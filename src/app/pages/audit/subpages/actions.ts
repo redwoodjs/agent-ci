@@ -189,6 +189,49 @@ export async function queryRag(queryText: string) {
   }
 }
 
+export async function getRootAncestorAction(
+  momentId: string,
+  options?: {
+    momentGraphNamespace?: string | null;
+    momentGraphNamespacePrefix?: string | null;
+  }
+): Promise<{ success: boolean; rootId: string | null; error?: string }> {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const ancestors = await findAncestors(momentId, context);
+    const root = ancestors[0];
+    if (!root) {
+      return { success: false, rootId: null, error: "Root ancestor not found" };
+    }
+
+    return { success: true, rootId: root.id };
+  } catch (error) {
+    return {
+      success: false,
+      rootId: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function getKnowledgeGraph(options?: {
   limit?: number;
   momentGraphNamespace?: string | null;
@@ -596,74 +639,6 @@ export async function getMomentDetailsAction(
     return {
       success: false,
       error: "Failed to fetch moment",
-      details: error instanceof Error ? error.message : String(error),
-    };
-  }
-}
-
-export async function getRootAncestorAction(
-  momentId: string,
-  options?: {
-    momentGraphNamespace?: string | null;
-    momentGraphNamespacePrefix?: string | null;
-  }
-) {
-  try {
-    if (
-      !momentId ||
-      typeof momentId !== "string" ||
-      momentId.trim().length === 0
-    ) {
-      return {
-        success: false,
-        error: "Missing or invalid moment ID",
-      };
-    }
-
-    const envCloudflare = env as Cloudflare.Env;
-    const baseNamespace = options?.momentGraphNamespace ?? null;
-    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
-    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
-    const prefixOverride =
-      typeof prefixOverrideRaw === "string" &&
-      prefixOverrideRaw.trim().length > 0
-        ? prefixOverrideRaw.trim()
-        : null;
-    const effectivePrefix = prefixOverride ?? envPrefix;
-    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
-      baseNamespace,
-      effectivePrefix
-    );
-
-    const context = {
-      env: envCloudflare,
-      momentGraphNamespace: effectiveNamespace,
-    };
-
-    const ancestors = await findAncestors(momentId, context);
-
-    if (ancestors.length === 0) {
-      return {
-        success: false,
-        error: "Moment not found or has no ancestors",
-      };
-    }
-
-    // The root ancestor is the first element in the ancestors array
-    const rootAncestor = ancestors[0];
-
-    return {
-      success: true,
-      rootId: rootAncestor.id,
-      rootTitle: rootAncestor.title,
-      effectiveNamespace,
-      prefix: effectivePrefix,
-    };
-  } catch (error) {
-    console.error("[actions] Error fetching root ancestor:", error);
-    return {
-      success: false,
-      error: "Failed to fetch root ancestor",
       details: error instanceof Error ? error.message : String(error),
     };
   }

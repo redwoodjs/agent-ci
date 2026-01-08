@@ -412,12 +412,7 @@ export async function processSchedulerJob(
       })
     );
 
-    let skippedPullRequestsFromIssues = 0;
     for (const entity of data) {
-      if (entity_type === "issues" && (entity as any)?.pull_request) {
-        skippedPullRequestsFromIssues++;
-        continue;
-      }
       await processorQueue.send({
         type: "processor",
         repository_key,
@@ -433,17 +428,6 @@ export async function processSchedulerJob(
           state?.moment_graph_namespace_prefix ?? null,
         ...(runId ? { backfill_run_id: runId } : {}),
       });
-    }
-
-    if (skippedPullRequestsFromIssues > 0) {
-      console.log(
-        formatLog("[scheduler] Skipped pull requests from issues list:", {
-          repository_key,
-          owner,
-          repo,
-          skippedPullRequestsFromIssues,
-        })
-      );
     }
 
     if (runId) {

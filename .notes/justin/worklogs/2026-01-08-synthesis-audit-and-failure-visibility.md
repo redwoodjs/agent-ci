@@ -47,3 +47,18 @@ We already persist document-level synthesis failures (parse failure and error) t
   - audit UI now shows a “Recent failures” card.
 - Ran `npm run build`.
 
+## PR Title: Document-level synthesis audit and indexing failure visibility
+
+### Description
+
+When a macro moment looks wrong in the graph, we can trace it back to the source document, but we cannot inspect the synthesis output and gating decisions that led to the macro moment being persisted. Separately, when indexing fails to produce moments (micro moment computation, embeddings, macro synthesis, or indexing errors), it is hard to identify which documents failed without digging through logs.
+
+This change adds document-level audit logging for the moment generation pipeline and exposes it in both the audit UI and debug endpoints:
+
+- Records synthesis events for both success and failure, including a prompt hash and truncated response preview.
+- Records per-stream summaries, per-stream gating summaries, and the chosen link anchor summary preview.
+- Records indexing failures with a stage tag and captures micro moment batch and embedding errors.
+- Adds endpoints to fetch audit logs for a document and to list recent documents with audit events.
+- Updates the Knowledge Graph audit UI to show synthesis/indexing audit records and a “Recent failures” list with links to ingestion files.
+
+Testing: `npm run build`

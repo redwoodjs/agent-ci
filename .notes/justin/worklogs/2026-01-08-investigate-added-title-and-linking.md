@@ -66,3 +66,9 @@ In the same tree, an unrelated moment is connected to the root, while expected r
   - Backfill scheduler now skips items from the issues list that include a pull_request field.
   - Issue processor now detects when the issue API returns a PR-shaped entity and delegates to the PR processor instead of writing issues/{n}.
   - Indexing now skips github/*/*/issues/{n}/latest.json when the corresponding pull-requests/{n}/latest.json exists, and writes an audit event: indexing:skip-duplicate-github-issue.
+- Implemented a one-off cleanup path for the known GitHub issue/PR overlap ids.
+  - Added momentDb deleteDocumentData() to delete moments, micro moments, micro moment batches, document audit logs, and structure hash for a given document id, and to null parent links for any remaining moments that pointed at deleted moment ids.
+  - Added /admin/cleanup-github-issue-pr-overlaps to delete the stale issues/{n} document data (default ids: 812, 871, 875, 878) and then resync the corresponding pull-requests/{n} document.
+  - Added scripts/cleanup-github-issue-pr-overlaps.mjs to call the endpoint.
+- Added a temporary indexing-time hack for known misfiled GitHub PR ids.
+  - In the github plugin, issues/{n} keys in FORCE_PULL_REQUEST_NUMBERS are treated as pull-requests during prepareSourceDocument, so macro synthesis uses PR formatting and canonical PR refs.

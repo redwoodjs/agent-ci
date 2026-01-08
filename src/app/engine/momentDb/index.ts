@@ -881,7 +881,8 @@ export async function getRecentDocumentAuditEvents(
   const db = getMomentDb(context);
   const kindPrefixesRaw = options?.kindPrefixes;
   const kindPrefixes =
-    Array.isArray(kindPrefixesRaw) && kindPrefixesRaw.every((s) => typeof s === "string")
+    Array.isArray(kindPrefixesRaw) &&
+    kindPrefixesRaw.every((s) => typeof s === "string")
       ? kindPrefixesRaw.map((s) => s.trim()).filter((s) => s.length > 0)
       : [];
 

@@ -86,3 +86,6 @@ In the same tree, an unrelated moment is connected to the root, while expected r
   - Extended the linkage audit log to include the timeline context parameters and the timeline fit decision per candidate.
   - Restored missing exports used elsewhere in the worktree (`getDiagnosticInfo` and `getRootAncestorAction`) and ran `npm run build`.
 
+- Updated architecture docs to reflect chain-aware correlation.
+  - Added a chain-aware attachment gate description to docs/architecture/knowledge-synthesis-engine.md.
+  - Updated the correlation step list to remove the older pairwise attachment framing and describe shortlist + timeline fit + attach/root.

@@ -61,8 +61,9 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
 *   **Phase 3: Correlation (Smart Linker)**
     Before persisting, the engine attempts to stitch the new Macro-Moments into existing timelines.
     1.  **Search**: It queries the vector index for existing Moments that match the semantic content of the new document.
-    2.  **Attach**: If a strong match is found, the new document's timeline attaches as a branch under the existing Moment.
-    3.  **Root**: If no match is found, the new timeline starts a new Subject (Root Moment).
+    2.  **Shortlist**: It selects a bounded set of candidate attachment points from the search results.
+    3.  **Timeline fit**: For each candidate, it evaluates whether the proposed moment fits into the candidate chain's timeline using bounded chain context.
+    4.  **Attach or root**: It attaches only when a candidate passes the timeline fit check. Otherwise, the proposed moment starts a new Subject (Root Moment).
 
     Correlation has two separate decisions that should not be conflated:
     - **Attach decision**: Decide whether a document belongs under an existing work item timeline, even when it is a different artifact (example: issue proposal vs implementation discussion vs documentation update).
@@ -73,6 +74,21 @@ To solve the signal-to-noise problem, ingestion is split into two distinct phase
     When a document is partitioned into multiple streams, correlation should be applied per stream. Each stream is treated as its own timeline for attachment and persistence.
 
     Correlation depends on macro moment selection. If macro moments include social chatter or administrative updates unrelated to a work item, the resulting timelines become noisy and attachment decisions are harder to interpret.
+
+    #### Chain-aware attachment gate (timeline fit)
+    Pairwise semantic similarity between two moments is not enough to decide whether a moment belongs in an existing work item timeline. Many unrelated work items share vocabulary (example: client navigation), and some work items span long periods, so timestamps do not rule out incorrect links.
+
+    Correlation therefore treats vector similarity as a candidate generator, not the attachment decision. After vector search produces a shortlist of candidates, the engine evaluates whether the proposed moment fits into the candidate timeline:
+
+    - Build a bounded timeline context for the candidate chain (root summary, a recent tail of moments on the root-to-candidate path, and a small high-importance sample under the root).
+    - Ask a reasoning model: 'Does this proposed moment fit into this timeline?'.
+    - Attach only when the answer is affirmative. Otherwise, keep the proposed moment as a root (or try other candidates).
+
+    This makes the attachment decision depend on the chain context rather than a single candidate moment. The bounding rules for timeline context keep the model call size stable as chains grow.
+
+    Correlation decisions and the inputs used for them should be persisted as audit data so unexpected attachments can be inspected.
+
+    Details: see `docs/architecture/chain-aware-moment-linking.md`.
 
     For sources that often begin with low-signal content (example: Cursor conversations), the engine should not assume that the first synthesized macro moment is the best representative for correlation. One approach is to build the search query from a subset of macro moments chosen by importance (example: select macro moments at or above a per-document percentile cutoff, then concatenate their titles and summaries). When a parent is chosen, the attachment still uses the document's first selected macro moment as the anchor for timestamps and macro indexing, and the document's macro moments are persisted in chronological order under that attachment.
 

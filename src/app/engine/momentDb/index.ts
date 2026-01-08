@@ -787,7 +787,8 @@ export async function addDocumentAuditLog(
   context: MomentGraphContext
 ): Promise<void> {
   const db = getMomentDb(context);
-  const safeDocumentId = typeof documentId === "string" ? documentId.trim() : "";
+  const safeDocumentId =
+    typeof documentId === "string" ? documentId.trim() : "";
   const safeKind = typeof kind === "string" ? kind.trim() : "";
   if (safeDocumentId.length === 0 || safeKind.length === 0) {
     return;
@@ -820,7 +821,8 @@ export async function getDocumentAuditLogsForDocument(
   }>
 > {
   const db = getMomentDb(context);
-  const safeDocumentId = typeof documentId === "string" ? documentId.trim() : "";
+  const safeDocumentId =
+    typeof documentId === "string" ? documentId.trim() : "";
   if (safeDocumentId.length === 0) {
     return [];
   }
@@ -1085,7 +1087,9 @@ export async function getMicroMomentsByPaths(
     }
   }
 
-  return uniquePaths.map((p) => outByPath.get(p)).filter(Boolean) as MicroMoment[];
+  return uniquePaths
+    .map((p) => outByPath.get(p))
+    .filter(Boolean) as MicroMoment[];
 }
 
 export async function upsertMicroMoment(

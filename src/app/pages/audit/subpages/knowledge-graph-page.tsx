@@ -310,7 +310,17 @@ export function KnowledgeGraphPage() {
     if (rootIdFromUrl) {
       setSelectedRootId(rootIdFromUrl);
     }
-    const prefixFromUrl = urlParams.get("namespacePrefix");
+    const highlightMomentIdFromUrl = urlParams.get("highlightMomentId");
+    if (highlightMomentIdFromUrl) {
+      setPendingHighlightMomentId(highlightMomentIdFromUrl);
+    }
+    const namespaceFromUrl = urlParams.get("namespace");
+    if (namespaceFromUrl) {
+      setSelectedNamespace(namespaceFromUrl);
+    }
+    // Support both "prefix" and "namespacePrefix" for backward compatibility
+    const prefixFromUrl =
+      urlParams.get("prefix") || urlParams.get("namespacePrefix");
     if (typeof prefixFromUrl === "string" && prefixFromUrl.trim().length > 0) {
       setPrefixOverride(prefixFromUrl.trim());
     }
@@ -324,13 +334,23 @@ export function KnowledgeGraphPage() {
     } else {
       url.searchParams.delete("rootId");
     }
+    if (selectedNamespace) {
+      url.searchParams.set("namespace", selectedNamespace);
+    } else {
+      url.searchParams.delete("namespace");
+    }
     if (prefixOverride.trim().length > 0) {
+      url.searchParams.set("prefix", prefixOverride.trim());
+      // Also keep namespacePrefix for backward compatibility
       url.searchParams.set("namespacePrefix", prefixOverride.trim());
     } else {
+      url.searchParams.delete("prefix");
       url.searchParams.delete("namespacePrefix");
     }
+    // Don't preserve highlightMomentId in URL after initial load
+    url.searchParams.delete("highlightMomentId");
     window.history.pushState({}, "", url.toString());
-  }, [selectedRootId, prefixOverride]);
+  }, [selectedRootId, selectedNamespace, prefixOverride]);
 
   useEffect(() => {
     async function fetchPrefix() {

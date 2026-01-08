@@ -1540,6 +1540,20 @@ async function getPrOrigin(
   const apiKey = config.get<string>("apiKey", "");
   const namespace = config.get<string>("namespace", "");
 
+  // Log configuration values (masking API key for security)
+  logger.appendLine(
+    `[VSCode Extension] Machinen configuration:`
+  );
+  logger.appendLine(
+    `  API URL: ${apiUrl || "(not set)"}`
+  );
+  logger.appendLine(
+    `  API Key: ${apiKey ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}` : "(not set)"}`
+  );
+  logger.appendLine(
+    `  Namespace: ${namespace || "(not set, will use default)"}`
+  );
+
   if (!apiUrl || !apiKey) {
     logger.appendLine(
       "Machinen API URL or API key not configured. Skipping PR origin lookup."
@@ -1562,14 +1576,34 @@ async function getPrOrigin(
     // Call the API using Node's https/http modules
     const url = new URL(`${normalizedApiUrl}/api/gh/pr-origin`);
     const fullUrl = url.toString();
+    
     logger.appendLine(
-      `Calling PR origin API: ${fullUrl} for ${commitHashes.length} commits in repo ${repoInput}`
+      `[VSCode Extension] Calling PR origin API: ${fullUrl}`
     );
-    logger.appendLine(`Full URL being accessed: ${fullUrl}`);
-    logger.appendLine(`Base API URL: ${normalizedApiUrl}`);
-    logger.appendLine(`Path: ${url.pathname}`);
+    logger.appendLine(
+      `[VSCode Extension] Request details:`
+    );
+    logger.appendLine(
+      `  Commits: ${commitHashes.length} (${commitHashes.slice(0, 2).join(", ")}${commitHashes.length > 2 ? "..." : ""})`
+    );
+    logger.appendLine(
+      `  Repo: ${repoInput}`
+    );
+    logger.appendLine(
+      `  Namespace: ${namespace || "null (default)"}`
+    );
+    if (codeContext?.file) {
+      logger.appendLine(
+        `  File: ${codeContext.file}`
+      );
+    }
+    if (codeContext?.line !== undefined) {
+      logger.appendLine(
+        `  Line: ${codeContext.line}`
+      );
+    }
 
-    const requestBody = JSON.stringify({
+    const requestBodyObj = {
       commitHashes: commitHashes,
       repo: repoInput,
       ...(codeContext?.file && { file: codeContext.file }),
@@ -1577,7 +1611,16 @@ async function getPrOrigin(
       ...(codeContext?.codeContent && { codeContent: codeContext.codeContent }),
       ...(codeContext?.context && { context: codeContext.context }),
       ...(namespace && { namespace: namespace }),
-    });
+    };
+    
+    const requestBody = JSON.stringify(requestBodyObj);
+    
+    logger.appendLine(
+      `[VSCode Extension] Request body (excluding codeContent): ${JSON.stringify({
+        ...requestBodyObj,
+        codeContent: requestBodyObj.codeContent ? `[${requestBodyObj.codeContent.length} chars]` : undefined,
+      })}`
+    );
 
     const response = await new Promise<{
       statusCode: number;
@@ -1619,9 +1662,16 @@ async function getPrOrigin(
       req.end();
     });
 
+    logger.appendLine(
+      `[VSCode Extension] Response status: ${response.statusCode} ${response.statusMessage}`
+    );
+    logger.appendLine(
+      `[VSCode Extension] Response body length: ${response.body.length} chars`
+    );
+
     if (response.statusCode < 200 || response.statusCode >= 300) {
       logger.appendLine(
-        `PR origin API error: ${response.statusCode} ${response.statusMessage} - ${response.body}`
+        `[VSCode Extension] PR origin API error: ${response.statusCode} ${response.statusMessage} - ${response.body}`
       );
       return {
         error: `API error: ${response.statusCode} ${response.statusMessage}`,
@@ -1637,6 +1687,23 @@ async function getPrOrigin(
         commitHashes?: string[];
         prNumbers?: number[];
       };
+      
+      logger.appendLine(
+        `[VSCode Extension] Response parsed successfully:`
+      );
+      logger.appendLine(
+        `  TL;DR: ${jsonResponse.tldr ? "present" : "missing"}`
+      );
+      logger.appendLine(
+        `  Narrative: ${jsonResponse.narrative ? `${jsonResponse.narrative.length} chars` : "missing"}`
+      );
+      logger.appendLine(
+        `  Citations: ${jsonResponse.citations?.length ?? 0}`
+      );
+      logger.appendLine(
+        `  PR Numbers: ${jsonResponse.prNumbers?.join(", ") ?? "none"}`
+      );
+      
       return {
         tldr: jsonResponse.tldr || null,
         narrative: jsonResponse.narrative || response.body,
@@ -1647,7 +1714,7 @@ async function getPrOrigin(
     } catch (parseError) {
       // Fallback to plain text if JSON parsing fails (backward compatibility)
       logger.appendLine(
-        `Failed to parse PR origin response as JSON, using plain text: ${parseError}`
+        `[VSCode Extension] Failed to parse PR origin response as JSON, using plain text: ${parseError}`
       );
       return {
         narrative: response.body,

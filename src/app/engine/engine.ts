@@ -608,12 +608,22 @@ export async function indexDocument(
               ? macroMinImportanceRaw
               : 0.25;
 
-          const macroMomentDescriptions = (() => {
+          const macroGateResult = (() => {
             const noisePatternsFromEnvRaw = (indexingContext.env as any)
               .MACRO_MOMENT_NOISE_PATTERNS;
             const noisePatternStringsFromEnv =
               typeof noisePatternsFromEnvRaw === "string"
                 ? noisePatternsFromEnvRaw
+                    .split(/\r?\n|,/g)
+                    .map((s: string) => s.trim())
+                    .filter((s: string) => s.length > 0)
+                : [];
+
+            const discordNoisePatternsFromEnvRaw = (indexingContext.env as any)
+              .MACRO_MOMENT_DISCORD_NOISE_PATTERNS;
+            const discordNoisePatternStringsFromEnv =
+              typeof discordNoisePatternsFromEnvRaw === "string"
+                ? discordNoisePatternsFromEnvRaw
                     .split(/\r?\n|,/g)
                     .map((s: string) => s.trim())
                     .filter((s: string) => s.length > 0)
@@ -638,6 +648,50 @@ export async function indexDocument(
               })
               .filter(Boolean) as RegExp[];
 
+            const discordNoisePatternStrings = [
+              "\\bafk\\b",
+              "\\bbrb\\b",
+              "\\bback\\s+now\\b",
+              "\\bapologiz(e|ed|ing)\\b",
+              "\\bsync\\b",
+              "\\bpair(ing)?\\b",
+              "\\btour\\b",
+              "\\bmeeting\\b",
+              "\\bcall\\b",
+              "\\btimezone\\b",
+              "\\bschedul(e|ed|ing)\\b",
+              ...discordNoisePatternStringsFromEnv,
+            ];
+
+            const discordNoiseRegexes = discordNoisePatternStrings
+              .map((p) => {
+                try {
+                  return new RegExp(p, "i");
+                } catch {
+                  return null;
+                }
+              })
+              .filter(Boolean) as RegExp[];
+
+            function hasTechnicalAnchors(text: string): boolean {
+              if (!text) {
+                return false;
+              }
+              if (text.includes("mchn://gh/")) {
+                return true;
+              }
+              if (text.includes("```")) {
+                return true;
+              }
+              if (/\b(error|exception|stack trace|traceback)\b/i.test(text)) {
+                return true;
+              }
+              if (/\b(fix|fixed|bug|regression|implement|implemented|add|added|remove|removed|merge|merged)\b/i.test(text)) {
+                return true;
+              }
+              return false;
+            }
+
             function isNoiseMacroMoment(m: MacroMomentDescription): boolean {
               const title = typeof m?.title === "string" ? m.title : "";
               const summary = typeof (m as any)?.summary === "string"
@@ -654,6 +708,23 @@ export async function indexDocument(
 
               const combinedLower = `${title}\n${summary}`.toLowerCase();
               const isGitHub = combinedLower.includes("mchn://gh/");
+              const isDiscord =
+                combinedLower.includes("mchn://dc/") ||
+                title.trim().toLowerCase().startsWith("[discord");
+
+              if (isDiscord) {
+                const combined = `${title}\n${summary}`;
+                if (hasTechnicalAnchors(combined)) {
+                  return false;
+                }
+                for (const re of discordNoiseRegexes) {
+                  if (re.test(title) || re.test(summary)) {
+                    return true;
+                  }
+                }
+                return false;
+              }
+
               if (!isGitHub) {
                 return false;
               }
@@ -713,7 +784,18 @@ export async function indexDocument(
               .filter((x) => !isNoiseMacroMoment(x.m));
 
             if (withIndex.length === 0) {
-              return [];
+              return {
+                macroMomentDescriptions: [] as MacroMomentDescription[],
+                gatingAudit: {
+                  inputMacroCount: macroMomentDescriptionsRaw.length,
+                  outputMacroCount: 0,
+                  noiseDroppedCount: macroMomentDescriptionsRaw.length,
+                  noiseDroppedTitlesSample: macroMomentDescriptionsRaw
+                    .slice(0, 20)
+                    .map((m) => (typeof m?.title === "string" ? m.title : null))
+                    .filter((t) => typeof t === "string" && t.length > 0),
+                },
+              };
             }
 
             const sortedByImportance = withIndex
@@ -740,20 +822,42 @@ export async function indexDocument(
             );
 
             if (filtered.length > 0) {
-              return filtered.map((x) => x.m);
+              return {
+                macroMomentDescriptions: filtered.map((x) => x.m),
+                gatingAudit: {
+                  inputMacroCount: macroMomentDescriptionsRaw.length,
+                  outputMacroCount: filtered.length,
+                  noiseDroppedCount:
+                    macroMomentDescriptionsRaw.length - withIndex.length,
+                },
+              };
             }
 
             const fallback = cappedSortedByIndex[0] ?? sortedByImportance[0];
-            return fallback ? [fallback.m] : [];
+            return {
+              macroMomentDescriptions: fallback ? [fallback.m] : [],
+              gatingAudit: {
+                inputMacroCount: macroMomentDescriptionsRaw.length,
+                outputMacroCount: fallback ? 1 : 0,
+                noiseDroppedCount:
+                  macroMomentDescriptionsRaw.length - withIndex.length,
+              },
+            };
           })();
+
+          const macroMomentDescriptions = macroGateResult.macroMomentDescriptions;
 
           await addDocumentAuditLog(
             document.id,
             "synthesis:macro-gating",
             {
               streamId: stream.streamId,
-              inputMacroCount: macroMomentDescriptionsRaw.length,
-              outputMacroCount: macroMomentDescriptions.length,
+              inputMacroCount: macroGateResult.gatingAudit.inputMacroCount,
+              outputMacroCount: macroGateResult.gatingAudit.outputMacroCount,
+              noiseDroppedCount: macroGateResult.gatingAudit.noiseDroppedCount,
+              noiseDroppedTitlesSample:
+                (macroGateResult.gatingAudit as any).noiseDroppedTitlesSample ??
+                null,
               macroMaxPerStream,
               macroMinImportance,
               keptTitles: macroMomentDescriptions

@@ -4,7 +4,6 @@ import { type migrations } from "../db/migrations";
 import { type GitHubRepoDurableObject } from "../db/durableObject";
 import { type GitHubIssue } from "../utils/issue-to-markdown";
 import { issueToJson, type IssueLatestJson } from "../utils/issue-to-json";
-import { processPullRequestEvent } from "./pr-processor";
 import {
   fetchGitHubEntity,
   fetchIssueComments,
@@ -116,19 +115,6 @@ export async function processIssueEvent(
       error
     );
     throw error;
-  }
-
-  if ((fullIssue as any)?.pull_request) {
-    console.log(
-      "[issue-processor] Issue API returned a pull request; delegating to pr-processor",
-      { repo: `${repoOwner}/${repoName}`, number: issueNumber }
-    );
-    await processPullRequestEvent(
-      { id: fullIssue.id, number: fullIssue.number } as any,
-      "edited",
-      repository
-    );
-    return;
   }
 
   let comments: GitHubComment[] = [];

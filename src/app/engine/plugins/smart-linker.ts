@@ -6,7 +6,7 @@ import type {
   MacroMomentParentProposal,
 } from "../types";
 import { getEmbedding } from "../utils/vector";
-import { getMoments } from "../momentDb";
+import { getChainContextForMoment, getMoments } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 import { callLLM } from "../utils/llm";
 
@@ -14,6 +14,11 @@ const DEFAULT_SMART_LINKER_THRESHOLD = 0.75;
 const DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD = 0.8;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
 const DEFAULT_SMART_LINKER_MAX_LLM_VETO_CANDIDATES = 3;
+const DEFAULT_SMART_LINKER_TIMELINE_MAX_TAIL = 12;
+const DEFAULT_SMART_LINKER_TIMELINE_HIGH_IMPORTANCE_CUTOFF = 0.8;
+const DEFAULT_SMART_LINKER_TIMELINE_MAX_HIGH_IMPORTANCE = 6;
+const DEFAULT_SMART_LINKER_TIMELINE_MAX_DESCENDANT_SCAN_NODES = 400;
+const DEFAULT_SMART_LINKER_TIMELINE_MAX_CONTEXT_CHARS = 3200;
 
 function previewText(value: unknown, maxChars: number): string | null {
   if (typeof value !== "string") {
@@ -41,6 +46,80 @@ function capText(
     return { text: trimmed.slice(0, maxChars), truncated: true };
   }
   return { text: trimmed, truncated: false };
+}
+
+function parseEnvInt(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.floor(value);
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function parseEnvFloat(value: unknown, fallback: number): number {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+  return fallback;
+}
+
+function buildTimelineContextText(input: {
+  root: { id: string; title: string; summary: string; createdAt: string } | null;
+  tail: Array<{ id: string; title: string; summary: string; createdAt: string }>;
+  highImportance: Array<{
+    id: string;
+    title: string;
+    summary: string;
+    createdAt: string;
+    importance?: number;
+  }>;
+}): string {
+  const lines: string[] = [];
+  if (input.root) {
+    lines.push("Root:");
+    lines.push(`- Time: ${input.root.createdAt}`);
+    lines.push(`- Title: ${input.root.title}`);
+    lines.push(`- Summary: ${input.root.summary}`);
+    lines.push("");
+  }
+
+  if (input.tail.length > 0) {
+    lines.push("Recent chain tail:");
+    for (const item of input.tail) {
+      lines.push(`- Time: ${item.createdAt}`);
+      lines.push(`  Title: ${item.title}`);
+      lines.push(`  Summary: ${item.summary}`);
+    }
+    lines.push("");
+  }
+
+  if (input.highImportance.length > 0) {
+    lines.push("High-importance sample:");
+    for (const item of input.highImportance) {
+      lines.push(
+        `- Importance: ${
+          typeof item.importance === "number" ? item.importance : "unknown"
+        }`
+      );
+      lines.push(`  Time: ${item.createdAt}`);
+      lines.push(`  Title: ${item.title}`);
+      lines.push(`  Summary: ${item.summary}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
 
 export const smartLinkerPlugin: Plugin = {
@@ -397,51 +476,44 @@ export const smartLinkerPlugin: Plugin = {
         DEFAULT_SMART_LINKER_MAX_LLM_VETO_CANDIDATES
       );
 
-      console.log("[moment-linker] smart linker invoking LLM veto", {
+      const timelineMaxTail = parseEnvInt(
+        (context.env as any).SMART_LINKER_TIMELINE_MAX_TAIL,
+        DEFAULT_SMART_LINKER_TIMELINE_MAX_TAIL
+      );
+      const timelineHighImportanceCutoff = parseEnvFloat(
+        (context.env as any).SMART_LINKER_TIMELINE_HIGH_IMPORTANCE_CUTOFF,
+        DEFAULT_SMART_LINKER_TIMELINE_HIGH_IMPORTANCE_CUTOFF
+      );
+      const timelineMaxHighImportance = parseEnvInt(
+        (context.env as any).SMART_LINKER_TIMELINE_MAX_HIGH_IMPORTANCE,
+        DEFAULT_SMART_LINKER_TIMELINE_MAX_HIGH_IMPORTANCE
+      );
+      const timelineMaxDescendantScanNodes = parseEnvInt(
+        (context.env as any).SMART_LINKER_TIMELINE_MAX_DESCENDANT_SCAN_NODES,
+        DEFAULT_SMART_LINKER_TIMELINE_MAX_DESCENDANT_SCAN_NODES
+      );
+      const timelineMaxContextChars = parseEnvInt(
+        (context.env as any).SMART_LINKER_TIMELINE_MAX_CONTEXT_CHARS,
+        DEFAULT_SMART_LINKER_TIMELINE_MAX_CONTEXT_CHARS
+      );
+
+      console.log("[moment-linker] smart linker invoking timeline fit check", {
         documentId: document.id,
         macroMomentIndex,
         threshold: DEFAULT_SMART_LINKER_THRESHOLD,
         autoAttachThreshold: DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD,
         candidateIds: candidatesForVeto.map((c) => c.subject.id),
+        timelineMaxTail,
+        timelineHighImportanceCutoff,
+        timelineMaxHighImportance,
+        timelineMaxDescendantScanNodes,
+        timelineMaxContextChars,
       });
 
       for (const entry of candidatesForVeto) {
         const subject = entry.subject;
         const score = entry.match.score;
         const parentMomentId = subject.id;
-
-        if (score >= DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD) {
-          entry.decision.chosen = true;
-          entry.decision.chosenMethod = "auto-high-confidence";
-          console.log("[moment-linker] smart linker chose attachment", {
-            documentId: document.id,
-            macroMomentIndex,
-            matchedSubjectId: subject.id,
-            score,
-            parentMomentId,
-            subjectTitle: subject.title,
-            subjectDocumentId: subject.documentId,
-            subjectSourceRank: entry.rank,
-            childStartMs,
-            parentStartMs: entry.parentStartMs,
-            parentEndMs: entry.parentEndMs,
-            method: "auto-high-confidence",
-          });
-
-          auditLog.outcome = {
-            attached: true,
-            method: "auto-high-confidence",
-            parentMomentId,
-            matchedSubjectId: subject.id,
-            score,
-          };
-          return {
-            parentMomentId,
-            matchedSubjectId: subject.id,
-            score,
-            auditLog,
-          };
-        }
 
         const parentStartMs = entry.parentStartMs;
         const parentTime =
@@ -451,38 +523,87 @@ export const smartLinkerPlugin: Plugin = {
           parentStartMs !== null &&
           parentStartMs > childStartMs;
 
-        const vetoPrompt = `You are a knowledge graph attachment veto checker.
-Your job is to decide whether an attachment is clearly wrong.
+        const chainContext = await getChainContextForMoment(parentMomentId, {
+          env: context.env,
+          momentGraphNamespace: momentGraphContext.momentGraphNamespace,
+        }, {
+          maxTail: timelineMaxTail,
+          highImportanceCutoff: timelineHighImportanceCutoff,
+          maxHighImportance: timelineMaxHighImportance,
+          maxDescendantScanNodes: timelineMaxDescendantScanNodes,
+        });
 
-Return YES if the attachment is plausible.
-Return NO if the attachment is clearly wrong / unrelated.
+        entry.decision.timelineContext = chainContext
+          ? {
+              rootId: chainContext.rootId,
+              maxTail: chainContext.maxTail,
+              highImportanceCutoff: chainContext.highImportanceCutoff,
+              maxHighImportance: chainContext.maxHighImportance,
+              maxDescendantScanNodes: chainContext.maxDescendantScanNodes,
+              truncated: chainContext.truncated,
+              tailCount: chainContext.tail.length,
+              highImportanceCount: chainContext.highImportanceSample.length,
+            }
+          : null;
+
+        const timelineText =
+          chainContext && chainContext.root
+            ? buildTimelineContextText({
+                root: {
+                  id: chainContext.root.id,
+                  title: previewText(chainContext.root.title, 200) ?? chainContext.root.title,
+                  summary:
+                    previewText(chainContext.root.summary, 700) ??
+                    chainContext.root.summary,
+                  createdAt: chainContext.root.createdAt,
+                },
+                tail: chainContext.tail.map((m) => ({
+                  id: m.id,
+                  title: previewText(m.title, 200) ?? m.title,
+                  summary: previewText(m.summary, 500) ?? m.summary,
+                  createdAt: m.createdAt,
+                })),
+                highImportance: chainContext.highImportanceSample.map((m) => ({
+                  id: m.id,
+                  title: previewText(m.title, 200) ?? m.title,
+                  summary: previewText(m.summary, 500) ?? m.summary,
+                  createdAt: m.createdAt,
+                  importance: m.importance,
+                })),
+              })
+            : "";
+
+        const cappedTimeline = capText(timelineText, timelineMaxContextChars);
+        entry.decision.timelineContextTruncated = cappedTimeline.truncated;
+
+        const vetoPrompt = `You are a knowledge graph timeline fit checker.
+Your job is to decide whether a proposed moment belongs in a candidate timeline.
+
+Return YES if the proposed moment fits into the candidate timeline.
+Return NO if it does not fit into the timeline.
 Return only YES or NO.
 
-## Child moment
+## Proposed moment
 Time: ${childTime ?? "unknown"}
 Title: ${macroMoment.title}
 Summary: ${macroMoment.summary || "No summary provided"}
 Document: ${document.id}
 
-## Candidate parent moment
-Time: ${parentTime ?? "unknown"}
-Title: ${previewText(subject.title, 200) ?? subject.title}
-Summary: ${previewText(subject.summary, 900) ?? subject.summary}
-Document: ${subject.documentId}
+## Candidate attachment point
+CandidateParentTime: ${parentTime ?? "unknown"}
+CandidateParentTitle: ${previewText(subject.title, 200) ?? subject.title}
+CandidateParentSummary: ${previewText(subject.summary, 900) ?? subject.summary}
+CandidateParentDocument: ${subject.documentId}
 VectorScore: ${score}
 TemporalInverted: ${temporalInverted ? "true" : "false"}
 
+## Candidate timeline (bounded context)
+${cappedTimeline.text || "(missing timeline context)"}
+
 Guidance:
-- Say NO when it is clearly unrelated.
-- Say YES when it could be the same specific problem, or when it is a related step in the same work.
-- Do not say NO only because the two moments are not identical in wording.
-
-Examples (NO):
-- One is about SSR bridge architecture and the other is about deployment status noise.
-- One is about an unrelated endpoint or configuration issue.
-
-Examples (YES):
-- One is about rwsdk client navigation mechanics and the other is about improving that same navigation system (prefetching/caching, switching navigation requests to GET).
+- Say YES when this is part of the same specific work item and the timeline context supports it.
+- Say NO when it is only broadly about the same area but does not belong in this chain's work timeline.
+- Prefer NO when the only support is generic topical similarity without shared anchors.
 `;
 
         let vetoAnswer: string | null = null;
@@ -499,26 +620,29 @@ Examples (YES):
         const allowed =
           vetoAnswer === "YES" || vetoAnswer === "Y" || vetoAnswer === "TRUE";
 
-        entry.decision.vetoAnswer = vetoAnswer;
-        entry.decision.vetoAllowed = allowed;
+        entry.decision.timelineFitAnswer = vetoAnswer;
+        entry.decision.timelineFitAllowed = allowed;
 
-        console.log("[moment-linker] smart linker LLM veto decision", {
+        console.log("[moment-linker] smart linker timeline fit decision", {
           documentId: document.id,
           macroMomentIndex,
           candidateId: subject.id,
           score,
-          vetoAnswer,
+          timelineFitAnswer: vetoAnswer,
           allowed,
-          method: "llm-veto",
+          method: "llm-timeline-fit",
         });
 
         if (!allowed) {
-          entry.decision.rejectReason = "llm-veto";
+          entry.decision.rejectReason = "llm-timeline-fit";
           continue;
         }
 
         entry.decision.chosen = true;
-        entry.decision.chosenMethod = "llm-veto";
+        entry.decision.chosenMethod =
+          score >= DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD
+            ? "auto-high-confidence-timeline-fit"
+            : "llm-timeline-fit";
 
         console.log("[moment-linker] smart linker chose attachment", {
           documentId: document.id,
@@ -532,12 +656,18 @@ Examples (YES):
           childStartMs,
           parentStartMs: entry.parentStartMs,
           parentEndMs: entry.parentEndMs,
-          method: "llm-veto",
+          method:
+            score >= DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD
+              ? "auto-high-confidence-timeline-fit"
+              : "llm-timeline-fit",
         });
 
         auditLog.outcome = {
           attached: true,
-          method: "llm-veto",
+          method:
+            score >= DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD
+              ? "auto-high-confidence-timeline-fit"
+              : "llm-timeline-fit",
           parentMomentId,
           matchedSubjectId: subject.id,
           score,
@@ -560,7 +690,7 @@ Examples (YES):
 
       auditLog.outcome = {
         attached: false,
-        reason: "llm-veto-rejected-all",
+        reason: "llm-timeline-fit-rejected-all",
       };
       return {
         parentMomentId: null,

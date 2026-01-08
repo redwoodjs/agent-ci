@@ -204,34 +204,6 @@ export async function indexDocument(
 
   let stage = "start";
   try {
-    stage = "skip-duplicate-github-issue";
-    const ghIssueMatch = r2Key.match(
-      /^github\/([^\/]+)\/([^\/]+)\/issues\/(\d+)\/latest\.json$/
-    );
-    if (ghIssueMatch) {
-      const owner = ghIssueMatch[1] ?? "";
-      const repo = ghIssueMatch[2] ?? "";
-      const number = ghIssueMatch[3] ?? "";
-      const prKey = `github/${owner}/${repo}/pull-requests/${number}/latest.json`;
-      const prObject = await (context.env as any).MACHINEN_BUCKET?.get?.(prKey);
-      if (prObject) {
-        await addDocumentAuditLog(
-          r2Key,
-          "indexing:skip-duplicate-github-issue",
-          {
-            issueKey: r2Key,
-            prKey,
-          },
-          momentGraphContext
-        );
-        console.log("[moment-linker] skipping: duplicate github issue", {
-          issueKey: r2Key,
-          prKey,
-        });
-        return [];
-      }
-    }
-
     stage = "split-document";
     // 1. Split document into chunks BEFORE subject correlation
     let chunks: Chunk[] | null = null;

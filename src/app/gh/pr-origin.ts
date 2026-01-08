@@ -615,10 +615,10 @@ ${prSummaries.join("\n")}
 ${narrativeContext}
 
 ## Instructions
-Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format:
+Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format. **YOU MUST INCLUDE BOTH SECTIONS:**
 
 ### TL;DR
-[Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed.]
+[Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed. This section is MANDATORY and must be included.]
 
 ### Full Analysis
 [Write a detailed narrative that explains:]
@@ -657,24 +657,81 @@ Write a clear narrative that explains the sequence and causal relationships betw
     });
 
     // Parse TL;DR and narrative from the response
+    // Try multiple patterns to extract TLDR
     let tldr = "";
     let narrative = fullResponse;
 
-    const tldrMatch = fullResponse.match(
+    // Pattern 1: ### TL;DR (current format)
+    let tldrMatch = fullResponse.match(
       /###\s*TL;DR\s*\n([\s\S]*?)(?=\n###\s*Full\s*Analysis|$)/i
     );
+    
+    // Pattern 2: ## TL;DR (alternative heading level)
+    if (!tldrMatch) {
+      tldrMatch = fullResponse.match(
+        /##\s*TL;DR\s*\n([\s\S]*?)(?=\n##\s*Full\s*Analysis|$)/i
+      );
+    }
+    
+    // Pattern 3: **TL;DR** (bold format)
+    if (!tldrMatch) {
+      tldrMatch = fullResponse.match(
+        /\*\*TL;DR\*\*:?\s*\n([\s\S]*?)(?=\n\*\*Full\s*Analysis\*\*|$)/i
+      );
+    }
+    
+    // Pattern 4: TL;DR: (plain format)
+    if (!tldrMatch) {
+      tldrMatch = fullResponse.match(
+        /TL;DR:?\s*\n([\s\S]*?)(?=\n(?:Full\s*Analysis|###|##|$))/i
+      );
+    }
+
+    if (tldrMatch) {
+      tldr = tldrMatch[1].trim();
+      console.log(`[pr-origin] Successfully extracted TLDR (${tldr.length} chars)`);
+    } else {
+      console.log(`[pr-origin] No explicit TLDR section found, using fallback extraction`);
+      // Fallback: Extract first 2-3 sentences from the response
+      const sentences = fullResponse
+        .replace(/###\s*Full\s*Analysis[\s\S]*$/i, "") // Remove Full Analysis section if present
+        .trim()
+        .split(/[.!?]+/)
+        .filter((s) => s.trim().length > 0)
+        .slice(0, 3)
+        .map((s) => s.trim() + ".");
+      
+      if (sentences.length > 0) {
+        tldr = sentences.join(" ");
+        console.log(`[pr-origin] Generated fallback TLDR from first ${sentences.length} sentences`);
+      } else {
+        // Last resort: use first paragraph or first 200 chars
+        const firstPart = fullResponse
+          .replace(/###\s*Full\s*Analysis[\s\S]*$/i, "")
+          .trim()
+          .split("\n\n")[0]
+          .substring(0, 200)
+          .trim();
+        tldr = firstPart || "Summary not available.";
+        console.log(`[pr-origin] Generated fallback TLDR from first paragraph`);
+      }
+    }
+
     const fullAnalysisMatch = fullResponse.match(
       /###\s*Full\s*Analysis\s*\n([\s\S]*?)$/i
     );
 
-    if (tldrMatch) {
-      tldr = tldrMatch[1].trim();
-    }
     if (fullAnalysisMatch) {
       narrative = fullAnalysisMatch[1].trim();
     } else if (!tldrMatch) {
       // If no sections found, use the whole response as narrative
       narrative = fullResponse.trim();
+    } else {
+      // If TLDR was found but Full Analysis wasn't, extract everything after TLDR
+      const afterTldr = fullResponse.substring(
+        (tldrMatch.index || 0) + tldrMatch[0].length
+      ).trim();
+      narrative = afterTldr || fullResponse.trim();
     }
 
     // Extract citations from the timeline moments
@@ -688,9 +745,10 @@ Write a clear narrative that explains the sequence and causal relationships betw
     const citations = extractCitations(sortedTimeline);
     console.log(`[pr-origin] Extracted ${citations.length} citations total`);
 
-    // Return JSON response with tldr, narrative, citations, commits, and PRs
+    // Return JSON response with TLDR, narrative, citations, commits, and PRs
+    // Ensure TLDR is always present (never null)
     const response = {
-      tldr: tldr || null,
+      TLDR: tldr || "Summary not available.",
       narrative,
       citations,
       commitHashes,

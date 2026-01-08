@@ -49,7 +49,7 @@ interface GitBlameInfo {
  * Interface for code origin information
  */
 interface CodeOriginInfo {
-  tldr?: string | null;
+  TLDR?: string | null;
   narrative?: string;
   error?: string;
   citations?: Citation[];
@@ -72,7 +72,7 @@ interface Citation {
  * Interface for PR origin information
  */
 interface PrOriginInfo {
-  tldr?: string | null;
+  TLDR?: string | null;
   narrative?: string;
   error?: string;
   citations?: Citation[];
@@ -92,8 +92,8 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     let markdown = "## PR Origin Analysis\n\n";
-    if (codeOrigin.tldr) {
-      markdown += `**TL;DR:** ${codeOrigin.tldr}\n\n`;
+    if (codeOrigin.TLDR) {
+      markdown += `**TL;DR:** ${codeOrigin.TLDR}\n\n`;
     }
     markdown += codeOrigin.narrative;
 
@@ -333,8 +333,8 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Process TL;DR if available
         let tldrHtml = "";
-        if (codeOrigin.tldr) {
-          const processedTldr = escapeHtml(codeOrigin.tldr);
+        if (codeOrigin.TLDR) {
+          const processedTldr = escapeHtml(codeOrigin.TLDR);
           tldrHtml = `
             <div style="margin-bottom: 16px; padding: 12px; background-color: var(--vscode-textBlockQuote-background); border-left: 3px solid var(--vscode-textLink-foreground); border-radius: 4px;">
               <h4 style="margin-top: 0; margin-bottom: 8px; color: var(--vscode-textLink-foreground); font-weight: 600;">TL;DR</h4>
@@ -833,6 +833,18 @@ async function showPrOriginResult(
       );
 
       // Format PR origin information for display
+      // Process TL;DR if available
+      let tldrHtml = "";
+      if (prOrigin.TLDR) {
+        const processedTldr = escapeHtml(prOrigin.TLDR);
+        tldrHtml = `
+          <div style="margin-bottom: 16px; padding: 12px; background-color: var(--vscode-textBlockQuote-background); border-left: 3px solid var(--vscode-textLink-foreground); border-radius: 4px;">
+            <h4 style="margin-top: 0; margin-bottom: 8px; color: var(--vscode-textLink-foreground); font-weight: 600;">TL;DR</h4>
+            <div style="white-space: pre-wrap; color: var(--vscode-foreground); line-height: 1.6; font-style: italic;">${processedTldr}</div>
+          </div>
+        `;
+      }
+
       let prOriginHtml = "";
       if (prOrigin.error) {
         prOriginHtml = `
@@ -847,6 +859,7 @@ async function showPrOriginResult(
         prOriginHtml = `
           <div style="margin-bottom: 16px; padding: 12px; background-color: var(--vscode-textBlockQuote-background); border-radius: 4px;">
             <h3 style="margin-top: 0; margin-bottom: 12px; color: var(--vscode-textLink-foreground);">PR Origin & Decisions</h3>
+            ${tldrHtml}
             <div style="white-space: pre-wrap; color: var(--vscode-foreground); line-height: 1.6;">${escapeHtml(
               prOrigin.narrative
             )}</div>
@@ -1506,6 +1519,7 @@ async function getPrOriginForLine(
     }
 
     return {
+      TLDR: prOrigin.TLDR,
       narrative: prOrigin.narrative,
       error: prOrigin.error,
       citations: prOrigin.citations,
@@ -1541,14 +1555,14 @@ async function getPrOrigin(
   const namespace = config.get<string>("namespace", "");
 
   // Log configuration values (masking API key for security)
+  logger.appendLine(`[VSCode Extension] Machinen configuration:`);
+  logger.appendLine(`  API URL: ${apiUrl || "(not set)"}`);
   logger.appendLine(
-    `[VSCode Extension] Machinen configuration:`
-  );
-  logger.appendLine(
-    `  API URL: ${apiUrl || "(not set)"}`
-  );
-  logger.appendLine(
-    `  API Key: ${apiKey ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}` : "(not set)"}`
+    `  API Key: ${
+      apiKey
+        ? `${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)}`
+        : "(not set)"
+    }`
   );
   logger.appendLine(
     `  Namespace: ${namespace || "(not set, will use default)"}`
@@ -1576,31 +1590,21 @@ async function getPrOrigin(
     // Call the API using Node's https/http modules
     const url = new URL(`${normalizedApiUrl}/api/gh/pr-origin`);
     const fullUrl = url.toString();
-    
+
+    logger.appendLine(`[VSCode Extension] Calling PR origin API: ${fullUrl}`);
+    logger.appendLine(`[VSCode Extension] Request details:`);
     logger.appendLine(
-      `[VSCode Extension] Calling PR origin API: ${fullUrl}`
+      `  Commits: ${commitHashes.length} (${commitHashes
+        .slice(0, 2)
+        .join(", ")}${commitHashes.length > 2 ? "..." : ""})`
     );
-    logger.appendLine(
-      `[VSCode Extension] Request details:`
-    );
-    logger.appendLine(
-      `  Commits: ${commitHashes.length} (${commitHashes.slice(0, 2).join(", ")}${commitHashes.length > 2 ? "..." : ""})`
-    );
-    logger.appendLine(
-      `  Repo: ${repoInput}`
-    );
-    logger.appendLine(
-      `  Namespace: ${namespace || "null (default)"}`
-    );
+    logger.appendLine(`  Repo: ${repoInput}`);
+    logger.appendLine(`  Namespace: ${namespace || "null (default)"}`);
     if (codeContext?.file) {
-      logger.appendLine(
-        `  File: ${codeContext.file}`
-      );
+      logger.appendLine(`  File: ${codeContext.file}`);
     }
     if (codeContext?.line !== undefined) {
-      logger.appendLine(
-        `  Line: ${codeContext.line}`
-      );
+      logger.appendLine(`  Line: ${codeContext.line}`);
     }
 
     const requestBodyObj = {
@@ -1612,14 +1616,18 @@ async function getPrOrigin(
       ...(codeContext?.context && { context: codeContext.context }),
       ...(namespace && { namespace: namespace }),
     };
-    
+
     const requestBody = JSON.stringify(requestBodyObj);
-    
+
     logger.appendLine(
-      `[VSCode Extension] Request body (excluding codeContent): ${JSON.stringify({
-        ...requestBodyObj,
-        codeContent: requestBodyObj.codeContent ? `[${requestBodyObj.codeContent.length} chars]` : undefined,
-      })}`
+      `[VSCode Extension] Request body (excluding codeContent): ${JSON.stringify(
+        {
+          ...requestBodyObj,
+          codeContent: requestBodyObj.codeContent
+            ? `[${requestBodyObj.codeContent.length} chars]`
+            : undefined,
+        }
+      )}`
     );
 
     const response = await new Promise<{
@@ -1681,31 +1689,33 @@ async function getPrOrigin(
     // Parse JSON response
     try {
       const jsonResponse = JSON.parse(response.body) as {
-        tldr?: string | null;
+        TLDR?: string | null;
+        tldr?: string | null; // Backward compatibility
         narrative?: string;
         citations?: Citation[];
         commitHashes?: string[];
         prNumbers?: number[];
       };
-      
+
+      // Support both TLDR (new) and tldr (old) for backward compatibility
+      const tldrValue = jsonResponse.TLDR ?? jsonResponse.tldr ?? null;
+
+      logger.appendLine(`[VSCode Extension] Response parsed successfully:`);
+      logger.appendLine(`  TL;DR: ${tldrValue ? "present" : "missing"}`);
       logger.appendLine(
-        `[VSCode Extension] Response parsed successfully:`
+        `  Narrative: ${
+          jsonResponse.narrative
+            ? `${jsonResponse.narrative.length} chars`
+            : "missing"
+        }`
       );
-      logger.appendLine(
-        `  TL;DR: ${jsonResponse.tldr ? "present" : "missing"}`
-      );
-      logger.appendLine(
-        `  Narrative: ${jsonResponse.narrative ? `${jsonResponse.narrative.length} chars` : "missing"}`
-      );
-      logger.appendLine(
-        `  Citations: ${jsonResponse.citations?.length ?? 0}`
-      );
+      logger.appendLine(`  Citations: ${jsonResponse.citations?.length ?? 0}`);
       logger.appendLine(
         `  PR Numbers: ${jsonResponse.prNumbers?.join(", ") ?? "none"}`
       );
-      
+
       return {
-        tldr: jsonResponse.tldr || null,
+        TLDR: tldrValue,
         narrative: jsonResponse.narrative || response.body,
         citations: jsonResponse.citations || [],
         commitHashes: jsonResponse.commitHashes || [],

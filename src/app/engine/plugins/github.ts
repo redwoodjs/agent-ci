@@ -51,6 +51,16 @@ interface GitHubProjectLatestJson {
   [key: string]: unknown;
 }
 
+// context(justinvdm, 8 Jan 2026): Some older GitHub PRs were ingested under
+// github/<owner>/<repo>/issues/<n>/latest.json (GitHub's issues API includes PRs).
+// The ingestion fixes should prevent this going forward, but existing stored docs
+// need a one-off correction. Until we migrate or rewrite those objects in R2, treat
+// these known ids as pull requests at indexing time so synthesis uses PR formatting
+// and canonical PR refs.
+const FORCE_PULL_REQUEST_NUMBERS = new Set<number>([
+  804, // programmatic client-side navigation
+]);
+
 function isGitHubR2Key(r2Key: string): boolean {
   return (
     r2Key.startsWith("github/") &&
@@ -160,12 +170,16 @@ export const githubPlugin: Plugin = {
 
     if ("repo" in parsed) {
       const prIssueData = data as GitHubLatestJson;
-      const url = prIssueData.url || buildGitHubUrl(parsed);
+      const forcedParsed =
+        parsed.type === "issues" && FORCE_PULL_REQUEST_NUMBERS.has(parsed.number)
+          ? { ...parsed, type: "pull-requests" as const }
+          : parsed;
+      const url = prIssueData.url || buildGitHubUrl(forcedParsed);
 
       return {
         id: context.r2Key,
         source: "github",
-        type: parsed.type === "pull-requests" ? "pull-request" : "issue",
+        type: forcedParsed.type === "pull-requests" ? "pull-request" : "issue",
         content: prIssueData.body || "",
         metadata: {
           title: prIssueData.title,

@@ -89,3 +89,15 @@ In the same tree, an unrelated moment is connected to the root, while expected r
 - Updated architecture docs to reflect chain-aware correlation.
   - Added a chain-aware attachment gate description to docs/architecture/knowledge-synthesis-engine.md.
   - Updated the correlation step list to remove the older pairwise attachment framing and describe shortlist + timeline fit + attach/root.
+
+- Investigated a persisted praise macro moment (prefix prod-2025-01-08-23-24).
+  - Root momentId 283720fe-ab97-425f-b5c8-ea84fe42002c is a Discord channel/day document (discord/.../2025-03-26.jsonl).
+  - The macro stream synthesis output includes the praise as MACRO-MOMENT 1 with importance 0.80: '[Discord Channel] Redwood SDK workflow praised as a "lekker experience"'.
+  - The deterministic macro gate kept all 7 macros in the stream (noiseDroppedCount 0), so nothing filtered it after synthesis.
+  - Smart linker did not attach it (no candidates >= threshold), so it persisted as a root.
+  - This indicates the current prompt guidance ('generic encouragement or gratitude') is not sufficient to reliably suppress praise-style moments, and the deterministic Discord noise filter does not cover praise patterns.
+
+- Investigated a regression where PR #933 became an isolated root after enabling the timeline fit gate (prefix prod-2025-01-08-23-24).
+  - The smart-linker shortlist found a candidate above threshold (score ~0.7501), but the timeline fit check returned NO, so the moment stayed root.
+  - This is an overly strict timeline-fit prompt for "same subsystem" attachments (client navigation changes) where a shared anchor may be implicit.
+  - Adjusted the timeline-fit prompt to return NO only when clearly wrong, and added anchor token hints (shared identifiers, issue numbers, canonical tokens) to improve recall.

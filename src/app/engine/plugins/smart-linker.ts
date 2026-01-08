@@ -122,6 +122,76 @@ function buildTimelineContextText(input: {
   return lines.join("\n");
 }
 
+function extractAnchorTokens(text: string, maxTokens: number): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  function add(token: string) {
+    const t = token.trim();
+    if (!t) {
+      return;
+    }
+    if (seen.has(t)) {
+      return;
+    }
+    seen.add(t);
+    out.push(t);
+  }
+
+  const backtick = text.match(/`([^`]{1,80})`/g) ?? [];
+  for (const m of backtick) {
+    const inner = m.slice(1, -1);
+    add(inner);
+    if (out.length >= maxTokens) {
+      return out;
+    }
+  }
+
+  const canon = text.match(/mchn:\/\/[a-z]+\/[^\s)\]]+/g) ?? [];
+  for (const m of canon) {
+    add(m);
+    if (out.length >= maxTokens) {
+      return out;
+    }
+  }
+
+  const issueRefs = text.match(/#\d{2,6}/g) ?? [];
+  for (const m of issueRefs) {
+    add(m);
+    if (out.length >= maxTokens) {
+      return out;
+    }
+  }
+
+  // Prefer camelCase / PascalCase identifiers and common API-ish names
+  const idents = text.match(/\b[A-Za-z][A-Za-z0-9_]{2,40}\b/g) ?? [];
+  for (const ident of idents) {
+    if (!/[A-Z_]/.test(ident)) {
+      continue;
+    }
+    add(ident);
+    if (out.length >= maxTokens) {
+      return out;
+    }
+  }
+
+  return out;
+}
+
+function intersectTokens(a: string[], b: string[], max: number): string[] {
+  const bSet = new Set(b);
+  const out: string[] = [];
+  for (const t of a) {
+    if (bSet.has(t)) {
+      out.push(t);
+      if (out.length >= max) {
+        break;
+      }
+    }
+  }
+  return out;
+}
+
 export const smartLinkerPlugin: Plugin = {
   name: "smart-linker",
 
@@ -576,11 +646,30 @@ export const smartLinkerPlugin: Plugin = {
         const cappedTimeline = capText(timelineText, timelineMaxContextChars);
         entry.decision.timelineContextTruncated = cappedTimeline.truncated;
 
+        const childAnchorTokens = extractAnchorTokens(
+          `${macroMoment.title}\n${macroMoment.summary || ""}`,
+          24
+        );
+        const parentAnchorTokens = extractAnchorTokens(
+          `${subject.title}\n${subject.summary || ""}`,
+          24
+        );
+        const sharedAnchorTokens = intersectTokens(
+          childAnchorTokens,
+          parentAnchorTokens,
+          12
+        );
+        entry.decision.anchorTokens = {
+          shared: sharedAnchorTokens,
+          childSample: childAnchorTokens.slice(0, 12),
+          parentSample: parentAnchorTokens.slice(0, 12),
+        };
+
         const vetoPrompt = `You are a knowledge graph timeline fit checker.
 Your job is to decide whether a proposed moment belongs in a candidate timeline.
 
-Return YES if the proposed moment fits into the candidate timeline.
-Return NO if it does not fit into the timeline.
+Return YES if the proposed moment plausibly fits into the candidate timeline.
+Return NO only when it is clearly wrong or would make the timeline misleading.
 Return only YES or NO.
 
 ## Proposed moment
@@ -597,13 +686,18 @@ CandidateParentDocument: ${subject.documentId}
 VectorScore: ${score}
 TemporalInverted: ${temporalInverted ? "true" : "false"}
 
+## Anchor tokens (hints)
+Shared: ${sharedAnchorTokens.length > 0 ? sharedAnchorTokens.join(", ") : "(none)"}
+ProposedSample: ${childAnchorTokens.slice(0, 12).join(", ") || "(none)"}
+CandidateSample: ${parentAnchorTokens.slice(0, 12).join(", ") || "(none)"}
+
 ## Candidate timeline (bounded context)
 ${cappedTimeline.text || "(missing timeline context)"}
 
 Guidance:
-- Say YES when this is part of the same specific work item and the timeline context supports it.
-- Say NO when it is only broadly about the same area but does not belong in this chain's work timeline.
-- Prefer NO when the only support is generic topical similarity without shared anchors.
+- Say YES when this is the same subsystem, API, work item, or a direct follow-up (feature, bugfix, design decision, clarification) and the timeline context does not contradict it.
+- Say NO when it is about a different subsystem/work item and the timeline context suggests a different thread.
+- Prefer YES when there are shared anchor tokens (canonical refs, issue/pr numbers, code identifiers), even if the exact change differs.
 `;
 
         let vetoAnswer: string | null = null;

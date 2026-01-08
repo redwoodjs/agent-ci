@@ -21,6 +21,7 @@ import {
   getMoment,
   getMicroMomentsByPaths,
   getDocumentAuditLogsForDocument,
+  getRecentDocumentAuditEvents,
 } from "@/app/engine/momentDb";
 import {
   getMomentGraphNamespacePrefixFromEnv,
@@ -606,6 +607,131 @@ export async function getRootSampleStatsAction(options?: {
     return {
       success: false,
       error: "Failed to fetch root sample stats",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getDocumentAuditLogsAction(
+  documentId: string,
+  options?: {
+    momentGraphNamespace?: string | null;
+    momentGraphNamespacePrefix?: string | null;
+    kindPrefix?: string | null;
+    limit?: number;
+  }
+) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const kindPrefixRaw = options?.kindPrefix;
+    const kindPrefix =
+      typeof kindPrefixRaw === "string" && kindPrefixRaw.trim().length > 0
+        ? kindPrefixRaw.trim()
+        : null;
+    const limitRaw = options?.limit;
+    const limit =
+      typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+        ? Math.floor(limitRaw)
+        : 50;
+
+    const logs = await getDocumentAuditLogsForDocument(
+      documentId,
+      { env: envCloudflare, momentGraphNamespace: effectiveNamespace },
+      { kindPrefix, limit }
+    );
+
+    return {
+      success: true,
+      logs,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching document audit logs:", error);
+    return {
+      success: false,
+      error: "Failed to fetch document audit logs",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getRecentDocumentAuditEventsAction(options?: {
+  momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
+  kindPrefixes?: string[];
+  limitEvents?: number;
+  limitDocuments?: number;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const kindPrefixesRaw = options?.kindPrefixes;
+    const kindPrefixes =
+      Array.isArray(kindPrefixesRaw) && kindPrefixesRaw.every((s) => typeof s === "string")
+        ? kindPrefixesRaw
+        : ["indexing:", "synthesis:"];
+
+    const limitEventsRaw = options?.limitEvents;
+    const limitEvents =
+      typeof limitEventsRaw === "number" &&
+      Number.isFinite(limitEventsRaw) &&
+      limitEventsRaw > 0
+        ? Math.floor(limitEventsRaw)
+        : 200;
+
+    const limitDocumentsRaw = options?.limitDocuments;
+    const limitDocuments =
+      typeof limitDocumentsRaw === "number" &&
+      Number.isFinite(limitDocumentsRaw) &&
+      limitDocumentsRaw > 0
+        ? Math.floor(limitDocumentsRaw)
+        : 30;
+
+    const docs = await getRecentDocumentAuditEvents(
+      { env: envCloudflare, momentGraphNamespace: effectiveNamespace },
+      { kindPrefixes, limitEvents, limitDocuments }
+    );
+
+    return {
+      success: true,
+      docs,
+      kindPrefixes,
+      limitEvents,
+      limitDocuments,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching recent document audit events:", error);
+    return {
+      success: false,
+      error: "Failed to fetch recent document audit events",
       details: error instanceof Error ? error.message : String(error),
     };
   }

@@ -860,6 +860,87 @@ export async function getDocumentAuditLogsForDocument(
   }));
 }
 
+export async function getRecentDocumentAuditEvents(
+  context: MomentGraphContext,
+  options?: {
+    kindPrefixes?: string[];
+    limitEvents?: number;
+    limitDocuments?: number;
+  }
+): Promise<
+  Array<{
+    id: string;
+    documentId: string;
+    kind: string;
+    createdAt: string;
+    payload: Record<string, any>;
+  }>
+> {
+  const db = getMomentDb(context);
+  const kindPrefixesRaw = options?.kindPrefixes;
+  const kindPrefixes =
+    Array.isArray(kindPrefixesRaw) && kindPrefixesRaw.every((s) => typeof s === "string")
+      ? kindPrefixesRaw.map((s) => s.trim()).filter((s) => s.length > 0)
+      : [];
+
+  const limitEventsRaw = options?.limitEvents;
+  const limitEvents =
+    typeof limitEventsRaw === "number" &&
+    Number.isFinite(limitEventsRaw) &&
+    limitEventsRaw > 0
+      ? Math.floor(limitEventsRaw)
+      : 200;
+
+  const limitDocumentsRaw = options?.limitDocuments;
+  const limitDocuments =
+    typeof limitDocumentsRaw === "number" &&
+    Number.isFinite(limitDocumentsRaw) &&
+    limitDocumentsRaw > 0
+      ? Math.floor(limitDocumentsRaw)
+      : 30;
+
+  let query = db.selectFrom("document_audit_logs").selectAll();
+
+  if (kindPrefixes.length > 0) {
+    query = query.where((eb) =>
+      eb.or(kindPrefixes.map((p) => eb("kind", "like", `${p}%`)))
+    );
+  }
+
+  const rows = (await query
+    .orderBy("created_at", "desc")
+    .limit(limitEvents)
+    .execute()) as unknown as DocumentAuditRow[];
+
+  const out: Array<{
+    id: string;
+    documentId: string;
+    kind: string;
+    createdAt: string;
+    payload: Record<string, any>;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const row of rows) {
+    if (seen.has(row.document_id)) {
+      continue;
+    }
+    seen.add(row.document_id);
+    out.push({
+      id: row.id,
+      documentId: row.document_id,
+      kind: row.kind,
+      createdAt: row.created_at,
+      payload: row.payload_json ?? {},
+    });
+    if (out.length >= limitDocuments) {
+      break;
+    }
+  }
+
+  return out;
+}
+
 export async function findSimilarSubjects(
   vector: number[],
   limit: number = 5,

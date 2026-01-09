@@ -1611,11 +1611,9 @@ function formatTimelineLineTldr(
   }`;
 }
 
-export async function generateCodeTldr(options: {
+export async function fetchCodeTimeline(options: {
   repo: string;
   commit: string;
-  file: string;
-  line: number;
   namespace?: string | null;
 }) {
   try {
@@ -1632,13 +1630,11 @@ export async function generateCodeTldr(options: {
 
     const { owner, repo } = parsedRepo;
     const commitHash = options.commit;
-    const file = options.file;
-    const line = options.line;
     const namespaceOverride = options.namespace ?? null;
 
     // 1. Get PRs for the commit
     console.log(
-      `[code-tldr] Fetching PRs for commit ${commitHash} in ${owner}/${repo}`
+      `[code-timeline] Fetching PRs for commit ${commitHash} in ${owner}/${repo}`
     );
 
     const prNumbersSet = new Set<number>();
@@ -1654,7 +1650,7 @@ export async function generateCodeTldr(options: {
       }
     } catch (err) {
       console.warn(
-        `[code-tldr] Failed to fetch PRs for commit ${commitHash}:`,
+        `[code-timeline] Failed to fetch PRs for commit ${commitHash}:`,
         err
       );
     }
@@ -1669,7 +1665,7 @@ export async function generateCodeTldr(options: {
     }
 
     console.log(
-      `[code-tldr] Found ${prNumbers.length} unique PRs: ${prNumbers.join(", ")}`
+      `[code-timeline] Found ${prNumbers.length} unique PRs: ${prNumbers.join(", ")}`
     );
 
     // 2. Fetch data for each PR from R2 and find moments in the graph
@@ -1682,23 +1678,17 @@ export async function generateCodeTldr(options: {
     };
 
     const allRelatedMoments: Moment[] = [];
-    const prSummaries: string[] = [];
 
     for (const prNumber of prNumbers) {
       const r2Key = `github/${owner}/${repo}/pull-requests/${prNumber}/latest.json`;
       const prObject = await bucket.get(r2Key);
 
       if (!prObject) {
-        console.warn(`[code-tldr] PR data not found in R2: ${r2Key}`);
+        console.warn(`[code-timeline] PR data not found in R2: ${r2Key}`);
         continue;
       }
 
       const prData = (await prObject.json()) as any;
-      prSummaries.push(
-        `- PR #${prNumber}: ${prData.title || "N/A"} (Author: ${
-          prData.author || "N/A"
-        }, Created: ${prData.created_at || "N/A"})`
-      );
 
       // Find moments in the graph
       const lastMoment = await findLastMomentForDocument(
@@ -1737,7 +1727,7 @@ export async function generateCodeTldr(options: {
           );
           allRelatedMoments.push(...similarMoments);
         } catch (err) {
-          console.error(`[code-tldr] Semantic search failed for PR #${prNumber}:`, err);
+          console.error(`[code-timeline] Semantic search failed for PR #${prNumber}:`, err);
         }
       }
     }
@@ -1773,6 +1763,96 @@ export async function generateCodeTldr(options: {
       }
     );
 
+    // Format timeline for development stream
+    const developmentStream = sortedTimeline.map((moment) => ({
+      id: moment.id,
+      title: moment.title || "Untitled",
+      summary: moment.summary,
+      createdAt: moment.createdAt,
+      documentId: moment.documentId,
+      importance: moment.importance,
+      sourceMetadata: moment.sourceMetadata,
+    }));
+
+    return {
+      success: true,
+      developmentStream,
+      prNumbers,
+      commitHashes: [commitHash],
+      sortedTimeline,
+    };
+  } catch (error) {
+    console.error(`[code-timeline] Error fetching timeline:`, error);
+    return {
+      success: false,
+      error: "Failed to fetch timeline",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function generateCodeTldr(options: {
+  repo: string;
+  commit: string;
+  file: string;
+  line: number;
+  namespace?: string | null;
+}) {
+  try {
+    // Fetch timeline data first
+    const timelineResult = await fetchCodeTimeline({
+      repo: options.repo,
+      commit: options.commit,
+      namespace: options.namespace,
+    });
+
+    if (!timelineResult.success) {
+      return {
+        success: false,
+        error: timelineResult.error,
+        details: timelineResult.details,
+      };
+    }
+
+    const { sortedTimeline, prNumbers, commitHashes } = timelineResult;
+    const envCloudflare = env as Cloudflare.Env;
+
+    // Parse repository
+    const parsedRepo = parseGitHubRepo(options.repo);
+    if (!parsedRepo) {
+      return {
+        success: false,
+        error: `Invalid repository format: ${options.repo}. Expected formats: owner/repo, https://github.com/owner/repo.git, or git@github.com:owner/repo.git`,
+      };
+    }
+
+    const { owner, repo } = parsedRepo;
+    const commitHash = options.commit;
+    const file = options.file;
+    const line = options.line;
+    const namespaceOverride = options.namespace ?? null;
+
+    // Get PR summaries for LLM prompt
+    const bucket = envCloudflare.MACHINEN_BUCKET;
+    const prSummaries: string[] = [];
+
+    for (const prNumber of prNumbers) {
+      const r2Key = `github/${owner}/${repo}/pull-requests/${prNumber}/latest.json`;
+      const prObject = await bucket.get(r2Key);
+
+      if (!prObject) {
+        continue;
+      }
+
+      const prData = (await prObject.json()) as any;
+      prSummaries.push(
+        `- PR #${prNumber}: ${prData.title || "N/A"} (Author: ${
+          prData.author || "N/A"
+        }, Created: ${prData.created_at || "N/A"})`
+      );
+    }
+
+    // Build timeline context for LLM
     const timelineLines = sortedTimeline.map((moment, idx) =>
       formatTimelineLineTldr(moment, idx)
     );
@@ -1781,23 +1861,35 @@ export async function generateCodeTldr(options: {
         ? timelineLines.join("\n\n")
         : "No related events found in the knowledge base for these pull requests yet.";
 
-    // 4. LLM Synthesis - Only request TLDR
-    const prompt = `You are analyzing the origin of a specific line of code. A developer wants to understand why this code exists and what decisions led to its creation.
-
-## Code Location
+    // 4. LLM Synthesis - Request both TLDR and full narrative
+    const codeLocationSection = `## Code Location
 - File: ${file}
 - Line: ${line}
 - Commit: ${commitHash}
 - Repository: ${owner}/${repo}
 
-## Related Pull Requests
+`;
+
+    const prompt = `You are analyzing the evolution and origin of this specific code. A developer wants to understand what decisions led to the current state of this code and what problems were addressed across its history.
+
+${codeLocationSection}## Related Pull Requests
 ${prSummaries.join("\n")}
 
 ## Timeline of Related Events (Combined from all PRs)
 ${narrativeContext}
 
 ## Instructions
-Based on the information provided above, write a concise 2-3 sentence TL;DR summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed.
+Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format. **YOU MUST INCLUDE BOTH SECTIONS:**
+
+### TL;DR
+[Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed. This section is MANDATORY and must be included.]
+
+### Full Analysis
+[Write a detailed narrative that explains:]
+1. How has this specific code evolved over time across these different pull requests?
+2. What were the key decisions or problems that triggered each major change to this code?
+3. What is the overarching narrative of how this specific code came to exist in its current form?
+4. What related discussions, issues, or decisions influenced this code at different stages?
 
 Rules:
 - You MUST only use timestamps that appear at the start of Timeline lines or in Pull Request Information. Do not invent or guess dates.
@@ -1805,39 +1897,47 @@ Rules:
 - When you mention a Pull Request, you MUST include its number and the provided metadata (author, title, etc.).
 - You MUST include the data source label when you mention a Timeline event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]").
 - You MUST NOT mention events, sources, or pull requests/issues that are not present in the text above.
-- Mention only events and PRs needed to answer the question.
+- Mention only events and PRs needed to answer the questions.
 - If a Timeline line includes an importance=0..1 field, prefer higher importance events.
-- If information is missing, say so directly.
+- If information is missing for part of the question, say so directly.
+- IMPORTANT: The Timeline may contain events from multiple sources (GitHub PRs/issues, Discord threads, Cursor chats, etc.). When available, actively incorporate information from all these sources to provide a comprehensive narrative.
 
-Write ONLY the TL;DR summary. Do not include any other sections or analysis.`;
+Write a clear narrative that explains the sequence and causal relationships between events and pull requests, drawing from all available sources in the Timeline.`;
 
-    console.log(`[code-tldr] Calling LLM to generate TLDR`);
+    console.log(`[code-tldr] Calling LLM to generate TLDR and narrative`);
     const fullResponse = await callLLM(prompt, "slow-reasoning", {
       temperature: 0,
       reasoning: { effort: "low" },
     });
 
-    // Extract TLDR from response (try multiple patterns)
+    // Extract TLDR and narrative from response
     let tldr = "";
+    let narrative = fullResponse;
 
     // Pattern 1: ### TL;DR
     let tldrMatch = fullResponse.match(
-      /###\s*TL;DR\s*\n([\s\S]*?)(?=\n###|$)/i
+      /###\s*TL;DR\s*\n([\s\S]*?)(?=\n###\s*Full\s*Analysis|$)/i
     );
 
     // Pattern 2: ## TL;DR
     if (!tldrMatch) {
-      tldrMatch = fullResponse.match(/##\s*TL;DR\s*\n([\s\S]*?)(?=\n##|$)/i);
+      tldrMatch = fullResponse.match(
+        /##\s*TL;DR\s*\n([\s\S]*?)(?=\n##\s*Full\s*Analysis|$)/i
+      );
     }
 
     // Pattern 3: **TL;DR**
     if (!tldrMatch) {
-      tldrMatch = fullResponse.match(/\*\*TL;DR\*\*:?\s*\n([\s\S]*?)(?=\n\*\*|$)/i);
+      tldrMatch = fullResponse.match(
+        /\*\*TL;DR\*\*:?\s*\n([\s\S]*?)(?=\n\*\*Full\s*Analysis\*\*|$)/i
+      );
     }
 
     // Pattern 4: TL;DR:
     if (!tldrMatch) {
-      tldrMatch = fullResponse.match(/TL;DR:?\s*\n([\s\S]*?)(?=\n(?:###|##|$))/i);
+      tldrMatch = fullResponse.match(
+        /TL;DR:?\s*\n([\s\S]*?)(?=\n(?:Full\s*Analysis|###|##|$))/i
+      );
     }
 
     if (tldrMatch) {
@@ -1847,6 +1947,7 @@ Write ONLY the TL;DR summary. Do not include any other sections or analysis.`;
       console.log(`[code-tldr] No explicit TLDR section found, using fallback extraction`);
       // Fallback: Extract first 2-3 sentences
       const sentences = fullResponse
+        .replace(/###\s*Full\s*Analysis[\s\S]*$/i, "")
         .trim()
         .split(/[.!?]+/)
         .filter((s) => s.trim().length > 0)
@@ -1859,6 +1960,7 @@ Write ONLY the TL;DR summary. Do not include any other sections or analysis.`;
       } else {
         // Last resort: use first paragraph or first 200 chars
         const firstPart = fullResponse
+          .replace(/###\s*Full\s*Analysis[\s\S]*$/i, "")
           .trim()
           .split("\n\n")[0]
           .substring(0, 200)
@@ -1868,9 +1970,41 @@ Write ONLY the TL;DR summary. Do not include any other sections or analysis.`;
       }
     }
 
+    const fullAnalysisMatch = fullResponse.match(
+      /###\s*Full\s*Analysis\s*\n([\s\S]*?)$/i
+    );
+
+    if (fullAnalysisMatch) {
+      narrative = fullAnalysisMatch[1].trim();
+    } else if (!tldrMatch) {
+      // If no sections found, use the whole response as narrative
+      narrative = fullResponse.trim();
+    } else {
+      // If TLDR was found but Full Analysis wasn't, extract everything after TLDR
+      const afterTldr = fullResponse.substring(
+        (tldrMatch.index || 0) + tldrMatch[0].length
+      ).trim();
+      narrative = afterTldr || fullResponse.trim();
+    }
+
+    // Format timeline for development stream
+    const developmentStream = sortedTimeline.map((moment) => ({
+      id: moment.id,
+      title: moment.title || "Untitled",
+      summary: moment.summary,
+      createdAt: moment.createdAt,
+      documentId: moment.documentId,
+      importance: moment.importance,
+      sourceMetadata: moment.sourceMetadata,
+    }));
+
     return {
       success: true,
       tldr: tldr || "Summary not available.",
+      narrative: narrative || "Evolution analysis not available.",
+      developmentStream,
+      prNumbers,
+      commitHashes,
     };
   } catch (error) {
     console.error(`[code-tldr] Error generating TLDR:`, error);

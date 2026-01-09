@@ -126,3 +126,15 @@ Change:
 - Process chunk queue batches using a single batched embedding request per queue batch, then insert the batch into Vectorize.
 
 This reduces Workers AI embedding calls from N per batch to 1 per batch.
+
+## Fix: replay should not wait for zero collect errors
+
+Observed that replay was never enqueued in a production run because the run only advanced when every collect job succeeded. Collect has unavoidable failures in practice (network errors, keys with no matching plugin), so this condition is too strict.
+
+Change:
+
+- Track a per-document result (succeeded/failed) keyed by run id and r2 key.
+- Increment run progress when a document reaches a terminal result for the first time.
+- Enqueue replay when processed documents reaches expected documents, regardless of how many failed.
+
+This makes replay runs progress even when some documents cannot be collected.

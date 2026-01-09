@@ -69,6 +69,9 @@ export async function createMomentReplayRun(
       moment_graph_namespace_prefix: input.momentGraphNamespacePrefix,
       expected_documents: input.expectedDocuments as any,
       collected_documents: 0 as any,
+      processed_documents: 0 as any,
+      succeeded_documents: 0 as any,
+      failed_documents: 0 as any,
       replay_enqueued: 0 as any,
       replayed_items: 0 as any,
       replay_cursor_json: JSON.stringify({
@@ -79,12 +82,19 @@ export async function createMomentReplayRun(
     .execute();
 }
 
-export async function markDocumentCollected(
+export async function recordReplayDocumentResult(
   context: ReplayDbContext,
-  input: { runId: string }
+  input: {
+    runId: string;
+    r2Key: string;
+    status: "succeeded" | "failed";
+    errorPayload?: Record<string, any> | null;
+  }
 ): Promise<{
   expectedDocuments: number;
-  collectedDocuments: number;
+  processedDocuments: number;
+  succeededDocuments: number;
+  failedDocuments: number;
   replayEnqueued: boolean;
   momentGraphNamespace: string | null;
   momentGraphNamespacePrefix: string | null;
@@ -92,32 +102,109 @@ export async function markDocumentCollected(
   const db = getReplayDb(context);
   const now = new Date().toISOString();
 
-  const existing = (await db
+  const run = (await db
     .selectFrom("moment_replay_runs")
     .selectAll()
     .where("run_id", "=", input.runId)
     .executeTakeFirst()) as MomentReplayRunRow | undefined;
 
-  if (!existing) {
+  if (!run) {
     return null;
   }
 
-  const nextCollected = Number((existing as any).collected_documents ?? 0) + 1;
-  await db
-    .updateTable("moment_replay_runs")
-    .set({
-      collected_documents: nextCollected as any,
-      updated_at: now,
-    })
-    .where("run_id", "=", input.runId)
-    .execute();
+  const r2Key =
+    typeof input.r2Key === "string" && input.r2Key.trim().length > 0
+      ? input.r2Key.trim()
+      : "";
+  if (!r2Key) {
+    return null;
+  }
+
+  const result = await db.transaction().execute(async (trx) => {
+    const existingRow = await trx
+      .selectFrom("moment_replay_document_results")
+      .select(["status"])
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", r2Key)
+      .executeTakeFirst();
+
+    const isFirstTerminal = !existingRow;
+
+    const errorJson =
+      input.status === "failed"
+        ? JSON.stringify(input.errorPayload ?? { message: "unknown error" })
+        : null;
+
+    if (existingRow) {
+      await trx
+        .updateTable("moment_replay_document_results")
+        .set({
+          status: input.status,
+          error_json: errorJson,
+          updated_at: now,
+        } as any)
+        .where("run_id", "=", input.runId)
+        .where("r2_key", "=", r2Key)
+        .execute();
+    } else {
+      await trx
+        .insertInto("moment_replay_document_results")
+        .values({
+          run_id: input.runId,
+          r2_key: r2Key,
+          status: input.status,
+          error_json: errorJson,
+          created_at: now,
+          updated_at: now,
+        } as any)
+        .execute();
+    }
+
+    if (isFirstTerminal) {
+      const currentProcessed = Number((run as any).processed_documents ?? 0);
+      const currentSucceeded = Number((run as any).succeeded_documents ?? 0);
+      const currentFailed = Number((run as any).failed_documents ?? 0);
+
+      const nextProcessed = currentProcessed + 1;
+      const nextSucceeded =
+        input.status === "succeeded" ? currentSucceeded + 1 : currentSucceeded;
+      const nextFailed =
+        input.status === "failed" ? currentFailed + 1 : currentFailed;
+
+      await trx
+        .updateTable("moment_replay_runs")
+        .set({
+          processed_documents: nextProcessed as any,
+          succeeded_documents: nextSucceeded as any,
+          failed_documents: nextFailed as any,
+          updated_at: now,
+        } as any)
+        .where("run_id", "=", input.runId)
+        .execute();
+
+      return {
+        processedDocuments: nextProcessed,
+        succeededDocuments: nextSucceeded,
+        failedDocuments: nextFailed,
+      };
+    }
+
+    return {
+      processedDocuments: Number((run as any).processed_documents ?? 0),
+      succeededDocuments: Number((run as any).succeeded_documents ?? 0),
+      failedDocuments: Number((run as any).failed_documents ?? 0),
+    };
+  });
 
   return {
-    expectedDocuments: Number((existing as any).expected_documents ?? 0),
-    collectedDocuments: nextCollected,
-    replayEnqueued: Number((existing as any).replay_enqueued ?? 0) === 1,
-    momentGraphNamespace: (existing as any).moment_graph_namespace ?? null,
-    momentGraphNamespacePrefix: (existing as any).moment_graph_namespace_prefix ?? null,
+    expectedDocuments: Number((run as any).expected_documents ?? 0),
+    processedDocuments: result.processedDocuments,
+    succeededDocuments: result.succeededDocuments,
+    failedDocuments: result.failedDocuments,
+    replayEnqueued: Number((run as any).replay_enqueued ?? 0) === 1,
+    momentGraphNamespace: (run as any).moment_graph_namespace ?? null,
+    momentGraphNamespacePrefix:
+      (run as any).moment_graph_namespace_prefix ?? null,
   };
 }
 
@@ -212,7 +299,9 @@ export async function getReplayCursor(
     .selectFrom("moment_replay_runs")
     .select(["replay_cursor_json"])
     .where("run_id", "=", input.runId)
-    .executeTakeFirst()) as Pick<MomentReplayRunRow, "replay_cursor_json"> | undefined;
+    .executeTakeFirst()) as
+    | Pick<MomentReplayRunRow, "replay_cursor_json">
+    | undefined;
   const value = row?.replay_cursor_json;
   if (!value) {
     return { lastOrderMs: null, lastItemId: null };
@@ -224,7 +313,9 @@ export async function getReplayCursor(
         ? (value as any).lastOrderMs
         : null,
     lastItemId:
-      typeof (value as any).lastItemId === "string" ? (value as any).lastItemId : null,
+      typeof (value as any).lastItemId === "string"
+        ? (value as any).lastItemId
+        : null,
   };
 }
 
@@ -239,7 +330,9 @@ export async function setReplayCursor(
     .where("run_id", "=", input.runId)
     .executeTakeFirst();
   const current = Number((existing as any)?.replayed_items ?? 0);
-  const next = current + (Number.isFinite(input.replayedItemsDelta) ? input.replayedItemsDelta : 0);
+  const next =
+    current +
+    (Number.isFinite(input.replayedItemsDelta) ? input.replayedItemsDelta : 0);
 
   await db
     .updateTable("moment_replay_runs")
@@ -320,7 +413,9 @@ export async function fetchReplayItemsBatch(
 > {
   const db = getReplayDb(context);
   const limit =
-    typeof input.limit === "number" && Number.isFinite(input.limit) && input.limit > 0
+    typeof input.limit === "number" &&
+    Number.isFinite(input.limit) &&
+    input.limit > 0
       ? Math.floor(input.limit)
       : 100;
 
@@ -333,7 +428,11 @@ export async function fetchReplayItemsBatch(
     .where("run_id", "=", input.runId)
     .where("status", "=", "pending")
     .where((eb) => {
-      if (typeof lastOrderMs === "number" && Number.isFinite(lastOrderMs) && lastItemId) {
+      if (
+        typeof lastOrderMs === "number" &&
+        Number.isFinite(lastOrderMs) &&
+        lastItemId
+      ) {
         return eb.or([
           eb("order_ms", ">", lastOrderMs as any),
           eb.and([
@@ -351,7 +450,10 @@ export async function fetchReplayItemsBatch(
     .orderBy("item_id", "asc")
     .limit(limit)
     .execute()) as unknown as Array<
-    Pick<MomentReplayItemRow, "item_id" | "effective_namespace" | "order_ms" | "payload_json">
+    Pick<
+      MomentReplayItemRow,
+      "item_id" | "effective_namespace" | "order_ms" | "payload_json"
+    >
   >;
 
   return rows
@@ -371,7 +473,9 @@ export async function markReplayItemsDone(
   input: { runId: string; itemIds: string[] }
 ): Promise<void> {
   const ids = Array.isArray(input.itemIds)
-    ? input.itemIds.filter((id): id is string => typeof id === "string" && id.length > 0)
+    ? input.itemIds.filter(
+        (id): id is string => typeof id === "string" && id.length > 0
+      )
     : [];
   if (ids.length === 0) {
     return;
@@ -387,4 +491,3 @@ export async function markReplayItemsDone(
     .where("item_id", "in", ids)
     .execute();
 }
-

@@ -170,4 +170,51 @@ export const indexingStateMigrations = {
       await db.schema.dropTable("moment_replay_runs").execute();
     },
   },
+  "006_add_moment_replay_document_results": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("processed_documents", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .addColumn("succeeded_documents", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .addColumn("failed_documents", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .execute(),
+        await db.schema
+          .createTable("moment_replay_document_results")
+          .addColumn("run_id", "text", (col) =>
+            col.references("moment_replay_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("r2_key", "text", (col) => col.notNull())
+          .addColumn("status", "text", (col) => col.notNull())
+          .addColumn("error_json", "text")
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("moment_replay_document_results_pk", [
+            "run_id",
+            "r2_key",
+          ])
+          .execute(),
+        await db.schema
+          .createIndex("moment_replay_document_results_status_idx")
+          .on("moment_replay_document_results")
+          .columns(["run_id", "status"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("moment_replay_document_results").execute();
+      await db.schema
+        .alterTable("moment_replay_runs")
+        .dropColumn("processed_documents")
+        .dropColumn("succeeded_documents")
+        .dropColumn("failed_documents")
+        .execute();
+    },
+  },
 } satisfies Migrations;

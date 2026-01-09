@@ -1,7 +1,10 @@
 import { indexDocument, createEngineContext } from "../index";
 import { updateIndexingState } from "../db";
 import { Chunk } from "../types";
-import { markDocumentCollected, setReplayEnqueued } from "../db/momentReplay";
+import {
+  recordReplayDocumentResult,
+  setReplayEnqueued,
+} from "../db/momentReplay";
 
 interface IndexingMessage {
   r2Key: string;
@@ -23,15 +26,15 @@ export async function processIndexingJob(
     jobType,
   } = message;
 
+  const isReplayCollect =
+    jobType === "moment-replay-collect" && Boolean(momentReplayRunId);
+
   try {
     const context = createEngineContext(env, "indexing");
     const newChunks = await indexDocument(r2Key, context, {
       momentGraphNamespace: momentGraphNamespace ?? null,
       momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
-      momentReplayRunId:
-        jobType === "moment-replay-collect" && momentReplayRunId
-          ? momentReplayRunId
-          : null,
+      momentReplayRunId: isReplayCollect ? momentReplayRunId! : null,
     });
 
     if (newChunks.length === 0) {
@@ -48,20 +51,20 @@ export async function processIndexingJob(
       `[indexing-scheduler] Enqueued ${newChunks.length} chunks for ${r2Key}`
     );
 
-    if (jobType === "moment-replay-collect" && momentReplayRunId) {
-      const runState = await markDocumentCollected(
+    if (isReplayCollect) {
+      const runState = await recordReplayDocumentResult(
         { env, momentGraphNamespace: null },
-        { runId: momentReplayRunId }
+        { runId: momentReplayRunId!, r2Key, status: "succeeded" }
       );
 
       if (
         runState &&
         !runState.replayEnqueued &&
-        runState.collectedDocuments >= runState.expectedDocuments
+        runState.processedDocuments >= runState.expectedDocuments
       ) {
         const didMark = await setReplayEnqueued(
           { env, momentGraphNamespace: null },
-          { runId: momentReplayRunId }
+          { runId: momentReplayRunId! }
         );
         if (didMark && (env as any).ENGINE_INDEXING_QUEUE) {
           await (env as any).ENGINE_INDEXING_QUEUE.send({
@@ -82,6 +85,21 @@ export async function processIndexingJob(
         `[indexing-scheduler] Error stack: ${error.stack || "no stack"}`
       );
     }
+    if (isReplayCollect && momentReplayRunId) {
+      await recordReplayDocumentResult(
+        { env, momentGraphNamespace: null },
+        {
+          runId: momentReplayRunId,
+          r2Key,
+          status: "failed",
+          errorPayload: {
+            message: error instanceof Error ? error.message : String(error),
+          },
+        }
+      );
+      return;
+    }
+
     throw error;
   }
 }

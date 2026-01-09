@@ -178,9 +178,15 @@ export const indexingStateMigrations = {
           .addColumn("processed_documents", "integer", (col) =>
             col.notNull().defaultTo(0)
           )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
           .addColumn("succeeded_documents", "integer", (col) =>
             col.notNull().defaultTo(0)
           )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
           .addColumn("failed_documents", "integer", (col) =>
             col.notNull().defaultTo(0)
           )

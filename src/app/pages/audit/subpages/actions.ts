@@ -17,12 +17,15 @@ import {
   getDescendantsForRootSlim,
   getRootStatsByHighImportanceSample,
   findAncestors,
+  findLastMomentForDocument,
+  findDescendants,
   getMoments,
   getMoment,
   getMicroMomentsByPaths,
   getDocumentAuditLogsForDocument,
   getRecentDocumentAuditEvents,
   findSimilarMoments,
+  findMomentsBySearch,
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
 import { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
@@ -35,15 +38,8 @@ import {
   applyMomentGraphNamespacePrefixValue,
   getMomentGraphNamespaceFromEnv,
 } from "@/app/engine/momentGraphNamespace";
+import { getRecentReplayRunsForPrefix } from "@/app/engine/db/momentReplay";
 import { getEmbedding } from "@/app/engine/utils/vector";
-import {
-  findAncestors,
-  findLastMomentForDocument,
-  findDescendants,
-  findSimilarMoments,
-  findMomentsBySearch,
-  type MomentGraphContext,
-} from "@/app/engine/momentDb";
 import {
   getPullRequestsForCommit,
   parseGitHubRepo,
@@ -195,7 +191,7 @@ export async function queryRag(queryText: string) {
     // This is a workaround since we can't modify engine.ts to return references directly
     const references: string[] = [];
     try {
-      const queryEmbedding = await getEmbedding(queryText, context.env);
+      const queryEmbedding = await getEmbedding(queryText);
       const similarMoments = await findSimilarMoments(queryEmbedding, 20, {
         env: context.env,
         momentGraphNamespace: null,
@@ -888,6 +884,35 @@ export async function getRecentDocumentAuditEventsAction(options?: {
       success: false,
       error: "Failed to fetch recent document audit events",
       details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getReplayBackfillProgressAction(options?: {
+  momentGraphNamespacePrefix?: string | null;
+  limit?: number;
+}) {
+  try {
+    const prefixRaw = options?.momentGraphNamespacePrefix;
+    const prefix =
+      typeof prefixRaw === "string" && prefixRaw.trim().length > 0
+        ? prefixRaw.trim()
+        : null;
+    if (!prefix) {
+      return { success: true, runs: [] as any[] };
+    }
+
+    const envCloudflare = env as Cloudflare.Env;
+    const runs = await getRecentReplayRunsForPrefix(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { momentGraphNamespacePrefix: prefix, limit: options?.limit ?? 10 }
+    );
+
+    return { success: true, runs };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -1821,7 +1846,15 @@ export async function generateCodeTldr(options: {
       };
     }
 
-    const { sortedTimeline, prNumbers, commitHashes } = timelineResult;
+    const sortedTimeline = Array.isArray((timelineResult as any).sortedTimeline)
+      ? ((timelineResult as any).sortedTimeline as any[])
+      : [];
+    const prNumbers = Array.isArray((timelineResult as any).prNumbers)
+      ? ((timelineResult as any).prNumbers as number[])
+      : [];
+    const commitHashes = Array.isArray((timelineResult as any).commitHashes)
+      ? ((timelineResult as any).commitHashes as string[])
+      : [];
     const envCloudflare = env as Cloudflare.Env;
 
     // Parse repository

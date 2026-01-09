@@ -20,6 +20,7 @@ import {
   searchMomentsAction,
   getMomentDetailsAction,
   getRecentDocumentAuditEventsAction,
+  getReplayBackfillProgressAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -59,16 +60,16 @@ function escapeMermaidId(id: string): string {
 function escapeMermaidLabel(label: string, maxLength: number = 150): string {
   // Clean the label - preserve newlines for HTML rendering
   let cleaned = label.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  
+
   // Truncate if too long (before wrapping)
   if (cleaned.length > maxLength) {
     cleaned = cleaned.substring(0, maxLength) + "...";
   }
-  
+
   // Split on existing newlines first
   const paragraphs = cleaned.split("\n");
   const wrappedParagraphs: string[] = [];
-  
+
   // For each paragraph, add word wrapping if needed
   for (const paragraph of paragraphs) {
     if (paragraph.length <= 40) {
@@ -79,7 +80,7 @@ function escapeMermaidLabel(label: string, maxLength: number = 150): string {
       const words = paragraph.split(" ");
       const wrapped: string[] = [];
       let currentLine = "";
-      
+
       for (const word of words) {
         if (
           currentLine.length + word.length + 1 > 35 &&
@@ -97,7 +98,7 @@ function escapeMermaidLabel(label: string, maxLength: number = 150): string {
       wrappedParagraphs.push(...wrapped);
     }
   }
-  
+
   // Join with <br/> for HTML rendering in Mermaid
   return wrappedParagraphs.join("<br/>");
 }
@@ -131,7 +132,9 @@ type MomentDetails = Moment & {
   }> | null;
 };
 
-function readTimeRangeFromMoment(m: Moment): { start: string; end: string } | null {
+function readTimeRangeFromMoment(
+  m: Moment
+): { start: string; end: string } | null {
   const md = (m as any)?.sourceMetadata;
   const range = md?.timeRange;
   const start = typeof range?.start === "string" ? range.start : null;
@@ -254,9 +257,12 @@ export function KnowledgeGraphPage() {
 
   const [recentAuditDocs, setRecentAuditDocs] = useState<any[] | null>(null);
   const [recentAuditDocsLoading, setRecentAuditDocsLoading] = useState(false);
-  const [recentAuditDocsError, setRecentAuditDocsError] = useState<string | null>(
-    null
-  );
+  const [recentAuditDocsError, setRecentAuditDocsError] = useState<
+    string | null
+  >(null);
+  const [replayRuns, setReplayRuns] = useState<any[] | null>(null);
+  const [replayRunsLoading, setReplayRunsLoading] = useState(false);
+  const [replayRunsError, setReplayRunsError] = useState<string | null>(null);
   const mermaidContainerRef = useRef<HTMLDivElement>(null);
   const mermaidScriptRef = useRef<HTMLScriptElement | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -543,7 +549,9 @@ export function KnowledgeGraphPage() {
           setRecentAuditDocs(res.docs ?? []);
         } else {
           setRecentAuditDocs(null);
-          setRecentAuditDocsError(res.error || "Failed to fetch recent failures");
+          setRecentAuditDocsError(
+            res.error || "Failed to fetch recent failures"
+          );
         }
       } catch (err) {
         setRecentAuditDocs(null);
@@ -556,6 +564,44 @@ export function KnowledgeGraphPage() {
     }
     fetchRecentFailures();
   }, [selectedNamespace, prefixOverride]);
+
+  useEffect(() => {
+    async function fetchReplayProgress() {
+      const prefix =
+        prefixOverride.trim().length > 0 ? prefixOverride.trim() : null;
+      if (!prefix) {
+        setReplayRuns(null);
+        setReplayRunsError(null);
+        return;
+      }
+      setReplayRunsLoading(true);
+      setReplayRunsError(null);
+      try {
+        const res = await getReplayBackfillProgressAction({
+          momentGraphNamespacePrefix: prefix,
+          limit: 5,
+        });
+        if ((res as any)?.success) {
+          setReplayRuns((res as any).runs ?? []);
+        } else {
+          setReplayRuns(null);
+          setReplayRunsError(
+            (res as any)?.error ?? "Failed to fetch backfill progress"
+          );
+        }
+      } catch (err) {
+        setReplayRuns(null);
+        setReplayRunsError(
+          err instanceof Error
+            ? err.message
+            : "Failed to fetch backfill progress"
+        );
+      } finally {
+        setReplayRunsLoading(false);
+      }
+    }
+    fetchReplayProgress();
+  }, [prefixOverride]);
 
   useEffect(() => {
     if (!selectedRootId || loading) {
@@ -802,7 +848,8 @@ export function KnowledgeGraphPage() {
           )}
           {!recentAuditDocsLoading &&
             !recentAuditDocsError &&
-            (!Array.isArray(recentAuditDocs) || recentAuditDocs.length === 0) && (
+            (!Array.isArray(recentAuditDocs) ||
+              recentAuditDocs.length === 0) && (
               <div className="text-sm text-gray-600">
                 No recent audit events found.
               </div>
@@ -810,28 +857,38 @@ export function KnowledgeGraphPage() {
           {Array.isArray(recentAuditDocs) && recentAuditDocs.length > 0 && (
             <div className="space-y-2">
               {recentAuditDocs.map((d) => {
-                const docId = typeof d?.documentId === "string" ? d.documentId : "";
+                const docId =
+                  typeof d?.documentId === "string" ? d.documentId : "";
                 const kind = typeof d?.kind === "string" ? d.kind : "unknown";
-                const createdAt = typeof d?.createdAt === "string" ? d.createdAt : "";
+                const createdAt =
+                  typeof d?.createdAt === "string" ? d.createdAt : "";
                 const message =
-                  typeof d?.payload?.message === "string" ? d.payload.message : null;
+                  typeof d?.payload?.message === "string"
+                    ? d.payload.message
+                    : null;
                 const ingestionPath =
                   docId.length > 0
                     ? `/audit/ingestion/file/${encodeURIComponent(docId)}`
                     : null;
                 return (
-                  <div key={String(d?.id ?? docId)} className="border rounded p-2">
+                  <div
+                    key={String(d?.id ?? docId)}
+                    className="border rounded p-2"
+                  >
                     <div className="text-xs text-gray-600">
                       <span className="font-mono">{kind}</span>{" "}
                       <span className="text-gray-400">{createdAt}</span>
                     </div>
                     {docId && (
                       <div className="text-xs mt-1">
-                        Document: <span className="font-mono break-all">{docId}</span>
+                        Document:{" "}
+                        <span className="font-mono break-all">{docId}</span>
                       </div>
                     )}
                     {message && (
-                      <div className="text-xs text-gray-700 mt-1">{message}</div>
+                      <div className="text-xs text-gray-700 mt-1">
+                        {message}
+                      </div>
                     )}
                     {ingestionPath && (
                       <div className="text-xs mt-1">
@@ -845,6 +902,74 @@ export function KnowledgeGraphPage() {
                         </a>
                       </div>
                     )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle>Backfill progress</CardTitle>
+          <CardDescription>
+            Moment replay runs for the selected namespace prefix
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {replayRunsLoading && (
+            <div className="text-sm text-gray-600">Loading…</div>
+          )}
+          {replayRunsError && (
+            <div className="text-sm text-red-600">{replayRunsError}</div>
+          )}
+          {!replayRunsLoading &&
+            !replayRunsError &&
+            (!Array.isArray(replayRuns) || replayRuns.length === 0) && (
+              <div className="text-sm text-gray-600">
+                No replay runs found for this prefix yet.
+              </div>
+            )}
+          {Array.isArray(replayRuns) && replayRuns.length > 0 && (
+            <div className="space-y-2">
+              {replayRuns.map((r) => {
+                const runId = String((r as any)?.runId ?? "");
+                const status = String((r as any)?.status ?? "unknown");
+                const updatedAt = String((r as any)?.updatedAt ?? "");
+                const expected = Number((r as any)?.expectedDocuments ?? 0);
+                const processed = Number((r as any)?.processedDocuments ?? 0);
+                const succeeded = Number((r as any)?.succeededDocuments ?? 0);
+                const failed = Number((r as any)?.failedDocuments ?? 0);
+                const replayed = Number((r as any)?.replayedItems ?? 0);
+                return (
+                  <div key={runId || updatedAt} className="border rounded p-2">
+                    <div className="text-xs text-gray-600">
+                      <span className="font-mono">{status}</span>{" "}
+                      <span className="text-gray-400">{updatedAt}</span>
+                    </div>
+                    <div className="text-xs mt-1">
+                      Run id:{" "}
+                      <span className="font-mono break-all">{runId}</span>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                      <div>
+                        Docs:{" "}
+                        <span className="font-mono">
+                          {processed}/{expected}
+                        </span>
+                      </div>
+                      <div>
+                        Replay: <span className="font-mono">{replayed}</span>
+                      </div>
+                      <div>
+                        Succeeded:{" "}
+                        <span className="font-mono">{succeeded}</span>
+                      </div>
+                      <div>
+                        Failed: <span className="font-mono">{failed}</span>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
@@ -1189,34 +1314,34 @@ export function KnowledgeGraphPage() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                     {filteredRootMoments.map((root) => {
-                        const date = new Date(root.createdAt);
-                        const formattedDate = date.toLocaleDateString("en-US", {
-                          year: "numeric",
-                          month: "short",
-                          day: "numeric",
-                        });
-                        return (
-                          <button
-                            key={root.id}
-                            onClick={() => setSelectedRootId(root.id)}
-                            className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                          >
-                            <div className="font-medium text-gray-900 mb-2">
-                              {root.title}
-                            </div>
-                            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                              <span>{formattedDate}</span>
-                              <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                                {root.descendantCount} moment
-                                {root.descendantCount !== 1 ? "s" : ""}
-                              </span>
-                            </div>
-                            <div className="text-xs text-gray-400 font-mono mt-1">
-                              {root.id.substring(0, 8)}...
-                            </div>
-                          </button>
-                        );
-                      })}
+                      const date = new Date(root.createdAt);
+                      const formattedDate = date.toLocaleDateString("en-US", {
+                        year: "numeric",
+                        month: "short",
+                        day: "numeric",
+                      });
+                      return (
+                        <button
+                          key={root.id}
+                          onClick={() => setSelectedRootId(root.id)}
+                          className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                        >
+                          <div className="font-medium text-gray-900 mb-2">
+                            {root.title}
+                          </div>
+                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                            <span>{formattedDate}</span>
+                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                              {root.descendantCount} moment
+                              {root.descendantCount !== 1 ? "s" : ""}
+                            </span>
+                          </div>
+                          <div className="text-xs text-gray-400 font-mono mt-1">
+                            {root.id.substring(0, 8)}...
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                   {rootListMode === "all" &&
                     searchQuery.trim() &&
@@ -1338,48 +1463,48 @@ export function KnowledgeGraphPage() {
                   </Button>
                 </div>
                 <div className="flex flex-col lg:flex-row gap-4">
-                <div
-                  ref={svgContainerRef}
+                  <div
+                    ref={svgContainerRef}
                     className="relative w-full border rounded bg-white overflow-auto lg:flex-1"
-                  style={{ maxHeight: "80vh", minHeight: "400px" }}
-                  onMouseDown={(e) => {
-                    if (e.button === 0 && e.currentTarget === e.target) {
-                      setIsPanning(true);
+                    style={{ maxHeight: "80vh", minHeight: "400px" }}
+                    onMouseDown={(e) => {
+                      if (e.button === 0 && e.currentTarget === e.target) {
+                        setIsPanning(true);
                         setPanStart({
                           x: e.clientX - pan.x,
                           y: e.clientY - pan.y,
                         });
-                    }
-                  }}
-                  onMouseMove={(e) => {
-                    if (isPanning) {
-                      setPan({
-                        x: e.clientX - panStart.x,
-                        y: e.clientY - panStart.y,
-                      });
-                    }
-                  }}
-                  onMouseUp={() => setIsPanning(false)}
-                  onMouseLeave={() => setIsPanning(false)}
-                  onWheel={(e) => {
-                    e.preventDefault();
-                    const delta = e.deltaY > 0 ? -0.1 : 0.1;
-                    setZoom(Math.max(0.5, Math.min(3, zoom + delta)));
-                  }}
-                >
-                  <div
-                    ref={mermaidContainerRef}
-                    className="flex items-center justify-center p-4"
-                    style={{
-                      transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                      transformOrigin: "center center",
+                      }
+                    }}
+                    onMouseMove={(e) => {
+                      if (isPanning) {
+                        setPan({
+                          x: e.clientX - panStart.x,
+                          y: e.clientY - panStart.y,
+                        });
+                      }
+                    }}
+                    onMouseUp={() => setIsPanning(false)}
+                    onMouseLeave={() => setIsPanning(false)}
+                    onWheel={(e) => {
+                      e.preventDefault();
+                      const delta = e.deltaY > 0 ? -0.1 : 0.1;
+                      setZoom(Math.max(0.5, Math.min(3, zoom + delta)));
+                    }}
+                  >
+                    <div
+                      ref={mermaidContainerRef}
+                      className="flex items-center justify-center p-4"
+                      style={{
+                        transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
+                        transformOrigin: "center center",
                         transition: isPanning
                           ? "none"
                           : "transform 0.1s ease-out",
-                      minWidth: "100%",
-                      minHeight: "100%",
-                    }}
-                  />
+                        minWidth: "100%",
+                        minHeight: "100%",
+                      }}
+                    />
                   </div>
 
                   <div className="w-full lg:w-[420px] border rounded bg-white">
@@ -1773,80 +1898,90 @@ export function KnowledgeGraphPage() {
                               Synthesis
                             </div>
 
-                            {!Array.isArray(selectedMomentDetails.documentAudit) ||
+                            {!Array.isArray(
+                              selectedMomentDetails.documentAudit
+                            ) ||
                             selectedMomentDetails.documentAudit.length === 0 ? (
                               <div className="text-sm text-gray-600">
-                                No synthesis audit records found for this document.
+                                No synthesis audit records found for this
+                                document.
                               </div>
                             ) : (
                               <div className="space-y-2">
-                                {selectedMomentDetails.documentAudit.map((e) => {
-                                  const message =
-                                    typeof e?.payload?.message === "string"
-                                      ? e.payload.message
-                                      : null;
-                                  const promptHash =
-                                    typeof e?.payload?.promptHash16 === "string"
-                                      ? e.payload.promptHash16
-                                      : null;
-                                  const responsePreview =
-                                    typeof e?.payload?.responsePreview === "string"
-                                      ? e.payload.responsePreview
-                                      : null;
-                                  const responseLength =
-                                    typeof e?.payload?.responseLength === "number"
-                                      ? e.payload.responseLength
-                                      : null;
-                                  return (
-                                    <div
-                                      key={e.id}
-                                      className="border rounded p-2 bg-gray-50"
-                                    >
-                                      <div className="text-xs text-gray-600">
-                                        <span className="font-mono">{e.kind}</span>{" "}
-                                        <span className="text-gray-400">
-                                          {e.createdAt}
-                                        </span>
-                                      </div>
-                                      {message && (
-                                        <div className="text-xs text-gray-700 mt-1">
-                                          {message}
+                                {selectedMomentDetails.documentAudit.map(
+                                  (e) => {
+                                    const message =
+                                      typeof e?.payload?.message === "string"
+                                        ? e.payload.message
+                                        : null;
+                                    const promptHash =
+                                      typeof e?.payload?.promptHash16 ===
+                                      "string"
+                                        ? e.payload.promptHash16
+                                        : null;
+                                    const responsePreview =
+                                      typeof e?.payload?.responsePreview ===
+                                      "string"
+                                        ? e.payload.responsePreview
+                                        : null;
+                                    const responseLength =
+                                      typeof e?.payload?.responseLength ===
+                                      "number"
+                                        ? e.payload.responseLength
+                                        : null;
+                                    return (
+                                      <div
+                                        key={e.id}
+                                        className="border rounded p-2 bg-gray-50"
+                                      >
+                                        <div className="text-xs text-gray-600">
+                                          <span className="font-mono">
+                                            {e.kind}
+                                          </span>{" "}
+                                          <span className="text-gray-400">
+                                            {e.createdAt}
+                                          </span>
                                         </div>
-                                      )}
-                                      {(promptHash ||
-                                        responseLength !== null) && (
-                                        <div className="text-xs text-gray-600 mt-1">
-                                          {promptHash && (
-                                            <span>
-                                              Prompt:{" "}
-                                              <span className="font-mono">
-                                                {promptHash}
-                                              </span>{" "}
-                                            </span>
-                                          )}
-                                          {responseLength !== null && (
-                                            <span>
-                                              Response chars:{" "}
-                                              <span className="font-mono">
-                                                {responseLength}
+                                        {message && (
+                                          <div className="text-xs text-gray-700 mt-1">
+                                            {message}
+                                          </div>
+                                        )}
+                                        {(promptHash ||
+                                          responseLength !== null) && (
+                                          <div className="text-xs text-gray-600 mt-1">
+                                            {promptHash && (
+                                              <span>
+                                                Prompt:{" "}
+                                                <span className="font-mono">
+                                                  {promptHash}
+                                                </span>{" "}
                                               </span>
-                                            </span>
-                                          )}
-                                        </div>
-                                      )}
-                                      {responsePreview && (
-                                        <details className="mt-2">
-                                          <summary className="text-xs font-medium text-gray-700 cursor-pointer">
-                                            Response preview
-                                          </summary>
-                                          <pre className="text-xs overflow-auto max-h-48 mt-2 p-2 bg-white border rounded">
-                                            {responsePreview}
-                                          </pre>
-                                        </details>
-                                      )}
-                                    </div>
-                                  );
-                                })}
+                                            )}
+                                            {responseLength !== null && (
+                                              <span>
+                                                Response chars:{" "}
+                                                <span className="font-mono">
+                                                  {responseLength}
+                                                </span>
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                        {responsePreview && (
+                                          <details className="mt-2">
+                                            <summary className="text-xs font-medium text-gray-700 cursor-pointer">
+                                              Response preview
+                                            </summary>
+                                            <pre className="text-xs overflow-auto max-h-48 mt-2 p-2 bg-white border rounded">
+                                              {responsePreview}
+                                            </pre>
+                                          </details>
+                                        )}
+                                      </div>
+                                    );
+                                  }
+                                )}
                               </div>
                             )}
                           </div>
@@ -1856,7 +1991,7 @@ export function KnowledgeGraphPage() {
                   </div>
                 </div>
               </div>
-              
+
               {graphData.length > 0 && (
                 <div className="mt-6">
                   <h3 className="text-lg font-semibold mb-4">Audit Table</h3>

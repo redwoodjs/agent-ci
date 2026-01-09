@@ -47,6 +47,65 @@ export type ReplayCursor = {
   lastItemId: string | null;
 };
 
+export async function getRecentReplayRunsForPrefix(
+  context: ReplayDbContext,
+  input: { momentGraphNamespacePrefix: string; limit?: number }
+): Promise<
+  Array<{
+    runId: string;
+    status: string;
+    startedAt: string;
+    updatedAt: string;
+    expectedDocuments: number;
+    processedDocuments: number;
+    succeededDocuments: number;
+    failedDocuments: number;
+    replayedItems: number;
+    replayEnqueued: boolean;
+    momentGraphNamespace: string | null;
+    momentGraphNamespacePrefix: string | null;
+  }>
+> {
+  const db = getReplayDb(context);
+  const prefix =
+    typeof input.momentGraphNamespacePrefix === "string" &&
+    input.momentGraphNamespacePrefix.trim().length > 0
+      ? input.momentGraphNamespacePrefix.trim()
+      : "";
+  if (!prefix) {
+    return [];
+  }
+  const limitRaw = input.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 10;
+
+  const rows = (await db
+    .selectFrom("moment_replay_runs")
+    .selectAll()
+    .where("moment_graph_namespace_prefix", "=", prefix)
+    .orderBy("updated_at", "desc")
+    .limit(limit)
+    .execute()) as unknown as MomentReplayRunRow[];
+
+  return rows.map((row) => ({
+    runId: (row as any).run_id as string,
+    status: (row as any).status as string,
+    startedAt: (row as any).started_at as string,
+    updatedAt: (row as any).updated_at as string,
+    expectedDocuments: Number((row as any).expected_documents ?? 0),
+    processedDocuments: Number((row as any).processed_documents ?? 0),
+    succeededDocuments: Number((row as any).succeeded_documents ?? 0),
+    failedDocuments: Number((row as any).failed_documents ?? 0),
+    replayedItems: Number((row as any).replayed_items ?? 0),
+    replayEnqueued: Number((row as any).replay_enqueued ?? 0) === 1,
+    momentGraphNamespace: (row as any).moment_graph_namespace ?? null,
+    momentGraphNamespacePrefix:
+      (row as any).moment_graph_namespace_prefix ?? null,
+  }));
+}
+
 export async function createMomentReplayRun(
   context: ReplayDbContext,
   input: {

@@ -162,3 +162,13 @@ Change:
 - Remove transactions and implement idempotency using `insert ... on conflict do nothing`.
 - Only increment run counters when the insert succeeded (first terminal result for that r2 key).
 - Update the existing per-doc row on subsequent calls without affecting counters.
+
+## UI: backfill progress in audit
+
+Added an audit UI panel that lists recent moment replay runs for the selected namespace prefix and shows:
+
+- run id
+- status
+- processed vs expected documents
+- succeeded and failed document counts
+- replayed item count

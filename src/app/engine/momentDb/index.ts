@@ -608,6 +608,8 @@ export type DescendantNode = {
   parentId?: string;
   createdAt: string;
   importance?: number;
+  timeRangeStart?: string;
+  timeRangeEnd?: string;
 };
 
 export type ChainContextMoment = {
@@ -649,7 +651,9 @@ export async function getChainContextForMoment(
 
   const maxTailRaw = options?.maxTail;
   const maxTail =
-    typeof maxTailRaw === "number" && Number.isFinite(maxTailRaw) && maxTailRaw > 0
+    typeof maxTailRaw === "number" &&
+    Number.isFinite(maxTailRaw) &&
+    maxTailRaw > 0
       ? Math.floor(maxTailRaw)
       : 12;
 
@@ -683,7 +687,9 @@ export async function getChainContextForMoment(
     ancestorIds.add(m.id);
   }
 
-  const tailCandidates = ancestors.slice(Math.max(ancestors.length - maxTail, 0));
+  const tailCandidates = ancestors.slice(
+    Math.max(ancestors.length - maxTail, 0)
+  );
 
   const descendantsSlim = await findDescendantsSlim(root.id, context, {
     maxNodes: maxDescendantScanNodes,
@@ -724,7 +730,11 @@ export async function getChainContextForMoment(
   }
 
   const idsToFetch = Array.from(
-    new Set<string>([root.id, ...tailCandidates.map((m) => m.id), ...highImportanceIds])
+    new Set<string>([
+      root.id,
+      ...tailCandidates.map((m) => m.id),
+      ...highImportanceIds,
+    ])
   );
   const momentsMap = await getMoments(idsToFetch, context);
 
@@ -739,7 +749,9 @@ export async function getChainContextForMoment(
       title: m.title,
       summary: m.summary,
       createdAt: m.createdAt,
-      ...(typeof m.importance === "number" ? { importance: m.importance } : null),
+      ...(typeof m.importance === "number"
+        ? { importance: m.importance }
+        : null),
     };
   }
 
@@ -779,14 +791,16 @@ export async function findDescendantsSlim(
       "parent_id",
       "created_at",
       "importance",
+      "source_metadata",
     ])
-    .execute()) as Array<{
+    .execute()) as unknown as Array<{
     id: string;
     document_id: string;
     title: string;
     parent_id: string | null;
     created_at: string;
     importance: number | null;
+    source_metadata: Record<string, any> | null;
   }>;
 
   const rowsById = new Map<string, (typeof rows)[number]>();
@@ -819,6 +833,11 @@ export async function findDescendantsSlim(
   }
 
   function rowToNode(row: (typeof rows)[number]): DescendantNode {
+    const timeRange = (row.source_metadata as any)?.timeRange;
+    const timeRangeStart =
+      typeof timeRange?.start === "string" ? timeRange.start : undefined;
+    const timeRangeEnd =
+      typeof timeRange?.end === "string" ? timeRange.end : undefined;
     return {
       id: row.id,
       documentId: row.document_id,
@@ -827,6 +846,8 @@ export async function findDescendantsSlim(
       createdAt: row.created_at,
       importance:
         typeof row.importance === "number" ? row.importance : undefined,
+      ...(timeRangeStart ? { timeRangeStart } : null),
+      ...(timeRangeEnd ? { timeRangeEnd } : null),
     };
   }
 
@@ -1035,7 +1056,8 @@ export async function getRecentDocumentAuditEvents(
   const db = getMomentDb(context);
   const kindPrefixesRaw = options?.kindPrefixes;
   const kindPrefixes =
-    Array.isArray(kindPrefixesRaw) && kindPrefixesRaw.every((s) => typeof s === "string")
+    Array.isArray(kindPrefixesRaw) &&
+    kindPrefixesRaw.every((s) => typeof s === "string")
       ? kindPrefixesRaw.map((s) => s.trim()).filter((s) => s.length > 0)
       : [];
 
@@ -1827,9 +1849,7 @@ export async function getDiagnosticInfo(
     .select(["id", "document_id"])
     .where((eb) =>
       eb.or(
-        needles.map((needle) =>
-          eb("document_id", "like", `%${needle}%` as any)
-        )
+        needles.map((needle) => eb("document_id", "like", `%${needle}%` as any))
       )
     )
     .limit(500)

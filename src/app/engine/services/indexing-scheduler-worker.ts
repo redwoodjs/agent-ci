@@ -1,24 +1,37 @@
 import { indexDocument, createEngineContext } from "../index";
 import { updateIndexingState } from "../db";
 import { Chunk } from "../types";
+import { markDocumentCollected, setReplayEnqueued } from "../db/momentReplay";
 
 interface IndexingMessage {
   r2Key: string;
   momentGraphNamespace?: string;
   momentGraphNamespacePrefix?: string;
+  momentReplayRunId?: string;
+  jobType?: string;
 }
 
 export async function processIndexingJob(
   message: IndexingMessage,
   env: Cloudflare.Env
 ): Promise<void> {
-  const { r2Key, momentGraphNamespace, momentGraphNamespacePrefix } = message;
+  const {
+    r2Key,
+    momentGraphNamespace,
+    momentGraphNamespacePrefix,
+    momentReplayRunId,
+    jobType,
+  } = message;
 
   try {
     const context = createEngineContext(env, "indexing");
     const newChunks = await indexDocument(r2Key, context, {
       momentGraphNamespace: momentGraphNamespace ?? null,
       momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
+      momentReplayRunId:
+        jobType === "moment-replay-collect" && momentReplayRunId
+          ? momentReplayRunId
+          : null,
     });
 
     if (newChunks.length === 0) {
@@ -34,6 +47,30 @@ export async function processIndexingJob(
     console.log(
       `[indexing-scheduler] Enqueued ${newChunks.length} chunks for ${r2Key}`
     );
+
+    if (jobType === "moment-replay-collect" && momentReplayRunId) {
+      const runState = await markDocumentCollected(
+        { env, momentGraphNamespace: null },
+        { runId: momentReplayRunId }
+      );
+
+      if (
+        runState &&
+        !runState.replayEnqueued &&
+        runState.collectedDocuments >= runState.expectedDocuments
+      ) {
+        const didMark = await setReplayEnqueued(
+          { env, momentGraphNamespace: null },
+          { runId: momentReplayRunId }
+        );
+        if (didMark && (env as any).ENGINE_INDEXING_QUEUE) {
+          await (env as any).ENGINE_INDEXING_QUEUE.send({
+            jobType: "moment-replay-replay",
+            momentReplayRunId,
+          });
+        }
+      }
+    }
   } catch (error) {
     console.error(
       `[indexing-scheduler] Error processing indexing job for ${r2Key}: ${

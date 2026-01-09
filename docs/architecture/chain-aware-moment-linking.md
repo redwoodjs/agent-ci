@@ -38,6 +38,41 @@ The decision process is:
 - Prefer attachments supported by hard anchors (shared canonical tokens or explicit cross-links).
 - If no chain passes, create a separate root for the proposed thread.
 
+### Evidence gating before classification
+
+Vector similarity is a candidate generator. It does not reliably separate:
+
+- "Same subject area" (shared vocabulary)
+- "Same work item timeline" (continuity of work)
+
+To reduce false-positive attachments, the attachment decision should treat "work continuity evidence" as a required input, not only a hint to a model call.
+
+Evidence is derived from extracted anchors from both the proposed moment and the candidate chain context:
+
+- Canonical reference tokens (source-specific identifiers embedded in summaries)
+- Issue/pull request references
+- Code identifiers and file paths (including backticked fragments when present)
+- Error strings and other unique literals when present
+
+The gate should apply deterministic rules before invoking a chain-aware classifier:
+
+- If the proposed moment contains a strong anchor and the candidate chain does not share it, reject the candidate.
+- If there are no shared anchors, require a higher similarity score for the candidate to remain eligible.
+- If timestamps indicate a time inversion, require shared anchors to proceed.
+
+This preserves recall for cases where continuity is explicit, while preventing "shared vocabulary only" candidates from reaching the attach decision.
+
+### Conservative chain-aware classification
+
+The classifier step should be framed as a check for sufficient evidence that the proposed moment belongs in the candidate timeline.
+
+Decision bias:
+
+- Prefer rejecting when evidence is weak or ambiguous.
+- Prefer attaching when there are shared anchors or clear continuity in the bounded chain context.
+
+This makes a missed attachment easier to recover later (separate roots can still be merged with explicit evidence), while avoiding misleading timelines created by incorrect attachments.
+
 ### Interaction with multi-stream synthesis
 
 When macro synthesis yields multiple streams, each stream is treated as a separate proposed thread:

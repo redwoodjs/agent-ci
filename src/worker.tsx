@@ -56,6 +56,7 @@ import { handleWebhookEvent } from "@/app/ingestors/discord/services/webhook-han
 import { processIndexingJob } from "@/app/engine/services/indexing-scheduler-worker";
 import { processMomentReplayReplayJob } from "@/app/engine/services/moment-replay-worker";
 import { processChunkJob } from "@/app/engine/services/chunk-processor-worker";
+import { processChunkBatch } from "@/app/engine/services/chunk-processor-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
 import type { QueueMessage } from "@/app/ingestors/github/services/backfill-types";
 import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
@@ -69,6 +70,17 @@ export default {
     console.log(
       `[queue] Processing batch from queue: ${queueName}, batch size: ${batch.messages.length}`
     );
+
+    if (queueName.startsWith("chunk-processing-queue")) {
+      const chunks = batch.messages
+        .map((m) => m.body as unknown as Chunk)
+        .filter((c): c is Chunk => typeof (c as any)?.id === "string");
+      await processChunkBatch(chunks, env as Cloudflare.Env);
+      for (const message of batch.messages) {
+        message.ack();
+      }
+      return;
+    }
 
     for (const message of batch.messages) {
       const queueMessage = message.body as QueueMessage;
@@ -223,10 +235,6 @@ export default {
             // no per-message env namespace mutation
           }
 
-          message.ack();
-        } else if (queueName.startsWith("chunk-processing-queue")) {
-          const chunk = queueMessage as unknown as Chunk;
-          await processChunkJob(chunk, env as Cloudflare.Env);
           message.ack();
         } else if (queueName.startsWith("discord-scheduler-queue")) {
           const discordMessage = queueMessage as unknown as DiscordQueueMessage;

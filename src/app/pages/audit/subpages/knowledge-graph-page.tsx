@@ -21,6 +21,7 @@ import {
   getMomentDetailsAction,
   getRecentDocumentAuditEventsAction,
   getReplayBackfillProgressAction,
+  resumeReplayRunAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -263,6 +264,12 @@ export function KnowledgeGraphPage() {
   const [replayRuns, setReplayRuns] = useState<any[] | null>(null);
   const [replayRunsLoading, setReplayRunsLoading] = useState(false);
   const [replayRunsError, setReplayRunsError] = useState<string | null>(null);
+  const [resumeReplayError, setResumeReplayError] = useState<string | null>(
+    null
+  );
+  const [resumeReplayBusyRunId, setResumeReplayBusyRunId] = useState<
+    string | null
+  >(null);
   const mermaidContainerRef = useRef<HTMLDivElement>(null);
   const mermaidScriptRef = useRef<HTMLScriptElement | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -918,6 +925,9 @@ export function KnowledgeGraphPage() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {resumeReplayError && (
+            <div className="text-sm text-red-600 mb-2">{resumeReplayError}</div>
+          )}
           {replayRunsLoading && (
             <div className="text-sm text-gray-600">Loading…</div>
           )}
@@ -942,6 +952,8 @@ export function KnowledgeGraphPage() {
                 const succeeded = Number((r as any)?.succeededDocuments ?? 0);
                 const failed = Number((r as any)?.failedDocuments ?? 0);
                 const replayed = Number((r as any)?.replayedItems ?? 0);
+                const canResume =
+                  runId.length > 0 && status !== "completed" && status !== "";
                 return (
                   <div key={runId || updatedAt} className="border rounded p-2">
                     <div className="text-xs text-gray-600">
@@ -970,6 +982,58 @@ export function KnowledgeGraphPage() {
                         Failed: <span className="font-mono">{failed}</span>
                       </div>
                     </div>
+                    {canResume && (
+                      <div className="mt-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={resumeReplayBusyRunId === runId}
+                          onClick={async () => {
+                            setResumeReplayError(null);
+                            setResumeReplayBusyRunId(runId);
+                            try {
+                              const res = await resumeReplayRunAction({
+                                runId,
+                              });
+                              if (!(res as any)?.success) {
+                                setResumeReplayError(
+                                  (res as any)?.error ?? "Resume failed"
+                                );
+                              } else {
+                                const prefix =
+                                  prefixOverride.trim().length > 0
+                                    ? prefixOverride.trim()
+                                    : null;
+                                if (prefix) {
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix: prefix,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
+                                  }
+                                }
+                              }
+                            } catch (err) {
+                              setResumeReplayError(
+                                err instanceof Error
+                                  ? err.message
+                                  : "Resume failed"
+                              );
+                            } finally {
+                              setResumeReplayBusyRunId(null);
+                            }
+                          }}
+                        >
+                          {resumeReplayBusyRunId === runId
+                            ? "Resuming..."
+                            : "Resume replay"}
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 );
               })}

@@ -57,6 +57,8 @@ export async function processMomentReplayReplayJob(
     return;
   }
 
+  console.log("[moment-replay] replay start", { runId });
+
   await setReplayRunStatus(
     { env, momentGraphNamespace: null },
     { runId, status: "replaying" }
@@ -69,7 +71,7 @@ export async function processMomentReplayReplayJob(
 
   const items = await fetchReplayItemsBatch(
     { env, momentGraphNamespace: null },
-    { runId, cursor, limit: 120 }
+    { runId, cursor, limit: 30 }
   );
 
   if (items.length === 0) {
@@ -77,6 +79,7 @@ export async function processMomentReplayReplayJob(
       { env, momentGraphNamespace: null },
       { runId, status: "completed" }
     );
+    console.log("[moment-replay] replay complete", { runId });
     return;
   }
 
@@ -125,6 +128,11 @@ export async function processMomentReplayReplayJob(
       macroMomentIndexRaw >= 0
         ? Math.floor(macroMomentIndexRaw)
         : 0;
+    const prevItemIdRaw = (payload as any).prevItemId;
+    const prevItemId =
+      typeof prevItemIdRaw === "string" && prevItemIdRaw.length > 0
+        ? prevItemIdRaw
+        : null;
 
     const momentPayload = (payload as any).moment ?? {};
     const title =
@@ -160,11 +168,15 @@ export async function processMomentReplayReplayJob(
     let parentId: string | undefined = undefined;
 
     if (macroMomentIndex > 0) {
-      const prev = await getReplayStreamState(
-        { env, momentGraphNamespace: null },
-        { runId, effectiveNamespace, documentId, streamId }
-      );
-      parentId = prev ?? undefined;
+      if (prevItemId) {
+        parentId = prevItemId;
+      } else {
+        const prev = await getReplayStreamState(
+          { env, momentGraphNamespace: null },
+          { runId, effectiveNamespace, documentId, streamId }
+        );
+        parentId = prev ?? undefined;
+      }
     } else {
       const document: Document = {
         id: documentId,
@@ -218,7 +230,7 @@ export async function processMomentReplayReplayJob(
       }
     }
 
-    const momentId = crypto.randomUUID();
+    const momentId = item.itemId;
     const moment: Moment = {
       id: momentId,
       documentId,
@@ -253,7 +265,17 @@ export async function processMomentReplayReplayJob(
   }
 
   if (momentsToAdd.length > 0) {
-    const embeddings = await getEmbeddings(momentsToAdd.map((m) => m.summary));
+    let embeddings: number[][] = [];
+    try {
+      embeddings = await getEmbeddings(momentsToAdd.map((m) => m.summary));
+    } catch (error) {
+      console.error("[moment-replay] embedding batch failed", {
+        runId,
+        count: momentsToAdd.length,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
     for (let i = 0; i < momentsToAdd.length; i++) {
       const m = momentsToAdd[i]!;
       const ctx = momentContexts[i]!;
@@ -275,6 +297,16 @@ export async function processMomentReplayReplayJob(
       replayedItemsDelta: doneItemIds.length,
     }
   );
+
+  console.log("[moment-replay] replay batch done", {
+    runId,
+    processedItems: doneItemIds.length,
+    lastOrderMs,
+    lastItemId,
+  });
+
+  // Avoid hammering Workers AI with rapid successive batch retries.
+  await new Promise((resolve) => setTimeout(resolve, 1000));
 
   if ((env as any).ENGINE_INDEXING_QUEUE) {
     await (env as any).ENGINE_INDEXING_QUEUE.send({

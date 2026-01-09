@@ -172,3 +172,27 @@ Added an audit UI panel that lists recent moment replay runs for the selected na
 - processed vs expected documents
 - succeeded and failed document counts
 - replayed item count
+
+## Replay progress: add logging + throttle
+
+Observed a replay run stuck in status=replaying with replayed_items=0. The most likely cause is the replay worker failing before it can update the cursor and replayed count (example: Workers AI rate limiting during moment embedding).
+
+Change:
+
+- Reduce replay batch size.
+- Add replay log lines (start, batch done, complete) keyed by run id.
+- Add a short delay between replay batches to reduce Workers AI request rate.
+
+## Replay resume: idempotent items + manual resume
+
+Observed a replay run that appeared to stop making progress (updatedAt stopped changing).
+
+Change:
+
+- Use deterministic replay item ids (stable hash of document id + stream id + macro index). The replay worker uses this id as the moment id.
+- Store prev item id in the replay item payload so replay can link within a stream without relying on mutable stream state.
+- Add a UI action to re-enqueue replay for a run id from the backfill progress panel.
+
+## Replay resume: compatibility for older staged runs
+
+The replay worker now prefers the prev item id field for chaining. For runs staged before this field existed, the worker falls back to the per-document stream state pointer when chaining items.

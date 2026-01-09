@@ -917,6 +917,36 @@ export async function getReplayBackfillProgressAction(options?: {
   }
 }
 
+export async function resumeReplayRunAction(input: { runId: string }) {
+  try {
+    const runId =
+      typeof input?.runId === "string" && input.runId.trim().length > 0
+        ? input.runId.trim()
+        : null;
+    if (!runId) {
+      return { success: false, error: "Missing runId" };
+    }
+
+    const envCloudflare = env as Cloudflare.Env;
+    const queue = (envCloudflare as any).ENGINE_INDEXING_QUEUE;
+    if (!queue) {
+      return { success: false, error: "Missing ENGINE_INDEXING_QUEUE binding" };
+    }
+
+    await queue.send({
+      jobType: "moment-replay-replay",
+      momentReplayRunId: runId,
+    });
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function searchMomentsAction(options: {
   query: string;
   limit?: number;

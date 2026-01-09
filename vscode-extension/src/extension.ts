@@ -66,6 +66,7 @@ interface Citation {
   title: string;
   url: string;
   momentId: string;
+  documentId?: string;
 }
 
 /**
@@ -382,17 +383,29 @@ export function activate(context: vscode.ExtensionContext) {
         // Build citations section
         let citationsHtml = "";
         if (citations.length > 0) {
+          // Get API URL from configuration for audit file links
+          const config = vscode.workspace.getConfiguration("machinen");
+          const apiUrl = config.get<string>("apiUrl", "");
+          const normalizedApiUrl = apiUrl ? apiUrl.replace(/\/$/, "") : "";
+
           const citationsList = citations
             .map(
-              (citation) => `
+              (citation) => {
+                const auditFileLink = citation.documentId && normalizedApiUrl
+                  ? ` <a href="${escapeHtml(
+                      `${normalizedApiUrl}/audit/ingestion/file/${encodeURIComponent(citation.documentId)}`
+                    )}" style="color: var(--vscode-textLink-foreground); text-decoration: underline; font-size: 0.9em;" target="_blank">(View in Audit)</a>`
+                  : "";
+                return `
               <li style="margin-bottom: 8px;">
                 <a href="${escapeHtml(
                   citation.url
                 )}" style="color: var(--vscode-textLink-foreground); text-decoration: underline;" target="_blank">${escapeHtml(
                 citation.title
-              )}</a>
+              )}</a>${auditFileLink}
               </li>
-            `
+            `;
+              }
             )
             .join("");
           citationsHtml = `

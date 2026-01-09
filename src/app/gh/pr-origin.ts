@@ -22,6 +22,7 @@ interface Citation {
   title: string;
   url: string;
   momentId: string;
+  documentId?: string;
 }
 
 function formatIso8601(raw: unknown): string {
@@ -216,6 +217,7 @@ function extractCitations(moments: Moment[]): Citation[] {
       title: moment.title || "Untitled",
       url,
       momentId: moment.id,
+      documentId: moment.documentId,
     });
   }
 

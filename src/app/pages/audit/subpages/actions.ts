@@ -22,6 +22,7 @@ import {
   getMicroMomentsByPaths,
   getDocumentAuditLogsForDocument,
   getRecentDocumentAuditEvents,
+  findSimilarMoments,
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
 import { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
@@ -175,9 +176,38 @@ export async function queryRag(queryText: string) {
     const response = await query(queryText, context);
     console.log(`[query-action] Query completed successfully`);
 
+    // Extract documentIds from the response by searching for moments that match the query
+    // This is a workaround since we can't modify engine.ts to return references directly
+    const references: string[] = [];
+    try {
+      const queryEmbedding = await getEmbedding(queryText, context.env);
+      const similarMoments = await findSimilarMoments(
+        queryEmbedding,
+        20,
+        {
+          env: context.env,
+          momentGraphNamespace: null,
+        }
+      );
+      
+      // Extract unique documentIds from similar moments
+      const documentIds = Array.from(
+        new Set(
+          similarMoments
+            .map((m) => m.documentId)
+            .filter((id): id is string => typeof id === "string" && id.length > 0)
+        )
+      );
+      references.push(...documentIds);
+    } catch (error) {
+      console.error("[query-action] Error extracting references:", error);
+      // Continue without references if extraction fails
+    }
+
     return {
       success: true,
       response: response,
+      references: references,
     };
   } catch (error) {
     console.error("[actions] Error querying RAG:", error);

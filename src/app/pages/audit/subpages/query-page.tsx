@@ -14,6 +14,7 @@ import { queryRag } from "./actions";
 export function QueryPage() {
   const [query, setQuery] = useState("");
   const [response, setResponse] = useState<string | null>(null);
+  const [references, setReferences] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -27,11 +28,13 @@ export function QueryPage() {
     setLoading(true);
     setError(null);
     setResponse(null);
+    setReferences([]);
 
     try {
       const result = await queryRag(query);
       if (result.success) {
         setResponse(result.response || "");
+        setReferences(result.references || []);
       } else {
         setError(result.error || "Failed to process query");
       }
@@ -92,6 +95,29 @@ export function QueryPage() {
           </CardHeader>
           <CardContent>
             <div className="whitespace-pre-wrap text-sm">{response}</div>
+            {references.length > 0 && (
+              <div className="mt-6 pt-6 border-t">
+                <div className="text-sm font-medium text-gray-900 mb-2">
+                  References
+                </div>
+                <ul className="space-y-1">
+                  {references.map((documentId) => (
+                    <li key={documentId}>
+                      <a
+                        href={`/audit/ingestion/file/${encodeURIComponent(
+                          documentId
+                        )}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-blue-600 hover:text-blue-800 hover:underline text-sm font-mono break-all"
+                      >
+                        {documentId}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

@@ -148,3 +148,17 @@ The cause was migration 006 using a single ALTER TABLE statement with multiple A
 Change:
 
 - Split the ALTER TABLE into one ADD COLUMN per statement for the three run counters.
+
+## Fix: DO sqlite does not support transactions
+
+A production replay backfill run hit `Transactions are not supported yet.` when recording collect results.
+
+Cause:
+
+- `recordReplayDocumentResult` used a transaction to make the per-doc insert and run counter increments atomic.
+
+Change:
+
+- Remove transactions and implement idempotency using `insert ... on conflict do nothing`.
+- Only increment run counters when the insert succeeded (first terminal result for that r2 key).
+- Update the existing per-doc row on subsequent calls without affecting counters.

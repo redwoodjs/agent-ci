@@ -196,3 +196,11 @@ Change:
 ## Replay resume: compatibility for older staged runs
 
 The replay worker now prefers the prev item id field for chaining. For runs staged before this field existed, the worker falls back to the per-document stream state pointer when chaining items.
+
+## Replay resume: handle duplicate micro-path moments
+
+When resuming a replay run, some items can correspond to moments that already exist in the target moment graph namespace. In that case, inserts can fail on the unique constraint for (document id, micro paths hash).
+
+Change:
+
+- On that unique constraint error, resolve the existing moment by micro paths hash and continue the replay batch instead of failing the queue message.

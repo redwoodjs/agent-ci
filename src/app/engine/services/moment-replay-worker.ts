@@ -5,7 +5,7 @@ import type {
   Moment,
 } from "../types";
 import { createEngineContext } from "../index";
-import { addMoment } from "../momentDb";
+import { addMoment, findMomentByMicroPathsHash } from "../momentDb";
 import { getEmbeddings } from "../utils/vector";
 import {
   fetchReplayItemsBatch,
@@ -94,6 +94,7 @@ export async function processMomentReplayReplayJob(
     env: Cloudflare.Env;
     momentGraphNamespace: string | null;
   }> = [];
+  const itemIdToMomentId = new Map<string, string>();
 
   for (const item of items) {
     const payload = item.payload ?? {};
@@ -168,14 +169,18 @@ export async function processMomentReplayReplayJob(
     let parentId: string | undefined = undefined;
 
     if (macroMomentIndex > 0) {
-      if (prevItemId) {
-        parentId = prevItemId;
+      const resolvedPrevFromBatch =
+        prevItemId && itemIdToMomentId.has(prevItemId)
+          ? itemIdToMomentId.get(prevItemId) ?? null
+          : null;
+      if (resolvedPrevFromBatch) {
+        parentId = resolvedPrevFromBatch;
       } else {
         const prev = await getReplayStreamState(
           { env, momentGraphNamespace: null },
           { runId, effectiveNamespace, documentId, streamId }
         );
-        parentId = prev ?? undefined;
+        parentId = prev ?? prevItemId ?? undefined;
       }
     } else {
       const document: Document = {
@@ -280,7 +285,49 @@ export async function processMomentReplayReplayJob(
       const m = momentsToAdd[i]!;
       const ctx = momentContexts[i]!;
       const embedding = embeddings[i] ?? null;
-      await addMoment(m, ctx, { embedding });
+      try {
+        await addMoment(m, ctx, { embedding });
+        itemIdToMomentId.set(m.id, m.id);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (
+          msg.includes(
+            "UNIQUE constraint failed: moments.document_id, moments.micro_paths_hash"
+          ) &&
+          typeof m.documentId === "string" &&
+          typeof m.microPathsHash === "string" &&
+          m.microPathsHash.length > 0
+        ) {
+          const existing = await findMomentByMicroPathsHash(
+            m.documentId,
+            m.microPathsHash,
+            ctx
+          );
+          if (existing?.id) {
+            itemIdToMomentId.set(m.id, existing.id);
+            const payload = (items.find((it) => it.itemId === m.id)?.payload ??
+              {}) as any;
+            const streamId =
+              typeof payload?.streamId === "string" &&
+              payload.streamId.length > 0
+                ? payload.streamId
+                : "stream-1";
+            await setReplayStreamState(
+              { env, momentGraphNamespace: null },
+              {
+                runId,
+                effectiveNamespace:
+                  ctx.momentGraphNamespace ?? "redwood:internal",
+                documentId: m.documentId,
+                streamId,
+                lastMomentId: existing.id,
+              }
+            );
+            continue;
+          }
+        }
+        throw error;
+      }
     }
   }
 

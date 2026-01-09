@@ -6,6 +6,7 @@ import type {
 } from "../types";
 import { createEngineContext } from "../index";
 import { addMoment } from "../momentDb";
+import { getEmbeddings } from "../utils/vector";
 import {
   fetchReplayItemsBatch,
   getReplayCursor,
@@ -85,6 +86,11 @@ export async function processMomentReplayReplayJob(
   let lastItemId: string | null = cursor.lastItemId;
 
   const doneItemIds: string[] = [];
+  const momentsToAdd: Moment[] = [];
+  const momentContexts: Array<{
+    env: Cloudflare.Env;
+    momentGraphNamespace: string | null;
+  }> = [];
 
   for (const item of items) {
     const payload = item.payload ?? {};
@@ -227,7 +233,8 @@ export async function processMomentReplayReplayJob(
       ...(sourceMetadata ? { sourceMetadata } : null),
     };
 
-    await addMoment(moment, momentGraphContext);
+    momentsToAdd.push(moment);
+    momentContexts.push(momentGraphContext);
 
     await setReplayStreamState(
       { env, momentGraphNamespace: null },
@@ -243,6 +250,16 @@ export async function processMomentReplayReplayJob(
     doneItemIds.push(item.itemId);
     lastOrderMs = item.orderMs;
     lastItemId = item.itemId;
+  }
+
+  if (momentsToAdd.length > 0) {
+    const embeddings = await getEmbeddings(momentsToAdd.map((m) => m.summary));
+    for (let i = 0; i < momentsToAdd.length; i++) {
+      const m = momentsToAdd[i]!;
+      const ctx = momentContexts[i]!;
+      const embedding = embeddings[i] ?? null;
+      await addMoment(m, ctx, { embedding });
+    }
   }
 
   await markReplayItemsDone(

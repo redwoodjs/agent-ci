@@ -622,21 +622,6 @@ Based on the information provided above (Code Location, Related Pull Requests, a
 ### TL;DR
 [Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed. This section is MANDATORY and must be included.]
 
-### Full Analysis
-[Write a detailed narrative that explains:]
-1. How has ${
-      file && line !== null ? "this specific code" : "this code"
-    } evolved over time across these different pull requests?
-2. What were the key decisions or problems that triggered each major change to ${
-      file && line !== null ? "this code" : "this piece of code"
-    }?
-3. What is the overarching narrative of how ${
-      file && line !== null ? "this specific code" : "this piece of code"
-    } came to exist in its current form?
-4. What related discussions, issues, or decisions influenced ${
-      file && line !== null ? "this code" : "this code"
-    } at different stages?
-
 Rules:
 - You MUST only use timestamps that appear at the start of Timeline lines or in Pull Request Information. Do not invent or guess dates.
 - When you mention a Timeline event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
@@ -667,21 +652,21 @@ Write a clear narrative that explains the sequence and causal relationships betw
     let tldrMatch = fullResponse.match(
       /###\s*TL;DR\s*\n([\s\S]*?)(?=\n###\s*Full\s*Analysis|$)/i
     );
-    
+
     // Pattern 2: ## TL;DR (alternative heading level)
     if (!tldrMatch) {
       tldrMatch = fullResponse.match(
         /##\s*TL;DR\s*\n([\s\S]*?)(?=\n##\s*Full\s*Analysis|$)/i
       );
     }
-    
+
     // Pattern 3: **TL;DR** (bold format)
     if (!tldrMatch) {
       tldrMatch = fullResponse.match(
         /\*\*TL;DR\*\*:?\s*\n([\s\S]*?)(?=\n\*\*Full\s*Analysis\*\*|$)/i
       );
     }
-    
+
     // Pattern 4: TL;DR: (plain format)
     if (!tldrMatch) {
       tldrMatch = fullResponse.match(
@@ -691,9 +676,13 @@ Write a clear narrative that explains the sequence and causal relationships betw
 
     if (tldrMatch) {
       tldr = tldrMatch[1].trim();
-      console.log(`[pr-origin] Successfully extracted TLDR (${tldr.length} chars)`);
+      console.log(
+        `[pr-origin] Successfully extracted TLDR (${tldr.length} chars)`
+      );
     } else {
-      console.log(`[pr-origin] No explicit TLDR section found, using fallback extraction`);
+      console.log(
+        `[pr-origin] No explicit TLDR section found, using fallback extraction`
+      );
       // Fallback: Extract first 2-3 sentences from the response
       const sentences = fullResponse
         .replace(/###\s*Full\s*Analysis[\s\S]*$/i, "") // Remove Full Analysis section if present
@@ -702,10 +691,12 @@ Write a clear narrative that explains the sequence and causal relationships betw
         .filter((s) => s.trim().length > 0)
         .slice(0, 3)
         .map((s) => s.trim() + ".");
-      
+
       if (sentences.length > 0) {
         tldr = sentences.join(" ");
-        console.log(`[pr-origin] Generated fallback TLDR from first ${sentences.length} sentences`);
+        console.log(
+          `[pr-origin] Generated fallback TLDR from first ${sentences.length} sentences`
+        );
       } else {
         // Last resort: use first paragraph or first 200 chars
         const firstPart = fullResponse
@@ -730,9 +721,9 @@ Write a clear narrative that explains the sequence and causal relationships betw
       narrative = fullResponse.trim();
     } else {
       // If TLDR was found but Full Analysis wasn't, extract everything after TLDR
-      const afterTldr = fullResponse.substring(
-        (tldrMatch.index || 0) + tldrMatch[0].length
-      ).trim();
+      const afterTldr = fullResponse
+        .substring((tldrMatch.index || 0) + tldrMatch[0].length)
+        .trim();
       narrative = afterTldr || fullResponse.trim();
     }
 

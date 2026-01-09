@@ -44,7 +44,10 @@ import {
   findMomentsBySearch,
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
-import { getPullRequestsForCommit, parseGitHubRepo } from "@/app/gh/github-utils";
+import {
+  getPullRequestsForCommit,
+  parseGitHubRepo,
+} from "@/app/gh/github-utils";
 import { callLLM } from "@/app/engine/utils/llm";
 import type { Moment } from "@/app/engine/types";
 
@@ -193,21 +196,19 @@ export async function queryRag(queryText: string) {
     const references: string[] = [];
     try {
       const queryEmbedding = await getEmbedding(queryText, context.env);
-      const similarMoments = await findSimilarMoments(
-        queryEmbedding,
-        20,
-        {
-          env: context.env,
-          momentGraphNamespace: null,
-        }
-      );
-      
+      const similarMoments = await findSimilarMoments(queryEmbedding, 20, {
+        env: context.env,
+        momentGraphNamespace: null,
+      });
+
       // Extract unique documentIds from similar moments
       const documentIds = Array.from(
         new Set(
           similarMoments
             .map((m) => m.documentId)
-            .filter((id): id is string => typeof id === "string" && id.length > 0)
+            .filter(
+              (id): id is string => typeof id === "string" && id.length > 0
+            )
         )
       );
       references.push(...documentIds);
@@ -244,7 +245,8 @@ export async function getRootAncestorAction(
     const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
     const prefixOverride =
-      typeof prefixOverrideRaw === "string" && prefixOverrideRaw.trim().length > 0
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
         ? prefixOverrideRaw.trim()
         : null;
     const effectivePrefix = prefixOverride ?? envPrefix;
@@ -1665,7 +1667,9 @@ export async function fetchCodeTimeline(options: {
     }
 
     console.log(
-      `[code-timeline] Found ${prNumbers.length} unique PRs: ${prNumbers.join(", ")}`
+      `[code-timeline] Found ${prNumbers.length} unique PRs: ${prNumbers.join(
+        ", "
+      )}`
     );
 
     // 2. Fetch data for each PR from R2 and find moments in the graph
@@ -1727,7 +1731,10 @@ export async function fetchCodeTimeline(options: {
           );
           allRelatedMoments.push(...similarMoments);
         } catch (err) {
-          console.error(`[code-timeline] Semantic search failed for PR #${prNumber}:`, err);
+          console.error(
+            `[code-timeline] Semantic search failed for PR #${prNumber}:`,
+            err
+          );
         }
       }
     }
@@ -1882,14 +1889,8 @@ ${narrativeContext}
 Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format. **YOU MUST INCLUDE BOTH SECTIONS:**
 
 ### TL;DR
-[Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed. This section is MANDATORY and must be included.]
 
-### Full Analysis
-[Write a detailed narrative that explains:]
-1. How has this specific code evolved over time across these different pull requests?
-2. What were the key decisions or problems that triggered each major change to this code?
-3. What is the overarching narrative of how this specific code came to exist in its current form?
-4. What related discussions, issues, or decisions influenced this code at different stages?
+[Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed. This section is MANDATORY and must be included.]
 
 Rules:
 - You MUST only use timestamps that appear at the start of Timeline lines or in Pull Request Information. Do not invent or guess dates.
@@ -1942,9 +1943,13 @@ Write a clear narrative that explains the sequence and causal relationships betw
 
     if (tldrMatch) {
       tldr = tldrMatch[1].trim();
-      console.log(`[code-tldr] Successfully extracted TLDR (${tldr.length} chars)`);
+      console.log(
+        `[code-tldr] Successfully extracted TLDR (${tldr.length} chars)`
+      );
     } else {
-      console.log(`[code-tldr] No explicit TLDR section found, using fallback extraction`);
+      console.log(
+        `[code-tldr] No explicit TLDR section found, using fallback extraction`
+      );
       // Fallback: Extract first 2-3 sentences
       const sentences = fullResponse
         .replace(/###\s*Full\s*Analysis[\s\S]*$/i, "")
@@ -1956,7 +1961,9 @@ Write a clear narrative that explains the sequence and causal relationships betw
 
       if (sentences.length > 0) {
         tldr = sentences.join(" ");
-        console.log(`[code-tldr] Generated fallback TLDR from first ${sentences.length} sentences`);
+        console.log(
+          `[code-tldr] Generated fallback TLDR from first ${sentences.length} sentences`
+        );
       } else {
         // Last resort: use first paragraph or first 200 chars
         const firstPart = fullResponse
@@ -1981,9 +1988,9 @@ Write a clear narrative that explains the sequence and causal relationships betw
       narrative = fullResponse.trim();
     } else {
       // If TLDR was found but Full Analysis wasn't, extract everything after TLDR
-      const afterTldr = fullResponse.substring(
-        (tldrMatch.index || 0) + tldrMatch[0].length
-      ).trim();
+      const afterTldr = fullResponse
+        .substring((tldrMatch.index || 0) + tldrMatch[0].length)
+        .trim();
       narrative = afterTldr || fullResponse.trim();
     }
 

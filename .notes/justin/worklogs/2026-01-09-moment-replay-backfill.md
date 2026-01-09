@@ -138,3 +138,13 @@ Change:
 - Enqueue replay when processed documents reaches expected documents, regardless of how many failed.
 
 This makes replay runs progress even when some documents cannot be collected.
+
+## Fix: production backfill 500 from indexing-state migration 006
+
+A production backfill request returned 500 with `SQLITE_ERROR near ",": syntax error` after the scan completed.
+
+The cause was migration 006 using a single ALTER TABLE statement with multiple ADD COLUMN clauses, which SQLite does not accept.
+
+Change:
+
+- Split the ALTER TABLE into one ADD COLUMN per statement for the three run counters.

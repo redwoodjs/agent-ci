@@ -51,7 +51,8 @@ function getMomentDb(context: MomentGraphContext) {
 
 export async function addMoment(
   moment: Moment,
-  context: MomentGraphContext
+  context: MomentGraphContext,
+  options?: { embedding?: number[] | null }
 ): Promise<void> {
   const db = getMomentDb(context);
   const momentGraphNamespace = context.momentGraphNamespace ?? "default";
@@ -135,7 +136,11 @@ export async function addMoment(
 
   try {
     if (shouldVectorize) {
-      const embedding = await getEmbedding(moment.summary);
+      const embeddingFromCaller = options?.embedding;
+      const embedding =
+        Array.isArray(embeddingFromCaller) && embeddingFromCaller.length > 0
+          ? embeddingFromCaller
+          : await getEmbedding(moment.summary);
       const timeRange = readTimeRange(moment.sourceMetadata);
       const sourceMetadataJson = serializeSourceMetadata(moment.sourceMetadata);
       const momentVector = {

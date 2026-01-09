@@ -89,3 +89,28 @@ Option C still requires decoupling macro synthesis from persistence/linking so w
 - Backfill now creates a replay run id and enqueues per-document collect jobs when a namespace prefix override is provided. The collect job runs the normal indexing flow, but writes replay items instead of persisting moments.
 - When the last collect job finishes, it enqueues a replay job. The replay job reads staged items ordered by event time and persists moments into the graph.
 - Replay items are stored as single JSON blobs per macro moment, plus `order_ms` for sorting.
+
+## PR
+
+Title: Moment replay backfill staging and timestamp auditing
+
+Description:
+
+Backfill and resync currently persist moments by document in an order that is not aligned with event time, so parent selection and chain context can reflect later work before earlier work is added.
+
+This change keeps the existing backfill API and changes the implementation to stage macro moments and then replay them in time order:
+
+- Backfill with a namespace prefix override enqueues per-document collect jobs.
+- Collect jobs run the normal document pipeline through macro moment generation, but write replay items to a staging table as JSON blobs keyed by run id.
+- When collection completes, a replay job reads staged items ordered by derived event time and persists moments into the graph.
+- Staging is global (not scoped by namespace) and each staged item records its effective namespace so scoping still follows the existing router behavior.
+
+For auditing timestamp attribution:
+
+- Moment debug tree nodes include `timeRange.start/end` (when present in source metadata).
+- The audit UI moment details panel shows createdAt and timeRange.
+
+Testing:
+
+- Deployed to production and started a replay backfill run.
+- Observed collect-time errors for some documents (no plugin match for certain Discord jsonl paths, and intermittent network connection lost).

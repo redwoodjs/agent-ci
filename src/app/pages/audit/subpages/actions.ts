@@ -29,12 +29,24 @@ import { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
 import { type Database, createDb } from "rwsdk/db";
 import { type momentMigrations } from "@/app/engine/momentDb/migrations";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
-import { qualifyName } from "@/app/engine/momentGraphNamespace";
 import {
+  qualifyName,
   getMomentGraphNamespacePrefixFromEnv,
   applyMomentGraphNamespacePrefixValue,
+  getMomentGraphNamespaceFromEnv,
 } from "@/app/engine/momentGraphNamespace";
 import { getEmbedding } from "@/app/engine/utils/vector";
+import {
+  findAncestors,
+  findLastMomentForDocument,
+  findDescendants,
+  findSimilarMoments,
+  findMomentsBySearch,
+  type MomentGraphContext,
+} from "@/app/engine/momentDb";
+import { getPullRequestsForCommit, parseGitHubRepo } from "@/app/gh/github-utils";
+import { callLLM } from "@/app/engine/utils/llm";
+import type { Moment } from "@/app/engine/types";
 
 // Local types and helpers for audit-specific functions
 type MomentDatabase = Database<typeof momentMigrations>;
@@ -1516,4 +1528,356 @@ async function getMomentsBySourceLocal(
     moments,
     totalCount,
   };
+}
+
+// Helper functions for TLDR generation (reused from pr-origin.ts)
+function formatIso8601Tldr(raw: unknown): string {
+  if (typeof raw !== "string") {
+    return "";
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  const date = new Date(trimmed);
+  if (Number.isNaN(date.getTime())) {
+    return trimmed;
+  }
+  return date.toISOString();
+}
+
+function readTimeMsTldr(raw: unknown): number | null {
+  if (typeof raw !== "string") {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+  const date = new Date(trimmed);
+  const ms = date.getTime();
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function timelineSortKeyTldr(moment: {
+  createdAt?: string;
+  sourceMetadata?: Record<string, any>;
+}): number | null {
+  const timeRange = (moment.sourceMetadata as any)?.timeRange as
+    | { start?: unknown; end?: unknown }
+    | undefined;
+  const startMs = readTimeMsTldr(timeRange?.start);
+  if (startMs !== null) {
+    return startMs;
+  }
+  return readTimeMsTldr(moment.createdAt);
+}
+
+function formatTimelineLineTldr(
+  moment: {
+    createdAt?: string;
+    title?: string;
+    summary?: string;
+    sourceMetadata?: Record<string, any>;
+    importance?: number;
+  },
+  idx: number
+): string {
+  const timeRange = (moment.sourceMetadata as any)?.timeRange as
+    | { start?: unknown; end?: unknown }
+    | undefined;
+  const rangeStart = formatIso8601Tldr(timeRange?.start);
+  const rangeEnd = formatIso8601Tldr(timeRange?.end);
+  const iso = formatIso8601Tldr(moment.createdAt);
+  const prefix =
+    rangeStart.length > 0 && rangeEnd.length > 0 && rangeStart !== rangeEnd
+      ? `${rangeStart}..${rangeEnd} `
+      : iso.length > 0
+      ? `${iso} `
+      : "";
+
+  const rawImportance = moment.importance;
+  const importance =
+    typeof rawImportance === "number" && Number.isFinite(rawImportance)
+      ? Math.max(0, Math.min(1, rawImportance))
+      : null;
+  const importanceText =
+    importance === null
+      ? `importance=not_provided `
+      : `importance=${importance.toFixed(2)} `;
+
+  return `${prefix}${importanceText}${idx + 1}. ${moment.title}: ${
+    moment.summary
+  }`;
+}
+
+export async function generateCodeTldr(options: {
+  repo: string;
+  commit: string;
+  file: string;
+  line: number;
+  namespace?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+
+    // Parse repository
+    const parsedRepo = parseGitHubRepo(options.repo);
+    if (!parsedRepo) {
+      return {
+        success: false,
+        error: `Invalid repository format: ${options.repo}. Expected formats: owner/repo, https://github.com/owner/repo.git, or git@github.com:owner/repo.git`,
+      };
+    }
+
+    const { owner, repo } = parsedRepo;
+    const commitHash = options.commit;
+    const file = options.file;
+    const line = options.line;
+    const namespaceOverride = options.namespace ?? null;
+
+    // 1. Get PRs for the commit
+    console.log(
+      `[code-tldr] Fetching PRs for commit ${commitHash} in ${owner}/${repo}`
+    );
+
+    const prNumbersSet = new Set<number>();
+    try {
+      const prs = await getPullRequestsForCommit(
+        owner,
+        repo,
+        commitHash,
+        envCloudflare
+      );
+      for (const pr of prs) {
+        prNumbersSet.add(pr);
+      }
+    } catch (err) {
+      console.warn(
+        `[code-tldr] Failed to fetch PRs for commit ${commitHash}:`,
+        err
+      );
+    }
+
+    const prNumbers = Array.from(prNumbersSet).sort((a, b) => b - a);
+
+    if (prNumbers.length === 0) {
+      return {
+        success: false,
+        error: `No pull requests found for commit ${commitHash} in ${owner}/${repo}`,
+      };
+    }
+
+    console.log(
+      `[code-tldr] Found ${prNumbers.length} unique PRs: ${prNumbers.join(", ")}`
+    );
+
+    // 2. Fetch data for each PR from R2 and find moments in the graph
+    const bucket = envCloudflare.MACHINEN_BUCKET;
+    const momentGraphNamespace =
+      namespaceOverride ?? getMomentGraphNamespaceFromEnv(envCloudflare);
+    const momentGraphContext: MomentGraphContext = {
+      env: envCloudflare,
+      momentGraphNamespace: momentGraphNamespace,
+    };
+
+    const allRelatedMoments: Moment[] = [];
+    const prSummaries: string[] = [];
+
+    for (const prNumber of prNumbers) {
+      const r2Key = `github/${owner}/${repo}/pull-requests/${prNumber}/latest.json`;
+      const prObject = await bucket.get(r2Key);
+
+      if (!prObject) {
+        console.warn(`[code-tldr] PR data not found in R2: ${r2Key}`);
+        continue;
+      }
+
+      const prData = (await prObject.json()) as any;
+      prSummaries.push(
+        `- PR #${prNumber}: ${prData.title || "N/A"} (Author: ${
+          prData.author || "N/A"
+        }, Created: ${prData.created_at || "N/A"})`
+      );
+
+      // Find moments in the graph
+      const lastMoment = await findLastMomentForDocument(
+        r2Key,
+        momentGraphContext
+      );
+      if (lastMoment) {
+        const ancestors = await findAncestors(
+          lastMoment.id,
+          momentGraphContext
+        );
+        const root = ancestors[0] ?? lastMoment;
+        const descendants = await findDescendants(root.id, momentGraphContext);
+        allRelatedMoments.push(...ancestors, ...descendants);
+      }
+
+      // Additional searches
+      const referenceSearch = await findMomentsBySearch(
+        `#${prNumber}`,
+        momentGraphContext,
+        10
+      );
+      allRelatedMoments.push(...referenceSearch);
+
+      // Semantic search by PR title/body
+      const queryText = `${prData.title || ""}\n\n${
+        prData.body || ""
+      }`.substring(0, 1000);
+      if (queryText.trim().length > 0) {
+        try {
+          const embedding = await getEmbedding(queryText);
+          const similarMoments = await findSimilarMoments(
+            embedding,
+            10,
+            momentGraphContext
+          );
+          allRelatedMoments.push(...similarMoments);
+        } catch (err) {
+          console.error(`[code-tldr] Semantic search failed for PR #${prNumber}:`, err);
+        }
+      }
+    }
+
+    // 3. Deduplicate and build timeline
+    const uniqueMomentsMap = new Map<string, Moment>();
+    for (const m of allRelatedMoments) {
+      uniqueMomentsMap.set(m.id, m);
+    }
+
+    const sortedTimeline = Array.from(uniqueMomentsMap.values()).sort(
+      (a, b) => {
+        const aKey = timelineSortKeyTldr(a);
+        const bKey = timelineSortKeyTldr(b);
+        if (aKey === null && bKey === null) {
+          const aId = a?.id;
+          const bId = b?.id;
+          if (typeof aId === "string" && typeof bId === "string") {
+            return aId.localeCompare(bId);
+          }
+          return 0;
+        }
+        if (aKey === null) return 1;
+        if (bKey === null) return -1;
+        if (aKey !== bKey) return aKey - bKey;
+
+        const aId = a?.id;
+        const bId = b?.id;
+        if (typeof aId === "string" && typeof bId === "string") {
+          return aId.localeCompare(bId);
+        }
+        return 0;
+      }
+    );
+
+    const timelineLines = sortedTimeline.map((moment, idx) =>
+      formatTimelineLineTldr(moment, idx)
+    );
+    const narrativeContext =
+      timelineLines.length > 0
+        ? timelineLines.join("\n\n")
+        : "No related events found in the knowledge base for these pull requests yet.";
+
+    // 4. LLM Synthesis - Only request TLDR
+    const prompt = `You are analyzing the origin of a specific line of code. A developer wants to understand why this code exists and what decisions led to its creation.
+
+## Code Location
+- File: ${file}
+- Line: ${line}
+- Commit: ${commitHash}
+- Repository: ${owner}/${repo}
+
+## Related Pull Requests
+${prSummaries.join("\n")}
+
+## Timeline of Related Events (Combined from all PRs)
+${narrativeContext}
+
+## Instructions
+Based on the information provided above, write a concise 2-3 sentence TL;DR summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed.
+
+Rules:
+- You MUST only use timestamps that appear at the start of Timeline lines or in Pull Request Information. Do not invent or guess dates.
+- When you mention a Timeline event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
+- When you mention a Pull Request, you MUST include its number and the provided metadata (author, title, etc.).
+- You MUST include the data source label when you mention a Timeline event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]").
+- You MUST NOT mention events, sources, or pull requests/issues that are not present in the text above.
+- Mention only events and PRs needed to answer the question.
+- If a Timeline line includes an importance=0..1 field, prefer higher importance events.
+- If information is missing, say so directly.
+
+Write ONLY the TL;DR summary. Do not include any other sections or analysis.`;
+
+    console.log(`[code-tldr] Calling LLM to generate TLDR`);
+    const fullResponse = await callLLM(prompt, "slow-reasoning", {
+      temperature: 0,
+      reasoning: { effort: "low" },
+    });
+
+    // Extract TLDR from response (try multiple patterns)
+    let tldr = "";
+
+    // Pattern 1: ### TL;DR
+    let tldrMatch = fullResponse.match(
+      /###\s*TL;DR\s*\n([\s\S]*?)(?=\n###|$)/i
+    );
+
+    // Pattern 2: ## TL;DR
+    if (!tldrMatch) {
+      tldrMatch = fullResponse.match(/##\s*TL;DR\s*\n([\s\S]*?)(?=\n##|$)/i);
+    }
+
+    // Pattern 3: **TL;DR**
+    if (!tldrMatch) {
+      tldrMatch = fullResponse.match(/\*\*TL;DR\*\*:?\s*\n([\s\S]*?)(?=\n\*\*|$)/i);
+    }
+
+    // Pattern 4: TL;DR:
+    if (!tldrMatch) {
+      tldrMatch = fullResponse.match(/TL;DR:?\s*\n([\s\S]*?)(?=\n(?:###|##|$))/i);
+    }
+
+    if (tldrMatch) {
+      tldr = tldrMatch[1].trim();
+      console.log(`[code-tldr] Successfully extracted TLDR (${tldr.length} chars)`);
+    } else {
+      console.log(`[code-tldr] No explicit TLDR section found, using fallback extraction`);
+      // Fallback: Extract first 2-3 sentences
+      const sentences = fullResponse
+        .trim()
+        .split(/[.!?]+/)
+        .filter((s) => s.trim().length > 0)
+        .slice(0, 3)
+        .map((s) => s.trim() + ".");
+
+      if (sentences.length > 0) {
+        tldr = sentences.join(" ");
+        console.log(`[code-tldr] Generated fallback TLDR from first ${sentences.length} sentences`);
+      } else {
+        // Last resort: use first paragraph or first 200 chars
+        const firstPart = fullResponse
+          .trim()
+          .split("\n\n")[0]
+          .substring(0, 200)
+          .trim();
+        tldr = firstPart || "Summary not available.";
+        console.log(`[code-tldr] Generated fallback TLDR from first paragraph`);
+      }
+    }
+
+    return {
+      success: true,
+      tldr: tldr || "Summary not available.",
+    };
+  } catch (error) {
+    console.error(`[code-tldr] Error generating TLDR:`, error);
+    return {
+      success: false,
+      error: "Failed to generate TLDR",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

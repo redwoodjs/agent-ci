@@ -64,6 +64,16 @@ async function hashStrings(values: string[]): Promise<string> {
   return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+function uuidFromSha256Hex(hashHex: string): string {
+  const hex = (hashHex ?? "").replace(/[^0-9a-f]/gi, "").toLowerCase();
+  const padded = (hex + "0".repeat(64)).slice(0, 64);
+  const bytes = padded.slice(0, 32);
+  return `${bytes.slice(0, 8)}-${bytes.slice(8, 12)}-${bytes.slice(
+    12,
+    16
+  )}-${bytes.slice(16, 20)}-${bytes.slice(20, 32)}`;
+}
+
 function truncateToChars(text: string, maxChars: number): string {
   if (maxChars <= 0) {
     return "";
@@ -1185,8 +1195,28 @@ export async function indexDocument(
               const orderMs =
                 orderMsFromRange ?? orderMsFromCreatedAt ?? Date.now();
 
+              const stableItemId = uuidFromSha256Hex(
+                await hashStrings([
+                  "moment-replay-item",
+                  document.id,
+                  stream.streamId,
+                  String(i),
+                ])
+              );
+              const stablePrevItemId =
+                i > 0
+                  ? uuidFromSha256Hex(
+                      await hashStrings([
+                        "moment-replay-item",
+                        document.id,
+                        stream.streamId,
+                        String(i - 1),
+                      ])
+                    )
+                  : null;
+
               replayItems.push({
-                itemId: crypto.randomUUID(),
+                itemId: stableItemId,
                 effectiveNamespace: effectiveNamespace ?? "redwood:internal",
                 orderMs,
                 payload: {
@@ -1200,6 +1230,7 @@ export async function indexDocument(
                   },
                   streamId: stream.streamId,
                   macroMomentIndex: i,
+                  prevItemId: stablePrevItemId,
                   moment: {
                     title: moment.title,
                     summary: moment.summary,

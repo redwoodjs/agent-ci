@@ -95,4 +95,70 @@ export const indexingStateMigrations = {
         .execute();
     },
   },
+  "005_add_moment_replay_tables": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("moment_replay_runs")
+          .addColumn("run_id", "text", (col) => col.primaryKey())
+          .addColumn("status", "text", (col) => col.notNull())
+          .addColumn("started_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addColumn("moment_graph_namespace", "text")
+          .addColumn("moment_graph_namespace_prefix", "text")
+          .addColumn("expected_documents", "integer", (col) => col.notNull())
+          .addColumn("collected_documents", "integer", (col) => col.notNull())
+          .addColumn("replay_enqueued", "integer", (col) => col.notNull())
+          .addColumn("replayed_items", "integer", (col) => col.notNull())
+          .addColumn("replay_cursor_json", "text")
+          .execute(),
+        await db.schema
+          .createIndex("moment_replay_runs_status_idx")
+          .on("moment_replay_runs")
+          .column("status")
+          .execute(),
+        await db.schema
+          .createTable("moment_replay_items")
+          .addColumn("run_id", "text", (col) =>
+            col.references("moment_replay_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("item_id", "text", (col) => col.notNull())
+          .addColumn("order_ms", "integer", (col) => col.notNull())
+          .addColumn("payload_json", "text", (col) => col.notNull())
+          .addColumn("status", "text", (col) => col.notNull())
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("moment_replay_items_pk", [
+            "run_id",
+            "item_id",
+          ])
+          .execute(),
+        await db.schema
+          .createIndex("moment_replay_items_order_idx")
+          .on("moment_replay_items")
+          .columns(["run_id", "status", "order_ms", "item_id"])
+          .execute(),
+        await db.schema
+          .createTable("moment_replay_stream_state")
+          .addColumn("run_id", "text", (col) =>
+            col.references("moment_replay_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("document_id", "text", (col) => col.notNull())
+          .addColumn("stream_id", "text", (col) => col.notNull())
+          .addColumn("last_moment_id", "text")
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("moment_replay_stream_state_pk", [
+            "run_id",
+            "document_id",
+            "stream_id",
+          ])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("moment_replay_stream_state").execute();
+      await db.schema.dropTable("moment_replay_items").execute();
+      await db.schema.dropTable("moment_replay_runs").execute();
+    },
+  },
 } satisfies Migrations;

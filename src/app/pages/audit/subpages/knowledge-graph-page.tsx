@@ -107,6 +107,8 @@ type GraphNode = {
   title: string;
   parentId?: string;
   createdAt?: string;
+  timeRangeStart?: string;
+  timeRangeEnd?: string;
   documentId?: string;
   importance?: number;
 };
@@ -128,6 +130,17 @@ type MomentDetails = Moment & {
     payload: Record<string, any>;
   }> | null;
 };
+
+function readTimeRangeFromMoment(m: Moment): { start: string; end: string } | null {
+  const md = (m as any)?.sourceMetadata;
+  const range = md?.timeRange;
+  const start = typeof range?.start === "string" ? range.start : null;
+  const end = typeof range?.end === "string" ? range.end : null;
+  if (!start || !end) {
+    return null;
+  }
+  return { start, end };
+}
 
 function generateMermaidGraph(data: GraphNode[]): string {
   if (data.length === 0) {
@@ -261,6 +274,9 @@ export function KnowledgeGraphPage() {
   const [selectedMomentDetailsError, setSelectedMomentDetailsError] = useState<
     string | null
   >(null);
+  const selectedMomentTimeRange = selectedMomentDetails
+    ? readTimeRangeFromMoment(selectedMomentDetails)
+    : null;
 
   useEffect(() => {
     // Load Mermaid.js from CDN
@@ -1468,6 +1484,30 @@ export function KnowledgeGraphPage() {
                               <div className="font-mono text-xs break-all">
                                 {selectedMomentDetails.parentId || "Root"}
                               </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div>
+                              <div className="text-xs font-medium text-gray-500 mb-1">
+                                Created at
+                              </div>
+                              <div className="font-mono text-xs break-all">
+                                {selectedMomentDetails.createdAt || "N/A"}
+                              </div>
+                            </div>
+                            <div>
+                              <div className="text-xs font-medium text-gray-500 mb-1">
+                                Time range
+                              </div>
+                              {selectedMomentTimeRange ? (
+                                <div className="font-mono text-xs break-all">
+                                  {selectedMomentTimeRange.start} -{" "}
+                                  {selectedMomentTimeRange.end}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-500">N/A</div>
+                              )}
                             </div>
                           </div>
 

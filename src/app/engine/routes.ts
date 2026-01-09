@@ -7,6 +7,7 @@ import {
   validateQueryInput,
 } from "./interruptors";
 import { query, createEngineContext, indexDocument } from "./index";
+import { createMomentReplayRun } from "./db/momentReplay";
 import {
   findAncestors,
   getMoment,
@@ -215,14 +216,62 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
           )
         : momentGraphNamespace;
 
+    const shouldMomentReplay = Boolean(momentGraphNamespacePrefix);
+    if (shouldMomentReplay && !momentGraphNamespace) {
+      return Response.json(
+        {
+          error:
+            "momentGraphNamespace is required when using momentGraphNamespacePrefix for moment replay backfill",
+        },
+        { status: 400 }
+      );
+    }
+
     if (r2Keys) {
       console.log(
         `[backfill] Indexing ${r2Keys.length} specific R2 keys directly`
       );
-      await enqueueUnprocessedFiles(r2Keys, envCloudflare, {
-        momentGraphNamespace: momentGraphNamespace,
-        momentGraphNamespacePrefix: momentGraphNamespacePrefix,
-      });
+      if (shouldMomentReplay) {
+        if (!envCloudflare.ENGINE_INDEXING_QUEUE) {
+          return Response.json(
+            { error: "ENGINE_INDEXING_QUEUE binding not found" },
+            { status: 500 }
+          );
+        }
+        const runId = crypto.randomUUID();
+        await createMomentReplayRun(
+          {
+            env: envCloudflare,
+            momentGraphNamespace: effectiveNamespaceForResponse,
+          },
+          {
+            runId,
+            momentGraphNamespace,
+            momentGraphNamespacePrefix,
+            expectedDocuments: r2Keys.length,
+          }
+        );
+        const batchSize = 25;
+        for (let i = 0; i < r2Keys.length; i += batchSize) {
+          const batch = r2Keys.slice(i, i + batchSize);
+          await envCloudflare.ENGINE_INDEXING_QUEUE.sendBatch(
+            batch.map((r2Key) => ({
+              body: {
+                r2Key,
+                momentGraphNamespace,
+                momentGraphNamespacePrefix,
+                momentReplayRunId: runId,
+                jobType: "moment-replay-collect",
+              },
+            }))
+          );
+        }
+      } else {
+        await enqueueUnprocessedFiles(r2Keys, envCloudflare, {
+          momentGraphNamespace: momentGraphNamespace,
+          momentGraphNamespacePrefix: momentGraphNamespacePrefix,
+        });
+      }
       return Response.json({
         success: true,
         momentGraphNamespace: effectiveNamespaceForResponse,
@@ -242,10 +291,47 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
     );
 
     if (unprocessedKeys.length > 0) {
-      await enqueueUnprocessedFiles(unprocessedKeys, envCloudflare, {
-        momentGraphNamespace: momentGraphNamespace,
-        momentGraphNamespacePrefix: momentGraphNamespacePrefix,
-      });
+      if (shouldMomentReplay) {
+        if (!envCloudflare.ENGINE_INDEXING_QUEUE) {
+          return Response.json(
+            { error: "ENGINE_INDEXING_QUEUE binding not found" },
+            { status: 500 }
+          );
+        }
+        const runId = crypto.randomUUID();
+        await createMomentReplayRun(
+          {
+            env: envCloudflare,
+            momentGraphNamespace: effectiveNamespaceForResponse,
+          },
+          {
+            runId,
+            momentGraphNamespace,
+            momentGraphNamespacePrefix,
+            expectedDocuments: unprocessedKeys.length,
+          }
+        );
+        const batchSize = 25;
+        for (let i = 0; i < unprocessedKeys.length; i += batchSize) {
+          const batch = unprocessedKeys.slice(i, i + batchSize);
+          await envCloudflare.ENGINE_INDEXING_QUEUE.sendBatch(
+            batch.map((r2Key) => ({
+              body: {
+                r2Key,
+                momentGraphNamespace,
+                momentGraphNamespacePrefix,
+                momentReplayRunId: runId,
+                jobType: "moment-replay-collect",
+              },
+            }))
+          );
+        }
+      } else {
+        await enqueueUnprocessedFiles(unprocessedKeys, envCloudflare, {
+          momentGraphNamespace: momentGraphNamespace,
+          momentGraphNamespacePrefix: momentGraphNamespacePrefix,
+        });
+      }
       console.log(
         `[backfill] Manual backfill completed. Enqueued ${unprocessedKeys.length} files.`
       );

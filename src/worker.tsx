@@ -54,6 +54,7 @@ import { processProcessorJob as processDiscordProcessorJob } from "@/app/ingesto
 import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app/ingestors/discord/services/dlq-handler";
 import { handleWebhookEvent } from "@/app/ingestors/discord/services/webhook-handler";
 import { processIndexingJob } from "@/app/engine/services/indexing-scheduler-worker";
+import { processMomentReplayReplayJob } from "@/app/engine/services/moment-replay-worker";
 import { processChunkJob } from "@/app/engine/services/chunk-processor-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
 import type { QueueMessage } from "@/app/ingestors/github/services/backfill-types";
@@ -110,6 +111,8 @@ export default {
             namespace?: unknown;
             momentGraphNamespacePrefix?: unknown;
             namespacePrefix?: unknown;
+            momentReplayRunId?: unknown;
+            jobType?: unknown;
             body?: {
               r2Key?: unknown;
               r2Keys?: unknown;
@@ -117,6 +120,8 @@ export default {
               namespace?: unknown;
               momentGraphNamespacePrefix?: unknown;
               namespacePrefix?: unknown;
+              momentReplayRunId?: unknown;
+              jobType?: unknown;
             };
           };
 
@@ -151,11 +156,42 @@ export default {
               ? namespacePrefixRaw.trim()
               : null;
 
+          const jobTypeRaw =
+            indexingMessage.jobType ?? indexingMessage.body?.jobType;
+          const jobType =
+            typeof jobTypeRaw === "string" && jobTypeRaw.trim().length > 0
+              ? jobTypeRaw.trim()
+              : null;
+          const momentReplayRunIdRaw =
+            indexingMessage.momentReplayRunId ??
+            indexingMessage.body?.momentReplayRunId;
+          const momentReplayRunId =
+            typeof momentReplayRunIdRaw === "string" &&
+            momentReplayRunIdRaw.trim().length > 0
+              ? momentReplayRunIdRaw.trim()
+              : null;
+
           console.log(`[queue] Received indexing job from ${queueName}:`, {
             r2KeysCount: r2Keys?.length ?? 0,
             momentGraphNamespace: momentGraphNamespace ?? null,
             momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
+            jobType,
+            momentReplayRunId,
           });
+
+          if (jobType === "moment-replay-replay") {
+            await processMomentReplayReplayJob(
+              {
+                jobType,
+                momentReplayRunId,
+                momentGraphNamespace,
+                momentGraphNamespacePrefix,
+              },
+              env as Cloudflare.Env
+            );
+            message.ack();
+            continue;
+          }
 
           if (!r2Keys || r2Keys.length === 0) {
             console.error(
@@ -177,6 +213,8 @@ export default {
                   ...(momentGraphNamespacePrefix
                     ? { momentGraphNamespacePrefix }
                     : null),
+                  ...(momentReplayRunId ? { momentReplayRunId } : null),
+                  ...(jobType ? { jobType } : null),
                 },
                 env as Cloudflare.Env
               );

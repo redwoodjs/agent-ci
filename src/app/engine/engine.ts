@@ -11,6 +11,7 @@ import type {
   MacroMomentDescription,
 } from "./types";
 import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
+import { addReplayItemsBatch } from "./db/momentReplay";
 import {
   addMoment,
   addDocumentAuditLog,
@@ -134,6 +135,7 @@ export async function indexDocument(
   options?: {
     momentGraphNamespace?: string | null;
     momentGraphNamespacePrefix?: string | null;
+    momentReplayRunId?: string | null;
   }
 ): Promise<Chunk[]> {
   const indexingContext: IndexingHookContext = {
@@ -201,6 +203,13 @@ export async function indexDocument(
     env: context.env,
     momentGraphNamespace: effectiveNamespace,
   };
+
+  const momentReplayRunIdRaw = options?.momentReplayRunId;
+  const momentReplayRunId =
+    typeof momentReplayRunIdRaw === "string" &&
+    momentReplayRunIdRaw.trim().length > 0
+      ? momentReplayRunIdRaw.trim()
+      : null;
 
   let stage = "start";
   try {
@@ -381,9 +390,9 @@ export async function indexDocument(
       let computedItems: string[] = [];
       try {
         computedItems =
-        (await computeMicroMomentsForChunkBatch(batchChunks, {
-          promptContext,
-        })) ?? [];
+          (await computeMicroMomentsForChunkBatch(batchChunks, {
+            promptContext,
+          })) ?? [];
       } catch (error) {
         await addDocumentAuditLog(
           document.id,
@@ -686,7 +695,11 @@ export async function indexDocument(
               if (/\b(error|exception|stack trace|traceback)\b/i.test(text)) {
                 return true;
               }
-              if (/\b(fix|fixed|bug|regression|implement|implemented|add|added|remove|removed|merge|merged)\b/i.test(text)) {
+              if (
+                /\b(fix|fixed|bug|regression|implement|implemented|add|added|remove|removed|merge|merged)\b/i.test(
+                  text
+                )
+              ) {
                 return true;
               }
               return false;
@@ -694,14 +707,16 @@ export async function indexDocument(
 
             function isNoiseMacroMoment(m: MacroMomentDescription): boolean {
               const title = typeof m?.title === "string" ? m.title : "";
-              const summary = typeof (m as any)?.summary === "string"
-                ? ((m as any).summary as string)
-                : "";
+              const summary =
+                typeof (m as any)?.summary === "string"
+                  ? ((m as any).summary as string)
+                  : "";
               const author = typeof m?.author === "string" ? m.author : "";
 
               if (
                 title.trim() === "Summarized micro-moments" &&
-                summary.trim() === "Synthesized macro-moments could not be parsed."
+                summary.trim() ===
+                  "Synthesized macro-moments could not be parsed."
               ) {
                 return true;
               }
@@ -761,9 +776,10 @@ export async function indexDocument(
               }
 
               if (combinedLower.includes("closed issue")) {
-                const hasTechnicalSignal = /\b(fix|fixed|bug|error|investigat|regression|implement|implemented|add|added|remove|removed|merge|merged|release|released|ship|shipped|deploy|deployed|rollback)\b/i.test(
-                  `${title}\n${summary}`
-                );
+                const hasTechnicalSignal =
+                  /\b(fix|fixed|bug|error|investigat|regression|implement|implemented|add|added|remove|removed|merge|merged|release|released|ship|shipped|deploy|deployed|rollback)\b/i.test(
+                    `${title}\n${summary}`
+                  );
                 if (!hasTechnicalSignal) {
                   return true;
                 }
@@ -845,7 +861,8 @@ export async function indexDocument(
             };
           })();
 
-          const macroMomentDescriptions = macroGateResult.macroMomentDescriptions;
+          const macroMomentDescriptions =
+            macroGateResult.macroMomentDescriptions;
 
           await addDocumentAuditLog(
             document.id,
@@ -986,6 +1003,11 @@ export async function indexDocument(
           let resolvedParentIdForFirst: string | undefined = undefined;
           let previousMomentId: string | undefined = undefined;
           let linkAuditLogForFirst: Record<string, any> | null = null;
+          const replayItems: Array<{
+            itemId: string;
+            orderMs: number;
+            payload: any;
+          }> = [];
 
           for (let i = 0; i < macroMomentDescriptions.length; i++) {
             const description = macroMomentDescriptions[i];
@@ -1009,7 +1031,10 @@ export async function indexDocument(
 
             const momentId = existing?.id ?? crypto.randomUUID();
             if (i === 0) {
-              if (existing?.parentId) {
+              if (momentReplayRunId) {
+                resolvedParentIdForFirst = undefined;
+                linkAuditLogForFirst = { kind: "moment-replay-deferred" };
+              } else if (existing?.parentId) {
                 resolvedParentIdForFirst = existing.parentId;
                 linkAuditLogForFirst = {
                   kind: "reuse-existing-parent",
@@ -1044,10 +1069,10 @@ export async function indexDocument(
                     continue;
                   }
                   const attempt = await propose(
-                      document,
-                      anchorMacroMoment,
-                      anchorMacroMomentIndex,
-                      indexingContext
+                    document,
+                    anchorMacroMoment,
+                    anchorMacroMomentIndex,
+                    indexingContext
                   );
                   if (attempt?.auditLog && !parentAuditLog) {
                     parentAuditLog = attempt.auditLog;
@@ -1136,14 +1161,72 @@ export async function indexDocument(
                 typeof (description as any).importance === "number"
                   ? ((description as any).importance as number)
                   : undefined,
-              linkAuditLog: i === 0 ? linkAuditLogForFirst ?? undefined : undefined,
+              linkAuditLog:
+                i === 0 ? linkAuditLogForFirst ?? undefined : undefined,
               createdAt: description.createdAt,
               author: description.author,
               sourceMetadata: description.sourceMetadata,
             };
 
-            await addMoment(moment, momentGraphContext);
-            previousMomentId = momentId;
+            if (momentReplayRunId) {
+              const timeRange = (description.sourceMetadata as any)?.timeRange;
+              const startRaw =
+                typeof timeRange?.start === "string" ? timeRange.start : null;
+              const orderMsFromRange =
+                startRaw && Number.isFinite(Date.parse(startRaw))
+                  ? Date.parse(startRaw)
+                  : null;
+              const orderMsFromCreatedAt = Number.isFinite(
+                Date.parse(moment.createdAt)
+              )
+                ? Date.parse(moment.createdAt)
+                : null;
+              const orderMs =
+                orderMsFromRange ?? orderMsFromCreatedAt ?? Date.now();
+
+              replayItems.push({
+                itemId: crypto.randomUUID(),
+                orderMs,
+                payload: {
+                  document: {
+                    id: document.id,
+                    source: document.source,
+                    type: document.type,
+                    sourceMetadata:
+                      (document.metadata as any)?.sourceMetadata ?? null,
+                  },
+                  streamId: stream.streamId,
+                  macroMomentIndex: i,
+                  moment: {
+                    title: moment.title,
+                    summary: moment.summary,
+                    author: moment.author,
+                    createdAt: moment.createdAt,
+                    importance: moment.importance ?? null,
+                    microPaths: moment.microPaths ?? null,
+                    microPathsHash: moment.microPathsHash ?? null,
+                    sourceMetadata: moment.sourceMetadata ?? null,
+                    linkAuditLog: moment.linkAuditLog ?? null,
+                  },
+                },
+              });
+            } else {
+              await addMoment(moment, momentGraphContext);
+              previousMomentId = momentId;
+            }
+          }
+
+          if (momentReplayRunId && replayItems.length > 0) {
+            await addReplayItemsBatch(
+              {
+                env: context.env,
+                momentGraphNamespace: effectiveNamespace,
+              },
+              {
+                runId: momentReplayRunId,
+                items: replayItems,
+              }
+            );
           }
         }
       }

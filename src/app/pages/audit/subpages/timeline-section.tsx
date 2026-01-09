@@ -173,7 +173,7 @@ const TimelineItem = ({ event, isLast, fileName }: TimelineItemProps) => {
           </span>
         </div>
 
-        <h3 className="text-sm font-semibold text-slate-800 leading-snug">
+        <h3 className="text-sm font-semibold text-slate-800 leading-snug break-words">
           {event.event}
         </h3>
 
@@ -185,7 +185,7 @@ const TimelineItem = ({ event, isLast, fileName }: TimelineItemProps) => {
                 {fileName}
               </code>
             </div>
-            <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-2.5 rounded border border-slate-100">
+            <p className="text-xs text-slate-600 leading-relaxed bg-slate-50 p-2.5 rounded border border-slate-100 break-words">
               {event.impact}
             </p>
             <div className="mt-2 text-[10px] text-slate-400 mono italic flex items-center justify-between">

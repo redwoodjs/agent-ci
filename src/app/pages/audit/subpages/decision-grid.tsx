@@ -29,20 +29,20 @@ export const DecisionGrid: React.FC<DecisionGridProps> = ({ decisions }) => {
           key={d.id}
           className="bg-white border border-slate-200 rounded-xl p-4 hover:border-indigo-200 transition-all hover:shadow-lg flex flex-col h-full"
         >
-          <div className="mb-3">
+          <div className="mb-3 min-w-0">
             <h4 className="text-[11px] font-bold text-indigo-500 uppercase tracking-widest mb-1">
               Problem / Need
             </h4>
-            <p className="text-sm font-bold text-slate-900 leading-tight">
+            <p className="text-sm font-bold text-slate-900 leading-tight break-words">
               {d.problem}
             </p>
           </div>
-          <div className="flex-1 space-y-3">
+          <div className="flex-1 space-y-3 min-w-0">
             <div>
               <h5 className="text-[10px] font-semibold text-slate-400 uppercase tracking-tighter mb-1">
                 Triggering Event
               </h5>
-              <p className="text-[11px] text-slate-600 italic bg-slate-50 px-2 py-1 rounded inline-block">
+              <p className="text-[11px] text-slate-600 italic bg-slate-50 px-2 py-1 rounded inline-block break-words">
                 {d.trigger}
               </p>
             </div>
@@ -50,7 +50,7 @@ export const DecisionGrid: React.FC<DecisionGridProps> = ({ decisions }) => {
               <h5 className="text-[10px] font-bold text-slate-700 uppercase tracking-tighter mb-1">
                 Resulting Code Change
               </h5>
-              <p className="text-xs text-slate-700 leading-normal">{d.result}</p>
+              <p className="text-xs text-slate-700 leading-normal break-words">{d.result}</p>
             </div>
           </div>
         </div>

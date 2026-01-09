@@ -151,7 +151,12 @@ export async function addReplayItemsBatch(
   context: ReplayDbContext,
   input: {
     runId: string;
-    items: Array<{ itemId: string; orderMs: number; payload: unknown }>;
+    items: Array<{
+      itemId: string;
+      effectiveNamespace: string;
+      orderMs: number;
+      payload: unknown;
+    }>;
   }
 ): Promise<void> {
   if (input.items.length === 0) {
@@ -164,6 +169,7 @@ export async function addReplayItemsBatch(
   const rows = input.items.map((it) => ({
     run_id: input.runId,
     item_id: it.itemId,
+    effective_namespace: it.effectiveNamespace,
     order_ms: it.orderMs as any,
     payload_json: JSON.stringify(it.payload),
     status: "pending",
@@ -248,13 +254,19 @@ export async function setReplayCursor(
 
 export async function getReplayStreamState(
   context: ReplayDbContext,
-  input: { runId: string; documentId: string; streamId: string }
+  input: {
+    runId: string;
+    effectiveNamespace: string;
+    documentId: string;
+    streamId: string;
+  }
 ): Promise<string | null> {
   const db = getReplayDb(context);
   const row = await db
     .selectFrom("moment_replay_stream_state")
     .select(["last_moment_id"])
     .where("run_id", "=", input.runId)
+    .where("effective_namespace", "=", input.effectiveNamespace)
     .where("document_id", "=", input.documentId)
     .where("stream_id", "=", input.streamId)
     .executeTakeFirst();
@@ -264,7 +276,13 @@ export async function getReplayStreamState(
 
 export async function setReplayStreamState(
   context: ReplayDbContext,
-  input: { runId: string; documentId: string; streamId: string; lastMomentId: string | null }
+  input: {
+    runId: string;
+    effectiveNamespace: string;
+    documentId: string;
+    streamId: string;
+    lastMomentId: string | null;
+  }
 ): Promise<void> {
   const db = getReplayDb(context);
   const now = new Date().toISOString();
@@ -272,16 +290,19 @@ export async function setReplayStreamState(
     .insertInto("moment_replay_stream_state")
     .values({
       run_id: input.runId,
+      effective_namespace: input.effectiveNamespace,
       document_id: input.documentId,
       stream_id: input.streamId,
       last_moment_id: input.lastMomentId,
       updated_at: now,
     } as any)
     .onConflict((oc) =>
-      oc.columns(["run_id", "document_id", "stream_id"]).doUpdateSet({
-        last_moment_id: input.lastMomentId,
-        updated_at: now,
-      } as any)
+      oc
+        .columns(["run_id", "effective_namespace", "document_id", "stream_id"])
+        .doUpdateSet({
+          last_moment_id: input.lastMomentId,
+          updated_at: now,
+        } as any)
     )
     .execute();
 }
@@ -289,7 +310,14 @@ export async function setReplayStreamState(
 export async function fetchReplayItemsBatch(
   context: ReplayDbContext,
   input: { runId: string; cursor: ReplayCursor; limit: number }
-): Promise<Array<{ itemId: string; orderMs: number; payload: any }>> {
+): Promise<
+  Array<{
+    itemId: string;
+    effectiveNamespace: string;
+    orderMs: number;
+    payload: any;
+  }>
+> {
   const db = getReplayDb(context);
   const limit =
     typeof input.limit === "number" && Number.isFinite(input.limit) && input.limit > 0
@@ -301,7 +329,7 @@ export async function fetchReplayItemsBatch(
 
   const rows = (await db
     .selectFrom("moment_replay_items")
-    .select(["item_id", "order_ms", "payload_json"])
+    .select(["item_id", "effective_namespace", "order_ms", "payload_json"])
     .where("run_id", "=", input.runId)
     .where("status", "=", "pending")
     .where((eb) => {
@@ -322,12 +350,15 @@ export async function fetchReplayItemsBatch(
     .orderBy("order_ms", "asc")
     .orderBy("item_id", "asc")
     .limit(limit)
-    .execute()) as Array<Pick<MomentReplayItemRow, "item_id" | "order_ms" | "payload_json">>;
+    .execute()) as unknown as Array<
+    Pick<MomentReplayItemRow, "item_id" | "effective_namespace" | "order_ms" | "payload_json">
+  >;
 
   return rows
     .map((r) => {
       return {
         itemId: (r as any).item_id as string,
+        effectiveNamespace: (r as any).effective_namespace as string,
         orderMs: Number((r as any).order_ms ?? 0),
         payload: (r as any).payload_json,
       };

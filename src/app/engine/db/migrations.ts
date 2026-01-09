@@ -123,6 +123,7 @@ export const indexingStateMigrations = {
             col.references("moment_replay_runs.run_id").onDelete("cascade")
           )
           .addColumn("item_id", "text", (col) => col.notNull())
+          .addColumn("effective_namespace", "text", (col) => col.notNull())
           .addColumn("order_ms", "integer", (col) => col.notNull())
           .addColumn("payload_json", "text", (col) => col.notNull())
           .addColumn("status", "text", (col) => col.notNull())
@@ -136,19 +137,27 @@ export const indexingStateMigrations = {
         await db.schema
           .createIndex("moment_replay_items_order_idx")
           .on("moment_replay_items")
-          .columns(["run_id", "status", "order_ms", "item_id"])
+          .columns([
+            "run_id",
+            "status",
+            "effective_namespace",
+            "order_ms",
+            "item_id",
+          ])
           .execute(),
         await db.schema
           .createTable("moment_replay_stream_state")
           .addColumn("run_id", "text", (col) =>
             col.references("moment_replay_runs.run_id").onDelete("cascade")
           )
+          .addColumn("effective_namespace", "text", (col) => col.notNull())
           .addColumn("document_id", "text", (col) => col.notNull())
           .addColumn("stream_id", "text", (col) => col.notNull())
           .addColumn("last_moment_id", "text")
           .addColumn("updated_at", "text", (col) => col.notNull())
           .addPrimaryKeyConstraint("moment_replay_stream_state_pk", [
             "run_id",
+            "effective_namespace",
             "document_id",
             "stream_id",
           ])

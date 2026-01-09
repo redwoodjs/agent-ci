@@ -15,7 +15,6 @@ import {
   setReplayRunStatus,
   setReplayStreamState,
 } from "../db/momentReplay";
-import { applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
 
 type ReplayMessage = {
   jobType?: unknown;
@@ -57,49 +56,30 @@ export async function processMomentReplayReplayJob(
     return;
   }
 
-  const baseNamespaceRaw = message.momentGraphNamespace;
-  const baseNamespace =
-    typeof baseNamespaceRaw === "string" && baseNamespaceRaw.trim().length > 0
-      ? baseNamespaceRaw.trim()
-      : null;
-  const prefixRaw = message.momentGraphNamespacePrefix;
-  const prefix =
-    typeof prefixRaw === "string" && prefixRaw.trim().length > 0
-      ? prefixRaw.trim()
-      : null;
-  const effectiveNamespace =
-    baseNamespace && prefix
-      ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix)
-      : baseNamespace;
-
   await setReplayRunStatus(
-    { env, momentGraphNamespace: effectiveNamespace },
+    { env, momentGraphNamespace: null },
     { runId, status: "replaying" }
   );
 
   const cursor = (await getReplayCursor(
-    { env, momentGraphNamespace: effectiveNamespace },
+    { env, momentGraphNamespace: null },
     { runId }
   )) ?? { lastOrderMs: null, lastItemId: null };
 
   const items = await fetchReplayItemsBatch(
-    { env, momentGraphNamespace: effectiveNamespace },
+    { env, momentGraphNamespace: null },
     { runId, cursor, limit: 120 }
   );
 
   if (items.length === 0) {
     await setReplayRunStatus(
-      { env, momentGraphNamespace: effectiveNamespace },
+      { env, momentGraphNamespace: null },
       { runId, status: "completed" }
     );
     return;
   }
 
   const engineContext = createEngineContext(env, "indexing");
-  const momentGraphContext = {
-    env,
-    momentGraphNamespace: effectiveNamespace,
-  };
 
   let lastOrderMs: number | null = cursor.lastOrderMs;
   let lastItemId: string | null = cursor.lastItemId;
@@ -108,6 +88,18 @@ export async function processMomentReplayReplayJob(
 
   for (const item of items) {
     const payload = item.payload ?? {};
+    const effectiveNamespace =
+      typeof item.effectiveNamespace === "string" &&
+      item.effectiveNamespace.trim().length > 0
+        ? item.effectiveNamespace.trim()
+        : typeof (payload as any)?.effectiveNamespace === "string" &&
+          (payload as any).effectiveNamespace.trim().length > 0
+        ? (payload as any).effectiveNamespace.trim()
+        : "redwood:internal";
+    const momentGraphContext = {
+      env,
+      momentGraphNamespace: effectiveNamespace,
+    };
     const doc = (payload as any).document ?? {};
     const documentId =
       typeof doc.id === "string" && doc.id.length > 0 ? doc.id : null;
@@ -163,8 +155,8 @@ export async function processMomentReplayReplayJob(
 
     if (macroMomentIndex > 0) {
       const prev = await getReplayStreamState(
-        { env, momentGraphNamespace: effectiveNamespace },
-        { runId, documentId, streamId }
+        { env, momentGraphNamespace: null },
+        { runId, effectiveNamespace, documentId, streamId }
       );
       parentId = prev ?? undefined;
     } else {
@@ -238,8 +230,14 @@ export async function processMomentReplayReplayJob(
     await addMoment(moment, momentGraphContext);
 
     await setReplayStreamState(
-      { env, momentGraphNamespace: effectiveNamespace },
-      { runId, documentId, streamId, lastMomentId: momentId }
+      { env, momentGraphNamespace: null },
+      {
+        runId,
+        effectiveNamespace,
+        documentId,
+        streamId,
+        lastMomentId: momentId,
+      }
     );
 
     doneItemIds.push(item.itemId);
@@ -248,12 +246,12 @@ export async function processMomentReplayReplayJob(
   }
 
   await markReplayItemsDone(
-    { env, momentGraphNamespace: effectiveNamespace },
+    { env, momentGraphNamespace: null },
     { runId, itemIds: doneItemIds }
   );
 
   await setReplayCursor(
-    { env, momentGraphNamespace: effectiveNamespace },
+    { env, momentGraphNamespace: null },
     {
       runId,
       cursor: { lastOrderMs, lastItemId },
@@ -265,8 +263,6 @@ export async function processMomentReplayReplayJob(
     await (env as any).ENGINE_INDEXING_QUEUE.send({
       jobType: "moment-replay-replay",
       momentReplayRunId: runId,
-      momentGraphNamespace: baseNamespace,
-      momentGraphNamespacePrefix: prefix,
     });
   }
 }

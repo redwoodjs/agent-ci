@@ -217,15 +217,6 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
         : momentGraphNamespace;
 
     const shouldMomentReplay = Boolean(momentGraphNamespacePrefix);
-    if (shouldMomentReplay && !momentGraphNamespace) {
-      return Response.json(
-        {
-          error:
-            "momentGraphNamespace is required when using momentGraphNamespacePrefix for moment replay backfill",
-        },
-        { status: 400 }
-      );
-    }
 
     if (r2Keys) {
       console.log(
@@ -242,12 +233,12 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
         await createMomentReplayRun(
           {
             env: envCloudflare,
-            momentGraphNamespace: effectiveNamespaceForResponse,
+            momentGraphNamespace: null,
           },
           {
             runId,
-            momentGraphNamespace,
-            momentGraphNamespacePrefix,
+            momentGraphNamespace: momentGraphNamespace ?? null,
+            momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
             expectedDocuments: r2Keys.length,
           }
         );
@@ -258,8 +249,10 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
             batch.map((r2Key) => ({
               body: {
                 r2Key,
-                momentGraphNamespace,
-                momentGraphNamespacePrefix,
+                ...(momentGraphNamespace ? { momentGraphNamespace } : null),
+                ...(momentGraphNamespacePrefix
+                  ? { momentGraphNamespacePrefix }
+                  : null),
                 momentReplayRunId: runId,
                 jobType: "moment-replay-collect",
               },
@@ -302,12 +295,12 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
         await createMomentReplayRun(
           {
             env: envCloudflare,
-            momentGraphNamespace: effectiveNamespaceForResponse,
+            momentGraphNamespace: null,
           },
           {
             runId,
-            momentGraphNamespace,
-            momentGraphNamespacePrefix,
+            momentGraphNamespace: momentGraphNamespace ?? null,
+            momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
             expectedDocuments: unprocessedKeys.length,
           }
         );
@@ -318,8 +311,10 @@ async function backfillHandler({ request, ctx }: RequestInfo) {
             batch.map((r2Key) => ({
               body: {
                 r2Key,
-                momentGraphNamespace,
-                momentGraphNamespacePrefix,
+                ...(momentGraphNamespace ? { momentGraphNamespace } : null),
+                ...(momentGraphNamespacePrefix
+                  ? { momentGraphNamespacePrefix }
+                  : null),
                 momentReplayRunId: runId,
                 jobType: "moment-replay-collect",
               },

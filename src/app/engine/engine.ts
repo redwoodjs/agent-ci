@@ -1005,6 +1005,7 @@ export async function indexDocument(
           let linkAuditLogForFirst: Record<string, any> | null = null;
           const replayItems: Array<{
             itemId: string;
+            effectiveNamespace: string;
             orderMs: number;
             payload: any;
           }> = [];
@@ -1186,8 +1187,10 @@ export async function indexDocument(
 
               replayItems.push({
                 itemId: crypto.randomUUID(),
+                effectiveNamespace: effectiveNamespace ?? "redwood:internal",
                 orderMs,
                 payload: {
+                  effectiveNamespace: effectiveNamespace ?? null,
                   document: {
                     id: document.id,
                     source: document.source,
@@ -1220,7 +1223,7 @@ export async function indexDocument(
             await addReplayItemsBatch(
               {
                 env: context.env,
-                momentGraphNamespace: effectiveNamespace,
+                momentGraphNamespace: null,
               },
               {
                 runId: momentReplayRunId,

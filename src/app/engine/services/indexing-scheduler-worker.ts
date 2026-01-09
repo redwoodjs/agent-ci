@@ -2,7 +2,6 @@ import { indexDocument, createEngineContext } from "../index";
 import { updateIndexingState } from "../db";
 import { Chunk } from "../types";
 import { markDocumentCollected, setReplayEnqueued } from "../db/momentReplay";
-import { applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
 
 interface IndexingMessage {
   r2Key: string;
@@ -50,15 +49,8 @@ export async function processIndexingJob(
     );
 
     if (jobType === "moment-replay-collect" && momentReplayRunId) {
-      const effectiveNamespace =
-        momentGraphNamespace && momentGraphNamespacePrefix
-          ? applyMomentGraphNamespacePrefixValue(
-              momentGraphNamespace,
-              momentGraphNamespacePrefix
-            )
-          : momentGraphNamespace ?? null;
       const runState = await markDocumentCollected(
-        { env, momentGraphNamespace: effectiveNamespace },
+        { env, momentGraphNamespace: null },
         { runId: momentReplayRunId }
       );
 
@@ -68,15 +60,13 @@ export async function processIndexingJob(
         runState.collectedDocuments >= runState.expectedDocuments
       ) {
         const didMark = await setReplayEnqueued(
-          { env, momentGraphNamespace: effectiveNamespace },
+          { env, momentGraphNamespace: null },
           { runId: momentReplayRunId }
         );
         if (didMark && (env as any).ENGINE_INDEXING_QUEUE) {
           await (env as any).ENGINE_INDEXING_QUEUE.send({
             jobType: "moment-replay-replay",
             momentReplayRunId,
-            momentGraphNamespace: momentGraphNamespace ?? null,
-            momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
           });
         }
       }

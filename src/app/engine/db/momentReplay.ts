@@ -120,91 +120,78 @@ export async function recordReplayDocumentResult(
     return null;
   }
 
-  const result = await db.transaction().execute(async (trx) => {
-    const existingRow = await trx
-      .selectFrom("moment_replay_document_results")
-      .select(["status"])
+  const errorJson =
+    input.status === "failed"
+      ? JSON.stringify(input.errorPayload ?? { message: "unknown error" })
+      : null;
+
+  const insertResult = await db
+    .insertInto("moment_replay_document_results")
+    .values({
+      run_id: input.runId,
+      r2_key: r2Key,
+      status: input.status,
+      error_json: errorJson,
+      created_at: now,
+      updated_at: now,
+    } as any)
+    .onConflict((oc) => oc.columns(["run_id", "r2_key"]).doNothing())
+    .executeTakeFirst();
+
+  const insertedRows =
+    typeof (insertResult as any)?.numInsertedOrUpdatedRows === "bigint"
+      ? Number((insertResult as any).numInsertedOrUpdatedRows)
+      : Number((insertResult as any)?.numInsertedOrUpdatedRows ?? 0);
+  const didInsert = insertedRows > 0;
+
+  if (!didInsert) {
+    await db
+      .updateTable("moment_replay_document_results")
+      .set({
+        status: input.status,
+        error_json: errorJson,
+        updated_at: now,
+      } as any)
       .where("run_id", "=", input.runId)
       .where("r2_key", "=", r2Key)
-      .executeTakeFirst();
+      .execute();
+  } else {
+    const incSucceeded = input.status === "succeeded" ? 1 : 0;
+    const incFailed = input.status === "failed" ? 1 : 0;
 
-    const isFirstTerminal = !existingRow;
+    await db
+      .updateTable("moment_replay_runs")
+      .set(({ eb }) => ({
+        processed_documents: eb("processed_documents", "+", 1 as any) as any,
+        succeeded_documents: eb(
+          "succeeded_documents",
+          "+",
+          incSucceeded as any
+        ) as any,
+        failed_documents: eb("failed_documents", "+", incFailed as any) as any,
+        updated_at: now,
+      }))
+      .where("run_id", "=", input.runId)
+      .execute();
+  }
 
-    const errorJson =
-      input.status === "failed"
-        ? JSON.stringify(input.errorPayload ?? { message: "unknown error" })
-        : null;
+  const updatedRun = (await db
+    .selectFrom("moment_replay_runs")
+    .selectAll()
+    .where("run_id", "=", input.runId)
+    .executeTakeFirst()) as MomentReplayRunRow | undefined;
 
-    if (existingRow) {
-      await trx
-        .updateTable("moment_replay_document_results")
-        .set({
-          status: input.status,
-          error_json: errorJson,
-          updated_at: now,
-        } as any)
-        .where("run_id", "=", input.runId)
-        .where("r2_key", "=", r2Key)
-        .execute();
-    } else {
-      await trx
-        .insertInto("moment_replay_document_results")
-        .values({
-          run_id: input.runId,
-          r2_key: r2Key,
-          status: input.status,
-          error_json: errorJson,
-          created_at: now,
-          updated_at: now,
-        } as any)
-        .execute();
-    }
-
-    if (isFirstTerminal) {
-      const currentProcessed = Number((run as any).processed_documents ?? 0);
-      const currentSucceeded = Number((run as any).succeeded_documents ?? 0);
-      const currentFailed = Number((run as any).failed_documents ?? 0);
-
-      const nextProcessed = currentProcessed + 1;
-      const nextSucceeded =
-        input.status === "succeeded" ? currentSucceeded + 1 : currentSucceeded;
-      const nextFailed =
-        input.status === "failed" ? currentFailed + 1 : currentFailed;
-
-      await trx
-        .updateTable("moment_replay_runs")
-        .set({
-          processed_documents: nextProcessed as any,
-          succeeded_documents: nextSucceeded as any,
-          failed_documents: nextFailed as any,
-          updated_at: now,
-        } as any)
-        .where("run_id", "=", input.runId)
-        .execute();
-
-      return {
-        processedDocuments: nextProcessed,
-        succeededDocuments: nextSucceeded,
-        failedDocuments: nextFailed,
-      };
-    }
-
-    return {
-      processedDocuments: Number((run as any).processed_documents ?? 0),
-      succeededDocuments: Number((run as any).succeeded_documents ?? 0),
-      failedDocuments: Number((run as any).failed_documents ?? 0),
-    };
-  });
+  const runRow = updatedRun ?? run;
 
   return {
-    expectedDocuments: Number((run as any).expected_documents ?? 0),
-    processedDocuments: result.processedDocuments,
-    succeededDocuments: result.succeededDocuments,
-    failedDocuments: result.failedDocuments,
-    replayEnqueued: Number((run as any).replay_enqueued ?? 0) === 1,
-    momentGraphNamespace: (run as any).moment_graph_namespace ?? null,
+    expectedDocuments: Number((runRow as any).expected_documents ?? 0),
+    processedDocuments: Number((runRow as any).processed_documents ?? 0),
+    succeededDocuments: Number((runRow as any).succeeded_documents ?? 0),
+    failedDocuments: Number((runRow as any).failed_documents ?? 0),
+    replayEnqueued: Number((runRow as any).replay_enqueued ?? 0) === 1,
+    momentGraphNamespace: (runRow as any).moment_graph_namespace ?? null,
     momentGraphNamespacePrefix:
-      (run as any).moment_graph_namespace_prefix ?? null,
+      (runRow as any).moment_graph_namespace_prefix ?? null,
   };
 }
 

@@ -114,3 +114,15 @@ Testing:
 
 - Deployed to production and started a replay backfill run.
 - Observed collect-time errors for some documents (no plugin match for certain Discord jsonl paths, and intermittent network connection lost).
+
+## Investigation: Workers AI 3021 rate limiting during chunk processing
+
+The production logs show chunk processing failures with `AiError: 3021: rate limiting: inference request per min rate reached`.
+
+This comes from the chunk processing queue calling Workers AI once per chunk to generate a bge embedding. With backfill runs producing a high throughput of chunks, the per-minute request cap gets hit.
+
+Change:
+
+- Process chunk queue batches using a single batched embedding request per queue batch, then insert the batch into Vectorize.
+
+This reduces Workers AI embedding calls from N per batch to 1 per batch.

@@ -30,8 +30,10 @@ The solution is a graph-based architecture that creates a layer of abstraction b
 ### 1. The Moment Graph
 Instead of a flat list of documents, we model knowledge as a graph of **Moments**.
 *   **Moments (Macro-Moments)**: The nodes of the graph. These are high-level, synthesized events (e.g., "Identified root cause in router", "Decided to switch databases"). They contain rich, LLM-generated summaries, not raw text.
-*   **Subjects (Root Moments)**: The entry points of the graph. A Subject is simply a Moment with no parent. It defines the start of a topic or stream of work.
-*   **Edges**: Represent storage-time attachment between related Moments. A single Subject can have multiple branches when later documents attach under non-root Moments. Parent links are not a strict time ordering.
+*   **Subjects (Topic demarcation)**: A Subject is a classification on a Moment that marks it as the start of a topic (problem/challenge/opportunity/initiative). A Subject Moment can still have a parent when it is a consequence of earlier work. Moments with no parent are treated as unparented moments, not automatically as subjects.
+*   **Edges**: Represent storage-time attachment between related Moments. A single Subject can have multiple branches when later documents attach under non-root Moments. Parent links are strictly time-ordered: a child must be chronologically later than its parent.
+
+Details: see `docs/architecture/subject-moments-and-evidence.md`.
 
 ### 2. The "Segmentation and Synthesis" Pipeline
 To solve the signal-to-noise problem, ingestion is split into two distinct phases:
@@ -164,11 +166,11 @@ This architecture ensures that we only pay the "AI Tax" for new or modified cont
 To answer "why" questions, the query engine flips the traditional RAG model:
 
 1.  **Find anchor Moments**: The query is embedded and matched against the **Moment Index** (all moments). The engine selects an anchor candidate from the top matches.
-2.  **Resolve Root Subject**: The engine walks parent links from the anchor to the root Subject of that timeline.
-3.  **Retrieve Descendant Timeline**: The engine retrieves the full descendant timeline under that root. This ensures that linked work (example: a Discord thread attached to a GitHub issue) is included in the context, even if the query matched the parent issue and not the thread.
+2.  **Resolve Subject Moment**: The engine walks parent links from the anchor until it reaches the nearest Subject Moment on that path.
+3.  **Retrieve Descendant Timeline**: The engine retrieves the full descendant timeline under that Subject Moment. This ensures that linked work (example: a Discord thread attached to a GitHub issue) is included in the context, even if the query matched the parent issue and not the thread.
 4.  **Synthesize Answer**: The LLM is given this full timeline—formatted with ISO8601 timestamps and canonical references—to generate an answer grounded in the chronological narrative.
 
-Note: the query path uses Moment similarity as the entry point. Subjects are identified by walking parent links to the root of the matched Moment, rather than by separately querying a subject index.
+Note: the query path uses Moment similarity as the entry point. The resolved Subject Moment is found by walking parent links, rather than by separately querying a subject index.
 
 #### Narrative Context
 The context provided to the LLM is a chronological list of macro-moments, ordered by their timestamp (derived from the underlying micro-moments). Each line includes:

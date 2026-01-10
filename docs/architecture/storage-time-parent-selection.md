@@ -11,7 +11,7 @@ Separately, the parent selection step can choose a parent that is later than the
 - Parent selection must use only metadata available at indexing time.
 - Parent selection must remain deterministic given the same stored data.
 - The system must support multiple sources (GitHub, Discord, Cursor) without requiring content inspection.
-- The parent link should not be interpreted as a strict time ordering.
+- The parent link is a strict time ordering: a child must be chronologically later than its parent.
 
 ## Approach
 Apply two rules when proposing a parent for a document's root moment.
@@ -33,9 +33,7 @@ Time range selection:
 
 If a time range start is missing on either side, treat the time ordering as unknown for that candidate.
 
-If a candidate parent starts after the child starts, do not reject it immediately. Instead, route it through an additional classification step that considers:
-- whether the parent and child refer to the same workstream
-- whether the time inversion is acceptable given the document content and timestamps
+If a candidate parent starts after the child starts, reject it.
 
 ## Functional outcomes
 - GitHub issues and pull requests are more likely to be the roots of their cross-source timelines.

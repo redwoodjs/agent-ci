@@ -617,7 +617,7 @@ ${prSummaries.join("\n")}
 ${narrativeContext}
 
 ## Instructions
-Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format. **YOU MUST INCLUDE BOTH SECTIONS:**
+Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format.
 
 ### TL;DR
 [Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed. This section is MANDATORY and must be included.]

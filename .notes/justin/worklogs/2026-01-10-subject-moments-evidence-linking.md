@@ -84,3 +84,8 @@ Subject moments + evidence-based linking (strict time ordering)
 **Testing**
 
 - `pnpm build`
+## Merge: main
+
+- Merged main and resolved a conflict in momentDb vectorization logic.
+- Kept subject semantics: subjects are always indexed (even if below the moment vector importance cutoff).
+- Verified build with pnpm build.

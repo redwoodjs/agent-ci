@@ -38,7 +38,7 @@ The decision process is:
 - Prefer attachments supported by hard anchors (shared canonical tokens or explicit cross-links).
 - If no chain passes, create a separate root for the proposed thread.
 
-### Evidence gating before classification
+## Evidence gating before classification
 
 Vector similarity is a candidate generator. It does not reliably separate:
 
@@ -88,4 +88,6 @@ This avoids forcing unrelated macros from the same document into a chain that wa
 - Attachments use the existing chain context to distinguish "same area" from "same timeline".
 - Borderline semantic matches are less likely to attach without supporting anchors.
 - Off-topic macros from a multi-thread document are less likely to appear as descendants under an unrelated chain.
+
+Related: `docs/architecture/subject-moments-and-evidence.md` describes persisting structured evidence for both attachment decisions and subject marking.
 

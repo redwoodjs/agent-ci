@@ -5,6 +5,17 @@ export type Source =
   | "meeting-notes"
   | "discord";
 
+export type SubjectKind = "problem" | "challenge" | "opportunity" | "initiative";
+
+export type MomentKind =
+  | "problem"
+  | "challenge"
+  | "opportunity"
+  | "initiative"
+  | "attempt"
+  | "decision"
+  | "solution";
+
 export interface Document {
   id: string;
   source: Source;
@@ -58,6 +69,12 @@ export interface Moment {
   microPathsHash?: string;
   importance?: number;
   linkAuditLog?: Record<string, any>;
+  momentKind?: MomentKind;
+  momentEvidence?: string[];
+  isSubject?: boolean;
+  subjectKind?: SubjectKind;
+  subjectReason?: string;
+  subjectEvidence?: string[];
   createdAt: string;
   author: string;
   sourceMetadata?: Record<string, any>;
@@ -75,6 +92,12 @@ export interface MacroMomentDescription extends MomentDescription {
   summary: string;
   microPaths: string[];
   importance?: number;
+  momentKind?: MomentKind;
+  momentEvidence?: string[];
+  isSubject?: boolean;
+  subjectKind?: SubjectKind;
+  subjectReason?: string;
+  subjectEvidence?: string[];
 }
 
 export interface MicroMomentDescription {

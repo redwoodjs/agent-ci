@@ -194,4 +194,48 @@ export const momentMigrations = {
       await db.schema.dropTable("document_audit_logs").execute();
     },
   },
+  "009_add_subject_markers": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("moments")
+          .addColumn("is_subject", "integer")
+          .execute(),
+        await db.schema
+          .alterTable("moments")
+          .addColumn("subject_kind", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moments")
+          .addColumn("subject_reason", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moments")
+          .addColumn("subject_evidence_json", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moments")
+          .addColumn("moment_kind", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moments")
+          .addColumn("moment_evidence_json", "text")
+          .execute(),
+        await db.schema
+          .createIndex("moments_is_subject_idx")
+          .on("moments")
+          .column("is_subject")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropIndex("moments_is_subject_idx").execute();
+      await db.schema.alterTable("moments").dropColumn("moment_evidence_json").execute();
+      await db.schema.alterTable("moments").dropColumn("moment_kind").execute();
+      await db.schema.alterTable("moments").dropColumn("subject_evidence_json").execute();
+      await db.schema.alterTable("moments").dropColumn("subject_reason").execute();
+      await db.schema.alterTable("moments").dropColumn("subject_kind").execute();
+      await db.schema.alterTable("moments").dropColumn("is_subject").execute();
+    },
+  },
 } satisfies Migrations;

@@ -13,6 +13,7 @@ import {
   getKnowledgeGraphStructure,
   getKnowledgeGraphStats,
   getRootMoments,
+  getSubjectMoments,
   getDescendantsForRoot,
   getDescendantsForRootSlim,
   getRootStatsByHighImportanceSample,
@@ -56,6 +57,8 @@ type MomentRow = Override<
     micro_paths_json: string[] | null;
     source_metadata: Record<string, any> | null;
     link_audit_log: Record<string, any> | null;
+    subject_evidence_json: string[] | null;
+    moment_evidence_json: string[] | null;
   }
 >;
 
@@ -422,6 +425,53 @@ export async function getRootMomentsAction(options?: {
     return {
       success: false,
       error: "Failed to fetch root moments",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getSubjectMomentsAction(options?: {
+  limit?: number;
+  momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const subjectMoments = await getSubjectMoments(context, {
+      limit: options?.limit ?? 1000,
+    });
+
+    return {
+      success: true,
+      data: subjectMoments,
+      count: subjectMoments.length,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching subject moments:", error);
+    return {
+      success: false,
+      error: "Failed to fetch subject moments",
       details: error instanceof Error ? error.message : String(error),
     };
   }
@@ -1398,7 +1448,7 @@ async function getNamespaceSourceStatsLocal(
   Array<{
     source: "github" | "discord" | "cursor" | "unknown";
     totalMoments: number;
-    rootMoments: number;
+    unparentedMoments: number;
     linkedMoments: number;
     avgImportance: number | null;
     lastUpdated: string | null;
@@ -1419,7 +1469,7 @@ async function getNamespaceSourceStatsLocal(
     "github" | "discord" | "cursor" | "unknown",
     {
       totalMoments: number;
-      rootMoments: number;
+      unparentedMoments: number;
       linkedMoments: number;
       importanceSum: number;
       importanceCount: number;
@@ -1430,7 +1480,7 @@ async function getNamespaceSourceStatsLocal(
   for (const source of ["github", "discord", "cursor", "unknown"] as const) {
     statsBySource.set(source, {
       totalMoments: 0,
-      rootMoments: 0,
+      unparentedMoments: 0,
       linkedMoments: 0,
       importanceSum: 0,
       importanceCount: 0,
@@ -1445,7 +1495,7 @@ async function getNamespaceSourceStatsLocal(
 
     stats.totalMoments += 1;
     if (row.parent_id === null) {
-      stats.rootMoments += 1;
+      stats.unparentedMoments += 1;
     } else {
       stats.linkedMoments += 1;
     }
@@ -1466,7 +1516,7 @@ async function getNamespaceSourceStatsLocal(
     .map(([source, stats]) => ({
       source,
       totalMoments: stats.totalMoments,
-      rootMoments: stats.rootMoments,
+      unparentedMoments: stats.unparentedMoments,
       linkedMoments: stats.linkedMoments,
       avgImportance:
         stats.importanceCount > 0

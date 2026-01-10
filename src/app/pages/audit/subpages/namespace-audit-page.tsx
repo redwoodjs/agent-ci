@@ -25,7 +25,7 @@ import {
 type SourceStats = {
   source: "github" | "discord" | "cursor" | "unknown";
   totalMoments: number;
-  rootMoments: number;
+  unparentedMoments: number;
   linkedMoments: number;
   avgImportance: number | null;
   lastUpdated: string | null;
@@ -237,7 +237,7 @@ export function NamespaceAuditPage() {
                   <TableRow>
                     <TableHead>Source</TableHead>
                     <TableHead>Total Moments</TableHead>
-                    <TableHead>Root Moments</TableHead>
+                    <TableHead>Unparented Moments</TableHead>
                     <TableHead>Linked Moments</TableHead>
                     <TableHead>Avg Importance</TableHead>
                     <TableHead>Last Updated</TableHead>
@@ -251,7 +251,9 @@ export function NamespaceAuditPage() {
                         {getSourceLabel(stat.source)}
                       </TableCell>
                       <TableCell>{stat.totalMoments.toLocaleString()}</TableCell>
-                      <TableCell>{stat.rootMoments.toLocaleString()}</TableCell>
+                      <TableCell>
+                        {stat.unparentedMoments.toLocaleString()}
+                      </TableCell>
                       <TableCell>{stat.linkedMoments.toLocaleString()}</TableCell>
                       <TableCell>
                         {stat.avgImportance !== null

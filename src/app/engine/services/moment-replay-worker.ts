@@ -38,9 +38,15 @@ async function hashMicroPaths(
 }
 
 function inferDocumentSource(documentId: string): Document["source"] {
-  if (documentId.startsWith("github/")) return "github";
-  if (documentId.startsWith("discord/")) return "discord";
-  if (documentId.startsWith("cursor/")) return "cursor";
+  if (documentId.startsWith("github/")) {
+    return "github";
+  }
+  if (documentId.startsWith("discord/")) {
+    return "discord";
+  }
+  if (documentId.startsWith("cursor/")) {
+    return "cursor";
+  }
   return "meeting-notes";
 }
 
@@ -153,6 +159,32 @@ export async function processMomentReplayReplayJob(
       typeof momentPayload.importance === "number"
         ? momentPayload.importance
         : undefined;
+    const momentKind =
+      typeof momentPayload.momentKind === "string"
+        ? momentPayload.momentKind
+        : undefined;
+    const momentEvidence = Array.isArray(momentPayload.momentEvidence)
+      ? momentPayload.momentEvidence.filter(
+          (e: unknown): e is string => typeof e === "string"
+        )
+      : undefined;
+    const isSubject =
+      typeof momentPayload.isSubject === "boolean"
+        ? momentPayload.isSubject
+        : false;
+    const subjectKind =
+      typeof momentPayload.subjectKind === "string"
+        ? momentPayload.subjectKind
+        : undefined;
+    const subjectReason =
+      typeof momentPayload.subjectReason === "string"
+        ? momentPayload.subjectReason
+        : undefined;
+    const subjectEvidence = Array.isArray(momentPayload.subjectEvidence)
+      ? momentPayload.subjectEvidence.filter(
+          (e: unknown): e is string => typeof e === "string"
+        )
+      : undefined;
     const microPaths = Array.isArray(momentPayload.microPaths)
       ? momentPayload.microPaths.filter(
           (p: unknown): p is string => typeof p === "string"
@@ -247,6 +279,16 @@ export async function processMomentReplayReplayJob(
       microPaths,
       microPathsHash,
       ...(typeof importance === "number" ? { importance } : null),
+      ...(typeof momentKind === "string"
+        ? { momentKind: momentKind as any }
+        : null),
+      ...(momentEvidence ? { momentEvidence } : null),
+      ...(isSubject ? { isSubject: true } : null),
+      ...(typeof subjectKind === "string"
+        ? { subjectKind: subjectKind as any }
+        : null),
+      ...(typeof subjectReason === "string" ? { subjectReason } : null),
+      ...(subjectEvidence ? { subjectEvidence } : null),
       ...(sourceMetadata ? { sourceMetadata } : null),
     };
 

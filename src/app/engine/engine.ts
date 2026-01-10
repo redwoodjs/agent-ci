@@ -18,6 +18,8 @@ import {
   findSimilarMoments,
   findAncestors,
   findDescendants,
+  findSubjectStartIdForMoment,
+  getMoment,
   getRootStatsByHighImportanceSample,
   upsertMicroMomentsBatch,
   getMicroMomentsForDocument,
@@ -32,6 +34,7 @@ import {
   type SynthesisAuditEvent,
 } from "./synthesis/synthesizeMicroMoments";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
+import { classifyMacroMoments } from "./subjects/classifyMacroMoments";
 import {
   applyMomentGraphNamespacePrefixValue,
   getMomentGraphNamespacePrefixFromEnv,
@@ -625,7 +628,7 @@ export async function indexDocument(
               ? Number.parseFloat(macroMinImportanceRaw)
               : typeof macroMinImportanceRaw === "number"
               ? macroMinImportanceRaw
-              : 0.25;
+              : 0;
 
           const macroGateResult = (() => {
             const noisePatternsFromEnvRaw = (indexingContext.env as any)
@@ -897,6 +900,59 @@ export async function indexDocument(
 
           if (macroMomentDescriptions.length === 0) {
             continue;
+          }
+
+          const classified = await classifyMacroMoments({
+            documentId: document.id,
+            macroMoments: macroMomentDescriptions,
+          });
+          if (classified) {
+            const byIndex = new Map<number, (typeof classified)[number]>();
+            for (const c of classified) {
+              byIndex.set(c.index, c);
+            }
+
+            for (let i = 0; i < macroMomentDescriptions.length; i++) {
+              const c = byIndex.get(i + 1);
+              if (!c) {
+                continue;
+              }
+              (macroMomentDescriptions[i] as any).momentKind = c.momentKind;
+              (macroMomentDescriptions[i] as any).momentEvidence =
+                c.momentEvidence;
+              (macroMomentDescriptions[i] as any).isSubject = c.isSubject;
+              (macroMomentDescriptions[i] as any).subjectKind = c.subjectKind;
+              (macroMomentDescriptions[i] as any).subjectReason =
+                c.subjectReason;
+              (macroMomentDescriptions[i] as any).subjectEvidence =
+                c.subjectEvidence;
+              if (c.confidence) {
+                (macroMomentDescriptions[i] as any).classificationConfidence =
+                  c.confidence;
+              }
+            }
+
+            await addDocumentAuditLog(
+              document.id,
+              "synthesis:macro-classification",
+              {
+                streamId: stream.streamId,
+                classifiedCount: classified.length,
+                classifications: classified,
+              },
+              momentGraphContext
+            );
+          } else {
+            await addDocumentAuditLog(
+              document.id,
+              "synthesis:macro-classification-error",
+              {
+                streamId: stream.streamId,
+                message: "Failed to parse macro classification response.",
+                macroCount: macroMomentDescriptions.length,
+              },
+              momentGraphContext
+            );
           }
 
           stage = "persist-macro-moments";
@@ -1172,6 +1228,27 @@ export async function indexDocument(
                 typeof (description as any).importance === "number"
                   ? ((description as any).importance as number)
                   : undefined,
+              momentKind:
+                typeof (description as any).momentKind === "string"
+                  ? ((description as any).momentKind as any)
+                  : undefined,
+              momentEvidence: Array.isArray((description as any).momentEvidence)
+                ? ((description as any).momentEvidence as any)
+                : undefined,
+              isSubject: (description as any).isSubject === true,
+              subjectKind:
+                typeof (description as any).subjectKind === "string"
+                  ? ((description as any).subjectKind as any)
+                  : undefined,
+              subjectReason:
+                typeof (description as any).subjectReason === "string"
+                  ? ((description as any).subjectReason as string)
+                  : undefined,
+              subjectEvidence: Array.isArray(
+                (description as any).subjectEvidence
+              )
+                ? ((description as any).subjectEvidence as any)
+                : undefined,
               linkAuditLog:
                 i === 0 ? linkAuditLogForFirst ?? undefined : undefined,
               createdAt: description.createdAt,
@@ -1237,6 +1314,12 @@ export async function indexDocument(
                     author: moment.author,
                     createdAt: moment.createdAt,
                     importance: moment.importance ?? null,
+                    momentKind: moment.momentKind ?? null,
+                    momentEvidence: moment.momentEvidence ?? null,
+                    isSubject: moment.isSubject ?? false,
+                    subjectKind: moment.subjectKind ?? null,
+                    subjectReason: moment.subjectReason ?? null,
+                    subjectEvidence: moment.subjectEvidence ?? null,
                     microPaths: moment.microPaths ?? null,
                     microPathsHash: moment.microPathsHash ?? null,
                     sourceMetadata: moment.sourceMetadata ?? null,
@@ -1755,7 +1838,17 @@ export async function query(
               candidate.id,
               momentGraphContext
             );
-            const root = ancestors[0] ?? candidate;
+            const subjectStartId = await findSubjectStartIdForMoment(
+              candidate.id,
+              momentGraphContext
+            );
+            const subjectStart =
+              subjectStartId && subjectStartId !== candidate.id
+                ? await getMoment(subjectStartId, momentGraphContext)
+                : subjectStartId === candidate.id
+                ? candidate
+                : null;
+            const root = subjectStart ?? ancestors[0] ?? candidate;
             const chosenMatchId = candidate.id;
 
             const timeline = await findDescendants(root.id, momentGraphContext);
@@ -1963,7 +2056,18 @@ Write a clear narrative answer that explains the sequence and causal relationshi
           for (let i = 0; i < matchesToConsider.length; i++) {
             const match = matchesToConsider[i];
             const ancestors = await findAncestors(match.id, momentGraphContext);
-            const root = ancestors[0];
+            const fallbackRoot = ancestors[0];
+            const subjectStartId = await findSubjectStartIdForMoment(
+              match.id,
+              momentGraphContext
+            );
+            const subjectStart =
+              subjectStartId && subjectStartId !== match.id
+                ? await getMoment(subjectStartId, momentGraphContext)
+                : subjectStartId === match.id
+                ? match
+                : null;
+            const root = subjectStart ?? fallbackRoot;
             if (!root) {
               continue;
             }

@@ -207,10 +207,10 @@ export const smartLinkerPlugin: Plugin = {
       }
 
       if (
-        !context.env.SUBJECT_INDEX ||
-        typeof (context.env.SUBJECT_INDEX as any).query !== "function"
+        !context.env.MOMENT_INDEX ||
+        typeof (context.env.MOMENT_INDEX as any).query !== "function"
       ) {
-        console.log("[moment-linker] smart linker skipped (no SUBJECT_INDEX)", {
+        console.log("[moment-linker] smart linker skipped (no MOMENT_INDEX)", {
           documentId: document.id,
           macroMomentIndex,
         });
@@ -221,7 +221,7 @@ export const smartLinkerPlugin: Plugin = {
           auditLog: {
             plugin: "smart-linker",
             skipped: true,
-            skippedReason: "no-subject-index",
+            skippedReason: "no-moment-index",
             documentId: document.id,
             macroMomentIndex,
           },
@@ -305,33 +305,16 @@ export const smartLinkerPlugin: Plugin = {
 
       const embedding = await getEmbedding(queryText);
       const queryOptions: Record<string, unknown> = {
-        topK: 20,
+        topK: 30,
         returnMetadata: true,
       };
       if (momentGraphNamespace !== "default") {
         queryOptions.filter = { momentGraphNamespace };
       }
-      let results = await context.env.SUBJECT_INDEX.query(
+      const results = await context.env.MOMENT_INDEX.query(
         embedding,
         queryOptions as any
       );
-
-      if (!results.matches || results.matches.length === 0) {
-        if (
-          context.env.MOMENT_INDEX &&
-          typeof (context.env.MOMENT_INDEX as any).query === "function"
-        ) {
-          console.log("[moment-linker] smart linker fallback to MOMENT_INDEX", {
-            documentId: document.id,
-            macroMomentIndex,
-            momentGraphNamespace,
-          });
-          results = await context.env.MOMENT_INDEX.query(
-            embedding,
-            queryOptions as any
-          );
-        }
-      }
 
       console.log("[moment-linker] smart linker candidates", {
         documentId: document.id,
@@ -475,6 +458,9 @@ export const smartLinkerPlugin: Plugin = {
           parentStartMs > childStartMs;
         if (temporalInverted) {
           decision.temporalInverted = true;
+          decision.rejectReason = "time-inversion";
+          candidateDecisions.push(decision);
+          continue;
         }
         if (
           childStartMs !== null &&
@@ -668,9 +654,8 @@ export const smartLinkerPlugin: Plugin = {
         const vetoPrompt = `You are a knowledge graph timeline fit checker.
 Your job is to decide whether a proposed moment belongs in a candidate timeline.
 
-Return YES if the proposed moment plausibly fits into the candidate timeline.
-Return NO only when it is clearly wrong or would make the timeline misleading.
-Return only YES or NO.
+Return a single JSON object.
+Do not include any extra text.
 
 ## Proposed moment
 Time: ${childTime ?? "unknown"}
@@ -695,26 +680,47 @@ CandidateSample: ${parentAnchorTokens.slice(0, 12).join(", ") || "(none)"}
 ${cappedTimeline.text || "(missing timeline context)"}
 
 Guidance:
-- Say YES when this is the same subsystem, API, work item, or a direct follow-up (feature, bugfix, design decision, clarification) and the timeline context does not contradict it.
-- Say NO when it is about a different subsystem/work item and the timeline context suggests a different thread.
-- Prefer YES when there are shared anchor tokens (canonical refs, issue/pr numbers, code identifiers), even if the exact change differs.
+- Attach only when there is evidence of continuity in the timeline context.
+- Prefer explicit anchors (canonical tokens, issue/pr numbers, quoted identifiers) over inferred similarity.
+- If there are no shared anchors, require clear continuity from the timeline context itself.
+- Reject when this would create a misleading timeline.
+
+Output schema:
+{
+  "decision": "ATTACH" | "REJECT",
+  "confidence": "high" | "medium" | "low",
+  "evidence": [
+    { "kind": "canonical_token" | "issue_ref" | "pr_ref" | "identifier" | "error_string" | "quoted_phrase" | "other", "value": string, "source": "shared" | "proposed" | "candidate" | "timeline" }
+  ],
+  "explanation": string
+}
 `;
 
         let vetoAnswer: string | null = null;
+        let vetoJson: any = null;
         try {
           const llmResult = await callLLM(vetoPrompt, "slow-reasoning", {
             temperature: 0,
             reasoning: { effort: "high" },
           });
-          vetoAnswer = llmResult.trim().split(/\s+/)[0]?.toUpperCase() ?? null;
+          vetoAnswer = llmResult.trim();
+          try {
+            vetoJson = JSON.parse(vetoAnswer);
+          } catch {
+            vetoJson = null;
+          }
         } catch (err) {
           console.error("[moment-linker] LLM veto check failed", err);
         }
 
-        const allowed =
-          vetoAnswer === "YES" || vetoAnswer === "Y" || vetoAnswer === "TRUE";
+        const decisionValue =
+          vetoJson && typeof vetoJson.decision === "string"
+            ? String(vetoJson.decision).toUpperCase()
+            : null;
+        const allowed = decisionValue === "ATTACH";
 
         entry.decision.timelineFitAnswer = vetoAnswer;
+        entry.decision.timelineFitJson = vetoJson;
         entry.decision.timelineFitAllowed = allowed;
 
         console.log("[moment-linker] smart linker timeline fit decision", {

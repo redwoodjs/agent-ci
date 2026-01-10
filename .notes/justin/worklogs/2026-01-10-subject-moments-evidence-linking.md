@@ -44,3 +44,11 @@ The moment replay backfill staging work makes it possible to change attachment r
 - Added an architecture document describing the intended split between subject marking and attachment, and the requirement that both decisions return structured evidence.
 - Updated the knowledge synthesis architecture doc to describe subjects as a classification on a moment rather than "moment with no parent".
 
+- Added a subject moment listing query and updated graph stats to include subject and unparented counts.
+- Updated chain context and root sampling to treat the nearest subject ancestor as the timeline root for context building.
+- Updated smart-linker:
+  - candidate generation uses MOMENT_INDEX
+  - time inversions are rejected
+  - the timeline-fit call returns structured JSON (decision, evidence, explanation, confidence) and is persisted in the audit log
+- Added a macro classification step that tags macro moments with moment kind and subject marker fields, plus evidence and confidence.
+- Lowered the default macro moment minimum importance cutoff to 0 so macro pruning relies more on prompt constraints + noise filtering.

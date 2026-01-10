@@ -15,6 +15,7 @@ import {
   getKnowledgeGraphStatsAction,
   getMomentGraphNamespacePrefix,
   getRootMomentsAction,
+  getSubjectMomentsAction,
   getDescendantsForRootSlimAction,
   getRootSampleStatsAction,
   searchMomentsAction,
@@ -190,7 +191,8 @@ export function KnowledgeGraphPage() {
   const [graphMaxNodes, setGraphMaxNodes] = useState(5000);
   const [stats, setStats] = useState<{
     totalMoments: number;
-    rootMoments: number;
+    subjectMoments: number;
+    unparentedMoments: number;
     momentsWithParent: number;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -216,6 +218,7 @@ export function KnowledgeGraphPage() {
       parentId: string | null;
       createdAt: string;
       descendantCount: number;
+      subjectKind?: string | null;
     }>
   >([]);
   const [rootMomentsLoading, setRootMomentsLoading] = useState(false);
@@ -407,7 +410,7 @@ export function KnowledgeGraphPage() {
     async function fetchRootMoments() {
       setRootMomentsLoading(true);
       try {
-        const result = await getRootMomentsAction({
+        const result = await getSubjectMomentsAction({
           limit: 1000,
           momentGraphNamespace: selectedNamespace,
           momentGraphNamespacePrefix:
@@ -419,10 +422,10 @@ export function KnowledgeGraphPage() {
             setEffectiveNamespace(result.effectiveNamespace);
           }
         } else {
-          console.error("Failed to fetch root moments:", result.error);
+          console.error("Failed to fetch subject moments:", result.error);
         }
       } catch (err) {
-        console.error("Error fetching root moments:", err);
+        console.error("Error fetching subject moments:", err);
       } finally {
         setRootMomentsLoading(false);
       }
@@ -1067,10 +1070,10 @@ export function KnowledgeGraphPage() {
               </div>
               <div className="p-4 bg-green-50 rounded-lg border border-green-200">
                 <div className="text-sm font-medium text-green-600 mb-1">
-                  Root Moments (Subjects)
+                  Subject Moments
                 </div>
                 <div className="text-3xl font-bold text-green-900">
-                  {stats.rootMoments}
+                  {stats.subjectMoments}
                 </div>
               </div>
               <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
@@ -1700,6 +1703,101 @@ export function KnowledgeGraphPage() {
                             </div>
                           </div>
 
+                          <div className="border-t pt-3 space-y-2">
+                            <div className="text-sm font-medium text-gray-900">
+                              Classification
+                            </div>
+
+                            <div className="text-xs text-gray-600">
+                              Moment kind:{" "}
+                              <span className="font-mono">
+                                {(selectedMomentDetails as any).momentKind ??
+                                  "N/A"}
+                              </span>
+                            </div>
+
+                            <div className="text-xs text-gray-600">
+                              Subject:{" "}
+                              <span className="font-mono">
+                                {(selectedMomentDetails as any).isSubject
+                                  ? "true"
+                                  : "false"}
+                              </span>
+                              {(selectedMomentDetails as any).isSubject && (
+                                <>
+                                  {" "}
+                                  <span className="text-gray-400">/</span>{" "}
+                                  <span className="font-mono">
+                                    {(selectedMomentDetails as any)
+                                      .subjectKind ?? "N/A"}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+
+                            {typeof (selectedMomentDetails as any)
+                              .subjectReason === "string" && (
+                              <div>
+                                <div className="text-xs font-medium text-gray-500 mb-1">
+                                  Subject reason
+                                </div>
+                                <div className="text-xs text-gray-700 whitespace-pre-wrap">
+                                  {(selectedMomentDetails as any).subjectReason}
+                                </div>
+                              </div>
+                            )}
+
+                            {Array.isArray(
+                              (selectedMomentDetails as any).subjectEvidence
+                            ) &&
+                              (selectedMomentDetails as any).subjectEvidence
+                                .length > 0 && (
+                                <div>
+                                  <div className="text-xs font-medium text-gray-500 mb-1">
+                                    Subject evidence
+                                  </div>
+                                  <div className="space-y-1">
+                                    {(
+                                      (selectedMomentDetails as any)
+                                        .subjectEvidence as any[]
+                                    ).map((e, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="font-mono text-xs break-all text-gray-700"
+                                      >
+                                        {String(e)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                            {Array.isArray(
+                              (selectedMomentDetails as any).momentEvidence
+                            ) &&
+                              (selectedMomentDetails as any).momentEvidence
+                                .length > 0 && (
+                                <div>
+                                  <div className="text-xs font-medium text-gray-500 mb-1">
+                                    Moment evidence
+                                  </div>
+                                  <div className="space-y-1">
+                                    {(
+                                      (selectedMomentDetails as any)
+                                        .momentEvidence as any[]
+                                    ).map((e, idx) => (
+                                      <div
+                                        key={idx}
+                                        className="font-mono text-xs break-all text-gray-700"
+                                      >
+                                        {String(e)}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                          </div>
+
                           {selectedMomentDetails.provenance && (
                             <div className="border-t pt-3 space-y-2">
                               <div className="text-sm font-medium text-gray-900">
@@ -1916,12 +2014,17 @@ export function KnowledgeGraphPage() {
                                                   </span>
                                                 )}
                                               </div>
-                                              {typeof c?.vetoAnswer ===
-                                                "string" && (
+                                              {typeof (
+                                                c?.timelineFitAnswer ??
+                                                c?.vetoAnswer
+                                              ) === "string" && (
                                                 <div className="text-xs text-gray-600 mt-1">
-                                                  Veto:{" "}
+                                                  Timeline fit:{" "}
                                                   <span className="font-mono">
-                                                    {c.vetoAnswer}
+                                                    {String(
+                                                      c?.timelineFitAnswer ??
+                                                        c?.vetoAnswer
+                                                    )}
                                                   </span>
                                                 </div>
                                               )}

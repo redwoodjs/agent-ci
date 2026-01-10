@@ -131,8 +131,14 @@ Selection rules (macro moments to exclude):
 - Do not emit macro moments for generic encouragement, praise, or gratitude.
 
 Selection rules (macro moments to include):
-- Prefer decisions, hypotheses, experiments and results, fixes, merges, and follow-up actions.
-- Prefer moments that contain concrete anchors (examples: error messages, commands, PR/issue links, canonical reference tokens).
+- Emit a macro moment only when it contains at least one of:
+  - a problem or challenge
+  - an opportunity or initiative
+  - an attempt at a solution (including experiments and investigations)
+  - a decision
+  - a solution (prefer describing a merged pull request as a solution; treat local work or unmerged work as an attempt)
+- Omit all other content (do not generate a low-signal macro moment).
+- Prefer macro moments that contain concrete anchors (examples: error messages, commands, PR/issue links, canonical reference tokens).
 
 ${formattingRules}
 
@@ -404,8 +410,14 @@ Selection rules (macro moments to exclude):
 - Do not emit macro moments for generic encouragement or gratitude.
 
 Selection rules (macro moments to include):
+- Emit a macro moment only when it contains at least one of:
+  - a problem or challenge
+  - an opportunity or initiative
+  - an attempt at a solution (including experiments and investigations)
+  - a decision
+  - a solution (prefer describing a merged pull request as a solution; treat local work or unmerged work as an attempt)
+- Omit all other content (do not generate a low-signal macro moment).
 - Prefer macro moments that contain concrete anchors (examples: error messages, commands, PR/issue links, canonical reference tokens).
-- Prefer decisions, hypotheses, experiments and results, fixes, merges, and follow-up actions.
 
 ${formattingRules}
 

@@ -52,3 +52,35 @@ The moment replay backfill staging work makes it possible to change attachment r
   - the timeline-fit call returns structured JSON (decision, evidence, explanation, confidence) and is persisted in the audit log
 - Added a macro classification step that tags macro moments with moment kind and subject marker fields, plus evidence and confidence.
 - Lowered the default macro moment minimum importance cutoff to 0 so macro pruning relies more on prompt constraints + noise filtering.
+
+### PR title
+
+Subject moments + evidence-based linking (strict time ordering)
+
+### PR description
+
+**Previous state**
+
+- Subjects were treated as root moments (parent is null), so topic demarcation and attachment were conflated.
+- Parent links could be time-inverted.
+- Smart linking produced an attach/no-attach outcome without structured evidence.
+- The audit UI centered on root moments and did not surface subject markers or decision evidence.
+
+**Change**
+
+- Added subject markers to moments (subject flag, subject kind, reason, evidence) and separated subject marking from attachment.
+- Enforced strict time ordering for parent links at write time (reject parent candidates that start later than the child).
+- Changed subject indexing so the subject index contains only subject moments.
+- Updated linking to use the moment index for candidate generation, reject time inversions, and persist a structured JSON decision payload (decision, evidence, explanation, confidence) in the linkage audit log.
+- Added a macro classification step to tag macro moments with kind (problem/challenge/opportunity/initiative/attempt/decision/solution) and subject markers, including evidence and confidence.
+- Updated narrative query and audit UI to treat the nearest subject ancestor as the timeline root, list subject moments, and show classification and linkage details.
+
+**Outcomes**
+
+- Topic demarcation is independent from parentage, so subject moments can live inside an existing chain.
+- Parent links are time-ordered.
+- Linking and subject decisions are inspectable via persisted evidence.
+
+**Testing**
+
+- `pnpm build`

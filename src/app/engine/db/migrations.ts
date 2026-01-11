@@ -223,4 +223,54 @@ export const indexingStateMigrations = {
         .execute();
     },
   },
+  "007_add_moment_replay_order_and_item_metadata": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("replay_order", "text", (col) =>
+            col.notNull().defaultTo("ascending")
+          )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_items")
+          .addColumn("document_id", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_items")
+          .addColumn("stream_id", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_items")
+          .addColumn("macro_moment_index", "integer")
+          .execute(),
+        await db.schema
+          .createIndex("moment_replay_items_document_idx")
+          .on("moment_replay_items")
+          .columns(["run_id", "status", "document_id", "order_ms", "item_id"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema
+        .dropIndex("moment_replay_items_document_idx")
+        .execute();
+      await db.schema
+        .alterTable("moment_replay_items")
+        .dropColumn("macro_moment_index")
+        .execute();
+      await db.schema
+        .alterTable("moment_replay_items")
+        .dropColumn("stream_id")
+        .execute();
+      await db.schema
+        .alterTable("moment_replay_items")
+        .dropColumn("document_id")
+        .execute();
+      await db.schema
+        .alterTable("moment_replay_runs")
+        .dropColumn("replay_order")
+        .execute();
+    },
+  },
 } satisfies Migrations;

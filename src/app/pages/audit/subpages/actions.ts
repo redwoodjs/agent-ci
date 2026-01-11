@@ -32,6 +32,10 @@ import {
   getMomentGraphNamespaceFromEnv,
 } from "@/app/engine/momentGraphNamespace";
 import { getRecentReplayRunsForPrefix } from "@/app/engine/db/momentReplay";
+import {
+  setReplayItemsPendingOnlyForDocuments,
+} from "@/app/engine/db/momentReplay";
+import { resetReplayRunForReplay } from "@/app/engine/db/momentReplay";
 import { getEmbedding, getEmbeddings } from "@/app/engine/utils/vector";
 import {
   getPullRequestsForCommit,
@@ -981,6 +985,173 @@ export async function resumeReplayRunAction(input: { runId: string }) {
     });
 
     return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function restartReplayRunAction(input: {
+  runId: string;
+  replayOrder?: "ascending" | "descending" | null;
+}) {
+  try {
+    const runId =
+      typeof input?.runId === "string" && input.runId.trim().length > 0
+        ? input.runId.trim()
+        : null;
+    if (!runId) {
+      return { success: false, error: "Missing runId" };
+    }
+
+    const envCloudflare = env as Cloudflare.Env;
+    const resetOk = await resetReplayRunForReplay(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId, replayOrder: input.replayOrder ?? null }
+    );
+    if (!resetOk) {
+      return { success: false, error: "Replay run not found" };
+    }
+
+    const queue = (envCloudflare as any).ENGINE_INDEXING_QUEUE;
+    if (!queue) {
+      return { success: false, error: "Missing ENGINE_INDEXING_QUEUE binding" };
+    }
+
+    await queue.send({
+      jobType: "moment-replay-replay",
+      momentReplayRunId: runId,
+    });
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function replaySelectedDocumentsAction(input: {
+  runId: string;
+  documentIds: string[];
+  replayOrder?: "ascending" | "descending" | null;
+}) {
+  try {
+    const runId =
+      typeof input?.runId === "string" && input.runId.trim().length > 0
+        ? input.runId.trim()
+        : null;
+    if (!runId) {
+      return { success: false, error: "Missing runId" };
+    }
+
+    const documentIds = Array.isArray(input.documentIds)
+      ? input.documentIds
+          .filter((d): d is string => typeof d === "string")
+          .map((d) => d.trim())
+          .filter((d) => d.length > 0)
+      : [];
+    if (documentIds.length === 0) {
+      return { success: false, error: "Missing documentIds" };
+    }
+
+    const envCloudflare = env as Cloudflare.Env;
+
+    const resetOk = await resetReplayRunForReplay(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId, replayOrder: input.replayOrder ?? null }
+    );
+    if (!resetOk) {
+      return { success: false, error: "Replay run not found" };
+    }
+
+    await setReplayItemsPendingOnlyForDocuments(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId, documentIds }
+    );
+
+    const queue = (envCloudflare as any).ENGINE_INDEXING_QUEUE;
+    if (!queue) {
+      return { success: false, error: "Missing ENGINE_INDEXING_QUEUE binding" };
+    }
+
+    await queue.send({
+      jobType: "moment-replay-replay",
+      momentReplayRunId: runId,
+    });
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function recollectSelectedDocumentsAction(input: {
+  runId: string;
+  r2Keys: string[];
+  momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
+}) {
+  try {
+    const runId =
+      typeof input?.runId === "string" && input.runId.trim().length > 0
+        ? input.runId.trim()
+        : null;
+    if (!runId) {
+      return { success: false, error: "Missing runId" };
+    }
+
+    const r2Keys = Array.isArray(input.r2Keys)
+      ? input.r2Keys
+          .filter((k): k is string => typeof k === "string")
+          .map((k) => k.trim())
+          .filter((k) => k.length > 0)
+      : [];
+    if (r2Keys.length === 0) {
+      return { success: false, error: "Missing r2Keys" };
+    }
+
+    const envCloudflare = env as Cloudflare.Env;
+    const queue = (envCloudflare as any).ENGINE_INDEXING_QUEUE;
+    if (!queue) {
+      return { success: false, error: "Missing ENGINE_INDEXING_QUEUE binding" };
+    }
+
+    const momentGraphNamespace =
+      typeof input.momentGraphNamespace === "string" &&
+      input.momentGraphNamespace.trim().length > 0
+        ? input.momentGraphNamespace.trim()
+        : null;
+    const momentGraphNamespacePrefix =
+      typeof input.momentGraphNamespacePrefix === "string" &&
+      input.momentGraphNamespacePrefix.trim().length > 0
+        ? input.momentGraphNamespacePrefix.trim()
+        : null;
+
+    const batchSize = 25;
+    for (let i = 0; i < r2Keys.length; i += batchSize) {
+      const batch = r2Keys.slice(i, i + batchSize);
+      await queue.sendBatch(
+        batch.map((r2Key) => ({
+          body: {
+            r2Key,
+            ...(momentGraphNamespace ? { momentGraphNamespace } : null),
+            ...(momentGraphNamespacePrefix ? { momentGraphNamespacePrefix } : null),
+            momentReplayRunId: runId,
+            jobType: "moment-replay-collect",
+            forceRecollect: true,
+          },
+        }))
+      );
+    }
+
+    return { success: true, enqueued: r2Keys.length };
   } catch (error) {
     return {
       success: false,

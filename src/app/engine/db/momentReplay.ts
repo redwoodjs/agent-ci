@@ -47,6 +47,8 @@ export type ReplayCursor = {
   lastItemId: string | null;
 };
 
+export type ReplayOrder = "ascending" | "descending";
+
 export async function getRecentReplayRunsForPrefix(
   context: ReplayDbContext,
   input: { momentGraphNamespacePrefix: string; limit?: number }
@@ -64,6 +66,7 @@ export async function getRecentReplayRunsForPrefix(
     replayEnqueued: boolean;
     momentGraphNamespace: string | null;
     momentGraphNamespacePrefix: string | null;
+    replayOrder: ReplayOrder;
   }>
 > {
   const db = getReplayDb(context);
@@ -103,6 +106,8 @@ export async function getRecentReplayRunsForPrefix(
     momentGraphNamespace: (row as any).moment_graph_namespace ?? null,
     momentGraphNamespacePrefix:
       (row as any).moment_graph_namespace_prefix ?? null,
+    replayOrder:
+      (row as any).replay_order === "descending" ? "descending" : "ascending",
   }));
 }
 
@@ -113,10 +118,13 @@ export async function createMomentReplayRun(
     momentGraphNamespace: string | null;
     momentGraphNamespacePrefix: string | null;
     expectedDocuments: number;
+    replayOrder?: ReplayOrder | null;
   }
 ): Promise<void> {
   const db = getReplayDb(context);
   const now = new Date().toISOString();
+  const replayOrder =
+    input.replayOrder === "descending" ? "descending" : "ascending";
   await db
     .insertInto("moment_replay_runs")
     .values({
@@ -137,6 +145,7 @@ export async function createMomentReplayRun(
         lastOrderMs: null,
         lastItemId: null,
       } satisfies ReplayCursor),
+      replay_order: replayOrder,
     } as any)
     .execute();
 }
@@ -287,6 +296,9 @@ export async function addReplayItemsBatch(
     items: Array<{
       itemId: string;
       effectiveNamespace: string;
+      documentId?: string | null;
+      streamId?: string | null;
+      macroMomentIndex?: number | null;
       orderMs: number;
       payload: unknown;
     }>;
@@ -303,6 +315,13 @@ export async function addReplayItemsBatch(
     run_id: input.runId,
     item_id: it.itemId,
     effective_namespace: it.effectiveNamespace,
+    document_id: it.documentId ?? null,
+    stream_id: it.streamId ?? null,
+    macro_moment_index:
+      typeof it.macroMomentIndex === "number" &&
+      Number.isFinite(it.macroMomentIndex)
+        ? Math.floor(it.macroMomentIndex)
+        : null,
     order_ms: it.orderMs as any,
     payload_json: JSON.stringify(it.payload),
     status: "pending",
@@ -316,7 +335,18 @@ export async function addReplayItemsBatch(
     await db
       .insertInto("moment_replay_items")
       .values(batch as any)
-      .onConflict((oc) => oc.columns(["run_id", "item_id"]).doNothing())
+      .onConflict((oc) =>
+        oc.columns(["run_id", "item_id"]).doUpdateSet({
+          effective_namespace: (db as any).ref("excluded.effective_namespace"),
+          document_id: (db as any).ref("excluded.document_id"),
+          stream_id: (db as any).ref("excluded.stream_id"),
+          macro_moment_index: (db as any).ref("excluded.macro_moment_index"),
+          order_ms: (db as any).ref("excluded.order_ms"),
+          payload_json: (db as any).ref("excluded.payload_json"),
+          status: "pending",
+          updated_at: now,
+        } as any)
+      )
       .execute();
   }
 }
@@ -334,6 +364,78 @@ export async function setReplayRunStatus(
     })
     .where("run_id", "=", input.runId)
     .execute();
+}
+
+export async function resetReplayRunForReplay(
+  context: ReplayDbContext,
+  input: { runId: string; replayOrder?: ReplayOrder | null }
+): Promise<boolean> {
+  const db = getReplayDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return false;
+  }
+
+  const now = new Date().toISOString();
+
+  const runRow = await db
+    .selectFrom("moment_replay_runs")
+    .select(["run_id"])
+    .where("run_id", "=", runId)
+    .executeTakeFirst();
+
+  if (!runRow) {
+    return false;
+  }
+
+  const replayOrder =
+    input.replayOrder === "descending" ? "descending" : null;
+
+  await db
+    .updateTable("moment_replay_runs")
+    .set({
+      status: "ready_to_replay",
+      replay_enqueued: 0 as any,
+      replayed_items: 0 as any,
+      replay_cursor_json: JSON.stringify({
+        lastOrderMs: null,
+        lastItemId: null,
+      } satisfies ReplayCursor),
+      ...(replayOrder ? { replay_order: replayOrder } : null),
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", runId)
+    .execute();
+
+  await db
+    .updateTable("moment_replay_items")
+    .set({
+      status: "pending",
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", runId)
+    .execute();
+
+  await db.deleteFrom("moment_replay_stream_state").where("run_id", "=", runId).execute();
+
+  return true;
+}
+
+export async function getReplayRunOrder(
+  context: ReplayDbContext,
+  input: { runId: string }
+): Promise<ReplayOrder> {
+  const db = getReplayDb(context);
+  const row = await db
+    .selectFrom("moment_replay_runs")
+    .select(["replay_order"])
+    .where("run_id", "=", input.runId)
+    .executeTakeFirst();
+  const value = (row as any)?.replay_order;
+  return value === "descending" ? "descending" : "ascending";
 }
 
 export async function getReplayCursor(
@@ -448,7 +550,12 @@ export async function setReplayStreamState(
 
 export async function fetchReplayItemsBatch(
   context: ReplayDbContext,
-  input: { runId: string; cursor: ReplayCursor; limit: number }
+  input: {
+    runId: string;
+    cursor: ReplayCursor;
+    limit: number;
+    replayOrder: ReplayOrder;
+  }
 ): Promise<
   Array<{
     itemId: string;
@@ -467,6 +574,7 @@ export async function fetchReplayItemsBatch(
 
   const lastOrderMs = input.cursor.lastOrderMs;
   const lastItemId = input.cursor.lastItemId;
+  const replayOrder = input.replayOrder === "descending" ? "descending" : "ascending";
 
   const rows = (await db
     .selectFrom("moment_replay_items")
@@ -474,6 +582,25 @@ export async function fetchReplayItemsBatch(
     .where("run_id", "=", input.runId)
     .where("status", "=", "pending")
     .where((eb) => {
+      if (replayOrder === "descending") {
+        if (
+          typeof lastOrderMs === "number" &&
+          Number.isFinite(lastOrderMs) &&
+          lastItemId
+        ) {
+          return eb.or([
+            eb("order_ms", "<", lastOrderMs as any),
+            eb.and([
+              eb("order_ms", "=", lastOrderMs as any),
+              eb("item_id", "<", lastItemId),
+            ]),
+          ]);
+        }
+        if (typeof lastOrderMs === "number" && Number.isFinite(lastOrderMs)) {
+          return eb("order_ms", "<", lastOrderMs as any);
+        }
+        return eb("order_ms", ">=", 0 as any);
+      }
       if (
         typeof lastOrderMs === "number" &&
         Number.isFinite(lastOrderMs) &&
@@ -492,8 +619,8 @@ export async function fetchReplayItemsBatch(
       }
       return eb("order_ms", ">=", 0 as any);
     })
-    .orderBy("order_ms", "asc")
-    .orderBy("item_id", "asc")
+    .orderBy("order_ms", replayOrder === "descending" ? "desc" : "asc")
+    .orderBy("item_id", replayOrder === "descending" ? "desc" : "asc")
     .limit(limit)
     .execute()) as unknown as Array<
     Pick<
@@ -512,6 +639,64 @@ export async function fetchReplayItemsBatch(
       };
     })
     .filter((r) => typeof r.itemId === "string" && r.itemId.length > 0);
+}
+
+export async function setReplayItemsPendingOnlyForDocuments(
+  context: ReplayDbContext,
+  input: { runId: string; documentIds: string[] }
+): Promise<void> {
+  const db = getReplayDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return;
+  }
+  const documentIds = Array.isArray(input.documentIds)
+    ? input.documentIds
+        .filter((d): d is string => typeof d === "string")
+        .map((d) => d.trim())
+        .filter((d) => d.length > 0)
+    : [];
+  if (documentIds.length === 0) {
+    return;
+  }
+
+  const now = new Date().toISOString();
+
+  await db
+    .updateTable("moment_replay_runs")
+    .set({
+      status: "ready_to_replay",
+      replay_enqueued: 0 as any,
+      replayed_items: 0 as any,
+      replay_cursor_json: JSON.stringify({
+        lastOrderMs: null,
+        lastItemId: null,
+      } satisfies ReplayCursor),
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", runId)
+    .execute();
+
+  await db
+    .updateTable("moment_replay_items")
+    .set({ status: "done", updated_at: now } as any)
+    .where("run_id", "=", runId)
+    .execute();
+
+  await db
+    .updateTable("moment_replay_items")
+    .set({ status: "pending", updated_at: now } as any)
+    .where("run_id", "=", runId)
+    .where("document_id", "in", documentIds)
+    .execute();
+
+  await db
+    .deleteFrom("moment_replay_stream_state")
+    .where("run_id", "=", runId)
+    .execute();
 }
 
 export async function markReplayItemsDone(

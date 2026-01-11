@@ -149,6 +149,7 @@ export async function indexDocument(
     momentGraphNamespace?: string | null;
     momentGraphNamespacePrefix?: string | null;
     momentReplayRunId?: string | null;
+    forceRecollect?: boolean | null;
   }
 ): Promise<Chunk[]> {
   const indexingContext: IndexingHookContext = {
@@ -223,6 +224,7 @@ export async function indexDocument(
     momentReplayRunIdRaw.trim().length > 0
       ? momentReplayRunIdRaw.trim()
       : null;
+  const forceRecollect = options?.forceRecollect === true;
 
   let stage = "start";
   try {
@@ -254,9 +256,9 @@ export async function indexDocument(
     });
     const oldChunkHashSet = new Set(oldChunkHashes);
 
-    const newChunks = chunks.filter(
-      (chunk) => !oldChunkHashSet.has(chunk.contentHash!)
-    );
+    const newChunks = forceRecollect
+      ? chunks
+      : chunks.filter((chunk) => !oldChunkHashSet.has(chunk.contentHash!));
 
     if (newChunks.length === 0) {
       console.log("[moment-linker] skipping: no new chunks", { r2Key });

@@ -10,6 +10,7 @@ import { getEmbeddings } from "../utils/vector";
 import {
   fetchReplayItemsBatch,
   getReplayCursor,
+  getReplayRunOrder,
   getReplayStreamState,
   markReplayItemsDone,
   setReplayCursor,
@@ -75,9 +76,14 @@ export async function processMomentReplayReplayJob(
     { runId }
   )) ?? { lastOrderMs: null, lastItemId: null };
 
+  const replayOrder = await getReplayRunOrder(
+    { env, momentGraphNamespace: null },
+    { runId }
+  );
+
   const items = await fetchReplayItemsBatch(
     { env, momentGraphNamespace: null },
-    { runId, cursor, limit: 30 }
+    { runId, cursor, limit: 30, replayOrder }
   );
 
   if (items.length === 0) {
@@ -199,6 +205,7 @@ export async function processMomentReplayReplayJob(
     const microPathsHash = await hashMicroPaths(microPaths);
 
     let parentId: string | undefined = undefined;
+    let linkAuditLog: Record<string, any> | undefined = undefined;
 
     if (macroMomentIndex > 0) {
       const resolvedPrevFromBatch =
@@ -260,10 +267,24 @@ export async function processMomentReplayReplayJob(
           0,
           indexingContext
         );
+        if (attempt?.auditLog && !linkAuditLog) {
+          linkAuditLog = attempt.auditLog;
+        }
         if (attempt?.parentMomentId) {
           parentId = attempt.parentMomentId ?? undefined;
+          if (attempt.auditLog) {
+            linkAuditLog = attempt.auditLog;
+          }
           break;
         }
+      }
+      if (!linkAuditLog) {
+        linkAuditLog = {
+          kind: "no-plugin-attempts",
+          documentId,
+          streamId,
+          macroMomentIndex: 0,
+        };
       }
     }
 
@@ -278,6 +299,7 @@ export async function processMomentReplayReplayJob(
       parentId,
       microPaths,
       microPathsHash,
+      ...(linkAuditLog ? { linkAuditLog } : null),
       ...(typeof importance === "number" ? { importance } : null),
       ...(typeof momentKind === "string"
         ? { momentKind: momentKind as any }

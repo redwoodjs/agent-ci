@@ -12,6 +12,7 @@ interface IndexingMessage {
   momentGraphNamespacePrefix?: string;
   momentReplayRunId?: string;
   jobType?: string;
+  forceRecollect?: boolean;
 }
 
 export async function processIndexingJob(
@@ -53,6 +54,7 @@ export async function processIndexingJob(
       momentGraphNamespace: momentGraphNamespace ?? null,
       momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
       momentReplayRunId: isReplayCollect ? momentReplayRunId! : null,
+      forceRecollect: Boolean(message.forceRecollect),
     });
 
     if (newChunks.length === 0) {

@@ -23,6 +23,9 @@ import {
   getRecentDocumentAuditEventsAction,
   getReplayBackfillProgressAction,
   resumeReplayRunAction,
+  restartReplayRunAction,
+  replaySelectedDocumentsAction,
+  recollectSelectedDocumentsAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -995,54 +998,302 @@ export function KnowledgeGraphPage() {
                     </div>
                     {canResume && (
                       <div className="mt-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          disabled={resumeReplayBusyRunId === runId}
-                          onClick={async () => {
-                            setResumeReplayError(null);
-                            setResumeReplayBusyRunId(runId);
-                            try {
-                              const res = await resumeReplayRunAction({
-                                runId,
-                              });
-                              if (!(res as any)?.success) {
-                                setResumeReplayError(
-                                  (res as any)?.error ?? "Resume failed"
-                                );
-                              } else {
-                                const prefix =
-                                  prefixOverride.trim().length > 0
-                                    ? prefixOverride.trim()
-                                    : null;
-                                if (prefix) {
-                                  const refreshed =
-                                    await getReplayBackfillProgressAction({
-                                      momentGraphNamespacePrefix: prefix,
-                                      limit: 5,
-                                    });
-                                  if ((refreshed as any)?.success) {
-                                    setReplayRuns(
-                                      (refreshed as any).runs ?? []
-                                    );
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={resumeReplayBusyRunId === runId}
+                            onClick={async () => {
+                              setResumeReplayError(null);
+                              setResumeReplayBusyRunId(runId);
+                              try {
+                                const res = await resumeReplayRunAction({
+                                  runId,
+                                });
+                                if (!(res as any)?.success) {
+                                  setResumeReplayError(
+                                    (res as any)?.error ?? "Resume failed"
+                                  );
+                                } else {
+                                  const prefix =
+                                    prefixOverride.trim().length > 0
+                                      ? prefixOverride.trim()
+                                      : null;
+                                  if (prefix) {
+                                    const refreshed =
+                                      await getReplayBackfillProgressAction({
+                                        momentGraphNamespacePrefix: prefix,
+                                        limit: 5,
+                                      });
+                                    if ((refreshed as any)?.success) {
+                                      setReplayRuns(
+                                        (refreshed as any).runs ?? []
+                                      );
+                                    }
                                   }
                                 }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Resume failed"
+                                );
+                              } finally {
+                                setResumeReplayBusyRunId(null);
                               }
-                            } catch (err) {
-                              setResumeReplayError(
-                                err instanceof Error
-                                  ? err.message
-                                  : "Resume failed"
+                            }}
+                          >
+                            {resumeReplayBusyRunId === runId
+                              ? "Resuming..."
+                              : "Resume replay"}
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={resumeReplayBusyRunId === runId}
+                            onClick={async () => {
+                              const ok = window.confirm(
+                                "Restart replay from the beginning for this run?\n\nThis resets the run cursor and marks all replay items as pending."
                               );
-                            } finally {
-                              setResumeReplayBusyRunId(null);
-                            }
-                          }}
-                        >
-                          {resumeReplayBusyRunId === runId
-                            ? "Resuming..."
-                            : "Resume replay"}
-                        </Button>
+                              if (!ok) {
+                                return;
+                              }
+                              setResumeReplayError(null);
+                              setResumeReplayBusyRunId(runId);
+                              try {
+                                const res = await restartReplayRunAction({
+                                  runId,
+                                });
+                                if (!(res as any)?.success) {
+                                  setResumeReplayError(
+                                    (res as any)?.error ?? "Restart failed"
+                                  );
+                                } else {
+                                  const prefix =
+                                    prefixOverride.trim().length > 0
+                                      ? prefixOverride.trim()
+                                      : null;
+                                  if (prefix) {
+                                    const refreshed =
+                                      await getReplayBackfillProgressAction({
+                                        momentGraphNamespacePrefix: prefix,
+                                        limit: 5,
+                                      });
+                                    if ((refreshed as any)?.success) {
+                                      setReplayRuns(
+                                        (refreshed as any).runs ?? []
+                                      );
+                                    }
+                                  }
+                                }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Restart failed"
+                                );
+                              } finally {
+                                setResumeReplayBusyRunId(null);
+                              }
+                            }}
+                          >
+                            Restart replay
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={resumeReplayBusyRunId === runId}
+                            onClick={async () => {
+                              const ok = window.confirm(
+                                "Restart replay in descending order for this run?\n\nThis resets the run cursor and marks all replay items as pending."
+                              );
+                              if (!ok) {
+                                return;
+                              }
+                              setResumeReplayError(null);
+                              setResumeReplayBusyRunId(runId);
+                              try {
+                                const res = await restartReplayRunAction({
+                                  runId,
+                                  replayOrder: "descending",
+                                });
+                                if (!(res as any)?.success) {
+                                  setResumeReplayError(
+                                    (res as any)?.error ?? "Restart failed"
+                                  );
+                                } else {
+                                  const prefix =
+                                    prefixOverride.trim().length > 0
+                                      ? prefixOverride.trim()
+                                      : null;
+                                  if (prefix) {
+                                    const refreshed =
+                                      await getReplayBackfillProgressAction({
+                                        momentGraphNamespacePrefix: prefix,
+                                        limit: 5,
+                                      });
+                                    if ((refreshed as any)?.success) {
+                                      setReplayRuns(
+                                        (refreshed as any).runs ?? []
+                                      );
+                                    }
+                                  }
+                                }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Restart failed"
+                                );
+                              } finally {
+                                setResumeReplayBusyRunId(null);
+                              }
+                            }}
+                          >
+                            Restart (desc)
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={resumeReplayBusyRunId === runId}
+                            onClick={async () => {
+                              const raw = window.prompt(
+                                "Replay selected documents (R2 keys), one per line.\n\nNote: this only works for replay items that have document metadata populated.",
+                                ""
+                              );
+                              if (raw === null) {
+                                return;
+                              }
+                              const documentIds = raw
+                                .split("\n")
+                                .map((s) => s.trim())
+                                .filter((s) => s.length > 0);
+                              if (documentIds.length === 0) {
+                                setResumeReplayError("No document ids provided.");
+                                return;
+                              }
+                              setResumeReplayError(null);
+                              setResumeReplayBusyRunId(runId);
+                              try {
+                                const res = await replaySelectedDocumentsAction(
+                                  {
+                                    runId,
+                                    documentIds,
+                                  }
+                                );
+                                if (!(res as any)?.success) {
+                                  setResumeReplayError(
+                                    (res as any)?.error ??
+                                      "Replay selected documents failed"
+                                  );
+                                } else {
+                                  const prefix =
+                                    prefixOverride.trim().length > 0
+                                      ? prefixOverride.trim()
+                                      : null;
+                                  if (prefix) {
+                                    const refreshed =
+                                      await getReplayBackfillProgressAction({
+                                        momentGraphNamespacePrefix: prefix,
+                                        limit: 5,
+                                      });
+                                    if ((refreshed as any)?.success) {
+                                      setReplayRuns(
+                                        (refreshed as any).runs ?? []
+                                      );
+                                    }
+                                  }
+                                }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Replay selected documents failed"
+                                );
+                              } finally {
+                                setResumeReplayBusyRunId(null);
+                              }
+                            }}
+                          >
+                            Replay selected docs
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={resumeReplayBusyRunId === runId}
+                            onClick={async () => {
+                              const raw = window.prompt(
+                                "Recollect selected documents (R2 keys), one per line.\n\nThis enqueues collect jobs with force recollect enabled.",
+                                ""
+                              );
+                              if (raw === null) {
+                                return;
+                              }
+                              const r2Keys = raw
+                                .split("\n")
+                                .map((s) => s.trim())
+                                .filter((s) => s.length > 0);
+                              if (r2Keys.length === 0) {
+                                setResumeReplayError("No R2 keys provided.");
+                                return;
+                              }
+                              setResumeReplayError(null);
+                              setResumeReplayBusyRunId(runId);
+                              try {
+                                const res =
+                                  await recollectSelectedDocumentsAction({
+                                    runId,
+                                    r2Keys,
+                                    momentGraphNamespace:
+                                      namespaceOverride.trim().length > 0
+                                        ? namespaceOverride.trim()
+                                        : null,
+                                    momentGraphNamespacePrefix:
+                                      prefixOverride.trim().length > 0
+                                        ? prefixOverride.trim()
+                                        : null,
+                                  });
+                                if (!(res as any)?.success) {
+                                  setResumeReplayError(
+                                    (res as any)?.error ??
+                                      "Recollect selected documents failed"
+                                  );
+                                } else {
+                                  const prefix =
+                                    prefixOverride.trim().length > 0
+                                      ? prefixOverride.trim()
+                                      : null;
+                                  if (prefix) {
+                                    const refreshed =
+                                      await getReplayBackfillProgressAction({
+                                        momentGraphNamespacePrefix: prefix,
+                                        limit: 5,
+                                      });
+                                    if ((refreshed as any)?.success) {
+                                      setReplayRuns(
+                                        (refreshed as any).runs ?? []
+                                      );
+                                    }
+                                  }
+                                }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Recollect selected documents failed"
+                                );
+                              } finally {
+                                setResumeReplayBusyRunId(null);
+                              }
+                            }}
+                          >
+                            Recollect selected docs
+                          </Button>
+                        </div>
                       </div>
                     )}
                   </div>

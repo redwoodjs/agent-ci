@@ -1231,8 +1231,8 @@ export function KnowledgeGraphPage() {
                                     runId,
                                     r2Keys,
                                     momentGraphNamespace:
-                                      namespaceOverride.trim().length > 0
-                                        ? namespaceOverride.trim()
+                                      selectedNamespace.trim().length > 0
+                                        ? selectedNamespace.trim()
                                         : null,
                                     momentGraphNamespacePrefix:
                                       prefixOverride.trim().length > 0

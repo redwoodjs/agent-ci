@@ -89,3 +89,16 @@ Subject moments + evidence-based linking (strict time ordering)
 - Merged main and resolved a conflict in momentDb vectorization logic.
 - Kept subject semantics: subjects are always indexed (even if below the moment vector importance cutoff).
 - Verified build with pnpm build.
+
+## Replay enqueue issue
+
+Observed a run where collection completed but replay stayed at 0 until manually resumed.
+
+Root cause:
+- The indexing scheduler returns early when no chunks are produced for a document.
+- In replay collect mode, that early return skipped recording the per-document terminal result.
+- That can leave processed_documents < expected_documents, so replay is never auto-enqueued.
+
+Change:
+- In replay collect mode, record the document result even when a document yields zero chunks.
+- Factor replay enqueue into a helper that runs after recording, so the last collect job can enqueue replay.

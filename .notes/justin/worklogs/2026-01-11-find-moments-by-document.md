@@ -32,6 +32,8 @@ The user wants to find all relevant moments for a particular document, likely by
 *   Users can now filter the list of ingestion files by path (prefix/substring match).
 *   Pagination and filtering work together.
 *   Updated to support passing `namespace` and `prefix` query parameters, which are preserved in links to file detail pages.
+*   Added explicit UI inputs (Select for namespace, Input for prefix override) to the Ingestion List Page so users can easily configure these parameters.
+*   Implemented a new `Select` component in `src/app/components/ui/select.tsx` using `@radix-ui/react-select` to support the namespace selector.
 
 ### Frontend - Ingestion File Page
 *   Updated `src/app/pages/audit/subpages/ingestion-file-page.tsx` (the detail page for a document).
@@ -41,3 +43,4 @@ The user wants to find all relevant moments for a particular document, likely by
 *   It uses `applyMomentGraphNamespacePrefixValue` to correctly resolve the effective namespace (combining environment defaults with overrides) before querying the database.
 *   Includes a "Namespace" indicator in the UI if an effective namespace is being used.
 *   The "Back" link preserves the `namespace` and `prefix` parameters.
+*   Added a "View in Graph" button for each moment in the list. This button (reused from `ViewInGraphButton`) resolves the root ancestor of the moment and redirects the user to the `knowledge-graph` page with the correct `rootId` and `highlightMomentId`. Crucially, it now also passes the `namespace` and `prefix` parameters to the graph view so the correct context is maintained.

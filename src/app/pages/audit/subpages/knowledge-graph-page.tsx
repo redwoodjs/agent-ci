@@ -580,18 +580,12 @@ export function KnowledgeGraphPage() {
 
   useEffect(() => {
     async function fetchReplayProgress() {
-      const prefix =
-        prefixOverride.trim().length > 0 ? prefixOverride.trim() : null;
-      if (!prefix) {
-        setReplayRuns(null);
-        setReplayRunsError(null);
-        return;
-      }
       setReplayRunsLoading(true);
       setReplayRunsError(null);
       try {
         const res = await getReplayBackfillProgressAction({
-          momentGraphNamespacePrefix: prefix,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
           limit: 5,
         });
         if ((res as any)?.success) {
@@ -1015,21 +1009,16 @@ export function KnowledgeGraphPage() {
                                     (res as any)?.error ?? "Resume failed"
                                   );
                                 } else {
-                                  const prefix =
-                                    prefixOverride.trim().length > 0
-                                      ? prefixOverride.trim()
-                                      : null;
-                                  if (prefix) {
-                                    const refreshed =
-                                      await getReplayBackfillProgressAction({
-                                        momentGraphNamespacePrefix: prefix,
-                                        limit: 5,
-                                      });
-                                    if ((refreshed as any)?.success) {
-                                      setReplayRuns(
-                                        (refreshed as any).runs ?? []
-                                      );
-                                    }
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns((refreshed as any).runs ?? []);
                                   }
                                 }
                               } catch (err) {
@@ -1070,21 +1059,16 @@ export function KnowledgeGraphPage() {
                                     (res as any)?.error ?? "Restart failed"
                                   );
                                 } else {
-                                  const prefix =
-                                    prefixOverride.trim().length > 0
-                                      ? prefixOverride.trim()
-                                      : null;
-                                  if (prefix) {
-                                    const refreshed =
-                                      await getReplayBackfillProgressAction({
-                                        momentGraphNamespacePrefix: prefix,
-                                        limit: 5,
-                                      });
-                                    if ((refreshed as any)?.success) {
-                                      setReplayRuns(
-                                        (refreshed as any).runs ?? []
-                                      );
-                                    }
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns((refreshed as any).runs ?? []);
                                   }
                                 }
                               } catch (err) {
@@ -1124,21 +1108,16 @@ export function KnowledgeGraphPage() {
                                     (res as any)?.error ?? "Restart failed"
                                   );
                                 } else {
-                                  const prefix =
-                                    prefixOverride.trim().length > 0
-                                      ? prefixOverride.trim()
-                                      : null;
-                                  if (prefix) {
-                                    const refreshed =
-                                      await getReplayBackfillProgressAction({
-                                        momentGraphNamespacePrefix: prefix,
-                                        limit: 5,
-                                      });
-                                    if ((refreshed as any)?.success) {
-                                      setReplayRuns(
-                                        (refreshed as any).runs ?? []
-                                      );
-                                    }
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns((refreshed as any).runs ?? []);
                                   }
                                 }
                               } catch (err) {
@@ -1190,21 +1169,16 @@ export function KnowledgeGraphPage() {
                                       "Replay selected documents failed"
                                   );
                                 } else {
-                                  const prefix =
-                                    prefixOverride.trim().length > 0
-                                      ? prefixOverride.trim()
-                                      : null;
-                                  if (prefix) {
-                                    const refreshed =
-                                      await getReplayBackfillProgressAction({
-                                        momentGraphNamespacePrefix: prefix,
-                                        limit: 5,
-                                      });
-                                    if ((refreshed as any)?.success) {
-                                      setReplayRuns(
-                                        (refreshed as any).runs ?? []
-                                      );
-                                    }
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns((refreshed as any).runs ?? []);
                                   }
                                 }
                               } catch (err) {
@@ -1263,21 +1237,16 @@ export function KnowledgeGraphPage() {
                                       "Recollect selected documents failed"
                                   );
                                 } else {
-                                  const prefix =
-                                    prefixOverride.trim().length > 0
-                                      ? prefixOverride.trim()
-                                      : null;
-                                  if (prefix) {
-                                    const refreshed =
-                                      await getReplayBackfillProgressAction({
-                                        momentGraphNamespacePrefix: prefix,
-                                        limit: 5,
-                                      });
-                                    if ((refreshed as any)?.success) {
-                                      setReplayRuns(
-                                        (refreshed as any).runs ?? []
-                                      );
-                                    }
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns((refreshed as any).runs ?? []);
                                   }
                                 }
                               } catch (err) {

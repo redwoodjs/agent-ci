@@ -217,7 +217,7 @@ export function KnowledgeGraphPage() {
       title: string;
       parentId: string | null;
       createdAt: string;
-      descendantCount: number;
+      descendantCount: number | null;
       subjectKind?: string | null;
     }>
   >([]);
@@ -742,7 +742,11 @@ export function KnowledgeGraphPage() {
 
   const filteredRootMoments = rootMoments
     .filter((root) => {
-      if (hideSingletons && root.descendantCount === 0) {
+      if (
+        hideSingletons &&
+        typeof root.descendantCount === "number" &&
+        root.descendantCount === 0
+      ) {
         return false;
       }
       if (!searchQuery.trim()) {
@@ -757,8 +761,12 @@ export function KnowledgeGraphPage() {
     .slice()
     .sort((a, b) => {
       if (rootSort === "descendants") {
-        if (a.descendantCount !== b.descendantCount) {
-          return b.descendantCount - a.descendantCount;
+        const aCount =
+          typeof a.descendantCount === "number" ? a.descendantCount : -1;
+        const bCount =
+          typeof b.descendantCount === "number" ? b.descendantCount : -1;
+        if (aCount !== bCount) {
+          return bCount - aCount;
         }
       }
       if (a.createdAt !== b.createdAt) {
@@ -1399,8 +1407,11 @@ export function KnowledgeGraphPage() {
                           <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
                             <span>{formattedDate}</span>
                             <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                              {root.descendantCount} moment
-                              {root.descendantCount !== 1 ? "s" : ""}
+                              {typeof root.descendantCount === "number"
+                                ? `${root.descendantCount} moment${
+                                    root.descendantCount !== 1 ? "s" : ""
+                                  }`
+                                : "descendants=N/A"}
                             </span>
                           </div>
                           <div className="text-xs text-gray-400 font-mono mt-1">

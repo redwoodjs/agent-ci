@@ -249,30 +249,30 @@ export async function addMoment(
       await context.env.MOMENT_INDEX.upsert([momentVector]);
 
       if (isSubject) {
-        console.log("[moment-linker] vector upsert (subject)", {
-          id: moment.id,
-          momentGraphNamespace,
-          documentId: moment.documentId,
-          type: "subject",
+      console.log("[moment-linker] vector upsert (subject)", {
+        id: moment.id,
+        momentGraphNamespace,
+        documentId: moment.documentId,
+        type: "subject",
           isSubject: true,
-        });
-        await context.env.SUBJECT_INDEX.upsert([
-          {
-            id: moment.id,
-            values: embedding,
-            metadata: {
-              momentGraphNamespace,
-              title: moment.title,
-              summary: moment.summary,
-              documentId: moment.documentId,
-              type: "subject",
+      });
+      await context.env.SUBJECT_INDEX.upsert([
+        {
+          id: moment.id,
+          values: embedding,
+          metadata: {
+            momentGraphNamespace,
+            title: moment.title,
+            summary: moment.summary,
+            documentId: moment.documentId,
+            type: "subject",
               isSubject: true,
               ...(typeof moment.subjectKind === "string"
                 ? { subjectKind: moment.subjectKind }
                 : null),
-            },
           },
-        ]);
+        },
+      ]);
       } else {
         try {
           const subjectIndexAny = context.env.SUBJECT_INDEX as any;
@@ -2010,7 +2010,7 @@ export async function getSubjectMoments(
     title: string;
     parentId: string | null;
     createdAt: string;
-    descendantCount: number;
+    descendantCount: number | null;
     subjectKind: string | null;
   }>
 > {
@@ -2044,49 +2044,12 @@ export async function getSubjectMoments(
     is_subject: number | null;
   }>;
 
-  const allRows = (await db
-    .selectFrom("moments")
-    .select(["id", "parent_id"])
-    .execute()) as Array<{
-    id: string;
-    parent_id: string | null;
-  }>;
-
-  const childrenByParent = new Map<string, string[]>();
-  for (const row of allRows) {
-    if (row.parent_id) {
-      const children = childrenByParent.get(row.parent_id) || [];
-      children.push(row.id);
-      childrenByParent.set(row.parent_id, children);
-    }
-  }
-
-  function countDescendants(rootId: string): number {
-    const visited = new Set<string>();
-    let count = 0;
-
-    function visit(id: string) {
-      if (visited.has(id)) {
-        return;
-      }
-      visited.add(id);
-      const children = childrenByParent.get(id) || [];
-      count += children.length;
-      for (const childId of children) {
-        visit(childId);
-      }
-    }
-
-    visit(rootId);
-    return count;
-  }
-
   return rows.map((row) => ({
     id: row.id,
     title: row.title || `Moment ${row.id.substring(0, 8)}`,
     parentId: row.parent_id,
     createdAt: row.created_at,
-    descendantCount: countDescendants(row.id),
+    descendantCount: null,
     subjectKind: row.subject_kind ?? null,
   }));
 }

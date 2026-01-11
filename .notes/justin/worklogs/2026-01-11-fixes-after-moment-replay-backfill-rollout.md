@@ -20,3 +20,13 @@ Observed the audit UI still showing copy like 'Root Subjects' even though the in
 Change:
 - Updated audit UI labels and helper text to use 'Subjects' / 'Subject Tree' rather than 'Root Subjects' / 'Roots'.
 - This was a presentation change; the list was already sourced from subject-marked moments.
+
+## Audit UI: subjects list stuck loading
+
+Observed the subjects list in the knowledge graph audit UI staying in a loading state.
+
+Looked at deploy logs and saw some RSC action requests taking tens of seconds.
+
+Change:
+- Removed descendant counting from the subject list query (it was scanning all moments and walking the graph).
+- Updated the UI to tolerate unknown descendant counts (shows descendants=N/A and does not apply the singleton filter unless the count is known).

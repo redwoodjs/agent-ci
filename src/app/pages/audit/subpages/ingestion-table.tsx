@@ -16,7 +16,15 @@ type NormalizedR2Object = {
   etag: string;
 };
 
-export function IngestionTable({ objects }: { objects: R2Object[] }) {
+export function IngestionTable({
+  objects,
+  namespace,
+  prefixParam,
+}: {
+  objects: R2Object[];
+  namespace?: string;
+  prefixParam?: string;
+}) {
   // Normalize objects but preserve the order from the server.
   const normalizedObjects = useMemo<NormalizedR2Object[]>(() => {
     return objects.map((obj) => ({
@@ -66,7 +74,16 @@ export function IngestionTable({ objects }: { objects: R2Object[] }) {
             <tr key={obj.key} className="border-b hover:bg-gray-50">
               <td className="py-3 px-4 text-sm font-mono">
                 <a
-                  href={`/audit/ingestion/file/${encodeURIComponent(obj.key)}`}
+                  href={`/audit/ingestion/file/${encodeURIComponent(
+                    obj.key
+                  )}${
+                    namespace || prefixParam
+                      ? `?${new URLSearchParams({
+                          ...(namespace ? { namespace } : {}),
+                          ...(prefixParam ? { prefix: prefixParam } : {}),
+                        }).toString()}`
+                      : ""
+                  }`}
                   className="text-blue-600 hover:text-blue-800 hover:underline break-all"
                 >
                   {obj.key}

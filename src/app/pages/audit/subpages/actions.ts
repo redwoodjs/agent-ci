@@ -1067,10 +1067,17 @@ export async function replaySelectedDocumentsAction(input: {
       return { success: false, error: "Replay run not found" };
     }
 
-    await setReplayItemsPendingOnlyForDocuments(
+    const pendingResult = await setReplayItemsPendingOnlyForDocuments(
       { env: envCloudflare, momentGraphNamespace: null },
       { runId, documentIds }
     );
+    if (pendingResult.matchedItems === 0) {
+      return {
+        success: false,
+        error:
+          "No replay items matched those document ids in this run. Recollect those documents into this run first.",
+      };
+    }
 
     const queue = (envCloudflare as any).ENGINE_INDEXING_QUEUE;
     if (!queue) {

@@ -103,6 +103,7 @@ export function IngestionListPage({ request }: { request: Request }) {
               <Input
                 name="q"
                 defaultValue={q}
+                key={q || "empty-q"}
                 placeholder="Filter by file path..."
                 className="w-full"
               />
@@ -111,7 +112,11 @@ export function IngestionListPage({ request }: { request: Request }) {
               <label className="text-sm font-medium mb-1 block">
                 Namespace
               </label>
-              <Select name="namespace" defaultValue={namespace || "all"}>
+              <Select
+                name="namespace"
+                defaultValue={namespace || "all"}
+                key={namespace || "all"}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select namespace" />
                 </SelectTrigger>
@@ -134,6 +139,7 @@ export function IngestionListPage({ request }: { request: Request }) {
               <Input
                 name="prefix"
                 defaultValue={prefixParam}
+                key={prefixParam || "empty-prefix"}
                 placeholder="e.g. demo-2026-01-06"
                 className="w-full font-mono"
               />

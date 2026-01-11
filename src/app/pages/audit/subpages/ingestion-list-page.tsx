@@ -9,6 +9,13 @@ import {
 import { Input } from "@/app/components/ui/input";
 import { Button } from "@/app/components/ui/button";
 import { IngestionTable } from "./ingestion-table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/app/components/ui/select";
 
 export function IngestionListPage({ request }: { request: Request }) {
   const url = new URL(request.url);
@@ -16,6 +23,8 @@ export function IngestionListPage({ request }: { request: Request }) {
   const pageParam = url.searchParams.get("page") || "1";
   const page = Math.max(1, Number.parseInt(pageParam, 10) || 1);
   const q = url.searchParams.get("q") || "";
+  const namespace = url.searchParams.get("namespace") || undefined;
+  const prefixParam = url.searchParams.get("prefix") || undefined;
 
   let prefix = "";
   if (source === "discord") prefix = "discord/";
@@ -29,7 +38,9 @@ export function IngestionListPage({ request }: { request: Request }) {
 
         <div className="flex gap-2">
           <a
-            href="/audit/ingestion?source=all"
+            href={`/audit/ingestion?source=all${
+              namespace ? `&namespace=${namespace}` : ""
+            }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
             className={`px-4 py-2 rounded ${
               source === "all"
                 ? "bg-blue-600 text-white"
@@ -39,7 +50,9 @@ export function IngestionListPage({ request }: { request: Request }) {
             All
           </a>
           <a
-            href="/audit/ingestion?source=discord"
+            href={`/audit/ingestion?source=discord${
+              namespace ? `&namespace=${namespace}` : ""
+            }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
             className={`px-4 py-2 rounded ${
               source === "discord"
                 ? "bg-blue-600 text-white"
@@ -49,7 +62,9 @@ export function IngestionListPage({ request }: { request: Request }) {
             Discord
           </a>
           <a
-            href="/audit/ingestion?source=github"
+            href={`/audit/ingestion?source=github${
+              namespace ? `&namespace=${namespace}` : ""
+            }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
             className={`px-4 py-2 rounded ${
               source === "github"
                 ? "bg-blue-600 text-white"
@@ -59,7 +74,9 @@ export function IngestionListPage({ request }: { request: Request }) {
             GitHub
           </a>
           <a
-            href="/audit/ingestion?source=cursor"
+            href={`/audit/ingestion?source=cursor${
+              namespace ? `&namespace=${namespace}` : ""
+            }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
             className={`px-4 py-2 rounded ${
               source === "cursor"
                 ? "bg-blue-600 text-white"
@@ -71,25 +88,67 @@ export function IngestionListPage({ request }: { request: Request }) {
         </div>
       </div>
 
-      <form
-        method="GET"
-        action="/audit/ingestion"
-        className="flex gap-2 mb-4 max-w-lg"
-      >
-        <input type="hidden" name="source" value={source} />
-        <Input
-          name="q"
-          defaultValue={q}
-          placeholder="Filter by file path..."
-          className="flex-1"
-        />
-        <Button type="submit">Filter</Button>
-        {q && (
-          <Button variant="outline" asChild>
-            <a href={`/audit/ingestion?source=${source}`}>Clear</a>
-          </Button>
-        )}
-      </form>
+      <Card className="mb-6">
+        <CardContent className="pt-6">
+          <form
+            method="GET"
+            action="/audit/ingestion"
+            className="grid grid-cols-1 md:grid-cols-4 gap-4"
+          >
+            <input type="hidden" name="source" value={source} />
+            <div className="md:col-span-2">
+              <label className="text-sm font-medium mb-1 block">
+                Filter by Path
+              </label>
+              <Input
+                name="q"
+                defaultValue={q}
+                placeholder="Filter by file path..."
+                className="w-full"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">
+                Namespace
+              </label>
+              <Select name="namespace" defaultValue={namespace || "all"}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select namespace" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Default (All)</SelectItem>
+                  <SelectItem value="redwood:machinen">
+                    redwood:machinen
+                  </SelectItem>
+                  <SelectItem value="redwood:rwsdk">redwood:rwsdk</SelectItem>
+                  <SelectItem value="redwood:internal">
+                    redwood:internal
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">
+                Prefix Override
+              </label>
+              <Input
+                name="prefix"
+                defaultValue={prefixParam}
+                placeholder="e.g. demo-2026-01-06"
+                className="w-full font-mono"
+              />
+            </div>
+            <div className="md:col-span-4 flex justify-end gap-2">
+              <Button type="submit">Apply Filters</Button>
+              {(q || namespace || prefixParam) && (
+                <Button variant="outline" asChild>
+                  <a href={`/audit/ingestion?source=${source}`}>Clear</a>
+                </Button>
+              )}
+            </div>
+          </form>
+        </CardContent>
+      </Card>
 
       <Suspense fallback={<FilesTableSkeleton prefix={prefix} />}>
         <FilesTable
@@ -98,6 +157,8 @@ export function IngestionListPage({ request }: { request: Request }) {
           page={page}
           pageSize={50}
           q={q}
+          namespace={namespace}
+          prefixParam={prefixParam}
         />
       </Suspense>
     </div>
@@ -110,12 +171,16 @@ async function FilesTable({
   page,
   pageSize,
   q,
+  namespace,
+  prefixParam,
 }: {
   source: string;
   prefix: string;
   page: number;
   pageSize: number;
   q: string;
+  namespace?: string;
+  prefixParam?: string;
 }) {
   const bucket = env.MACHINEN_BUCKET;
 
@@ -184,7 +249,11 @@ async function FilesTable({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        <IngestionTable objects={pageObjects} />
+        <IngestionTable
+          objects={pageObjects}
+          namespace={namespace}
+          prefixParam={prefixParam}
+        />
 
         {totalItems > 0 && (
           <div className="mt-4 text-sm text-gray-500">
@@ -203,7 +272,9 @@ async function FilesTable({
               <a
                 href={`/audit/ingestion?source=${source}&page=${
                   currentPage - 1
-                }${q ? `&q=${q}` : ""}`}
+                }${q ? `&q=${q}` : ""}${
+                  namespace ? `&namespace=${namespace}` : ""
+                }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
               >
                 Previous
@@ -213,7 +284,9 @@ async function FilesTable({
               <a
                 href={`/audit/ingestion?source=${source}&page=${
                   currentPage + 1
-                }${q ? `&q=${q}` : ""}`}
+                }${q ? `&q=${q}` : ""}${
+                  namespace ? `&namespace=${namespace}` : ""
+                }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >
                 Next

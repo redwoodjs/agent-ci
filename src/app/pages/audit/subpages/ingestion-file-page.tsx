@@ -6,17 +6,43 @@ import {
   CardContent,
 } from "@/app/components/ui/card";
 import { getMomentsForDocument } from "@/app/engine/momentDb";
-import { getMomentGraphNamespaceFromEnv } from "@/app/engine/momentGraphNamespace";
+import {
+  getMomentGraphNamespaceFromEnv,
+  getMomentGraphNamespacePrefixFromEnv,
+  applyMomentGraphNamespacePrefixValue,
+} from "@/app/engine/momentGraphNamespace";
 
 type IngestionFilePageProps = {
+  request: Request;
   params: {
     $0: string;
   };
 };
 
-export async function IngestionFilePage({ params }: IngestionFilePageProps) {
+export async function IngestionFilePage({
+  request,
+  params,
+}: IngestionFilePageProps) {
   const key = decodeURIComponent(params.$0);
   const bucket = env.MACHINEN_BUCKET;
+
+  const url = new URL(request.url);
+  const namespace = url.searchParams.get("namespace") || null;
+  const prefix = url.searchParams.get("prefix") || null;
+
+  const envPrefix = getMomentGraphNamespacePrefixFromEnv(env);
+  const prefixOverride =
+    typeof prefix === "string" && prefix.trim().length > 0
+      ? prefix.trim()
+      : null;
+  const effectivePrefix = prefixOverride ?? envPrefix;
+  const envNamespace = getMomentGraphNamespaceFromEnv(env);
+  const baseNamespace = namespace ?? envNamespace;
+
+  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+    baseNamespace,
+    effectivePrefix
+  );
 
   const object = await bucket.get(key);
 
@@ -77,14 +103,19 @@ export async function IngestionFilePage({ params }: IngestionFilePageProps) {
 
   const moments = await getMomentsForDocument(key, {
     env: env as Cloudflare.Env,
-    momentGraphNamespace: getMomentGraphNamespaceFromEnv(env),
+    momentGraphNamespace: effectiveNamespace,
   });
+
+  const backLinkParams = new URLSearchParams();
+  backLinkParams.set("source", "all"); // Default, logic could be improved to persist source
+  if (namespace) backLinkParams.set("namespace", namespace);
+  if (prefix) backLinkParams.set("prefix", prefix);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-4">
       <div>
         <a
-          href="/audit/ingestion"
+          href={`/audit/ingestion?${backLinkParams.toString()}`}
           className="text-sm text-blue-600 hover:text-blue-800"
         >
           ← Back to ingestion files
@@ -103,6 +134,14 @@ export async function IngestionFilePage({ params }: IngestionFilePageProps) {
               <span className="font-medium text-gray-700">Size:</span>{" "}
               {formatBytes(size)}
             </span>
+            {effectiveNamespace && (
+              <span>
+                <span className="font-medium text-gray-700">Namespace:</span>{" "}
+                <span className="font-mono bg-gray-100 px-1 rounded">
+                  {effectiveNamespace}
+                </span>
+              </span>
+            )}
             {truncated && (
               <span className="text-orange-700">
                 Showing first ~{formatBytes(MAX_BYTES_TO_SHOW)} of file
@@ -121,9 +160,7 @@ export async function IngestionFilePage({ params }: IngestionFilePageProps) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">
-            Moments ({moments.length})
-          </CardTitle>
+          <CardTitle className="text-lg">Moments ({moments.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {moments.length === 0 ? (
@@ -186,5 +223,3 @@ function formatBytes(bytes: number): string {
   const value = bytes / Math.pow(k, i);
   return `${value.toFixed(2)} ${sizes[i]}`;
 }
-
-

@@ -56,6 +56,27 @@ export async function getPullRequestsForCommit(
   commitSha: string,
   env: Cloudflare.Env
 ): Promise<number[]> {
+  // Check R2 cache first (commit-to-PR mapping is immutable)
+  const cacheKey = `github/${owner}/${repo}/commits/${commitSha}/prs.json`;
+  const bucket = env.MACHINEN_BUCKET;
+
+  try {
+    const cachedObject = await bucket.get(cacheKey);
+    if (cachedObject) {
+      const cachedData = (await cachedObject.json()) as number[];
+      console.log(
+        `[github-cache] Cache hit for commit ${commitSha} in ${owner}/${repo}: ${cachedData.length} PRs`
+      );
+      return cachedData;
+    }
+  } catch (err) {
+    // Cache miss or error - continue to API call
+    console.log(
+      `[github-cache] Cache miss for commit ${commitSha} in ${owner}/${repo}, fetching from API`
+    );
+  }
+
+  // Cache miss - fetch from GitHub API
   const token = (env as any).GITHUB_TOKEN as string | undefined;
   if (!token) {
     throw new Error("GITHUB_TOKEN is not set");
@@ -78,7 +99,27 @@ export async function getPullRequestsForCommit(
   }
 
   const pulls = (await response.json()) as Array<{ number: number }>;
-  return pulls.map((p) => p.number);
+  const prNumbers = pulls.map((p) => p.number);
+
+  // Store in R2 cache for future requests
+  try {
+    await bucket.put(cacheKey, JSON.stringify(prNumbers), {
+      httpMetadata: {
+        contentType: "application/json",
+      },
+    });
+    console.log(
+      `[github-cache] Cached PR numbers for commit ${commitSha} in ${owner}/${repo}`
+    );
+  } catch (err) {
+    // Log but don't fail if cache write fails
+    console.warn(
+      `[github-cache] Failed to cache PR numbers for commit ${commitSha}:`,
+      err
+    );
+  }
+
+  return prNumbers;
 }
 
 

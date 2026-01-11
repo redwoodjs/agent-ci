@@ -31,8 +31,13 @@ The user wants to find all relevant moments for a particular document, likely by
 *   Updated `src/app/pages/audit/subpages/ingestion-list-page.tsx` to include a search filter for "File path".
 *   Users can now filter the list of ingestion files by path (prefix/substring match).
 *   Pagination and filtering work together.
+*   Updated to support passing `namespace` and `prefix` query parameters, which are preserved in links to file detail pages.
 
 ### Frontend - Ingestion File Page
 *   Updated `src/app/pages/audit/subpages/ingestion-file-page.tsx` (the detail page for a document).
 *   It now fetches moments for the document using `getMomentsForDocument`.
 *   Displays a new "Moments" card below the file content, listing all moments associated with that document, including details like title, summary, importance, and parent ID.
+*   Updated to read `namespace` and `prefix` from URL query parameters.
+*   It uses `applyMomentGraphNamespacePrefixValue` to correctly resolve the effective namespace (combining environment defaults with overrides) before querying the database.
+*   Includes a "Namespace" indicator in the UI if an effective namespace is being used.
+*   The "Back" link preserves the `namespace` and `prefix` parameters.

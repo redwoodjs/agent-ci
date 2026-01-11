@@ -6,9 +6,90 @@ import {
   CardContent,
   CardDescription,
 } from "@/app/components/ui/card";
-import { generateCodeTldr, fetchCodeTimeline } from "./actions";
+import { fetchRelatedMomentsForCodeTimeline } from "../actions";
+import { EvolutionTable } from "./evolution-table";
+import { SourceType } from "./types";
 
-export function CodeTldrPage({ request }: { request: Request }) {
+function getSourceTypeFromDocumentId(
+  documentId: string | null | undefined
+): SourceType {
+  if (!documentId) return "Unknown";
+  if (documentId.startsWith("github/")) {
+    // Try to determine if it's a PR, Issue, or Release from the path
+    if (documentId.includes("/pull-requests/")) return "GitHub PR";
+    if (documentId.includes("/issues/")) return "GitHub Issue";
+    if (documentId.includes("/releases/")) return "Release";
+    return "GitHub PR"; // Default to PR for github sources
+  }
+  if (documentId.startsWith("discord/")) return "Discord";
+  if (documentId.startsWith("cursor/")) return "Cursor";
+  return "Unknown";
+}
+
+function getSourceLabel(
+  documentId: string | null | undefined,
+  sourceMetadata: any
+): string {
+  if (!documentId) return "Unknown";
+
+  // Extract PR number, issue number, or release tag from documentId
+  if (documentId.includes("/pull-requests/")) {
+    const match = documentId.match(/\/pull-requests\/(\d+)/);
+    if (match) return `PR #${match[1]}`;
+  }
+  if (documentId.includes("/issues/")) {
+    const match = documentId.match(/\/issues\/(\d+)/);
+    if (match) return `Issue #${match[1]}`;
+  }
+  if (documentId.includes("/releases/")) {
+    const parts = documentId.split("/");
+    const releasePart = parts[parts.length - 1];
+    if (releasePart && releasePart !== "latest.json") {
+      return releasePart.replace(".json", "");
+    }
+    return "Release";
+  }
+  if (documentId.startsWith("discord/")) {
+    return "Discord";
+  }
+  if (documentId.startsWith("cursor/")) {
+    return "Cursor";
+  }
+
+  return documentId.split("/").pop()?.replace(".json", "") || "Unknown";
+}
+
+function getSourceUrl(
+  documentId: string | null | undefined,
+  repo: string
+): string | null {
+  if (!documentId) return null;
+
+  // Extract PR/Issue number or release tag and construct GitHub URL
+  if (documentId.includes("/pull-requests/")) {
+    const match = documentId.match(/\/pull-requests\/(\d+)/);
+    if (match) {
+      return `https://github.com/${repo}/pull/${match[1]}`;
+    }
+  }
+  if (documentId.includes("/issues/")) {
+    const match = documentId.match(/\/issues\/(\d+)/);
+    if (match) {
+      return `https://github.com/${repo}/issues/${match[1]}`;
+    }
+  }
+  if (documentId.includes("/releases/")) {
+    const parts = documentId.split("/");
+    const releasePart = parts[parts.length - 1]?.replace(".json", "");
+    if (releasePart && releasePart !== "latest") {
+      return `https://github.com/${repo}/releases/tag/${releasePart}`;
+    }
+  }
+
+  return null;
+}
+
+export function CodePage({ request }: { request: Request }) {
   const url = new URL(request.url);
   const repo = url.searchParams.get("repo") || "";
   const commit = url.searchParams.get("commit") || "";
@@ -77,43 +158,11 @@ export function CodeTldrPage({ request }: { request: Request }) {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <h1 className="text-3xl font-bold mb-8">TL;DR</h1>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Input Parameters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="font-medium text-gray-700">Repository:</span>{" "}
-              <span className="font-mono">{repo}</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-700">Commit:</span>{" "}
-              <span className="font-mono">{commit}</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-700">File:</span>{" "}
-              <span className="font-mono">{file}</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-700">Line:</span>{" "}
-              <span className="font-mono">{line}</span>
-            </div>
-            {namespace && (
-              <div>
-                <span className="font-medium text-gray-700">Namespace:</span>{" "}
-                <span className="font-mono">{namespace}</span>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
       <Suspense
         fallback={
           <Card>
             <CardHeader>
-              <CardTitle>Generating TL;DR...</CardTitle>
+              <CardTitle>Querying the knowledge graph...</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="animate-pulse">
@@ -124,148 +173,32 @@ export function CodeTldrPage({ request }: { request: Request }) {
           </Card>
         }
       >
-        <TldrContent
+        <RelatedMomentsLoader
           repo={repo}
           commit={commit}
+          namespace={namespace}
           file={file}
           line={line}
-          namespace={namespace}
-        />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <Card>
-            <CardHeader>
-              <CardTitle>Loading Evolution...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-              </div>
-            </CardContent>
-          </Card>
-        }
-      >
-        <EvolutionSection repo={repo} commit={commit} namespace={namespace} />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <Card>
-            <CardHeader>
-              <CardTitle>Loading Development Stream...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-              </div>
-            </CardContent>
-          </Card>
-        }
-      >
-        <DevelopmentStreamSection
-          repo={repo}
-          commit={commit}
-          namespace={namespace}
-        />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <Card>
-            <CardHeader>
-              <CardTitle>Loading Key Decisions...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-              </div>
-            </CardContent>
-          </Card>
-        }
-      >
-        <KeyDecisionsSection
-          repo={repo}
-          commit={commit}
-          namespace={namespace}
         />
       </Suspense>
     </div>
   );
 }
 
-async function TldrContent({
+async function RelatedMomentsLoader({
   repo,
   commit,
+  namespace,
   file,
   line,
-  namespace,
 }: {
   repo: string;
   commit: string;
+  namespace: string | null;
   file: string;
   line: number;
-  namespace: string | null;
 }) {
-  const result = await generateCodeTldr({
-    repo,
-    commit,
-    file,
-    line,
-    namespace: namespace || undefined,
-  });
-
-  if (!result.success) {
-    return (
-      <Card className="border-red-500">
-        <CardHeader>
-          <CardTitle className="text-red-600">Error</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-red-600">{result.error}</p>
-          {result.details && (
-            <p className="text-sm text-gray-600 mt-2">{result.details}</p>
-          )}
-        </CardContent>
-      </Card>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <Card className="border-l-4 border-l-blue-500">
-        <CardHeader>
-          <CardTitle className="text-2xl">TL;DR</CardTitle>
-          <CardDescription>
-            Quick summary of how this code evolved and why it exists
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="prose max-w-none">
-            <p className="text-lg leading-relaxed whitespace-pre-wrap text-gray-700 wrap-break-word">
-              {result.tldr}
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-async function EvolutionSection({
-  repo,
-  commit,
-  namespace,
-}: {
-  repo: string;
-  commit: string;
-  namespace: string | null;
-}) {
-  const timelineResult = await fetchCodeTimeline({
+  const timelineResult = await fetchRelatedMomentsForCodeTimeline({
     repo,
     commit,
     namespace: namespace || undefined,
@@ -286,51 +219,99 @@ async function EvolutionSection({
     );
   }
 
-  // Use the narrative from the timeline if available, or generate a summary
-  const sortedTimeline = (timelineResult as any).sortedTimeline || [];
+  const { sortedTimeline } = timelineResult;
 
-  if (sortedTimeline.length === 0) {
+  return (
+    <EvolutionSection
+      sortedTimeline={sortedTimeline}
+      repo={repo}
+      file={file}
+      line={line}
+    />
+  );
+}
+
+function EvolutionSection({
+  sortedTimeline,
+  repo,
+  file,
+  line,
+}: {
+  sortedTimeline: any[];
+  repo: string;
+  file: string;
+  line: number;
+}) {
+  if (!sortedTimeline || sortedTimeline.length === 0) {
     return (
-      <Card className="border-l-4 border-l-green-500">
-        <CardHeader>
-          <CardTitle className="text-2xl">Evolution</CardTitle>
-          <CardDescription>
-            Detailed narrative of how this code evolved over time
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <div className="mb-12 overflow-hidden border border-slate-200 rounded-xl bg-white shadow-sm">
+        <div className="bg-slate-50 border-b border-slate-200 px-6 py-4">
+          <h3 className="text-xs font-bold text-slate-700 uppercase tracking-widest relative inline-block">
+            Evolution of the code
+            <div className="absolute -bottom-1 left-0 w-full h-1 bg-blue-500/30 rounded-full"></div>
+          </h3>
+        </div>
+        <div className="px-6 py-8 text-center">
           <p className="text-gray-600">No evolution data available.</p>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
-  // Generate a narrative from the timeline
-  const narrative = sortedTimeline
-    .map((moment: any, idx: number) => {
-      const date = moment.createdAt
-        ? new Date(moment.createdAt).toLocaleDateString()
-        : "Unknown date";
-      return `${idx + 1}. [${date}] ${moment.title}: ${moment.summary}`;
-    })
-    .join("\n\n");
+  // Transform timeline data into table format
+  const evolutionData = sortedTimeline.map((moment: any) => {
+    const sourceType = getSourceTypeFromDocumentId(moment.documentId);
+    const source = getSourceLabel(moment.documentId, moment.sourceMetadata);
+    const url = getSourceUrl(moment.documentId, repo);
+
+    // For cursor conversations, we normalized moment.createdAt to the R2 uploaded date
+    // in actions.ts. We should use it directly and ignore timeRange.start for cursor.
+    // For other sources, we still prefer timeRange.start for granularity.
+    const timeRange = moment.sourceMetadata?.timeRange;
+    const timestamp =
+      sourceType === "Cursor"
+        ? moment.createdAt
+        : timeRange?.start || moment.createdAt;
+    const date = timestamp
+      ? new Date(timestamp).toLocaleDateString(undefined, {
+          month: "short",
+          day: "numeric",
+          year: "numeric",
+        })
+      : "Unknown date";
+
+    const event = moment.title || "Untitled";
+    const impact = moment.summary || "No impact description available.";
+
+    return {
+      date,
+      sourceType,
+      source,
+      url,
+      event,
+      impact,
+    };
+  });
+
+  const fileName = file.split("/").pop() || file;
+  const fileLocation = `${fileName}:${line}`;
 
   return (
-    <Card className="border-l-4 border-l-green-500">
-      <CardHeader>
-        <CardTitle className="text-2xl">Evolution</CardTitle>
-        <CardDescription>
-          Detailed narrative of how this code evolved over time
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="prose max-w-none">
-          <div className="text-base leading-relaxed whitespace-pre-wrap text-gray-700 wrap-break-word">
-            {narrative}
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+    <div className="mb-12 overflow-hidden border border-slate-200 rounded-xl bg-white shadow-sm">
+      <div className="bg-slate-50 border-b border-slate-200 px-6 py-4">
+        <h3 className="text-xs font-bold text-slate-700 uppercase tracking-widest relative inline-block">
+          Evolution of the code
+          <div className="absolute -bottom-1 left-0 w-full h-1 bg-blue-500/30 rounded-full"></div>
+        </h3>
+      </div>
+      <EvolutionTable data={evolutionData} functionName={fileLocation} />
+      <div className="bg-indigo-50/30 px-6 py-4 border-t border-slate-100">
+        <p className="text-[10px] text-indigo-500 font-medium leading-relaxed italic">
+          Note: This timeline shows the evolution of the code based on related
+          pull requests, issues, and discussions found in the knowledge graph.
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -343,7 +324,7 @@ async function DevelopmentStreamSection({
   commit: string;
   namespace: string | null;
 }) {
-  const timelineResult = await fetchCodeTimeline({
+  const timelineResult = await fetchRelatedMomentsForCodeTimeline({
     repo,
     commit,
     namespace: namespace || undefined,
@@ -364,7 +345,7 @@ async function DevelopmentStreamSection({
     );
   }
 
-  const developmentStream = (timelineResult as any).developmentStream || [];
+  const { developmentStream } = timelineResult;
 
   if (developmentStream.length === 0) {
     return (
@@ -443,7 +424,7 @@ async function KeyDecisionsSection({
   commit: string;
   namespace: string | null;
 }) {
-  const timelineResult = await fetchCodeTimeline({
+  const timelineResult = await fetchRelatedMomentsForCodeTimeline({
     repo,
     commit,
     namespace: namespace || undefined,
@@ -464,7 +445,7 @@ async function KeyDecisionsSection({
     );
   }
 
-  const developmentStream = (timelineResult as any).developmentStream || [];
+  const { developmentStream } = timelineResult;
 
   // Extract key decisions from high-importance moments
   const keyDecisions = developmentStream

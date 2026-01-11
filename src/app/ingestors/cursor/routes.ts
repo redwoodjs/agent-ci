@@ -65,13 +65,17 @@ async function ingestHandler({ request, ctx }: RequestInfo) {
       return {
         rowId: row.id,
         data: row.event_data,
+        timestamp: row.timestamp,
       };
     });
 
     // Filter for the current generation
     const generationEvents = allEvents
       .filter((e) => e.data.generation_id === generation_id)
-      .map((e) => e.data);
+      .map((e) => ({
+        ...e.data,
+        _ingestion_timestamp: e.timestamp, // Store ingestion timestamp for later use
+      }));
 
     if (generationEvents.length > 0) {
       const key = `cursor/conversations/${conversation_id}/latest.json`;

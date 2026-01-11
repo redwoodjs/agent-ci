@@ -9,7 +9,7 @@ import { QueryPage } from "./subpages/query-page";
 import { KnowledgeGraphPage } from "./subpages/knowledge-graph-page";
 import { NamespaceAuditPage } from "./subpages/namespace-audit-page";
 import { NamespaceMomentsPage } from "./subpages/namespace-moments-page";
-import { CodeTldrPage } from "./subpages/code-tldr-page";
+import { CodePage } from "./subpages/code-page";
 import { requireBasicAuth } from "@/app/ingestors/interruptors";
 
 export const auditRoutes = [
@@ -23,6 +23,6 @@ export const auditRoutes = [
     route("/knowledge-graph", KnowledgeGraphPage),
     route("/namespace", NamespaceAuditPage),
     route("/namespace/moments", NamespaceMomentsPage),
-    route("/tldr", CodeTldrPage),
   ]),
+  route("/tldr", CodePage),
 ];

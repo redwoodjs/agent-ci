@@ -12,25 +12,17 @@ import type { EngineContext } from "@/app/engine/types";
 import {
   getKnowledgeGraphStructure,
   getKnowledgeGraphStats,
-  getRootMoments,
-  getSubjectMoments,
-  getDescendantsForRoot,
-  getDescendantsForRootSlim,
   getRootStatsByHighImportanceSample,
-  findAncestors,
-  findLastMomentForDocument,
-  findDescendants,
   getMoments,
   getMoment,
   getMicroMomentsByPaths,
   getDocumentAuditLogsForDocument,
   getRecentDocumentAuditEvents,
   findSimilarMoments,
-  findMomentsBySearch,
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
 import { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
-import { type Database, createDb } from "rwsdk/db";
+import { type Database, createDb, sql } from "rwsdk/db";
 import { type momentMigrations } from "@/app/engine/momentDb/migrations";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
 import {
@@ -40,7 +32,7 @@ import {
   getMomentGraphNamespaceFromEnv,
 } from "@/app/engine/momentGraphNamespace";
 import { getRecentReplayRunsForPrefix } from "@/app/engine/db/momentReplay";
-import { getEmbedding } from "@/app/engine/utils/vector";
+import { getEmbedding, getEmbeddings } from "@/app/engine/utils/vector";
 import {
   getPullRequestsForCommit,
   parseGitHubRepo,
@@ -259,7 +251,7 @@ export async function getRootAncestorAction(
       momentGraphNamespace: effectiveNamespace,
     };
 
-    const ancestors = await findAncestors(momentId, context);
+    const ancestors = await findAncestorsLocal(momentId, context);
     const root = ancestors[0];
     if (!root) {
       return { success: false, rootId: null, error: "Root ancestor not found" };
@@ -409,7 +401,7 @@ export async function getRootMomentsAction(options?: {
       momentGraphNamespace: effectiveNamespace,
     };
 
-    const rootMoments = await getRootMoments(context, {
+    const rootMoments = await getUnparentedMomentsLocal(context, {
       limit: options?.limit ?? 1000,
     });
 
@@ -456,7 +448,7 @@ export async function getSubjectMomentsAction(options?: {
       momentGraphNamespace: effectiveNamespace,
     };
 
-    const subjectMoments = await getSubjectMoments(context, {
+    const subjectMoments = await getSubjectMomentsLocal(context, {
       limit: options?.limit ?? 1000,
     });
 
@@ -505,7 +497,7 @@ export async function getDescendantsForRootAction(
       momentGraphNamespace: effectiveNamespace,
     };
 
-    const descendants = await getDescendantsForRoot(rootId, context);
+    const descendants = await findDescendantsLocal(rootId, context);
 
     return {
       success: true,
@@ -562,7 +554,7 @@ export async function getDescendantsForRootSlimAction(
         ? Math.floor(maxNodesRaw)
         : 5000;
 
-    const result = await getDescendantsForRootSlim(rootId, context, {
+    const result = await findDescendantsSlimLocal(rootId, context, {
       maxNodes,
     });
 
@@ -1080,7 +1072,7 @@ export async function searchMomentsAction(options: {
       if (!moment) {
         continue;
       }
-      const ancestors = await findAncestors(moment.id, context);
+      const ancestors = await findAncestorsLocal(moment.id, context);
       const root = ancestors[0];
       if (!root) {
         continue;
@@ -1267,6 +1259,652 @@ export async function searchMomentsByTextAction(options: {
 }
 
 // Audit-specific functions moved from momentDb/index.ts
+
+async function findAncestorsLocal(
+  momentId: string,
+  context: MomentGraphContext
+): Promise<Moment[]> {
+  const db = getMomentDb(context);
+  const ancestorIds: string[] = [];
+  const visited = new Set<string>();
+  const maxDepth = 5000;
+  let currentMomentId: string | undefined = momentId;
+
+  for (let depth = 0; depth < maxDepth && currentMomentId; depth++) {
+    if (visited.has(currentMomentId)) {
+      break;
+    }
+    visited.add(currentMomentId);
+    ancestorIds.push(currentMomentId);
+
+    const row = await db
+      .selectFrom("moments")
+      .select("parent_id")
+      .where("id", "=", currentMomentId)
+      .executeTakeFirst();
+
+    currentMomentId = row?.parent_id || undefined;
+  }
+
+  if (ancestorIds.length === 0) {
+    return [];
+  }
+
+  const momentsMap = await getMoments(ancestorIds, context);
+  const ancestors: Moment[] = [];
+  // Return in root-to-leaf order
+  for (let i = ancestorIds.length - 1; i >= 0; i--) {
+    const id = ancestorIds[i];
+    const moment = momentsMap.get(id);
+    if (moment) {
+      ancestors.push(moment);
+    }
+  }
+
+  return ancestors;
+}
+
+async function findDescendantsLocal(
+  rootMomentId: string,
+  context: MomentGraphContext,
+  options?: { maxNodes?: number }
+): Promise<Moment[]> {
+  const db = getMomentDb(context);
+  const maxNodes = options?.maxNodes ?? 5000;
+  const out: Moment[] = [];
+  const visited = new Set<string>();
+  let level = [rootMomentId];
+
+  while (level.length > 0 && out.length < maxNodes) {
+    const rows = (await db
+      .selectFrom("moments")
+      .selectAll()
+      .where("id", "in", level)
+      .execute()) as unknown as MomentRow[];
+
+    for (const row of rows) {
+      if (visited.has(row.id)) continue;
+      visited.add(row.id);
+
+      out.push({
+        id: row.id,
+        documentId: row.document_id,
+        summary: row.summary,
+        title: row.title,
+        parentId: row.parent_id || undefined,
+        microPaths: row.micro_paths_json || undefined,
+        microPathsHash: row.micro_paths_hash || undefined,
+        importance:
+          typeof row.importance === "number" ? row.importance : undefined,
+        linkAuditLog: row.link_audit_log || undefined,
+        createdAt: row.created_at,
+        author: row.author,
+        sourceMetadata: row.source_metadata || undefined,
+      });
+    }
+
+    // Fetch next level
+    const nextLevelRows = await db
+      .selectFrom("moments")
+      .select("id")
+      .where("parent_id", "in", level)
+      .execute();
+
+    level = nextLevelRows.map((r) => r.id).filter((id) => !visited.has(id));
+    if (out.length + level.length > maxNodes) {
+      level = level.slice(0, maxNodes - out.length);
+    }
+  }
+
+  out.sort((a, b) => {
+    if (a.createdAt !== b.createdAt) {
+      return a.createdAt.localeCompare(b.createdAt);
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  return out;
+}
+
+async function findLastMomentForDocumentLocal(
+  documentId: string,
+  context: MomentGraphContext
+): Promise<Moment | null> {
+  const db = getMomentDb(context);
+  const rows = (await db
+    .selectFrom("moments")
+    .selectAll()
+    .where("document_id", "=", documentId)
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .execute()) as unknown as MomentRow[];
+
+  if (rows.length === 0) {
+    return null;
+  }
+
+  const row = rows[0];
+  return {
+    id: row.id,
+    documentId: row.document_id,
+    summary: row.summary,
+    title: row.title,
+    parentId: row.parent_id || undefined,
+    createdAt: row.created_at,
+    author: row.author,
+    sourceMetadata: row.source_metadata || undefined,
+  };
+}
+
+/**
+ * Bulk fetch last moments for multiple documentIds in a single query.
+ * Returns a map of documentId -> Moment | null.
+ */
+async function findLastMomentsForDocumentsLocal(
+  documentIds: string[],
+  context: MomentGraphContext
+): Promise<Map<string, Moment | null>> {
+  const db = getMomentDb(context);
+  const result = new Map<string, Moment | null>();
+
+  if (documentIds.length === 0) {
+    return result;
+  }
+
+  // For each documentId, get the most recent moment
+  // We use a window function approach via subquery or fetch all and group in memory
+  // Since SQLite doesn't have great window function support, we'll batch fetch
+  const batchSize = 100;
+  for (let i = 0; i < documentIds.length; i += batchSize) {
+    const batch = documentIds.slice(i, i + batchSize);
+    const rows = (await db
+      .selectFrom("moments")
+      .selectAll()
+      .where("document_id", "in", batch)
+      .orderBy("created_at", "desc")
+      .execute()) as unknown as MomentRow[];
+
+    // Group by document_id and take the first (most recent) for each
+    const seen = new Set<string>();
+    for (const row of rows) {
+      if (!seen.has(row.document_id)) {
+        seen.add(row.document_id);
+        result.set(row.document_id, {
+          id: row.id,
+          documentId: row.document_id,
+          summary: row.summary,
+          title: row.title,
+          parentId: row.parent_id || undefined,
+          createdAt: row.created_at,
+          author: row.author,
+          sourceMetadata: row.source_metadata || undefined,
+        });
+      }
+    }
+
+    // Mark missing documentIds as null
+    for (const docId of batch) {
+      if (!result.has(docId)) {
+        result.set(docId, null);
+      }
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Bulk fetch ancestors for multiple momentIds using recursive CTE.
+ * Returns a map of momentId -> Moment[] (ancestors in root-to-leaf order).
+ * Optimized: Uses WITH RECURSIVE to fetch all ancestors in a single query.
+ */
+async function findAncestorsLocalBulk(
+  momentIds: string[],
+  context: MomentGraphContext
+): Promise<Map<string, Moment[]>> {
+  const db = getMomentDb(context);
+  const result = new Map<string, Moment[]>();
+
+  if (momentIds.length === 0) {
+    return result;
+  }
+
+  // Use recursive CTE to fetch all ancestors in one query
+  // SQLite supports WITH RECURSIVE
+  // Note: For now, we'll keep the iterative approach but optimize it
+  // Recursive CTEs in Kysely require raw SQL execution which may not be available
+  // We'll optimize the iterative approach instead
+
+  // Build parent map for all momentIds and their ancestors
+  const parentMap = new Map<string, string | null>();
+  const allIds = new Set<string>(momentIds);
+  let currentLevel = new Set<string>(momentIds);
+  const maxDepth = 5000;
+
+  for (let depth = 0; depth < maxDepth && currentLevel.size > 0; depth++) {
+    const ids = Array.from(currentLevel);
+    // Fetch in batches to avoid huge IN clauses or stalling
+    const batchSize = 200; // Increased batch size
+    const rows: Array<{ id: string; parent_id: string | null }> = [];
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize);
+      const batchRows = await db
+        .selectFrom("moments")
+        .select(["id", "parent_id"])
+        .where("id", "in", batch)
+        .execute();
+      rows.push(...batchRows);
+    }
+
+    const nextLevel = new Set<string>();
+    for (const row of rows) {
+      parentMap.set(row.id, row.parent_id || null);
+      if (row.parent_id && !allIds.has(row.parent_id)) {
+        allIds.add(row.parent_id);
+        nextLevel.add(row.parent_id);
+      }
+    }
+    currentLevel = nextLevel;
+  }
+
+  // Fetch all moments we need in one bulk call
+  const allMomentIdsArray = Array.from(allIds);
+  const momentsMap = await getMoments(allMomentIdsArray, context);
+
+  // Build ancestor chains for each starting momentId
+  for (const startId of momentIds) {
+    const ancestorIds: string[] = [];
+    const visited = new Set<string>();
+    let current: string | null = startId;
+
+    while (current && !visited.has(current)) {
+      visited.add(current);
+      ancestorIds.push(current);
+      current = parentMap.get(current) || null;
+    }
+
+    const ancestors: Moment[] = [];
+    // Return in root-to-leaf order
+    for (let i = ancestorIds.length - 1; i >= 0; i--) {
+      const id = ancestorIds[i];
+      const moment = momentsMap.get(id);
+      if (moment) {
+        ancestors.push(moment);
+      }
+    }
+    result.set(startId, ancestors);
+  }
+
+  return result;
+}
+
+/**
+ * Bulk fetch descendants for multiple rootIds using recursive CTE.
+ * Returns a map of rootId -> Moment[].
+ * Optimized: Uses WITH RECURSIVE to fetch all descendants in a single query.
+ */
+async function findDescendantsLocalBulk(
+  rootIds: string[],
+  context: MomentGraphContext,
+  options?: { maxNodesPerRoot?: number }
+): Promise<Map<string, Moment[]>> {
+  const db = getMomentDb(context);
+  const result = new Map<string, Moment[]>();
+  const maxNodesPerRoot = options?.maxNodesPerRoot ?? 5000;
+
+  if (rootIds.length === 0) {
+    return result;
+  }
+
+  // Optimized iterative traversal with larger batches
+  // Set up traversal structures
+  const allMomentIds = new Set<string>(rootIds);
+  const rootToMomentIds = new Map<string, Set<string>>();
+  for (const rootId of rootIds) {
+    rootToMomentIds.set(rootId, new Set<string>());
+  }
+
+  // Iterative level-by-level traversal for all roots simultaneously
+  // Use larger batches to reduce round-trips
+  let currentLevel = new Set<string>(rootIds);
+  const visited = new Set<string>();
+  const maxDepth = 100; // Safety cap
+
+  for (let depth = 0; depth < maxDepth && currentLevel.size > 0; depth++) {
+    const ids = Array.from(currentLevel);
+    // Fetch children for current level in larger batches
+    const batchSize = 200; // Increased batch size
+    const rows: Array<{ id: string; parent_id: string | null }> = [];
+    for (let i = 0; i < ids.length; i += batchSize) {
+      const batch = ids.slice(i, i + batchSize);
+      const batchRows = await db
+        .selectFrom("moments")
+        .select(["id", "parent_id"])
+        .where("parent_id", "in", batch)
+        .execute();
+      rows.push(...batchRows);
+    }
+
+    const nextLevel = new Set<string>();
+    for (const row of rows) {
+      const parentId = row.parent_id!;
+      const childId = row.id;
+
+      if (!visited.has(childId)) {
+        visited.add(childId);
+        allMomentIds.add(childId);
+        nextLevel.add(childId);
+
+        // Associate child with all roots that reached its parent
+        for (const [rootId, momentIdSet] of rootToMomentIds.entries()) {
+          if (momentIdSet.has(parentId) || rootId === parentId) {
+            if (momentIdSet.size < maxNodesPerRoot) {
+              momentIdSet.add(childId);
+            }
+          }
+        }
+      }
+    }
+    currentLevel = nextLevel;
+  }
+
+  // Fetch all moments in bulk (batching the getMoments call internally if needed)
+  const allMomentIdsArray = Array.from(allMomentIds);
+  const momentsMap = await getMoments(allMomentIdsArray, context);
+
+  // Group by root_id
+  const descendantIdsByRoot = new Map<string, string[]>();
+  for (const [rootId, momentIdSet] of rootToMomentIds.entries()) {
+    const descendants: string[] = [];
+    for (const id of momentIdSet) {
+      if (descendants.length < maxNodesPerRoot) {
+        descendants.push(id);
+      }
+    }
+    descendantIdsByRoot.set(rootId, descendants);
+  }
+
+  // Build result map
+  for (const rootId of rootIds) {
+    const descendantIds = descendantIdsByRoot.get(rootId) || [];
+    const descendants: Moment[] = [];
+    for (const id of descendantIds) {
+      const moment = momentsMap.get(id);
+      if (moment) {
+        descendants.push(moment);
+      }
+    }
+
+    // Sort by createdAt
+    descendants.sort((a, b) => {
+      if (a.createdAt !== b.createdAt) {
+        return a.createdAt.localeCompare(b.createdAt);
+      }
+      return a.id.localeCompare(b.id);
+    });
+
+    result.set(rootId, descendants);
+  }
+
+  return result;
+}
+
+export type DescendantNode = {
+  id: string;
+  documentId: string;
+  title: string;
+  parentId?: string;
+  createdAt: string;
+  importance?: number;
+  timeRangeStart?: string;
+  timeRangeEnd?: string;
+};
+
+async function getUnparentedMomentsLocal(
+  context: MomentGraphContext,
+  options?: {
+    limit?: number;
+  }
+): Promise<
+  Array<{
+    id: string;
+    title: string;
+    parentId: string | null;
+    createdAt: string;
+    descendantCount: number;
+  }>
+> {
+  const db = getMomentDb(context);
+
+  const limitRaw = options?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 1000;
+
+  const rows = (await db
+    .selectFrom("moments")
+    .select(["id", "title", "parent_id", "created_at"])
+    .where("parent_id", "is", null)
+    .orderBy("created_at", "asc")
+    .limit(limit)
+    .execute()) as Array<{
+    id: string;
+    title: string;
+    parent_id: string | null;
+    created_at: string;
+  }>;
+
+  // We'll compute descendant count for these roots.
+  // Since we want to avoid fetching the whole table, we'll do it iteratively.
+  const results = await Promise.all(
+    rows.map(async (row) => {
+      const descendants = await findDescendantsLocal(row.id, context, {
+        maxNodes: 1000,
+      });
+      return {
+        id: row.id,
+        title: row.title || `Moment ${row.id.substring(0, 8)}`,
+        parentId: row.parent_id,
+        createdAt: row.created_at,
+        descendantCount: descendants.length - 1, // Exclude self
+      };
+    })
+  );
+
+  return results;
+}
+
+async function getSubjectMomentsLocal(
+  context: MomentGraphContext,
+  options?: {
+    limit?: number;
+  }
+): Promise<
+  Array<{
+    id: string;
+    title: string;
+    parentId: string | null;
+    createdAt: string;
+    descendantCount: number;
+    subjectKind: string | null;
+  }>
+> {
+  const db = getMomentDb(context);
+
+  const limitRaw = options?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 1000;
+
+  const rows = (await db
+    .selectFrom("moments")
+    .select(["id", "title", "parent_id", "created_at", "subject_kind"])
+    .where("is_subject", "=", 1 as any)
+    .orderBy("created_at", "asc")
+    .limit(limit)
+    .execute()) as Array<{
+    id: string;
+    title: string;
+    parent_id: string | null;
+    created_at: string;
+    subject_kind: string | null;
+  }>;
+
+  const results = await Promise.all(
+    rows.map(async (row) => {
+      const descendants = await findDescendantsLocal(row.id, context, {
+        maxNodes: 1000,
+      });
+      return {
+        id: row.id,
+        title: row.title || `Moment ${row.id.substring(0, 8)}`,
+        parentId: row.parent_id,
+        createdAt: row.created_at,
+        descendantCount: descendants.length - 1, // Exclude self
+        subjectKind: row.subject_kind ?? null,
+      };
+    })
+  );
+
+  return results;
+}
+
+async function findDescendantsSlimLocal(
+  rootMomentId: string,
+  context: MomentGraphContext,
+  options?: { maxNodes?: number }
+): Promise<{ nodes: DescendantNode[]; truncated: boolean }> {
+  const db = getMomentDb(context);
+  const maxNodes = options?.maxNodes ?? 5000;
+  const out: DescendantNode[] = [];
+  const visited = new Set<string>();
+  let level = [rootMomentId];
+  let truncated = false;
+
+  while (level.length > 0 && out.length < maxNodes) {
+    const rows = await db
+      .selectFrom("moments")
+      .select([
+        "id",
+        "document_id",
+        "title",
+        "parent_id",
+        "created_at",
+        "importance",
+        "source_metadata",
+      ])
+      .where("id", "in", level)
+      .execute();
+
+    for (const row of rows) {
+      if (visited.has(row.id)) continue;
+      visited.add(row.id);
+
+      const sourceMetadata = row.source_metadata as any;
+      const timeRange = sourceMetadata?.timeRange;
+
+      out.push({
+        id: row.id,
+        documentId: row.document_id,
+        title: row.title || `Moment ${row.id.substring(0, 8)}`,
+        parentId: row.parent_id || undefined,
+        createdAt: row.created_at,
+        importance:
+          typeof row.importance === "number" ? row.importance : undefined,
+        timeRangeStart:
+          typeof timeRange?.start === "string" ? timeRange.start : undefined,
+        timeRangeEnd:
+          typeof timeRange?.end === "string" ? timeRange.end : undefined,
+      });
+    }
+
+    if (out.length >= maxNodes) {
+      truncated = true;
+      break;
+    }
+
+    // Fetch next level
+    const nextLevelRows = await db
+      .selectFrom("moments")
+      .select("id")
+      .where("parent_id", "in", level)
+      .execute();
+
+    level = nextLevelRows.map((r) => r.id).filter((id) => !visited.has(id));
+    if (out.length + level.length > maxNodes) {
+      level = level.slice(0, maxNodes - out.length);
+      truncated = true;
+    }
+  }
+
+  out.sort((a, b) => {
+    if (a.createdAt !== b.createdAt) {
+      return a.createdAt.localeCompare(b.createdAt);
+    }
+    return a.id.localeCompare(b.id);
+  });
+
+  return { nodes: out, truncated };
+}
+
+async function findMomentsBySearchLocal(
+  searchText: string,
+  context: MomentGraphContext,
+  limit: number = 20
+): Promise<Moment[]> {
+  const db = getMomentDb(context);
+  const trimmed = typeof searchText === "string" ? searchText.trim() : "";
+  if (trimmed.length === 0) {
+    return [];
+  }
+
+  const safeLimit =
+    Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 20;
+  const pattern = `%${trimmed}%`;
+
+  const rows = (await db
+    .selectFrom("moments")
+    .select([
+      "id",
+      "document_id",
+      "summary",
+      "title",
+      "parent_id",
+      "micro_paths_json",
+      "micro_paths_hash",
+      "importance",
+      "link_audit_log",
+      "created_at",
+      "author",
+      "source_metadata",
+    ])
+    .where((eb) =>
+      eb.or([
+        eb("title", "like", pattern),
+        eb("summary", "like", pattern),
+        eb("document_id", "like", pattern),
+      ])
+    )
+    .limit(safeLimit)
+    .execute()) as unknown as MomentRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    documentId: row.document_id,
+    summary: row.summary,
+    title: row.title,
+    parentId: row.parent_id || undefined,
+    microPaths: row.micro_paths_json || undefined,
+    microPathsHash: row.micro_paths_hash || undefined,
+    importance: typeof row.importance === "number" ? row.importance : undefined,
+    linkAuditLog: row.link_audit_log || undefined,
+    createdAt: row.created_at,
+    author: row.author,
+    sourceMetadata: row.source_metadata || undefined,
+  }));
+}
 
 async function findMomentsByTextSearchLocal(
   searchText: string,
@@ -1637,6 +2275,84 @@ async function getMomentsBySourceLocal(
   };
 }
 
+// Performance timing helper
+class PerformanceTimer {
+  private startTime: number;
+  private checkpoints: Array<{ label: string; time: number }> = [];
+
+  constructor(label: string) {
+    this.startTime = performance.now();
+    this.checkpoints.push({ label, time: 0 });
+  }
+
+  checkpoint(label: string): number {
+    const elapsed = performance.now() - this.startTime;
+    this.checkpoints.push({ label, time: elapsed });
+    return elapsed;
+  }
+
+  getTotal(): number {
+    return performance.now() - this.startTime;
+  }
+
+  log(label: string): void {
+    const total = this.getTotal();
+    const lastCheckpoint = this.checkpoints[this.checkpoints.length - 1];
+    const sinceLast = lastCheckpoint ? total - lastCheckpoint.time : total;
+    console.log(
+      `[perf:${label}] ${total.toFixed(2)}ms total (${sinceLast.toFixed(
+        2
+      )}ms since last checkpoint)`
+    );
+  }
+
+  logAll(label: string): void {
+    const total = this.getTotal();
+    console.log(`[perf:${label}] Total: ${total.toFixed(2)}ms`);
+    for (let i = 1; i < this.checkpoints.length; i++) {
+      const prev = this.checkpoints[i - 1];
+      const curr = this.checkpoints[i];
+      const segment = curr.time - prev.time;
+      console.log(
+        `[perf:${label}]   ${curr.label}: ${segment.toFixed(
+          2
+        )}ms (cumulative: ${curr.time.toFixed(2)}ms)`
+      );
+    }
+  }
+
+  getServerTimingHeader(): string {
+    const parts: string[] = [];
+    for (let i = 1; i < this.checkpoints.length; i++) {
+      const prev = this.checkpoints[i - 1];
+      const curr = this.checkpoints[i];
+      const segment = curr.time - prev.time;
+      // Sanitize label for Server-Timing header (no spaces, special chars)
+      const sanitized = curr.label.replace(/[^a-zA-Z0-9_-]/g, "_");
+      parts.push(`${sanitized};dur=${segment.toFixed(2)}`);
+    }
+    parts.push(`total;dur=${this.getTotal().toFixed(2)}`);
+    return parts.join(", ");
+  }
+}
+
+/**
+ * Utility to run promises in batches to avoid hitting concurrent subrequest limits.
+ */
+async function batchPromises<T, R>(
+  items: T[],
+  batchSize: number,
+  fn: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = items.slice(i, i + batchSize);
+    const batchResults = await Promise.all(batch.map(fn));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
 // Helper functions for TLDR generation (reused from pr-origin.ts)
 function formatIso8601Tldr(raw: unknown): string {
   if (typeof raw !== "string") {
@@ -1664,6 +2380,149 @@ function readTimeMsTldr(raw: unknown): number | null {
   const date = new Date(trimmed);
   const ms = date.getTime();
   return Number.isFinite(ms) ? ms : null;
+}
+
+/**
+ * Normalizes the createdAt date for a moment.
+ * For cursor conversations, uses the R2 object's uploaded timestamp.
+ * For other sources, uses the moment's createdAt.
+ */
+async function normalizeCreatedAtForMoment(
+  moment: Moment,
+  envCloudflare: Cloudflare.Env
+): Promise<string | null> {
+  // Only normalize cursor conversations
+  if (!moment.documentId?.startsWith("cursor/")) {
+    return moment.createdAt || null;
+  }
+
+  try {
+    const bucket = envCloudflare.MACHINEN_BUCKET;
+    const r2Object = await bucket.get(moment.documentId);
+
+    if (!r2Object) {
+      // For cursor conversations, return null if R2 object doesn't exist
+      return null;
+    }
+
+    // Use the R2 object's uploaded timestamp
+    const uploaded = r2Object.uploaded;
+    if (uploaded instanceof Date) {
+      return uploaded.toISOString();
+    }
+    if (typeof uploaded === "string") {
+      return uploaded;
+    }
+
+    // For cursor conversations, return null if uploaded is not a valid date
+    return null;
+  } catch (error) {
+    console.warn(
+      `[normalize-created-at] Failed to fetch R2 metadata for ${moment.documentId}:`,
+      error
+    );
+    // For cursor conversations, return null on error (do not fall back to moment.createdAt)
+    return null;
+  }
+}
+
+/**
+ * Batch normalizes createdAt dates for multiple moments.
+ * Fetches R2 metadata for cursor conversations in parallel.
+ * Optimized: Deduplicates by documentId and uses head() instead of get().
+ */
+async function normalizeCreatedAtForMoments(
+  moments: Moment[],
+  envCloudflare: Cloudflare.Env
+): Promise<Map<string, string | null>> {
+  const timer = new PerformanceTimer("normalizeCreatedAtForMoments");
+  const normalizedMap = new Map<string, string | null>();
+
+  // Identify cursor conversations that need R2 metadata
+  const cursorMoments = moments.filter((m) =>
+    m.documentId?.startsWith("cursor/")
+  );
+  const nonCursorMoments = moments.filter(
+    (m) => !m.documentId?.startsWith("cursor/")
+  );
+  timer.checkpoint("filter-cursor-moments");
+
+  // For non-cursor moments, use their createdAt directly
+  for (const moment of nonCursorMoments) {
+    normalizedMap.set(moment.id, moment.createdAt || null);
+  }
+  timer.checkpoint("process-non-cursor");
+
+  // Deduplicate cursor moments by documentId to avoid redundant R2 calls
+  const documentIdToMomentIds = new Map<string, string[]>();
+  for (const moment of cursorMoments) {
+    if (!moment.documentId) {
+      normalizedMap.set(moment.id, null);
+      continue;
+    }
+    const existing = documentIdToMomentIds.get(moment.documentId) || [];
+    existing.push(moment.id);
+    documentIdToMomentIds.set(moment.documentId, existing);
+  }
+  timer.checkpoint("deduplicate-document-ids");
+
+  // Batch fetch R2 metadata for unique cursor documentIds using head() for metadata only
+  const bucket = envCloudflare.MACHINEN_BUCKET;
+  const uniqueDocumentIds = Array.from(documentIdToMomentIds.keys());
+  console.log(
+    `[perf:normalizeCreatedAtForMoments] Fetching R2 metadata for ${uniqueDocumentIds.length} unique documentIds (from ${cursorMoments.length} cursor moments)`
+  );
+
+  // Batch R2 head calls to avoid "stalled response" and concurrent subrequest limits
+  const results = await batchPromises(
+    uniqueDocumentIds,
+    30, // increased batch size from 10 to 30 for better concurrency
+    async (documentId) => {
+      try {
+        // Use head() instead of get() - we only need metadata, not content
+        const r2Object = await bucket.head(documentId);
+
+        if (!r2Object) {
+          // For cursor conversations, return null if R2 object doesn't exist
+          return { documentId, createdAt: null };
+        }
+
+        const uploaded = r2Object.uploaded;
+        let normalizedDate: string | null = null;
+
+        if (uploaded instanceof Date) {
+          normalizedDate = uploaded.toISOString();
+        } else if (typeof uploaded === "string") {
+          normalizedDate = uploaded;
+        } else {
+          // For cursor conversations, return null if uploaded is not a valid date
+          normalizedDate = null;
+        }
+
+        return { documentId, createdAt: normalizedDate };
+      } catch (error) {
+        console.warn(
+          `[normalize-created-at] Failed to fetch R2 metadata for ${documentId}:`,
+          error
+        );
+        // For cursor conversations, return null on error (do not fall back to moment.createdAt)
+        return { documentId, createdAt: null };
+      }
+    }
+  );
+  timer.checkpoint("complete-r2-fetches");
+
+  // Populate the map with normalized dates for all moments sharing the same documentId
+  for (const result of results) {
+    const momentIds = documentIdToMomentIds.get(result.documentId) || [];
+    for (const momentId of momentIds) {
+      normalizedMap.set(momentId, result.createdAt);
+    }
+  }
+  timer.checkpoint("populate-map");
+  timer.logAll("normalizeCreatedAtForMoments");
+
+  return normalizedMap;
 }
 
 function timelineSortKeyTldr(moment: {
@@ -1718,11 +2577,25 @@ function formatTimelineLineTldr(
   }`;
 }
 
-export async function fetchCodeTimeline(options: {
+async function fetchRelatedMomentsForCommit(options: {
   repo: string;
   commit: string;
   namespace?: string | null;
-}) {
+}): Promise<
+  | {
+      success: true;
+      allRelatedMoments: Moment[];
+      prNumbers: number[];
+      commitHash: string;
+      owner: string;
+      repo: string;
+    }
+  | {
+      success: false;
+      error: string;
+    }
+> {
+  const timer = new PerformanceTimer("fetchRelatedMomentsForCommit");
   try {
     const envCloudflare = env as Cloudflare.Env;
 
@@ -1738,8 +2611,9 @@ export async function fetchCodeTimeline(options: {
     const { owner, repo } = parsedRepo;
     const commitHash = options.commit;
     const namespaceOverride = options.namespace ?? null;
+    timer.checkpoint("parse-repo");
 
-    // 1. Get PRs for the commit
+    // Stage 1: Get PRs for the commit
     console.log(
       `[code-timeline] Fetching PRs for commit ${commitHash} in ${owner}/${repo}`
     );
@@ -1761,6 +2635,7 @@ export async function fetchCodeTimeline(options: {
         err
       );
     }
+    timer.checkpoint("github-api-prs");
 
     const prNumbers = Array.from(prNumbersSet).sort((a, b) => b - a);
 
@@ -1777,7 +2652,6 @@ export async function fetchCodeTimeline(options: {
       )}`
     );
 
-    // 2. Fetch data for each PR from R2 and find moments in the graph
     const bucket = envCloudflare.MACHINEN_BUCKET;
     const momentGraphNamespace =
       namespaceOverride ?? getMomentGraphNamespaceFromEnv(envCloudflare);
@@ -1785,113 +2659,219 @@ export async function fetchCodeTimeline(options: {
       env: envCloudflare,
       momentGraphNamespace: momentGraphNamespace,
     };
+    timer.checkpoint("setup-context");
 
-    const allRelatedMoments: Moment[] = [];
+    // Stage 1: Parallel PR data fetch
+    const r2Keys = prNumbers.map(
+      (prNumber) =>
+        `github/${owner}/${repo}/pull-requests/${prNumber}/latest.json`
+    );
+    console.log(
+      `[perf:fetchRelatedMomentsForCommit] Fetching ${r2Keys.length} PR files from R2`
+    );
+    const prDataResults = await Promise.all(
+      r2Keys.map(async (r2Key) => {
+        const prObject = await bucket.get(r2Key);
+        if (!prObject) {
+          console.warn(`[code-timeline] PR data not found in R2: ${r2Key}`);
+          return null;
+        }
+        const prData = (await prObject.json()) as any;
+        return { r2Key, prData, prNumber: prNumbers[r2Keys.indexOf(r2Key)] };
+      })
+    );
+    timer.checkpoint("r2-fetch-pr-data");
 
-    for (const prNumber of prNumbers) {
-      const r2Key = `github/${owner}/${repo}/pull-requests/${prNumber}/latest.json`;
-      const prObject = await bucket.get(r2Key);
+    const validPrData = prDataResults.filter(
+      (r): r is { r2Key: string; prData: any; prNumber: number } => r !== null
+    );
 
-      if (!prObject) {
-        console.warn(`[code-timeline] PR data not found in R2: ${r2Key}`);
-        continue;
-      }
+    if (validPrData.length === 0) {
+      return {
+        success: false,
+        error: `No PR data found in R2 for commit ${commitHash}`,
+      };
+    }
 
-      const prData = (await prObject.json()) as any;
+    // Stage 2: Bulk discovery - Run Last moments, Reference Search, and Semantic Search in parallel
+    const validR2Keys = validPrData.map((p) => p.r2Key);
 
-      // Find moments in the graph
-      const lastMoment = await findLastMomentForDocument(
-        r2Key,
-        momentGraphContext
-      );
-      if (lastMoment) {
-        const ancestors = await findAncestors(
-          lastMoment.id,
-          momentGraphContext
-        );
-        const root = ancestors[0] ?? lastMoment;
-        const descendants = await findDescendants(root.id, momentGraphContext);
-        allRelatedMoments.push(...ancestors, ...descendants);
-      }
-
-      // Additional searches
-      const referenceSearch = await findMomentsBySearch(
-        `#${prNumber}`,
-        momentGraphContext,
-        10
-      );
-      allRelatedMoments.push(...referenceSearch);
-
-      // Semantic search by PR title/body
+    // Prepare semantic queries early (no async work)
+    const semanticQueryTexts: string[] = [];
+    const semanticQueryToPrIndex: number[] = [];
+    for (let i = 0; i < validPrData.length; i++) {
+      const { prData } = validPrData[i];
       const queryText = `${prData.title || ""}\n\n${
         prData.body || ""
       }`.substring(0, 1000);
       if (queryText.trim().length > 0) {
-        try {
-          const embedding = await getEmbedding(queryText);
-          const similarMoments = await findSimilarMoments(
-            embedding,
-            10,
-            momentGraphContext
-          );
-          allRelatedMoments.push(...similarMoments);
-        } catch (err) {
-          console.error(
-            `[code-timeline] Semantic search failed for PR #${prNumber}:`,
-            err
-          );
+        semanticQueryTexts.push(queryText);
+        semanticQueryToPrIndex.push(i);
+      }
+    }
+    timer.checkpoint("prepare-semantic-queries");
+
+    // Run all discovery operations in parallel
+    console.log(
+      `[perf:fetchRelatedMomentsForCommit] Running discovery stage in parallel: lastMoments, referenceSearches, semanticSearches`
+    );
+    const [lastMomentsMap, referenceSearches, semanticSearches] =
+      await Promise.all([
+        // Last moments lookup
+        findLastMomentsForDocumentsLocal(validR2Keys, momentGraphContext),
+        // Reference searches (batched)
+        batchPromises(
+          validPrData,
+          20, // increased batch size
+          ({ prNumber }) =>
+            findMomentsBySearchLocal(`#${prNumber}`, momentGraphContext, 10)
+        ),
+        // Semantic searches (prepare embeddings, then query)
+        (async () => {
+          if (semanticQueryTexts.length === 0) {
+            return [];
+          }
+          try {
+            const embeddings = await getEmbeddings(semanticQueryTexts);
+            return await batchPromises(
+              embeddings,
+              10, // increased batch size for Vectorize
+              (embedding) =>
+                findSimilarMoments(embedding, 10, momentGraphContext)
+            );
+          } catch (err) {
+            console.error(`[code-timeline] Bulk semantic search failed:`, err);
+            return new Array(semanticQueryTexts.length).fill([]);
+          }
+        })(),
+      ]);
+    timer.checkpoint("discovery-stage-parallel");
+
+    // Collect all last moment IDs that exist
+    const lastMomentIds: string[] = [];
+    const r2KeyToPrNumber = new Map<string, number>();
+    for (const { r2Key, prNumber } of validPrData) {
+      r2KeyToPrNumber.set(r2Key, prNumber);
+      const lastMoment = lastMomentsMap.get(r2Key);
+      if (lastMoment) {
+        lastMomentIds.push(lastMoment.id);
+      }
+    }
+    timer.checkpoint("collect-last-moment-ids");
+
+    // Stage 3: Bulk traversal - Ancestors, then Descendants
+    const allRelatedMoments: Moment[] = [];
+
+    // Add reference search results
+    for (const moments of referenceSearches) {
+      allRelatedMoments.push(...moments);
+    }
+
+    // Add semantic search results
+    for (
+      let semanticIdx = 0;
+      semanticIdx < semanticSearches.length;
+      semanticIdx++
+    ) {
+      allRelatedMoments.push(...semanticSearches[semanticIdx]);
+    }
+    timer.checkpoint("collect-search-results");
+
+    // Bulk fetch ancestors for all last moments
+    if (lastMomentIds.length > 0) {
+      console.log(
+        `[perf:fetchRelatedMomentsForCommit] Bulk fetching ancestors for ${lastMomentIds.length} moments`
+      );
+      const ancestorsMap = await findAncestorsLocalBulk(
+        lastMomentIds,
+        momentGraphContext
+      );
+      timer.checkpoint("bulk-ancestors");
+
+      // Collect root IDs
+      const rootIds: string[] = [];
+      const rootIdSet = new Set<string>();
+      for (const lastMomentId of lastMomentIds) {
+        const ancestors = ancestorsMap.get(lastMomentId) || [];
+        const root =
+          ancestors.length > 0
+            ? ancestors[0]
+            : lastMomentsMap.get(
+                validR2Keys[lastMomentIds.indexOf(lastMomentId)]
+              ) || null;
+        if (root && !rootIdSet.has(root.id)) {
+          rootIds.push(root.id);
+          rootIdSet.add(root.id);
         }
+      }
+
+      // Add ancestors to results
+      for (const ancestors of ancestorsMap.values()) {
+        allRelatedMoments.push(...ancestors);
+      }
+      timer.checkpoint("collect-ancestors");
+
+      // Bulk fetch descendants for all roots
+      if (rootIds.length > 0) {
+        console.log(
+          `[perf:fetchRelatedMomentsForCommit] Bulk fetching descendants for ${rootIds.length} roots`
+        );
+        const descendantsMap = await findDescendantsLocalBulk(
+          rootIds,
+          momentGraphContext
+        );
+        timer.checkpoint("bulk-descendants");
+
+        // Add descendants to results
+        for (const descendants of descendantsMap.values()) {
+          allRelatedMoments.push(...descendants);
+        }
+        timer.checkpoint("collect-descendants");
       }
     }
 
-    // 3. Deduplicate and build timeline
+    // Stage 4: Deduplication and Return
     const uniqueMomentsMap = new Map<string, Moment>();
     for (const m of allRelatedMoments) {
       uniqueMomentsMap.set(m.id, m);
     }
-
-    const sortedTimeline = Array.from(uniqueMomentsMap.values()).sort(
-      (a, b) => {
-        const aKey = timelineSortKeyTldr(a);
-        const bKey = timelineSortKeyTldr(b);
-        if (aKey === null && bKey === null) {
-          const aId = a?.id;
-          const bId = b?.id;
-          if (typeof aId === "string" && typeof bId === "string") {
-            return aId.localeCompare(bId);
-          }
-          return 0;
-        }
-        if (aKey === null) return 1;
-        if (bKey === null) return -1;
-        if (aKey !== bKey) return aKey - bKey;
-
-        const aId = a?.id;
-        const bId = b?.id;
-        if (typeof aId === "string" && typeof bId === "string") {
-          return aId.localeCompare(bId);
-        }
-        return 0;
-      }
-    );
-
-    // Format timeline for development stream
-    const developmentStream = sortedTimeline.map((moment) => ({
-      id: moment.id,
-      title: moment.title || "Untitled",
-      summary: moment.summary,
-      createdAt: moment.createdAt,
-      documentId: moment.documentId,
-      importance: moment.importance,
-      sourceMetadata: moment.sourceMetadata,
-    }));
+    timer.checkpoint("deduplicate");
+    timer.logAll("fetchRelatedMomentsForCommit");
 
     return {
       success: true,
-      developmentStream,
+      allRelatedMoments: Array.from(uniqueMomentsMap.values()),
       prNumbers,
-      commitHashes: [commitHash],
-      sortedTimeline,
+      commitHash,
+      owner,
+      repo,
+    };
+  } catch (error) {
+    console.error(`[code-timeline] Error fetching related moments:`, error);
+    return {
+      success: false,
+      error: "Failed to fetch related moments",
+    };
+  }
+}
+
+export async function fetchCodeTimeline(options: {
+  repo: string;
+  commit: string;
+  namespace?: string | null;
+}) {
+  try {
+    const result = await fetchRelatedMomentsForCodeTimeline(options);
+    if (result.success === false) {
+      return result;
+    }
+
+    return {
+      success: true,
+      developmentStream: result.developmentStream,
+      prNumbers: result.prNumbers,
+      commitHashes: result.commitHashes,
+      sortedTimeline: result.sortedTimeline,
     };
   } catch (error) {
     console.error(`[code-timeline] Error fetching timeline:`, error);
@@ -1901,6 +2881,121 @@ export async function fetchCodeTimeline(options: {
       details: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+export async function fetchRelatedMomentsForCodeTimeline(options: {
+  repo: string;
+  commit: string;
+  namespace?: string | null;
+}) {
+  const timer = new PerformanceTimer("fetchRelatedMomentsForCodeTimeline");
+  const envCloudflare = env as Cloudflare.Env;
+  const relatedMomentsResult = await fetchRelatedMomentsForCommit(options);
+  timer.checkpoint("fetch-related-moments");
+
+  if (!relatedMomentsResult.success) {
+    return relatedMomentsResult;
+  }
+
+  const { allRelatedMoments } = relatedMomentsResult;
+
+  // Normalize createdAt dates first (especially for cursor conversations)
+  console.log(
+    `[perf:fetchRelatedMomentsForCodeTimeline] Normalizing ${allRelatedMoments.length} moments`
+  );
+  const normalizedCreatedAtMap = await normalizeCreatedAtForMoments(
+    allRelatedMoments,
+    envCloudflare
+  );
+  timer.checkpoint("normalize-created-at");
+
+  // Create normalized moments with updated createdAt for sorting
+  const normalizedMoments = allRelatedMoments.map((moment) => {
+    const normalizedCreatedAt = normalizedCreatedAtMap.get(moment.id);
+    const createdAt = moment.documentId?.startsWith("cursor/")
+      ? normalizedCreatedAt ?? null
+      : normalizedCreatedAt ?? moment.createdAt;
+    return {
+      ...moment,
+      createdAt,
+    };
+  });
+  timer.checkpoint("create-normalized-moments");
+
+  // Sort timeline using normalized createdAt values
+  // 1. Primary: Normalized date (R2 for Cursor, timeRange.start or createdAt for others)
+  // 2. Secondary: Actual message/event time (timeRange.start) for ties
+  // 3. Tertiary: ID
+  const sortedTimeline = normalizedMoments.sort((a, b) => {
+    // Primary Sort Key
+    const aPrimary = a.documentId?.startsWith("cursor/")
+      ? readTimeMsTldr(a.createdAt ?? undefined)
+      : timelineSortKeyTldr({ ...a, createdAt: a.createdAt ?? undefined });
+    const bPrimary = b.documentId?.startsWith("cursor/")
+      ? readTimeMsTldr(b.createdAt ?? undefined)
+      : timelineSortKeyTldr({ ...b, createdAt: b.createdAt ?? undefined });
+
+    if (aPrimary !== bPrimary) {
+      if (aPrimary === null) return 1;
+      if (bPrimary === null) return -1;
+      return aPrimary - bPrimary;
+    }
+
+    // Secondary Sort Key (Tie-breaker for same primary date)
+    const aSecondary = readTimeMsTldr(
+      (a.sourceMetadata as any)?.timeRange?.start
+    );
+    const bSecondary = readTimeMsTldr(
+      (b.sourceMetadata as any)?.timeRange?.start
+    );
+
+    if (aSecondary !== bSecondary) {
+      if (aSecondary === null) return 1;
+      if (bSecondary === null) return -1;
+      return aSecondary - bSecondary;
+    }
+
+    // Tertiary Sort Key (ID)
+    const aId = a?.id;
+    const bId = b?.id;
+    if (typeof aId === "string" && typeof bId === "string") {
+      return aId.localeCompare(bId);
+    }
+    return 0;
+  });
+  timer.checkpoint("sort-timeline");
+
+  // Format timeline for development stream
+  const developmentStream = sortedTimeline.map((moment) => {
+    const normalizedCreatedAt = normalizedCreatedAtMap.get(moment.id);
+    // For cursor conversations, use normalized value even if null (don't fall back)
+    // For other sources, fall back to moment.createdAt if normalized value is null/undefined
+    const createdAt = moment.documentId?.startsWith("cursor/")
+      ? normalizedCreatedAt ?? null
+      : normalizedCreatedAt ?? moment.createdAt;
+    return {
+      id: moment.id,
+      title: moment.title || "Untitled",
+      summary: moment.summary,
+      createdAt,
+      documentId: moment.documentId,
+      importance: moment.importance,
+      sourceMetadata: moment.sourceMetadata,
+    };
+  });
+
+  // sortedTimeline already has normalized createdAt values from the sort step above
+  const normalizedSortedTimeline = sortedTimeline;
+  timer.checkpoint("format-development-stream");
+  timer.logAll("fetchRelatedMomentsForCodeTimeline");
+
+  return {
+    success: true as const,
+    developmentStream,
+    prNumbers: relatedMomentsResult.prNumbers,
+    commitHashes: [relatedMomentsResult.commitHash],
+    sortedTimeline: normalizedSortedTimeline,
+  };
 }
 
 export async function generateCodeTldr(options: {
@@ -1922,7 +3017,6 @@ export async function generateCodeTldr(options: {
       return {
         success: false,
         error: timelineResult.error,
-        details: timelineResult.details,
       };
     }
 

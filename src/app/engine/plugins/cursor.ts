@@ -193,6 +193,10 @@ export const cursorPlugin: Plugin = {
       }
     }
 
+    // Extract the earliest timestamp from all events to use as the document's createdAt
+    let earliestTimestamp: string | null = null;
+    const allTimestamps: number[] = [];
+
     for (const gen of data.generations ?? []) {
       const events = Array.isArray((gen as any)?.events)
         ? (gen as any).events
@@ -205,7 +209,30 @@ export const cursorPlugin: Plugin = {
         for (const root of eventRoots) {
           addWorkspaceRoot(root);
         }
+
+        // Try to extract timestamp from event data
+        // Check common timestamp field names, including _ingestion_timestamp from the ingestion process
+        const timestampFields = ['_ingestion_timestamp', 'timestamp', 'created_at', 'createdAt', 'time', 'date'];
+        for (const field of timestampFields) {
+          const tsValue = (event as any)?.[field];
+          if (typeof tsValue === 'string') {
+            const parsed = Date.parse(tsValue);
+            if (!isNaN(parsed)) {
+              allTimestamps.push(parsed);
+            }
+          } else if (typeof tsValue === 'number' && tsValue > 0) {
+            // Handle Unix timestamps (seconds or milliseconds)
+            const ts = tsValue < 1e12 ? tsValue * 1000 : tsValue;
+            allTimestamps.push(ts);
+          }
+        }
       }
+    }
+
+    // Use the earliest timestamp if available, otherwise fall back to current time
+    if (allTimestamps.length > 0) {
+      const minTimestamp = Math.min(...allTimestamps);
+      earliestTimestamp = new Date(minTimestamp).toISOString();
     }
 
     return {
@@ -216,7 +243,7 @@ export const cursorPlugin: Plugin = {
       metadata: {
         title: `Cursor Conversation ${data.id}`,
         url: `cursor://conversation/${data.id}`,
-        createdAt: new Date().toISOString(),
+        createdAt: earliestTimestamp || new Date().toISOString(),
         author: userHandle ?? "cursor-user",
         sourceMetadata: {
           type: "cursor-conversation",

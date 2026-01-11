@@ -29,6 +29,24 @@ export async function processIndexingJob(
   const isReplayCollect =
     jobType === "moment-replay-collect" && Boolean(momentReplayRunId);
 
+  async function maybeEnqueueReplay(runId: string, runState: NonNullable<Awaited<ReturnType<typeof recordReplayDocumentResult>>>) {
+    if (runState.replayEnqueued) {
+      return;
+    }
+    if (runState.processedDocuments < runState.expectedDocuments) {
+      return;
+    }
+    const queue = (env as any).ENGINE_INDEXING_QUEUE;
+    if (!queue) {
+      return;
+    }
+    await queue.send({
+      jobType: "moment-replay-replay",
+      momentReplayRunId: runId,
+    });
+    await setReplayEnqueued({ env, momentGraphNamespace: null }, { runId });
+  }
+
   try {
     const context = createEngineContext(env, "indexing");
     const newChunks = await indexDocument(r2Key, context, {
@@ -38,6 +56,15 @@ export async function processIndexingJob(
     });
 
     if (newChunks.length === 0) {
+      if (isReplayCollect) {
+        const runState = await recordReplayDocumentResult(
+          { env, momentGraphNamespace: null },
+          { runId: momentReplayRunId!, r2Key, status: "succeeded" }
+        );
+        if (runState) {
+          await maybeEnqueueReplay(momentReplayRunId!, runState);
+        }
+      }
       return;
     }
 
@@ -57,21 +84,8 @@ export async function processIndexingJob(
         { runId: momentReplayRunId!, r2Key, status: "succeeded" }
       );
 
-      if (
-        runState &&
-        !runState.replayEnqueued &&
-        runState.processedDocuments >= runState.expectedDocuments
-      ) {
-        const didMark = await setReplayEnqueued(
-          { env, momentGraphNamespace: null },
-          { runId: momentReplayRunId! }
-        );
-        if (didMark && (env as any).ENGINE_INDEXING_QUEUE) {
-          await (env as any).ENGINE_INDEXING_QUEUE.send({
-            jobType: "moment-replay-replay",
-            momentReplayRunId,
-          });
-        }
+      if (runState) {
+        await maybeEnqueueReplay(momentReplayRunId!, runState);
       }
     }
   } catch (error) {

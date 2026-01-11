@@ -12,3 +12,11 @@ Change: in moment replay collect mode, record the per-document result even when 
 
 Built locally with pnpm build.
 
+
+## UI wording: root subjects vs subjects
+
+Observed the audit UI still showing copy like 'Root Subjects' even though the intended model is to present all subject moments (topic demarcations), not only unparented moments.
+
+Change:
+- Updated audit UI labels and helper text to use 'Subjects' / 'Subject Tree' rather than 'Root Subjects' / 'Roots'.
+- This was a presentation change; the list was already sourced from subject-marked moments.

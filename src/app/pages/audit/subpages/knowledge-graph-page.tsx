@@ -457,7 +457,7 @@ export function KnowledgeGraphPage() {
             setEffectiveNamespace(result.effectiveNamespace);
           }
         } else {
-          console.error("Failed to fetch root sample stats:", result.error);
+        console.error("Failed to fetch root sample stats:", result.error);
         }
       } catch (err) {
         console.error("Error fetching root sample stats:", err);
@@ -1100,12 +1100,12 @@ export function KnowledgeGraphPage() {
               <CardTitle>
                 {selectedRootId
                   ? "Subject Tree Visualization"
-                  : "Root Subjects (Select to Drill Down)"}
+                  : "Subjects (Select to Drill Down)"}
               </CardTitle>
               <CardDescription>
                 {selectedRootId
                   ? "Visual representation of a specific subject's moment tree"
-                  : "Select a root subject below to view its complete tree structure"}
+                  : "Select a subject below to view its complete tree structure"}
               </CardDescription>
             </div>
             {selectedRootId && (
@@ -1117,7 +1117,7 @@ export function KnowledgeGraphPage() {
                   setSearchQuery("");
                 }}
               >
-                ← Back to Roots
+                ← Back to Subjects
               </Button>
             )}
           </div>
@@ -1131,7 +1131,7 @@ export function KnowledgeGraphPage() {
 
           {rootMomentsLoading && !selectedRootId && (
             <div className="text-center py-8">
-              <p className="text-gray-500">Loading root subjects...</p>
+              <p className="text-gray-500">Loading subjects...</p>
             </div>
           )}
 
@@ -1166,7 +1166,7 @@ export function KnowledgeGraphPage() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="border rounded p-4">
                   <div className="text-sm font-medium text-gray-900 mb-2">
-                    Root List Controls
+                    Subject List Controls
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
@@ -1182,13 +1182,13 @@ export function KnowledgeGraphPage() {
                         }
                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                       >
-                        <option value="sampled">Top roots (sampled)</option>
-                        <option value="all">All roots</option>
+                        <option value="sampled">Top subjects (sampled)</option>
+                        <option value="all">All subjects</option>
                       </select>
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Sort (all roots)
+                        Sort (all subjects)
                       </label>
                       <select
                         value={rootSort}
@@ -1214,7 +1214,7 @@ export function KnowledgeGraphPage() {
                           onChange={(e) => setHideSingletons(e.target.checked)}
                           disabled={rootListMode !== "all"}
                         />
-                        Hide singletons (all roots)
+                        Hide singletons (all subjects)
                       </label>
                     </div>
                   </div>
@@ -1298,7 +1298,7 @@ export function KnowledgeGraphPage() {
                             {r.matchSummary}
                           </div>
                           <div className="text-xs text-gray-500 mt-1">
-                            Root: <span className="font-mono">{r.rootId}</span>
+                            Subject: <span className="font-mono">{r.rootId}</span>
                           </div>
                         </button>
                       ))}
@@ -1309,7 +1309,7 @@ export function KnowledgeGraphPage() {
 
               {rootListMode === "sampled" && sampledRootsLoading && (
                 <div className="text-center py-8">
-                  <p className="text-gray-500">Loading top roots...</p>
+                  <p className="text-gray-500">Loading top subjects...</p>
                 </div>
               )}
 
@@ -1318,7 +1318,7 @@ export function KnowledgeGraphPage() {
                 sampledRoots.length > 0 && (
                   <div className="space-y-2">
                     <div className="text-sm text-gray-600">
-                      Showing {sampledRoots.length} roots (sampled)
+                      Showing {sampledRoots.length} subjects (sampled)
                     </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                       {sampledRoots.map((root) => (
@@ -1352,19 +1352,19 @@ export function KnowledgeGraphPage() {
                 !sampledRootsLoading &&
                 sampledRoots.length === 0 && (
                   <div className="text-center py-8 text-gray-500">
-                    No sampled roots found. Try selecting a different namespace.
+                    No sampled subjects found. Try selecting a different namespace.
                   </div>
                 )}
 
               {rootListMode === "all" && rootMoments.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
-                  No root subjects found. Try selecting a different namespace.
+                  No subjects found. Try selecting a different namespace.
                 </div>
               ) : (
                 <>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm text-gray-600">
-                      Found {filteredRootMoments.length} root subject
+                      Found {filteredRootMoments.length} subject
                       {filteredRootMoments.length !== 1 ? "s" : ""}. Click on
                       any subject to view its complete tree.
                     </p>
@@ -1437,7 +1437,7 @@ export function KnowledgeGraphPage() {
                   )}
                   {graphData.length === 0 && (
                     <div className="mt-2 text-orange-600">
-                      ⚠️ No descendants found for this root subject.
+                      ⚠️ No descendants found for this subject.
                     </div>
                   )}
                 </div>

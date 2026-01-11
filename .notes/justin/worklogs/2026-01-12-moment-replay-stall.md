@@ -25,6 +25,12 @@ This means replayed moments can show no parent and provide no recorded reason (e
 
 I updated the replay worker to attach the proposal audit log to the replayed moment (link audit log field) for macroMomentIndex 0. This should make replayed moment linkage failures inspectable in the audit UI.
 
+## Fixed replay item upsert crash
+
+The replay collect path writes replay items using an upsert. The code was attempting to reference excluded column values using a helper that does not exist at runtime, which caused the indexing scheduler to fail when collecting into a replay run.
+
+I changed the upsert update set to use SQL excluded column references, so replay item recollect can overwrite items without crashing.
+
 ## Added UI support to restart replay runs
 
 Replay can stop partway through, and replayed moments can have missing links until the replay reaches them. I added a UI control to restart replay for a run from the beginning.

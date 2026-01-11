@@ -1,4 +1,4 @@
-import { type Database, createDb } from "rwsdk/db";
+import { type Database, createDb, sql } from "rwsdk/db";
 import { type indexingStateMigrations } from "./migrations";
 import type { EngineIndexingStateDO } from "./durableObject";
 import { qualifyName } from "../momentGraphNamespace";
@@ -125,7 +125,11 @@ export async function getRecentReplayRunsForPrefix(
     if (typeof rid !== "string" || rid.length === 0) {
       continue;
     }
-    const existing = countsByRunId.get(rid) ?? { total: 0, pending: 0, done: 0 };
+    const existing = countsByRunId.get(rid) ?? {
+      total: 0,
+      pending: 0,
+      done: 0,
+    };
     existing.total += count;
     if (status === "pending") {
       existing.pending += count;
@@ -138,26 +142,30 @@ export async function getRecentReplayRunsForPrefix(
 
   return rows.map((row) => {
     const runId = (row as any).run_id as string;
-    const counts = countsByRunId.get(runId) ?? { total: 0, pending: 0, done: 0 };
+    const counts = countsByRunId.get(runId) ?? {
+      total: 0,
+      pending: 0,
+      done: 0,
+    };
     return {
-    runId: (row as any).run_id as string,
-    status: (row as any).status as string,
-    startedAt: (row as any).started_at as string,
-    updatedAt: (row as any).updated_at as string,
-    expectedDocuments: Number((row as any).expected_documents ?? 0),
-    processedDocuments: Number((row as any).processed_documents ?? 0),
-    succeededDocuments: Number((row as any).succeeded_documents ?? 0),
-    failedDocuments: Number((row as any).failed_documents ?? 0),
-    replayedItems: Number((row as any).replayed_items ?? 0),
-    replayEnqueued: Number((row as any).replay_enqueued ?? 0) === 1,
-    momentGraphNamespace: (row as any).moment_graph_namespace ?? null,
-    momentGraphNamespacePrefix:
-      (row as any).moment_graph_namespace_prefix ?? null,
-    replayOrder:
-      (row as any).replay_order === "descending" ? "descending" : "ascending",
-    totalItems: counts.total,
-    pendingItems: counts.pending,
-    doneItems: counts.done,
+      runId: (row as any).run_id as string,
+      status: (row as any).status as string,
+      startedAt: (row as any).started_at as string,
+      updatedAt: (row as any).updated_at as string,
+      expectedDocuments: Number((row as any).expected_documents ?? 0),
+      processedDocuments: Number((row as any).processed_documents ?? 0),
+      succeededDocuments: Number((row as any).succeeded_documents ?? 0),
+      failedDocuments: Number((row as any).failed_documents ?? 0),
+      replayedItems: Number((row as any).replayed_items ?? 0),
+      replayEnqueued: Number((row as any).replay_enqueued ?? 0) === 1,
+      momentGraphNamespace: (row as any).moment_graph_namespace ?? null,
+      momentGraphNamespacePrefix:
+        (row as any).moment_graph_namespace_prefix ?? null,
+      replayOrder:
+        (row as any).replay_order === "descending" ? "descending" : "ascending",
+      totalItems: counts.total,
+      pendingItems: counts.pending,
+      doneItems: counts.done,
     };
   });
 }
@@ -388,12 +396,12 @@ export async function addReplayItemsBatch(
       .values(batch as any)
       .onConflict((oc) =>
         oc.columns(["run_id", "item_id"]).doUpdateSet({
-          effective_namespace: (db as any).ref("excluded.effective_namespace"),
-          document_id: (db as any).ref("excluded.document_id"),
-          stream_id: (db as any).ref("excluded.stream_id"),
-          macro_moment_index: (db as any).ref("excluded.macro_moment_index"),
-          order_ms: (db as any).ref("excluded.order_ms"),
-          payload_json: (db as any).ref("excluded.payload_json"),
+          effective_namespace: sql`excluded.effective_namespace` as any,
+          document_id: sql`excluded.document_id` as any,
+          stream_id: sql`excluded.stream_id` as any,
+          macro_moment_index: sql`excluded.macro_moment_index` as any,
+          order_ms: sql`excluded.order_ms` as any,
+          payload_json: sql`excluded.payload_json` as any,
           status: "pending",
           updated_at: now,
         } as any)
@@ -442,8 +450,7 @@ export async function resetReplayRunForReplay(
     return false;
   }
 
-  const replayOrder =
-    input.replayOrder === "descending" ? "descending" : null;
+  const replayOrder = input.replayOrder === "descending" ? "descending" : null;
 
   await db
     .updateTable("moment_replay_runs")
@@ -470,7 +477,10 @@ export async function resetReplayRunForReplay(
     .where("run_id", "=", runId)
     .execute();
 
-  await db.deleteFrom("moment_replay_stream_state").where("run_id", "=", runId).execute();
+  await db
+    .deleteFrom("moment_replay_stream_state")
+    .where("run_id", "=", runId)
+    .execute();
 
   return true;
 }
@@ -625,7 +635,8 @@ export async function fetchReplayItemsBatch(
 
   const lastOrderMs = input.cursor.lastOrderMs;
   const lastItemId = input.cursor.lastItemId;
-  const replayOrder = input.replayOrder === "descending" ? "descending" : "ascending";
+  const replayOrder =
+    input.replayOrder === "descending" ? "descending" : "ascending";
 
   const rows = (await db
     .selectFrom("moment_replay_items")
@@ -721,7 +732,10 @@ export async function setReplayItemsPendingOnlyForDocuments(
     .where("run_id", "=", runId)
     .where("document_id", "in", documentIds)
     .groupBy("document_id")
-    .execute()) as unknown as Array<{ document_id: string | null; count: number }>;
+    .execute()) as unknown as Array<{
+    document_id: string | null;
+    count: number;
+  }>;
 
   const matchedDocuments = matchRows.filter(
     (r) => typeof (r as any).document_id === "string" && (r as any).document_id

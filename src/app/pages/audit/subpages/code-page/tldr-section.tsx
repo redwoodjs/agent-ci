@@ -5,7 +5,7 @@ import {
   CardContent,
   CardDescription,
 } from "@/app/components/ui/card";
-import { generateCodeTldr } from "./actions";
+import { generateCodeTldr } from "../actions";
 
 export async function TldrSection({
   repo,

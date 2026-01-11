@@ -6,65 +6,9 @@ import {
   CardContent,
   CardDescription,
 } from "@/app/components/ui/card";
-import { fetchCodeTimeline } from "./actions";
-import { TldrSection } from "./tldr-section";
+import { fetchRelatedMomentsForCodeTimeline } from "../actions";
 import { EvolutionTable } from "./evolution-table";
-
-export type SourceType =
-  | "GitHub PR"
-  | "GitHub Issue"
-  | "Release"
-  | "Discord"
-  | "Cursor"
-  | "Unknown";
-
-export const SourceIcon = ({
-  type,
-  className,
-}: {
-  type: SourceType;
-  className?: string;
-}) => {
-  switch (type) {
-    case "GitHub PR":
-    case "GitHub Issue":
-    case "Release":
-      return (
-        <svg
-          className={className}
-          fill="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
-        </svg>
-      );
-    case "Discord":
-      return (
-        <svg
-          className={className}
-          fill="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z" />
-        </svg>
-      );
-    case "Cursor":
-      return (
-        <svg
-          className={className}
-          fill="currentColor"
-          viewBox="0 0 24 24"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z" />
-        </svg>
-      );
-    default:
-      return null;
-  }
-};
+import { SourceType } from "./types";
 
 function getSourceTypeFromDocumentId(
   documentId: string | null | undefined
@@ -145,14 +89,7 @@ function getSourceUrl(
   return null;
 }
 
-function extractFunctionName(file: string): string {
-  // Extract function name from file path, or use filename
-  const fileName = file.split("/").pop() || file;
-  // Remove extension
-  return fileName.replace(/\.[^/.]+$/, "");
-}
-
-export function CodeTldrPage({ request }: { request: Request }) {
+export function CodePage({ request }: { request: Request }) {
   const url = new URL(request.url);
   const repo = url.searchParams.get("repo") || "";
   const commit = url.searchParams.get("commit") || "";
@@ -221,43 +158,11 @@ export function CodeTldrPage({ request }: { request: Request }) {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <h1 className="text-3xl font-bold mb-8">TL;DR</h1>
 
-      <Card className="mt-6">
-        <CardHeader>
-          <CardTitle>Input Parameters</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-            <div>
-              <span className="font-medium text-gray-700">Repository:</span>{" "}
-              <span className="font-mono">{repo}</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-700">Commit:</span>{" "}
-              <span className="font-mono">{commit}</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-700">File:</span>{" "}
-              <span className="font-mono">{file}</span>
-            </div>
-            <div>
-              <span className="font-medium text-gray-700">Line:</span>{" "}
-              <span className="font-mono">{line}</span>
-            </div>
-            {namespace && (
-              <div>
-                <span className="font-medium text-gray-700">Namespace:</span>{" "}
-                <span className="font-mono">{namespace}</span>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-
       <Suspense
         fallback={
           <Card>
             <CardHeader>
-              <CardTitle>Loading Evolution...</CardTitle>
+              <CardTitle>Querying the knowledge graph...</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="animate-pulse">
@@ -268,87 +173,19 @@ export function CodeTldrPage({ request }: { request: Request }) {
           </Card>
         }
       >
-        <EvolutionSection
+        <RelatedMomentsLoader
           repo={repo}
           commit={commit}
           namespace={namespace}
           file={file}
           line={line}
-        />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <Card>
-            <CardHeader>
-              <CardTitle>Loading Development Stream...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-              </div>
-            </CardContent>
-          </Card>
-        }
-      >
-        <DevelopmentStreamSection
-          repo={repo}
-          commit={commit}
-          namespace={namespace}
-        />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <Card>
-            <CardHeader>
-              <CardTitle>Loading Key Decisions...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-              </div>
-            </CardContent>
-          </Card>
-        }
-      >
-        <KeyDecisionsSection
-          repo={repo}
-          commit={commit}
-          namespace={namespace}
-        />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <Card>
-            <CardHeader>
-              <CardTitle>Generating TL;DR...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-              </div>
-            </CardContent>
-          </Card>
-        }
-      >
-        <TldrSection
-          repo={repo}
-          commit={commit}
-          file={file}
-          line={line}
-          namespace={namespace}
         />
       </Suspense>
     </div>
   );
 }
 
-async function EvolutionSection({
+async function RelatedMomentsLoader({
   repo,
   commit,
   namespace,
@@ -361,7 +198,7 @@ async function EvolutionSection({
   file: string;
   line: number;
 }) {
-  const timelineResult = await fetchCodeTimeline({
+  const timelineResult = await fetchRelatedMomentsForCodeTimeline({
     repo,
     commit,
     namespace: namespace || undefined,
@@ -382,10 +219,30 @@ async function EvolutionSection({
     );
   }
 
-  // Use the narrative from the timeline if available, or generate a summary
-  const sortedTimeline = (timelineResult as any).sortedTimeline || [];
+  const { sortedTimeline } = timelineResult;
 
-  if (sortedTimeline.length === 0) {
+  return (
+    <EvolutionSection
+      sortedTimeline={sortedTimeline}
+      repo={repo}
+      file={file}
+      line={line}
+    />
+  );
+}
+
+function EvolutionSection({
+  sortedTimeline,
+  repo,
+  file,
+  line,
+}: {
+  sortedTimeline: any[];
+  repo: string;
+  file: string;
+  line: number;
+}) {
+  if (!sortedTimeline || sortedTimeline.length === 0) {
     return (
       <div className="mb-12 overflow-hidden border border-slate-200 rounded-xl bg-white shadow-sm">
         <div className="bg-slate-50 border-b border-slate-200 px-6 py-4">
@@ -407,10 +264,14 @@ async function EvolutionSection({
     const source = getSourceLabel(moment.documentId, moment.sourceMetadata);
     const url = getSourceUrl(moment.documentId, repo);
 
-    // For cursor conversations, use timeRange.start for more granular timestamps
-    // Otherwise fall back to createdAt
+    // For cursor conversations, we normalized moment.createdAt to the R2 uploaded date
+    // in actions.ts. We should use it directly and ignore timeRange.start for cursor.
+    // For other sources, we still prefer timeRange.start for granularity.
     const timeRange = moment.sourceMetadata?.timeRange;
-    const timestamp = timeRange?.start || moment.createdAt;
+    const timestamp =
+      sourceType === "Cursor"
+        ? moment.createdAt
+        : timeRange?.start || moment.createdAt;
     const date = timestamp
       ? new Date(timestamp).toLocaleDateString(undefined, {
           month: "short",
@@ -463,7 +324,7 @@ async function DevelopmentStreamSection({
   commit: string;
   namespace: string | null;
 }) {
-  const timelineResult = await fetchCodeTimeline({
+  const timelineResult = await fetchRelatedMomentsForCodeTimeline({
     repo,
     commit,
     namespace: namespace || undefined,
@@ -484,7 +345,7 @@ async function DevelopmentStreamSection({
     );
   }
 
-  const developmentStream = (timelineResult as any).developmentStream || [];
+  const { developmentStream } = timelineResult;
 
   if (developmentStream.length === 0) {
     return (
@@ -563,7 +424,7 @@ async function KeyDecisionsSection({
   commit: string;
   namespace: string | null;
 }) {
-  const timelineResult = await fetchCodeTimeline({
+  const timelineResult = await fetchRelatedMomentsForCodeTimeline({
     repo,
     commit,
     namespace: namespace || undefined,
@@ -584,7 +445,7 @@ async function KeyDecisionsSection({
     );
   }
 
-  const developmentStream = (timelineResult as any).developmentStream || [];
+  const { developmentStream } = timelineResult;
 
   // Extract key decisions from high-importance moments
   const keyDecisions = developmentStream

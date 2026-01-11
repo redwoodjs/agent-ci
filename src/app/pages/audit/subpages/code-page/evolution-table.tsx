@@ -2,7 +2,8 @@
 
 import React, { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { SourceIcon, type SourceType } from "./code-tldr-page";
+import { SourceIcon } from "./icons";
+import { SourceType } from "./types";
 
 interface EvolutionDataItem {
   date: string;
@@ -110,7 +111,7 @@ export function EvolutionTable({ data, functionName }: EvolutionTableProps) {
                 </tr>
                 {isExpanded && (
                   <tr className="bg-slate-50/30">
-                    <td colSpan={3} className="px-6 py-4">
+                    <td colSpan={3} className="py-4">
                       <div className="border-t border-slate-100 pt-3">
                         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-tight mb-2 flex items-center gap-1.5">
                           Impact on{" "}

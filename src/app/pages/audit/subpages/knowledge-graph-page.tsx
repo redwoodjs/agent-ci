@@ -1231,6 +1231,7 @@ export function KnowledgeGraphPage() {
                                     runId,
                                     r2Keys,
                                     momentGraphNamespace:
+                                      typeof selectedNamespace === "string" &&
                                       selectedNamespace.trim().length > 0
                                         ? selectedNamespace.trim()
                                         : null,

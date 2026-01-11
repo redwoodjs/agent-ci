@@ -6,6 +6,7 @@ import {
   CardContent,
 } from "@/app/components/ui/card";
 import { getMomentsForDocument } from "@/app/engine/momentDb";
+import { ViewInGraphButton } from "./view-in-graph-button";
 import {
   getMomentGraphNamespaceFromEnv,
   getMomentGraphNamespacePrefixFromEnv,
@@ -204,6 +205,13 @@ export async function IngestionFilePage({
                         {moment.momentKind}
                       </span>
                     )}
+                  </div>
+                  <div className="mt-2">
+                    <ViewInGraphButton
+                      momentId={moment.id}
+                      namespace={namespace}
+                      prefix={prefix}
+                    />
                   </div>
                 </div>
               ))}

@@ -1655,7 +1655,7 @@ async function findAncestorsLocalBulk(
   for (let depth = 0; depth < maxDepth && currentLevel.size > 0; depth++) {
     const ids = Array.from(currentLevel);
     // Fetch in batches to avoid huge IN clauses or stalling
-    const batchSize = 200; // Increased batch size
+    const batchSize = 500; // Increased batch size from 200 to 500 for better performance
     const rows: Array<{ id: string; parent_id: string | null }> = [];
     for (let i = 0; i < ids.length; i += batchSize) {
       const batch = ids.slice(i, i + batchSize);
@@ -1744,7 +1744,7 @@ async function findDescendantsLocalBulk(
   for (let depth = 0; depth < maxDepth && currentLevel.size > 0; depth++) {
     const ids = Array.from(currentLevel);
     // Fetch children for current level in larger batches
-    const batchSize = 200; // Increased batch size
+    const batchSize = 500; // Increased batch size from 200 to 500 for better performance
     const rows: Array<{ id: string; parent_id: string | null }> = [];
     for (let i = 0; i < ids.length; i += batchSize) {
       const batch = ids.slice(i, i + batchSize);
@@ -2882,36 +2882,61 @@ async function fetchRelatedMomentsForCommit(options: {
     }
     timer.checkpoint("prepare-semantic-queries");
 
-    // Run all discovery operations in parallel
+    // Run all discovery operations in parallel with individual timing
     console.log(
       `[perf:fetchRelatedMomentsForCommit] Running discovery stage in parallel: lastMoments, referenceSearches, semanticSearches`
     );
     const [lastMomentsMap, referenceSearches, semanticSearches] =
       await Promise.all([
         // Last moments lookup
-        findLastMomentsForDocumentsLocal(validR2Keys, momentGraphContext),
+        (async () => {
+          const lastMomentsTimer = new PerformanceTimer("last-moments");
+          const result = await findLastMomentsForDocumentsLocal(
+            validR2Keys,
+            momentGraphContext
+          );
+          lastMomentsTimer.log("last-moments");
+          return result;
+        })(),
         // Reference searches (batched)
-        batchPromises(
-          validPrData,
-          20, // increased batch size
-          ({ prNumber }) =>
-            findMomentsBySearchLocal(`#${prNumber}`, momentGraphContext, 10)
-        ),
+        (async () => {
+          const referenceTimer = new PerformanceTimer("reference-searches");
+          const result = await batchPromises(
+            validPrData,
+            20, // increased batch size
+            ({ prNumber }) =>
+              findMomentsBySearchLocal(`#${prNumber}`, momentGraphContext, 10)
+          );
+          referenceTimer.log("reference-searches");
+          return result;
+        })(),
         // Semantic searches (prepare embeddings, then query)
         (async () => {
+          const semanticTimer = new PerformanceTimer("semantic-searches");
           if (semanticQueryTexts.length === 0) {
+            semanticTimer.log("semantic-searches");
             return [];
           }
           try {
+            const embeddingsTimer = new PerformanceTimer(
+              "embeddings-generation"
+            );
             const embeddings = await getEmbeddings(semanticQueryTexts);
-            return await batchPromises(
+            embeddingsTimer.log("embeddings-generation");
+
+            const vectorizeTimer = new PerformanceTimer("vectorize-queries");
+            const result = await batchPromises(
               embeddings,
               10, // increased batch size for Vectorize
               (embedding) =>
                 findSimilarMoments(embedding, 10, momentGraphContext)
             );
+            vectorizeTimer.log("vectorize-queries");
+            semanticTimer.log("semantic-searches");
+            return result;
           } catch (err) {
             console.error(`[code-timeline] Bulk semantic search failed:`, err);
+            semanticTimer.log("semantic-searches-failed");
             return new Array(semanticQueryTexts.length).fill([]);
           }
         })(),

@@ -1297,6 +1297,9 @@ export async function indexDocument(
               replayItems.push({
                 itemId: stableItemId,
                 effectiveNamespace: effectiveNamespace ?? "redwood:internal",
+                documentId: document.id,
+                streamId: stream.streamId,
+                macroMomentIndex: i,
                 orderMs,
                 payload: {
                   effectiveNamespace: effectiveNamespace ?? null,

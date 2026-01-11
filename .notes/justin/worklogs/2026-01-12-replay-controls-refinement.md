@@ -46,3 +46,9 @@ I set the default base namespace in `wrangler.jsonc` so direct ingestion file li
 The Knowledge Graph page was skipping the replay progress fetch unless a prefix was filled in client-side.
 
 I changed it to always call the replay progress action and pass null when the prefix input is empty, so the server-side env prefix fallback is used.
+
+## Fixed selective replay UI controls for completed runs
+
+Selective replay can intentionally leave a run in a completed state. The UI was hiding the replay controls when status was completed, which made it harder to recover a run by recollecting and replaying a small set of documents.
+
+I changed the Knowledge Graph page to always show the run controls when a run id is present, and only disable the Resume button when the run is completed.

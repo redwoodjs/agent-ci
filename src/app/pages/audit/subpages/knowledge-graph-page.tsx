@@ -960,8 +960,12 @@ export function KnowledgeGraphPage() {
                 const succeeded = Number((r as any)?.succeededDocuments ?? 0);
                 const failed = Number((r as any)?.failedDocuments ?? 0);
                 const replayed = Number((r as any)?.replayedItems ?? 0);
+                const totalItems = Number((r as any)?.totalItems ?? 0);
+                const pendingItems = Number((r as any)?.pendingItems ?? 0);
+                const doneItems = Number((r as any)?.doneItems ?? 0);
                 const canResume =
                   runId.length > 0 && status !== "completed" && status !== "";
+                const canShowControls = runId.length > 0;
                 return (
                   <div key={runId || updatedAt} className="border rounded p-2">
                     <div className="text-xs text-gray-600">
@@ -980,7 +984,11 @@ export function KnowledgeGraphPage() {
                         </span>
                       </div>
                       <div>
-                        Replay: <span className="font-mono">{replayed}</span>
+                        Replay:{" "}
+                        <span className="font-mono">
+                          {doneItems}/{totalItems}
+                        </span>{" "}
+                        <span className="text-gray-400">(counter {replayed})</span>
                       </div>
                       <div>
                         Succeeded:{" "}
@@ -990,13 +998,13 @@ export function KnowledgeGraphPage() {
                         Failed: <span className="font-mono">{failed}</span>
                       </div>
                     </div>
-                    {canResume && (
+                    {canShowControls && (
                       <div className="mt-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Button
                             variant="outline"
                             size="sm"
-                            disabled={resumeReplayBusyRunId === runId}
+                            disabled={resumeReplayBusyRunId === runId || !canResume}
                             onClick={async () => {
                               setResumeReplayError(null);
                               setResumeReplayBusyRunId(runId);

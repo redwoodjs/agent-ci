@@ -67,6 +67,9 @@ export async function getRecentReplayRunsForPrefix(
     momentGraphNamespace: string | null;
     momentGraphNamespacePrefix: string | null;
     replayOrder: ReplayOrder;
+    totalItems: number;
+    pendingItems: number;
+    doneItems: number;
   }>
 > {
   const db = getReplayDb(context);
@@ -92,7 +95,51 @@ export async function getRecentReplayRunsForPrefix(
     .limit(limit)
     .execute()) as unknown as MomentReplayRunRow[];
 
-  return rows.map((row) => ({
+  const runIds = rows
+    .map((row) => (row as any).run_id)
+    .filter((v): v is string => typeof v === "string" && v.length > 0);
+
+  const statusCountsRows =
+    runIds.length > 0
+      ? ((await db
+          .selectFrom("moment_replay_items")
+          .select(["run_id", "status"])
+          .select((eb) => eb.fn.countAll<number>().as("count"))
+          .where("run_id", "in", runIds)
+          .groupBy(["run_id", "status"])
+          .execute()) as unknown as Array<{
+          run_id: string;
+          status: string;
+          count: number;
+        }>)
+      : [];
+
+  const countsByRunId = new Map<
+    string,
+    { total: number; pending: number; done: number }
+  >();
+  for (const r of statusCountsRows) {
+    const rid = (r as any).run_id;
+    const status = String((r as any).status ?? "");
+    const count = Number((r as any).count ?? 0);
+    if (typeof rid !== "string" || rid.length === 0) {
+      continue;
+    }
+    const existing = countsByRunId.get(rid) ?? { total: 0, pending: 0, done: 0 };
+    existing.total += count;
+    if (status === "pending") {
+      existing.pending += count;
+    }
+    if (status === "done") {
+      existing.done += count;
+    }
+    countsByRunId.set(rid, existing);
+  }
+
+  return rows.map((row) => {
+    const runId = (row as any).run_id as string;
+    const counts = countsByRunId.get(runId) ?? { total: 0, pending: 0, done: 0 };
+    return {
     runId: (row as any).run_id as string,
     status: (row as any).status as string,
     startedAt: (row as any).started_at as string,
@@ -108,7 +155,11 @@ export async function getRecentReplayRunsForPrefix(
       (row as any).moment_graph_namespace_prefix ?? null,
     replayOrder:
       (row as any).replay_order === "descending" ? "descending" : "ascending",
-  }));
+    totalItems: counts.total,
+    pendingItems: counts.pending,
+    doneItems: counts.done,
+    };
+  });
 }
 
 export async function createMomentReplayRun(
@@ -644,14 +695,14 @@ export async function fetchReplayItemsBatch(
 export async function setReplayItemsPendingOnlyForDocuments(
   context: ReplayDbContext,
   input: { runId: string; documentIds: string[] }
-): Promise<void> {
+): Promise<{ matchedDocuments: number; matchedItems: number }> {
   const db = getReplayDb(context);
   const runId =
     typeof input.runId === "string" && input.runId.trim().length > 0
       ? input.runId.trim()
       : "";
   if (!runId) {
-    return;
+    return { matchedDocuments: 0, matchedItems: 0 };
   }
   const documentIds = Array.isArray(input.documentIds)
     ? input.documentIds
@@ -660,7 +711,28 @@ export async function setReplayItemsPendingOnlyForDocuments(
         .filter((d) => d.length > 0)
     : [];
   if (documentIds.length === 0) {
-    return;
+    return { matchedDocuments: 0, matchedItems: 0 };
+  }
+
+  const matchRows = (await db
+    .selectFrom("moment_replay_items")
+    .select(["document_id"])
+    .select((eb) => eb.fn.countAll<number>().as("count"))
+    .where("run_id", "=", runId)
+    .where("document_id", "in", documentIds)
+    .groupBy("document_id")
+    .execute()) as unknown as Array<{ document_id: string | null; count: number }>;
+
+  const matchedDocuments = matchRows.filter(
+    (r) => typeof (r as any).document_id === "string" && (r as any).document_id
+  ).length;
+  const matchedItems = matchRows.reduce(
+    (sum, r) => sum + Number((r as any).count ?? 0),
+    0
+  );
+
+  if (matchedItems === 0) {
+    return { matchedDocuments, matchedItems };
   }
 
   const now = new Date().toISOString();
@@ -697,6 +769,8 @@ export async function setReplayItemsPendingOnlyForDocuments(
     .deleteFrom("moment_replay_stream_state")
     .where("run_id", "=", runId)
     .execute();
+
+  return { matchedDocuments, matchedItems };
 }
 
 export async function markReplayItemsDone(

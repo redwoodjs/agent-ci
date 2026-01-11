@@ -34,21 +34,27 @@ Change:
 
 ### PR title
 
-Fix replay auto-enqueue and audit subjects list after subject moments change
+Fix replay continuation and subjects audit loading after subject moments change
 
 ### PR description
 
 **Previous state**
 
-- Moment replay runs could finish collection but not enqueue replay automatically when a collect job produced zero chunks and returned early without recording the per-document result.
-- The knowledge graph audit page could stay in "Loading subjects..." for a long time because the subject list query computed descendant counts by scanning all moments and walking the parent graph.
-- The audit UI still referred to "Root Subjects" in some places even though the model is subject marking, not "no parent".
+After the subject moments and evidence-based linking changes shipped, a couple of follow-up issues showed up in the rollout.
+
+Moment replay runs could appear finished with collection while replay stayed at 0 until a manual resume. Separately, the knowledge graph audit page could stay on "Loading subjects..." for a long time. Some UI copy still used "Root Subjects" even though the model is subject marking, not "no parent".
 
 **Change**
 
-- In replay collect mode, record the per-document result even when a document produces zero chunks, so processed document counters reach the expected count and replay can be auto-enqueued.
-- Removed descendant count computation from the subject list query and updated the UI to handle unknown descendant counts.
-- Updated audit UI labels to use "Subjects" / "Subject Tree".
+Adjusted replay progress accounting so collection always advances the run counters, including for documents that do not produce chunks, allowing the run to transition into replay without manual intervention.
+
+Simplified the subject list load path in the audit page so it does not do expensive graph-wide aggregation during the initial render, and updated labels to use "Subjects" / "Subject Tree".
+
+**Outcomes**
+
+- Replay runs can continue from collection into replay without requiring a manual resume.
+- The audit page subject list returns quickly instead of appearing stuck on loading.
+- Audit UI copy matches the subject-marking model.
 
 **Testing**
 

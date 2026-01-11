@@ -34,6 +34,7 @@ The user wants to find all relevant moments for a particular document, likely by
 *   Updated to support passing `namespace` and `prefix` query parameters, which are preserved in links to file detail pages.
 *   Added explicit UI inputs (Select for namespace, Input for prefix override) to the Ingestion List Page so users can easily configure these parameters.
 *   Implemented a new `Select` component in `src/app/components/ui/select.tsx` using `@radix-ui/react-select` to support the namespace selector.
+*   Fixed an issue where inputs would not update when navigating (by adding `key` props to force re-render when default values change).
 
 ### Frontend - Ingestion File Page
 *   Updated `src/app/pages/audit/subpages/ingestion-file-page.tsx` (the detail page for a document).

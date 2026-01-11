@@ -32,9 +32,7 @@ import {
   getMomentGraphNamespaceFromEnv,
 } from "@/app/engine/momentGraphNamespace";
 import { getRecentReplayRunsForPrefix } from "@/app/engine/db/momentReplay";
-import {
-  setReplayItemsPendingOnlyForDocuments,
-} from "@/app/engine/db/momentReplay";
+import { setReplayItemsPendingOnlyForDocuments } from "@/app/engine/db/momentReplay";
 import { resetReplayRunForReplay } from "@/app/engine/db/momentReplay";
 import { getEmbedding, getEmbeddings } from "@/app/engine/utils/vector";
 import {
@@ -939,16 +937,17 @@ export async function getReplayBackfillProgressAction(options?: {
   limit?: number;
 }) {
   try {
+    const envCloudflare = env as Cloudflare.Env;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
     const prefixRaw = options?.momentGraphNamespacePrefix;
     const prefix =
       typeof prefixRaw === "string" && prefixRaw.trim().length > 0
         ? prefixRaw.trim()
-        : null;
+        : envPrefix;
     if (!prefix) {
       return { success: true, runs: [] as any[] };
     }
 
-    const envCloudflare = env as Cloudflare.Env;
     const runs = await getRecentReplayRunsForPrefix(
       { env: envCloudflare, momentGraphNamespace: null },
       { momentGraphNamespacePrefix: prefix, limit: options?.limit ?? 10 }
@@ -1142,7 +1141,9 @@ export async function recollectSelectedDocumentsAction(input: {
           body: {
             r2Key,
             ...(momentGraphNamespace ? { momentGraphNamespace } : null),
-            ...(momentGraphNamespacePrefix ? { momentGraphNamespacePrefix } : null),
+            ...(momentGraphNamespacePrefix
+              ? { momentGraphNamespacePrefix }
+              : null),
             momentReplayRunId: runId,
             jobType: "moment-replay-collect",
             forceRecollect: true,

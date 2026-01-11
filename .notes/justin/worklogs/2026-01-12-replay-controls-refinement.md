@@ -29,3 +29,14 @@ In the audit UI, I added controls to:
 - replay selected documents (by document id / R2 key list)
 - recollect selected documents (enqueue collect jobs with a force flag so chunk diff does not short-circuit)
 
+## Default namespace prefix for replay run listing
+
+The Knowledge Graph UI was only listing replay runs when a namespace prefix was explicitly provided to the replay progress action.
+
+I changed the replay progress action to fall back to the configured namespace prefix from the worker environment when no prefix is provided, so the default setup works without typing it into the UI.
+
+## Default namespace for audit views
+
+The ingestion file detail page uses the worker environment variables when `namespace` and `prefix` are not present in the URL query. The prod config had a namespace prefix but not a default base namespace, so direct links to ingestion file pages would not show document audit logs unless the namespace was provided in the URL.
+
+I set the default base namespace in `wrangler.jsonc` so direct ingestion file links resolve the same effective namespace without needing the list page to provide query params.

@@ -5,7 +5,10 @@ import {
   CardTitle,
   CardContent,
 } from "@/app/components/ui/card";
-import { getMomentsForDocument } from "@/app/engine/momentDb";
+import {
+  getDocumentAuditLogsForDocument,
+  getMomentsForDocument,
+} from "@/app/engine/momentDb";
 import { ViewInGraphButton } from "./view-in-graph-button";
 import {
   getMomentGraphNamespaceFromEnv,
@@ -102,10 +105,18 @@ export async function IngestionFilePage({
     content = await object.text();
   }
 
-  const moments = await getMomentsForDocument(key, {
+  const momentGraphContext = {
     env: env as Cloudflare.Env,
     momentGraphNamespace: effectiveNamespace,
-  });
+  };
+
+  const moments = await getMomentsForDocument(key, momentGraphContext);
+
+  const documentAudit = await getDocumentAuditLogsForDocument(
+    key,
+    momentGraphContext,
+    { kindPrefix: "synthesis:", limit: 50 }
+  );
 
   const backLinkParams = new URLSearchParams();
   backLinkParams.set("source", "all"); // Default, logic could be improved to persist source
@@ -215,6 +226,51 @@ export async function IngestionFilePage({
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">
+            Synthesis audit ({documentAudit.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {documentAudit.length === 0 ? (
+            <p className="text-gray-600 text-sm">
+              No synthesis audit records found for this document.
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {documentAudit.map((e) => {
+                const message =
+                  typeof e?.payload?.message === "string"
+                    ? e.payload.message
+                    : null;
+                return (
+                  <div key={e.id} className="border rounded p-2 bg-gray-50">
+                    <div className="text-xs text-gray-600">
+                      <span className="font-mono">{e.kind}</span>{" "}
+                      <span className="text-gray-400">{e.createdAt}</span>
+                    </div>
+                    {message && (
+                      <div className="text-xs text-gray-700 mt-1">
+                        {message}
+                      </div>
+                    )}
+                    <details className="mt-2">
+                      <summary className="text-xs font-medium text-gray-700 cursor-pointer">
+                        Payload
+                      </summary>
+                      <pre className="text-xs overflow-auto max-h-64 mt-2 p-2 bg-white border rounded">
+                        {JSON.stringify(e.payload, null, 2)}
+                      </pre>
+                    </details>
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>

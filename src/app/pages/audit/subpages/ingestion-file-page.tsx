@@ -5,6 +5,8 @@ import {
   CardTitle,
   CardContent,
 } from "@/app/components/ui/card";
+import { getMomentsForDocument } from "@/app/engine/momentDb";
+import { getMomentGraphNamespaceFromEnv } from "@/app/engine/momentGraphNamespace";
 
 type IngestionFilePageProps = {
   params: {
@@ -73,6 +75,11 @@ export async function IngestionFilePage({ params }: IngestionFilePageProps) {
     content = await object.text();
   }
 
+  const moments = await getMomentsForDocument(key, {
+    env: env as Cloudflare.Env,
+    momentGraphNamespace: getMomentGraphNamespaceFromEnv(env),
+  });
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-4">
       <div>
@@ -109,6 +116,62 @@ export async function IngestionFilePage({ params }: IngestionFilePageProps) {
               {truncated && "\n\n---\n(truncated) ---"}
             </pre>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">
+            Moments ({moments.length})
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {moments.length === 0 ? (
+            <p className="text-gray-600 text-sm">
+              No moments found for this document.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {moments.map((moment) => (
+                <div key={moment.id} className="border p-3 rounded-md">
+                  <div className="flex justify-between items-start gap-4">
+                    <div>
+                      <h4 className="font-medium text-sm">{moment.title}</h4>
+                      <p className="text-xs text-gray-600 mt-1 whitespace-pre-wrap">
+                        {moment.summary}
+                      </p>
+                    </div>
+                    <div className="text-right text-xs text-gray-400 shrink-0">
+                      <div>{new Date(moment.createdAt).toLocaleString()}</div>
+                      <div className="font-mono mt-1" title={moment.id}>
+                        {moment.id.substring(0, 8)}...
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-xs flex gap-2 flex-wrap">
+                    {moment.isSubject && (
+                      <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded">
+                        Subject
+                      </span>
+                    )}
+                    {moment.parentId && (
+                      <span className="bg-gray-100 text-gray-800 px-2 py-0.5 rounded">
+                        Parent: {moment.parentId.substring(0, 8)}...
+                      </span>
+                    )}
+                    <span className="bg-gray-50 text-gray-600 px-2 py-0.5 rounded">
+                      Imp: {moment.importance?.toFixed(2) ?? "N/A"}
+                    </span>
+                    {moment.momentKind && (
+                      <span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded">
+                        {moment.momentKind}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

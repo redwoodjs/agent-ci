@@ -6,6 +6,8 @@ import {
   CardTitle,
   CardContent,
 } from "@/app/components/ui/card";
+import { Input } from "@/app/components/ui/input";
+import { Button } from "@/app/components/ui/button";
 import { IngestionTable } from "./ingestion-table";
 
 export function IngestionListPage({ request }: { request: Request }) {
@@ -13,6 +15,7 @@ export function IngestionListPage({ request }: { request: Request }) {
   const source = url.searchParams.get("source") || "all";
   const pageParam = url.searchParams.get("page") || "1";
   const page = Math.max(1, Number.parseInt(pageParam, 10) || 1);
+  const q = url.searchParams.get("q") || "";
 
   let prefix = "";
   if (source === "discord") prefix = "discord/";
@@ -68,8 +71,34 @@ export function IngestionListPage({ request }: { request: Request }) {
         </div>
       </div>
 
+      <form
+        method="GET"
+        action="/audit/ingestion"
+        className="flex gap-2 mb-4 max-w-lg"
+      >
+        <input type="hidden" name="source" value={source} />
+        <Input
+          name="q"
+          defaultValue={q}
+          placeholder="Filter by file path..."
+          className="flex-1"
+        />
+        <Button type="submit">Filter</Button>
+        {q && (
+          <Button variant="outline" asChild>
+            <a href={`/audit/ingestion?source=${source}`}>Clear</a>
+          </Button>
+        )}
+      </form>
+
       <Suspense fallback={<FilesTableSkeleton prefix={prefix} />}>
-        <FilesTable source={source} prefix={prefix} page={page} pageSize={50} />
+        <FilesTable
+          source={source}
+          prefix={prefix}
+          page={page}
+          pageSize={50}
+          q={q}
+        />
       </Suspense>
     </div>
   );
@@ -80,11 +109,13 @@ async function FilesTable({
   prefix,
   page,
   pageSize,
+  q,
 }: {
   source: string;
   prefix: string;
   page: number;
   pageSize: number;
+  q: string;
 }) {
   const bucket = env.MACHINEN_BUCKET;
 
@@ -118,9 +149,15 @@ async function FilesTable({
     return bTime - aTime;
   });
 
+  const filteredObjects = q
+    ? sortedObjects.filter((obj) =>
+        obj.key.toLowerCase().includes(q.toLowerCase())
+      )
+    : sortedObjects;
+
   // Serialize objects for client component, ensuring we only pass plain data.
   // We explicitly select fields to avoid passing non-serializable objects like R2's Checksums.
-  const serializedObjects = sortedObjects.map((obj) => ({
+  const serializedObjects = filteredObjects.map((obj) => ({
     key: obj.key,
     size: obj.size,
     etag: obj.etag,
@@ -166,7 +203,7 @@ async function FilesTable({
               <a
                 href={`/audit/ingestion?source=${source}&page=${
                   currentPage - 1
-                }`}
+                }${q ? `&q=${q}` : ""}`}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
               >
                 Previous
@@ -176,7 +213,7 @@ async function FilesTable({
               <a
                 href={`/audit/ingestion?source=${source}&page=${
                   currentPage + 1
-                }`}
+                }${q ? `&q=${q}` : ""}`}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >
                 Next

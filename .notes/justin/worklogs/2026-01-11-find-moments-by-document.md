@@ -1,0 +1,38 @@
+# 2026-01-11-find-moments-by-document
+
+## Problem
+
+The user wants to find all relevant moments for a particular document, likely by searching for the document path. There is currently no explicit feature mentioned to view "all moments for a document" in the UI, although the architecture doc suggests a link exists.
+
+## Plan
+
+1.  **Investigation**:
+    *   Check `src/app/engine/momentDb` and `src/app/engine/db` to see how moments store document references.
+    *   Check if there's an existing API to query moments by document.
+    *   Check the UI for existing document search/view capabilities.
+2.  **Backend Implementation** (if needed):
+    *   Add a query method to fetch moments by document ID/path.
+    *   Expose this via an API endpoint.
+3.  **Frontend Implementation**:
+    *   Add a search interface (or extend existing one) to find a document.
+    *   Create a view to display the list of moments associated with that document.
+
+## Context
+
+*   `docs/architecture/knowledge-synthesis-engine.md` mentions moments have a Document ID (R2 key).
+
+## Implementation Details
+
+### Backend
+*   Added `getMomentsForDocument` to `src/app/engine/momentDb/index.ts`. This function queries the `moments` table for all moments matching a `document_id`, ordered by creation time.
+*   This function is directly imported by the frontend pages (assuming server-side rendering or monolithic deployment).
+
+### Frontend - Ingestion List Page
+*   Updated `src/app/pages/audit/subpages/ingestion-list-page.tsx` to include a search filter for "File path".
+*   Users can now filter the list of ingestion files by path (prefix/substring match).
+*   Pagination and filtering work together.
+
+### Frontend - Ingestion File Page
+*   Updated `src/app/pages/audit/subpages/ingestion-file-page.tsx` (the detail page for a document).
+*   It now fetches moments for the document using `getMomentsForDocument`.
+*   Displays a new "Moments" card below the file content, listing all moments associated with that document, including details like title, summary, importance, and parent ID.

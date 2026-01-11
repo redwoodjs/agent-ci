@@ -490,6 +490,55 @@ export async function getMoments(
   return moments;
 }
 
+export async function getMomentsForDocument(
+  documentId: string,
+  context: MomentGraphContext,
+  options?: { limit?: number; offset?: number }
+): Promise<Moment[]> {
+  const db = getMomentDb(context);
+  const limit = options?.limit ?? 100;
+  const offset = options?.offset ?? 0;
+
+  const rows = (await db
+    .selectFrom("moments")
+    .selectAll()
+    .where("document_id", "=", documentId)
+    .orderBy("created_at", "asc")
+    .limit(limit)
+    .offset(offset)
+    .execute()) as unknown as MomentRow[];
+
+  return rows.map((row) => ({
+    id: row.id,
+    documentId: row.document_id,
+    summary: row.summary,
+    title: row.title,
+    parentId: row.parent_id || undefined,
+    microPaths: row.micro_paths_json || undefined,
+    microPathsHash: row.micro_paths_hash || undefined,
+    importance: typeof row.importance === "number" ? row.importance : undefined,
+    linkAuditLog: row.link_audit_log || undefined,
+    momentKind:
+      typeof (row as any).moment_kind === "string"
+        ? (row as any).moment_kind
+        : undefined,
+    momentEvidence: (row as any).moment_evidence_json || undefined,
+    isSubject: (row as any).is_subject === 1,
+    subjectKind:
+      typeof (row as any).subject_kind === "string"
+        ? (row as any).subject_kind
+        : undefined,
+    subjectReason:
+      typeof (row as any).subject_reason === "string"
+        ? (row as any).subject_reason
+        : undefined,
+    subjectEvidence: (row as any).subject_evidence_json || undefined,
+    createdAt: row.created_at,
+    author: row.author,
+    sourceMetadata: row.source_metadata || undefined,
+  }));
+}
+
 export async function findMomentByMicroPathsHash(
   documentId: string,
   microPathsHash: string,

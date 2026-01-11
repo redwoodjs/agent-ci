@@ -42,6 +42,34 @@ import {
 import { callLLM } from "@/app/engine/utils/llm";
 import type { Moment } from "@/app/engine/types";
 
+function normalizeReplayDocumentIdInput(input: string): string {
+  const raw = typeof input === "string" ? input.trim() : "";
+  if (!raw) {
+    return "";
+  }
+  if (raw.startsWith("http://") || raw.startsWith("https://")) {
+    try {
+      const url = new URL(raw);
+      const marker = "/audit/ingestion/file/";
+      const idx = url.pathname.indexOf(marker);
+      if (idx !== -1) {
+        const encoded = url.pathname.slice(idx + marker.length);
+        return decodeURIComponent(encoded);
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (raw.startsWith("/audit/ingestion/file/")) {
+    try {
+      return decodeURIComponent(raw.slice("/audit/ingestion/file/".length));
+    } catch {
+      return raw.slice("/audit/ingestion/file/".length);
+    }
+  }
+  return raw;
+}
+
 // Local types and helpers for audit-specific functions
 type MomentDatabase = Database<typeof momentMigrations>;
 type MomentInput = MomentDatabase["moments"];
@@ -1050,7 +1078,7 @@ export async function replaySelectedDocumentsAction(input: {
     const documentIds = Array.isArray(input.documentIds)
       ? input.documentIds
           .filter((d): d is string => typeof d === "string")
-          .map((d) => d.trim())
+          .map((d) => normalizeReplayDocumentIdInput(d))
           .filter((d) => d.length > 0)
       : [];
     if (documentIds.length === 0) {
@@ -1116,7 +1144,7 @@ export async function recollectSelectedDocumentsAction(input: {
     const r2Keys = Array.isArray(input.r2Keys)
       ? input.r2Keys
           .filter((k): k is string => typeof k === "string")
-          .map((k) => k.trim())
+          .map((k) => normalizeReplayDocumentIdInput(k))
           .filter((k) => k.length > 0)
       : [];
     if (r2Keys.length === 0) {

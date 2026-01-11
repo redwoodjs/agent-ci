@@ -1148,7 +1148,7 @@ export function KnowledgeGraphPage() {
                             disabled={resumeReplayBusyRunId === runId}
                             onClick={async () => {
                               const raw = window.prompt(
-                                "Replay selected documents (R2 keys), one per line.\n\nNote: this only works for replay items that have document metadata populated.",
+                                "Replay selected documents (R2 keys or ingestion file URLs), one per line.\n\nNote: this only works for replay items that have document metadata populated.",
                                 ""
                               );
                               if (raw === null) {
@@ -1209,7 +1209,7 @@ export function KnowledgeGraphPage() {
                             disabled={resumeReplayBusyRunId === runId}
                             onClick={async () => {
                               const raw = window.prompt(
-                                "Recollect selected documents (R2 keys), one per line.\n\nThis enqueues collect jobs with force recollect enabled.",
+                                "Recollect selected documents (R2 keys or ingestion file URLs), one per line.\n\nThis enqueues collect jobs with force recollect enabled.",
                                 ""
                               );
                               if (raw === null) {

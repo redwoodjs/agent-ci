@@ -197,3 +197,7 @@ Operationally:
 
 - first pass: set `MOMENT_REPLAY_SKIP_LINKING=1`, then restart replay (optionally with clear output if I want to wipe partial output)
 - second pass: unset `MOMENT_REPLAY_SKIP_LINKING`, then restart replay without clear output so the run recomputes parent selection and updates `parent_id` in-place
+
+## Removed descending replay restart buttons from the Knowledge Graph UI
+
+I removed the descending-order replay restart buttons from the Knowledge Graph audit page. The backend still supports replayOrder, but the UI no longer offers the descending restart actions.

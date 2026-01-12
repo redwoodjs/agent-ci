@@ -1265,9 +1265,14 @@ export function KnowledgeGraphPage() {
                       </div>
                       {looksStalled && (
                         <div className="text-red-700">
-                          Status is replaying with pending items, but no replay
-                          job is enqueued and last progress is stale. Check
-                          replay events for the most recent worker.start vs
+                          Status is replaying with pending items, and last
+                          progress is stale.
+                          <br />
+                          Note: replayEnqueued=false can mean a worker is
+                          currently processing (the worker clears the flag at
+                          start, then sets it true when enqueueing the next
+                          batch). Check the replay run log for the most recent
+                          worker.batch_done / worker.unhandled_error vs
                           worker.enqueued_next.
                         </div>
                       )}

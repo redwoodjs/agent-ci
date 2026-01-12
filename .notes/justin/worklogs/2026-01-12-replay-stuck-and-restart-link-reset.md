@@ -77,3 +77,15 @@ Also, the events currently recorded are sparse, and the most useful information 
 - whether the worker re-enqueued work
 
 Next change: add a separate audit page to view a replay run log as plain text (by runId), and record item-level failures as replay run events so the log contains actionable data when a run stalls.
+
+## Noticed the replay log still cannot explain long gaps
+
+After adding the replay run log page, I captured a run where:
+
+- lastProgressAt was recent (so it was likely still progressing)
+- there was an ~10 minute gap in the event stream
+- events mainly showed worker.start + worker.fetched_batch, and occasional worker.enqueued_next
+
+The missing piece is that we were not recording "batch finished" or unexpected worker failures. When a worker dies between fetched_batch and enqueued_next (timeouts, platform limits, unhandled errors), the log looks like it stopped without explaining why.
+
+Next change: record worker.batch_done with timing and cursor metadata, and record worker.unhandled_error when the worker throws unexpectedly, so gaps can be attributed to slow batches vs worker failures.

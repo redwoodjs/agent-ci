@@ -25,6 +25,7 @@ import {
   getRecentDocumentAuditEventsAction,
   getReplayBackfillProgressAction,
   getReplayRunAction,
+  getReplayRunEventsAction,
   resumeReplayRunAction,
   retryFailedReplayItemsAction,
   restartReplayRunAction,
@@ -279,6 +280,11 @@ export function KnowledgeGraphPage() {
   const [replayRuns, setReplayRuns] = useState<any[] | null>(null);
   const [replayRunsLoading, setReplayRunsLoading] = useState(false);
   const [replayRunsError, setReplayRunsError] = useState<string | null>(null);
+  const [replayRunEventsByRunId, setReplayRunEventsByRunId] = useState<
+    Record<string, any[]>
+  >({});
+  const [replayRunEventsLoadingByRunId, setReplayRunEventsLoadingByRunId] =
+    useState<Record<string, boolean>>({});
   const [resumeReplayError, setResumeReplayError] = useState<string | null>(
     null
   );
@@ -1143,6 +1149,8 @@ export function KnowledgeGraphPage() {
                 const replayEnqueued = Boolean(
                   (r as any)?.replayEnqueued ?? false
                 );
+                const looksStalled =
+                  status === "replaying" && pendingItems > 0 && !replayEnqueued;
                 const embeddingCalls = Number((r as any)?.embeddingCalls ?? 0);
                 const embeddingTotalMs = Number(
                   (r as any)?.embeddingTotalMs ?? 0
@@ -1238,6 +1246,12 @@ export function KnowledgeGraphPage() {
                           {replayEnqueued ? "true" : "false"}
                         </span>
                       </div>
+                      {looksStalled && (
+                        <div className="text-red-700">
+                          Status is replaying with pending items, but no replay
+                          job is enqueued.
+                        </div>
+                      )}
                       {lastErrorMessage && (
                         <div className="text-red-700">
                           Last error:{" "}
@@ -1596,6 +1610,55 @@ export function KnowledgeGraphPage() {
                           <Button
                             variant="outline"
                             size="sm"
+                            disabled={Boolean(
+                              replayRunEventsLoadingByRunId[runId]
+                            )}
+                            onClick={async () => {
+                              if (!runId) {
+                                return;
+                              }
+                              setReplayRunEventsLoadingByRunId((prev) => ({
+                                ...prev,
+                                [runId]: true,
+                              }));
+                              try {
+                                const res = await getReplayRunEventsAction({
+                                  runId,
+                                  limit: 80,
+                                });
+                                if ((res as any)?.success) {
+                                  setReplayRunEventsByRunId((prev) => ({
+                                    ...prev,
+                                    [runId]: (res as any).events ?? [],
+                                  }));
+                                } else {
+                                  setResumeReplayError(
+                                    (res as any)?.error ??
+                                      "Failed to load replay events"
+                                  );
+                                }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Failed to load replay events"
+                                );
+                              } finally {
+                                setReplayRunEventsLoadingByRunId((prev) => ({
+                                  ...prev,
+                                  [runId]: false,
+                                }));
+                              }
+                            }}
+                          >
+                            {replayRunEventsLoadingByRunId[runId]
+                              ? "Loading events..."
+                              : "Load replay events"}
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
                             disabled={resumeReplayBusyRunId === runId}
                             onClick={async () => {
                               const raw = window.prompt(
@@ -1729,6 +1792,47 @@ export function KnowledgeGraphPage() {
                             Recollect selected docs
                           </Button>
                         </div>
+
+                        {Array.isArray(replayRunEventsByRunId[runId]) && (
+                          <details className="mt-2">
+                            <summary className="cursor-pointer text-gray-700 text-xs">
+                              Replay events (
+                              {replayRunEventsByRunId[runId]!.length})
+                            </summary>
+                            <div className="mt-2 space-y-2">
+                              {replayRunEventsByRunId[runId]!.map((e: any) => (
+                                <div
+                                  key={String(e?.id ?? Math.random())}
+                                  className="border rounded p-2 bg-gray-50"
+                                >
+                                  <div className="text-xs text-gray-600">
+                                    <span className="font-mono">
+                                      {String(e?.level ?? "")}
+                                    </span>{" "}
+                                    <span className="font-mono">
+                                      {String(e?.kind ?? "")}
+                                    </span>{" "}
+                                    <span className="text-gray-400">
+                                      {String(e?.createdAt ?? "")}
+                                    </span>
+                                  </div>
+                                  <details className="mt-2">
+                                    <summary className="text-xs font-medium text-gray-700 cursor-pointer">
+                                      Payload
+                                    </summary>
+                                    <pre className="text-xs overflow-auto max-h-64 mt-2 p-2 bg-white border rounded">
+                                      {JSON.stringify(
+                                        e?.payload ?? null,
+                                        null,
+                                        2
+                                      )}
+                                    </pre>
+                                  </details>
+                                </div>
+                              ))}
+                            </div>
+                          </details>
+                        )}
                       </div>
                     )}
                   </div>

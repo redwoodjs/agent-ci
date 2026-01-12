@@ -50,6 +50,116 @@ export type ReplayCursor = {
 
 export type ReplayOrder = "ascending" | "descending";
 
+export type MomentReplayRunEventLevel = "debug" | "info" | "warn" | "error";
+
+export async function addReplayRunEvent(
+  context: ReplayDbContext,
+  input: {
+    runId: string;
+    level: MomentReplayRunEventLevel;
+    kind: string;
+    payload: Record<string, any>;
+  }
+): Promise<void> {
+  const db = getReplayDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return;
+  }
+  const kind =
+    typeof input.kind === "string" && input.kind.length > 0
+      ? input.kind
+      : "event";
+  const level: MomentReplayRunEventLevel =
+    input.level === "debug" ||
+    input.level === "info" ||
+    input.level === "warn" ||
+    input.level === "error"
+      ? input.level
+      : "info";
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+  await db
+    .insertInto("moment_replay_run_events")
+    .values({
+      id,
+      run_id: runId,
+      level,
+      kind,
+      payload_json: JSON.stringify(input.payload ?? {}),
+      created_at: now,
+    } as any)
+    .execute();
+}
+
+export async function getReplayRunEvents(
+  context: ReplayDbContext,
+  input: { runId: string; limit?: number }
+): Promise<
+  Array<{
+    id: string;
+    level: string;
+    kind: string;
+    createdAt: string;
+    payload: any;
+  }>
+> {
+  const db = getReplayDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return [];
+  }
+  const limitRaw = input.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 50;
+
+  const rows = (await db
+    .selectFrom("moment_replay_run_events")
+    .selectAll()
+    .where("run_id", "=", runId)
+    .orderBy("created_at", "desc")
+    .limit(limit)
+    .execute()) as unknown as Array<{
+    id: string;
+    level: string;
+    kind: string;
+    payload_json: any;
+    created_at: string;
+  }>;
+
+  return rows.map((r) => ({
+    id: String((r as any).id ?? ""),
+    level: String((r as any).level ?? ""),
+    kind: String((r as any).kind ?? ""),
+    createdAt: String((r as any).created_at ?? ""),
+    payload: (r as any).payload_json,
+  }));
+}
+
+export async function setReplayEnqueuedFlag(
+  context: ReplayDbContext,
+  input: { runId: string; replayEnqueued: boolean }
+): Promise<void> {
+  const db = getReplayDb(context);
+  const now = new Date().toISOString();
+  await db
+    .updateTable("moment_replay_runs")
+    .set({
+      replay_enqueued: input.replayEnqueued ? (1 as any) : (0 as any),
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", input.runId)
+    .execute();
+}
+
 export async function getReplayRunStatus(
   context: ReplayDbContext,
   input: { runId: string }

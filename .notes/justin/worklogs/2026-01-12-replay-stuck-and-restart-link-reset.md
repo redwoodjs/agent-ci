@@ -74,3 +74,16 @@ I changed the UI to:
 
 - fall back to showing the error payload when it is a string
 - refresh a replay run by id after restart(clear output), so counter/cursor updates are visible immediately
+
+## Noticed replay can stop re-enqueueing without any persisted trace
+
+A replay run got to a small number of replayed items and then stopped progressing with status replaying and many pending items.
+
+I added a replay run events log persisted in the indexing state DB. The replay worker and UI actions now write events for:
+
+- worker start and batch fetch
+- enqueue next replay job
+- pause on error
+- restart(clear output) deletion and enqueue
+
+This gives a place in the audit UI to see whether the next replay job was enqueued and why replay stopped.

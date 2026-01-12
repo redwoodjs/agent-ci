@@ -376,4 +376,29 @@ export const indexingStateMigrations = {
         .execute();
     },
   },
+  "009_add_moment_replay_run_events": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("moment_replay_run_events")
+          .addColumn("id", "text", (col) => col.primaryKey())
+          .addColumn("run_id", "text", (col) =>
+            col.references("moment_replay_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("level", "text", (col) => col.notNull())
+          .addColumn("kind", "text", (col) => col.notNull())
+          .addColumn("payload_json", "text", (col) => col.notNull())
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .execute(),
+        await db.schema
+          .createIndex("moment_replay_run_events_run_created_idx")
+          .on("moment_replay_run_events")
+          .columns(["run_id", "created_at"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("moment_replay_run_events").execute();
+    },
+  },
 } satisfies Migrations;

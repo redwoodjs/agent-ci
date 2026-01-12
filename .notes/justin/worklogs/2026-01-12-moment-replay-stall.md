@@ -42,3 +42,14 @@ The restart operation:
 - marks all replay items back to pending
 - clears per-document replay stream state
 - re-enqueues the replay job
+
+## Noticed replay batches being cancelled before updating cursor or item statuses
+
+After clicking restart/resume, the UI stayed at 0 done items even though the queue was receiving moment-replay-replay jobs. The worker logs showed replay starting, but there was no replay batch completion log and the run did not advance.
+
+The Cloudflare queue execution was getting cancelled after a long wall time, which meant the worker never reached the end-of-batch updates (marking items done, updating the cursor, incrementing the replay counter). Because those updates happened only after processing an entire batch, a cancellation caused the run to look stuck and also caused the same items to be retried repeatedly.
+
+I changed the replay worker to:
+
+- fetch a smaller replay batch size (configurable via env, with a small default)
+- mark items done and advance the replay cursor incrementally as items are processed

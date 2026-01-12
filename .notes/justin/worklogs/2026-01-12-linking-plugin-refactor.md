@@ -27,3 +27,9 @@ I also renamed the plugin to `timeline-fit-linker` and updated the engine contex
 
 I adjusted the audit log so "shortlisted" reflects the ranked candidate set (explicit issue ref first, then vector score), rather than reflecting the initial score-sorted list.
 
+## Follow-up: explicit issue ref attach when timeline fit call fails
+
+On replay, the explicit issue candidate (#552) was correctly shortlisted, but the timeline fit model call failed (null answer) and the linker treated it as a reject.
+
+I updated the linker so an explicit issue reference match attaches deterministically, and I also record timeline fit call errors in the audit log when they occur.
+

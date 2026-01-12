@@ -249,6 +249,10 @@ export async function IngestionFilePage({
                   typeof e?.payload?.message === "string"
                     ? e.payload.message
                     : null;
+                const timelineFitError =
+                  typeof (e as any)?.payload?.timelineFitError === "string"
+                    ? ((e as any).payload.timelineFitError as string)
+                    : null;
                 return (
                   <div key={e.id} className="border rounded p-2 bg-gray-50">
                     <div className="text-xs text-gray-600">
@@ -258,6 +262,12 @@ export async function IngestionFilePage({
                     {message && (
                       <div className="text-xs text-gray-700 mt-1">
                         {message}
+                      </div>
+                    )}
+                    {timelineFitError && (
+                      <div className="text-xs text-red-700 mt-1">
+                        Timeline fit error:{" "}
+                        <span className="font-mono">{timelineFitError}</span>
                       </div>
                     )}
                     <details className="mt-2">

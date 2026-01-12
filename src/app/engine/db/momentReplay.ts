@@ -184,7 +184,7 @@ export async function getReplayRunStatus(
 export async function getReplayItemIdsForRun(
   context: ReplayDbContext,
   input: { runId: string }
-): Promise<Array<{ itemId: string; effectiveNamespace: string }>> {
+): Promise<Array<{ itemId: string; effectiveNamespace: string | null }>> {
   const db = getReplayDb(context);
   const runId =
     typeof input.runId === "string" && input.runId.trim().length > 0
@@ -204,11 +204,17 @@ export async function getReplayItemIdsForRun(
   }>;
 
   return rows
-    .map((r) => ({
-      itemId: String((r as any).item_id ?? ""),
-      effectiveNamespace: String((r as any).effective_namespace ?? ""),
-    }))
-    .filter((r) => r.itemId.length > 0 && r.effectiveNamespace.length > 0);
+    .map((r) => {
+      const itemId = String((r as any).item_id ?? "");
+      const effectiveNamespaceRaw = (r as any).effective_namespace;
+      const effectiveNamespace =
+        typeof effectiveNamespaceRaw === "string" &&
+        effectiveNamespaceRaw.trim().length > 0
+          ? effectiveNamespaceRaw.trim()
+          : null;
+      return { itemId, effectiveNamespace };
+    })
+    .filter((r) => r.itemId.length > 0);
 }
 
 export async function getReplayRunById(

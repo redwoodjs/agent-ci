@@ -1348,19 +1348,23 @@ export async function restartReplayRunClearOutputAction(input: {
       { env: envCloudflare, momentGraphNamespace: null },
       { runId }
     );
-    const idsByNamespace = new Map<string, string[]>();
+    const idsByNamespace = new Map<string | null, string[]>();
+    let itemsWithDefaultNamespace = 0;
     for (const it of replayItems) {
       const ns =
         typeof it.effectiveNamespace === "string" &&
-        it.effectiveNamespace.length > 0
-          ? it.effectiveNamespace
+        it.effectiveNamespace.trim().length > 0
+          ? it.effectiveNamespace.trim()
           : null;
       const id =
         typeof it.itemId === "string" && it.itemId.length > 0
           ? it.itemId
           : null;
-      if (!ns || !id) {
+      if (!id) {
         continue;
+      }
+      if (ns === null) {
+        itemsWithDefaultNamespace += 1;
       }
       const existing = idsByNamespace.get(ns) ?? [];
       existing.push(id);
@@ -1386,6 +1390,7 @@ export async function restartReplayRunClearOutputAction(input: {
         kind: "ui.restart_clear_output.deleted",
         payload: {
           replayItems: replayItems.length,
+          replayItemsDefaultNamespace: itemsWithDefaultNamespace,
           deletedNamespaces,
           deletedMomentIds,
         },

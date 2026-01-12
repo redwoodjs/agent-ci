@@ -201,3 +201,11 @@ Operationally:
 ## Removed descending replay restart buttons from the Knowledge Graph UI
 
 I removed the descending-order replay restart buttons from the Knowledge Graph audit page. The backend still supports replayOrder, but the UI no longer offers the descending restart actions.
+
+## Fixed clear output deletion to include default-namespace replay items
+
+The clear output action was only deleting replay moments for replay items that had a non-empty effective namespace in indexing state.
+
+If effective namespace is empty, that maps to the base moment graph namespace, but those items were being skipped, so their moments (and links) remained.
+
+Change: treat empty effective namespace as the default namespace for deletion.

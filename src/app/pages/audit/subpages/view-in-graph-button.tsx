@@ -29,6 +29,7 @@ export function ViewInGraphButton({
         const params = new URLSearchParams();
         params.set("rootId", result.rootId);
         params.set("highlightMomentId", momentId);
+        params.set("view", "chain");
         if (namespace) {
           params.set("namespace", namespace);
         }

@@ -14,6 +14,7 @@ import {
   getMoments,
   getMicroMomentsByPaths,
   findLastMomentForDocument,
+  getSubjectContextChainForMoment,
   getDescendantsForRootSlim,
   getRootStatsByHighImportanceSample,
   getDocumentAuditLogsForDocument,
@@ -569,13 +570,23 @@ async function timelineHandler({ request, ctx }: RequestInfo) {
       );
     }
 
-    const timeline = await findAncestors(lastMoment.id, momentGraphContext);
+    const subjectChain = await getSubjectContextChainForMoment(
+      lastMoment.id,
+      momentGraphContext
+    );
+    const timeline = subjectChain ? subjectChain.chain : await findAncestors(lastMoment.id, momentGraphContext);
 
     console.log(
       `[timeline] Found timeline with ${timeline.length} moments for document ${documentId}`
     );
 
-    return Response.json({ timeline });
+    return Response.json({
+      documentId,
+      momentId: lastMoment.id,
+      subjectParentId: subjectChain?.subjectParentId ?? null,
+      subjectChildId: subjectChain?.subjectChildId ?? null,
+      timeline,
+    });
   } catch (error) {
     console.error(
       `[timeline] Error getting timeline: ${

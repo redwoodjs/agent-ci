@@ -209,3 +209,9 @@ The clear output action was only deleting replay moments for replay items that h
 If effective namespace is empty, that maps to the base moment graph namespace, but those items were being skipped, so their moments (and links) remained.
 
 Change: treat empty effective namespace as the default namespace for deletion.
+
+## Added an admin endpoint to clear all moment links in the default namespace
+
+The clear output action should delete replay moments, but in practice it's been hard to reason about what links remain after repeated runs.
+
+I added a one-off admin endpoint that clears `parent_id` for all moments in the default moment graph namespace. This is intended for recovery when the default namespace graph has become hard to debug.

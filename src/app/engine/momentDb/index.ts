@@ -441,6 +441,51 @@ export async function deleteMomentsByIds(
   return { deletedIds: uniqueIds };
 }
 
+export async function clearAllMomentLinks(
+  context: MomentGraphContext,
+  input?: { dryRun?: boolean }
+): Promise<{
+  momentGraphNamespace: string | null;
+  totalMoments: number;
+  linkedMoments: number;
+  clearedMoments: number;
+  dryRun: boolean;
+}> {
+  const db = getMomentDb(context);
+  const dryRun = input?.dryRun === false ? false : true;
+
+  const totalRow = (await db
+    .selectFrom("moments")
+    .select((eb) => eb.fn.countAll<number>().as("count"))
+    .executeTakeFirst()) as unknown as { count: number } | undefined;
+  const totalMoments = Number((totalRow as any)?.count ?? 0);
+
+  const linkedRow = (await db
+    .selectFrom("moments")
+    .select((eb) => eb.fn.countAll<number>().as("count"))
+    .where("parent_id", "is not", null)
+    .executeTakeFirst()) as unknown as { count: number } | undefined;
+  const linkedMoments = Number((linkedRow as any)?.count ?? 0);
+
+  let clearedMoments = 0;
+  if (!dryRun && linkedMoments > 0) {
+    const res = await db
+      .updateTable("moments")
+      .set({ parent_id: null as any })
+      .where("parent_id", "is not", null)
+      .executeTakeFirst();
+    clearedMoments = Number((res as any)?.numUpdatedRows ?? 0);
+  }
+
+  return {
+    momentGraphNamespace: context.momentGraphNamespace ?? null,
+    totalMoments,
+    linkedMoments,
+    clearedMoments,
+    dryRun,
+  };
+}
+
 export async function getMoment(
   id: string,
   context: MomentGraphContext

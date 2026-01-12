@@ -19,6 +19,7 @@ import {
   getRootStatsByHighImportanceSample,
   getDocumentAuditLogsForDocument,
   getRecentDocumentAuditEvents,
+  clearAllMomentLinks,
 } from "./momentDb";
 import {
   processScannerJob,
@@ -575,7 +576,9 @@ async function timelineHandler({ request, ctx }: RequestInfo) {
       lastMoment.id,
       momentGraphContext
     );
-    const timeline = subjectChain ? subjectChain.chain : await findAncestors(lastMoment.id, momentGraphContext);
+    const timeline = subjectChain
+      ? subjectChain.chain
+      : await findAncestors(lastMoment.id, momentGraphContext);
 
     console.log(
       `[timeline] Found timeline with ${timeline.length} moments for document ${documentId}`
@@ -1171,7 +1174,9 @@ async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
   const dryRun = dryRunRaw === false ? false : true;
 
   const namespaceRaw =
-    body?.momentGraphNamespace ?? body?.namespace ?? (body as any)?.baseNamespace;
+    body?.momentGraphNamespace ??
+    body?.namespace ??
+    (body as any)?.baseNamespace;
   const baseNamespace =
     typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
       ? namespaceRaw.trim()
@@ -1198,15 +1203,18 @@ async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
   const maxNumbers =
     typeof maxNumbersRaw === "number" && Number.isFinite(maxNumbersRaw)
       ? Math.floor(maxNumbersRaw)
-      : typeof maxNumbersRaw === "string" && Number.isFinite(Number(maxNumbersRaw))
+      : typeof maxNumbersRaw === "string" &&
+        Number.isFinite(Number(maxNumbersRaw))
       ? Math.floor(Number(maxNumbersRaw))
       : null;
 
-  const batchSizeRaw = body?.batchSize ?? body?.limit ?? (body as any)?.maxMismatches;
+  const batchSizeRaw =
+    body?.batchSize ?? body?.limit ?? (body as any)?.maxMismatches;
   const batchSize =
     typeof batchSizeRaw === "number" && Number.isFinite(batchSizeRaw)
       ? Math.floor(batchSizeRaw)
-      : typeof batchSizeRaw === "string" && Number.isFinite(Number(batchSizeRaw))
+      : typeof batchSizeRaw === "string" &&
+        Number.isFinite(Number(batchSizeRaw))
       ? Math.floor(Number(batchSizeRaw))
       : null;
 
@@ -1232,6 +1240,42 @@ async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
   });
 
   return Response.json(result);
+}
+
+async function clearDefaultNamespaceMomentLinksHandler({
+  request,
+}: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  let body: Record<string, any> | undefined;
+  try {
+    body = (await request.json()) as any;
+  } catch {
+    body = undefined;
+  }
+
+  const dryRunRaw = body?.dryRun;
+  const dryRun = dryRunRaw === false ? false : true;
+
+  const envCloudflare = env as Cloudflare.Env;
+
+  console.log("[admin:clear-default-namespace-links] start", { dryRun });
+
+  const result = await clearAllMomentLinks(
+    { env: envCloudflare, momentGraphNamespace: null },
+    { dryRun }
+  );
+
+  console.log("[admin:clear-default-namespace-links] done", {
+    dryRun,
+    totalMoments: result.totalMoments,
+    linkedMoments: result.linkedMoments,
+    clearedMoments: result.clearedMoments,
+  });
+
+  return Response.json({ success: true, ...result });
 }
 
 export const routes = [
@@ -1270,6 +1314,9 @@ export const routes = [
   }),
   route("/admin/reconcile-redwoodjs-sdk-pr-issues", {
     post: [requireQueryApiKey, reconcileRedwoodSdkPrIssuesHandler],
+  }),
+  route("/admin/clear-default-namespace-moment-links", {
+    post: [requireQueryApiKey, clearDefaultNamespaceMomentLinksHandler],
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],

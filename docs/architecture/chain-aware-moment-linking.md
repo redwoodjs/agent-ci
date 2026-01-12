@@ -31,14 +31,14 @@ Timeline context is a compact view of a candidate chain or local subgraph:
 
 The decision process is:
 
-- Use vector search to shortlist candidate chains as today.
-- For each shortlisted chain, run a chain-aware classifier that returns:
+- Use vector search and explicit anchor matching to propose candidate chains.
+- For each candidate chain, run a chain-aware classifier that returns:
   - attach and a suggested insertion point (or parent)
   - reject with a reason
 - Prefer attachments supported by hard anchors (shared canonical tokens or explicit cross-links).
 - If no chain passes, create a separate root for the proposed thread.
 
-## Evidence gating before classification
+## Candidate generation before classification
 
 Vector similarity is a candidate generator. It does not reliably separate:
 
@@ -54,11 +54,11 @@ Evidence is derived from extracted anchors from both the proposed moment and the
 - Code identifiers and file paths (including backticked fragments when present)
 - Error strings and other unique literals when present
 
-The gate should apply deterministic rules before invoking a chain-aware classifier:
+Candidate generators should apply deterministic preconditions and provide evidence to the classifier:
 
 - If the proposed moment contains a strong anchor and the candidate chain does not share it, reject the candidate.
-- If there are no shared anchors, require a higher similarity score for the candidate to remain eligible.
-- If timestamps indicate a time inversion, require shared anchors to proceed.
+- If there are no shared anchors, prefer higher similarity scores, but do not exclude explicit anchor matches solely on a score threshold.
+- If timestamps indicate a time inversion, reject the candidate.
 
 This preserves recall for cases where continuity is explicit, while preventing "shared vocabulary only" candidates from reaching the attach decision.
 

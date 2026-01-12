@@ -405,6 +405,24 @@ export async function getMomentGraphNamespacePrefix() {
   }
 }
 
+export async function getMomentGraphNamespace() {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const namespace = getMomentGraphNamespaceFromEnv(envCloudflare);
+    return {
+      success: true,
+      namespace,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching namespace:", error);
+    return {
+      success: false,
+      error: "Failed to fetch namespace",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function getRootMomentsAction(options?: {
   limit?: number;
   momentGraphNamespace?: string | null;

@@ -52,3 +52,14 @@ I changed it to always call the replay progress action and pass null when the pr
 Selective replay can intentionally leave a run in a completed state. The UI was hiding the replay controls when status was completed, which made it harder to recover a run by recollecting and replaying a small set of documents.
 
 I changed the Knowledge Graph page to always show the run controls when a run id is present, and only disable the Resume button when the run is completed.
+
+## Propagated namespace and prefix into the Knowledge Graph view
+
+The Knowledge Graph page was only reading a prefix from the URL under the parameter name `namespacePrefix`, and it was not reading the base namespace from the URL at all. The View in Graph clickthrough passes `namespace` and `prefix`, so the Knowledge Graph page could load the wrong namespace unless it was manually selected.
+
+I updated the Knowledge Graph page to:
+
+- read `namespace` from the URL on load
+- read prefix from either `prefix` or `namespacePrefix`
+- write `namespace` and `prefix` back into the URL for share links
+- fall back to the default base namespace from the worker environment when no namespace is provided

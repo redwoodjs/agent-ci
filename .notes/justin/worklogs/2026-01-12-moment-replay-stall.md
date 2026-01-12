@@ -53,3 +53,5 @@ I changed the replay worker to:
 
 - fetch a smaller replay batch size (configurable via env, with a small default)
 - mark items done and advance the replay cursor incrementally as items are processed
+
+I then bumped the default batch size to a middle value. The incremental cursor updates are the important part for avoiding a run looking stuck if the queue execution is cancelled.

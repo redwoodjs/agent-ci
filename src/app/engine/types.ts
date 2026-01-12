@@ -112,6 +112,7 @@ export interface IndexingHookContext {
   r2Key: string;
   env: Cloudflare.Env;
   momentGraphNamespace?: string | null;
+  indexingMode?: "indexing" | "replay";
 }
 
 export interface QueryHookContext {

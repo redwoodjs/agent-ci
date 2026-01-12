@@ -43,15 +43,15 @@ The restart operation:
 - clears per-document replay stream state
 - re-enqueues the replay job
 
-## Noticed replay batches being cancelled before updating cursor or item statuses
+## Noticed replay worker can fail without leaving enough state to recover
 
-After clicking restart/resume, the UI stayed at 0 done items even though the queue was receiving moment-replay-replay jobs. The worker logs showed replay starting, but there was no replay batch completion log and the run did not advance.
+After clicking restart/resume, the UI could stay at 0 done items even though the queue was receiving moment-replay-replay jobs. The worker logs showed replay starting, but there was no replay batch completion log and the run did not advance.
 
-The Cloudflare queue execution was getting cancelled after a long wall time, which meant the worker never reached the end-of-batch updates (marking items done, updating the cursor, incrementing the replay counter). Because those updates happened only after processing an entire batch, a cancellation caused the run to look stuck and also caused the same items to be retried repeatedly.
+A queue execution can be interrupted or fail in a way that prevents the worker from reaching the end-of-batch updates (marking items done, updating the cursor, incrementing the replay counter). Because those updates happened only after processing an entire batch, an interrupted execution caused the run to look stuck and also caused the same items to be retried repeatedly.
 
 I changed the replay worker to:
 
-- fetch a smaller replay batch size (configurable via env, with a small default)
+- fetch a replay batch size from env (with a default)
 - mark items done and advance the replay cursor incrementally as items are processed
 
-I then bumped the default batch size to a middle value. The incremental cursor updates are the important part for avoiding a run looking stuck if the queue execution is cancelled.
+The incremental cursor updates are the important part for avoiding a run looking stuck if replay processing fails or is interrupted.

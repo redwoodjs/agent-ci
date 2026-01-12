@@ -25,7 +25,9 @@ import {
   getRecentDocumentAuditEventsAction,
   getReplayBackfillProgressAction,
   resumeReplayRunAction,
+  retryFailedReplayItemsAction,
   restartReplayRunAction,
+  restartReplayRunClearOutputAction,
   replaySelectedDocumentsAction,
   recollectSelectedDocumentsAction,
 } from "./actions";
@@ -1092,6 +1094,45 @@ export function KnowledgeGraphPage() {
                 const totalItems = Number((r as any)?.totalItems ?? 0);
                 const pendingItems = Number((r as any)?.pendingItems ?? 0);
                 const doneItems = Number((r as any)?.doneItems ?? 0);
+                const failedItems = Number((r as any)?.failedItems ?? 0);
+                const lastProgressAt = String((r as any)?.lastProgressAt ?? "");
+                const lastItemId = String((r as any)?.lastItemId ?? "");
+                const lastItemOrderMsRaw = (r as any)?.lastItemOrderMs;
+                const lastItemOrderMs =
+                  typeof lastItemOrderMsRaw === "number" &&
+                  Number.isFinite(lastItemOrderMsRaw)
+                    ? Math.floor(lastItemOrderMsRaw)
+                    : null;
+                const lastItemDocumentId = String(
+                  (r as any)?.lastItemDocumentId ?? ""
+                );
+                const lastItemEffectiveNamespace = String(
+                  (r as any)?.lastItemEffectiveNamespace ?? ""
+                );
+                const consecutiveFailures = Number(
+                  (r as any)?.consecutiveFailures ?? 0
+                );
+                const lastError = (r as any)?.lastError ?? null;
+                const lastErrorMessage =
+                  lastError && typeof lastError?.message === "string"
+                    ? String(lastError.message)
+                    : lastError && typeof lastError?.phase === "string"
+                    ? String(lastError.phase)
+                    : "";
+                const embeddingCalls = Number((r as any)?.embeddingCalls ?? 0);
+                const embeddingTotalMs = Number(
+                  (r as any)?.embeddingTotalMs ?? 0
+                );
+                const timelineFitCalls = Number(
+                  (r as any)?.timelineFitCalls ?? 0
+                );
+                const timelineFitTotalMs = Number(
+                  (r as any)?.timelineFitTotalMs ?? 0
+                );
+                const dbWrites = Number((r as any)?.dbWrites ?? 0);
+                const dbWritesTotalMs = Number(
+                  (r as any)?.dbWritesTotalMs ?? 0
+                );
                 const canResume =
                   runId.length > 0 && status !== "completed" && status !== "";
                 const canShowControls = runId.length > 0;
@@ -1128,6 +1169,88 @@ export function KnowledgeGraphPage() {
                       <div>
                         Failed: <span className="font-mono">{failed}</span>
                       </div>
+                      <div>
+                        Items pending:{" "}
+                        <span className="font-mono">{pendingItems}</span>
+                      </div>
+                      <div>
+                        Items failed:{" "}
+                        <span className="font-mono">{failedItems}</span>
+                      </div>
+                    </div>
+                    <div className="mt-2 text-xs text-gray-700 space-y-1">
+                      <div>
+                        Last progress:{" "}
+                        <span className="font-mono">
+                          {lastProgressAt || "—"}
+                        </span>
+                      </div>
+                      <div>
+                        Cursor:{" "}
+                        <span className="font-mono">
+                          {lastItemOrderMs !== null ? lastItemOrderMs : "—"} /{" "}
+                          {lastItemId || "—"}
+                        </span>
+                      </div>
+                      <div>
+                        Last item:{" "}
+                        <span className="font-mono">
+                          {lastItemDocumentId || "—"}
+                        </span>
+                      </div>
+                      <div>
+                        Effective namespace:{" "}
+                        <span className="font-mono">
+                          {lastItemEffectiveNamespace || "—"}
+                        </span>
+                      </div>
+                      <div>
+                        Consecutive failures:{" "}
+                        <span className="font-mono">{consecutiveFailures}</span>
+                      </div>
+                      {lastErrorMessage && (
+                        <div className="text-red-700">
+                          Last error:{" "}
+                          <span className="font-mono break-all">
+                            {lastErrorMessage}
+                          </span>
+                        </div>
+                      )}
+                      <details className="mt-1">
+                        <summary className="cursor-pointer text-gray-700">
+                          Rollups
+                        </summary>
+                        <div className="mt-1 space-y-1">
+                          <div>
+                            Embeddings:{" "}
+                            <span className="font-mono">
+                              {embeddingCalls} calls, {embeddingTotalMs}ms
+                            </span>
+                          </div>
+                          <div>
+                            Timeline fit:{" "}
+                            <span className="font-mono">
+                              {timelineFitCalls} calls, {timelineFitTotalMs}ms
+                            </span>
+                          </div>
+                          <div>
+                            Moment writes:{" "}
+                            <span className="font-mono">
+                              {dbWrites} writes, {dbWritesTotalMs}ms
+                            </span>
+                          </div>
+                        </div>
+                      </details>
+                      {lastError && (
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-gray-700">
+                            Error payload
+                          </summary>
+                          <pre className="text-xs overflow-auto max-h-64 mt-2 p-2 bg-white border rounded">
+                            {JSON.stringify(lastError, null, 2)}
+                          </pre>
+                        </details>
+                      )}
                     </div>
                     {canShowControls && (
                       <div className="mt-2">
@@ -1178,6 +1301,62 @@ export function KnowledgeGraphPage() {
                             {resumeReplayBusyRunId === runId
                               ? "Resuming..."
                               : "Resume replay"}
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              resumeReplayBusyRunId === runId ||
+                              failedItems <= 0
+                            }
+                            onClick={async () => {
+                              const ok = window.confirm(
+                                "Retry failed replay items for this run?\n\nThis sets failed items back to pending and resets the run cursor."
+                              );
+                              if (!ok) {
+                                return;
+                              }
+                              setResumeReplayError(null);
+                              setResumeReplayBusyRunId(runId);
+                              try {
+                                const res = await retryFailedReplayItemsAction({
+                                  runId,
+                                });
+                                if (!(res as any)?.success) {
+                                  setResumeReplayError(
+                                    (res as any)?.error ??
+                                      "Retry failed items failed"
+                                  );
+                                } else {
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
+                                  }
+                                }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Retry failed items failed"
+                                );
+                              } finally {
+                                setResumeReplayBusyRunId(null);
+                              }
+                            }}
+                          >
+                            {resumeReplayBusyRunId === runId
+                              ? "Retrying..."
+                              : "Retry failed items"}
                           </Button>
 
                           <Button
@@ -1236,6 +1415,58 @@ export function KnowledgeGraphPage() {
                             disabled={resumeReplayBusyRunId === runId}
                             onClick={async () => {
                               const ok = window.confirm(
+                                "Restart replay from the beginning for this run and clear replay output?\n\nThis deletes moments created by this run (moment id == replay item id) in the effective namespaces recorded on the replay items, then resets the run cursor and marks replay items as pending."
+                              );
+                              if (!ok) {
+                                return;
+                              }
+                              setResumeReplayError(null);
+                              setResumeReplayBusyRunId(runId);
+                              try {
+                                const res =
+                                  await restartReplayRunClearOutputAction({
+                                    runId,
+                                  });
+                                if (!(res as any)?.success) {
+                                  setResumeReplayError(
+                                    (res as any)?.error ??
+                                      "Restart (clear output) failed"
+                                  );
+                                } else {
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
+                                  }
+                                }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Restart (clear output) failed"
+                                );
+                              } finally {
+                                setResumeReplayBusyRunId(null);
+                              }
+                            }}
+                          >
+                            Restart (clear output)
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={resumeReplayBusyRunId === runId}
+                            onClick={async () => {
+                              const ok = window.confirm(
                                 "Restart replay in descending order for this run?\n\nThis resets the run cursor and marks all replay items as pending."
                               );
                               if (!ok) {
@@ -1279,6 +1510,59 @@ export function KnowledgeGraphPage() {
                             }}
                           >
                             Restart (desc)
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={resumeReplayBusyRunId === runId}
+                            onClick={async () => {
+                              const ok = window.confirm(
+                                "Restart replay in descending order for this run and clear replay output?\n\nThis deletes moments created by this run (moment id == replay item id) in the effective namespaces recorded on the replay items, then resets the run cursor and marks replay items as pending."
+                              );
+                              if (!ok) {
+                                return;
+                              }
+                              setResumeReplayError(null);
+                              setResumeReplayBusyRunId(runId);
+                              try {
+                                const res =
+                                  await restartReplayRunClearOutputAction({
+                                    runId,
+                                    replayOrder: "descending",
+                                  });
+                                if (!(res as any)?.success) {
+                                  setResumeReplayError(
+                                    (res as any)?.error ??
+                                      "Restart (clear output) failed"
+                                  );
+                                } else {
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
+                                  }
+                                }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Restart (clear output) failed"
+                                );
+                              } finally {
+                                setResumeReplayBusyRunId(null);
+                              }
+                            }}
+                          >
+                            Restart (clear output, desc)
                           </Button>
 
                           <Button

@@ -19,6 +19,7 @@ type MomentReplayItemRow = Override<
   MomentReplayItemInput,
   {
     payload_json: any;
+    error_json: any;
   }
 >;
 
@@ -49,6 +50,55 @@ export type ReplayCursor = {
 
 export type ReplayOrder = "ascending" | "descending";
 
+export async function getReplayRunStatus(
+  context: ReplayDbContext,
+  input: { runId: string }
+): Promise<MomentReplayRunStatus | null> {
+  const db = getReplayDb(context);
+  const row = await db
+    .selectFrom("moment_replay_runs")
+    .select(["status"])
+    .where("run_id", "=", input.runId)
+    .executeTakeFirst();
+  const status = (row as any)?.status;
+  if (status === "collecting") return "collecting";
+  if (status === "ready_to_replay") return "ready_to_replay";
+  if (status === "replaying") return "replaying";
+  if (status === "completed") return "completed";
+  if (status === "paused_on_error") return "paused_on_error";
+  return null;
+}
+
+export async function getReplayItemIdsForRun(
+  context: ReplayDbContext,
+  input: { runId: string }
+): Promise<Array<{ itemId: string; effectiveNamespace: string }>> {
+  const db = getReplayDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return [];
+  }
+
+  const rows = (await db
+    .selectFrom("moment_replay_items")
+    .select(["item_id", "effective_namespace"])
+    .where("run_id", "=", runId)
+    .execute()) as unknown as Array<{
+    item_id: string;
+    effective_namespace: string;
+  }>;
+
+  return rows
+    .map((r) => ({
+      itemId: String((r as any).item_id ?? ""),
+      effectiveNamespace: String((r as any).effective_namespace ?? ""),
+    }))
+    .filter((r) => r.itemId.length > 0 && r.effectiveNamespace.length > 0);
+}
+
 export async function getRecentReplayRunsForPrefix(
   context: ReplayDbContext,
   input: { momentGraphNamespacePrefix: string; limit?: number }
@@ -70,6 +120,20 @@ export async function getRecentReplayRunsForPrefix(
     totalItems: number;
     pendingItems: number;
     doneItems: number;
+    failedItems: number;
+    lastProgressAt: string | null;
+    lastItemId: string | null;
+    lastItemOrderMs: number | null;
+    lastItemDocumentId: string | null;
+    lastItemEffectiveNamespace: string | null;
+    consecutiveFailures: number;
+    lastError: any | null;
+    embeddingCalls: number;
+    embeddingTotalMs: number;
+    timelineFitCalls: number;
+    timelineFitTotalMs: number;
+    dbWrites: number;
+    dbWritesTotalMs: number;
   }>
 > {
   const db = getReplayDb(context);
@@ -116,7 +180,7 @@ export async function getRecentReplayRunsForPrefix(
 
   const countsByRunId = new Map<
     string,
-    { total: number; pending: number; done: number }
+    { total: number; pending: number; done: number; failed: number }
   >();
   for (const r of statusCountsRows) {
     const rid = (r as any).run_id;
@@ -129,6 +193,7 @@ export async function getRecentReplayRunsForPrefix(
       total: 0,
       pending: 0,
       done: 0,
+      failed: 0,
     };
     existing.total += count;
     if (status === "pending") {
@@ -136,6 +201,9 @@ export async function getRecentReplayRunsForPrefix(
     }
     if (status === "done") {
       existing.done += count;
+    }
+    if (status === "failed") {
+      existing.failed += count;
     }
     countsByRunId.set(rid, existing);
   }
@@ -146,6 +214,7 @@ export async function getRecentReplayRunsForPrefix(
       total: 0,
       pending: 0,
       done: 0,
+      failed: 0,
     };
     return {
       runId: (row as any).run_id as string,
@@ -166,6 +235,28 @@ export async function getRecentReplayRunsForPrefix(
       totalItems: counts.total,
       pendingItems: counts.pending,
       doneItems: counts.done,
+      failedItems: counts.failed,
+      lastProgressAt: (row as any).last_progress_at ?? null,
+      lastItemId: (row as any).last_item_id ?? null,
+      lastItemOrderMs:
+        typeof (row as any).last_item_order_ms === "number" &&
+        Number.isFinite((row as any).last_item_order_ms)
+          ? Number((row as any).last_item_order_ms)
+          : (row as any).last_item_order_ms !== null &&
+            typeof (row as any).last_item_order_ms !== "undefined"
+          ? Number((row as any).last_item_order_ms)
+          : null,
+      lastItemDocumentId: (row as any).last_item_document_id ?? null,
+      lastItemEffectiveNamespace:
+        (row as any).last_item_effective_namespace ?? null,
+      consecutiveFailures: Number((row as any).consecutive_failures ?? 0),
+      lastError: (row as any).last_error_json ?? null,
+      embeddingCalls: Number((row as any).embedding_calls ?? 0),
+      embeddingTotalMs: Number((row as any).embedding_total_ms ?? 0),
+      timelineFitCalls: Number((row as any).timeline_fit_calls ?? 0),
+      timelineFitTotalMs: Number((row as any).timeline_fit_total_ms ?? 0),
+      dbWrites: Number((row as any).db_writes ?? 0),
+      dbWritesTotalMs: Number((row as any).db_writes_total_ms ?? 0),
     };
   });
 }
@@ -425,6 +516,32 @@ export async function setReplayRunStatus(
     .execute();
 }
 
+export async function resumeReplayRun(
+  context: ReplayDbContext,
+  input: { runId: string }
+): Promise<boolean> {
+  const db = getReplayDb(context);
+  const now = new Date().toISOString();
+  const result = await db
+    .updateTable("moment_replay_runs")
+    .set({
+      status: "ready_to_replay",
+      replay_enqueued: 0 as any,
+      consecutive_failures: 0 as any,
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", input.runId)
+    .where("status", "=", "paused_on_error")
+    .executeTakeFirst();
+
+  const updatedRows =
+    typeof (result as any)?.numUpdatedRows === "bigint"
+      ? Number((result as any).numUpdatedRows)
+      : Number((result as any)?.numUpdatedRows ?? 0);
+
+  return updatedRows > 0;
+}
+
 export async function resetReplayRunForReplay(
   context: ReplayDbContext,
   input: { runId: string; replayOrder?: ReplayOrder | null }
@@ -462,6 +579,19 @@ export async function resetReplayRunForReplay(
         lastOrderMs: null,
         lastItemId: null,
       } satisfies ReplayCursor),
+      last_progress_at: null,
+      last_item_id: null,
+      last_item_order_ms: null,
+      last_item_document_id: null,
+      last_item_effective_namespace: null,
+      consecutive_failures: 0 as any,
+      last_error_json: null,
+      embedding_calls: 0 as any,
+      embedding_total_ms: 0 as any,
+      timeline_fit_calls: 0 as any,
+      timeline_fit_total_ms: 0 as any,
+      db_writes: 0 as any,
+      db_writes_total_ms: 0 as any,
       ...(replayOrder ? { replay_order: replayOrder } : null),
       updated_at: now,
     } as any)
@@ -533,23 +663,298 @@ export async function setReplayCursor(
   input: { runId: string; cursor: ReplayCursor; replayedItemsDelta: number }
 ): Promise<void> {
   const db = getReplayDb(context);
-  const existing = await db
-    .selectFrom("moment_replay_runs")
-    .select(["replayed_items"])
-    .where("run_id", "=", input.runId)
-    .executeTakeFirst();
-  const current = Number((existing as any)?.replayed_items ?? 0);
-  const next =
-    current +
-    (Number.isFinite(input.replayedItemsDelta) ? input.replayedItemsDelta : 0);
+  const now = new Date().toISOString();
+  const delta =
+    typeof input.replayedItemsDelta === "number" &&
+    Number.isFinite(input.replayedItemsDelta)
+      ? Math.floor(input.replayedItemsDelta)
+      : 0;
 
   await db
     .updateTable("moment_replay_runs")
+    .set(
+      ({ eb }) =>
+        ({
+          replay_cursor_json: JSON.stringify(input.cursor),
+          replayed_items: eb("replayed_items", "+", delta as any) as any,
+          updated_at: now,
+          last_progress_at: now,
+          last_item_id: input.cursor.lastItemId ?? null,
+          last_item_order_ms:
+            typeof input.cursor.lastOrderMs === "number" &&
+            Number.isFinite(input.cursor.lastOrderMs)
+              ? Math.floor(input.cursor.lastOrderMs)
+              : null,
+          consecutive_failures: 0 as any,
+          last_error_json: null,
+        } as any)
+    )
+    .where("run_id", "=", input.runId)
+    .execute();
+}
+
+export async function setReplayCursorWithTelemetry(
+  context: ReplayDbContext,
+  input: {
+    runId: string;
+    cursor: ReplayCursor;
+    replayedItemsDelta: number;
+    lastItem: {
+      documentId: string | null;
+      effectiveNamespace: string | null;
+    };
+    perf?: {
+      embeddingCallsDelta?: number;
+      embeddingTotalMsDelta?: number;
+      timelineFitCallsDelta?: number;
+      timelineFitTotalMsDelta?: number;
+      dbWritesDelta?: number;
+      dbWritesTotalMsDelta?: number;
+    } | null;
+  }
+): Promise<void> {
+  const db = getReplayDb(context);
+  const now = new Date().toISOString();
+
+  const delta =
+    typeof input.replayedItemsDelta === "number" &&
+    Number.isFinite(input.replayedItemsDelta)
+      ? Math.floor(input.replayedItemsDelta)
+      : 0;
+
+  const perf = input.perf ?? null;
+  const embeddingCallsDelta =
+    typeof perf?.embeddingCallsDelta === "number" &&
+    Number.isFinite(perf.embeddingCallsDelta)
+      ? Math.floor(perf.embeddingCallsDelta)
+      : 0;
+  const embeddingTotalMsDelta =
+    typeof perf?.embeddingTotalMsDelta === "number" &&
+    Number.isFinite(perf.embeddingTotalMsDelta)
+      ? Math.floor(perf.embeddingTotalMsDelta)
+      : 0;
+  const timelineFitCallsDelta =
+    typeof perf?.timelineFitCallsDelta === "number" &&
+    Number.isFinite(perf.timelineFitCallsDelta)
+      ? Math.floor(perf.timelineFitCallsDelta)
+      : 0;
+  const timelineFitTotalMsDelta =
+    typeof perf?.timelineFitTotalMsDelta === "number" &&
+    Number.isFinite(perf.timelineFitTotalMsDelta)
+      ? Math.floor(perf.timelineFitTotalMsDelta)
+      : 0;
+  const dbWritesDelta =
+    typeof perf?.dbWritesDelta === "number" &&
+    Number.isFinite(perf.dbWritesDelta)
+      ? Math.floor(perf.dbWritesDelta)
+      : 0;
+  const dbWritesTotalMsDelta =
+    typeof perf?.dbWritesTotalMsDelta === "number" &&
+    Number.isFinite(perf.dbWritesTotalMsDelta)
+      ? Math.floor(perf.dbWritesTotalMsDelta)
+      : 0;
+
+  const docId =
+    typeof input.lastItem.documentId === "string" &&
+    input.lastItem.documentId.length > 0
+      ? input.lastItem.documentId
+      : null;
+  const effectiveNs =
+    typeof input.lastItem.effectiveNamespace === "string" &&
+    input.lastItem.effectiveNamespace.length > 0
+      ? input.lastItem.effectiveNamespace
+      : null;
+
+  await db
+    .updateTable("moment_replay_runs")
+    .set(
+      ({ eb }) =>
+        ({
+          replay_cursor_json: JSON.stringify(input.cursor),
+          replayed_items: eb("replayed_items", "+", delta as any) as any,
+          updated_at: now,
+          last_progress_at: now,
+          last_item_id: input.cursor.lastItemId ?? null,
+          last_item_order_ms:
+            typeof input.cursor.lastOrderMs === "number" &&
+            Number.isFinite(input.cursor.lastOrderMs)
+              ? Math.floor(input.cursor.lastOrderMs)
+              : null,
+          last_item_document_id: docId,
+          last_item_effective_namespace: effectiveNs,
+          consecutive_failures: 0 as any,
+          last_error_json: null,
+          embedding_calls: eb(
+            "embedding_calls",
+            "+",
+            embeddingCallsDelta as any
+          ) as any,
+          embedding_total_ms: eb(
+            "embedding_total_ms",
+            "+",
+            embeddingTotalMsDelta as any
+          ) as any,
+          timeline_fit_calls: eb(
+            "timeline_fit_calls",
+            "+",
+            timelineFitCallsDelta as any
+          ) as any,
+          timeline_fit_total_ms: eb(
+            "timeline_fit_total_ms",
+            "+",
+            timelineFitTotalMsDelta as any
+          ) as any,
+          db_writes: eb("db_writes", "+", dbWritesDelta as any) as any,
+          db_writes_total_ms: eb(
+            "db_writes_total_ms",
+            "+",
+            dbWritesTotalMsDelta as any
+          ) as any,
+        } as any)
+    )
+    .where("run_id", "=", input.runId)
+    .execute();
+}
+
+export async function markReplayItemFailedAndPauseRun(
+  context: ReplayDbContext,
+  input: {
+    runId: string;
+    itemId: string;
+    errorPayload: Record<string, any>;
+    item?: {
+      documentId?: string | null;
+      effectiveNamespace?: string | null;
+      orderMs?: number | null;
+    } | null;
+  }
+): Promise<void> {
+  const db = getReplayDb(context);
+  const now = new Date().toISOString();
+
+  const itemId =
+    typeof input.itemId === "string" && input.itemId.trim().length > 0
+      ? input.itemId.trim()
+      : "";
+  if (!itemId) {
+    return;
+  }
+
+  await db
+    .updateTable("moment_replay_items")
     .set({
-      replay_cursor_json: JSON.stringify(input.cursor),
-      replayed_items: next as any,
-      updated_at: new Date().toISOString(),
-    })
+      status: "failed",
+      error_json: JSON.stringify(
+        input.errorPayload ?? { message: "unknown error" }
+      ),
+      failed_at: now,
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", input.runId)
+    .where("item_id", "=", itemId)
+    .execute();
+
+  const docId =
+    typeof input.item?.documentId === "string" &&
+    input.item.documentId.trim().length > 0
+      ? input.item.documentId.trim()
+      : null;
+  const effectiveNs =
+    typeof input.item?.effectiveNamespace === "string" &&
+    input.item.effectiveNamespace.trim().length > 0
+      ? input.item.effectiveNamespace.trim()
+      : null;
+  const orderMs =
+    typeof input.item?.orderMs === "number" &&
+    Number.isFinite(input.item.orderMs)
+      ? Math.floor(input.item.orderMs)
+      : null;
+
+  await db
+    .updateTable("moment_replay_runs")
+    .set(
+      ({ eb }) =>
+        ({
+          status: "paused_on_error",
+          updated_at: now,
+          last_error_json: JSON.stringify(
+            input.errorPayload ?? { message: "unknown error" }
+          ),
+          consecutive_failures: eb(
+            "consecutive_failures",
+            "+",
+            1 as any
+          ) as any,
+          last_progress_at: now,
+          last_item_id: itemId,
+          last_item_order_ms: orderMs,
+          last_item_document_id: docId,
+          last_item_effective_namespace: effectiveNs,
+        } as any)
+    )
+    .where("run_id", "=", input.runId)
+    .execute();
+}
+
+export async function pauseReplayRunOnError(
+  context: ReplayDbContext,
+  input: {
+    runId: string;
+    errorPayload: Record<string, any>;
+    item?: {
+      itemId?: string | null;
+      documentId?: string | null;
+      effectiveNamespace?: string | null;
+      orderMs?: number | null;
+    } | null;
+  }
+): Promise<void> {
+  const db = getReplayDb(context);
+  const now = new Date().toISOString();
+
+  const itemId =
+    typeof input.item?.itemId === "string" &&
+    input.item.itemId.trim().length > 0
+      ? input.item.itemId.trim()
+      : null;
+  const docId =
+    typeof input.item?.documentId === "string" &&
+    input.item.documentId.trim().length > 0
+      ? input.item.documentId.trim()
+      : null;
+  const effectiveNs =
+    typeof input.item?.effectiveNamespace === "string" &&
+    input.item.effectiveNamespace.trim().length > 0
+      ? input.item.effectiveNamespace.trim()
+      : null;
+  const orderMs =
+    typeof input.item?.orderMs === "number" &&
+    Number.isFinite(input.item.orderMs)
+      ? Math.floor(input.item.orderMs)
+      : null;
+
+  await db
+    .updateTable("moment_replay_runs")
+    .set(
+      ({ eb }) =>
+        ({
+          status: "paused_on_error",
+          updated_at: now,
+          last_error_json: JSON.stringify(
+            input.errorPayload ?? { message: "unknown error" }
+          ),
+          consecutive_failures: eb(
+            "consecutive_failures",
+            "+",
+            1 as any
+          ) as any,
+          last_progress_at: now,
+          last_item_id: itemId,
+          last_item_order_ms: orderMs,
+          last_item_document_id: docId,
+          last_item_effective_namespace: effectiveNs,
+        } as any)
+    )
     .where("run_id", "=", input.runId)
     .execute();
 }
@@ -761,6 +1166,19 @@ export async function setReplayItemsPendingOnlyForDocuments(
         lastOrderMs: null,
         lastItemId: null,
       } satisfies ReplayCursor),
+      last_progress_at: null,
+      last_item_id: null,
+      last_item_order_ms: null,
+      last_item_document_id: null,
+      last_item_effective_namespace: null,
+      consecutive_failures: 0 as any,
+      last_error_json: null,
+      embedding_calls: 0 as any,
+      embedding_total_ms: 0 as any,
+      timeline_fit_calls: 0 as any,
+      timeline_fit_total_ms: 0 as any,
+      db_writes: 0 as any,
+      db_writes_total_ms: 0 as any,
       updated_at: now,
     } as any)
     .where("run_id", "=", runId)
@@ -809,4 +1227,92 @@ export async function markReplayItemsDone(
     .where("run_id", "=", input.runId)
     .where("item_id", "in", ids)
     .execute();
+}
+
+export async function retryFailedReplayItems(
+  context: ReplayDbContext,
+  input: { runId: string; maxItems?: number | string | null }
+): Promise<{ matchedItems: number }> {
+  const db = getReplayDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return { matchedItems: 0 };
+  }
+
+  const maxItemsRaw = input.maxItems;
+  const maxItems =
+    typeof maxItemsRaw === "number" &&
+    Number.isFinite(maxItemsRaw) &&
+    maxItemsRaw > 0
+      ? Math.floor(maxItemsRaw)
+      : typeof maxItemsRaw === "string" &&
+        maxItemsRaw.trim().length > 0 &&
+        Number.isFinite(Number(maxItemsRaw))
+      ? Math.max(1, Math.floor(Number(maxItemsRaw)))
+      : null;
+
+  const failedIdsRows = (await db
+    .selectFrom("moment_replay_items")
+    .select(["item_id"])
+    .where("run_id", "=", runId)
+    .where("status", "=", "failed")
+    .orderBy("failed_at", "asc")
+    .orderBy("item_id", "asc")
+    .limit(maxItems ?? 5000)
+    .execute()) as unknown as Array<{ item_id: string }>;
+
+  const itemIds = failedIdsRows
+    .map((r) => (r as any).item_id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+
+  if (itemIds.length === 0) {
+    return { matchedItems: 0 };
+  }
+
+  const now = new Date().toISOString();
+
+  await db
+    .updateTable("moment_replay_items")
+    .set({
+      status: "pending",
+      error_json: null,
+      failed_at: null,
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", runId)
+    .where("item_id", "in", itemIds)
+    .execute();
+
+  await db
+    .updateTable("moment_replay_runs")
+    .set({
+      status: "ready_to_replay",
+      replay_enqueued: 0 as any,
+      replayed_items: 0 as any,
+      replay_cursor_json: JSON.stringify({
+        lastOrderMs: null,
+        lastItemId: null,
+      } satisfies ReplayCursor),
+      last_progress_at: null,
+      last_item_id: null,
+      last_item_order_ms: null,
+      last_item_document_id: null,
+      last_item_effective_namespace: null,
+      consecutive_failures: 0 as any,
+      last_error_json: null,
+      embedding_calls: 0 as any,
+      embedding_total_ms: 0 as any,
+      timeline_fit_calls: 0 as any,
+      timeline_fit_total_ms: 0 as any,
+      db_writes: 0 as any,
+      db_writes_total_ms: 0 as any,
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", runId)
+    .execute();
+
+  return { matchedItems: itemIds.length };
 }

@@ -11,9 +11,13 @@ import {
   fetchReplayItemsBatch,
   getReplayCursor,
   getReplayRunOrder,
+  getReplayRunStatus,
   getReplayStreamState,
   markReplayItemsDone,
+  markReplayItemFailedAndPauseRun,
+  pauseReplayRunOnError,
   setReplayCursor,
+  setReplayCursorWithTelemetry,
   setReplayRunStatus,
   setReplayStreamState,
 } from "../db/momentReplay";
@@ -24,6 +28,65 @@ type ReplayMessage = {
   momentGraphNamespace?: unknown;
   momentGraphNamespacePrefix?: unknown;
 };
+
+function sleep(ms: number): Promise<void> {
+  const safeMs =
+    typeof ms === "number" && Number.isFinite(ms) && ms > 0 ? Math.floor(ms) : 0;
+  if (safeMs <= 0) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => setTimeout(resolve, safeMs));
+}
+
+function envNumber(env: Cloudflare.Env, key: string): number | null {
+  const raw = (env as any)[key];
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return raw;
+  }
+  if (typeof raw === "string" && raw.trim().length > 0) {
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function isRetryableUpstreamError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+  if (lower.includes("429")) {
+    return true;
+  }
+  if (lower.includes("rate limit")) {
+    return true;
+  }
+  if (lower.includes("timeout")) {
+    return true;
+  }
+  if (lower.includes("timed out")) {
+    return true;
+  }
+  if (lower.includes("overloaded")) {
+    return true;
+  }
+  if (lower.includes("temporarily unavailable")) {
+    return true;
+  }
+  return false;
+}
+
+function computeBackoffMs(env: Cloudflare.Env, attempt: number): number {
+  const base = envNumber(env, "MOMENT_REPLAY_RETRY_BASE_MS") ?? 1000;
+  const max = envNumber(env, "MOMENT_REPLAY_RETRY_MAX_MS") ?? 30000;
+  const jitter = envNumber(env, "MOMENT_REPLAY_RETRY_JITTER_MS") ?? 250;
+  const exp = Math.max(0, Math.floor(attempt));
+  const raw = Math.floor(base * Math.pow(2, exp));
+  const capped = Math.min(max, Math.max(0, raw));
+  const j =
+    typeof jitter === "number" && Number.isFinite(jitter) && jitter > 0
+      ? Math.floor(Math.random() * jitter)
+      : 0;
+  return capped + j;
+}
 
 async function hashMicroPaths(
   microPaths: string[]
@@ -65,6 +128,17 @@ export async function processMomentReplayReplayJob(
   }
 
   console.log("[moment-replay] replay start", { runId });
+
+  const currentStatus = await getReplayRunStatus(
+    { env, momentGraphNamespace: null },
+    { runId }
+  );
+  if (currentStatus === "paused_on_error") {
+    console.log("[moment-replay] replay run is paused_on_error, skipping", {
+      runId,
+    });
+    return;
+  }
 
   await setReplayRunStatus(
     { env, momentGraphNamespace: null },
@@ -119,6 +193,16 @@ export async function processMomentReplayReplayJob(
   }> = [];
   const itemIdToMomentId = new Map<string, string>();
   const orderMsByItemId = new Map<string, number>();
+  const itemMetaByItemId = new Map<
+    string,
+    {
+      documentId: string;
+      effectiveNamespace: string;
+      orderMs: number;
+      timelineFitCallsDelta: number;
+      timelineFitTotalMsDelta: number;
+    }
+  >();
   for (const it of items) {
     if (typeof it?.itemId === "string" && it.itemId.length > 0) {
       orderMsByItemId.set(it.itemId, it.orderMs);
@@ -271,30 +355,102 @@ export async function processMomentReplayReplayJob(
         r2Key: documentId,
         env,
         momentGraphNamespace: effectiveNamespace,
+        indexingMode: "replay",
       };
 
-      for (const plugin of engineContext.plugins) {
-        const propose = plugin.subjects?.proposeMacroMomentParent;
-        if (!propose) {
-          continue;
-        }
-        const attempt = await propose(
-          document,
-          macroMoment,
-          0,
-          indexingContext
-        );
-        if (attempt?.auditLog && !linkAuditLog) {
-          linkAuditLog = attempt.auditLog;
-        }
-        if (attempt?.parentMomentId) {
-          parentId = attempt.parentMomentId ?? undefined;
-          if (attempt.auditLog) {
-            linkAuditLog = attempt.auditLog;
+      const timelineFitMaxAttempts =
+        envNumber(env, "MOMENT_REPLAY_TIMELINE_FIT_MAX_ATTEMPTS") ?? 3;
+      const timelineFitStart = Date.now();
+      let timelineFitError: unknown = null;
+      for (let attempt = 0; attempt < timelineFitMaxAttempts; attempt++) {
+        try {
+          for (const plugin of engineContext.plugins) {
+            const propose = plugin.subjects?.proposeMacroMomentParent;
+            if (!propose) {
+              continue;
+            }
+            const attemptResult = await propose(
+              document,
+              macroMoment,
+              0,
+              indexingContext
+            );
+            if (attemptResult?.auditLog && !linkAuditLog) {
+              linkAuditLog = attemptResult.auditLog;
+            }
+            if (attemptResult?.parentMomentId) {
+              parentId = attemptResult.parentMomentId ?? undefined;
+              if (attemptResult.auditLog) {
+                linkAuditLog = attemptResult.auditLog;
+              }
+              break;
+            }
           }
+          timelineFitError = null;
           break;
+        } catch (error) {
+          timelineFitError = error;
+          const retryable = isRetryableUpstreamError(error);
+          console.error("[moment-replay] timeline fit failed", {
+            runId,
+            itemId: item.itemId,
+            attempt,
+            retryable,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          if (!retryable || attempt + 1 >= timelineFitMaxAttempts) {
+            await markReplayItemFailedAndPauseRun(
+              { env, momentGraphNamespace: null },
+              {
+                runId,
+                itemId: item.itemId,
+                errorPayload: {
+                  phase: "timeline-fit",
+                  retryable,
+                  attempt,
+                  message: error instanceof Error ? error.message : String(error),
+                  stack: error instanceof Error ? error.stack : null,
+                },
+                item: {
+                  documentId,
+                  effectiveNamespace,
+                  orderMs: item.orderMs,
+                },
+              }
+            );
+            return;
+          }
+          const waitMs = computeBackoffMs(env, attempt);
+          await sleep(waitMs);
         }
       }
+
+      if (timelineFitError) {
+        await markReplayItemFailedAndPauseRun(
+          { env, momentGraphNamespace: null },
+          {
+            runId,
+            itemId: item.itemId,
+            errorPayload: {
+              phase: "timeline-fit",
+              retryable: isRetryableUpstreamError(timelineFitError),
+              message:
+                timelineFitError instanceof Error
+                  ? timelineFitError.message
+                  : String(timelineFitError),
+              stack: timelineFitError instanceof Error ? timelineFitError.stack : null,
+            },
+            item: {
+              documentId,
+              effectiveNamespace,
+              orderMs: item.orderMs,
+            },
+          }
+        );
+        return;
+      }
+
+      const timelineFitMs = Math.max(0, Date.now() - timelineFitStart);
       if (!linkAuditLog) {
         linkAuditLog = {
           kind: "no-plugin-attempts",
@@ -303,6 +459,13 @@ export async function processMomentReplayReplayJob(
           macroMomentIndex: 0,
         };
       }
+      itemMetaByItemId.set(item.itemId, {
+        documentId,
+        effectiveNamespace,
+        orderMs: item.orderMs,
+        timelineFitCallsDelta: 1,
+        timelineFitTotalMsDelta: timelineFitMs,
+      });
     }
 
     const momentId = item.itemId;
@@ -334,6 +497,16 @@ export async function processMomentReplayReplayJob(
     momentsToAdd.push(moment);
     momentContexts.push(momentGraphContext);
 
+    if (!itemMetaByItemId.has(item.itemId)) {
+      itemMetaByItemId.set(item.itemId, {
+        documentId,
+        effectiveNamespace,
+        orderMs: item.orderMs,
+        timelineFitCallsDelta: 0,
+        timelineFitTotalMsDelta: 0,
+      });
+    }
+
     await setReplayStreamState(
       { env, momentGraphNamespace: null },
       {
@@ -348,34 +521,78 @@ export async function processMomentReplayReplayJob(
 
   if (momentsToAdd.length > 0) {
     let embeddings: number[][] = [];
-    try {
-      embeddings = await getEmbeddings(momentsToAdd.map((m) => m.summary));
-    } catch (error) {
-      console.error("[moment-replay] embedding batch failed", {
-        runId,
-        count: momentsToAdd.length,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      throw error;
+    const embeddingMaxAttempts =
+      envNumber(env, "MOMENT_REPLAY_EMBEDDING_MAX_ATTEMPTS") ?? 3;
+    const embeddingStart = Date.now();
+    for (let attempt = 0; attempt < embeddingMaxAttempts; attempt++) {
+      try {
+        embeddings = await getEmbeddings(momentsToAdd.map((m) => m.summary));
+        break;
+      } catch (error) {
+        const retryable = isRetryableUpstreamError(error);
+        console.error("[moment-replay] embedding batch failed", {
+          runId,
+          count: momentsToAdd.length,
+          attempt,
+          retryable,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        if (!retryable || attempt + 1 >= embeddingMaxAttempts) {
+          await pauseReplayRunOnError(
+            { env, momentGraphNamespace: null },
+            {
+              runId,
+              errorPayload: {
+                phase: "embedding",
+                retryable,
+                attempt,
+                message: error instanceof Error ? error.message : String(error),
+                stack: error instanceof Error ? error.stack : null,
+              },
+            }
+          );
+          return;
+        }
+        const waitMs = computeBackoffMs(env, attempt);
+        await sleep(waitMs);
+      }
     }
+    const embeddingMs = Math.max(0, Date.now() - embeddingStart);
     for (let i = 0; i < momentsToAdd.length; i++) {
       const m = momentsToAdd[i]!;
       const ctx = momentContexts[i]!;
       const embedding = embeddings[i] ?? null;
+      const meta = itemMetaByItemId.get(m.id) ?? null;
+      const perfEmbeddingCallsDelta = i === 0 ? 1 : 0;
+      const perfEmbeddingTotalMsDelta = i === 0 ? embeddingMs : 0;
       try {
+        const writeStart = Date.now();
         await addMoment(m, ctx, { embedding });
+        const writeMs = Math.max(0, Date.now() - writeStart);
         itemIdToMomentId.set(m.id, m.id);
         const orderMs = orderMsByItemId.get(m.id) ?? null;
         await markReplayItemsDone(
           { env, momentGraphNamespace: null },
           { runId, itemIds: [m.id] }
         );
-        await setReplayCursor(
+        await setReplayCursorWithTelemetry(
           { env, momentGraphNamespace: null },
           {
             runId,
             cursor: { lastOrderMs: orderMs, lastItemId: m.id },
             replayedItemsDelta: 1,
+            lastItem: {
+              documentId: meta?.documentId ?? m.documentId,
+              effectiveNamespace: meta?.effectiveNamespace ?? ctx.momentGraphNamespace,
+            },
+            perf: {
+              embeddingCallsDelta: perfEmbeddingCallsDelta,
+              embeddingTotalMsDelta: perfEmbeddingTotalMsDelta,
+              timelineFitCallsDelta: meta?.timelineFitCallsDelta ?? 0,
+              timelineFitTotalMsDelta: meta?.timelineFitTotalMsDelta ?? 0,
+              dbWritesDelta: 1,
+              dbWritesTotalMsDelta: writeMs,
+            },
           }
         );
         lastOrderMs = orderMs;
@@ -420,12 +637,25 @@ export async function processMomentReplayReplayJob(
               { env, momentGraphNamespace: null },
               { runId, itemIds: [m.id] }
             );
-            await setReplayCursor(
+            await setReplayCursorWithTelemetry(
               { env, momentGraphNamespace: null },
               {
                 runId,
                 cursor: { lastOrderMs: orderMs, lastItemId: m.id },
                 replayedItemsDelta: 1,
+                lastItem: {
+                  documentId: meta?.documentId ?? m.documentId,
+                  effectiveNamespace:
+                    meta?.effectiveNamespace ?? ctx.momentGraphNamespace,
+                },
+                perf: {
+                  embeddingCallsDelta: perfEmbeddingCallsDelta,
+                  embeddingTotalMsDelta: perfEmbeddingTotalMsDelta,
+                  timelineFitCallsDelta: meta?.timelineFitCallsDelta ?? 0,
+                  timelineFitTotalMsDelta: meta?.timelineFitTotalMsDelta ?? 0,
+                  dbWritesDelta: 0,
+                  dbWritesTotalMsDelta: 0,
+                },
               }
             );
             lastOrderMs = orderMs;
@@ -433,7 +663,91 @@ export async function processMomentReplayReplayJob(
             continue;
           }
         }
-        throw error;
+        const retryable = isRetryableUpstreamError(error);
+        const maxAttempts = envNumber(env, "MOMENT_REPLAY_ITEM_MAX_ATTEMPTS") ?? 3;
+        let recovered = false;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          if (!retryable) {
+            break;
+          }
+          const waitMs = computeBackoffMs(env, attempt);
+          console.error("[moment-replay] item failed, will retry", {
+            runId,
+            itemId: m.id,
+            attempt,
+            waitMs,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          await sleep(waitMs);
+          try {
+            const writeStart = Date.now();
+            await addMoment(m, ctx, { embedding });
+            const writeMs = Math.max(0, Date.now() - writeStart);
+            itemIdToMomentId.set(m.id, m.id);
+            const orderMs = orderMsByItemId.get(m.id) ?? null;
+            await markReplayItemsDone(
+              { env, momentGraphNamespace: null },
+              { runId, itemIds: [m.id] }
+            );
+            await setReplayCursorWithTelemetry(
+              { env, momentGraphNamespace: null },
+              {
+                runId,
+                cursor: { lastOrderMs: orderMs, lastItemId: m.id },
+                replayedItemsDelta: 1,
+                lastItem: {
+                  documentId: meta?.documentId ?? m.documentId,
+                  effectiveNamespace:
+                    meta?.effectiveNamespace ?? ctx.momentGraphNamespace,
+                },
+                perf: {
+                  embeddingCallsDelta: perfEmbeddingCallsDelta,
+                  embeddingTotalMsDelta: perfEmbeddingTotalMsDelta,
+                  timelineFitCallsDelta: meta?.timelineFitCallsDelta ?? 0,
+                  timelineFitTotalMsDelta: meta?.timelineFitTotalMsDelta ?? 0,
+                  dbWritesDelta: 1,
+                  dbWritesTotalMsDelta: writeMs,
+                },
+              }
+            );
+            lastOrderMs = orderMs;
+            lastItemId = m.id;
+            recovered = true;
+            break;
+          } catch (retryErr) {
+            if (!isRetryableUpstreamError(retryErr)) {
+              break;
+            }
+            if (attempt + 1 >= maxAttempts) {
+              break;
+            }
+          }
+        }
+
+        if (recovered) {
+          continue;
+        }
+
+        await markReplayItemFailedAndPauseRun(
+          { env, momentGraphNamespace: null },
+          {
+            runId,
+            itemId: m.id,
+            errorPayload: {
+              phase: "replay-item",
+              retryable,
+              message: error instanceof Error ? error.message : String(error),
+              stack: error instanceof Error ? error.stack : null,
+            },
+            item: {
+              documentId: meta?.documentId ?? m.documentId,
+              effectiveNamespace:
+                meta?.effectiveNamespace ?? ctx.momentGraphNamespace,
+              orderMs: orderMsByItemId.get(m.id) ?? null,
+            },
+          }
+        );
+        return;
       }
     }
   }
@@ -445,8 +759,8 @@ export async function processMomentReplayReplayJob(
     lastItemId,
   });
 
-  // Avoid hammering Workers AI with rapid successive batch retries.
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const batchDelayMs = envNumber(env, "MOMENT_REPLAY_BATCH_DELAY_MS") ?? 250;
+  await sleep(batchDelayMs);
 
   if ((env as any).ENGINE_INDEXING_QUEUE) {
     await (env as any).ENGINE_INDEXING_QUEUE.send({

@@ -24,6 +24,7 @@ import {
   getMomentContextChainAction,
   getRecentDocumentAuditEventsAction,
   getReplayBackfillProgressAction,
+  getReplayRunAction,
   resumeReplayRunAction,
   retryFailedReplayItemsAction,
   restartReplayRunAction,
@@ -284,6 +285,24 @@ export function KnowledgeGraphPage() {
   const [resumeReplayBusyRunId, setResumeReplayBusyRunId] = useState<
     string | null
   >(null);
+
+  function upsertReplayRun(run: any) {
+    const runId = String(run?.runId ?? "");
+    if (!runId) {
+      return;
+    }
+    setReplayRuns((prev) => {
+      const list = Array.isArray(prev) ? prev.slice() : [];
+      const idx = list.findIndex(
+        (r) => String((r as any)?.runId ?? "") === runId
+      );
+      if (idx !== -1) {
+        list[idx] = run;
+        return list;
+      }
+      return [run, ...list];
+    });
+  }
   const mermaidContainerRef = useRef<HTMLDivElement>(null);
   const mermaidScriptRef = useRef<HTMLScriptElement | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -1116,9 +1135,14 @@ export function KnowledgeGraphPage() {
                 const lastErrorMessage =
                   lastError && typeof lastError?.message === "string"
                     ? String(lastError.message)
+                    : typeof lastError === "string"
+                    ? lastError
                     : lastError && typeof lastError?.phase === "string"
                     ? String(lastError.phase)
                     : "";
+                const replayEnqueued = Boolean(
+                  (r as any)?.replayEnqueued ?? false
+                );
                 const embeddingCalls = Number((r as any)?.embeddingCalls ?? 0);
                 const embeddingTotalMs = Number(
                   (r as any)?.embeddingTotalMs ?? 0
@@ -1207,6 +1231,12 @@ export function KnowledgeGraphPage() {
                       <div>
                         Consecutive failures:{" "}
                         <span className="font-mono">{consecutiveFailures}</span>
+                      </div>
+                      <div>
+                        Replay enqueued:{" "}
+                        <span className="font-mono">
+                          {replayEnqueued ? "true" : "false"}
+                        </span>
                       </div>
                       {lastErrorMessage && (
                         <div className="text-red-700">
@@ -1433,18 +1463,17 @@ export function KnowledgeGraphPage() {
                                       "Restart (clear output) failed"
                                   );
                                 } else {
-                                  const refreshed =
-                                    await getReplayBackfillProgressAction({
-                                      momentGraphNamespacePrefix:
-                                        prefixOverride.trim().length > 0
-                                          ? prefixOverride.trim()
-                                          : null,
-                                      limit: 5,
+                                  const runFromAction =
+                                    (res as any)?.run ?? null;
+                                  if (runFromAction) {
+                                    upsertReplayRun(runFromAction);
+                                  } else {
+                                    const refreshed = await getReplayRunAction({
+                                      runId,
                                     });
-                                  if ((refreshed as any)?.success) {
-                                    setReplayRuns(
-                                      (refreshed as any).runs ?? []
-                                    );
+                                    if ((refreshed as any)?.success) {
+                                      upsertReplayRun((refreshed as any).run);
+                                    }
                                   }
                                 }
                               } catch (err) {
@@ -1537,18 +1566,17 @@ export function KnowledgeGraphPage() {
                                       "Restart (clear output) failed"
                                   );
                                 } else {
-                                  const refreshed =
-                                    await getReplayBackfillProgressAction({
-                                      momentGraphNamespacePrefix:
-                                        prefixOverride.trim().length > 0
-                                          ? prefixOverride.trim()
-                                          : null,
-                                      limit: 5,
+                                  const runFromAction =
+                                    (res as any)?.run ?? null;
+                                  if (runFromAction) {
+                                    upsertReplayRun(runFromAction);
+                                  } else {
+                                    const refreshed = await getReplayRunAction({
+                                      runId,
                                     });
-                                  if ((refreshed as any)?.success) {
-                                    setReplayRuns(
-                                      (refreshed as any).runs ?? []
-                                    );
+                                    if ((refreshed as any)?.success) {
+                                      upsertReplayRun((refreshed as any).run);
+                                    }
                                   }
                                 }
                               } catch (err) {

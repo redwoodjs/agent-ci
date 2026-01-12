@@ -65,3 +65,12 @@ I updated the audit UI to show telemetry in the replay runs list and added contr
 - resume (clears paused_on_error)
 - retry failed items
 - restart (clear output) so chronological replay can rebuild links from scratch
+
+## Added run-by-id refresh and clearer error display in UI
+
+I noticed that the replay runs list was refreshed via the prefix list, and the error display assumed the run error payload was an object with a message field.
+
+I changed the UI to:
+
+- fall back to showing the error payload when it is a string
+- refresh a replay run by id after restart(clear output), so counter/cursor updates are visible immediately

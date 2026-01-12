@@ -14,6 +14,7 @@ type ReconcileOptions = {
   momentGraphNamespace: string | null;
   momentGraphNamespacePrefix: string | null;
   maxNumbers?: number | null;
+  batchSize?: number | null;
 };
 
 type GitHubIssueListItem = {
@@ -365,14 +366,42 @@ export async function reconcileRedwoodSdkPrsAndIssues(
     }
   }
 
-  const mappings: Array<{ from: string; to: string }> = mismatches.map((m) => {
+  mismatches.sort((a, b) => {
+    if (a.number !== b.number) {
+      return a.number - b.number;
+    }
+    const aKey = `${a.fromKind}->${a.toKind}`;
+    const bKey = `${b.fromKind}->${b.toKind}`;
+    return aKey.localeCompare(bKey);
+  });
+
+  const batchSizeRaw = options.batchSize;
+  const batchSize =
+    typeof batchSizeRaw === "number" &&
+    Number.isFinite(batchSizeRaw) &&
+    batchSizeRaw > 0
+      ? Math.floor(batchSizeRaw)
+      : typeof batchSizeRaw === "string" && Number.isFinite(Number(batchSizeRaw))
+      ? Math.floor(Number(batchSizeRaw))
+      : 10;
+
+  const batchMismatches = mismatches.slice(0, batchSize);
+
+  const remainingMismatches =
+    mismatches.length > batchMismatches.length
+      ? mismatches.length - batchMismatches.length
+      : 0;
+
+  const mappings: Array<{ from: string; to: string }> = batchMismatches.map(
+    (m) => {
     const from = `github/${owner}/${repo}/${m.fromKind}/${m.number}/latest.json`;
     const to = `github/${owner}/${repo}/${m.toKind}/${m.number}/latest.json`;
     return { from, to };
-  });
+    }
+  );
 
   const r2Moves: Array<any> = [];
-  for (const m of mismatches) {
+  for (const m of batchMismatches) {
     const fromPrefix = `github/${owner}/${repo}/${m.fromKind}/${m.number}/`;
     const toPrefix = `github/${owner}/${repo}/${m.toKind}/${m.number}/`;
     const res = await moveR2Prefix({
@@ -410,6 +439,7 @@ export async function reconcileRedwoodSdkPrsAndIssues(
     dryRun: options.dryRun,
     momentGraphNamespace: options.momentGraphNamespace,
     momentGraphNamespacePrefix: options.momentGraphNamespacePrefix,
+    batchSize,
     githubClassified: {
       pullRequests: isPullRequest.size,
     },
@@ -418,6 +448,7 @@ export async function reconcileRedwoodSdkPrsAndIssues(
       pullRequestKeys: prLatestKeys.length,
     },
     mismatches: mismatches.length,
+    remainingMismatches,
     mappings,
     r2Moves,
     momentGraphUpdates,

@@ -13,11 +13,13 @@ import {
   getReplayRunOrder,
   getReplayRunStatus,
   getReplayStreamState,
+  addReplayRunEvent,
   markReplayItemsDone,
   markReplayItemFailedAndPauseRun,
   pauseReplayRunOnError,
   setReplayCursor,
   setReplayCursorWithTelemetry,
+  setReplayEnqueuedFlag,
   setReplayRunStatus,
   setReplayStreamState,
 } from "../db/momentReplay";
@@ -129,11 +131,24 @@ export async function processMomentReplayReplayJob(
 
   console.log("[moment-replay] replay start", { runId });
 
+  await setReplayEnqueuedFlag(
+    { env, momentGraphNamespace: null },
+    { runId, replayEnqueued: false }
+  );
+  await addReplayRunEvent(
+    { env, momentGraphNamespace: null },
+    { runId, level: "info", kind: "worker.start", payload: {} }
+  );
+
   const currentStatus = await getReplayRunStatus(
     { env, momentGraphNamespace: null },
     { runId }
   );
   if (currentStatus === "paused_on_error") {
+    await addReplayRunEvent(
+      { env, momentGraphNamespace: null },
+      { runId, level: "warn", kind: "worker.skipped_paused", payload: {} }
+    );
     console.log("[moment-replay] replay run is paused_on_error, skipping", {
       runId,
     });
@@ -177,9 +192,23 @@ export async function processMomentReplayReplayJob(
       { env, momentGraphNamespace: null },
       { runId, status: "completed" }
     );
+    await addReplayRunEvent(
+      { env, momentGraphNamespace: null },
+      { runId, level: "info", kind: "worker.completed", payload: {} }
+    );
     console.log("[moment-replay] replay complete", { runId });
     return;
   }
+
+  await addReplayRunEvent(
+    { env, momentGraphNamespace: null },
+    {
+      runId,
+      level: "info",
+      kind: "worker.fetched_batch",
+      payload: { batchSize, fetched: items.length, replayOrder },
+    }
+  );
 
   const engineContext = createEngineContext(env, "indexing");
 
@@ -538,6 +567,19 @@ export async function processMomentReplayReplayJob(
           error: error instanceof Error ? error.message : String(error),
         });
         if (!retryable || attempt + 1 >= embeddingMaxAttempts) {
+          await addReplayRunEvent(
+            { env, momentGraphNamespace: null },
+            {
+              runId,
+              level: "error",
+              kind: "worker.embedding_failed",
+              payload: {
+                retryable,
+                attempt,
+                message: error instanceof Error ? error.message : String(error),
+              },
+            }
+          );
           await pauseReplayRunOnError(
             { env, momentGraphNamespace: null },
             {
@@ -747,6 +789,15 @@ export async function processMomentReplayReplayJob(
             },
           }
         );
+        await addReplayRunEvent(
+          { env, momentGraphNamespace: null },
+          {
+            runId,
+            level: "error",
+            kind: "worker.paused_on_item_error",
+            payload: { itemId: m.id, retryable },
+          }
+        );
         return;
       }
     }
@@ -763,9 +814,32 @@ export async function processMomentReplayReplayJob(
   await sleep(batchDelayMs);
 
   if ((env as any).ENGINE_INDEXING_QUEUE) {
+    await setReplayEnqueuedFlag(
+      { env, momentGraphNamespace: null },
+      { runId, replayEnqueued: true }
+    );
+    await addReplayRunEvent(
+      { env, momentGraphNamespace: null },
+      {
+        runId,
+        level: "info",
+        kind: "worker.enqueued_next",
+        payload: { afterDelayMs: batchDelayMs },
+      }
+    );
     await (env as any).ENGINE_INDEXING_QUEUE.send({
       jobType: "moment-replay-replay",
       momentReplayRunId: runId,
     });
+  } else {
+    await addReplayRunEvent(
+      { env, momentGraphNamespace: null },
+      {
+        runId,
+        level: "error",
+        kind: "worker.missing_queue_binding",
+        payload: {},
+      }
+    );
   }
 }

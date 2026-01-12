@@ -40,6 +40,9 @@ import {
   resumeReplayRun,
   getReplayItemIdsForRun,
   getReplayRunById,
+  addReplayRunEvent,
+  getReplayRunEvents,
+  setReplayEnqueuedFlag,
   retryFailedReplayItems,
 } from "@/app/engine/db/momentReplay";
 import { getEmbedding, getEmbeddings } from "@/app/engine/utils/vector";
@@ -1140,6 +1143,20 @@ export async function resumeReplayRunAction(input: { runId: string }) {
       return { success: false, error: "Missing ENGINE_INDEXING_QUEUE binding" };
     }
 
+    await setReplayEnqueuedFlag(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId, replayEnqueued: true }
+    );
+    await addReplayRunEvent(
+      { env: envCloudflare, momentGraphNamespace: null },
+      {
+        runId,
+        level: "info",
+        kind: "ui.resume.enqueued",
+        payload: {},
+      }
+    );
+
     await queue.send({
       jobType: "moment-replay-replay",
       momentReplayRunId: runId,
@@ -1184,6 +1201,20 @@ export async function retryFailedReplayItemsAction(input: {
       return { success: false, error: "Missing ENGINE_INDEXING_QUEUE binding" };
     }
 
+    await setReplayEnqueuedFlag(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId, replayEnqueued: true }
+    );
+    await addReplayRunEvent(
+      { env: envCloudflare, momentGraphNamespace: null },
+      {
+        runId,
+        level: "info",
+        kind: "ui.retry_failed.enqueued",
+        payload: { matchedItems: result.matchedItems },
+      }
+    );
+
     await queue.send({
       jobType: "moment-replay-replay",
       momentReplayRunId: runId,
@@ -1224,6 +1255,20 @@ export async function restartReplayRunAction(input: {
     if (!queue) {
       return { success: false, error: "Missing ENGINE_INDEXING_QUEUE binding" };
     }
+
+    await setReplayEnqueuedFlag(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId, replayEnqueued: true }
+    );
+    await addReplayRunEvent(
+      { env: envCloudflare, momentGraphNamespace: null },
+      {
+        runId,
+        level: "info",
+        kind: "ui.restart.enqueued",
+        payload: { replayOrder: input.replayOrder ?? null },
+      }
+    );
 
     await queue.send({
       jobType: "moment-replay-replay",
@@ -1288,6 +1333,20 @@ export async function restartReplayRunClearOutputAction(input: {
       deletedMomentIds += ids.length;
     }
 
+    await addReplayRunEvent(
+      { env: envCloudflare, momentGraphNamespace: null },
+      {
+        runId,
+        level: "info",
+        kind: "ui.restart_clear_output.deleted",
+        payload: {
+          replayItems: replayItems.length,
+          deletedNamespaces,
+          deletedMomentIds,
+        },
+      }
+    );
+
     const resetOk = await resetReplayRunForReplay(
       { env: envCloudflare, momentGraphNamespace: null },
       { runId, replayOrder: input.replayOrder ?? null }
@@ -1300,6 +1359,20 @@ export async function restartReplayRunClearOutputAction(input: {
     if (!queue) {
       return { success: false, error: "Missing ENGINE_INDEXING_QUEUE binding" };
     }
+
+    await setReplayEnqueuedFlag(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId, replayEnqueued: true }
+    );
+    await addReplayRunEvent(
+      { env: envCloudflare, momentGraphNamespace: null },
+      {
+        runId,
+        level: "info",
+        kind: "ui.restart_clear_output.enqueued",
+        payload: { replayOrder: input.replayOrder ?? null },
+      }
+    );
 
     await queue.send({
       jobType: "moment-replay-replay",
@@ -1318,6 +1391,37 @@ export async function restartReplayRunClearOutputAction(input: {
       deletedMomentIds,
       run: run ?? null,
     };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getReplayRunEventsAction(input: {
+  runId: string;
+  limit?: number | null;
+}) {
+  try {
+    const runId =
+      typeof input?.runId === "string" && input.runId.trim().length > 0
+        ? input.runId.trim()
+        : null;
+    if (!runId) {
+      return { success: false, error: "Missing runId" };
+    }
+    const envCloudflare = env as Cloudflare.Env;
+    const limitRaw = input.limit;
+    const limit =
+      typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+        ? Math.floor(limitRaw)
+        : 50;
+    const events = await getReplayRunEvents(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId, limit }
+    );
+    return { success: true, events };
   } catch (error) {
     return {
       success: false,

@@ -184,3 +184,16 @@ Change: remove the sampled view and keep the full subject list ('Found N subject
 The wrangler request logs show the knowledge graph page making RSC action calls that can take ~27s while returning 200 OK. That matches the UI getting stuck on 'Loading graph data' without a visible error.
 
 Change: cap the chain-view context chain query with a maxDownHops value so it returns quickly.
+
+## Two-pass replay idea: populate first, link later without deleting moments
+
+I want a mode where replay populates moments without doing cross-document linking, so the demo has usable data even if linking is slow.
+
+Then I want a second pass that replays again with linking enabled, but does not delete or recreate moments just to set links.
+
+This seems doable because moment writes are id-based and `addMoment()` updates existing rows, including `parent_id`.
+
+Operationally:
+
+- first pass: set `MOMENT_REPLAY_SKIP_LINKING=1`, then restart replay (optionally with clear output if I want to wipe partial output)
+- second pass: unset `MOMENT_REPLAY_SKIP_LINKING`, then restart replay without clear output so the run recomputes parent selection and updates `parent_id` in-place

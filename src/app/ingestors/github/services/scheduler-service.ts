@@ -412,7 +412,16 @@ export async function processSchedulerJob(
       })
     );
 
+    let enqueued = 0;
     for (const entity of data) {
+      if (
+        entity_type === "issues" &&
+        entity &&
+        typeof entity === "object" &&
+        (entity as any).pull_request
+      ) {
+        continue;
+      }
       await processorQueue.send({
         type: "processor",
         repository_key,
@@ -428,15 +437,16 @@ export async function processSchedulerJob(
           state?.moment_graph_namespace_prefix ?? null,
         ...(runId ? { backfill_run_id: runId } : {}),
       });
+      enqueued += 1;
     }
 
     if (runId) {
-      await incrementBackfillEnqueuedCount(repository_key, runId, data.length);
+      await incrementBackfillEnqueuedCount(repository_key, runId, enqueued);
     }
 
     console.log(
       formatLog("[scheduler] Enqueued all processor jobs:", {
-        count: data.length,
+        count: enqueued,
         entityType: entity_type,
       })
     );

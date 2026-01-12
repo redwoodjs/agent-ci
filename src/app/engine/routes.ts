@@ -30,6 +30,7 @@ import {
   getMomentGraphNamespaceFromEnv,
   applyMomentGraphNamespacePrefixValue,
 } from "./momentGraphNamespace";
+import { reconcileRedwoodSdkPrsAndIssues } from "./services/redwoodSdkPrIssueReconcile";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const body = (ctx as any)?.parsedBody as
@@ -1154,6 +1155,75 @@ async function documentAuditRecentHandler({ request }: RequestInfo) {
   });
 }
 
+async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  let body: Record<string, any> | undefined;
+  try {
+    body = (await request.json()) as any;
+  } catch {
+    body = undefined;
+  }
+
+  const dryRunRaw = body?.dryRun;
+  const dryRun = dryRunRaw === false ? false : true;
+
+  const namespaceRaw =
+    body?.momentGraphNamespace ?? body?.namespace ?? (body as any)?.baseNamespace;
+  const baseNamespace =
+    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
+      ? namespaceRaw.trim()
+      : null;
+
+  const namespacePrefixRaw =
+    body?.momentGraphNamespacePrefix ?? body?.namespacePrefix;
+  const momentGraphNamespacePrefix =
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
+      ? namespacePrefixRaw.trim()
+      : null;
+
+  const envCloudflare = env as Cloudflare.Env;
+  const effectiveNamespace =
+    momentGraphNamespacePrefix && baseNamespace
+      ? applyMomentGraphNamespacePrefixValue(
+          baseNamespace,
+          momentGraphNamespacePrefix
+        )
+      : baseNamespace ?? getMomentGraphNamespaceFromEnv(envCloudflare);
+
+  const maxNumbersRaw = body?.maxNumbers;
+  const maxNumbers =
+    typeof maxNumbersRaw === "number" && Number.isFinite(maxNumbersRaw)
+      ? Math.floor(maxNumbersRaw)
+      : typeof maxNumbersRaw === "string" && Number.isFinite(Number(maxNumbersRaw))
+      ? Math.floor(Number(maxNumbersRaw))
+      : null;
+
+  console.log("[admin:reconcile-redwoodjs-sdk] start", {
+    dryRun,
+    momentGraphNamespace: effectiveNamespace ?? null,
+    momentGraphNamespacePrefix,
+    maxNumbers,
+  });
+
+  const result = await reconcileRedwoodSdkPrsAndIssues({
+    dryRun,
+    momentGraphNamespace: effectiveNamespace ?? null,
+    momentGraphNamespacePrefix,
+    maxNumbers,
+  });
+
+  console.log("[admin:reconcile-redwoodjs-sdk] done", {
+    dryRun,
+    mismatches: (result as any)?.mismatches ?? null,
+  });
+
+  return Response.json(result);
+}
+
 export const routes = [
   route("/query", {
     post: [
@@ -1187,6 +1257,9 @@ export const routes = [
   }),
   route("/admin/document-audit-recent", {
     post: [requireQueryApiKey, documentAuditRecentHandler],
+  }),
+  route("/admin/reconcile-redwoodjs-sdk-pr-issues", {
+    post: [requireQueryApiKey, reconcileRedwoodSdkPrIssuesHandler],
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],

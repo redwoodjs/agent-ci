@@ -1192,13 +1192,12 @@ async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
       : null;
 
   const envCloudflare = env as Cloudflare.Env;
-  const effectiveNamespace =
-    momentGraphNamespacePrefix && baseNamespace
-      ? applyMomentGraphNamespacePrefixValue(
-          baseNamespace,
-          momentGraphNamespacePrefix
-        )
-      : baseNamespace ?? getMomentGraphNamespaceFromEnv(envCloudflare);
+  const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+  const envBaseNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
+  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+    baseNamespace ?? envBaseNamespace,
+    momentGraphNamespacePrefix ?? envPrefix
+  );
 
   const maxNumbersRaw = body?.maxNumbers;
   const maxNumbers =

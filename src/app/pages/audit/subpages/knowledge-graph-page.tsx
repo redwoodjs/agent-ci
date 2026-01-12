@@ -13,6 +13,7 @@ import { Input } from "@/app/components/ui/input";
 import {
   getKnowledgeGraph,
   getKnowledgeGraphStatsAction,
+  getMomentGraphNamespace,
   getMomentGraphNamespacePrefix,
   getRootMomentsAction,
   getSubjectMomentsAction,
@@ -345,7 +346,15 @@ export function KnowledgeGraphPage() {
     if (rootIdFromUrl) {
       setSelectedRootId(rootIdFromUrl);
     }
-    const prefixFromUrl = urlParams.get("namespacePrefix");
+    const namespaceFromUrl = urlParams.get("namespace");
+    if (
+      typeof namespaceFromUrl === "string" &&
+      namespaceFromUrl.trim().length > 0
+    ) {
+      setSelectedNamespace(namespaceFromUrl.trim());
+    }
+    const prefixFromUrl =
+      urlParams.get("prefix") ?? urlParams.get("namespacePrefix");
     if (typeof prefixFromUrl === "string" && prefixFromUrl.trim().length > 0) {
       setPrefixOverride(prefixFromUrl.trim());
     }
@@ -359,13 +368,18 @@ export function KnowledgeGraphPage() {
     } else {
       url.searchParams.delete("rootId");
     }
-    if (prefixOverride.trim().length > 0) {
-      url.searchParams.set("namespacePrefix", prefixOverride.trim());
+    if (typeof selectedNamespace === "string" && selectedNamespace.length > 0) {
+      url.searchParams.set("namespace", selectedNamespace);
     } else {
-      url.searchParams.delete("namespacePrefix");
+      url.searchParams.delete("namespace");
+    }
+    if (prefixOverride.trim().length > 0) {
+      url.searchParams.set("prefix", prefixOverride.trim());
+    } else {
+      url.searchParams.delete("prefix");
     }
     window.history.pushState({}, "", url.toString());
-  }, [selectedRootId, prefixOverride]);
+  }, [selectedRootId, prefixOverride, selectedNamespace]);
 
   useEffect(() => {
     async function fetchPrefix() {
@@ -381,6 +395,32 @@ export function KnowledgeGraphPage() {
 
     fetchPrefix();
   }, []);
+
+  useEffect(() => {
+    async function fetchNamespace() {
+      if (
+        typeof selectedNamespace === "string" &&
+        selectedNamespace.length > 0
+      ) {
+        return;
+      }
+      try {
+        const result = await getMomentGraphNamespace();
+        if (result.success) {
+          if (
+            typeof result.namespace === "string" &&
+            result.namespace.length > 0
+          ) {
+            setSelectedNamespace(result.namespace);
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching namespace:", err);
+      }
+    }
+
+    fetchNamespace();
+  }, [selectedNamespace]);
 
   useEffect(() => {
     async function fetchStats() {
@@ -460,7 +500,7 @@ export function KnowledgeGraphPage() {
             setEffectiveNamespace(result.effectiveNamespace);
           }
         } else {
-        console.error("Failed to fetch root sample stats:", result.error);
+          console.error("Failed to fetch root sample stats:", result.error);
         }
       } catch (err) {
         console.error("Error fetching root sample stats:", err);
@@ -988,7 +1028,9 @@ export function KnowledgeGraphPage() {
                         <span className="font-mono">
                           {doneItems}/{totalItems}
                         </span>{" "}
-                        <span className="text-gray-400">(counter {replayed})</span>
+                        <span className="text-gray-400">
+                          (counter {replayed})
+                        </span>
                       </div>
                       <div>
                         Succeeded:{" "}
@@ -1004,7 +1046,9 @@ export function KnowledgeGraphPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            disabled={resumeReplayBusyRunId === runId || !canResume}
+                            disabled={
+                              resumeReplayBusyRunId === runId || !canResume
+                            }
                             onClick={async () => {
                               setResumeReplayError(null);
                               setResumeReplayBusyRunId(runId);
@@ -1026,7 +1070,9 @@ export function KnowledgeGraphPage() {
                                       limit: 5,
                                     });
                                   if ((refreshed as any)?.success) {
-                                    setReplayRuns((refreshed as any).runs ?? []);
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
                                   }
                                 }
                               } catch (err) {
@@ -1076,7 +1122,9 @@ export function KnowledgeGraphPage() {
                                       limit: 5,
                                     });
                                   if ((refreshed as any)?.success) {
-                                    setReplayRuns((refreshed as any).runs ?? []);
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
                                   }
                                 }
                               } catch (err) {
@@ -1125,7 +1173,9 @@ export function KnowledgeGraphPage() {
                                       limit: 5,
                                     });
                                   if ((refreshed as any)?.success) {
-                                    setReplayRuns((refreshed as any).runs ?? []);
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
                                   }
                                 }
                               } catch (err) {
@@ -1148,18 +1198,20 @@ export function KnowledgeGraphPage() {
                             disabled={resumeReplayBusyRunId === runId}
                             onClick={async () => {
                               const raw = window.prompt(
-                                "Replay selected documents (R2 keys or ingestion file URLs), one per line.\n\nNote: this only works for replay items that have document metadata populated.",
+                                "Replay selected documents (R2 keys or ingestion file URLs).\n\nSeparate items with newlines, spaces, or commas.\n\nNote: this only works for replay items that have document metadata populated.",
                                 ""
                               );
                               if (raw === null) {
                                 return;
                               }
                               const documentIds = raw
-                                .split("\n")
+                                .split(/[\s,]+/g)
                                 .map((s) => s.trim())
                                 .filter((s) => s.length > 0);
                               if (documentIds.length === 0) {
-                                setResumeReplayError("No document ids provided.");
+                                setResumeReplayError(
+                                  "No document ids provided."
+                                );
                                 return;
                               }
                               setResumeReplayError(null);
@@ -1186,7 +1238,9 @@ export function KnowledgeGraphPage() {
                                       limit: 5,
                                     });
                                   if ((refreshed as any)?.success) {
-                                    setReplayRuns((refreshed as any).runs ?? []);
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
                                   }
                                 }
                               } catch (err) {
@@ -1209,14 +1263,14 @@ export function KnowledgeGraphPage() {
                             disabled={resumeReplayBusyRunId === runId}
                             onClick={async () => {
                               const raw = window.prompt(
-                                "Recollect selected documents (R2 keys or ingestion file URLs), one per line.\n\nThis enqueues collect jobs with force recollect enabled.",
+                                "Recollect selected documents (R2 keys or ingestion file URLs).\n\nSeparate items with newlines, spaces, or commas.\n\nThis enqueues collect jobs with force recollect enabled.",
                                 ""
                               );
                               if (raw === null) {
                                 return;
                               }
                               const r2Keys = raw
-                                .split("\n")
+                                .split(/[\s,]+/g)
                                 .map((s) => s.trim())
                                 .filter((s) => s.length > 0);
                               if (r2Keys.length === 0) {
@@ -1255,7 +1309,9 @@ export function KnowledgeGraphPage() {
                                       limit: 5,
                                     });
                                   if ((refreshed as any)?.success) {
-                                    setReplayRuns((refreshed as any).runs ?? []);
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
                                   }
                                 }
                               } catch (err) {
@@ -1535,7 +1591,8 @@ export function KnowledgeGraphPage() {
                             {r.matchSummary}
                           </div>
                           <div className="text-xs text-gray-500 mt-1">
-                            Subject: <span className="font-mono">{r.rootId}</span>
+                            Subject:{" "}
+                            <span className="font-mono">{r.rootId}</span>
                           </div>
                         </button>
                       ))}
@@ -1589,7 +1646,8 @@ export function KnowledgeGraphPage() {
                 !sampledRootsLoading &&
                 sampledRoots.length === 0 && (
                   <div className="text-center py-8 text-gray-500">
-                    No sampled subjects found. Try selecting a different namespace.
+                    No sampled subjects found. Try selecting a different
+                    namespace.
                   </div>
                 )}
 

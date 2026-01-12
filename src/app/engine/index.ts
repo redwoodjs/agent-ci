@@ -16,7 +16,7 @@ import {
   discordPlugin,
   cursorPlugin,
   defaultPlugin,
-  smartLinkerPlugin,
+  timelineFitLinkerPlugin,
 } from "./plugins";
 
 export function createEngineContext(
@@ -26,7 +26,7 @@ export function createEngineContext(
   return {
     plugins: [
       redwoodScopeRouterPlugin,
-      smartLinkerPlugin,
+      timelineFitLinkerPlugin,
       githubPlugin,
       discordPlugin,
       cursorPlugin,

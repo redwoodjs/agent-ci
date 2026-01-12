@@ -215,3 +215,5 @@ Change: treat empty effective namespace as the default namespace for deletion.
 The clear output action should delete replay moments, but in practice it's been hard to reason about what links remain after repeated runs.
 
 I added a one-off admin endpoint that clears `parent_id` for all moments in the default moment graph namespace. This is intended for recovery when the default namespace graph has become hard to debug.
+
+Follow-up: "default namespace" in prod should follow the environment's configured namespace and namespace prefix. I updated the endpoint to default to clearing links in the env-derived effective namespace, and only clear base/default if explicitly requested via the request body.

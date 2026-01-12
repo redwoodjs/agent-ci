@@ -29,6 +29,7 @@ import {
 import { clearAllIndexingState } from "./db";
 import {
   getMomentGraphNamespaceFromEnv,
+  getMomentGraphNamespacePrefixFromEnv,
   applyMomentGraphNamespacePrefixValue,
 } from "./momentGraphNamespace";
 import { reconcileRedwoodSdkPrsAndIssues } from "./services/redwoodSdkPrIssueReconcile";
@@ -1261,21 +1262,70 @@ async function clearDefaultNamespaceMomentLinksHandler({
 
   const envCloudflare = env as Cloudflare.Env;
 
-  console.log("[admin:clear-default-namespace-links] start", { dryRun });
+  const envBaseNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
+  const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+  const envEffectiveNamespace =
+    envPrefix && envBaseNamespace
+      ? applyMomentGraphNamespacePrefixValue(envBaseNamespace, envPrefix)
+      : envBaseNamespace;
 
-  const result = await clearAllMomentLinks(
-    { env: envCloudflare, momentGraphNamespace: null },
-    { dryRun }
-  );
+  const targetsRaw = body?.targets;
+  const targets =
+    Array.isArray(targetsRaw) && targetsRaw.every((t) => typeof t === "string")
+      ? (targetsRaw as string[])
+      : [envEffectiveNamespace ?? "__base__"];
+
+  const normalizedTargets: Array<string | null> = [];
+  for (const t of targets) {
+    const trimmed = t.trim();
+    if (!trimmed) {
+      continue;
+    }
+    if (trimmed === "__base__") {
+      normalizedTargets.push(null);
+      continue;
+    }
+    normalizedTargets.push(trimmed);
+  }
+
+  if (normalizedTargets.length === 0) {
+    return Response.json(
+      { success: false, error: "No valid targets provided" },
+      { status: 400 }
+    );
+  }
+
+  console.log("[admin:clear-default-namespace-links] start", {
+    dryRun,
+    targets: normalizedTargets.map((t) => t ?? "__base__"),
+  });
+
+  const results = [];
+  for (const targetNamespace of normalizedTargets) {
+    results.push(
+      await clearAllMomentLinks(
+        { env: envCloudflare, momentGraphNamespace: targetNamespace },
+        { dryRun }
+      )
+    );
+  }
 
   console.log("[admin:clear-default-namespace-links] done", {
     dryRun,
-    totalMoments: result.totalMoments,
-    linkedMoments: result.linkedMoments,
-    clearedMoments: result.clearedMoments,
+    results: results.map((r) => ({
+      momentGraphNamespace: r.momentGraphNamespace ?? "__base__",
+      totalMoments: r.totalMoments,
+      linkedMoments: r.linkedMoments,
+      clearedMoments: r.clearedMoments,
+    })),
   });
 
-  return Response.json({ success: true, ...result });
+  return Response.json({
+    success: true,
+    dryRun,
+    targets: normalizedTargets.map((t) => t ?? "__base__"),
+    results,
+  });
 }
 
 export const routes = [

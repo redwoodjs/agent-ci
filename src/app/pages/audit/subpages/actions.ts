@@ -2259,53 +2259,46 @@ async function getUnparentedMomentsLocal(
       : 1000;
 
   const rows = (await db
-    .selectFrom("moments")
-    .select(["id", "title", "parent_id", "created_at"])
-    .where("parent_id", "is", null)
-    .orderBy("created_at", "asc")
+    .selectFrom("moments as parent")
+    .leftJoin("moments as child", "child.parent_id", "parent.id")
+    .select([
+      "parent.id as id",
+      "parent.title as title",
+      "parent.parent_id as parent_id",
+      "parent.created_at as created_at",
+      sql<number>`count(child.id)`.as("childCount"),
+    ])
+    .where("parent.parent_id", "is", null)
+    .groupBy([
+      "parent.id",
+      "parent.title",
+      "parent.parent_id",
+      "parent.created_at",
+    ])
+    .orderBy("parent.created_at", "asc")
     .limit(limit)
     .execute()) as Array<{
     id: string;
     title: string;
     parent_id: string | null;
     created_at: string;
+    childCount: number | string;
   }>;
 
-  const parentIds = rows.map((r) => r.id).filter((id) => id.length > 0);
-  const childCountRows =
-    parentIds.length > 0
-      ? await db
-          .selectFrom("moments")
-          .select(["parent_id", sql<number>`count(*)`.as("childCount")])
-          .where("parent_id", "in", parentIds as any)
-          .groupBy("parent_id")
-          .execute()
-      : [];
-
-  const childCountByParentId = new Map<string, number>();
-  for (const row of childCountRows as Array<{
-    parent_id: string | null;
-    childCount: number | string;
-  }>) {
-    if (typeof row.parent_id === "string" && row.parent_id.length > 0) {
-      const asNumber =
-        typeof row.childCount === "number"
-          ? row.childCount
-          : Number(row.childCount);
-      childCountByParentId.set(
-        row.parent_id,
-        Number.isFinite(asNumber) ? asNumber : 0
-      );
-    }
-  }
-
-  return rows.map((row) => ({
-    id: row.id,
-    title: row.title || `Moment ${row.id.substring(0, 8)}`,
-    parentId: row.parent_id,
-    createdAt: row.created_at,
-    descendantCount: childCountByParentId.get(row.id) ?? 0,
-  }));
+  return rows.map((row) => {
+    const asNumber =
+      typeof row.childCount === "number"
+        ? row.childCount
+        : Number(row.childCount);
+    const descendantCount = Number.isFinite(asNumber) ? asNumber : 0;
+    return {
+      id: row.id,
+      title: row.title || `Moment ${row.id.substring(0, 8)}`,
+      parentId: row.parent_id,
+      createdAt: row.created_at,
+      descendantCount,
+    };
+  });
 }
 
 async function getSubjectMomentsLocal(
@@ -2332,10 +2325,25 @@ async function getSubjectMomentsLocal(
       : 1000;
 
   const rows = (await db
-    .selectFrom("moments")
-    .select(["id", "title", "parent_id", "created_at", "subject_kind"])
-    .where("is_subject", "=", 1 as any)
-    .orderBy("created_at", "asc")
+    .selectFrom("moments as parent")
+    .leftJoin("moments as child", "child.parent_id", "parent.id")
+    .select([
+      "parent.id as id",
+      "parent.title as title",
+      "parent.parent_id as parent_id",
+      "parent.created_at as created_at",
+      "parent.subject_kind as subject_kind",
+      sql<number>`count(child.id)`.as("childCount"),
+    ])
+    .where("parent.is_subject", "=", 1 as any)
+    .groupBy([
+      "parent.id",
+      "parent.title",
+      "parent.parent_id",
+      "parent.created_at",
+      "parent.subject_kind",
+    ])
+    .orderBy("parent.created_at", "asc")
     .limit(limit)
     .execute()) as Array<{
     id: string;
@@ -2343,44 +2351,24 @@ async function getSubjectMomentsLocal(
     parent_id: string | null;
     created_at: string;
     subject_kind: string | null;
+    childCount: number | string;
   }>;
 
-  const parentIds = rows.map((r) => r.id).filter((id) => id.length > 0);
-  const childCountRows =
-    parentIds.length > 0
-      ? await db
-          .selectFrom("moments")
-          .select(["parent_id", sql<number>`count(*)`.as("childCount")])
-          .where("parent_id", "in", parentIds as any)
-          .groupBy("parent_id")
-          .execute()
-      : [];
-
-  const childCountByParentId = new Map<string, number>();
-  for (const row of childCountRows as Array<{
-    parent_id: string | null;
-    childCount: number | string;
-  }>) {
-    if (typeof row.parent_id === "string" && row.parent_id.length > 0) {
-      const asNumber =
-        typeof row.childCount === "number"
-          ? row.childCount
-          : Number(row.childCount);
-      childCountByParentId.set(
-        row.parent_id,
-        Number.isFinite(asNumber) ? asNumber : 0
-      );
-    }
-  }
-
-  return rows.map((row) => ({
-    id: row.id,
-    title: row.title || `Moment ${row.id.substring(0, 8)}`,
-    parentId: row.parent_id,
-    createdAt: row.created_at,
-    descendantCount: childCountByParentId.get(row.id) ?? 0,
-    subjectKind: row.subject_kind ?? null,
-  }));
+  return rows.map((row) => {
+    const asNumber =
+      typeof row.childCount === "number"
+        ? row.childCount
+        : Number(row.childCount);
+    const descendantCount = Number.isFinite(asNumber) ? asNumber : 0;
+    return {
+      id: row.id,
+      title: row.title || `Moment ${row.id.substring(0, 8)}`,
+      parentId: row.parent_id,
+      createdAt: row.created_at,
+      descendantCount,
+      subjectKind: row.subject_kind ?? null,
+    };
+  });
 }
 
 async function findDescendantsSlimLocal(
@@ -2390,12 +2378,81 @@ async function findDescendantsSlimLocal(
 ): Promise<{ nodes: DescendantNode[]; truncated: boolean }> {
   const db = getMomentDb(context);
   const maxNodes = options?.maxNodes ?? 5000;
+
+  try {
+    const limit = Math.max(1, Math.floor(maxNodes) + 1);
+    const rows = await db
+      .withRecursive("descendants(id, parent_id)", (db) =>
+        db
+          .selectFrom("moments")
+          .select([
+            sql<string>`moments.id`.as("id"),
+            sql<string | null>`moments.parent_id`.as("parent_id"),
+          ])
+          .where("id", "=", rootMomentId)
+          .unionAll(
+            db
+              .selectFrom("moments")
+              .innerJoin("descendants", "moments.parent_id", "descendants.id")
+              .select([
+                sql<string>`moments.id`.as("id"),
+                sql<string | null>`moments.parent_id`.as("parent_id"),
+              ])
+          )
+      )
+      .selectFrom("descendants")
+      .innerJoin("moments", "moments.id", "descendants.id")
+      .select([
+        "moments.id",
+        "moments.document_id",
+        "moments.title",
+        "moments.parent_id",
+        "moments.created_at",
+        "moments.importance",
+        "moments.source_metadata",
+      ])
+      .orderBy("moments.created_at", "asc")
+      .orderBy("moments.id", "asc")
+      .limit(limit)
+      .execute();
+
+    const truncated = rows.length > maxNodes;
+    const sliced = truncated ? rows.slice(0, maxNodes) : rows;
+
+    const nodes: DescendantNode[] = sliced.map((row) => {
+      const sourceMetadata = (row as any).source_metadata as any;
+      const timeRange = sourceMetadata?.timeRange;
+      return {
+        id: (row as any).id,
+        documentId: (row as any).document_id,
+        title:
+          (row as any).title ||
+          `Moment ${String((row as any).id).substring(0, 8)}`,
+        parentId: (row as any).parent_id || undefined,
+        createdAt: (row as any).created_at,
+        importance:
+          typeof (row as any).importance === "number"
+            ? (row as any).importance
+            : undefined,
+        timeRangeStart:
+          typeof timeRange?.start === "string" ? timeRange.start : undefined,
+        timeRangeEnd:
+          typeof timeRange?.end === "string" ? timeRange.end : undefined,
+      };
+    });
+
+    return { nodes, truncated };
+  } catch (error) {
+    console.error("[actions] Recursive descendants query failed", error);
+  }
+
   const out: DescendantNode[] = [];
   const visited = new Set<string>();
   let level = [rootMomentId];
   let truncated = false;
+  const maxDepth = 200;
 
-  while (level.length > 0 && out.length < maxNodes) {
+  for (let depth = 0; depth < maxDepth && level.length > 0; depth++) {
     const rows = await db
       .selectFrom("moments")
       .select([
@@ -2407,48 +2464,78 @@ async function findDescendantsSlimLocal(
         "importance",
         "source_metadata",
       ])
-      .where("id", "in", level)
+      .where("parent_id", "in", level)
       .execute();
 
+    const nextLevel: string[] = [];
     for (const row of rows) {
-      if (visited.has(row.id)) continue;
+      if (visited.has(row.id)) {
+        continue;
+      }
       visited.add(row.id);
 
       const sourceMetadata = row.source_metadata as any;
       const timeRange = sourceMetadata?.timeRange;
 
-      out.push({
-        id: row.id,
-        documentId: row.document_id,
-        title: row.title || `Moment ${row.id.substring(0, 8)}`,
-        parentId: row.parent_id || undefined,
-        createdAt: row.created_at,
-        importance:
-          typeof row.importance === "number" ? row.importance : undefined,
-        timeRangeStart:
-          typeof timeRange?.start === "string" ? timeRange.start : undefined,
-        timeRangeEnd:
-          typeof timeRange?.end === "string" ? timeRange.end : undefined,
-      });
+      if (out.length < maxNodes) {
+        out.push({
+          id: row.id,
+          documentId: row.document_id,
+          title: row.title || `Moment ${row.id.substring(0, 8)}`,
+          parentId: row.parent_id || undefined,
+          createdAt: row.created_at,
+          importance:
+            typeof row.importance === "number" ? row.importance : undefined,
+          timeRangeStart:
+            typeof timeRange?.start === "string" ? timeRange.start : undefined,
+          timeRangeEnd:
+            typeof timeRange?.end === "string" ? timeRange.end : undefined,
+        });
+      } else {
+        truncated = true;
+      }
+
+      if (typeof row.id === "string") {
+        nextLevel.push(row.id);
+      }
     }
 
-    if (out.length >= maxNodes) {
-      truncated = true;
+    level = nextLevel;
+    if (truncated) {
       break;
     }
+  }
 
-    // Fetch next level
-    const nextLevelRows = await db
-      .selectFrom("moments")
-      .select("id")
-      .where("parent_id", "in", level)
-      .execute();
+  const rootRow = await db
+    .selectFrom("moments")
+    .select([
+      "id",
+      "document_id",
+      "title",
+      "parent_id",
+      "created_at",
+      "importance",
+      "source_metadata",
+    ])
+    .where("id", "=", rootMomentId)
+    .executeTakeFirst();
 
-    level = nextLevelRows.map((r) => r.id).filter((id) => !visited.has(id));
-    if (out.length + level.length > maxNodes) {
-      level = level.slice(0, maxNodes - out.length);
-      truncated = true;
-    }
+  if (rootRow && !visited.has(rootRow.id)) {
+    const sourceMetadata = rootRow.source_metadata as any;
+    const timeRange = sourceMetadata?.timeRange;
+    out.push({
+      id: rootRow.id,
+      documentId: rootRow.document_id,
+      title: rootRow.title || `Moment ${rootRow.id.substring(0, 8)}`,
+      parentId: rootRow.parent_id || undefined,
+      createdAt: rootRow.created_at,
+      importance:
+        typeof rootRow.importance === "number" ? rootRow.importance : undefined,
+      timeRangeStart:
+        typeof timeRange?.start === "string" ? timeRange.start : undefined,
+      timeRangeEnd:
+        typeof timeRange?.end === "string" ? timeRange.end : undefined,
+    });
   }
 
   out.sort((a, b) => {
@@ -2458,7 +2545,7 @@ async function findDescendantsSlimLocal(
     return a.id.localeCompare(b.id);
   });
 
-  return { nodes: out, truncated };
+  return { nodes: out.slice(0, maxNodes), truncated };
 }
 
 async function findMomentsBySearchLocal(

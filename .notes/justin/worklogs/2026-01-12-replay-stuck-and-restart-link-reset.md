@@ -120,3 +120,11 @@ Change: replace per-root traversal counts with a single grouped query that count
 For replay throughput, I want predictable, bounded work per macro-moment. The vector query returns a ranked list, but we don't need to evaluate every match.
 
 Change: after vector search, filter out candidates that are chronologically after the current moment (based on the candidate time metadata), then take the first X remaining candidates for DB fetch and scoring.
+
+## Noticed knowledge graph page can hang on 'Loading graph...'
+
+When clicking moments during replay, the knowledge graph page sometimes stays on 'Loading graph...' indefinitely.
+
+The client sets loading state correctly, so this looks like the server action not returning in a reasonable time. The likely source is the descendant traversal used to fetch the graph nodes. The existing traversal does multiple DB queries per level and can run a large number of queries for long chains.
+
+Change: switch the descendant fetch to a recursive CTE query (single DB query) with a maxNodes + 1 limit to detect truncation. Keep an iterative fallback with a depth cap if the recursive query fails.

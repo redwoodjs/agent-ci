@@ -44,6 +44,7 @@ import {
   getReplayRunEvents,
   setReplayEnqueuedFlag,
   retryFailedReplayItems,
+  pauseReplayRunManual,
 } from "@/app/engine/db/momentReplay";
 import { getEmbedding, getEmbeddings } from "@/app/engine/utils/vector";
 import {
@@ -1133,10 +1134,16 @@ export async function resumeReplayRunAction(input: { runId: string }) {
     }
 
     const envCloudflare = env as Cloudflare.Env;
-    await resumeReplayRun(
+    const resumed = await resumeReplayRun(
       { env: envCloudflare, momentGraphNamespace: null },
       { runId }
     );
+    if (!resumed) {
+      return {
+        success: false,
+        error: "Replay run is not paused",
+      };
+    }
 
     const queue = (envCloudflare as any).ENGINE_INDEXING_QUEUE;
     if (!queue) {
@@ -1161,6 +1168,44 @@ export async function resumeReplayRunAction(input: { runId: string }) {
       jobType: "moment-replay-replay",
       momentReplayRunId: runId,
     });
+
+    return { success: true };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function pauseReplayRunAction(input: { runId: string }) {
+  try {
+    const runId =
+      typeof input?.runId === "string" && input.runId.trim().length > 0
+        ? input.runId.trim()
+        : null;
+    if (!runId) {
+      return { success: false, error: "Missing runId" };
+    }
+
+    const envCloudflare = env as Cloudflare.Env;
+    const paused = await pauseReplayRunManual(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId }
+    );
+    if (!paused) {
+      return { success: false, error: "Replay run is not replaying" };
+    }
+
+    await addReplayRunEvent(
+      { env: envCloudflare, momentGraphNamespace: null },
+      {
+        runId,
+        level: "info",
+        kind: "ui.pause_manual",
+        payload: {},
+      }
+    );
 
     return { success: true };
   } catch (error) {

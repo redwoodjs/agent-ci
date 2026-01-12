@@ -128,3 +128,23 @@ When clicking moments during replay, the knowledge graph page sometimes stays on
 The client sets loading state correctly, so this looks like the server action not returning in a reasonable time. The likely source is the descendant traversal used to fetch the graph nodes. The existing traversal does multiple DB queries per level and can run a large number of queries for long chains.
 
 Change: switch the descendant fetch to a recursive CTE query (single DB query) with a maxNodes + 1 limit to detect truncation. Keep an iterative fallback with a depth cap if the recursive query fails.
+
+## Retrying with a smaller, controlled change
+
+The knowledge graph audit page has a 'Recent failures' section that can get large enough that it pushes the rest of the controls out of view, forcing repeated scrolling.
+
+Change: make the 'Recent failures' section collapsible so it can be tucked away while debugging replay and graph loading issues.
+
+## Noticed replay is stuck at item 241 again
+
+Replay appears to stall at a specific item index without clear explanation in the run log. The plan is to reduce log noise (pause replay if possible) and then isolate why the knowledge graph requests aren't returning.
+
+## Added a manual pause for replay runs
+
+I added a manual pause state for replay runs so I can stop the worker from re-enqueueing itself while debugging.
+
+Change:
+
+- add a paused_manual run status
+- add a pause action in the audit UI next to resume
+- update the replay worker to skip when it sees paused_manual

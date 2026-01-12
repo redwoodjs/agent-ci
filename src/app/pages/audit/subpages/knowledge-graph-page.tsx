@@ -27,6 +27,7 @@ import {
   getReplayRunAction,
   getReplayRunEventsAction,
   resumeReplayRunAction,
+  pauseReplayRunAction,
   retryFailedReplayItemsAction,
   restartReplayRunAction,
   restartReplayRunClearOutputAction,
@@ -1003,83 +1004,94 @@ export function KnowledgeGraphPage() {
         </CardContent>
       </Card>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Recent failures</CardTitle>
-          <CardDescription>
-            Documents with recent indexing or synthesis audit events
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {recentAuditDocsLoading && (
-            <div className="text-sm text-gray-600">Loading…</div>
-          )}
-          {recentAuditDocsError && (
-            <div className="text-sm text-red-600">{recentAuditDocsError}</div>
-          )}
-          {!recentAuditDocsLoading &&
-            !recentAuditDocsError &&
-            (!Array.isArray(recentAuditDocs) ||
-              recentAuditDocs.length === 0) && (
-              <div className="text-sm text-gray-600">
-                No recent audit events found.
-              </div>
-            )}
-          {Array.isArray(recentAuditDocs) && recentAuditDocs.length > 0 && (
-            <div className="space-y-2">
-              {recentAuditDocs.map((d) => {
-                const docId =
-                  typeof d?.documentId === "string" ? d.documentId : "";
-                const kind = typeof d?.kind === "string" ? d.kind : "unknown";
-                const createdAt =
-                  typeof d?.createdAt === "string" ? d.createdAt : "";
-                const message =
-                  typeof d?.payload?.message === "string"
-                    ? d.payload.message
-                    : null;
-                const ingestionPath =
-                  docId.length > 0
-                    ? `/audit/ingestion/file/${encodeURIComponent(docId)}`
-                    : null;
-                return (
-                  <div
-                    key={String(d?.id ?? docId)}
-                    className="border rounded p-2"
-                  >
-                    <div className="text-xs text-gray-600">
-                      <span className="font-mono">{kind}</span>{" "}
-                      <span className="text-gray-400">{createdAt}</span>
-                    </div>
-                    {docId && (
-                      <div className="text-xs mt-1">
-                        Document:{" "}
-                        <span className="font-mono break-all">{docId}</span>
-                      </div>
-                    )}
-                    {message && (
-                      <div className="text-xs text-gray-700 mt-1">
-                        {message}
-                      </div>
-                    )}
-                    {ingestionPath && (
-                      <div className="text-xs mt-1">
-                        <a
-                          href={ingestionPath}
-                          className="text-blue-600 hover:underline"
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Open ingestion file
-                        </a>
-                      </div>
-                    )}
+      <details className="mb-6">
+        <summary className="cursor-pointer">
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent failures</CardTitle>
+              <CardDescription>
+                Documents with recent indexing or synthesis audit events
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </summary>
+        <div className="mt-2">
+          <Card>
+            <CardContent>
+              {recentAuditDocsLoading && (
+                <div className="text-sm text-gray-600">Loading…</div>
+              )}
+              {recentAuditDocsError && (
+                <div className="text-sm text-red-600">
+                  {recentAuditDocsError}
+                </div>
+              )}
+              {!recentAuditDocsLoading &&
+                !recentAuditDocsError &&
+                (!Array.isArray(recentAuditDocs) ||
+                  recentAuditDocs.length === 0) && (
+                  <div className="text-sm text-gray-600">
+                    No recent audit events found.
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                )}
+              {Array.isArray(recentAuditDocs) && recentAuditDocs.length > 0 && (
+                <div className="space-y-2">
+                  {recentAuditDocs.map((d) => {
+                    const docId =
+                      typeof d?.documentId === "string" ? d.documentId : "";
+                    const kind =
+                      typeof d?.kind === "string" ? d.kind : "unknown";
+                    const createdAt =
+                      typeof d?.createdAt === "string" ? d.createdAt : "";
+                    const message =
+                      typeof d?.payload?.message === "string"
+                        ? d.payload.message
+                        : null;
+                    const ingestionPath =
+                      docId.length > 0
+                        ? `/audit/ingestion/file/${encodeURIComponent(docId)}`
+                        : null;
+                    return (
+                      <div
+                        key={String(d?.id ?? docId)}
+                        className="border rounded p-2"
+                      >
+                        <div className="text-xs text-gray-600">
+                          <span className="font-mono">{kind}</span>{" "}
+                          <span className="text-gray-400">{createdAt}</span>
+                        </div>
+                        {docId && (
+                          <div className="text-xs mt-1">
+                            Document:{" "}
+                            <span className="font-mono break-all">{docId}</span>
+                          </div>
+                        )}
+                        {message && (
+                          <div className="text-xs text-gray-700 mt-1">
+                            {message}
+                          </div>
+                        )}
+                        {ingestionPath && (
+                          <div className="text-xs mt-1">
+                            <a
+                              href={ingestionPath}
+                              className="text-blue-600 hover:underline"
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              Open ingestion file
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </details>
 
       <Card className="mb-6">
         <CardHeader>
@@ -1183,8 +1195,12 @@ export function KnowledgeGraphPage() {
                   (r as any)?.dbWritesTotalMs ?? 0
                 );
                 const canResume =
-                  runId.length > 0 && status !== "completed" && status !== "";
+                  runId.length > 0 &&
+                  (status === "paused_on_error" || status === "paused_manual");
                 const canShowControls = runId.length > 0;
+                const canPause =
+                  runId.length > 0 &&
+                  (status === "replaying" || status === "ready_to_replay");
                 return (
                   <div key={runId || updatedAt} className="border rounded p-2">
                     <div className="text-xs text-gray-600">
@@ -1323,6 +1339,54 @@ export function KnowledgeGraphPage() {
                     {canShowControls && (
                       <div className="mt-2">
                         <div className="flex items-center gap-2 flex-wrap">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={
+                              resumeReplayBusyRunId === runId || !canPause
+                            }
+                            onClick={async () => {
+                              setResumeReplayError(null);
+                              setResumeReplayBusyRunId(runId);
+                              try {
+                                const res = await pauseReplayRunAction({
+                                  runId,
+                                });
+                                if (!(res as any)?.success) {
+                                  setResumeReplayError(
+                                    (res as any)?.error ?? "Pause failed"
+                                  );
+                                } else {
+                                  const refreshed =
+                                    await getReplayBackfillProgressAction({
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                      limit: 5,
+                                    });
+                                  if ((refreshed as any)?.success) {
+                                    setReplayRuns(
+                                      (refreshed as any).runs ?? []
+                                    );
+                                  }
+                                }
+                              } catch (err) {
+                                setResumeReplayError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : "Pause failed"
+                                );
+                              } finally {
+                                setResumeReplayBusyRunId(null);
+                              }
+                            }}
+                          >
+                            {resumeReplayBusyRunId === runId
+                              ? "Pausing..."
+                              : "Pause replay"}
+                          </Button>
+
                           <Button
                             variant="outline"
                             size="sm"

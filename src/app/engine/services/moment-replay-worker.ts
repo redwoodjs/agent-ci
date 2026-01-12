@@ -164,6 +164,21 @@ export async function processMomentReplayReplayJob(
       });
       return;
     }
+    if (currentStatus === "paused_manual") {
+      await addReplayRunEvent(
+        { env, momentGraphNamespace: null },
+        {
+          runId,
+          level: "info",
+          kind: "worker.skipped_paused_manual",
+          payload: {},
+        }
+      );
+      console.log("[moment-replay] replay run is paused_manual, skipping", {
+        runId,
+      });
+      return;
+    }
 
     await setReplayRunStatus(
       { env, momentGraphNamespace: null },

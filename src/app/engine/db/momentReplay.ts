@@ -41,7 +41,8 @@ export type MomentReplayRunStatus =
   | "ready_to_replay"
   | "replaying"
   | "completed"
-  | "paused_on_error";
+  | "paused_on_error"
+  | "paused_manual";
 
 export type ReplayCursor = {
   lastOrderMs: number | null;
@@ -176,6 +177,7 @@ export async function getReplayRunStatus(
   if (status === "replaying") return "replaying";
   if (status === "completed") return "completed";
   if (status === "paused_on_error") return "paused_on_error";
+  if (status === "paused_manual") return "paused_manual";
   return null;
 }
 
@@ -757,7 +759,32 @@ export async function resumeReplayRun(
       updated_at: now,
     } as any)
     .where("run_id", "=", input.runId)
-    .where("status", "=", "paused_on_error")
+    .where("status", "in", ["paused_on_error", "paused_manual"] as any)
+    .executeTakeFirst();
+
+  const updatedRows =
+    typeof (result as any)?.numUpdatedRows === "bigint"
+      ? Number((result as any).numUpdatedRows)
+      : Number((result as any)?.numUpdatedRows ?? 0);
+
+  return updatedRows > 0;
+}
+
+export async function pauseReplayRunManual(
+  context: ReplayDbContext,
+  input: { runId: string }
+): Promise<boolean> {
+  const db = getReplayDb(context);
+  const now = new Date().toISOString();
+  const result = await db
+    .updateTable("moment_replay_runs")
+    .set({
+      status: "paused_manual",
+      replay_enqueued: 0 as any,
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", input.runId)
+    .where("status", "in", ["ready_to_replay", "replaying"] as any)
     .executeTakeFirst();
 
   const updatedRows =

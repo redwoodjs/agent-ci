@@ -39,6 +39,7 @@ import {
   resetReplayRunForReplay,
   resumeReplayRun,
   getReplayItemIdsForRun,
+  getReplayRunById,
   retryFailedReplayItems,
 } from "@/app/engine/db/momentReplay";
 import { getEmbedding, getEmbeddings } from "@/app/engine/utils/vector";
@@ -1092,6 +1093,32 @@ export async function getReplayBackfillProgressAction(options?: {
   }
 }
 
+export async function getReplayRunAction(input: { runId: string }) {
+  try {
+    const runId =
+      typeof input?.runId === "string" && input.runId.trim().length > 0
+        ? input.runId.trim()
+        : null;
+    if (!runId) {
+      return { success: false, error: "Missing runId" };
+    }
+    const envCloudflare = env as Cloudflare.Env;
+    const run = await getReplayRunById(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId }
+    );
+    if (!run) {
+      return { success: false, error: "Replay run not found" };
+    }
+    return { success: true, run };
+  } catch (error) {
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export async function resumeReplayRunAction(input: { runId: string }) {
   try {
     const runId =
@@ -1250,11 +1277,15 @@ export async function restartReplayRunClearOutputAction(input: {
       idsByNamespace.set(ns, existing);
     }
 
+    let deletedNamespaces = 0;
+    let deletedMomentIds = 0;
     for (const [effectiveNamespace, ids] of idsByNamespace.entries()) {
       await deleteMomentsByIds(ids, {
         env: envCloudflare,
         momentGraphNamespace: effectiveNamespace,
       });
+      deletedNamespaces += 1;
+      deletedMomentIds += ids.length;
     }
 
     const resetOk = await resetReplayRunForReplay(
@@ -1275,7 +1306,18 @@ export async function restartReplayRunClearOutputAction(input: {
       momentReplayRunId: runId,
     });
 
-    return { success: true };
+    const run = await getReplayRunById(
+      { env: envCloudflare, momentGraphNamespace: null },
+      { runId }
+    );
+
+    return {
+      success: true,
+      replayItems: replayItems.length,
+      deletedNamespaces,
+      deletedMomentIds,
+      run: run ?? null,
+    };
   } catch (error) {
     return {
       success: false,

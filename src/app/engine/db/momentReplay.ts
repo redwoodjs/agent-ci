@@ -99,6 +99,122 @@ export async function getReplayItemIdsForRun(
     .filter((r) => r.itemId.length > 0 && r.effectiveNamespace.length > 0);
 }
 
+export async function getReplayRunById(
+  context: ReplayDbContext,
+  input: { runId: string }
+): Promise<{
+  runId: string;
+  status: string;
+  startedAt: string;
+  updatedAt: string;
+  expectedDocuments: number;
+  processedDocuments: number;
+  succeededDocuments: number;
+  failedDocuments: number;
+  replayedItems: number;
+  replayEnqueued: boolean;
+  momentGraphNamespace: string | null;
+  momentGraphNamespacePrefix: string | null;
+  replayOrder: ReplayOrder;
+  totalItems: number;
+  pendingItems: number;
+  doneItems: number;
+  failedItems: number;
+  lastProgressAt: string | null;
+  lastItemId: string | null;
+  lastItemOrderMs: number | null;
+  lastItemDocumentId: string | null;
+  lastItemEffectiveNamespace: string | null;
+  consecutiveFailures: number;
+  lastError: any | null;
+  embeddingCalls: number;
+  embeddingTotalMs: number;
+  timelineFitCalls: number;
+  timelineFitTotalMs: number;
+  dbWrites: number;
+  dbWritesTotalMs: number;
+} | null> {
+  const db = getReplayDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return null;
+  }
+
+  const row = (await db
+    .selectFrom("moment_replay_runs")
+    .selectAll()
+    .where("run_id", "=", runId)
+    .executeTakeFirst()) as unknown as MomentReplayRunRow | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  const statusCountsRows = (await db
+    .selectFrom("moment_replay_items")
+    .select(["status"])
+    .select((eb) => eb.fn.countAll<number>().as("count"))
+    .where("run_id", "=", runId)
+    .groupBy(["status"])
+    .execute()) as unknown as Array<{ status: string; count: number }>;
+
+  const counts = { total: 0, pending: 0, done: 0, failed: 0 };
+  for (const r of statusCountsRows) {
+    const status = String((r as any).status ?? "");
+    const count = Number((r as any).count ?? 0);
+    counts.total += count;
+    if (status === "pending") counts.pending += count;
+    if (status === "done") counts.done += count;
+    if (status === "failed") counts.failed += count;
+  }
+
+  return {
+    runId: (row as any).run_id as string,
+    status: (row as any).status as string,
+    startedAt: (row as any).started_at as string,
+    updatedAt: (row as any).updated_at as string,
+    expectedDocuments: Number((row as any).expected_documents ?? 0),
+    processedDocuments: Number((row as any).processed_documents ?? 0),
+    succeededDocuments: Number((row as any).succeeded_documents ?? 0),
+    failedDocuments: Number((row as any).failed_documents ?? 0),
+    replayedItems: Number((row as any).replayed_items ?? 0),
+    replayEnqueued: Number((row as any).replay_enqueued ?? 0) === 1,
+    momentGraphNamespace: (row as any).moment_graph_namespace ?? null,
+    momentGraphNamespacePrefix:
+      (row as any).moment_graph_namespace_prefix ?? null,
+    replayOrder:
+      (row as any).replay_order === "descending" ? "descending" : "ascending",
+    totalItems: counts.total,
+    pendingItems: counts.pending,
+    doneItems: counts.done,
+    failedItems: counts.failed,
+    lastProgressAt: (row as any).last_progress_at ?? null,
+    lastItemId: (row as any).last_item_id ?? null,
+    lastItemOrderMs:
+      typeof (row as any).last_item_order_ms === "number" &&
+      Number.isFinite((row as any).last_item_order_ms)
+        ? Number((row as any).last_item_order_ms)
+        : (row as any).last_item_order_ms !== null &&
+          typeof (row as any).last_item_order_ms !== "undefined"
+        ? Number((row as any).last_item_order_ms)
+        : null,
+    lastItemDocumentId: (row as any).last_item_document_id ?? null,
+    lastItemEffectiveNamespace:
+      (row as any).last_item_effective_namespace ?? null,
+    consecutiveFailures: Number((row as any).consecutive_failures ?? 0),
+    lastError: (row as any).last_error_json ?? null,
+    embeddingCalls: Number((row as any).embedding_calls ?? 0),
+    embeddingTotalMs: Number((row as any).embedding_total_ms ?? 0),
+    timelineFitCalls: Number((row as any).timeline_fit_calls ?? 0),
+    timelineFitTotalMs: Number((row as any).timeline_fit_total_ms ?? 0),
+    dbWrites: Number((row as any).db_writes ?? 0),
+    dbWritesTotalMs: Number((row as any).db_writes_total_ms ?? 0),
+  };
+}
+
 export async function getRecentReplayRunsForPrefix(
   context: ReplayDbContext,
   input: { momentGraphNamespacePrefix: string; limit?: number }

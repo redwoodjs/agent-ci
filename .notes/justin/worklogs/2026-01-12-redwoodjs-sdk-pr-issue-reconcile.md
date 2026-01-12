@@ -40,3 +40,16 @@ The request failed with Cloudflare error code 1101, and the worker logs show the
 This makes sense because apply mode currently iterates every mismatch and does multiple R2 operations per object (list, get, put, delete), plus DB updates.
 
 Next change: make the endpoint process mismatches in bounded batches (batchSize) so a local script can loop until the mismatch count reaches 0.
+
+## Updated reconcile to fix DB references even after R2 is already correct
+
+After R2 keys were reconciled, replay/collector state and already-replayed moments could still point at the old issues vs pull-requests document ids.
+
+The old reconcile logic only generated mappings from R2 mismatches, so when R2 mismatches hit 0 it stopped producing any mappings and would not touch DB references.
+
+Change:
+
+- scan indexing-state tables for redwoodjs/sdk latest.json document ids (replay items, stream state, replay document results, indexing_state keys)
+- scan moment graph tables for redwoodjs/sdk latest.json document ids (moments, micro moments, micro batches, document audit logs)
+- compute mismatches from these references using GitHub classification and apply the same mapping updates
+- update replay item payload_json to rewrite document.id and document.type (issue vs pull-request) to match the corrected path

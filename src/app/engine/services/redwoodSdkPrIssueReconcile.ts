@@ -51,7 +51,8 @@ async function fetchGitHubIssuesPage(input: {
   page?: number;
 }): Promise<{ data: GitHubIssueListItem[]; nextPage: number | null }> {
   const token = githubTokenOrThrow();
-  const page = typeof input.page === "number" && input.page > 0 ? input.page : 1;
+  const page =
+    typeof input.page === "number" && input.page > 0 ? input.page : 1;
   const url = `https://api.github.com/repos/${input.owner}/${input.repo}/issues?state=all&per_page=100&page=${page}`;
   const res = await fetch(url, {
     headers: {
@@ -63,7 +64,9 @@ async function fetchGitHubIssuesPage(input: {
   if (!res.ok) {
     const body = await res.text();
     throw new Error(
-      `GitHub API error: ${res.status} ${res.statusText} | URL: ${url} | Body: ${body.substring(0, 500)}`
+      `GitHub API error: ${res.status} ${
+        res.statusText
+      } | URL: ${url} | Body: ${body.substring(0, 500)}`
     );
   }
   const data = (await res.json()) as GitHubIssueListItem[];
@@ -256,7 +259,10 @@ async function moveIndexingStateKey(input: {
     })
     .onConflict((oc) => oc.column("r2_key").doNothing())
     .execute();
-  await db.deleteFrom("indexing_state").where("r2_key", "=", input.from).execute();
+  await db
+    .deleteFrom("indexing_state")
+    .where("r2_key", "=", input.from)
+    .execute();
   return { moved: true };
 }
 
@@ -314,6 +320,219 @@ function parseNumberFromLatestKey(
   };
 }
 
+async function listReferencedLatestKeysFromIndexingStateDb(): Promise<
+  string[]
+> {
+  const db = getIndexingStateDb(null);
+  const out = new Set<string>();
+
+  const queries = [
+    db
+      .selectFrom("moment_replay_items")
+      .select(["document_id"])
+      .distinct()
+      .where("document_id", "like", "github/redwoodjs/sdk/%/latest.json"),
+    db
+      .selectFrom("moment_replay_stream_state")
+      .select(["document_id"])
+      .distinct()
+      .where("document_id", "like", "github/redwoodjs/sdk/%/latest.json"),
+    db
+      .selectFrom("moment_replay_document_results")
+      .select(["r2_key"])
+      .distinct()
+      .where("r2_key", "like", "github/redwoodjs/sdk/%/latest.json"),
+    db
+      .selectFrom("indexing_state")
+      .select(["r2_key"])
+      .distinct()
+      .where("r2_key", "like", "github/redwoodjs/sdk/%/latest.json"),
+  ] as const;
+
+  for (const q of queries) {
+    const rows = (await q.execute()) as any[];
+    for (const row of rows) {
+      const raw = row?.document_id ?? row?.r2_key;
+      if (typeof raw === "string" && raw.length > 0) {
+        out.add(raw);
+      }
+    }
+  }
+
+  return Array.from(out);
+}
+
+async function listReferencedLatestKeysFromMomentGraphDb(input: {
+  momentGraphNamespace: string | null;
+}): Promise<string[]> {
+  const db = getMomentGraphDb(input.momentGraphNamespace);
+  const out = new Set<string>();
+
+  const queries = [
+    db
+      .selectFrom("moments")
+      .select(["document_id"])
+      .distinct()
+      .where("document_id", "like", "github/redwoodjs/sdk/%/latest.json"),
+    db
+      .selectFrom("micro_moments")
+      .select(["document_id"])
+      .distinct()
+      .where("document_id", "like", "github/redwoodjs/sdk/%/latest.json"),
+    db
+      .selectFrom("micro_moment_batches")
+      .select(["document_id"])
+      .distinct()
+      .where("document_id", "like", "github/redwoodjs/sdk/%/latest.json"),
+    db
+      .selectFrom("document_audit_logs")
+      .select(["document_id"])
+      .distinct()
+      .where("document_id", "like", "github/redwoodjs/sdk/%/latest.json"),
+  ] as const;
+
+  for (const q of queries) {
+    const rows = (await q.execute()) as any[];
+    for (const row of rows) {
+      const raw = row?.document_id;
+      if (typeof raw === "string" && raw.length > 0) {
+        out.add(raw);
+      }
+    }
+  }
+
+  return Array.from(out);
+}
+
+function computeMappingsFromReferences(input: {
+  owner: string;
+  repo: string;
+  references: string[];
+  isPullRequest: Set<number>;
+}): Array<{
+  number: number;
+  fromKind: "issues" | "pull-requests";
+  toKind: "issues" | "pull-requests";
+}> {
+  const mismatches: Array<{
+    number: number;
+    fromKind: "issues" | "pull-requests";
+    toKind: "issues" | "pull-requests";
+  }> = [];
+
+  for (const key of input.references) {
+    const parsed = parseNumberFromLatestKey(key);
+    if (!parsed) {
+      continue;
+    }
+    const expectedKind: "issues" | "pull-requests" = input.isPullRequest.has(
+      parsed.number
+    )
+      ? "pull-requests"
+      : "issues";
+    if (parsed.kind !== expectedKind) {
+      mismatches.push({
+        number: parsed.number,
+        fromKind: parsed.kind,
+        toKind: expectedKind,
+      });
+    }
+  }
+
+  return mismatches;
+}
+
+async function updateIndexingStateReplayItemPayloads(input: {
+  mappings: Array<{
+    from: string;
+    to: string;
+    toKind: "issues" | "pull-requests";
+  }>;
+  dryRun: boolean;
+}): Promise<{ updated: number; matched: number }> {
+  const db = getIndexingStateDb(null);
+
+  let matched = 0;
+  let updated = 0;
+
+  for (const map of input.mappings) {
+    const toType = map.toKind === "pull-requests" ? "pull-request" : "issue";
+    const rows = (await db
+      .selectFrom("moment_replay_items")
+      .select(["run_id", "item_id", "payload_json", "document_id"])
+      .where((eb) =>
+        eb.or([
+          eb("document_id", "=", map.from),
+          eb("payload_json", "like", `%${map.from}%` as any),
+        ])
+      )
+      .execute()) as any[];
+
+    for (const row of rows) {
+      const runId = typeof row?.run_id === "string" ? row.run_id : null;
+      const itemId = typeof row?.item_id === "string" ? row.item_id : null;
+      if (!runId || !itemId) {
+        continue;
+      }
+
+      matched += 1;
+
+      const payloadRaw = row?.payload_json;
+      const payload =
+        typeof payloadRaw === "string"
+          ? (() => {
+              try {
+                return JSON.parse(payloadRaw);
+              } catch {
+                return null;
+              }
+            })()
+          : payloadRaw && typeof payloadRaw === "object"
+          ? payloadRaw
+          : null;
+      if (!payload || typeof payload !== "object") {
+        continue;
+      }
+
+      const doc = (payload as any)?.document;
+      const beforeId = doc?.id;
+      const beforeType = doc?.type;
+
+      let changed = false;
+      if (doc && typeof beforeId === "string" && beforeId === map.from) {
+        doc.id = map.to;
+        changed = true;
+      }
+      if (doc && (beforeType === "issue" || beforeType === "pull-request")) {
+        if (doc.type !== toType) {
+          doc.type = toType;
+          changed = true;
+        }
+      }
+
+      if (!changed) {
+        continue;
+      }
+
+      if (input.dryRun) {
+        updated += 1;
+        continue;
+      }
+
+      await db
+        .updateTable("moment_replay_items")
+        .set({ payload_json: JSON.stringify(payload) } as any)
+        .where("run_id", "=", runId)
+        .where("item_id", "=", itemId)
+        .execute();
+
+      updated += 1;
+    }
+  }
+
+  return { matched, updated };
+}
+
 export async function reconcileRedwoodSdkPrsAndIssues(
   options: ReconcileOptions
 ): Promise<any> {
@@ -332,7 +551,7 @@ export async function reconcileRedwoodSdkPrsAndIssues(
   const issueLatestKeys = await listAllR2Keys(issueLatestPrefix);
   const prLatestKeys = await listAllR2Keys(prLatestPrefix);
 
-  const mismatches: Array<{
+  const r2Mismatches: Array<{
     number: number;
     fromKind: "issues" | "pull-requests";
     toKind: "issues" | "pull-requests";
@@ -344,7 +563,7 @@ export async function reconcileRedwoodSdkPrsAndIssues(
       continue;
     }
     if (isPullRequest.has(parsed.number)) {
-      mismatches.push({
+      r2Mismatches.push({
         number: parsed.number,
         fromKind: "issues",
         toKind: "pull-requests",
@@ -358,13 +577,45 @@ export async function reconcileRedwoodSdkPrsAndIssues(
       continue;
     }
     if (!isPullRequest.has(parsed.number)) {
-      mismatches.push({
+      r2Mismatches.push({
         number: parsed.number,
         fromKind: "pull-requests",
         toKind: "issues",
       });
     }
   }
+
+  const indexingStateReferences =
+    await listReferencedLatestKeysFromIndexingStateDb();
+  const momentGraphReferences = await listReferencedLatestKeysFromMomentGraphDb(
+    {
+      momentGraphNamespace: options.momentGraphNamespace,
+    }
+  );
+
+  const dbMismatches = computeMappingsFromReferences({
+    owner,
+    repo,
+    references: Array.from(
+      new Set([...indexingStateReferences, ...momentGraphReferences])
+    ),
+    isPullRequest,
+  });
+
+  const mismatchKey = (m: {
+    number: number;
+    fromKind: string;
+    toKind: string;
+  }) => `${m.number}:${m.fromKind}->${m.toKind}`;
+  const mismatchMap = new Map<string, any>();
+  for (const m of [...r2Mismatches, ...dbMismatches]) {
+    mismatchMap.set(mismatchKey(m), m);
+  }
+  const mismatches = Array.from(mismatchMap.values()) as Array<{
+    number: number;
+    fromKind: "issues" | "pull-requests";
+    toKind: "issues" | "pull-requests";
+  }>;
 
   mismatches.sort((a, b) => {
     if (a.number !== b.number) {
@@ -381,7 +632,8 @@ export async function reconcileRedwoodSdkPrsAndIssues(
     Number.isFinite(batchSizeRaw) &&
     batchSizeRaw > 0
       ? Math.floor(batchSizeRaw)
-      : typeof batchSizeRaw === "string" && Number.isFinite(Number(batchSizeRaw))
+      : typeof batchSizeRaw === "string" &&
+        Number.isFinite(Number(batchSizeRaw))
       ? Math.floor(Number(batchSizeRaw))
       : 10;
 
@@ -394,9 +646,9 @@ export async function reconcileRedwoodSdkPrsAndIssues(
 
   const mappings: Array<{ from: string; to: string }> = batchMismatches.map(
     (m) => {
-    const from = `github/${owner}/${repo}/${m.fromKind}/${m.number}/latest.json`;
-    const to = `github/${owner}/${repo}/${m.toKind}/${m.number}/latest.json`;
-    return { from, to };
+      const from = `github/${owner}/${repo}/${m.fromKind}/${m.number}/latest.json`;
+      const to = `github/${owner}/${repo}/${m.toKind}/${m.number}/latest.json`;
+      return { from, to };
     }
   );
 
@@ -433,6 +685,15 @@ export async function reconcileRedwoodSdkPrsAndIssues(
     dryRun: options.dryRun,
   });
 
+  const replayItemPayloadUpdates = await updateIndexingStateReplayItemPayloads({
+    mappings: batchMismatches.map((m) => ({
+      from: `github/${owner}/${repo}/${m.fromKind}/${m.number}/latest.json`,
+      to: `github/${owner}/${repo}/${m.toKind}/${m.number}/latest.json`,
+      toKind: m.toKind,
+    })),
+    dryRun: options.dryRun,
+  });
+
   return {
     owner,
     repo,
@@ -447,13 +708,21 @@ export async function reconcileRedwoodSdkPrsAndIssues(
       issueKeys: issueLatestKeys.length,
       pullRequestKeys: prLatestKeys.length,
     },
+    references: {
+      indexingState: indexingStateReferences.length,
+      momentGraph: momentGraphReferences.length,
+    },
     mismatches: mismatches.length,
+    mismatchesBySource: {
+      r2: r2Mismatches.length,
+      db: dbMismatches.length,
+    },
     remainingMismatches,
     mappings,
     r2Moves,
     momentGraphUpdates,
     indexingStateKeyMoves,
     indexingStateUpdates,
+    replayItemPayloadUpdates,
   };
 }
-

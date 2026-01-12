@@ -131,7 +131,23 @@ async function main() {
     const batchSize =
       typeof result?.batchSize === "number" ? result.batchSize : null;
 
-    const r2MovesCount = Array.isArray(result?.r2Moves) ? result.r2Moves.length : 0;
+    const r2MovesCount = Array.isArray(result?.r2Moves)
+      ? result.r2Moves.length
+      : 0;
+    const mgUpdates =
+      result?.momentGraphUpdates &&
+      typeof result.momentGraphUpdates === "object"
+        ? result.momentGraphUpdates.updates || null
+        : null;
+    const isUpdates =
+      result?.indexingStateUpdates &&
+      typeof result.indexingStateUpdates === "object"
+        ? result.indexingStateUpdates.updates || null
+        : null;
+    const replayPayloadUpdated =
+      typeof result?.replayItemPayloadUpdates?.updated === "number"
+        ? result.replayItemPayloadUpdates.updated
+        : null;
 
     const elapsedMs = Date.now() - startedAt;
     process.stdout.write(
@@ -143,6 +159,9 @@ async function main() {
           mismatches,
           remainingMismatches: remaining,
           r2Moves: r2MovesCount,
+          replayItemPayloadUpdates: replayPayloadUpdated,
+          momentGraphUpdates: mgUpdates,
+          indexingStateUpdates: isUpdates,
           elapsedMs,
         },
         null,
@@ -164,4 +183,3 @@ main().catch((err) => {
   console.error(err);
   process.exitCode = 1;
 });
-

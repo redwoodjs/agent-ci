@@ -6,8 +6,19 @@ import {
   CardContent,
 } from "@/app/components/ui/card";
 import { IngestionFileContent } from "./ingestion-file-content";
+import { ViewInGraphButton } from "./view-in-graph-button";
 import { parseThreadFromJson } from "@/app/ingestors/discord/utils/thread-to-json";
 import type { components } from "@/app/ingestors/discord/discord-api-types";
+import {
+  applyMomentGraphNamespacePrefixValue,
+  getMomentGraphNamespaceFromEnv,
+  getMomentGraphNamespacePrefixFromEnv,
+} from "@/app/engine/momentGraphNamespace";
+import {
+  getDocumentAuditLogsForDocument,
+  getMomentsForDocument,
+  type MomentGraphContext,
+} from "@/app/engine/momentDb";
 
 type DiscordMessage = components["schemas"]["MessageResponse"];
 
@@ -70,21 +81,35 @@ async function parseDiscordContent(
   return null;
 }
 
-export async function IngestionFilePage({ params }: IngestionFilePageProps) {
+export async function IngestionFilePage({
+  params,
+  request,
+}: IngestionFilePageProps) {
   const key = decodeURIComponent(params.$0);
   const bucket = env.MACHINEN_BUCKET;
 
   const url = new URL(request.url);
-  const namespace = url.searchParams.get("namespace") || null;
-  const prefix = url.searchParams.get("prefix") || null;
+  const namespaceParam = url.searchParams.get("namespace") || null;
+  const namespace = namespaceParam === "all" ? null : namespaceParam;
+  const prefixParam = url.searchParams.get("prefix") || null;
+  const prefix =
+    prefixParam && prefixParam.trim().length > 0 ? prefixParam : null;
+  const backLinkParams = new URLSearchParams();
+  if (namespaceParam) {
+    backLinkParams.set("namespace", namespaceParam);
+  }
+  if (prefixParam) {
+    backLinkParams.set("prefix", prefixParam);
+  }
 
-  const envPrefix = getMomentGraphNamespacePrefixFromEnv(env);
+  const envCloudflare = env as Cloudflare.Env;
+  const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
   const prefixOverride =
     typeof prefix === "string" && prefix.trim().length > 0
       ? prefix.trim()
       : null;
   const effectivePrefix = prefixOverride ?? envPrefix;
-  const envNamespace = getMomentGraphNamespaceFromEnv(env);
+  const envNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
   const baseNamespace = namespace ?? envNamespace;
 
   const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
@@ -155,6 +180,23 @@ export async function IngestionFilePage({ params }: IngestionFilePageProps) {
   if (isDiscord) {
     messages = await parseDiscordContent(content, key);
   }
+
+  const momentGraphContext: MomentGraphContext = {
+    env: envCloudflare,
+    momentGraphNamespace: effectiveNamespace,
+  };
+  const moments = await getMomentsForDocument(key, momentGraphContext, {
+    limit: 5000,
+    offset: 0,
+  });
+  const documentAudit = await getDocumentAuditLogsForDocument(
+    key,
+    momentGraphContext,
+    {
+      kindPrefix: "synthesis:",
+      limit: 50,
+    }
+  );
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-4">

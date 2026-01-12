@@ -120,74 +120,69 @@ export function CodePage({ request }: { request: Request }) {
   // Validate required parameters
   if (!repo || !commit || !file || line <= 0) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <Card className="border-red-500">
-          <CardHeader>
-            <CardTitle className="text-red-600">Missing Parameters</CardTitle>
-            <CardDescription>
-              Please provide all required query parameters:
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <ul className="list-disc list-inside space-y-2 text-sm">
-              <li>
-                <strong>repo</strong>: Repository in format owner/repo (e.g.,
-                "redwoodjs/redwood")
-              </li>
-              <li>
-                <strong>commit</strong>: Commit hash (e.g., "abc123def456")
-              </li>
-              <li>
-                <strong>file</strong>: File path with line number in format
-                filename.ext:line (e.g., "src/app/file.ts:42")
-              </li>
-              <li>
-                <strong>namespace</strong> (optional): Moment graph namespace to
-                query
-              </li>
-            </ul>
-            <div className="mt-4 p-4 bg-gray-50 rounded">
-              <p className="text-sm font-mono">
-                Example URL:
-                <br />
-                /audit/tldr?repo=owner/repo&commit=abc123&file=src/app/file.ts:42
-                <br />
-                /audit/tldr?repo=owner/repo&commit=abc123&file=src/app/file.ts:42&namespace=my-namespace
-              </p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="min-h-screen bg-white text-slate-900 p-8">
+        <div className="max-w-7xl mx-auto">
+          <Card className="border-red-500">
+            <CardHeader>
+              <CardTitle className="text-red-600">Missing Parameters</CardTitle>
+              <CardDescription>
+                Please provide all required query parameters:
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <ul className="list-disc list-inside space-y-2 text-sm">
+                <li>
+                  <strong>repo</strong>: Repository in format owner/repo (e.g.,
+                  "redwoodjs/redwood")
+                </li>
+                <li>
+                  <strong>commit</strong>: Commit hash (e.g., "abc123def456")
+                </li>
+                <li>
+                  <strong>file</strong>: File path with line number in format
+                  filename.ext:line (e.g., "src/app/file.ts:42")
+                </li>
+                <li>
+                  <strong>namespace</strong> (optional): Moment graph namespace
+                  to query
+                </li>
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      <h1 className="text-3xl font-bold mb-8">TL;DR</h1>
+    <div className="min-h-screen bg-white text-slate-900">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <h1 className="text-3xl font-bold mb-8">TL;DR</h1>
 
-      <Suspense
-        fallback={
-          <Card>
-            <CardHeader>
-              <CardTitle>Loading timeline data...</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="animate-pulse">
-                <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
-                <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-              </div>
-            </CardContent>
-          </Card>
-        }
-      >
-        <CodePageContent
-          repo={repo}
-          commit={commit}
-          file={file}
-          line={line}
-          namespace={namespace}
-        />
-      </Suspense>
+        <Suspense
+          fallback={
+            <Card>
+              <CardHeader>
+                <CardTitle>Loading timeline data...</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="animate-pulse">
+                  <div className="h-4 bg-gray-200 rounded w-3/4 mb-2"></div>
+                  <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                </div>
+              </CardContent>
+            </Card>
+          }
+        >
+          <CodePageContent
+            repo={repo}
+            commit={commit}
+            file={file}
+            line={line}
+            namespace={namespace}
+          />
+        </Suspense>
+      </div>
     </div>
   );
 }
@@ -332,7 +327,8 @@ function EvolutionSection({
     // Remove [Cursor Conversation] prefix from titles since we show the icon in the source badge
     let event = moment.title || "Untitled";
     if (sourceType === "Cursor" && event.startsWith("[Cursor Conversation]")) {
-      event = event.replace(/^\[Cursor Conversation\]\s*/, "").trim() || "Untitled";
+      event =
+        event.replace(/^\[Cursor Conversation\]\s*/, "").trim() || "Untitled";
     }
     const impact = moment.summary || "No impact description available.";
 

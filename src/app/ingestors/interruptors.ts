@@ -29,7 +29,19 @@ export async function requireIngestApiKey({ request }: RequestInfo) {
 }
 
 export const requireBasicAuth = async ({ request }: { request: Request }) => {
-  // require basic authentication
+  // Check for api_key query parameter first (for VS Code extension webviews)
+  const url = new URL(request.url);
+  const apiKeyParam = url.searchParams.get("api_key");
+
+  if (apiKeyParam) {
+    if (apiKeyParam !== env.API_KEY) {
+      return new Response("Unauthorized", { status: 401 });
+    }
+    // Valid api_key, allow request
+    return;
+  }
+
+  // Fall back to basic authentication
   const authHeader = request.headers.get("Authorization");
   if (!authHeader) {
     return new Response(null, {

@@ -389,14 +389,16 @@ export function activate(context: vscode.ExtensionContext) {
           const normalizedApiUrl = apiUrl ? apiUrl.replace(/\/$/, "") : "";
 
           const citationsList = citations
-            .map(
-              (citation) => {
-                const auditFileLink = citation.documentId && normalizedApiUrl
+            .map((citation) => {
+              const auditFileLink =
+                citation.documentId && normalizedApiUrl
                   ? ` <a href="${escapeHtml(
-                      `${normalizedApiUrl}/audit/ingestion/file/${encodeURIComponent(citation.documentId)}`
+                      `${normalizedApiUrl}/audit/ingestion/file/${encodeURIComponent(
+                        citation.documentId
+                      )}`
                     )}" style="color: var(--vscode-textLink-foreground); text-decoration: underline; font-size: 0.9em;" target="_blank">(View in Audit)</a>`
                   : "";
-                return `
+              return `
               <li style="margin-bottom: 8px;">
                 <a href="${escapeHtml(
                   citation.url
@@ -405,8 +407,7 @@ export function activate(context: vscode.ExtensionContext) {
               )}</a>${auditFileLink}
               </li>
             `;
-              }
-            )
+            })
             .join("");
           citationsHtml = `
             <div style="margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--vscode-panel-border);">
@@ -527,6 +528,253 @@ export function activate(context: vscode.ExtensionContext) {
     logger.appendLine(
       `Pop-over content rendered for document ${document.fileName} at line ${position.line}`
     );
+  }
+
+  /**
+   * Show TLDR webview by embedding the audit/tldr page in an iframe
+   */
+  async function showTldrWebview(
+    document: vscode.TextDocument,
+    position: vscode.Position
+  ) {
+    const documentKey = `${document.uri.toString()}:${position.line}`;
+
+    // Close existing webview for this location if open
+    if (openWebviews.has(documentKey)) {
+      const existingPanel = openWebviews.get(documentKey);
+      if (existingPanel) {
+        existingPanel.dispose();
+      }
+    }
+
+    // Get filename and line number for the panel title
+    const fileName = path.basename(document.fileName);
+    const lineNumber = position.line + 1; // Line numbers are 1-indexed for display
+    const panelTitle = `${fileName}:${lineNumber}`;
+
+    // Get configuration
+    const config = vscode.workspace.getConfiguration("machinen");
+    const apiUrl = config.get<string>("apiUrl", "");
+    const apiKey = config.get<string>("apiKey", "");
+    const namespace = config.get<string>("namespace", "");
+
+    if (!apiUrl || !apiKey) {
+      vscode.window.showErrorMessage(
+        "Machinen API URL or API key not configured. Please configure in VS Code settings."
+      );
+      return;
+    }
+
+    // Get git context
+    const filePath = document.uri.fsPath;
+    const fileDir = path.dirname(filePath);
+    const fileNameForGit = path.basename(filePath);
+
+    try {
+      // Get owner/repo from git remote
+      const ownerRepo = await getGitRemoteOwnerRepo(fileDir);
+      if (!ownerRepo) {
+        vscode.window.showErrorMessage(
+          "Could not determine repository owner and name from git remote."
+        );
+        return;
+      }
+
+      // Get full commit hash for this line
+      const commitHash = await getFullCommitHash(
+        fileDir,
+        fileNameForGit,
+        position.line
+      );
+      if (!commitHash) {
+        vscode.window.showErrorMessage(
+          "Line is uncommitted or commit hash could not be determined."
+        );
+        return;
+      }
+
+      // Get relative file path from git root
+      let relativePath: string;
+      try {
+        const gitRoot = child_process
+          .execSync(`git rev-parse --show-toplevel`, {
+            cwd: fileDir,
+            encoding: "utf-8",
+            stdio: ["pipe", "pipe", "pipe"],
+          })
+          .trim();
+        const fullPath = path.join(fileDir, fileNameForGit);
+        relativePath = path.relative(gitRoot, fullPath).replace(/\\/g, "/");
+      } catch (e) {
+        // Fall back to just filename if we can't get git root
+        relativePath = fileNameForGit;
+      }
+
+      // Construct TLDR URL
+      const normalizedApiUrl = apiUrl.replace(/\/$/, "");
+      const repoParam = `${ownerRepo.owner}/${ownerRepo.repo}`;
+      const fileParam = `${relativePath}:${lineNumber}`;
+
+      // Ensure URL is valid
+      let url: URL;
+      try {
+        url = new URL(`${normalizedApiUrl}/audit/tldr`);
+      } catch (e) {
+        vscode.window.showErrorMessage(`Invalid API URL: ${apiUrl}`);
+        return;
+      }
+
+      url.searchParams.set("repo", repoParam);
+      url.searchParams.set("commit", commitHash);
+      url.searchParams.set("file", fileParam);
+      if (namespace) {
+        url.searchParams.set("namespace", namespace);
+      }
+      url.searchParams.set("api_key", apiKey);
+
+      const tldrUrl = url.toString();
+      const apiOrigin = url.origin;
+
+      // Create webview panel
+      const panel = vscode.window.createWebviewPanel(
+        "machinen-tldr",
+        panelTitle,
+        {
+          viewColumn: vscode.ViewColumn.Beside,
+          preserveFocus: true,
+        },
+        {
+          enableScripts: true,
+          retainContextWhenHidden: false,
+        }
+      );
+
+      // Set icon for the panel
+      const iconPath = vscode.Uri.joinPath(
+        context.extensionUri,
+        "resources",
+        "comment-discussion-sparkle.svg"
+      );
+      panel.iconPath = iconPath;
+
+      // Track this webview
+      openWebviews.set(documentKey, panel);
+
+      // Render iframe with TLDR page
+      panel.webview.html = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${apiOrigin} http: https:; style-src 'unsafe-inline' var:; script-src 'unsafe-inline';">
+        <style>
+          body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: var(--vscode-editor-background);
+            color: var(--vscode-foreground);
+            font-family: var(--vscode-font-family);
+          }
+          iframe {
+            width: 100%;
+            height: 100vh;
+            border: none;
+            background-color: var(--vscode-editor-background);
+          }
+          .status-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            text-align: center;
+            padding: 20px;
+          }
+          .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid var(--vscode-panel-border);
+            border-top: 4px solid var(--vscode-textLink-foreground);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 20px;
+          }
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+          code {
+            background-color: var(--vscode-textCodeBlock-background);
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: var(--vscode-editor-font-family);
+          }
+        </style>
+      </head>
+      <body>
+        <div id="status" class="status-container">
+          <div class="spinner"></div>
+          <p>Loading Machinen TLDR...</p>
+        </div>
+        
+        <iframe 
+          id="tldr-iframe"
+          src="${escapeHtml(tldrUrl)}"
+          style="display: none;"
+          onload="handleLoad()"
+          onerror="handleError()"
+        ></iframe>
+
+        <script>
+          const iframe = document.getElementById('tldr-iframe');
+          const status = document.getElementById('status');
+          
+          function handleLoad() {
+            status.style.display = 'none';
+            iframe.style.display = 'block';
+          }
+
+          function handleError() {
+            status.innerHTML = \`
+              <h3 style="color: var(--vscode-errorForeground);">Error Loading TLDR</h3>
+              <p>The iframe failed to load. This can happen if the server is unreachable or if framing is blocked.</p>
+              <div style="margin-top: 20px;">
+                <a href="${escapeHtml(
+                  tldrUrl
+                )}" style="background-color: var(--vscode-button-background); color: var(--vscode-button-foreground); padding: 8px 16px; border-radius: 2px; text-decoration: none; display: inline-block;">View in Browser</a>
+              </div>
+            \`;
+          }
+
+          // If iframe doesn't load within 15 seconds, show error
+          setTimeout(() => {
+            if (iframe.style.display === 'none') {
+              handleError();
+            }
+          }, 15000);
+        </script>
+      </body>
+      </html>
+    `;
+
+      // Clean up when panel is closed
+      panel.onDidDispose(() => {
+        openWebviews.delete(documentKey);
+      });
+
+      logger.appendLine(
+        `TLDR webview opened for document ${document.fileName} at line ${position.line}`
+      );
+    } catch (error) {
+      logger.appendLine(`Error showing TLDR webview: ${error}`);
+      vscode.window.showErrorMessage(
+        `Error showing TLDR: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 
   // Function to create and show pop-over webview
@@ -672,53 +920,12 @@ export function activate(context: vscode.ExtensionContext) {
           `Detected //? typed at line ${position.line}, character ${position.character}`
         );
 
-        // Get the updated line to show in pop-over
+        // Get the updated line to show in webview
         const updatedLine = event.document.lineAt(position.line);
         logger.appendLine(`Updated line: "${updatedLine.text}"`);
 
-        // Get git blame information first (fast, local operation)
-        const filePath = event.document.uri.fsPath;
-        getGitInfo(filePath, position.line).then((gitInfo) => {
-          if (gitInfo) {
-            logger.appendLine(
-              `Git info: Branch: ${gitInfo.branch} | Author: ${gitInfo.author} | Hash: ${gitInfo.hash} | When: ${gitInfo.date}`
-            );
-          } else {
-            logger.appendLine("Could not retrieve git blame information");
-          }
-
-          // Show pop-over immediately with git info and loading state for PR origin
-          showPopOver(event.document, position, gitInfo, {
-            narrative: "Loading Machinen analysis…",
-          });
-
-          // Then fetch PR origin and update the pop-over when it completes
-          getPrOriginForLine(filePath, position.line, event.document).then(
-            (prOrigin) => {
-              if (prOrigin) {
-                logger.appendLine(
-                  `PR origin: ${
-                    prOrigin.error ? "Error: " + prOrigin.error : "Success"
-                  }`
-                );
-              }
-              // Update existing pop-over with PR origin narrative
-              const documentKey = `${event.document.uri.toString()}:${
-                position.line
-              }`;
-              const panel = openWebviews.get(documentKey);
-              if (panel) {
-                renderPopOverContent(
-                  panel,
-                  event.document,
-                  position,
-                  gitInfo,
-                  prOrigin
-                );
-              }
-            }
-          );
-        });
+        // Show TLDR webview with the audit/tldr page
+        showTldrWebview(event.document, position);
       }
     });
   });
@@ -737,58 +944,15 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
-      const filePath = editor.document.uri.fsPath;
-      const fileDir = path.dirname(filePath);
-      const fileName = path.basename(filePath);
       const position = editor.selection.active;
 
       try {
-        // Get git remote for repo
-        const ownerRepo = await getGitRemoteOwnerRepo(fileDir);
-        if (!ownerRepo) {
-          vscode.window.showErrorMessage(
-            "Could not determine repository from git remote. Make sure you're in a git repository with a GitHub remote."
-          );
-          return;
-        }
-
-        // Get all commits that have touched this line
-        const history = await getLineHistory(
-          fileDir,
-          fileName,
-          position.line + 1
-        );
-        let commitHashes = history.map((h) => h.hash);
-
-        if (commitHashes.length === 0) {
-          // If no history, try to get current commit hash
-          const commitHash = await getFullCommitHash(
-            fileDir,
-            fileName,
-            position.line
-          );
-          if (commitHash) {
-            commitHashes = [commitHash];
-          }
-        }
-
-        if (commitHashes.length === 0) {
-          // If still no commit hash for current line, ask user to input one
-          const inputCommitHash = await vscode.window.showInputBox({
-            prompt: "Enter the commit hash to analyze",
-            placeHolder: "e.g., abc123def456...",
-          });
-          if (!inputCommitHash) {
-            return;
-          }
-          commitHashes = [inputCommitHash];
-        }
-
-        await showPrOriginResult(commitHashes, ownerRepo);
+        // Show TLDR webview for the current line
+        await showTldrWebview(editor.document, position);
       } catch (error) {
         logger.appendLine(`Error in PR origin command: ${error}`);
         vscode.window.showErrorMessage(
-          `Error getting PR origin: ${
+          `Error showing TLDR: ${
             error instanceof Error ? error.message : String(error)
           }`
         );

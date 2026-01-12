@@ -13,6 +13,8 @@ import { callLLM } from "../utils/llm";
 const DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD = 0.8;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
 const DEFAULT_SMART_LINKER_MAX_LLM_VETO_CANDIDATES = 3;
+const DEFAULT_SMART_LINKER_VECTOR_TOPK = 20;
+const DEFAULT_SMART_LINKER_MAX_CANDIDATES_AFTER_TIME_FILTER = 10;
 const DEFAULT_SMART_LINKER_TIMELINE_MAX_TAIL = 12;
 const DEFAULT_SMART_LINKER_TIMELINE_HIGH_IMPORTANCE_CUTOFF = 0.8;
 const DEFAULT_SMART_LINKER_TIMELINE_MAX_HIGH_IMPORTANCE = 6;
@@ -322,9 +324,31 @@ export const timelineFitLinkerPlugin: Plugin = {
         queryPreview: queryText.slice(0, 200),
       });
 
+      function parseTimeMs(value: unknown): number | null {
+        if (typeof value !== "string") {
+          return null;
+        }
+        const trimmed = value.trim();
+        if (!trimmed) {
+          return null;
+        }
+        const ms = Date.parse(trimmed);
+        return Number.isFinite(ms) ? ms : null;
+      }
+
+      function readTimeRangeStartMs(value: unknown): number | null {
+        const range = (value as any)?.timeRange;
+        const start = range?.start;
+        return parseTimeMs(start);
+      }
+
+      const childStartMs =
+        readTimeRangeStartMs(macroMoment.sourceMetadata) ??
+        parseTimeMs(macroMoment.createdAt);
+
       const embedding = await getEmbedding(queryText);
       const queryOptions: Record<string, unknown> = {
-        topK: 30,
+        topK: DEFAULT_SMART_LINKER_VECTOR_TOPK,
         returnMetadata: true,
       };
       if (momentGraphNamespace !== "default") {
@@ -350,33 +374,11 @@ export const timelineFitLinkerPlugin: Plugin = {
 
       const candidateDecisions: Array<Record<string, unknown>> = [];
 
-      function parseTimeMs(value: unknown): number | null {
-        if (typeof value !== "string") {
-          return null;
-        }
-        const trimmed = value.trim();
-        if (!trimmed) {
-          return null;
-        }
-        const ms = Date.parse(trimmed);
-        return Number.isFinite(ms) ? ms : null;
-      }
-
-      function readTimeRangeStartMs(value: unknown): number | null {
-        const range = (value as any)?.timeRange;
-        const start = range?.start;
-        return parseTimeMs(start);
-      }
-
       function readTimeRangeEndMs(value: unknown): number | null {
         const range = (value as any)?.timeRange;
         const end = range?.end;
         return parseTimeMs(end);
       }
-
-      const childStartMs =
-        readTimeRangeStartMs(macroMoment.sourceMetadata) ??
-        parseTimeMs(macroMoment.createdAt);
 
       function sourceRankForDocumentId(documentId: string): number {
         const lower = documentId.toLowerCase();
@@ -392,7 +394,78 @@ export const timelineFitLinkerPlugin: Plugin = {
         return 3;
       }
 
-      const matchIds = results.matches
+      const filteredMatches: Array<(typeof results.matches)[number]> = [];
+      for (const match of results.matches) {
+        const matchMetadata = (match.metadata as any) ?? null;
+        const matchNamespace = matchMetadata?.momentGraphNamespace ?? null;
+        const normalizedMatchNamespace = matchNamespace ?? "default";
+        if (normalizedMatchNamespace !== momentGraphNamespace) {
+          candidateDecisions.push({
+            id: match.id,
+            score: match.score,
+            expectedNamespace: momentGraphNamespace,
+            matchNamespace: normalizedMatchNamespace,
+            matchDocumentId: matchMetadata?.documentId ?? null,
+            matchIsSubject: matchMetadata?.isSubject ?? null,
+            matchType: matchMetadata?.type ?? null,
+            matchTitlePreview: previewText(matchMetadata?.title, 120),
+            matchSummaryPreview: previewText(matchMetadata?.summary, 160),
+            rejectReason: "namespace-mismatch",
+          });
+          continue;
+        }
+
+        if (typeof matchMetadata?.documentId === "string") {
+          if (matchMetadata.documentId === document.id) {
+            candidateDecisions.push({
+              id: match.id,
+              score: match.score,
+              expectedNamespace: momentGraphNamespace,
+              matchNamespace: normalizedMatchNamespace,
+              matchDocumentId: matchMetadata?.documentId ?? null,
+              matchIsSubject: matchMetadata?.isSubject ?? null,
+              matchType: matchMetadata?.type ?? null,
+              matchTitlePreview: previewText(matchMetadata?.title, 120),
+              matchSummaryPreview: previewText(matchMetadata?.summary, 160),
+              rejectReason: "same-document",
+            });
+            continue;
+          }
+        }
+
+        const metaStartMs = parseTimeMs(matchMetadata?.timeRangeStart);
+        const temporalInvertedByMetadata =
+          childStartMs !== null &&
+          metaStartMs !== null &&
+          metaStartMs > childStartMs;
+        if (temporalInvertedByMetadata) {
+          candidateDecisions.push({
+            id: match.id,
+            score: match.score,
+            expectedNamespace: momentGraphNamespace,
+            matchNamespace: normalizedMatchNamespace,
+            matchDocumentId: matchMetadata?.documentId ?? null,
+            matchIsSubject: matchMetadata?.isSubject ?? null,
+            matchType: matchMetadata?.type ?? null,
+            matchTitlePreview: previewText(matchMetadata?.title, 120),
+            matchSummaryPreview: previewText(matchMetadata?.summary, 160),
+            childStartMs,
+            parentStartMs: metaStartMs,
+            rejectReason: "temporal-inverted",
+          });
+          continue;
+        }
+
+        filteredMatches.push(match);
+        if (
+          filteredMatches.length >=
+          DEFAULT_SMART_LINKER_MAX_CANDIDATES_AFTER_TIME_FILTER
+        ) {
+          break;
+        }
+      }
+
+      const matchIds = filteredMatches
         .map((m) => m?.id)
         .filter((id): id is string => typeof id === "string" && id.length > 0);
       const momentsMap =
@@ -409,7 +482,7 @@ export const timelineFitLinkerPlugin: Plugin = {
         parentEndMs: number | null;
       }> = [];
 
-      for (const match of results.matches) {
+      for (const match of filteredMatches) {
         const matchMetadata = (match.metadata as any) ?? null;
         const matchNamespace = matchMetadata?.momentGraphNamespace ?? null;
         const normalizedMatchNamespace = matchNamespace ?? "default";

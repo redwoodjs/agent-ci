@@ -2271,24 +2271,41 @@ async function getUnparentedMomentsLocal(
     created_at: string;
   }>;
 
-  // We'll compute descendant count for these roots.
-  // Since we want to avoid fetching the whole table, we'll do it iteratively.
-  const results = await Promise.all(
-    rows.map(async (row) => {
-      const descendants = await findDescendantsLocal(row.id, context, {
-        maxNodes: 1000,
-      });
-      return {
-        id: row.id,
-        title: row.title || `Moment ${row.id.substring(0, 8)}`,
-        parentId: row.parent_id,
-        createdAt: row.created_at,
-        descendantCount: descendants.length - 1, // Exclude self
-      };
-    })
-  );
+  const parentIds = rows.map((r) => r.id).filter((id) => id.length > 0);
+  const childCountRows =
+    parentIds.length > 0
+      ? await db
+          .selectFrom("moments")
+          .select(["parent_id", sql<number>`count(*)`.as("childCount")])
+          .where("parent_id", "in", parentIds as any)
+          .groupBy("parent_id")
+          .execute()
+      : [];
 
-  return results;
+  const childCountByParentId = new Map<string, number>();
+  for (const row of childCountRows as Array<{
+    parent_id: string | null;
+    childCount: number | string;
+  }>) {
+    if (typeof row.parent_id === "string" && row.parent_id.length > 0) {
+      const asNumber =
+        typeof row.childCount === "number"
+          ? row.childCount
+          : Number(row.childCount);
+      childCountByParentId.set(
+        row.parent_id,
+        Number.isFinite(asNumber) ? asNumber : 0
+      );
+    }
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title || `Moment ${row.id.substring(0, 8)}`,
+    parentId: row.parent_id,
+    createdAt: row.created_at,
+    descendantCount: childCountByParentId.get(row.id) ?? 0,
+  }));
 }
 
 async function getSubjectMomentsLocal(
@@ -2328,23 +2345,42 @@ async function getSubjectMomentsLocal(
     subject_kind: string | null;
   }>;
 
-  const results = await Promise.all(
-    rows.map(async (row) => {
-      const descendants = await findDescendantsLocal(row.id, context, {
-        maxNodes: 1000,
-      });
-      return {
-        id: row.id,
-        title: row.title || `Moment ${row.id.substring(0, 8)}`,
-        parentId: row.parent_id,
-        createdAt: row.created_at,
-        descendantCount: descendants.length - 1, // Exclude self
-        subjectKind: row.subject_kind ?? null,
-      };
-    })
-  );
+  const parentIds = rows.map((r) => r.id).filter((id) => id.length > 0);
+  const childCountRows =
+    parentIds.length > 0
+      ? await db
+          .selectFrom("moments")
+          .select(["parent_id", sql<number>`count(*)`.as("childCount")])
+          .where("parent_id", "in", parentIds as any)
+          .groupBy("parent_id")
+          .execute()
+      : [];
 
-  return results;
+  const childCountByParentId = new Map<string, number>();
+  for (const row of childCountRows as Array<{
+    parent_id: string | null;
+    childCount: number | string;
+  }>) {
+    if (typeof row.parent_id === "string" && row.parent_id.length > 0) {
+      const asNumber =
+        typeof row.childCount === "number"
+          ? row.childCount
+          : Number(row.childCount);
+      childCountByParentId.set(
+        row.parent_id,
+        Number.isFinite(asNumber) ? asNumber : 0
+      );
+    }
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title || `Moment ${row.id.substring(0, 8)}`,
+    parentId: row.parent_id,
+    createdAt: row.created_at,
+    descendantCount: childCountByParentId.get(row.id) ?? 0,
+    subjectKind: row.subject_kind ?? null,
+  }));
 }
 
 async function findDescendantsSlimLocal(

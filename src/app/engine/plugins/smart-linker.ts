@@ -365,9 +365,22 @@ export const timelineFitLinkerPlugin: Plugin = {
         readTimeRangeStartMs(macroMoment.sourceMetadata) ??
         parseTimeMs(macroMoment.createdAt);
 
+      const isReplay = context.indexingMode === "replay";
+      const replayFastAttachTop1 = parseEnvBool(
+        (context.env as any).MOMENT_REPLAY_FAST_ATTACH_TOP1,
+        false
+      );
+
       const embedding = await getEmbedding(queryText);
+      const replayFastTopK = parseEnvInt(
+        (context.env as any).MOMENT_REPLAY_FAST_ATTACH_TOPK,
+        5
+      );
       const queryOptions: Record<string, unknown> = {
-        topK: DEFAULT_SMART_LINKER_VECTOR_TOPK,
+        topK:
+          isReplay && replayFastAttachTop1
+            ? replayFastTopK
+            : DEFAULT_SMART_LINKER_VECTOR_TOPK,
         returnMetadata: true,
       };
       if (momentGraphNamespace !== "default") {
@@ -482,6 +495,142 @@ export const timelineFitLinkerPlugin: Plugin = {
         ) {
           break;
         }
+      }
+
+      const replayLowScoreRejectParsed = parseEnvFloat(
+        (context.env as any).MOMENT_REPLAY_TIMELINE_FIT_LOW_SCORE_REJECT,
+        Number.NaN
+      );
+      const replayLowScoreReject = isReplay
+        ? Number.isFinite(replayLowScoreRejectParsed)
+          ? replayLowScoreRejectParsed
+          : 0.7
+        : -1;
+
+      const childAnchorTokens = extractAnchorTokens(
+        `${macroMoment.title}\n${macroMoment.summary || ""}`,
+        24
+      );
+
+      if (isReplay && replayFastAttachTop1) {
+        if (filteredMatches.length === 0) {
+          auditLog.candidates = candidateDecisions;
+          auditLog.outcome = {
+            attached: false,
+            reason: "no-eligible-candidates",
+          };
+          return {
+            parentMomentId: null,
+            matchedSubjectId: null,
+            score: null,
+            auditLog,
+          };
+        }
+
+        const ranked = filteredMatches
+          .map((match) => {
+            const matchMetadata = (match.metadata as any) ?? null;
+            const matchDocumentId =
+              typeof matchMetadata?.documentId === "string"
+                ? matchMetadata.documentId
+                : "";
+            const matchTitle =
+              typeof matchMetadata?.title === "string"
+                ? matchMetadata.title
+                : "";
+            const matchSummary =
+              typeof matchMetadata?.summary === "string"
+                ? matchMetadata.summary
+                : "";
+            const parentAnchorTokens = extractAnchorTokens(
+              `${matchTitle}\n${matchSummary}`,
+              24
+            );
+            const sharedAnchorTokens = intersectTokens(
+              childAnchorTokens,
+              parentAnchorTokens,
+              12
+            );
+            const parentIssueRef = issueRefFromDocumentId(matchDocumentId);
+            const explicitIssueRefMatch =
+              typeof parentIssueRef === "string" &&
+              sharedAnchorTokens.includes(parentIssueRef);
+
+            const decision: Record<string, unknown> = {
+              id: match.id,
+              score: match.score,
+              expectedNamespace: momentGraphNamespace,
+              matchNamespace: matchMetadata?.momentGraphNamespace ?? null,
+              matchDocumentId,
+              matchIsSubject: matchMetadata?.isSubject ?? null,
+              matchType: matchMetadata?.type ?? null,
+              matchTitlePreview: previewText(matchTitle, 120),
+              matchSummaryPreview: previewText(matchSummary, 160),
+              anchorTokens: {
+                shared: sharedAnchorTokens,
+                childSample: childAnchorTokens.slice(0, 12),
+                parentSample: parentAnchorTokens.slice(0, 12),
+              },
+              explicitIssueRefMatch,
+            };
+
+            return {
+              match,
+              decision,
+              explicitIssueRefMatch,
+              sharedAnchorTokens,
+            };
+          })
+          .sort((a, b) => {
+            if (a.explicitIssueRefMatch !== b.explicitIssueRefMatch) {
+              return a.explicitIssueRefMatch ? -1 : 1;
+            }
+            if (a.match.score !== b.match.score) {
+              return b.match.score - a.match.score;
+            }
+            return a.match.id.localeCompare(b.match.id);
+          });
+
+        for (const entry of ranked) {
+          candidateDecisions.push(entry.decision);
+        }
+        auditLog.candidates = candidateDecisions;
+
+        const chosen = ranked[0]!;
+        if (
+          chosen.explicitIssueRefMatch !== true &&
+          replayLowScoreReject > 0 &&
+          chosen.match.score < replayLowScoreReject &&
+          chosen.sharedAnchorTokens.length === 0
+        ) {
+          auditLog.outcome = {
+            attached: false,
+            reason: "replay-fast-top1-rejected",
+          };
+          return {
+            parentMomentId: null,
+            matchedSubjectId: null,
+            score: null,
+            auditLog,
+          };
+        }
+
+        const parentMomentId = String(chosen.match.id);
+        auditLog.outcome = {
+          attached: true,
+          method: chosen.explicitIssueRefMatch
+            ? "explicit-issue-ref"
+            : "replay-fast-top1",
+          parentMomentId,
+          matchedSubjectId: parentMomentId,
+          score: chosen.match.score,
+        };
+        return {
+          parentMomentId,
+          matchedSubjectId: parentMomentId,
+          score: chosen.match.score,
+          auditLog,
+        };
       }
 
       const matchIds = filteredMatches
@@ -599,11 +748,6 @@ export const timelineFitLinkerPlugin: Plugin = {
         return a.match.id.localeCompare(b.match.id);
       });
 
-      const childAnchorTokens = extractAnchorTokens(
-        `${macroMoment.title}\n${macroMoment.summary || ""}`,
-        24
-      );
-
       for (const entry of scoredCandidates) {
         const subject = entry.subject;
         const parentAnchorTokens = extractAnchorTokens(
@@ -668,85 +812,6 @@ export const timelineFitLinkerPlugin: Plugin = {
           parentMomentId: null,
           matchedSubjectId: null,
           score: null,
-          auditLog,
-        };
-      }
-
-      const isReplay = context.indexingMode === "replay";
-      const replayLowScoreRejectParsed = parseEnvFloat(
-        (context.env as any).MOMENT_REPLAY_TIMELINE_FIT_LOW_SCORE_REJECT,
-        Number.NaN
-      );
-      const replayLowScoreReject = isReplay
-        ? Number.isFinite(replayLowScoreRejectParsed)
-          ? replayLowScoreRejectParsed
-          : 0.7
-        : -1;
-
-      const replayFastAttachTop1 = parseEnvBool(
-        (context.env as any).MOMENT_REPLAY_FAST_ATTACH_TOP1,
-        false
-      );
-      if (isReplay && replayFastAttachTop1) {
-        const entry = rankedCandidates[0]!;
-        const subject = entry.subject;
-        const parentMomentId = subject.id;
-        const score = entry.match.score;
-
-        const anchorTokens = (entry.decision as any)?.anchorTokens ?? null;
-        const sharedAnchorTokens = Array.isArray(anchorTokens?.shared)
-          ? (anchorTokens.shared as string[])
-          : [];
-        const explicitIssueRefMatch =
-          (entry.decision as any)?.explicitIssueRefMatch === true;
-
-        if (
-          !explicitIssueRefMatch &&
-          replayLowScoreReject > 0 &&
-          score < replayLowScoreReject &&
-          sharedAnchorTokens.length === 0
-        ) {
-          entry.decision.chosen = false;
-          entry.decision.chosenMethod = null;
-          entry.decision.timelineFitAnswer = null;
-          entry.decision.timelineFitJson = null;
-          entry.decision.timelineFitAllowed = false;
-          entry.decision.timelineFitError = null;
-          entry.decision.rejectReason = "replay-fast-top1-low-score-no-anchors";
-
-          auditLog.outcome = {
-            attached: false,
-            reason: "replay-fast-top1-rejected",
-          };
-          return {
-            parentMomentId: null,
-            matchedSubjectId: null,
-            score: null,
-            auditLog,
-          };
-        }
-
-        entry.decision.chosen = true;
-        entry.decision.chosenMethod = explicitIssueRefMatch
-          ? "explicit-issue-ref"
-          : "replay-fast-top1";
-        entry.decision.timelineFitAnswer = null;
-        entry.decision.timelineFitJson = null;
-        entry.decision.timelineFitAllowed = true;
-
-        auditLog.outcome = {
-          attached: true,
-          method: explicitIssueRefMatch
-            ? "explicit-issue-ref"
-            : "replay-fast-top1",
-          parentMomentId,
-          matchedSubjectId: subject.id,
-          score,
-        };
-        return {
-          parentMomentId,
-          matchedSubjectId: subject.id,
-          score,
           auditLog,
         };
       }

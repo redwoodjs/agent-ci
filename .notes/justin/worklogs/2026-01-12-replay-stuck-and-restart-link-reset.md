@@ -160,3 +160,21 @@ I restored the stage-2 ('ours') versions of the conflicted files to remove confl
 For the demo timeline, I added a replay-only fast mode that skips building timeline context and skips the timeline-fit LLM call. When enabled, it attaches to the top-1 chronologically valid vector candidate (with a low-score + no-anchors reject guard).
 
 This is gated behind an env flag so the default behavior stays the same.
+
+## Added replay skip-linking mode to remove vector/LLM parent selection
+
+The fast attach mode still runs vector queries per replay document, and logs showed the worker still making timeline-fit LLM calls in some cases.
+
+Change: add a worker-side env flag to skip plugin-based parent selection for the first macro-moment in a stream. This avoids both vector queries and timeline-fit LLM calls in replay, at the cost of leaving more roots unlinked.
+
+## Adjusted replay fast attach to avoid LLM and DB chain reads while still linking
+
+I want to keep linking behavior for the demo while removing the slow steps.
+
+Change: move replay fast attach earlier in the smart linker, selecting top-1 chronologically valid vector match using vector metadata only. This keeps chronology filtering and issue ref preference, but avoids fetching candidate moment rows and avoids timeline-fit LLM calls.
+
+## Removed the sampled subjects view from the knowledge graph page
+
+The knowledge graph page had two subject list views. The sampled view didn't seem to add much value and added another server action + UI state.
+
+Change: remove the sampled view and keep the full subject list ('Found N subjects...').

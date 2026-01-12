@@ -18,7 +18,6 @@ import {
   getRootMomentsAction,
   getSubjectMomentsAction,
   getDescendantsForRootSlimAction,
-  getRootSampleStatsAction,
   searchMomentsAction,
   getMomentDetailsAction,
   getMomentContextChainAction,
@@ -237,24 +236,10 @@ export function KnowledgeGraphPage() {
   >([]);
   const [rootMomentsLoading, setRootMomentsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [rootListMode, setRootListMode] = useState<"all" | "sampled">(
-    "sampled"
-  );
   const [hideSingletons, setHideSingletons] = useState(true);
   const [rootSort, setRootSort] = useState<"descendants" | "createdAt">(
     "descendants"
   );
-  const [sampledRoots, setSampledRoots] = useState<
-    Array<{
-      rootId: string;
-      rootTitle: string | null;
-      rootDocumentId: string | null;
-      sampledHighImportanceCount: number;
-      sampledImportanceSum: number;
-      sampledImportanceMax: number | null;
-    }>
-  >([]);
-  const [sampledRootsLoading, setSampledRootsLoading] = useState(false);
   const [semanticQuery, setSemanticQuery] = useState<string>("");
   const [semanticResults, setSemanticResults] = useState<
     Array<{
@@ -548,38 +533,7 @@ export function KnowledgeGraphPage() {
     }
   }, [selectedNamespace, selectedRootId, prefixOverride]);
 
-  useEffect(() => {
-    async function fetchSampledRoots() {
-      if (rootListMode !== "sampled" || selectedRootId) {
-        return;
-      }
-      setSampledRootsLoading(true);
-      try {
-        const result = await getRootSampleStatsAction({
-          momentGraphNamespace: selectedNamespace,
-          momentGraphNamespacePrefix:
-            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
-          highImportanceCutoff: 0.8,
-          sampleLimit: 2000,
-          limit: 100,
-        });
-        if (result.success && result.roots) {
-          setSampledRoots(result.roots);
-          if (result.effectiveNamespace !== undefined) {
-            setEffectiveNamespace(result.effectiveNamespace);
-          }
-        } else {
-          console.error("Failed to fetch root sample stats:", result.error);
-        }
-      } catch (err) {
-        console.error("Error fetching root sample stats:", err);
-      } finally {
-        setSampledRootsLoading(false);
-      }
-    }
-
-    fetchSampledRoots();
-  }, [rootListMode, selectedRootId, selectedNamespace, prefixOverride]);
+  useEffect(() => {}, []);
 
   useEffect(() => {
     async function fetchGraph() {
@@ -2073,23 +2027,6 @@ export function KnowledgeGraphPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Root List Mode
-                      </label>
-                      <select
-                        value={rootListMode}
-                        onChange={(e) =>
-                          setRootListMode(
-                            e.target.value === "sampled" ? "sampled" : "all"
-                          )
-                        }
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                      >
-                        <option value="sampled">Top subjects (sampled)</option>
-                        <option value="all">All subjects</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
                         Sort (all subjects)
                       </label>
                       <select
@@ -2102,7 +2039,6 @@ export function KnowledgeGraphPage() {
                           )
                         }
                         className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-                        disabled={rootListMode !== "all"}
                       >
                         <option value="descendants">Descendant count</option>
                         <option value="createdAt">Created time</option>
@@ -2114,7 +2050,6 @@ export function KnowledgeGraphPage() {
                           type="checkbox"
                           checked={hideSingletons}
                           onChange={(e) => setHideSingletons(e.target.checked)}
-                          disabled={rootListMode !== "all"}
                         />
                         Hide singletons (all subjects)
                       </label>
@@ -2210,57 +2145,7 @@ export function KnowledgeGraphPage() {
                 </div>
               </div>
 
-              {rootListMode === "sampled" && sampledRootsLoading && (
-                <div className="text-center py-8">
-                  <p className="text-gray-500">Loading top subjects...</p>
-                </div>
-              )}
-
-              {rootListMode === "sampled" &&
-                !sampledRootsLoading &&
-                sampledRoots.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="text-sm text-gray-600">
-                      Showing {sampledRoots.length} subjects (sampled)
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                      {sampledRoots.map((root) => (
-                        <button
-                          key={root.rootId}
-                          onClick={() => setSelectedRootId(root.rootId)}
-                          className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                        >
-                          <div className="font-medium text-gray-900 mb-2">
-                            {root.rootTitle ??
-                              `Moment ${root.rootId.substring(0, 8)}`}
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                              {root.sampledHighImportanceCount} hi
-                            </span>
-                            <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded">
-                              sum {root.sampledImportanceSum.toFixed(2)}
-                            </span>
-                          </div>
-                          <div className="text-xs text-gray-400 font-mono mt-1">
-                            {root.rootId.substring(0, 8)}...
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-              {rootListMode === "sampled" &&
-                !sampledRootsLoading &&
-                sampledRoots.length === 0 && (
-                  <div className="text-center py-8 text-gray-500">
-                    No sampled subjects found. Try selecting a different
-                    namespace.
-                  </div>
-                )}
-
-              {rootListMode === "all" && rootMoments.length === 0 ? (
+              {rootMoments.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
                   No subjects found. Try selecting a different namespace.
                 </div>
@@ -2280,7 +2165,6 @@ export function KnowledgeGraphPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full"
-                      disabled={rootListMode !== "all"}
                     />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -2317,13 +2201,11 @@ export function KnowledgeGraphPage() {
                       );
                     })}
                   </div>
-                  {rootListMode === "all" &&
-                    searchQuery.trim() &&
-                    filteredRootMoments.length === 0 && (
-                      <div className="text-center py-8 text-gray-500">
-                        No subjects found matching "{searchQuery}"
-                      </div>
-                    )}
+                  {searchQuery.trim() && filteredRootMoments.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      No subjects found matching "{searchQuery}"
+                    </div>
+                  )}
                 </>
               )}
             </div>

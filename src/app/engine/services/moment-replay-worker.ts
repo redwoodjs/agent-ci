@@ -54,6 +54,26 @@ function envNumber(env: Cloudflare.Env, key: string): number | null {
   return null;
 }
 
+function envBool(env: Cloudflare.Env, key: string, fallback: boolean): boolean {
+  const raw = (env as any)[key];
+  if (typeof raw === "boolean") {
+    return raw;
+  }
+  if (typeof raw === "number") {
+    return raw !== 0;
+  }
+  if (typeof raw === "string") {
+    const lower = raw.trim().toLowerCase();
+    if (lower === "true" || lower === "1" || lower === "yes" || lower === "y") {
+      return true;
+    }
+    if (lower === "false" || lower === "0" || lower === "no" || lower === "n") {
+      return false;
+    }
+  }
+  return fallback;
+}
+
 function isRetryableUpstreamError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   const lower = msg.toLowerCase();
@@ -412,118 +432,139 @@ export async function processMomentReplayReplayJob(
           indexingMode: "replay",
         };
 
-        const timelineFitMaxAttempts =
-          envNumber(env, "MOMENT_REPLAY_TIMELINE_FIT_MAX_ATTEMPTS") ?? 3;
-        const timelineFitStart = Date.now();
-        let timelineFitError: unknown = null;
-        for (let attempt = 0; attempt < timelineFitMaxAttempts; attempt++) {
-          try {
-            for (const plugin of engineContext.plugins) {
-              const propose = plugin.subjects?.proposeMacroMomentParent;
-              if (!propose) {
-                continue;
-              }
-              const attemptResult = await propose(
-                document,
-                macroMoment,
-                0,
-                indexingContext
-              );
-              if (attemptResult?.auditLog && !linkAuditLog) {
-                linkAuditLog = attemptResult.auditLog;
-              }
-              if (attemptResult?.parentMomentId) {
-                parentId = attemptResult.parentMomentId ?? undefined;
-                if (attemptResult.auditLog) {
-                  linkAuditLog = attemptResult.auditLog;
-                }
-                break;
-              }
-            }
-            timelineFitError = null;
-            break;
-          } catch (error) {
-            timelineFitError = error;
-            const retryable = isRetryableUpstreamError(error);
-            console.error("[moment-replay] timeline fit failed", {
-              runId,
-              itemId: item.itemId,
-              attempt,
-              retryable,
-              error: error instanceof Error ? error.message : String(error),
-            });
-            if (!retryable || attempt + 1 >= timelineFitMaxAttempts) {
-              await markReplayItemFailedAndPauseRun(
-                { env, momentGraphNamespace: null },
-                {
-                  runId,
-                  itemId: item.itemId,
-                  errorPayload: {
-                    phase: "timeline-fit",
-                    retryable,
-                    attempt,
-                    message:
-                      error instanceof Error ? error.message : String(error),
-                    stack: error instanceof Error ? error.stack : null,
-                  },
-                  item: {
-                    documentId,
-                    effectiveNamespace,
-                    orderMs: item.orderMs,
-                  },
-                }
-              );
-              return;
-            }
-            const waitMs = computeBackoffMs(env, attempt);
-            await sleep(waitMs);
-          }
-        }
-
-        if (timelineFitError) {
-          await markReplayItemFailedAndPauseRun(
-            { env, momentGraphNamespace: null },
-            {
-              runId,
-              itemId: item.itemId,
-              errorPayload: {
-                phase: "timeline-fit",
-                retryable: isRetryableUpstreamError(timelineFitError),
-                message:
-                  timelineFitError instanceof Error
-                    ? timelineFitError.message
-                    : String(timelineFitError),
-                stack:
-                  timelineFitError instanceof Error
-                    ? timelineFitError.stack
-                    : null,
-              },
-              item: {
-                documentId,
-                effectiveNamespace,
-                orderMs: item.orderMs,
-              },
-            }
-          );
-          return;
-        }
-
-        const timelineFitMs = Math.max(0, Date.now() - timelineFitStart);
-        if (!linkAuditLog) {
+        const skipReplayLinking = envBool(
+          env,
+          "MOMENT_REPLAY_SKIP_LINKING",
+          false
+        );
+        if (skipReplayLinking) {
           linkAuditLog = {
-            kind: "no-plugin-attempts",
+            kind: "replay-linking-skipped",
             documentId,
             streamId,
             macroMomentIndex: 0,
           };
+          itemMetaByItemId.set(item.itemId, {
+            documentId,
+            effectiveNamespace,
+            orderMs: item.orderMs,
+            timelineFitCallsDelta: 0,
+            timelineFitTotalMsDelta: 0,
+          });
+        } else {
+          const timelineFitMaxAttempts =
+            envNumber(env, "MOMENT_REPLAY_TIMELINE_FIT_MAX_ATTEMPTS") ?? 3;
+          const timelineFitStart = Date.now();
+          let timelineFitError: unknown = null;
+          for (let attempt = 0; attempt < timelineFitMaxAttempts; attempt++) {
+            try {
+              for (const plugin of engineContext.plugins) {
+                const propose = plugin.subjects?.proposeMacroMomentParent;
+                if (!propose) {
+                  continue;
+                }
+                const attemptResult = await propose(
+                  document,
+                  macroMoment,
+                  0,
+                  indexingContext
+                );
+                if (attemptResult?.auditLog && !linkAuditLog) {
+                  linkAuditLog = attemptResult.auditLog;
+                }
+                if (attemptResult?.parentMomentId) {
+                  parentId = attemptResult.parentMomentId ?? undefined;
+                  if (attemptResult.auditLog) {
+                    linkAuditLog = attemptResult.auditLog;
+                  }
+                  break;
+                }
+              }
+              timelineFitError = null;
+              break;
+            } catch (error) {
+              timelineFitError = error;
+              const retryable = isRetryableUpstreamError(error);
+              console.error("[moment-replay] timeline fit failed", {
+                runId,
+                itemId: item.itemId,
+                attempt,
+                retryable,
+                error: error instanceof Error ? error.message : String(error),
+              });
+              if (!retryable || attempt + 1 >= timelineFitMaxAttempts) {
+                await markReplayItemFailedAndPauseRun(
+                  { env, momentGraphNamespace: null },
+                  {
+                    runId,
+                    itemId: item.itemId,
+                    errorPayload: {
+                      phase: "timeline-fit",
+                      retryable,
+                      attempt,
+                      message:
+                        error instanceof Error ? error.message : String(error),
+                      stack: error instanceof Error ? error.stack : null,
+                    },
+                    item: {
+                      documentId,
+                      effectiveNamespace,
+                      orderMs: item.orderMs,
+                    },
+                  }
+                );
+                return;
+              }
+              const waitMs = computeBackoffMs(env, attempt);
+              await sleep(waitMs);
+            }
+          }
+
+          if (timelineFitError) {
+            await markReplayItemFailedAndPauseRun(
+              { env, momentGraphNamespace: null },
+              {
+                runId,
+                itemId: item.itemId,
+                errorPayload: {
+                  phase: "timeline-fit",
+                  retryable: isRetryableUpstreamError(timelineFitError),
+                  message:
+                    timelineFitError instanceof Error
+                      ? timelineFitError.message
+                      : String(timelineFitError),
+                  stack:
+                    timelineFitError instanceof Error
+                      ? timelineFitError.stack
+                      : null,
+                },
+                item: {
+                  documentId,
+                  effectiveNamespace,
+                  orderMs: item.orderMs,
+                },
+              }
+            );
+            return;
+          }
+
+          const timelineFitMs = Math.max(0, Date.now() - timelineFitStart);
+          if (!linkAuditLog) {
+            linkAuditLog = {
+              kind: "no-plugin-attempts",
+              documentId,
+              streamId,
+              macroMomentIndex: 0,
+            };
+          }
+          itemMetaByItemId.set(item.itemId, {
+            documentId,
+            effectiveNamespace,
+            orderMs: item.orderMs,
+            timelineFitCallsDelta: 1,
+            timelineFitTotalMsDelta: timelineFitMs,
+          });
         }
-        itemMetaByItemId.set(item.itemId, {
-          documentId,
-          effectiveNamespace,
-          orderMs: item.orderMs,
-          timelineFitCallsDelta: 1,
-          timelineFitTotalMsDelta: timelineFitMs,
-        });
       }
 
       const momentId = item.itemId;

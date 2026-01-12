@@ -45,51 +45,35 @@ I want to implement:
 - Replay performance changes (bounded) to reduce model and embedding load while preserving explicit anchors.
 - Restart semantics that can clear replay output so chronological replay can rebuild chains (A -> B -> C) after out-of-order manual runs.
 
+## Proceeding with implementation based on moment replay run semantics doc
 
-## Implemented replay telemetry, pause-on-error, and clear-output restart
+I updated the moment replay run semantics doc to capture a concrete checklist for:
 
-I changed the replay DB schema to persist:
+- run telemetry persisted in the replay DB and rendered in the replay runs list (progress timestamp, cursor, last item metadata, counts, rollups)
+- per-item failure recording and run-level paused_on_error state
+- retry controls (resume, retry failed items) and backoff/jitter for retryable upstream failures
+- a restart mode that clears replay output so chronological linking can rebuild A -> B -> C
+- replay performance controls (timeline-fit effort knob, deterministic gates, AI concurrency bounds)
 
-- last progress timestamp and last item metadata
-- per-run counters for embeddings, timeline-fit checks, and moment writes
-- per-item failure payloads and failed status
+I am implementing in this order:
 
-I updated the replay worker to:
+- DB schema changes and replay DB helpers
+- replay worker failure/pause/backoff
+- audit UI visibility and retry actions
+- restart(clear replay output) implementation
+- replay performance knobs
 
-- write progress telemetry incrementally as each item is committed
-- pause the run on failures and record the error on the replay item
-- retry retryable upstream failures with backoff/jitter before pausing
+## Noticed replay events UI is hard to use for debugging
 
-I updated the audit UI to show telemetry in the replay runs list and added controls for:
+The replay runs list has a "Load replay events" section, but it is not a good format for sharing or scanning:
 
-- resume (clears paused_on_error)
-- retry failed items
-- restart (clear output) so chronological replay can rebuild links from scratch
+- It is spread across expanders and UI chrome.
+- It is hard to copy/paste as plain text to share.
 
-## Added run-by-id refresh and clearer error display in UI
+Also, the events currently recorded are sparse, and the most useful information when a run stalls is:
 
-I noticed that the replay runs list was refreshed via the prefix list, and the error display assumed the run error payload was an object with a message field.
+- repeated item-level failures and their error messages
+- the item id / document id tied to those failures
+- whether the worker re-enqueued work
 
-I changed the UI to:
-
-- fall back to showing the error payload when it is a string
-- refresh a replay run by id after restart(clear output), so counter/cursor updates are visible immediately
-
-## Noticed replay can stop re-enqueueing without any persisted trace
-
-A replay run got to a small number of replayed items and then stopped progressing with status replaying and many pending items.
-
-I added a replay run events log persisted in the indexing state DB. The replay worker and UI actions now write events for:
-
-- worker start and batch fetch
-- enqueue next replay job
-- pause on error
-- restart(clear output) deletion and enqueue
-
-This gives a place in the audit UI to see whether the next replay job was enqueued and why replay stopped.
-
-## Tightened "stuck" warning to avoid false positives during normal queue consumption
-
-The UI warning "replaying with pending items but no replay job is enqueued" can be true transiently while a worker is actively processing a batch (it clears replay_enqueued at start, and sets it again only when enqueueing the next message).
-
-I changed the warning to only show when last progress is stale (a few minutes old), and to point to the replay events list as the primary source of truth for what happened.
+Next change: add a separate audit page to view a replay run log as plain text (by runId), and record item-level failures as replay run events so the log contains actionable data when a run stalls.

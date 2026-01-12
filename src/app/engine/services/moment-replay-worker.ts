@@ -707,6 +707,28 @@ export async function processMomentReplayReplayJob(
         }
         const retryable = isRetryableUpstreamError(error);
         const maxAttempts = envNumber(env, "MOMENT_REPLAY_ITEM_MAX_ATTEMPTS") ?? 3;
+
+        await addReplayRunEvent(
+          { env, momentGraphNamespace: null },
+          {
+            runId,
+            level: retryable ? "warn" : "error",
+            kind: "worker.item_error",
+            payload: {
+              itemId: m.id,
+              retryable,
+              maxAttempts,
+              message: error instanceof Error ? error.message : String(error),
+              item: {
+                documentId: meta?.documentId ?? m.documentId,
+                effectiveNamespace:
+                  meta?.effectiveNamespace ?? ctx.momentGraphNamespace,
+                orderMs: orderMsByItemId.get(m.id) ?? null,
+              },
+            },
+          }
+        );
+
         let recovered = false;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           if (!retryable) {
@@ -720,6 +742,15 @@ export async function processMomentReplayReplayJob(
             waitMs,
             error: error instanceof Error ? error.message : String(error),
           });
+          await addReplayRunEvent(
+            { env, momentGraphNamespace: null },
+            {
+              runId,
+              level: "warn",
+              kind: "worker.item_retry",
+              payload: { itemId: m.id, attempt, waitMs },
+            }
+          );
           await sleep(waitMs);
           try {
             const writeStart = Date.now();
@@ -757,6 +788,20 @@ export async function processMomentReplayReplayJob(
             recovered = true;
             break;
           } catch (retryErr) {
+            await addReplayRunEvent(
+              { env, momentGraphNamespace: null },
+              {
+                runId,
+                level: "warn",
+                kind: "worker.item_retry_failed",
+                payload: {
+                  itemId: m.id,
+                  attempt,
+                  message:
+                    retryErr instanceof Error ? retryErr.message : String(retryErr),
+                },
+              }
+            );
             if (!isRetryableUpstreamError(retryErr)) {
               break;
             }
@@ -795,7 +840,18 @@ export async function processMomentReplayReplayJob(
             runId,
             level: "error",
             kind: "worker.paused_on_item_error",
-            payload: { itemId: m.id, retryable },
+            payload: {
+              itemId: m.id,
+              retryable,
+              maxAttempts,
+              message: error instanceof Error ? error.message : String(error),
+              item: {
+                documentId: meta?.documentId ?? m.documentId,
+                effectiveNamespace:
+                  meta?.effectiveNamespace ?? ctx.momentGraphNamespace,
+                orderMs: orderMsByItemId.get(m.id) ?? null,
+              },
+            },
           }
         );
         return;

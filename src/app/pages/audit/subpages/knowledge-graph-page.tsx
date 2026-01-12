@@ -1678,6 +1678,22 @@ export function KnowledgeGraphPage() {
                           <Button
                             variant="outline"
                             size="sm"
+                            onClick={() => {
+                              if (!runId) {
+                                return;
+                              }
+                              const params = new URLSearchParams();
+                              params.set("runId", runId);
+                              params.set("limit", "800");
+                              window.location.href = `/audit/replay-run-log?${params.toString()}`;
+                            }}
+                          >
+                            Open log
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            size="sm"
                             disabled={resumeReplayBusyRunId === runId}
                             onClick={async () => {
                               const raw = window.prompt(

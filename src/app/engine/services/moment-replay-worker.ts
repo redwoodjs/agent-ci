@@ -81,9 +81,21 @@ export async function processMomentReplayReplayJob(
     { runId }
   );
 
+  const batchSizeRaw = (env as any).MOMENT_REPLAY_REPLAY_BATCH_SIZE;
+  const batchSize =
+    typeof batchSizeRaw === "number" &&
+    Number.isFinite(batchSizeRaw) &&
+    batchSizeRaw > 0
+      ? Math.floor(batchSizeRaw)
+      : typeof batchSizeRaw === "string" &&
+        batchSizeRaw.trim().length > 0 &&
+        Number.isFinite(Number(batchSizeRaw))
+      ? Math.max(1, Math.floor(Number(batchSizeRaw)))
+      : 3;
+
   const items = await fetchReplayItemsBatch(
     { env, momentGraphNamespace: null },
-    { runId, cursor, limit: 30, replayOrder }
+    { runId, cursor, limit: batchSize, replayOrder }
   );
 
   if (items.length === 0) {
@@ -100,13 +112,18 @@ export async function processMomentReplayReplayJob(
   let lastOrderMs: number | null = cursor.lastOrderMs;
   let lastItemId: string | null = cursor.lastItemId;
 
-  const doneItemIds: string[] = [];
   const momentsToAdd: Moment[] = [];
   const momentContexts: Array<{
     env: Cloudflare.Env;
     momentGraphNamespace: string | null;
   }> = [];
   const itemIdToMomentId = new Map<string, string>();
+  const orderMsByItemId = new Map<string, number>();
+  for (const it of items) {
+    if (typeof it?.itemId === "string" && it.itemId.length > 0) {
+      orderMsByItemId.set(it.itemId, it.orderMs);
+    }
+  }
 
   for (const item of items) {
     const payload = item.payload ?? {};
@@ -327,10 +344,6 @@ export async function processMomentReplayReplayJob(
         lastMomentId: momentId,
       }
     );
-
-    doneItemIds.push(item.itemId);
-    lastOrderMs = item.orderMs;
-    lastItemId = item.itemId;
   }
 
   if (momentsToAdd.length > 0) {
@@ -352,6 +365,21 @@ export async function processMomentReplayReplayJob(
       try {
         await addMoment(m, ctx, { embedding });
         itemIdToMomentId.set(m.id, m.id);
+        const orderMs = orderMsByItemId.get(m.id) ?? null;
+        await markReplayItemsDone(
+          { env, momentGraphNamespace: null },
+          { runId, itemIds: [m.id] }
+        );
+        await setReplayCursor(
+          { env, momentGraphNamespace: null },
+          {
+            runId,
+            cursor: { lastOrderMs: orderMs, lastItemId: m.id },
+            replayedItemsDelta: 1,
+          }
+        );
+        lastOrderMs = orderMs;
+        lastItemId = m.id;
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
         if (
@@ -387,6 +415,21 @@ export async function processMomentReplayReplayJob(
                 lastMomentId: existing.id,
               }
             );
+            const orderMs = orderMsByItemId.get(m.id) ?? null;
+            await markReplayItemsDone(
+              { env, momentGraphNamespace: null },
+              { runId, itemIds: [m.id] }
+            );
+            await setReplayCursor(
+              { env, momentGraphNamespace: null },
+              {
+                runId,
+                cursor: { lastOrderMs: orderMs, lastItemId: m.id },
+                replayedItemsDelta: 1,
+              }
+            );
+            lastOrderMs = orderMs;
+            lastItemId = m.id;
             continue;
           }
         }
@@ -395,23 +438,9 @@ export async function processMomentReplayReplayJob(
     }
   }
 
-  await markReplayItemsDone(
-    { env, momentGraphNamespace: null },
-    { runId, itemIds: doneItemIds }
-  );
-
-  await setReplayCursor(
-    { env, momentGraphNamespace: null },
-    {
-      runId,
-      cursor: { lastOrderMs, lastItemId },
-      replayedItemsDelta: doneItemIds.length,
-    }
-  );
-
   console.log("[moment-replay] replay batch done", {
     runId,
-    processedItems: doneItemIds.length,
+    processedItems: momentsToAdd.length,
     lastOrderMs,
     lastItemId,
   });

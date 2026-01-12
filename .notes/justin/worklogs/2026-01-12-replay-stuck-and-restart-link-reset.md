@@ -154,3 +154,9 @@ Change:
 While trying to move quickly, I ended up with merge conflicts in the replay/audit files and this work log.
 
 I restored the stage-2 ('ours') versions of the conflicted files to remove conflict markers, keeping the manual pause and audit UI changes intact. The index still needs staging to complete the merge.
+
+## Added replay fast attach mode to skip timeline-fit LLM calls
+
+For the demo timeline, I added a replay-only fast mode that skips building timeline context and skips the timeline-fit LLM call. When enabled, it attaches to the top-1 chronologically valid vector candidate (with a low-score + no-anchors reject guard).
+
+This is gated behind an env flag so the default behavior stays the same.

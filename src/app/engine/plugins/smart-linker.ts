@@ -75,6 +75,25 @@ function parseEnvFloat(value: unknown, fallback: number): number {
   return fallback;
 }
 
+function parseEnvBool(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+  if (typeof value === "string") {
+    const lower = value.trim().toLowerCase();
+    if (lower === "true" || lower === "1" || lower === "yes" || lower === "y") {
+      return true;
+    }
+    if (lower === "false" || lower === "0" || lower === "no" || lower === "n") {
+      return false;
+    }
+  }
+  return fallback;
+}
+
 function buildTimelineContextText(input: {
   root: {
     id: string;
@@ -653,6 +672,85 @@ export const timelineFitLinkerPlugin: Plugin = {
         };
       }
 
+      const isReplay = context.indexingMode === "replay";
+      const replayLowScoreRejectParsed = parseEnvFloat(
+        (context.env as any).MOMENT_REPLAY_TIMELINE_FIT_LOW_SCORE_REJECT,
+        Number.NaN
+      );
+      const replayLowScoreReject = isReplay
+        ? Number.isFinite(replayLowScoreRejectParsed)
+          ? replayLowScoreRejectParsed
+          : 0.7
+        : -1;
+
+      const replayFastAttachTop1 = parseEnvBool(
+        (context.env as any).MOMENT_REPLAY_FAST_ATTACH_TOP1,
+        false
+      );
+      if (isReplay && replayFastAttachTop1) {
+        const entry = rankedCandidates[0]!;
+        const subject = entry.subject;
+        const parentMomentId = subject.id;
+        const score = entry.match.score;
+
+        const anchorTokens = (entry.decision as any)?.anchorTokens ?? null;
+        const sharedAnchorTokens = Array.isArray(anchorTokens?.shared)
+          ? (anchorTokens.shared as string[])
+          : [];
+        const explicitIssueRefMatch =
+          (entry.decision as any)?.explicitIssueRefMatch === true;
+
+        if (
+          !explicitIssueRefMatch &&
+          replayLowScoreReject > 0 &&
+          score < replayLowScoreReject &&
+          sharedAnchorTokens.length === 0
+        ) {
+          entry.decision.chosen = false;
+          entry.decision.chosenMethod = null;
+          entry.decision.timelineFitAnswer = null;
+          entry.decision.timelineFitJson = null;
+          entry.decision.timelineFitAllowed = false;
+          entry.decision.timelineFitError = null;
+          entry.decision.rejectReason = "replay-fast-top1-low-score-no-anchors";
+
+          auditLog.outcome = {
+            attached: false,
+            reason: "replay-fast-top1-rejected",
+          };
+          return {
+            parentMomentId: null,
+            matchedSubjectId: null,
+            score: null,
+            auditLog,
+          };
+        }
+
+        entry.decision.chosen = true;
+        entry.decision.chosenMethod = explicitIssueRefMatch
+          ? "explicit-issue-ref"
+          : "replay-fast-top1";
+        entry.decision.timelineFitAnswer = null;
+        entry.decision.timelineFitJson = null;
+        entry.decision.timelineFitAllowed = true;
+
+        auditLog.outcome = {
+          attached: true,
+          method: explicitIssueRefMatch
+            ? "explicit-issue-ref"
+            : "replay-fast-top1",
+          parentMomentId,
+          matchedSubjectId: subject.id,
+          score,
+        };
+        return {
+          parentMomentId,
+          matchedSubjectId: subject.id,
+          score,
+          auditLog,
+        };
+      }
+
       const childTime =
         childStartMs !== null ? new Date(childStartMs).toISOString() : null;
 
@@ -811,16 +909,6 @@ export const timelineFitLinkerPlugin: Plugin = {
           };
         }
 
-        const isReplay = context.indexingMode === "replay";
-        const replayLowScoreRejectParsed = parseEnvFloat(
-          (context.env as any).MOMENT_REPLAY_TIMELINE_FIT_LOW_SCORE_REJECT,
-          Number.NaN
-        );
-        const replayLowScoreReject = isReplay
-          ? Number.isFinite(replayLowScoreRejectParsed)
-            ? replayLowScoreRejectParsed
-            : 0.7
-          : -1;
         if (
           isReplay &&
           replayLowScoreReject > 0 &&

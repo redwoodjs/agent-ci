@@ -178,3 +178,9 @@ Change: move replay fast attach earlier in the smart linker, selecting top-1 chr
 The knowledge graph page had two subject list views. The sampled view didn't seem to add much value and added another server action + UI state.
 
 Change: remove the sampled view and keep the full subject list ('Found N subjects...').
+
+## Found slow chain-view server actions behind 'Loading graph data'
+
+The wrangler request logs show the knowledge graph page making RSC action calls that can take ~27s while returning 200 OK. That matches the UI getting stuck on 'Loading graph data' without a visible error.
+
+Change: cap the chain-view context chain query with a maxDownHops value so it returns quickly.

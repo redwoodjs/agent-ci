@@ -600,6 +600,7 @@ export function KnowledgeGraphPage() {
           momentGraphNamespace: selectedNamespace,
           momentGraphNamespacePrefix:
             prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+          maxDownHops: 40,
         });
         if (res.success) {
           setGraphData(res.data);

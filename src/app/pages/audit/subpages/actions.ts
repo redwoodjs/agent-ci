@@ -3462,18 +3462,71 @@ export async function fetchCodeTimeline(options: {
   namespace?: string | null;
 }) {
   try {
+    const envCloudflare = env as Cloudflare.Env;
+    const bucket = envCloudflare.MACHINEN_BUCKET;
+
+    // Generate cache key: cache/audit/timeline/${repo}/${commit}/${namespace || 'default'}.json
+    // Sanitize repo and commit for use in R2 keys (replace special chars with safe alternatives)
+    const sanitizedRepo = options.repo.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const sanitizedCommit = options.commit.replace(/[^a-zA-Z0-9]/g, "_");
+    const namespace = options.namespace || "default";
+    const sanitizedNamespace = namespace.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const cacheKey = `cache/audit/timeline/${sanitizedRepo}/${sanitizedCommit}/${sanitizedNamespace}.json`;
+
+    // Check cache first
+    try {
+      const cachedObject = await bucket.get(cacheKey);
+      if (cachedObject) {
+        const cachedData = (await cachedObject.json()) as {
+          developmentStream: any[];
+          prNumbers: number[];
+          commitHashes: string[];
+          sortedTimeline: any[];
+        };
+        console.log(`[code-timeline] Cache hit for ${cacheKey}`);
+        return {
+          success: true,
+          developmentStream: cachedData.developmentStream,
+          prNumbers: cachedData.prNumbers,
+          commitHashes: cachedData.commitHashes,
+          sortedTimeline: cachedData.sortedTimeline,
+        };
+      }
+    } catch (cacheError) {
+      // If cache read fails, continue with normal execution
+      console.warn(
+        `[code-timeline] Cache read failed for ${cacheKey}, continuing with normal execution:`,
+        cacheError
+      );
+    }
+
+    // Cache miss - execute normal logic
     const result = await fetchRelatedMomentsForCodeTimeline(options);
     if (result.success === false) {
       return result;
     }
 
-    return {
+    const response = {
       success: true,
       developmentStream: result.developmentStream,
       prNumbers: result.prNumbers,
       commitHashes: result.commitHashes,
       sortedTimeline: result.sortedTimeline,
     };
+
+    // Store in cache
+    try {
+      await bucket.put(cacheKey, JSON.stringify(response));
+      console.log(`[code-timeline] Cached result for ${cacheKey}`);
+    } catch (cacheError) {
+      // If cache write fails, log but don't fail the request
+      console.warn(
+        `[code-timeline] Cache write failed for ${cacheKey}:`,
+        cacheError
+      );
+    }
+
+    return response;
   } catch (error) {
     console.error(`[code-timeline] Error fetching timeline:`, error);
     return {
@@ -3605,14 +3658,70 @@ export async function generateCodeTldr(options: {
   file: string;
   line: number;
   namespace?: string | null;
+  timelineResult?: Awaited<ReturnType<typeof fetchCodeTimeline>>;
 }) {
   try {
-    // Fetch timeline data first
-    const timelineResult = await fetchCodeTimeline({
-      repo: options.repo,
-      commit: options.commit,
-      namespace: options.namespace,
-    });
+    const envCloudflare = env as Cloudflare.Env;
+    const bucket = envCloudflare.MACHINEN_BUCKET;
+
+    // Parse repository first (needed for cache key)
+    const parsedRepo = parseGitHubRepo(options.repo);
+    if (!parsedRepo) {
+      return {
+        success: false,
+        error: `Invalid repository format: ${options.repo}. Expected formats: owner/repo, https://github.com/owner/repo.git, or git@github.com:owner/repo.git`,
+      };
+    }
+
+    // Generate cache key: cache/audit/tldr/${repo}/${commit}/${file}/${line}/${namespace || 'default'}.json
+    // Sanitize values for use in R2 keys
+    const sanitizedRepo = options.repo.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const sanitizedCommit = options.commit.replace(/[^a-zA-Z0-9]/g, "_");
+    const sanitizedFile = options.file
+      .replace(/[^a-zA-Z0-9._/-]/g, "_")
+      .replace(/\//g, "_");
+    const sanitizedLine = String(options.line).replace(/[^a-zA-Z0-9]/g, "_");
+    const namespace = options.namespace || "default";
+    const sanitizedNamespace = namespace.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const cacheKey = `cache/audit/tldr/${sanitizedRepo}/${sanitizedCommit}/${sanitizedFile}/${sanitizedLine}/${sanitizedNamespace}.json`;
+
+    // Check cache first
+    try {
+      const cachedObject = await bucket.get(cacheKey);
+      if (cachedObject) {
+        const cachedData = (await cachedObject.json()) as {
+          tldr: string;
+          narrative: string;
+          developmentStream: any[];
+          prNumbers: number[];
+          commitHashes: string[];
+        };
+        console.log(`[code-tldr] Cache hit for ${cacheKey}`);
+        return {
+          success: true,
+          tldr: cachedData.tldr,
+          narrative: cachedData.narrative,
+          developmentStream: cachedData.developmentStream,
+          prNumbers: cachedData.prNumbers,
+          commitHashes: cachedData.commitHashes,
+        };
+      }
+    } catch (cacheError) {
+      // If cache read fails, continue with normal execution
+      console.warn(
+        `[code-tldr] Cache read failed for ${cacheKey}, continuing with normal execution:`,
+        cacheError
+      );
+    }
+
+    // Use provided timeline result or fetch it
+    const timelineResult =
+      options.timelineResult ||
+      (await fetchCodeTimeline({
+        repo: options.repo,
+        commit: options.commit,
+        namespace: options.namespace,
+      }));
 
     if (!timelineResult.success) {
       return {
@@ -3630,16 +3739,6 @@ export async function generateCodeTldr(options: {
     const commitHashes = Array.isArray((timelineResult as any).commitHashes)
       ? ((timelineResult as any).commitHashes as string[])
       : [];
-    const envCloudflare = env as Cloudflare.Env;
-
-    // Parse repository
-    const parsedRepo = parseGitHubRepo(options.repo);
-    if (!parsedRepo) {
-      return {
-        success: false,
-        error: `Invalid repository format: ${options.repo}. Expected formats: owner/repo, https://github.com/owner/repo.git, or git@github.com:owner/repo.git`,
-      };
-    }
 
     const { owner, repo } = parsedRepo;
     const commitHash = options.commit;
@@ -3648,7 +3747,6 @@ export async function generateCodeTldr(options: {
     const namespaceOverride = options.namespace ?? null;
 
     // Get PR summaries for LLM prompt
-    const bucket = envCloudflare.MACHINEN_BUCKET;
     const prSummaries: string[] = [];
 
     for (const prNumber of prNumbers) {
@@ -3694,24 +3792,23 @@ ${prSummaries.join("\n")}
 ${narrativeContext}
 
 ## Instructions
-Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format. **YOU MUST INCLUDE BOTH SECTIONS:**
+Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format.
 
 ### TL;DR
 
-[Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed. This section is MANDATORY and must be included.]
+[Write a super simple 2-4 sentence summary for a human. Use plain English. Explain what happened here and why this code exists like it does today. Avoid technical jargon. This section is MANDATORY and must be included.]
 
-Rules:
+  Rules:
 - You MUST only use timestamps that appear at the start of Timeline lines or in Pull Request Information. Do not invent or guess dates.
 - When you mention a Timeline event, you MUST include the exact timestamp (or timestamp range) that appears on that event's Timeline line.
-- When you mention a Pull Request, you MUST include its number and the provided metadata (author, title, etc.).
 - You MUST include the data source label when you mention a Timeline event (example: the bracketed title prefix like "[GitHub Issue #552]" or "[Discord Thread]").
 - You MUST NOT mention events, sources, or pull requests/issues that are not present in the text above.
-- Mention only events and PRs needed to answer the questions.
+
 - If a Timeline line includes an importance=0..1 field, prefer higher importance events.
 - If information is missing for part of the question, say so directly.
 - IMPORTANT: The Timeline may contain events from multiple sources (GitHub PRs/issues, Discord threads, Cursor chats, etc.). When available, actively incorporate information from all these sources to provide a comprehensive narrative.
 
-Write a clear narrative that explains the sequence and causal relationships between events and pull requests, drawing from all available sources in the Timeline.`;
+`;
 
     console.log(`[code-tldr] Calling LLM to generate TLDR and narrative`);
     const fullResponse = await callLLM(prompt, "slow-reasoning", {
@@ -3758,13 +3855,13 @@ Write a clear narrative that explains the sequence and causal relationships betw
       console.log(
         `[code-tldr] No explicit TLDR section found, using fallback extraction`
       );
-      // Fallback: Extract first 2-3 sentences
+      // Fallback: Extract first 3-5 sentences
       const sentences = fullResponse
         .replace(/###\s*Full\s*Analysis[\s\S]*$/i, "")
         .trim()
         .split(/[.!?]+/)
         .filter((s) => s.trim().length > 0)
-        .slice(0, 3)
+        .slice(0, 5)
         .map((s) => s.trim() + ".");
 
       if (sentences.length > 0) {
@@ -3813,7 +3910,7 @@ Write a clear narrative that explains the sequence and causal relationships betw
       sourceMetadata: moment.sourceMetadata,
     }));
 
-    return {
+    const response = {
       success: true,
       tldr: tldr || "Summary not available.",
       narrative: narrative || "Evolution analysis not available.",
@@ -3821,6 +3918,20 @@ Write a clear narrative that explains the sequence and causal relationships betw
       prNumbers,
       commitHashes,
     };
+
+    // Store in cache
+    try {
+      await bucket.put(cacheKey, JSON.stringify(response));
+      console.log(`[code-tldr] Cached result for ${cacheKey}`);
+    } catch (cacheError) {
+      // If cache write fails, log but don't fail the request
+      console.warn(
+        `[code-tldr] Cache write failed for ${cacheKey}:`,
+        cacheError
+      );
+    }
+
+    return response;
   } catch (error) {
     console.error(`[code-tldr] Error generating TLDR:`, error);
     return {

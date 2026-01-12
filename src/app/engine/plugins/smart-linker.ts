@@ -739,10 +739,15 @@ export const timelineFitLinkerPlugin: Plugin = {
         }
 
         const isReplay = context.indexingMode === "replay";
-        const replayLowScoreReject = parseEnvFloat(
+        const replayLowScoreRejectParsed = parseEnvFloat(
           (context.env as any).MOMENT_REPLAY_TIMELINE_FIT_LOW_SCORE_REJECT,
-          -1
+          Number.NaN
         );
+        const replayLowScoreReject = isReplay
+          ? Number.isFinite(replayLowScoreRejectParsed)
+            ? replayLowScoreRejectParsed
+            : 0.7
+          : -1;
         if (
           isReplay &&
           replayLowScoreReject > 0 &&
@@ -820,8 +825,9 @@ Output schema:
             replayEffortRaw === "high"
               ? (replayEffortRaw as "low" | "medium" | "high")
               : null;
-          const effort =
-            isReplay && replayEffort ? replayEffort : ("high" as const);
+          const effort = isReplay
+            ? replayEffort ?? ("low" as const)
+            : ("high" as const);
 
           const llmResult = await callLLM(vetoPrompt, "slow-reasoning", {
             temperature: 0,

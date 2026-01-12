@@ -89,3 +89,13 @@ After adding the replay run log page, I captured a run where:
 The missing piece is that we were not recording "batch finished" or unexpected worker failures. When a worker dies between fetched_batch and enqueued_next (timeouts, platform limits, unhandled errors), the log looks like it stopped without explaining why.
 
 Next change: record worker.batch_done with timing and cursor metadata, and record worker.unhandled_error when the worker throws unexpectedly, so gaps can be attributed to slow batches vs worker failures.
+
+## Noticed replay throughput is dominated by timeline-fit LLM calls
+
+I checked the replay rollups and saw timeline-fit total time dwarfing embeddings and DB writes.
+
+In the timeline-fit linker, replay was still defaulting to high reasoning effort for the timeline-fit check unless an env var was set. Also, the replay-only low-score cutoff that skips the timeline-fit LLM call was disabled unless an env var was set.
+
+Next change: make replay default to low reasoning effort for timeline-fit, and enable a conservative replay-only low-score/no-anchor cutoff by default so we avoid paying for timeline-fit calls on weak, anchorless candidates during replay.
+
+I set the default replay low-score cutoff to 0.7 (only when there are no shared anchor tokens).

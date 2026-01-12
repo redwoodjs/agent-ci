@@ -148,3 +148,9 @@ Change:
 - add a paused_manual run status
 - add a pause action in the audit UI next to resume
 - update the replay worker to skip when it sees paused_manual
+
+## Resolved merge conflicts by restoring staged 'ours' versions
+
+While trying to move quickly, I ended up with merge conflicts in the replay/audit files and this work log.
+
+I restored the stage-2 ('ours') versions of the conflicted files to remove conflict markers, keeping the manual pause and audit UI changes intact. The index still needs staging to complete the merge.

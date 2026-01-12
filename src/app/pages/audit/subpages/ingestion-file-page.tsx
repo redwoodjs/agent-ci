@@ -5,16 +5,11 @@ import {
   CardTitle,
   CardContent,
 } from "@/app/components/ui/card";
-import {
-  getDocumentAuditLogsForDocument,
-  getMomentsForDocument,
-} from "@/app/engine/momentDb";
-import { ViewInGraphButton } from "./view-in-graph-button";
-import {
-  getMomentGraphNamespaceFromEnv,
-  getMomentGraphNamespacePrefixFromEnv,
-  applyMomentGraphNamespacePrefixValue,
-} from "@/app/engine/momentGraphNamespace";
+import { IngestionFileContent } from "./ingestion-file-content";
+import { parseThreadFromJson } from "@/app/ingestors/discord/utils/thread-to-json";
+import type { components } from "@/app/ingestors/discord/discord-api-types";
+
+type DiscordMessage = components["schemas"]["MessageResponse"];
 
 type IngestionFilePageProps = {
   request: Request;
@@ -23,10 +18,59 @@ type IngestionFilePageProps = {
   };
 };
 
-export async function IngestionFilePage({
-  request,
-  params,
-}: IngestionFilePageProps) {
+function isDiscordFile(key: string): boolean {
+  return key.startsWith("discord/");
+}
+
+async function parseDiscordContent(
+  content: string,
+  key: string
+): Promise<DiscordMessage[] | null> {
+  // Try parsing as JSON (thread page format)
+  try {
+    const threadData = await parseThreadFromJson(content);
+    if (threadData) {
+      // Combine starter message and messages
+      return [threadData.starterMessage, ...threadData.messages];
+    }
+  } catch {
+    // Not a thread JSON, continue to try JSONL
+  }
+
+  // Try parsing as JSONL (daily channel logs)
+  try {
+    const lines = content.split("\n").filter((line) => line.trim().length > 0);
+    const messages: DiscordMessage[] = [];
+
+    for (const line of lines) {
+      try {
+        const message = JSON.parse(line) as DiscordMessage;
+        // Basic validation - check if it has required Discord message fields
+        if (
+          message.id &&
+          message.timestamp &&
+          message.author &&
+          typeof message.content === "string"
+        ) {
+          messages.push(message);
+        }
+      } catch {
+        // Skip invalid JSON lines (might be truncated or malformed)
+        continue;
+      }
+    }
+
+    if (messages.length > 0) {
+      return messages;
+    }
+  } catch {
+    // Failed to parse as JSONL
+  }
+
+  return null;
+}
+
+export async function IngestionFilePage({ params }: IngestionFilePageProps) {
   const key = decodeURIComponent(params.$0);
   const bucket = env.MACHINEN_BUCKET;
 
@@ -63,6 +107,7 @@ export async function IngestionFilePage({
   }
 
   const size = object.size;
+  const isDiscord = isDiscordFile(key);
 
   // For very large objects, only show a prefix so the UI stays responsive.
   const MAX_BYTES_TO_SHOW = 200_000; // ~200KB
@@ -105,23 +150,11 @@ export async function IngestionFilePage({
     content = await object.text();
   }
 
-  const momentGraphContext = {
-    env: env as Cloudflare.Env,
-    momentGraphNamespace: effectiveNamespace,
-  };
-
-  const moments = await getMomentsForDocument(key, momentGraphContext);
-
-  const documentAudit = await getDocumentAuditLogsForDocument(
-    key,
-    momentGraphContext,
-    { kindPrefix: "synthesis:", limit: 50 }
-  );
-
-  const backLinkParams = new URLSearchParams();
-  backLinkParams.set("source", "all"); // Default, logic could be improved to persist source
-  if (namespace) backLinkParams.set("namespace", namespace);
-  if (prefix) backLinkParams.set("prefix", prefix);
+  // Try to parse Discord messages if this is a Discord file
+  let messages: DiscordMessage[] | null = null;
+  if (isDiscord) {
+    messages = await parseDiscordContent(content, key);
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-4">
@@ -159,14 +192,19 @@ export async function IngestionFilePage({
                 Showing first ~{formatBytes(MAX_BYTES_TO_SHOW)} of file
               </span>
             )}
+            {isDiscord && messages && (
+              <span className="text-green-700">
+                {messages.length} message{messages.length !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
 
-          <div className="border rounded-md bg-black text-gray-100 text-sm overflow-auto max-h-[70vh]">
-            <pre className="p-4 whitespace-pre-wrap break-words font-mono text-xs">
-              {content}
-              {truncated && "\n\n---\n(truncated) ---"}
-            </pre>
-          </div>
+          <IngestionFileContent
+            rawContent={content}
+            messages={messages}
+            isDiscord={isDiscord}
+            truncated={truncated}
+          />
         </CardContent>
       </Card>
 

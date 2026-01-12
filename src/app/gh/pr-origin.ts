@@ -620,7 +620,7 @@ ${narrativeContext}
 Based on the information provided above (Code Location, Related Pull Requests, and Timeline), provide your response in the following format.
 
 ### TL;DR
-[Write a concise 2-3 sentence summary that captures the essence of how this code evolved and why it exists in its current form. Focus on the key decisions and problems addressed. This section is MANDATORY and must be included.]
+[Write a super simple 2-4 sentence summary for a human. Use plain English. Explain what happened here and why this code exists like it does today. Avoid technical jargon. This section is MANDATORY and must be included.]
 
 Rules:
 - You MUST only use timestamps that appear at the start of Timeline lines or in Pull Request Information. Do not invent or guess dates.
@@ -683,13 +683,13 @@ Write a clear narrative that explains the sequence and causal relationships betw
       console.log(
         `[pr-origin] No explicit TLDR section found, using fallback extraction`
       );
-      // Fallback: Extract first 2-3 sentences from the response
+      // Fallback: Extract first 3-5 sentences from the response
       const sentences = fullResponse
         .replace(/###\s*Full\s*Analysis[\s\S]*$/i, "") // Remove Full Analysis section if present
         .trim()
         .split(/[.!?]+/)
         .filter((s) => s.trim().length > 0)
-        .slice(0, 3)
+        .slice(0, 5)
         .map((s) => s.trim() + ".");
 
       if (sentences.length > 0) {

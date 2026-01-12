@@ -91,7 +91,7 @@ export async function processMomentReplayReplayJob(
         batchSizeRaw.trim().length > 0 &&
         Number.isFinite(Number(batchSizeRaw))
       ? Math.max(1, Math.floor(Number(batchSizeRaw)))
-      : 3;
+      : 10;
 
   const items = await fetchReplayItemsBatch(
     { env, momentGraphNamespace: null },

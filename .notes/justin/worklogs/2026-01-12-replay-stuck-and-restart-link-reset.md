@@ -99,3 +99,24 @@ In the timeline-fit linker, replay was still defaulting to high reasoning effort
 Next change: make replay default to low reasoning effort for timeline-fit, and enable a conservative replay-only low-score/no-anchor cutoff by default so we avoid paying for timeline-fit calls on weak, anchorless candidates during replay.
 
 I set the default replay low-score cutoff to 0.7 (only when there are no shared anchor tokens).
+
+## Noticed audit knowledge graph root list can hit Cloudflare subrequest caps
+
+I hit an error in the knowledge graph audit page while loading the roots list:
+
+- "Too many API requests by single worker invocation."
+
+The root cause was the subject/root list building doing an N+1 style scan:
+
+- query up to N subject moments
+- for each subject moment, run a descendant traversal to compute a count
+
+Even with a maxNodes cap per traversal, doing this for hundreds to thousands of roots can exceed the worker's allowed subrequests and makes the page look like it is stuck.
+
+Change: replace per-root traversal counts with a single grouped query that counts direct children per root, so the root list stays within a fixed number of DB queries.
+
+## Idea: bound smart-linker candidate evaluation for replay throughput
+
+For replay throughput, I want predictable, bounded work per macro-moment. The vector query returns a ranked list, but we don't need to evaluate every match.
+
+Change: after vector search, filter out candidates that are chronologically after the current moment (based on the candidate time metadata), then take the first X remaining candidates for DB fetch and scoring.

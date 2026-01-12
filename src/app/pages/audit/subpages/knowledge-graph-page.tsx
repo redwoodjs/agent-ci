@@ -960,16 +960,14 @@ export function KnowledgeGraphPage() {
       </Card>
 
       <details className="mb-6">
-        <summary className="cursor-pointer">
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent failures</CardTitle>
-              <CardDescription>
-                Documents with recent indexing or synthesis audit events
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </summary>
+        <Card>
+          <CardHeader>
+            <CardTitle>Recent failures</CardTitle>
+            <CardDescription>
+              Documents with recent indexing or synthesis audit events
+            </CardDescription>
+          </CardHeader>
+        </Card>
         <div className="mt-2">
           <Card>
             <CardContent>

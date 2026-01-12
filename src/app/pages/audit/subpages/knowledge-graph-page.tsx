@@ -1149,8 +1149,25 @@ export function KnowledgeGraphPage() {
                 const replayEnqueued = Boolean(
                   (r as any)?.replayEnqueued ?? false
                 );
+                const lastProgressMs =
+                  typeof lastProgressAt === "string" &&
+                  lastProgressAt.length > 0
+                    ? Date.parse(lastProgressAt)
+                    : NaN;
+                const nowMs =
+                  typeof performance !== "undefined" && performance?.timeOrigin
+                    ? Date.now()
+                    : Date.now();
+                const progressAgeMs =
+                  Number.isFinite(lastProgressMs) && Number.isFinite(nowMs)
+                    ? Math.max(0, nowMs - lastProgressMs)
+                    : null;
+                const staleMs = 3 * 60 * 1000;
                 const looksStalled =
-                  status === "replaying" && pendingItems > 0 && !replayEnqueued;
+                  status === "replaying" &&
+                  pendingItems > 0 &&
+                  !replayEnqueued &&
+                  (progressAgeMs === null || progressAgeMs > staleMs);
                 const embeddingCalls = Number((r as any)?.embeddingCalls ?? 0);
                 const embeddingTotalMs = Number(
                   (r as any)?.embeddingTotalMs ?? 0
@@ -1249,7 +1266,9 @@ export function KnowledgeGraphPage() {
                       {looksStalled && (
                         <div className="text-red-700">
                           Status is replaying with pending items, but no replay
-                          job is enqueued.
+                          job is enqueued and last progress is stale. Check
+                          replay events for the most recent worker.start vs
+                          worker.enqueued_next.
                         </div>
                       )}
                       {lastErrorMessage && (

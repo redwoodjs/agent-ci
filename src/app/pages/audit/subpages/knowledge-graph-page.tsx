@@ -21,6 +21,7 @@ import {
   getRootSampleStatsAction,
   searchMomentsAction,
   getMomentDetailsAction,
+  getMomentContextChainAction,
   getRecentDocumentAuditEventsAction,
   getReplayBackfillProgressAction,
   resumeReplayRunAction,
@@ -193,6 +194,10 @@ export function KnowledgeGraphPage() {
   const [graphData, setGraphData] = useState<GraphNode[]>([]);
   const [graphTruncated, setGraphTruncated] = useState(false);
   const [graphMaxNodes, setGraphMaxNodes] = useState(5000);
+  const [graphView, setGraphView] = useState<"tree" | "chain">("tree");
+  const [contextChainMomentId, setContextChainMomentId] = useState<
+    string | null
+  >(null);
   const [stats, setStats] = useState<{
     totalMoments: number;
     subjectMoments: number;
@@ -346,6 +351,20 @@ export function KnowledgeGraphPage() {
     if (rootIdFromUrl) {
       setSelectedRootId(rootIdFromUrl);
     }
+    const viewFromUrl = urlParams.get("view");
+    if (viewFromUrl === "chain") {
+      setGraphView("chain");
+    }
+    const highlightMomentIdFromUrl = urlParams.get("highlightMomentId");
+    if (
+      typeof highlightMomentIdFromUrl === "string" &&
+      highlightMomentIdFromUrl.trim().length > 0
+    ) {
+      setPendingHighlightMomentId(highlightMomentIdFromUrl.trim());
+      if (viewFromUrl === "chain") {
+        setContextChainMomentId(highlightMomentIdFromUrl.trim());
+      }
+    }
     const namespaceFromUrl = urlParams.get("namespace");
     if (
       typeof namespaceFromUrl === "string" &&
@@ -368,6 +387,11 @@ export function KnowledgeGraphPage() {
     } else {
       url.searchParams.delete("rootId");
     }
+    if (graphView === "chain") {
+      url.searchParams.set("view", "chain");
+    } else {
+      url.searchParams.delete("view");
+    }
     if (typeof selectedNamespace === "string" && selectedNamespace.length > 0) {
       url.searchParams.set("namespace", selectedNamespace);
     } else {
@@ -378,8 +402,25 @@ export function KnowledgeGraphPage() {
     } else {
       url.searchParams.delete("prefix");
     }
+    const highlightMomentId =
+      graphView === "chain"
+        ? contextChainMomentId
+        : selectedMomentId ?? pendingHighlightMomentId;
+    if (typeof highlightMomentId === "string" && highlightMomentId.length > 0) {
+      url.searchParams.set("highlightMomentId", highlightMomentId);
+    } else {
+      url.searchParams.delete("highlightMomentId");
+    }
     window.history.pushState({}, "", url.toString());
-  }, [selectedRootId, prefixOverride, selectedNamespace]);
+  }, [
+    selectedRootId,
+    graphView,
+    contextChainMomentId,
+    selectedMomentId,
+    pendingHighlightMomentId,
+    prefixOverride,
+    selectedNamespace,
+  ]);
 
   useEffect(() => {
     async function fetchPrefix() {
@@ -514,6 +555,9 @@ export function KnowledgeGraphPage() {
 
   useEffect(() => {
     async function fetchGraph() {
+      if (graphView === "chain") {
+        return;
+      }
       if (!selectedRootId) {
         setGraphData([]);
         setGraphTruncated(false);
@@ -548,7 +592,50 @@ export function KnowledgeGraphPage() {
     }
 
     fetchGraph();
-  }, [selectedRootId, selectedNamespace, prefixOverride, graphMaxNodes]);
+  }, [
+    graphView,
+    selectedRootId,
+    selectedNamespace,
+    prefixOverride,
+    graphMaxNodes,
+  ]);
+
+  useEffect(() => {
+    async function fetchContextChain() {
+      if (graphView !== "chain") {
+        return;
+      }
+      if (!contextChainMomentId) {
+        setGraphData([]);
+        setGraphTruncated(false);
+        return;
+      }
+
+      setLoading(true);
+      setError(null);
+      try {
+        const res = await getMomentContextChainAction(contextChainMomentId, {
+          momentGraphNamespace: selectedNamespace,
+          momentGraphNamespacePrefix:
+            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
+        });
+        if (res.success) {
+          setGraphData(res.data);
+          setGraphTruncated(false);
+        } else {
+          setError(res.error || "Failed to fetch context chain");
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "An unexpected error occurred"
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchContextChain();
+  }, [graphView, contextChainMomentId, selectedNamespace, prefixOverride]);
 
   useEffect(() => {
     async function fetchSelectedMomentDetails() {
@@ -651,7 +738,7 @@ export function KnowledgeGraphPage() {
   }, [prefixOverride]);
 
   useEffect(() => {
-    if (!selectedRootId || loading) {
+    if (loading) {
       return;
     }
     if (!pendingHighlightMomentId) {
@@ -712,7 +799,9 @@ export function KnowledgeGraphPage() {
                     node.style.cursor = "pointer";
                     const handler = (e: Event) => {
                       e.stopPropagation();
-                      setSelectedMomentId(moment.id);
+                      setGraphView("chain");
+                      setContextChainMomentId(moment.id);
+                      setPendingHighlightMomentId(moment.id);
                     };
                     node.addEventListener("click", handler);
                     cleanups.push(() =>

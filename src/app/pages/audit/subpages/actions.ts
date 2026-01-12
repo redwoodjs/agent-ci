@@ -19,6 +19,7 @@ import {
   getDocumentAuditLogsForDocument,
   getRecentDocumentAuditEvents,
   findSimilarMoments,
+  getSubjectContextChainForMoment,
   type MomentGraphContext,
 } from "@/app/engine/momentDb";
 import { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
@@ -292,6 +293,83 @@ export async function getRootAncestorAction(
     return {
       success: false,
       rootId: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getMomentContextChainAction(
+  momentId: string,
+  options?: {
+    momentGraphNamespace?: string | null;
+    momentGraphNamespacePrefix?: string | null;
+    maxDownHops?: number;
+  }
+): Promise<{
+  success: boolean;
+  data: Array<{
+    id: string;
+    title: string;
+    parentId?: string;
+    createdAt?: string;
+    documentId?: string;
+  }>;
+  subjectParentId: string | null;
+  subjectChildId: string | null;
+  error?: string;
+}> {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options?.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options?.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const chain = await getSubjectContextChainForMoment(momentId, context, {
+      maxDownHops: options?.maxDownHops,
+    });
+    if (!chain) {
+      return {
+        success: false,
+        data: [],
+        subjectParentId: null,
+        subjectChildId: null,
+        error: "Moment not found",
+      };
+    }
+
+    return {
+      success: true,
+      data: chain.chain.map((m) => ({
+        id: m.id,
+        title: m.title ?? m.id,
+        parentId: m.parentId,
+        createdAt: m.createdAt,
+        documentId: m.documentId,
+      })),
+      subjectParentId: chain.subjectParentId,
+      subjectChildId: chain.subjectChildId,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      data: [],
+      subjectParentId: null,
+      subjectChildId: null,
       error: error instanceof Error ? error.message : String(error),
     };
   }

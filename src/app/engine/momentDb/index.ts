@@ -249,30 +249,30 @@ export async function addMoment(
       await context.env.MOMENT_INDEX.upsert([momentVector]);
 
       if (isSubject) {
-      console.log("[moment-linker] vector upsert (subject)", {
-        id: moment.id,
-        momentGraphNamespace,
-        documentId: moment.documentId,
-        type: "subject",
-          isSubject: true,
-      });
-      await context.env.SUBJECT_INDEX.upsert([
-        {
+        console.log("[moment-linker] vector upsert (subject)", {
           id: moment.id,
-          values: embedding,
-          metadata: {
-            momentGraphNamespace,
-            title: moment.title,
-            summary: moment.summary,
-            documentId: moment.documentId,
-            type: "subject",
+          momentGraphNamespace,
+          documentId: moment.documentId,
+          type: "subject",
+          isSubject: true,
+        });
+        await context.env.SUBJECT_INDEX.upsert([
+          {
+            id: moment.id,
+            values: embedding,
+            metadata: {
+              momentGraphNamespace,
+              title: moment.title,
+              summary: moment.summary,
+              documentId: moment.documentId,
+              type: "subject",
               isSubject: true,
               ...(typeof moment.subjectKind === "string"
                 ? { subjectKind: moment.subjectKind }
                 : null),
+            },
           },
-        },
-      ]);
+        ]);
       } else {
         try {
           const subjectIndexAny = context.env.SUBJECT_INDEX as any;
@@ -421,11 +421,20 @@ export async function getMoment(
     microPathsHash: row.micro_paths_hash || undefined,
     importance: typeof row.importance === "number" ? row.importance : undefined,
     linkAuditLog: row.link_audit_log || undefined,
-    momentKind: typeof (row as any).moment_kind === "string" ? (row as any).moment_kind : undefined,
+    momentKind:
+      typeof (row as any).moment_kind === "string"
+        ? (row as any).moment_kind
+        : undefined,
     momentEvidence: (row as any).moment_evidence_json || undefined,
     isSubject: (row as any).is_subject === 1,
-    subjectKind: typeof (row as any).subject_kind === "string" ? (row as any).subject_kind : undefined,
-    subjectReason: typeof (row as any).subject_reason === "string" ? (row as any).subject_reason : undefined,
+    subjectKind:
+      typeof (row as any).subject_kind === "string"
+        ? (row as any).subject_kind
+        : undefined,
+    subjectReason:
+      typeof (row as any).subject_reason === "string"
+        ? (row as any).subject_reason
+        : undefined,
     subjectEvidence: (row as any).subject_evidence_json || undefined,
     createdAt: row.created_at,
     author: row.author,
@@ -1034,6 +1043,136 @@ export async function getChainContextForMoment(
     highImportanceCutoff,
     maxHighImportance,
     maxDescendantScanNodes,
+  };
+}
+
+export type SubjectContextChain = {
+  subjectParentId: string | null;
+  subjectChildId: string | null;
+  chain: Moment[];
+};
+
+export async function getSubjectContextChainForMoment(
+  momentId: string,
+  context: MomentGraphContext,
+  options?: { maxDownHops?: number }
+): Promise<SubjectContextChain | null> {
+  const ancestors = await findAncestors(momentId, context);
+  if (ancestors.length === 0) {
+    return null;
+  }
+
+  let parentSubjectIndex = 0;
+  for (let i = ancestors.length - 1; i >= 0; i--) {
+    const m = ancestors[i];
+    if ((m as any)?.isSubject === true) {
+      parentSubjectIndex = i;
+      break;
+    }
+  }
+  const parentSubject = ancestors[parentSubjectIndex] ?? ancestors[0];
+  const subjectParentId = parentSubject?.id ?? null;
+  const upPath = ancestors.slice(parentSubjectIndex);
+
+  const db = getMomentDb(context);
+  const maxDownHopsRaw = options?.maxDownHops;
+  const maxDownHops =
+    typeof maxDownHopsRaw === "number" &&
+    Number.isFinite(maxDownHopsRaw) &&
+    maxDownHopsRaw > 0
+      ? Math.floor(maxDownHopsRaw)
+      : 200;
+
+  const visited = new Set<string>();
+  const parentMap = new Map<string, string>();
+  let level = [momentId];
+  let foundSubjectIds: string[] = [];
+
+  for (let hop = 0; hop < maxDownHops && level.length > 0; hop++) {
+    const rows = (await db
+      .selectFrom("moments")
+      .select(["id", "parent_id", "is_subject", "created_at"])
+      .where("parent_id", "in", level)
+      .execute()) as Array<{
+      id: string;
+      parent_id: string | null;
+      is_subject: number | null;
+      created_at: string;
+    }>;
+
+    const next: string[] = [];
+    for (const row of rows) {
+      if (visited.has(row.id)) {
+        continue;
+      }
+      visited.add(row.id);
+      if (typeof row.parent_id === "string" && row.parent_id.length > 0) {
+        parentMap.set(row.id, row.parent_id);
+      }
+      if (row.is_subject === 1) {
+        foundSubjectIds.push(row.id);
+      } else {
+        next.push(row.id);
+      }
+    }
+
+    if (foundSubjectIds.length > 0) {
+      break;
+    }
+    level = next;
+  }
+
+  let subjectChildId: string | null = null;
+  if (foundSubjectIds.length > 0) {
+    const subjectRows = (await db
+      .selectFrom("moments")
+      .select(["id", "created_at"])
+      .where("id", "in", foundSubjectIds)
+      .execute()) as Array<{ id: string; created_at: string }>;
+    subjectRows.sort((a, b) => {
+      if (a.created_at !== b.created_at) {
+        return a.created_at.localeCompare(b.created_at);
+      }
+      return a.id.localeCompare(b.id);
+    });
+    subjectChildId = subjectRows[0]?.id ?? null;
+  }
+
+  if (!subjectChildId) {
+    return {
+      subjectParentId,
+      subjectChildId: null,
+      chain: upPath,
+    };
+  }
+
+  const downIds: string[] = [];
+  let current = subjectChildId;
+  const maxSteps = maxDownHops + 5;
+  for (let i = 0; i < maxSteps && current; i++) {
+    downIds.push(current);
+    const parentId = parentMap.get(current) ?? null;
+    if (!parentId) {
+      break;
+    }
+    if (parentId === momentId) {
+      downIds.push(momentId);
+      break;
+    }
+    current = parentId;
+  }
+  downIds.reverse();
+
+  const chainIds = [...upPath.map((m) => m.id), ...downIds.slice(1)];
+  const momentsMap = await getMoments(chainIds, context);
+  const chain = chainIds
+    .map((id) => momentsMap.get(id))
+    .filter((m): m is Moment => Boolean(m));
+
+  return {
+    subjectParentId,
+    subjectChildId,
+    chain,
   };
 }
 
@@ -1780,7 +1919,14 @@ export async function getRootStatsByHighImportanceSample(
 
   const sampleRows = (await db
     .selectFrom("moments")
-    .select(["id", "parent_id", "title", "document_id", "importance", "is_subject"])
+    .select([
+      "id",
+      "parent_id",
+      "title",
+      "document_id",
+      "importance",
+      "is_subject",
+    ])
     .where("importance", ">=", highImportanceCutoff as any)
     .orderBy("importance", "desc")
     .limit(sampleLimit)
@@ -1820,7 +1966,14 @@ export async function getRootStatsByHighImportanceSample(
       const batch = ids.slice(i, i + batchSize);
       const fetched = (await db
         .selectFrom("moments")
-        .select(["id", "parent_id", "title", "document_id", "importance", "is_subject"])
+        .select([
+          "id",
+          "parent_id",
+          "title",
+          "document_id",
+          "importance",
+          "is_subject",
+        ])
         .where("id", "in", batch)
         .execute()) as unknown as MomentRowSlim[];
 

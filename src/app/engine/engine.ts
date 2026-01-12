@@ -156,6 +156,7 @@ export async function indexDocument(
     r2Key,
     env: context.env,
     momentGraphNamespace: null,
+    indexingMode: "indexing",
   };
   console.log("[moment-linker] indexDocument start", { r2Key });
 
@@ -1074,6 +1075,9 @@ export async function indexDocument(
           const replayItems: Array<{
             itemId: string;
             effectiveNamespace: string;
+            documentId?: string | null;
+            streamId?: string | null;
+            macroMomentIndex?: number | null;
             orderMs: number;
             payload: any;
           }> = [];

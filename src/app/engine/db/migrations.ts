@@ -273,4 +273,107 @@ export const indexingStateMigrations = {
         .execute();
     },
   },
+  "008_add_moment_replay_run_telemetry_and_item_errors": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("last_progress_at", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("last_item_id", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("last_item_order_ms", "integer")
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("last_item_document_id", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("last_item_effective_namespace", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("consecutive_failures", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("last_error_json", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("embedding_calls", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("embedding_total_ms", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("timeline_fit_calls", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("timeline_fit_total_ms", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("db_writes", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_runs")
+          .addColumn("db_writes_total_ms", "integer", (col) =>
+            col.notNull().defaultTo(0)
+          )
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_items")
+          .addColumn("error_json", "text")
+          .execute(),
+        await db.schema
+          .alterTable("moment_replay_items")
+          .addColumn("failed_at", "text")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema
+        .alterTable("moment_replay_items")
+        .dropColumn("failed_at")
+        .dropColumn("error_json")
+        .execute();
+      await db.schema
+        .alterTable("moment_replay_runs")
+        .dropColumn("db_writes_total_ms")
+        .dropColumn("db_writes")
+        .dropColumn("timeline_fit_total_ms")
+        .dropColumn("timeline_fit_calls")
+        .dropColumn("embedding_total_ms")
+        .dropColumn("embedding_calls")
+        .dropColumn("last_error_json")
+        .dropColumn("consecutive_failures")
+        .dropColumn("last_item_effective_namespace")
+        .dropColumn("last_item_document_id")
+        .dropColumn("last_item_order_ms")
+        .dropColumn("last_item_id")
+        .dropColumn("last_progress_at")
+        .execute();
+    },
+  },
 } satisfies Migrations;

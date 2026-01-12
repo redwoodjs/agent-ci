@@ -157,15 +157,17 @@ export async function addMoment(
       parentIdToWrite = null;
     }
 
-    const cycle = await wouldCreateCycle(moment.id, parentIdToWrite);
-    if (cycle) {
-      console.log("[moment-linker] cycle-prevention rejected attachment", {
-        momentId: moment.id,
-        documentId: moment.documentId,
-        attemptedParentId: parentIdToWrite,
-        momentGraphNamespace,
-      });
-      parentIdToWrite = null;
+    if (parentIdToWrite) {
+      const cycle = await wouldCreateCycle(moment.id, parentIdToWrite);
+      if (cycle) {
+        console.log("[moment-linker] cycle-prevention rejected attachment", {
+          momentId: moment.id,
+          documentId: moment.documentId,
+          attemptedParentId: parentIdToWrite,
+          momentGraphNamespace,
+        });
+        parentIdToWrite = null;
+      }
     }
   }
 
@@ -394,6 +396,49 @@ export async function addMoment(
       })
       .execute();
   }
+}
+
+export async function deleteMomentsByIds(
+  ids: string[],
+  context: MomentGraphContext
+): Promise<{ deletedIds: string[] }> {
+  const db = getMomentDb(context);
+  const uniqueIds = Array.from(
+    new Set(
+      Array.isArray(ids)
+        ? ids.filter(
+            (id): id is string => typeof id === "string" && id.length > 0
+          )
+        : []
+    )
+  );
+  if (uniqueIds.length === 0) {
+    return { deletedIds: [] };
+  }
+
+  const maxBatchSize = 100;
+  for (let i = 0; i < uniqueIds.length; i += maxBatchSize) {
+    const batch = uniqueIds.slice(i, i + maxBatchSize);
+    await db.deleteFrom("moments").where("id", "in", batch).execute();
+    try {
+      const momentIndexAny = context.env.MOMENT_INDEX as any;
+      if (typeof momentIndexAny?.deleteByIds === "function") {
+        await momentIndexAny.deleteByIds(batch);
+      }
+      const subjectIndexAny = context.env.SUBJECT_INDEX as any;
+      if (typeof subjectIndexAny?.deleteByIds === "function") {
+        await subjectIndexAny.deleteByIds(batch);
+      }
+    } catch (error) {
+      console.error("[momentDb] vector delete failed", {
+        count: batch.length,
+        momentGraphNamespace: context.momentGraphNamespace ?? "default",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return { deletedIds: uniqueIds };
 }
 
 export async function getMoment(

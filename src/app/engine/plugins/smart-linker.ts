@@ -738,6 +738,26 @@ export const timelineFitLinkerPlugin: Plugin = {
           };
         }
 
+        const isReplay = context.indexingMode === "replay";
+        const replayLowScoreReject = parseEnvFloat(
+          (context.env as any).MOMENT_REPLAY_TIMELINE_FIT_LOW_SCORE_REJECT,
+          -1
+        );
+        if (
+          isReplay &&
+          replayLowScoreReject > 0 &&
+          score < replayLowScoreReject &&
+          sharedAnchorTokens.length === 0
+        ) {
+          entry.decision.chosen = false;
+          entry.decision.timelineFitAnswer = null;
+          entry.decision.timelineFitJson = null;
+          entry.decision.timelineFitAllowed = false;
+          entry.decision.timelineFitError = null;
+          entry.decision.rejectReason = "replay-low-score-no-anchors";
+          continue;
+        }
+
         const vetoPrompt = `You are a knowledge graph timeline fit checker.
 Your job is to decide whether a proposed moment belongs in a candidate timeline.
 
@@ -792,9 +812,20 @@ Output schema:
         let vetoJson: any = null;
         let vetoError: string | null = null;
         try {
+          const replayEffortRaw = (context.env as any)
+            .MOMENT_REPLAY_TIMELINE_FIT_EFFORT;
+          const replayEffort =
+            replayEffortRaw === "low" ||
+            replayEffortRaw === "medium" ||
+            replayEffortRaw === "high"
+              ? (replayEffortRaw as "low" | "medium" | "high")
+              : null;
+          const effort =
+            isReplay && replayEffort ? replayEffort : ("high" as const);
+
           const llmResult = await callLLM(vetoPrompt, "slow-reasoning", {
             temperature: 0,
-            reasoning: { effort: "high" },
+            reasoning: { effort },
           });
           vetoAnswer = llmResult.trim();
           try {

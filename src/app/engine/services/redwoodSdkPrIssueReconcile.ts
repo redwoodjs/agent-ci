@@ -15,6 +15,7 @@ type ReconcileOptions = {
   momentGraphNamespacePrefix: string | null;
   maxNumbers?: number | null;
   batchSize?: number | null;
+  scope?: "moments" | "all";
 };
 
 type GitHubIssueListItem = {
@@ -538,6 +539,7 @@ export async function reconcileRedwoodSdkPrsAndIssues(
 ): Promise<any> {
   const owner = "redwoodjs";
   const repo = "sdk";
+  const scope = options.scope === "moments" ? "moments" : "all";
 
   const { isPullRequest } = await classifyNumbersFromGitHub({
     owner,
@@ -548,8 +550,10 @@ export async function reconcileRedwoodSdkPrsAndIssues(
   const issueLatestPrefix = `github/${owner}/${repo}/issues/`;
   const prLatestPrefix = `github/${owner}/${repo}/pull-requests/`;
 
-  const issueLatestKeys = await listAllR2Keys(issueLatestPrefix);
-  const prLatestKeys = await listAllR2Keys(prLatestPrefix);
+  const issueLatestKeys =
+    scope === "all" ? await listAllR2Keys(issueLatestPrefix) : [];
+  const prLatestKeys =
+    scope === "all" ? await listAllR2Keys(prLatestPrefix) : [];
 
   const r2Mismatches: Array<{
     number: number;
@@ -653,15 +657,17 @@ export async function reconcileRedwoodSdkPrsAndIssues(
   );
 
   const r2Moves: Array<any> = [];
-  for (const m of batchMismatches) {
-    const fromPrefix = `github/${owner}/${repo}/${m.fromKind}/${m.number}/`;
-    const toPrefix = `github/${owner}/${repo}/${m.toKind}/${m.number}/`;
-    const res = await moveR2Prefix({
-      fromPrefix,
-      toPrefix,
-      dryRun: options.dryRun,
-    });
-    r2Moves.push({ ...m, fromPrefix, toPrefix, ...res });
+  if (scope === "all") {
+    for (const m of batchMismatches) {
+      const fromPrefix = `github/${owner}/${repo}/${m.fromKind}/${m.number}/`;
+      const toPrefix = `github/${owner}/${repo}/${m.toKind}/${m.number}/`;
+      const res = await moveR2Prefix({
+        fromPrefix,
+        toPrefix,
+        dryRun: options.dryRun,
+      });
+      r2Moves.push({ ...m, fromPrefix, toPrefix, ...res });
+    }
   }
 
   const momentGraphUpdates = await updateMomentGraphDocumentIds({
@@ -671,18 +677,20 @@ export async function reconcileRedwoodSdkPrsAndIssues(
   });
 
   const indexingStateKeyMoves: Array<any> = [];
-  for (const map of mappings) {
-    const moved = await moveIndexingStateKey({
-      from: map.from,
-      to: map.to,
-      dryRun: options.dryRun,
-    });
-    indexingStateKeyMoves.push({ ...map, ...moved });
+  if (scope === "all") {
+    for (const map of mappings) {
+      const moved = await moveIndexingStateKey({
+        from: map.from,
+        to: map.to,
+        dryRun: options.dryRun,
+      });
+      indexingStateKeyMoves.push({ ...map, ...moved });
+    }
   }
 
   const indexingStateUpdates = await updateIndexingStateReferences({
     mappings,
-    dryRun: options.dryRun,
+    dryRun: scope === "all" ? options.dryRun : true,
   });
 
   const replayItemPayloadUpdates = await updateIndexingStateReplayItemPayloads({
@@ -691,13 +699,14 @@ export async function reconcileRedwoodSdkPrsAndIssues(
       to: `github/${owner}/${repo}/${m.toKind}/${m.number}/latest.json`,
       toKind: m.toKind,
     })),
-    dryRun: options.dryRun,
+    dryRun: scope === "all" ? options.dryRun : true,
   });
 
   return {
     owner,
     repo,
     dryRun: options.dryRun,
+    scope,
     momentGraphNamespace: options.momentGraphNamespace,
     momentGraphNamespacePrefix: options.momentGraphNamespacePrefix,
     batchSize,

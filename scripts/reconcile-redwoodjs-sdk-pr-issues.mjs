@@ -8,6 +8,7 @@ function parseArgs(argv) {
     maxNumbers: null,
     maxLoops: 10_000,
     sleepMs: 250,
+    scope: "all",
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -47,6 +48,10 @@ function parseArgs(argv) {
     if (a === "--sleep-ms") {
       args.sleepMs = Number(argv[i + 1] ?? args.sleepMs);
       i++;
+      continue;
+    }
+    if (a === "--moments-only") {
+      args.scope = "moments";
       continue;
     }
   }
@@ -115,6 +120,7 @@ async function main() {
     const payload = {
       dryRun: args.dryRun,
       batchSize: args.batchSize,
+      scope: args.scope,
     };
     if (args.maxNumbers !== null) {
       payload.maxNumbers = args.maxNumbers;

@@ -1218,12 +1218,16 @@ async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
       ? Math.floor(Number(batchSizeRaw))
       : null;
 
+  const scopeRaw = body?.scope;
+  const scope = scopeRaw === "moments" ? "moments" : "all";
+
   console.log("[admin:reconcile-redwoodjs-sdk] start", {
     dryRun,
     momentGraphNamespace: effectiveNamespace ?? null,
     momentGraphNamespacePrefix,
     maxNumbers,
     batchSize,
+    scope,
   });
 
   const result = await reconcileRedwoodSdkPrsAndIssues({
@@ -1232,6 +1236,7 @@ async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
     momentGraphNamespacePrefix,
     maxNumbers,
     batchSize,
+    scope,
   });
 
   console.log("[admin:reconcile-redwoodjs-sdk] done", {

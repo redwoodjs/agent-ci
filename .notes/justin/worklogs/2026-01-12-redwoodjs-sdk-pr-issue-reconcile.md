@@ -53,3 +53,9 @@ Change:
 - scan moment graph tables for redwoodjs/sdk latest.json document ids (moments, micro moments, micro batches, document audit logs)
 - compute mismatches from these references using GitHub classification and apply the same mapping updates
 - update replay item payload_json to rewrite document.id and document.type (issue vs pull-request) to match the corrected path
+
+## Added a moments-only scope for reconcile
+
+During replay, the fastest path is to update the moment graph document ids first and defer R2/indexing-state cleanup.
+
+I added a scope flag so the reconcile endpoint can run in a mode that only updates the moment graph DB, avoiding R2 object moves and indexing-state mutations.

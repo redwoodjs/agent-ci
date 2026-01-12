@@ -87,3 +87,9 @@ I added a replay run events log persisted in the indexing state DB. The replay w
 - restart(clear output) deletion and enqueue
 
 This gives a place in the audit UI to see whether the next replay job was enqueued and why replay stopped.
+
+## Tightened "stuck" warning to avoid false positives during normal queue consumption
+
+The UI warning "replaying with pending items but no replay job is enqueued" can be true transiently while a worker is actively processing a batch (it clears replay_enqueued at start, and sets it again only when enqueueing the next message).
+
+I changed the warning to only show when last progress is stale (a few minutes old), and to point to the replay events list as the primary source of truth for what happened.

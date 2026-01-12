@@ -1202,11 +1202,20 @@ async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
       ? Math.floor(Number(maxNumbersRaw))
       : null;
 
+  const batchSizeRaw = body?.batchSize ?? body?.limit ?? (body as any)?.maxMismatches;
+  const batchSize =
+    typeof batchSizeRaw === "number" && Number.isFinite(batchSizeRaw)
+      ? Math.floor(batchSizeRaw)
+      : typeof batchSizeRaw === "string" && Number.isFinite(Number(batchSizeRaw))
+      ? Math.floor(Number(batchSizeRaw))
+      : null;
+
   console.log("[admin:reconcile-redwoodjs-sdk] start", {
     dryRun,
     momentGraphNamespace: effectiveNamespace ?? null,
     momentGraphNamespacePrefix,
     maxNumbers,
+    batchSize,
   });
 
   const result = await reconcileRedwoodSdkPrsAndIssues({
@@ -1214,6 +1223,7 @@ async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
     momentGraphNamespace: effectiveNamespace ?? null,
     momentGraphNamespacePrefix,
     maxNumbers,
+    batchSize,
   });
 
   console.log("[admin:reconcile-redwoodjs-sdk] done", {

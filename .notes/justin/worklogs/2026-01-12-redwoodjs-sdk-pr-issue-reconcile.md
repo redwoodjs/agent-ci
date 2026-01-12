@@ -28,3 +28,15 @@ It:
 - supports dryRun (default true) vs apply
 
 I also updated the GitHub backfill scheduler to skip items from the issues endpoint that are actually pull requests.
+
+## Apply run hit Cloudflare API-request cap
+
+I tried running the reconcile endpoint with dryRun=false (apply mode) without limiting scope.
+
+The request failed with Cloudflare error code 1101, and the worker logs show the underlying exception:
+
+- Error: Too many API requests by single worker invocation.
+
+This makes sense because apply mode currently iterates every mismatch and does multiple R2 operations per object (list, get, put, delete), plus DB updates.
+
+Next change: make the endpoint process mismatches in bounded batches (batchSize) so a local script can loop until the mismatch count reaches 0.

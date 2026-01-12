@@ -699,6 +699,45 @@ export const timelineFitLinkerPlugin: Plugin = {
           ? (anchorTokens.parentSample as string[])
           : [];
 
+        const explicitIssueRefMatch =
+          (entry.decision as any)?.explicitIssueRefMatch === true;
+        if (explicitIssueRefMatch) {
+          entry.decision.chosen = true;
+          entry.decision.chosenMethod = "explicit-issue-ref";
+          entry.decision.timelineFitAnswer = null;
+          entry.decision.timelineFitJson = null;
+          entry.decision.timelineFitAllowed = true;
+
+          console.log("[moment-linker] timeline fit linker chose attachment", {
+            documentId: document.id,
+            macroMomentIndex,
+            matchedSubjectId: subject.id,
+            score,
+            parentMomentId,
+            subjectTitle: subject.title,
+            subjectDocumentId: subject.documentId,
+            subjectSourceRank: entry.rank,
+            childStartMs,
+            parentStartMs: entry.parentStartMs,
+            parentEndMs: entry.parentEndMs,
+            method: "explicit-issue-ref",
+          });
+
+          auditLog.outcome = {
+            attached: true,
+            method: "explicit-issue-ref",
+            parentMomentId,
+            matchedSubjectId: subject.id,
+            score,
+          };
+          return {
+            parentMomentId,
+            matchedSubjectId: subject.id,
+            score,
+            auditLog,
+          };
+        }
+
         const vetoPrompt = `You are a knowledge graph timeline fit checker.
 Your job is to decide whether a proposed moment belongs in a candidate timeline.
 
@@ -751,6 +790,7 @@ Output schema:
 
         let vetoAnswer: string | null = null;
         let vetoJson: any = null;
+        let vetoError: string | null = null;
         try {
           const llmResult = await callLLM(vetoPrompt, "slow-reasoning", {
             temperature: 0,
@@ -764,6 +804,7 @@ Output schema:
           }
         } catch (err) {
           console.error("[moment-linker] LLM veto check failed", err);
+          vetoError = err instanceof Error ? err.message : String(err);
         }
 
         const decisionValue =
@@ -775,6 +816,7 @@ Output schema:
         entry.decision.timelineFitAnswer = vetoAnswer;
         entry.decision.timelineFitJson = vetoJson;
         entry.decision.timelineFitAllowed = allowed;
+        entry.decision.timelineFitError = vetoError;
 
         console.log(
           "[moment-linker] timeline fit linker timeline fit decision",
@@ -790,7 +832,8 @@ Output schema:
         );
 
         if (!allowed) {
-          entry.decision.rejectReason = "llm-timeline-fit";
+          entry.decision.rejectReason =
+            vetoError && !vetoAnswer ? "llm-error" : "llm-timeline-fit";
           continue;
         }
 

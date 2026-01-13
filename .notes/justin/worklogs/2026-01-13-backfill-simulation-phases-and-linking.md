@@ -846,3 +846,8 @@ Implemented the first slice of this:
 
 - added a Phase E core helper that computes deterministic parent proposals and decision evidence
 - refactored the simulation deterministic_linking phase to call the core while keeping DB and moment graph writes in the simulation layer
+
+Continued Step 5:
+
+- added a Phase F core helper that filters and caps candidate matches into a persisted candidate list
+- refactored the simulation candidate_sets phase to call the core while keeping vector retrieval and DB writes in the simulation layer

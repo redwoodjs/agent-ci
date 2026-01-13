@@ -6,6 +6,7 @@ import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { getMomentGraphDb } from "../db";
 import { getEmbedding } from "../../utils/vector";
+import { buildCandidateSet } from "../../phaseCores/candidate_sets_core";
 
 function parseTimeMs(value: unknown): number | null {
   if (typeof value !== "string") {
@@ -221,48 +222,18 @@ export async function runPhaseCandidateSets(
           sourceMetadata: childRow.source_metadata ?? undefined,
         }) ?? null;
 
-      const candidates: any[] = [];
-      for (const match of results?.matches ?? []) {
-        const id = typeof match?.id === "string" ? match.id : null;
-        if (!id) {
-          continue;
-        }
-        if (id === childMomentId) {
-          continue;
-        }
-        const row = byId.get(id);
-        if (!row) {
-          continue;
-        }
-        const sameDoc = row.document_id === childRow.document_id;
-        if (sameDoc) {
-          continue;
-        }
-        const parentStartMs =
-          computeMomentStartMs({
-            createdAt: row.created_at,
-            sourceMetadata: row.source_metadata ?? undefined,
-          }) ?? null;
-        const inverted =
-          childStartMs !== null &&
-          parentStartMs !== null &&
-          parentStartMs > childStartMs;
-        if (inverted) {
-          continue;
-        }
-
-        candidates.push({
-          id,
-          score: typeof match?.score === "number" ? match.score : null,
-          documentId: row.document_id,
-          title: row.title,
-          createdAt: row.created_at,
-        });
-
-        if (candidates.length >= maxCandidates) {
-          break;
-        }
-      }
+      const built = buildCandidateSet({
+        childMomentId,
+        childDocumentId: childRow.document_id,
+        childStartMs,
+        matches: (results?.matches ?? []).map((m: any) => ({
+          id: typeof m?.id === "string" ? m.id : "",
+          score: typeof m?.score === "number" ? m.score : null,
+        })),
+        candidateRowsById: byId as any,
+        maxCandidates,
+      });
+      const candidates = built.candidates;
 
       await db
         .insertInto("simulation_run_candidate_sets")
@@ -274,9 +245,8 @@ export async function runPhaseCandidateSets(
           macro_index: root.macro_index as any,
           candidates_json: JSON.stringify(candidates),
           stats_json: JSON.stringify({
-            maxCandidates,
+            ...built.stats,
             vectorTopK,
-            matchesSeen: Array.isArray(results?.matches) ? results.matches.length : 0,
           }),
           created_at: now,
           updated_at: now,
@@ -288,9 +258,8 @@ export async function runPhaseCandidateSets(
             macro_index: root.macro_index as any,
             candidates_json: JSON.stringify(candidates),
             stats_json: JSON.stringify({
-              maxCandidates,
+              ...built.stats,
               vectorTopK,
-              matchesSeen: Array.isArray(results?.matches) ? results.matches.length : 0,
             }),
             updated_at: now,
           } as any)

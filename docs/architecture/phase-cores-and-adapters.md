@@ -66,3 +66,62 @@ Before and during extraction, verify that simulation writes the same fields in t
 - link audit logs
 - time range metadata used by time ordering guards
 
+## Rollout continuation: Phase E deterministic_linking core
+
+After Phase A 'changed' meaning is converged and B/C/D cores are shared, extract a core for deterministic_linking (Phase E).
+
+### Inputs
+
+- child moment identity (id, document id, createdAt, effective namespace)
+- local stream context (previous moment id in stream, stream id, macro index)
+- extracted anchor tokens for the child moment (from macro synthesis)
+- optional candidate parent hints (for example, explicit references)
+- a small, injected query surface for lookups needed by deterministic rules (for example, resolving a referenced parent id)
+
+### Outputs
+
+- a deterministic decision per moment:
+  - attach (chosen parent id)
+  - reject (reason and evidence)
+  - skip (already linked or not eligible)
+- structured events suitable for run-scoped audit logging and for document audit logs in live
+
+### Invariants enforced by the core
+
+- do not create cross-namespace links
+- do not attach to a parent that is later than the child
+- do not create cycles
+
+### Adapter responsibilities
+
+- simulation adapter reads materialized moments and prior decisions, applies the attachment to the moment graph, and persists the decision artifacts
+- live adapter uses the same core to decide how to attach root moments during indexing, and writes comparable link audit payloads
+
+## Rollout continuation: Phase F candidate_sets core
+
+After Phase E proposal logic is shared, extract a core for candidate_sets (Phase F).
+
+The goal is to converge the deterministic filtering and capping rules for candidate parents, independent of how candidates are retrieved.
+
+### Inputs
+
+- child moment identity and time metadata
+- a list of candidate matches (ids + scores) from a retrieval adapter
+- candidate moment rows (id, document id, createdAt, source metadata, title/summary) loaded by the adapter
+- candidate caps and time ordering guard configuration
+
+### Outputs
+
+- ordered candidate list (bounded)
+- stats payload for audit logging (counts, cap values, stop reason)
+
+### Invariants enforced by the core
+
+- do not include the child itself
+- do not include candidates from the same document
+- do not include candidates that are later than the child (time inversion guard)
+
+### Adapter responsibilities
+
+- simulation adapter performs embedding + vector retrieval and loads moment rows from the moment graph db, then persists the candidate list
+- live adapter later reuses the same core to filter/cap candidates produced by the live retrieval path, and writes comparable audit payloads

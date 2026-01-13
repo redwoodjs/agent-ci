@@ -186,7 +186,9 @@ export async function runPhaseDeterministicLinking(
         childMomentId,
         prevMomentId: prev,
         candidateParentMomentId,
-        candidateIssueRef: candidateIssueNumber ? `#${candidateIssueNumber}` : null,
+        candidateIssueRef: candidateIssueNumber
+          ? `#${candidateIssueNumber}`
+          : null,
         candidateParentR2Key,
       });
 
@@ -275,13 +277,19 @@ export async function runPhaseDeterministicLinking(
 
         await addMoment(withParent as any, momentGraphContext);
 
-        const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
+        const momentDb = getMomentGraphDb(
+          context.env,
+          effectiveNamespace ?? null
+        );
         const row2 = await momentDb
           .selectFrom("moments")
           .select(["parent_id"])
           .where("id", "=", childMomentId)
           .executeTakeFirst();
-        const actual = typeof (row2 as any)?.parent_id === "string" ? (row2 as any).parent_id : null;
+        const actual =
+          typeof (row2 as any)?.parent_id === "string"
+            ? (row2 as any).parent_id
+            : null;
 
         const ok = actual === proposal.proposedParentId;
         if (ok) {
@@ -392,4 +400,3 @@ export async function runPhaseDeterministicLinking(
 
   return { status: "running", currentPhase: nextPhase };
 }
-

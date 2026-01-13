@@ -792,3 +792,11 @@ Once B/C/D are shared and provenance is aligned:
 - Keep `pnpm -s test:simulation` green.
 - Add small targeted checks around identities (batch hash, micro stream hash, deterministic moment ids).
 - Use the audit UI drilldowns to compare provenance payloads between live and simulation for a sample run.
+
+## Step 2 (start): refactor simulation B/C/D into explicit adapters calling phase cores
+
+I want the simulation phase executors to read like adapters:
+
+- phase cores hold shared logic (identities and derivations)
+- simulation adapters handle DB reads/writes and per-item loops
+- phase executors do orchestration (phase start/end events, status transitions)

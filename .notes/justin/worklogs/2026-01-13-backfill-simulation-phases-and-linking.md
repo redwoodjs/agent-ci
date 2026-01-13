@@ -824,3 +824,25 @@ Step 4: converged the Phase A 'changed' meaning on etag comparisons via a shared
 
 - Added a shared isDocumentChangedByEtag helper outside simulationDb.
 - Simulation ingest_diff and the live scanner now both call the same helper when deciding whether a key is changed.
+
+Step 5 (start): extract Phase E core (deterministic_linking) so simulation and live can share the same deterministic linking logic.
+
+The current simulation deterministic_linking phase is already working end-to-end, but the logic is embedded in the simulation phase executor.
+
+Next attempt:
+
+- define a Phase E core module that takes in-memory moment/linking inputs and returns deterministic link decisions plus structured events
+- keep all simulation DB reads/writes in a simulation adapter
+- later, invoke the same core from live indexing when deciding how to attach root moments, so decision payload shapes converge
+
+Constraints I want to keep:
+
+- no cross-namespace links
+- no time inversion (parent must not be later than child)
+- avoid cycles
+- keep decisions and their evidence payloads stable enough to compare between live and simulation (provenance alignment)
+
+Implemented the first slice of this:
+
+- added a Phase E core helper that computes deterministic parent proposals and decision evidence
+- refactored the simulation deterministic_linking phase to call the core while keeping DB and moment graph writes in the simulation layer

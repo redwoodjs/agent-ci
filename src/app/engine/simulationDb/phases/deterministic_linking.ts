@@ -5,7 +5,7 @@ import { addSimulationRunEvent } from "../runEvents";
 import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { addMoment, getMoments } from "../../momentDb";
-import { getMomentGraphDb } from "../db";
+import { computeDeterministicLinkingProposal } from "../../phaseCores/deterministic_linking_core";
 
 function parseIssueRefs(tokens: unknown): string[] {
   if (!Array.isArray(tokens)) {
@@ -177,34 +177,21 @@ export async function runPhaseDeterministicLinking(
       const childMomentId = row.moment_id;
       const prev = i > 0 ? list[i - 1]?.moment_id ?? null : null;
 
-      const proposedParent =
-        macroIndex > 0
-          ? prev
-          : candidateParentMomentId && candidateParentMomentId !== childMomentId
-          ? candidateParentMomentId
-          : null;
-
       momentsProcessed++;
 
-      const evidence: Record<string, any> = {
-        phase: "deterministic_linking",
+      const proposal = computeDeterministicLinkingProposal({
         r2Key,
         streamId,
         macroIndex,
-        proposedParent,
-      };
-
-      let ruleId: string | null = null;
-      if (macroIndex > 0) {
-        ruleId = "within_stream_chain";
-      } else if (proposedParent) {
-        ruleId = "run_r2key_issue_ref";
-        evidence.issueRef = candidateIssueNumber ? `#${candidateIssueNumber}` : null;
-        evidence.matchedParentR2Key = candidateParentR2Key;
-      }
+        childMomentId,
+        prevMomentId: prev,
+        candidateParentMomentId,
+        candidateIssueRef: candidateIssueNumber ? `#${candidateIssueNumber}` : null,
+        candidateParentR2Key,
+      });
 
       try {
-        if (!proposedParent) {
+        if (!proposal.proposedParentId) {
           leftUnlinked++;
           await db
             .insertInto("simulation_run_link_decisions")
@@ -217,8 +204,8 @@ export async function runPhaseDeterministicLinking(
               phase: "deterministic_linking",
               outcome: "unlinked",
               parent_moment_id: null,
-              rule_id: ruleId,
-              evidence_json: JSON.stringify(evidence),
+              rule_id: proposal.ruleId,
+              evidence_json: JSON.stringify(proposal.evidence),
               created_at: now,
               updated_at: now,
             } as any)
@@ -230,8 +217,8 @@ export async function runPhaseDeterministicLinking(
                 phase: "deterministic_linking",
                 outcome: "unlinked",
                 parent_moment_id: null,
-                rule_id: ruleId,
-                evidence_json: JSON.stringify(evidence),
+                rule_id: proposal.ruleId,
+                evidence_json: JSON.stringify(proposal.evidence),
                 updated_at: now,
               } as any)
             )
@@ -242,7 +229,7 @@ export async function runPhaseDeterministicLinking(
         const child = momentsMap.get(childMomentId) ?? null;
         if (!child) {
           rejected++;
-          evidence.rejectReason = "missing-child-moment";
+          proposal.evidence.rejectReason = "missing-child-moment";
           await db
             .insertInto("simulation_run_link_decisions")
             .values({
@@ -254,8 +241,8 @@ export async function runPhaseDeterministicLinking(
               phase: "deterministic_linking",
               outcome: "rejected",
               parent_moment_id: null,
-              rule_id: ruleId,
-              evidence_json: JSON.stringify(evidence),
+              rule_id: proposal.ruleId,
+              evidence_json: JSON.stringify(proposal.evidence),
               created_at: now,
               updated_at: now,
             } as any)
@@ -267,8 +254,8 @@ export async function runPhaseDeterministicLinking(
                 phase: "deterministic_linking",
                 outcome: "rejected",
                 parent_moment_id: null,
-                rule_id: ruleId,
-                evidence_json: JSON.stringify(evidence),
+                rule_id: proposal.ruleId,
+                evidence_json: JSON.stringify(proposal.evidence),
                 updated_at: now,
               } as any)
             )
@@ -278,11 +265,11 @@ export async function runPhaseDeterministicLinking(
 
         const withParent = {
           ...child,
-          parentId: proposedParent,
+          parentId: proposal.proposedParentId,
           linkAuditLog: {
             kind: "simulation.deterministic_linking",
-            ruleId,
-            evidence,
+            ruleId: proposal.ruleId,
+            evidence: proposal.evidence,
           },
         };
 
@@ -296,12 +283,12 @@ export async function runPhaseDeterministicLinking(
           .executeTakeFirst();
         const actual = typeof (row2 as any)?.parent_id === "string" ? (row2 as any).parent_id : null;
 
-        const ok = actual === proposedParent;
+        const ok = actual === proposal.proposedParentId;
         if (ok) {
           attached++;
         } else {
           rejected++;
-          evidence.rejectReason = "write_rejected_by_moment_db";
+          proposal.evidence.rejectReason = "write_rejected_by_moment_db";
         }
 
         await db
@@ -314,9 +301,9 @@ export async function runPhaseDeterministicLinking(
             macro_index: macroIndex as any,
             phase: "deterministic_linking",
             outcome: ok ? "attached" : "rejected",
-            parent_moment_id: ok ? proposedParent : null,
-            rule_id: ruleId,
-            evidence_json: JSON.stringify(evidence),
+            parent_moment_id: ok ? proposal.proposedParentId : null,
+            rule_id: proposal.ruleId,
+            evidence_json: JSON.stringify(proposal.evidence),
             created_at: now,
             updated_at: now,
           } as any)
@@ -327,9 +314,9 @@ export async function runPhaseDeterministicLinking(
               macro_index: macroIndex as any,
               phase: "deterministic_linking",
               outcome: ok ? "attached" : "rejected",
-              parent_moment_id: ok ? proposedParent : null,
-              rule_id: ruleId,
-              evidence_json: JSON.stringify(evidence),
+              parent_moment_id: ok ? proposal.proposedParentId : null,
+              rule_id: proposal.ruleId,
+              evidence_json: JSON.stringify(proposal.evidence),
               updated_at: now,
             } as any)
           )

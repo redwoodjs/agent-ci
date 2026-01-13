@@ -613,3 +613,5 @@ Next change is a mechanical refactor:
 - avoid behavior changes while doing the split
 
 After the split, I reran the simulation test suite to check that behavior stayed the same.
+
+I’m doing another mechanical refactor: move only the simulation-related additions out of the engine routes and engine module into smaller files, then import them back in place. The goal is to keep the non-simulation code unchanged and keep behavior stable.

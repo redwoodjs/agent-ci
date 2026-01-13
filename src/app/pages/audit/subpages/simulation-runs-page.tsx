@@ -13,6 +13,7 @@ import {
   getSimulationRunEvents,
   getSimulationRunDocuments,
   getSimulationRunMicroBatches,
+  getSimulationRunMacroOutputs,
   simulationPhases,
 } from "@/app/engine/simulationDb";
 import { SimulationRunControls } from "./simulation-run-controls";
@@ -64,7 +65,11 @@ export function SimulationRunsPage({ request }: { request: Request }) {
       : null;
   const viewRaw = url.searchParams.get("view");
   const view =
-    viewRaw === "documents" || viewRaw === "micro-batches" ? viewRaw : null;
+    viewRaw === "documents" ||
+    viewRaw === "micro-batches" ||
+    viewRaw === "macro-outputs"
+      ? viewRaw
+      : null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -100,7 +105,7 @@ async function SimulationRunsContent({
   view,
 }: {
   runId: string | null;
-  view: "documents" | "micro-batches" | null;
+  view: "documents" | "micro-batches" | "macro-outputs" | null;
 }) {
   const envCloudflare = env as Cloudflare.Env;
   const context = { env: envCloudflare, momentGraphNamespace: null as any };
@@ -195,6 +200,9 @@ async function SimulationRunsContent({
   const microBatchesLink = `/audit/simulation?runId=${encodeURIComponent(
     runId
   )}&view=micro-batches`;
+  const macroOutputsLink = `/audit/simulation?runId=${encodeURIComponent(
+    runId
+  )}&view=macro-outputs`;
 
   return (
     <div className="space-y-4">
@@ -234,6 +242,12 @@ async function SimulationRunsContent({
             >
               Micro batches
             </a>
+            <a
+              className="text-sm text-blue-600 hover:underline"
+              href={macroOutputsLink}
+            >
+              Macro outputs
+            </a>
           </div>
         </CardContent>
       </Card>
@@ -242,6 +256,8 @@ async function SimulationRunsContent({
         <DocumentsCard runId={runId} />
       ) : view === "micro-batches" ? (
         <MicroBatchesCard runId={runId} />
+      ) : view === "macro-outputs" ? (
+        <MacroOutputsCard runId={runId} />
       ) : null}
 
       <Card>
@@ -361,3 +377,46 @@ async function MicroBatchesCard({ runId }: { runId: string }) {
   );
 }
 
+async function MacroOutputsCard({ runId }: { runId: string }) {
+  const envCloudflare = env as Cloudflare.Env;
+  const context = { env: envCloudflare, momentGraphNamespace: null as any };
+  const outputs = await getSimulationRunMacroOutputs(context, { runId });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Macro outputs</CardTitle>
+        <CardDescription>
+          Per-run macro synthesis outputs (streams + macro moments)
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {outputs.length === 0 ? (
+          <div className="text-sm text-gray-600">(none)</div>
+        ) : (
+          <div className="space-y-2">
+            {outputs.map((o) => (
+              <div key={o.r2Key} className="rounded border bg-white">
+                <div className="p-2">
+                  <div className="font-mono text-xs break-all">{o.r2Key}</div>
+                  <div className="text-xs text-gray-600 mt-1">
+                    stream_hash={o.microStreamHash.slice(0, 10)}… use_llm=
+                    {String(o.useLlm)}
+                  </div>
+                </div>
+                <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[40vh]">
+                  {safeStringify({
+                    gating: o.gating,
+                    anchors: o.anchors,
+                    streams: o.streams,
+                    audit: o.audit,
+                  })}
+                </pre>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

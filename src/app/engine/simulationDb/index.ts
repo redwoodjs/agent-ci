@@ -11,6 +11,7 @@ import {
   type Plugin,
 } from "../index";
 import { computeMicroMomentsForChunkBatch } from "../subjects/computeMicroMomentsForChunkBatch";
+import { synthesizeMicroMomentsIntoStreams } from "../synthesis/synthesizeMicroMoments";
 
 type SimulationDatabase = Database<typeof simulationStateMigrations>;
 
@@ -55,6 +56,18 @@ type SimulationMicroBatchCacheRow = Override<
   SimulationMicroBatchCacheInput,
   {
     micro_items_json: any;
+  }
+>;
+
+type SimulationRunMacroOutputInput =
+  SimulationDatabase["simulation_run_macro_outputs"];
+type SimulationRunMacroOutputRow = Override<
+  SimulationRunMacroOutputInput,
+  {
+    streams_json: any;
+    audit_json: any;
+    gating_json: any;
+    anchors_json: any;
   }
 >;
 
@@ -468,6 +481,62 @@ export async function getSimulationRunMicroBatches(
   }));
 }
 
+export async function getSimulationRunMacroOutputs(
+  context: SimulationDbContext,
+  input: { runId: string; r2Key?: string | null }
+): Promise<
+  Array<{
+    r2Key: string;
+    microStreamHash: string;
+    useLlm: boolean;
+    streams: any;
+    audit: any | null;
+    gating: any | null;
+    anchors: any | null;
+    createdAt: string;
+    updatedAt: string;
+  }>
+> {
+  const db = getSimulationDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return [];
+  }
+
+  const r2Key =
+    typeof input.r2Key === "string" && input.r2Key.trim().length > 0
+      ? input.r2Key.trim()
+      : null;
+
+  let q = db
+    .selectFrom("simulation_run_macro_outputs")
+    .selectAll()
+    .where("run_id", "=", runId);
+
+  if (r2Key) {
+    q = q.where("r2_key", "=", r2Key);
+  }
+
+  const rows = (await q
+    .orderBy("r2_key", "asc")
+    .execute()) as unknown as SimulationRunMacroOutputRow[];
+
+  return rows.map((r) => ({
+    r2Key: r.r2_key,
+    microStreamHash: (r as any).micro_stream_hash ?? "",
+    useLlm: Number((r as any).use_llm ?? 0) !== 0,
+    streams: (r as any).streams_json ?? [],
+    audit: (r as any).audit_json ?? null,
+    gating: (r as any).gating_json ?? null,
+    anchors: (r as any).anchors_json ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+}
+
 export async function setSimulationRunStatus(
   context: SimulationDbContext,
   input: { runId: string; status: SimulationRunStatus }
@@ -675,6 +744,13 @@ export async function advanceSimulationRunPhaseNoop(
 
     if (phase === "micro_batches") {
       return await runPhaseMicroBatches(context, {
+        runId,
+        phaseIdx,
+      });
+    }
+
+    if (phase === "macro_synthesis") {
+      return await runPhaseMacroSynthesis(context, {
         runId,
         phaseIdx,
       });
@@ -899,6 +975,50 @@ function computeMicroItemsWithoutLlm(batchChunks: Chunk[]): string[] {
     return items;
   }
   return ["(empty batch)"];
+}
+
+function extractAnchorTokens(text: string, maxTokens: number): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+
+  function add(token: string) {
+    const t = token.trim();
+    if (!t) {
+      return;
+    }
+    if (seen.has(t)) {
+      return;
+    }
+    seen.add(t);
+    out.push(t);
+  }
+
+  const canon = text.match(/mchn:\/\/[a-z]+\/[^\s)\]]+/g) ?? [];
+  for (const m of canon) {
+    add(m);
+    if (out.length >= maxTokens) {
+      return out;
+    }
+  }
+
+  const issueRefs = text.match(/#\d{2,6}/g) ?? [];
+  for (const m of issueRefs) {
+    add(m);
+    if (out.length >= maxTokens) {
+      return out;
+    }
+  }
+
+  const backtick = text.match(/`([^`]{1,80})`/g) ?? [];
+  for (const m of backtick) {
+    const inner = m.slice(1, -1);
+    add(inner);
+    if (out.length >= maxTokens) {
+      return out;
+    }
+  }
+
+  return out;
 }
 
 async function runPhaseMicroBatches(
@@ -1182,6 +1302,327 @@ async function runPhaseMicroBatches(
       .where("run_id", "=", input.runId)
       .execute();
     return { status: "completed", currentPhase: "micro_batches" };
+  }
+
+  await db
+    .updateTable("simulation_runs")
+    .set({
+      current_phase: nextPhase,
+      updated_at: now,
+      last_progress_at: now,
+    } as any)
+    .where("run_id", "=", input.runId)
+    .execute();
+
+  return { status: "running", currentPhase: nextPhase };
+}
+
+async function runPhaseMacroSynthesis(
+  context: SimulationDbContext,
+  input: { runId: string; phaseIdx: number }
+): Promise<{ status: string; currentPhase: string } | null> {
+  const db = getSimulationDb(context);
+  const now = new Date().toISOString();
+  const log = createSimulationRunLogger(context, { runId: input.runId });
+
+  const runRow = (await db
+    .selectFrom("simulation_runs")
+    .select(["config_json"])
+    .where("run_id", "=", input.runId)
+    .executeTakeFirst()) as unknown as { config_json: any } | undefined;
+
+  if (!runRow) {
+    return null;
+  }
+
+  const config = (runRow as any).config_json ?? {};
+  const r2KeysRaw = (config as any)?.r2Keys;
+  const r2Keys =
+    Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
+      ? (r2KeysRaw as string[])
+      : [];
+
+  const env = context.env;
+  const useLlm = String((env as any).SIMULATION_MACRO_USE_LLM ?? "") === "1";
+
+  await addSimulationRunEvent(context, {
+    runId: input.runId,
+    level: "info",
+    kind: "phase.start",
+    payload: { phase: "macro_synthesis", r2KeysCount: r2Keys.length, useLlm },
+  });
+
+  const engineContext = createEngineContext(env, "indexing");
+  const plugins = engineContext.plugins;
+
+  let docsProcessed = 0;
+  let docsReused = 0;
+  let docsSkippedUnchanged = 0;
+  let failed = 0;
+  let streamsProduced = 0;
+  let macroMomentsProduced = 0;
+
+  const failures: Array<{ r2Key: string; error: string }> = [];
+
+  for (const r2Key of r2Keys) {
+    const docState = (await db
+      .selectFrom("simulation_run_documents")
+      .select(["changed", "error_json"])
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", r2Key)
+      .executeTakeFirst()) as unknown as
+      | { changed: number; error_json: any }
+      | undefined;
+
+    const hadError = Boolean((docState as any)?.error_json);
+    const changedFlag = Number((docState as any)?.changed ?? 1) !== 0;
+
+    if (hadError) {
+      failed++;
+      failures.push({ r2Key, error: "ingest_diff error" });
+      continue;
+    }
+
+    if (!changedFlag) {
+      docsSkippedUnchanged++;
+      continue;
+    }
+
+    try {
+      const batches = (await db
+        .selectFrom("simulation_run_micro_batches")
+        .select(["batch_index", "batch_hash", "prompt_context_hash"])
+        .where("run_id", "=", input.runId)
+        .where("r2_key", "=", r2Key)
+        .orderBy("batch_index", "asc")
+        .execute()) as unknown as Array<{
+        batch_index: number;
+        batch_hash: string;
+        prompt_context_hash: string;
+      }>;
+
+      const identityParts = batches.map(
+        (b) => `${b.batch_hash}:${b.prompt_context_hash}`
+      );
+      const microStreamHash = await sha256Hex(identityParts.join("\n"));
+
+      const existing = (await db
+        .selectFrom("simulation_run_macro_outputs")
+        .select(["micro_stream_hash"])
+        .where("run_id", "=", input.runId)
+        .where("r2_key", "=", r2Key)
+        .executeTakeFirst()) as unknown as
+        | { micro_stream_hash: string }
+        | undefined;
+
+      const prevHash =
+        typeof (existing as any)?.micro_stream_hash === "string"
+          ? (existing as any).micro_stream_hash
+          : null;
+
+      if (prevHash && prevHash === microStreamHash) {
+        docsReused++;
+        continue;
+      }
+
+      docsProcessed++;
+
+      const { document, indexingContext } = await prepareDocumentForR2Key(
+        r2Key,
+        env,
+        plugins
+      );
+
+      const macroPromptContext = await runFirstMatchHook(plugins, (plugin) =>
+        plugin.subjects?.getMacroSynthesisPromptContext?.(
+          document,
+          indexingContext
+        )
+      );
+
+      const microItems: Array<{
+        path: string;
+        summary: string;
+        createdAt: string;
+      }> = [];
+
+      for (let i = 0; i < batches.length; i++) {
+        const b = batches[i];
+        const cached = (await db
+          .selectFrom("simulation_micro_batch_cache")
+          .select(["micro_items_json"])
+          .where("batch_hash", "=", b.batch_hash)
+          .where("prompt_context_hash", "=", b.prompt_context_hash)
+          .executeTakeFirst()) as unknown as
+          | SimulationMicroBatchCacheRow
+          | undefined;
+        const items =
+          (cached as any)?.micro_items_json &&
+          Array.isArray((cached as any).micro_items_json)
+            ? ((cached as any).micro_items_json as any[])
+            : [];
+        const asStrings = items
+          .filter((x) => typeof x === "string")
+          .map((x) => (x as string).trim())
+          .filter(Boolean);
+        for (let j = 0; j < asStrings.length; j++) {
+          microItems.push({
+            path: `${r2Key}#${i}#${j}`,
+            summary: asStrings[j],
+            createdAt: now,
+          });
+        }
+      }
+
+      const auditEvents: any[] = [];
+
+      let streams: any[] = [];
+      if (useLlm) {
+        const llmStreams = await synthesizeMicroMomentsIntoStreams(
+          microItems.map((m) => ({ ...m } as any)),
+          {
+            macroSynthesisPromptContext: macroPromptContext ?? null,
+            auditSink: (event) => {
+              auditEvents.push(event);
+            },
+          }
+        );
+        streams = llmStreams;
+      } else {
+        const joined = microItems
+          .map((m) => m.summary)
+          .filter(Boolean)
+          .slice(0, 8)
+          .join(" ");
+        streams = [
+          {
+            streamId: "stream-1",
+            macroMoments: [
+              {
+                title: `Synthesis for ${document.id}`,
+                summary: joined || "(empty)",
+                microPaths: microItems.slice(0, 50).map((m) => m.path),
+                importance: 0.5,
+                createdAt: now,
+              },
+            ],
+          },
+        ];
+      }
+
+      const anchors: string[] = [];
+      for (const s of streams) {
+        const moments = Array.isArray((s as any).macroMoments)
+          ? ((s as any).macroMoments as any[])
+          : [];
+        for (const m of moments) {
+          const text = `${m.title ?? ""}\n${m.summary ?? ""}`.trim();
+          for (const tok of extractAnchorTokens(text, 25)) {
+            anchors.push(tok);
+          }
+        }
+      }
+
+      const gating = {
+        keptStreams: streams.length,
+        droppedStreams: 0,
+      };
+
+      streamsProduced += streams.length;
+      for (const s of streams) {
+        const mm = Array.isArray((s as any).macroMoments)
+          ? ((s as any).macroMoments as any[])
+          : [];
+        macroMomentsProduced += mm.length;
+      }
+
+      await db
+        .insertInto("simulation_run_macro_outputs")
+        .values({
+          run_id: input.runId,
+          r2_key: r2Key,
+          micro_stream_hash: microStreamHash,
+          use_llm: useLlm ? (1 as any) : (0 as any),
+          streams_json: JSON.stringify(streams),
+          audit_json:
+            auditEvents.length > 0 ? JSON.stringify(auditEvents) : null,
+          gating_json: JSON.stringify(gating),
+          anchors_json: JSON.stringify(anchors.slice(0, 200)),
+          created_at: now,
+          updated_at: now,
+        } as any)
+        .onConflict((oc) =>
+          oc.columns(["run_id", "r2_key"]).doUpdateSet({
+            micro_stream_hash: microStreamHash,
+            use_llm: useLlm ? (1 as any) : (0 as any),
+            streams_json: JSON.stringify(streams),
+            audit_json:
+              auditEvents.length > 0 ? JSON.stringify(auditEvents) : null,
+            gating_json: JSON.stringify(gating),
+            anchors_json: JSON.stringify(anchors.slice(0, 200)),
+            updated_at: now,
+          } as any)
+        )
+        .execute();
+    } catch (e) {
+      failed++;
+      const msg = e instanceof Error ? e.message : String(e);
+      failures.push({ r2Key, error: msg });
+      await log.error("item.error", {
+        phase: "macro_synthesis",
+        r2Key,
+        error: msg,
+      });
+    }
+  }
+
+  await addSimulationRunEvent(context, {
+    runId: input.runId,
+    level: failed > 0 ? "error" : "info",
+    kind: "phase.end",
+    payload: {
+      phase: "macro_synthesis",
+      useLlm,
+      r2KeysCount: r2Keys.length,
+      docsProcessed,
+      docsReused,
+      docsSkippedUnchanged,
+      streamsProduced,
+      macroMomentsProduced,
+      failed,
+    },
+  });
+
+  if (failed > 0) {
+    await db
+      .updateTable("simulation_runs")
+      .set({
+        status: "paused_on_error",
+        updated_at: now,
+        last_progress_at: now,
+        last_error_json: JSON.stringify({
+          message: "macro_synthesis failed for one or more documents",
+          failures,
+        }),
+      } as any)
+      .where("run_id", "=", input.runId)
+      .execute();
+
+    return { status: "paused_on_error", currentPhase: "macro_synthesis" };
+  }
+
+  const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
+  if (!nextPhase) {
+    await db
+      .updateTable("simulation_runs")
+      .set({
+        status: "completed",
+        updated_at: now,
+        last_progress_at: now,
+      } as any)
+      .where("run_id", "=", input.runId)
+      .execute();
+    return { status: "completed", currentPhase: "macro_synthesis" };
   }
 
   await db

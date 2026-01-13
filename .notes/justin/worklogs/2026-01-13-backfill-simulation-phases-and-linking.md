@@ -562,3 +562,16 @@ I ran:
 - `pnpm -s playwright:install`
 - `pnpm -s test:simulation:ui`
 - `pnpm -s test:simulation`
+
+## Implemented macro_synthesis phase
+
+I added a macro_synthesis phase that consumes micro batch results and persists per-run macro outputs for each document.
+
+Notes:
+
+- I reused the existing engine macro synthesis helper that can split micro moments into streams, but I kept LLM usage off by default. When `SIMULATION_MACRO_USE_LLM=1` is set, macro synthesis uses the LLM-based stream synthesis.
+- A per-document micro stream identity is computed from ordered (batch_hash, prompt_context_hash) pairs. When the identity matches a previously stored value for that run+document, macro_synthesis short-circuits and reuses the existing outputs.
+- Outputs are stored in a simulation DB table keyed by (run_id, r2_key), and include streams, a gating summary, an anchor token list, and optional synthesis audit events.
+- I added a macro outputs endpoint and surfaced it in the audit UI under the simulation run page.
+
+I added a phase test that runs ingest_diff -> micro_batches -> macro_synthesis, verifies the output exists, restarts from macro_synthesis, and verifies the micro stream identity is stable.

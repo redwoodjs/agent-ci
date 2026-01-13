@@ -122,5 +122,38 @@ export const simulationStateMigrations = {
       await db.schema.dropTable("simulation_run_micro_batches").execute();
     },
   },
+  "004_add_macro_synthesis": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_macro_outputs")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("r2_key", "text", (col) => col.notNull())
+          .addColumn("micro_stream_hash", "text", (col) => col.notNull())
+          .addColumn("use_llm", "integer", (col) => col.notNull())
+          .addColumn("streams_json", "text", (col) => col.notNull())
+          .addColumn("audit_json", "text")
+          .addColumn("gating_json", "text")
+          .addColumn("anchors_json", "text")
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_run_macro_outputs_pk", [
+            "run_id",
+            "r2_key",
+          ])
+          .execute(),
+        await db.schema
+          .createIndex("simulation_run_macro_outputs_run_idx")
+          .on("simulation_run_macro_outputs")
+          .columns(["run_id", "r2_key"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("simulation_run_macro_outputs").execute();
+    },
+  },
 } satisfies Migrations;
 

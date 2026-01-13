@@ -7,6 +7,7 @@ import { runPhaseIngestDiff } from "./phases/ingest_diff";
 import { runPhaseMicroBatches } from "./phases/micro_batches";
 import { runPhaseMacroSynthesis } from "./phases/macro_synthesis";
 import { runPhaseMaterializeMoments } from "./phases/materialize_moments";
+import { runPhaseDeterministicLinking } from "./phases/deterministic_linking";
 
 export async function advanceSimulationRunPhaseNoop(
   context: SimulationDbContext,
@@ -52,6 +53,9 @@ export async function advanceSimulationRunPhaseNoop(
     }
     if (phase === "materialize_moments") {
       return await runPhaseMaterializeMoments(context, { runId, phaseIdx });
+    }
+    if (phase === "deterministic_linking") {
+      return await runPhaseDeterministicLinking(context, { runId, phaseIdx });
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

@@ -189,23 +189,31 @@ export async function runPhaseMacroSynthesis(
         );
         streams = llmStreams;
       } else {
-        const joined = microItems
+        const summaries = microItems
           .map((m) => m.summary)
           .filter(Boolean)
-          .slice(0, 8)
-          .join(" ");
+          .slice(0, 24);
+        const groups: string[][] = [];
+        for (let i = 0; i < summaries.length; i += 8) {
+          groups.push(summaries.slice(i, i + 8));
+        }
+        const fallbackGroups = groups.length > 0 ? groups : [["(empty)"]];
+        while (fallbackGroups.length < 3) {
+          fallbackGroups.push(["(empty)"]);
+        }
+        const macroMoments = fallbackGroups.slice(0, 3).map((g, idx) => ({
+          title: `Synthesis for ${document.id} (${idx + 1})`,
+          summary: g.join(" ") || "(empty)",
+          microPaths: microItems
+            .slice(idx * 16, idx * 16 + 50)
+            .map((m) => m.path),
+          importance: 0.5,
+          createdAt: new Date(Date.parse(now) + idx * 60_000).toISOString(),
+        }));
         streams = [
           {
             streamId: "stream-1",
-            macroMoments: [
-              {
-                title: `Synthesis for ${document.id}`,
-                summary: joined || "(empty)",
-                microPaths: microItems.slice(0, 50).map((m) => m.path),
-                importance: 0.5,
-                createdAt: now,
-              },
-            ],
+            macroMoments,
           },
         ];
       }

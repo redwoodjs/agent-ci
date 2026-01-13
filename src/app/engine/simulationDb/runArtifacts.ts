@@ -5,6 +5,7 @@ import type {
   SimulationRunMicroBatchRow,
   SimulationRunMacroOutputRow,
   SimulationRunMaterializedMomentRow,
+  SimulationRunLinkDecisionRow,
   SimulationMicroBatchCacheRow,
 } from "./types";
 import { getSimulationDb, getMomentGraphDb } from "./db";
@@ -248,6 +249,68 @@ export async function getSimulationRunMaterializedMoments(
     macroIndex: Number((r as any).macro_index ?? 0),
     momentId: (r as any).moment_id,
     parentId: parentById.get((r as any).moment_id) ?? null,
+    createdAt: (r as any).created_at,
+    updatedAt: (r as any).updated_at,
+  }));
+}
+
+export async function getSimulationRunLinkDecisions(
+  context: SimulationDbContext,
+  input: { runId: string; r2Key?: string | null }
+): Promise<
+  Array<{
+    r2Key: string;
+    streamId: string;
+    macroIndex: number;
+    childMomentId: string;
+    parentMomentId: string | null;
+    phase: string;
+    outcome: string;
+    ruleId: string | null;
+    evidence: any | null;
+    createdAt: string;
+    updatedAt: string;
+  }>
+> {
+  const db = getSimulationDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return [];
+  }
+
+  const r2Key =
+    typeof input.r2Key === "string" && input.r2Key.trim().length > 0
+      ? input.r2Key.trim()
+      : null;
+
+  let q = db
+    .selectFrom("simulation_run_link_decisions")
+    .selectAll()
+    .where("run_id", "=", runId);
+
+  if (r2Key) {
+    q = q.where("r2_key", "=", r2Key);
+  }
+
+  const rows = (await q
+    .orderBy("r2_key", "asc")
+    .orderBy("stream_id", "asc")
+    .orderBy("macro_index", "asc")
+    .execute()) as unknown as SimulationRunLinkDecisionRow[];
+
+  return rows.map((r) => ({
+    r2Key: (r as any).r2_key,
+    streamId: (r as any).stream_id,
+    macroIndex: Number((r as any).macro_index ?? 0),
+    childMomentId: (r as any).child_moment_id,
+    parentMomentId: (r as any).parent_moment_id ?? null,
+    phase: (r as any).phase,
+    outcome: (r as any).outcome,
+    ruleId: typeof (r as any).rule_id === "string" ? (r as any).rule_id : null,
+    evidence: (r as any).evidence_json ?? null,
     createdAt: (r as any).created_at,
     updatedAt: (r as any).updated_at,
   }));

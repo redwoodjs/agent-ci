@@ -14,6 +14,7 @@ import {
   getSimulationRunDocuments,
   getSimulationRunMicroBatches,
   getSimulationRunMacroOutputs,
+  getSimulationRunLinkDecisions,
   simulationPhases,
 } from "@/app/engine/simulationDb";
 import { SimulationRunControls } from "./simulation-run-controls";
@@ -68,7 +69,8 @@ export function SimulationRunsPage({ request }: { request: Request }) {
     viewRaw === "documents" ||
     viewRaw === "micro-batches" ||
     viewRaw === "macro-outputs" ||
-    viewRaw === "materialized-moments"
+    viewRaw === "materialized-moments" ||
+    viewRaw === "link-decisions"
       ? viewRaw
       : null;
 
@@ -111,6 +113,7 @@ async function SimulationRunsContent({
     | "micro-batches"
     | "macro-outputs"
     | "materialized-moments"
+    | "link-decisions"
     | null;
 }) {
   const envCloudflare = env as Cloudflare.Env;
@@ -212,6 +215,9 @@ async function SimulationRunsContent({
   const materializedLink = `/audit/simulation?runId=${encodeURIComponent(
     runId
   )}&view=materialized-moments`;
+  const linkDecisionsLink = `/audit/simulation?runId=${encodeURIComponent(
+    runId
+  )}&view=link-decisions`;
 
   return (
     <div className="space-y-4">
@@ -263,6 +269,12 @@ async function SimulationRunsContent({
             >
               Materialized moments
             </a>
+            <a
+              className="text-sm text-blue-600 hover:underline"
+              href={linkDecisionsLink}
+            >
+              Link decisions
+            </a>
           </div>
         </CardContent>
       </Card>
@@ -275,6 +287,8 @@ async function SimulationRunsContent({
         <MacroOutputsCard runId={runId} />
       ) : view === "materialized-moments" ? (
         <MaterializedMomentsCard runId={runId} />
+      ) : view === "link-decisions" ? (
+        <LinkDecisionsCard runId={runId} />
       ) : null}
 
       <Card>
@@ -484,6 +498,54 @@ async function MaterializedMomentsCard({ runId }: { runId: string }) {
             {moments.length > 200 ? (
               <div className="text-xs text-gray-600">
                 Showing first 200 of {moments.length}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+async function LinkDecisionsCard({ runId }: { runId: string }) {
+  const envCloudflare = env as Cloudflare.Env;
+  const context = { env: envCloudflare, momentGraphNamespace: null as any };
+  const decisions = await getSimulationRunLinkDecisions(context, { runId });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Link decisions</CardTitle>
+        <CardDescription>Per-run deterministic_linking decisions</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {decisions.length === 0 ? (
+          <div className="text-sm text-gray-600">(none)</div>
+        ) : (
+          <div className="space-y-2">
+            {decisions.slice(0, 200).map((d: any) => (
+              <div
+                key={d.childMomentId}
+                className="p-2 rounded border bg-white"
+              >
+                <div className="font-mono text-xs break-all">
+                  {d.childMomentId}
+                </div>
+                <div className="text-xs text-gray-600 mt-1">
+                  r2Key={d.r2Key} stream={d.streamId} idx={String(d.macroIndex)} outcome=
+                  {d.outcome} parent={d.parentMomentId ?? "null"} rule=
+                  {d.ruleId ?? "null"}
+                </div>
+                {d.evidence ? (
+                  <pre className="text-xs bg-gray-50 border rounded p-2 mt-2 overflow-auto max-h-[30vh]">
+                    {safeStringify(d.evidence)}
+                  </pre>
+                ) : null}
+              </div>
+            ))}
+            {decisions.length > 200 ? (
+              <div className="text-xs text-gray-600">
+                Showing first 200 of {decisions.length}
               </div>
             ) : null}
           </div>

@@ -11,6 +11,7 @@ import {
   getSimulationRunMacroOutputs,
   getSimulationRunMaterializedMoments,
   getSimulationRunMicroBatches,
+  getSimulationRunLinkDecisions,
   pauseSimulationRunManual,
   restartSimulationRunFromPhase,
   resumeSimulationRun,
@@ -220,6 +221,31 @@ async function getSimulationRunMaterializedMomentsHandler({
   return Response.json({ moments });
 }
 
+async function getSimulationRunLinkDecisionsHandler({
+  params,
+  request,
+}: RequestInfo) {
+  const runIdRaw = (params as any)?.runId;
+  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
+  if (!runId) {
+    return Response.json({ error: "Missing runId" }, { status: 400 });
+  }
+
+  const url = new URL(request.url);
+  const r2KeyRaw = url.searchParams.get("r2Key");
+  const r2Key =
+    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
+      ? r2KeyRaw.trim()
+      : null;
+
+  const decisions = await getSimulationRunLinkDecisions(
+    { env: env as Cloudflare.Env, momentGraphNamespace: null },
+    { runId, r2Key }
+  );
+
+  return Response.json({ decisions });
+}
+
 async function pauseSimulationRunHandler({ request }: RequestInfo) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -346,6 +372,9 @@ export const simulationAdminRoutes = [
   }),
   route("/admin/simulation/run/:runId/materialized-moments", {
     get: [requireQueryApiKey, getSimulationRunMaterializedMomentsHandler],
+  }),
+  route("/admin/simulation/run/:runId/link-decisions", {
+    get: [requireQueryApiKey, getSimulationRunLinkDecisionsHandler],
   }),
   route("/admin/simulation/run/:runId/events", {
     get: [requireQueryApiKey, getSimulationRunEventsHandler],

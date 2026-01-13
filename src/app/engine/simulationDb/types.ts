@@ -98,3 +98,11 @@ export type SimulationRunMaterializedMomentRow = Override<
   {}
 >;
 
+type SimulationRunLinkDecisionInput =
+  SimulationDatabase["simulation_run_link_decisions"];
+export type SimulationRunLinkDecisionRow = Override<
+  SimulationRunLinkDecisionInput,
+  {
+    evidence_json: any;
+  }
+>;

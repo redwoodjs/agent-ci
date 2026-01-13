@@ -615,3 +615,29 @@ Next change is a mechanical refactor:
 After the split, I reran the simulation test suite to check that behavior stayed the same.
 
 I’m doing another mechanical refactor: move only the simulation-related additions out of the engine routes and engine module into smaller files, then import them back in place. The goal is to keep the non-simulation code unchanged and keep behavior stable.
+
+## Next attempt: finish simulation linking phases before unifying live and simulation pipelines
+
+I want to finish the remaining simulation phases (deterministic_linking, candidate_sets, timeline_fit) before trying to unify the live indexing path and the simulation runner.
+
+The duplication concern is mostly about control-flow and caching semantics drifting between live and simulation. Sharing helpers reduces some drift, but it still leaves two separate pipelines that can diverge in what they consider "changed", what they cache, and how they handle errors.
+
+The direction I want to try after phases E-G exist:
+
+- Split each phase into a "phase core" (pure-ish computation that returns outputs + structured events) and a "phase storage adapter" (reads prior outputs, writes next outputs).
+- Simulation runner becomes (storage adapter + phase core) with persisted artifacts and restart semantics.
+- Live indexing can invoke the same phase cores for a single document/event using a minimal adapter (in-memory where possible, moment DB writes where required).
+
+For now, I want the simulation phases to use the existing plugin surface (proposeMacroMomentParent and the timeline-fit linker) and persist artifacts so phase boundaries are restartable and inspectable in the audit UI.
+
+Decision: core-authoritative identities
+
+For the later unification work (phase core + storage adapters), I want the phase core to define the input identity for reuse. The adapters can store that identity (or not), but they should not invent a different definition of "same inputs".
+
+This likely means live indexing will sometimes recompute identities and intermediate values that it could otherwise skip. I think that is acceptable while converging the two pipelines, because it reduces drift where live and simulation disagree about whether a document changed or whether an output can be reused.
+
+## Starting deterministic_linking (Step 7)
+
+The next planned step is deterministic_linking. This needs persisted artifacts (decisions, rejects, and chosen parent ids) so it can be restarted and inspected in the audit UI, similar to how micro batch and macro outputs are persisted.
+
+I’m going to start by adding migrations and a phase executor wired into the runner, then implement a small set of deterministic rules with validation checks (idempotency, time ordering, and no cycles).

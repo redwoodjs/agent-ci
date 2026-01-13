@@ -800,3 +800,9 @@ I want the simulation phase executors to read like adapters:
 - phase cores hold shared logic (identities and derivations)
 - simulation adapters handle DB reads/writes and per-item loops
 - phase executors do orchestration (phase start/end events, status transitions)
+
+## Step 3 (start): wire live indexing to call phase cores (B first)
+
+Next is to make the live indexing path invoke the same phase core logic, starting with Phase B planning (batch identity + prompt context).
+
+The intent is to reduce drift without changing live output shape. I’m starting by swapping the duplicated batch hashing and micro prompt context selection logic in the live path to call the Phase B core via a small live adapter module.

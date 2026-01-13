@@ -28,6 +28,8 @@ import {
 } from "./momentDb";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
+import { planIndexDocumentMicroBatches } from "./liveAdapters/indexDocument_micro_batches";
+import { computeMicroPathsHash } from "./phaseCores/materialize_moments_core";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,
@@ -49,14 +51,6 @@ async function hashChunkId(chunkId: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return hashHex.substring(0, 16);
-}
-
-async function hashMicroPaths(microPaths: string[]): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(microPaths.join("\n"));
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function hashStrings(values: string[]): Promise<string> {
@@ -358,13 +352,18 @@ export async function indexDocument(
       };
     }
 
-    for (let batchIndex = 0; batchIndex < chunkBatches.length; batchIndex++) {
-      const batchChunks = chunkBatches[batchIndex] ?? [];
-      const batchKeyParts = batchChunks.map((c) => {
-        const hash = c.contentHash ?? "";
-        return `${c.id}:${hash}`;
-      });
-      const batchHash = await hashStrings(batchKeyParts);
+    const plannedBatches = await planIndexDocumentMicroBatches({
+      document,
+      indexingContext,
+      plugins: context.plugins,
+      chunkBatches,
+      hashStrings,
+    });
+
+    for (const planned of plannedBatches) {
+      const batchIndex = planned.batchIndex;
+      const batchChunks = planned.batchChunks;
+      const batchHash = planned.batchHash;
       const prefix = `chunk-batch:${batchHash}:`;
 
       const existingBatchItems = existingMicroMoments
@@ -387,21 +386,7 @@ export async function indexDocument(
         continue;
       }
 
-      const microPromptContext = await runFirstMatchHook(
-        context.plugins,
-        "getMicroMomentBatchPromptContext",
-        (plugin) =>
-          plugin.subjects?.getMicroMomentBatchPromptContext?.(
-            document,
-            batchChunks,
-            indexingContext
-          )
-      );
-
-      const promptContext =
-        microPromptContext ??
-        `Context: These chunks are from a single document.\n` +
-          `Focus on concrete details and avoid generic summaries.\n`;
+      const promptContext = planned.promptContext;
 
       let computedItems: string[] = [];
       try {
@@ -1089,10 +1074,14 @@ export async function indexDocument(
             }
 
             const microPaths = description.microPaths || [];
-            const microPathsHash =
+            const microPathsHashRaw =
               microPaths.length > 0
-                ? await hashMicroPaths(microPaths)
-                : undefined;
+                ? await computeMicroPathsHash({
+                    microPaths,
+                    sha256Hex: async (value) => await hashStrings([value]),
+                  })
+                : null;
+            const microPathsHash = microPathsHashRaw ?? undefined;
             const existing =
               microPathsHash !== undefined
                 ? await findMomentByMicroPathsHash(

@@ -601,3 +601,13 @@ I added:
 - `GET /admin/simulation/run/:runId/materialized-moments`
 - an audit UI drilldown for “Materialized moments”
 - a phase test that checks moments exist, parents are null, and reruns are idempotent.
+
+## Refactor: split simulationDb/index.ts
+
+The simulation state code is now large enough that it’s hard to navigate and hard to see phase boundaries and shared utilities.
+
+Next change is a mechanical refactor:
+
+- split the simulation DB code into separate modules (runs/events/phases/utils/db)
+- keep the public exports stable so routes, UI, and tests don’t need a large diff
+- avoid behavior changes while doing the split

@@ -456,7 +456,7 @@ I added a suite test `tests/simulation/micro_batches.test.mjs` that verifies the
 
 #### Step 1 - Write the structure (no real behavior yet)
 - **Deliverable**: a short architecture note that defines:
-  - phases A-G (or A-H) and their inputs/outputs
+   - phases (semantic ids) and their inputs/outputs
   - persisted artifact keys (what identifies “same inputs”)
   - run state model (phase cursor, statuses, restart semantics)
   - invariants + what each phase must log/record
@@ -469,35 +469,35 @@ I added a suite test `tests/simulation/micro_batches.test.mjs` that verifies the
   - run can be resumed/restarted at a phase boundary
   - logs show phase transitions and reasons for stopping
 
-#### Step 3 - Implement Phase A, then validate
-- **Phase A validation**:
+ #### Step 3 - Implement ingest_diff, then validate
+ - **ingest_diff validation**:
   - deterministic diff identity recorded
   - rerun with unchanged inputs yields “no changes” and does not enqueue downstream work
 
-#### Step 4 - Implement Phase B, then validate
-- **Phase B validation**:
+ #### Step 4 - Implement micro_batches, then validate
+ - **micro_batches validation**:
   - batch hashes exist
   - rerun hits cache (batch recompute count near zero)
   - bounded batch sizes
 
-#### Step 5 - Implement Phase C, then validate
-- **Phase C validation**:
+ #### Step 5 - Implement macro_synthesis, then validate
+ - **macro_synthesis validation**:
   - macro outputs + gating + audit logs exist for each doc/stream
   - rerun does not redo macro work if micro stream identity unchanged
   - anchors (since we’re bundling) are present in macro outputs
 
-#### Step 6 - Implement Phase D (“moments exist”), then validate
-- **Phase D validation**:
+ #### Step 6 - Implement materialize_moments (“moments exist”), then validate
+ - **materialize_moments validation**:
   - moments visible without cross-doc linking
   - stable ids + timestamps
   - rerun is idempotent (no duplicates)
 
-#### Step 7 - Implement Phase E (deterministic linking), then validate
-- **Phase E validation**:
+ #### Step 7 - Implement deterministic_linking, then validate
+ - **deterministic_linking validation**:
   - deterministic rules attach expected anchor cases
   - time-order guard enforced (reject with reason)
   - decision records written
 
-#### Step 8 - Phase F then G (persist candidates, then timeline-fit), validate each
-- **Phase F validation**: candidate lists persisted and capped
-- **Phase G validation**: attach/reject decisions persisted; pause-on-error vs stall
+ #### Step 8 - Implement candidate_sets then timeline_fit, validate each
+ - **candidate_sets validation**: candidate lists persisted and capped
+ - **timeline_fit validation**: attach/reject decisions persisted; pause-on-error vs stall

@@ -3,6 +3,14 @@ import type { EngineSimulationStateDO } from "./durableObject";
 import { simulationStateMigrations } from "./migrations";
 import { qualifyName } from "../momentGraphNamespace";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
+import {
+  createEngineContext,
+  type Chunk,
+  type Document,
+  type IndexingHookContext,
+  type Plugin,
+} from "../index";
+import { computeMicroMomentsForChunkBatch } from "../subjects/computeMicroMomentsForChunkBatch";
 
 type SimulationDatabase = Database<typeof simulationStateMigrations>;
 
@@ -29,6 +37,24 @@ type SimulationRunDocumentRow = Override<
   SimulationRunDocumentInput,
   {
     error_json: any;
+  }
+>;
+
+type SimulationRunMicroBatchInput =
+  SimulationDatabase["simulation_run_micro_batches"];
+type SimulationRunMicroBatchRow = Override<
+  SimulationRunMicroBatchInput,
+  {
+    error_json: any;
+  }
+>;
+
+type SimulationMicroBatchCacheInput =
+  SimulationDatabase["simulation_micro_batch_cache"];
+type SimulationMicroBatchCacheRow = Override<
+  SimulationMicroBatchCacheInput,
+  {
+    micro_items_json: any;
   }
 >;
 
@@ -297,6 +323,61 @@ export async function getSimulationRunDocuments(
   }));
 }
 
+export async function getSimulationRunMicroBatches(
+  context: SimulationDbContext,
+  input: { runId: string; r2Key?: string | null }
+): Promise<
+  Array<{
+    r2Key: string;
+    batchIndex: number;
+    batchHash: string;
+    promptContextHash: string;
+    status: string;
+    error: any | null;
+    createdAt: string;
+    updatedAt: string;
+  }>
+> {
+  const db = getSimulationDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return [];
+  }
+
+  const r2Key =
+    typeof input.r2Key === "string" && input.r2Key.trim().length > 0
+      ? input.r2Key.trim()
+      : null;
+
+  let q = db
+    .selectFrom("simulation_run_micro_batches")
+    .selectAll()
+    .where("run_id", "=", runId);
+
+  if (r2Key) {
+    q = q.where("r2_key", "=", r2Key);
+  }
+
+  const rows = (await q
+    .orderBy("r2_key", "asc")
+    .orderBy("batch_index", "asc")
+    .execute()) as unknown as SimulationRunMicroBatchRow[];
+
+  return rows.map((r) => ({
+    r2Key: r.r2_key,
+    batchIndex: Number((r as any).batch_index ?? 0),
+    batchHash: r.batch_hash,
+    promptContextHash: r.prompt_context_hash,
+    status: r.status,
+    error: (r as any).error_json ?? null,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  }));
+}
+
 export async function setSimulationRunStatus(
   context: SimulationDbContext,
   input: { runId: string; status: SimulationRunStatus }
@@ -501,6 +582,13 @@ export async function advanceSimulationRunPhaseNoop(
     });
   }
 
+  if (phase === "micro_batches") {
+    return await runPhaseMicroBatches(context, {
+      runId,
+      phaseIdx,
+    });
+  }
+
   await addSimulationRunEvent(context, {
     runId,
     level: "info",
@@ -539,6 +627,450 @@ export async function advanceSimulationRunPhaseNoop(
       last_progress_at: now,
     } as any)
     .where("run_id", "=", runId)
+    .execute();
+
+  return { status: "running", currentPhase: nextPhase };
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function truncateToChars(text: string, maxChars: number): string {
+  if (maxChars <= 0) {
+    return "";
+  }
+  if (text.length <= maxChars) {
+    return text;
+  }
+  return text.slice(0, maxChars);
+}
+
+function chunkChunksForMicroComputation(
+  chunks: Chunk[],
+  opts: { maxBatchChars: number; maxChunkChars: number; maxBatchItems: number }
+): Chunk[][] {
+  const maxBatchChars =
+    Number.isFinite(opts.maxBatchChars) && opts.maxBatchChars > 0
+      ? opts.maxBatchChars
+      : 10_000;
+  const maxChunkChars =
+    Number.isFinite(opts.maxChunkChars) && opts.maxChunkChars > 0
+      ? opts.maxChunkChars
+      : 2_000;
+  const maxBatchItems =
+    Number.isFinite(opts.maxBatchItems) && opts.maxBatchItems > 0
+      ? opts.maxBatchItems
+      : 10;
+
+  const out: Chunk[][] = [];
+  let currentBatch: Chunk[] = [];
+  let currentChars = 0;
+
+  function flush() {
+    if (currentBatch.length > 0) {
+      out.push(currentBatch);
+      currentBatch = [];
+      currentChars = 0;
+    }
+  }
+
+  for (const chunk of chunks) {
+    const content = truncateToChars(chunk.content ?? "", maxChunkChars);
+    const projectedChars = currentChars + content.length;
+
+    if (
+      currentBatch.length > 0 &&
+      (currentBatch.length >= maxBatchItems || projectedChars > maxBatchChars)
+    ) {
+      flush();
+    }
+
+    currentBatch.push({
+      ...chunk,
+      content,
+    });
+    currentChars += content.length;
+
+    if (currentBatch.length >= maxBatchItems || currentChars > maxBatchChars) {
+      flush();
+    }
+  }
+
+  flush();
+  return out;
+}
+
+async function runFirstMatchHook<T>(
+  plugins: Plugin[],
+  fn: (plugin: Plugin) => Promise<T | null | undefined> | undefined
+): Promise<T | null> {
+  for (const plugin of plugins) {
+    const result = await fn(plugin);
+    if (result !== null && result !== undefined) {
+      return result;
+    }
+  }
+  return null;
+}
+
+async function prepareDocumentForR2Key(
+  r2Key: string,
+  env: Cloudflare.Env,
+  plugins: Plugin[]
+): Promise<{ document: Document; indexingContext: IndexingHookContext }> {
+  const indexingContext: IndexingHookContext = {
+    r2Key,
+    env,
+    momentGraphNamespace: null,
+    indexingMode: "indexing",
+  };
+
+  const document = await runFirstMatchHook(plugins, (plugin) =>
+    plugin.prepareSourceDocument?.(indexingContext)
+  );
+  if (!document) {
+    throw new Error("No plugin could prepare document");
+  }
+  return { document, indexingContext };
+}
+
+async function splitDocumentIntoChunks(
+  document: Document,
+  indexingContext: IndexingHookContext,
+  plugins: Plugin[]
+): Promise<Chunk[]> {
+  const chunks = await runFirstMatchHook(plugins, (plugin) =>
+    plugin.splitDocumentIntoChunks?.(document, indexingContext)
+  );
+  if (!chunks || chunks.length === 0) {
+    throw new Error("No plugin could split document into chunks");
+  }
+  return chunks;
+}
+
+async function getMicroPromptContext(
+  document: Document,
+  chunks: Chunk[],
+  indexingContext: IndexingHookContext,
+  plugins: Plugin[]
+): Promise<string> {
+  const microPromptContext = await runFirstMatchHook(plugins, (plugin) =>
+    plugin.subjects?.getMicroMomentBatchPromptContext?.(
+      document,
+      chunks,
+      indexingContext
+    )
+  );
+
+  return (
+    microPromptContext ??
+    `Context: These chunks are from a single document.\n` +
+      `Focus on concrete details and avoid generic summaries.\n`
+  );
+}
+
+function computeMicroItemsWithoutLlm(batchChunks: Chunk[]): string[] {
+  const items = batchChunks
+    .map((c) => (c.content ?? "").trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .map((c) => c.slice(0, 300));
+  if (items.length > 0) {
+    return items;
+  }
+  return ["(empty batch)"];
+}
+
+async function runPhaseMicroBatches(
+  context: SimulationDbContext,
+  input: { runId: string; phaseIdx: number }
+): Promise<{ status: string; currentPhase: string } | null> {
+  const db = getSimulationDb(context);
+  const now = new Date().toISOString();
+
+  const runRow = (await db
+    .selectFrom("simulation_runs")
+    .select(["config_json"])
+    .where("run_id", "=", input.runId)
+    .executeTakeFirst()) as unknown as { config_json: any } | undefined;
+
+  if (!runRow) {
+    return null;
+  }
+
+  const config = (runRow as any).config_json ?? {};
+  const r2KeysRaw = (config as any)?.r2Keys;
+  const r2Keys =
+    Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
+      ? (r2KeysRaw as string[])
+      : [];
+
+  await addSimulationRunEvent(context, {
+    runId: input.runId,
+    level: "info",
+    kind: "phase.start",
+    payload: { phase: "micro_batches", r2KeysCount: r2Keys.length },
+  });
+
+  const env = context.env;
+  const useLlm =
+    String((env as any).SIMULATION_MICRO_BATCH_USE_LLM ?? "") === "1";
+
+  const engineContext = createEngineContext(env, "indexing");
+  const plugins = engineContext.plugins;
+
+  let docsProcessed = 0;
+  let docsSkippedUnchanged = 0;
+  let batchesComputed = 0;
+  let batchesCached = 0;
+  let failed = 0;
+
+  const failures: Array<{ r2Key: string; error: string }> = [];
+
+  for (const r2Key of r2Keys) {
+    const docState = (await db
+      .selectFrom("simulation_run_documents")
+      .select(["changed", "error_json"])
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", r2Key)
+      .executeTakeFirst()) as unknown as
+      | { changed: number; error_json: any }
+      | undefined;
+
+    const hadError = Boolean((docState as any)?.error_json);
+    const changedFlag = Number((docState as any)?.changed ?? 1) !== 0;
+
+    if (hadError) {
+      failed++;
+      failures.push({ r2Key, error: "ingest_diff error" });
+      continue;
+    }
+
+    if (!changedFlag) {
+      docsSkippedUnchanged++;
+      continue;
+    }
+
+    docsProcessed++;
+
+    try {
+      const { document, indexingContext } = await prepareDocumentForR2Key(
+        r2Key,
+        env,
+        plugins
+      );
+      const chunks = await splitDocumentIntoChunks(
+        document,
+        indexingContext,
+        plugins
+      );
+
+      const chunkBatchSizeRaw = (env as any).MICRO_MOMENT_CHUNK_BATCH_SIZE;
+      const chunkBatchMaxCharsRaw = (env as any)
+        .MICRO_MOMENT_CHUNK_BATCH_MAX_CHARS;
+      const chunkMaxCharsRaw = (env as any).MICRO_MOMENT_CHUNK_MAX_CHARS;
+
+      const chunkBatchSize =
+        typeof chunkBatchSizeRaw === "string"
+          ? Number.parseInt(chunkBatchSizeRaw, 10)
+          : typeof chunkBatchSizeRaw === "number"
+          ? chunkBatchSizeRaw
+          : 10;
+      const chunkBatchMaxChars =
+        typeof chunkBatchMaxCharsRaw === "string"
+          ? Number.parseInt(chunkBatchMaxCharsRaw, 10)
+          : typeof chunkBatchMaxCharsRaw === "number"
+          ? chunkBatchMaxCharsRaw
+          : 10_000;
+      const chunkMaxChars =
+        typeof chunkMaxCharsRaw === "string"
+          ? Number.parseInt(chunkMaxCharsRaw, 10)
+          : typeof chunkMaxCharsRaw === "number"
+          ? chunkMaxCharsRaw
+          : 2_000;
+
+      const chunkBatches = chunkChunksForMicroComputation(chunks, {
+        maxBatchChars: chunkBatchMaxChars,
+        maxChunkChars: chunkMaxChars,
+        maxBatchItems: chunkBatchSize,
+      });
+
+      for (let batchIndex = 0; batchIndex < chunkBatches.length; batchIndex++) {
+        const batchChunks = chunkBatches[batchIndex] ?? [];
+        const batchKeyParts = batchChunks.map((c) => {
+          const hash = c.contentHash ?? "";
+          return `${c.id}:${hash}`;
+        });
+        const batchHash = await sha256Hex(batchKeyParts.join("\n"));
+
+        const promptContext = await getMicroPromptContext(
+          document,
+          batchChunks,
+          indexingContext,
+          plugins
+        );
+        const promptContextHash = await sha256Hex(promptContext);
+
+        const cached = (await db
+          .selectFrom("simulation_micro_batch_cache")
+          .select(["micro_items_json"])
+          .where("batch_hash", "=", batchHash)
+          .where("prompt_context_hash", "=", promptContextHash)
+          .executeTakeFirst()) as unknown as
+          | SimulationMicroBatchCacheRow
+          | undefined;
+
+        if (cached) {
+          batchesCached++;
+          await db
+            .insertInto("simulation_run_micro_batches")
+            .values({
+              run_id: input.runId,
+              r2_key: r2Key,
+              batch_index: batchIndex as any,
+              batch_hash: batchHash,
+              prompt_context_hash: promptContextHash,
+              status: "cached",
+              error_json: null,
+              created_at: now,
+              updated_at: now,
+            } as any)
+            .onConflict((oc) =>
+              oc.columns(["run_id", "r2_key", "batch_index"]).doUpdateSet({
+                batch_hash: batchHash,
+                prompt_context_hash: promptContextHash,
+                status: "cached",
+                error_json: null,
+                updated_at: now,
+              } as any)
+            )
+            .execute();
+          continue;
+        }
+
+        let microItems: string[] = [];
+        if (useLlm) {
+          microItems =
+            (await computeMicroMomentsForChunkBatch(batchChunks, {
+              promptContext,
+            })) ?? [];
+        }
+
+        if (microItems.length === 0) {
+          microItems = computeMicroItemsWithoutLlm(batchChunks);
+        }
+
+        await db
+          .insertInto("simulation_micro_batch_cache")
+          .values({
+            batch_hash: batchHash,
+            prompt_context_hash: promptContextHash,
+            micro_items_json: JSON.stringify(microItems),
+            created_at: now,
+            updated_at: now,
+          } as any)
+          .onConflict((oc) =>
+            oc.columns(["batch_hash", "prompt_context_hash"]).doUpdateSet({
+              micro_items_json: JSON.stringify(microItems),
+              updated_at: now,
+            } as any)
+          )
+          .execute();
+
+        batchesComputed++;
+
+        await db
+          .insertInto("simulation_run_micro_batches")
+          .values({
+            run_id: input.runId,
+            r2_key: r2Key,
+            batch_index: batchIndex as any,
+            batch_hash: batchHash,
+            prompt_context_hash: promptContextHash,
+            status: useLlm ? "computed_llm" : "computed_fallback",
+            error_json: null,
+            created_at: now,
+            updated_at: now,
+          } as any)
+          .onConflict((oc) =>
+            oc.columns(["run_id", "r2_key", "batch_index"]).doUpdateSet({
+              batch_hash: batchHash,
+              prompt_context_hash: promptContextHash,
+              status: useLlm ? "computed_llm" : "computed_fallback",
+              error_json: null,
+              updated_at: now,
+            } as any)
+          )
+          .execute();
+      }
+    } catch (e) {
+      failed++;
+      const msg = e instanceof Error ? e.message : String(e);
+      failures.push({ r2Key, error: msg });
+    }
+  }
+
+  await addSimulationRunEvent(context, {
+    runId: input.runId,
+    level: failed > 0 ? "error" : "info",
+    kind: "phase.end",
+    payload: {
+      phase: "micro_batches",
+      useLlm,
+      r2KeysCount: r2Keys.length,
+      docsProcessed,
+      docsSkippedUnchanged,
+      batchesComputed,
+      batchesCached,
+      failed,
+    },
+  });
+
+  if (failed > 0) {
+    await db
+      .updateTable("simulation_runs")
+      .set({
+        status: "paused_on_error",
+        updated_at: now,
+        last_progress_at: now,
+        last_error_json: JSON.stringify({
+          message: "micro_batches failed for one or more documents",
+          failures,
+        }),
+      } as any)
+      .where("run_id", "=", input.runId)
+      .execute();
+
+    return { status: "paused_on_error", currentPhase: "micro_batches" };
+  }
+
+  const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
+  if (!nextPhase) {
+    await db
+      .updateTable("simulation_runs")
+      .set({
+        status: "completed",
+        updated_at: now,
+        last_progress_at: now,
+      } as any)
+      .where("run_id", "=", input.runId)
+      .execute();
+    return { status: "completed", currentPhase: "micro_batches" };
+  }
+
+  await db
+    .updateTable("simulation_runs")
+    .set({
+      current_phase: nextPhase,
+      updated_at: now,
+      last_progress_at: now,
+    } as any)
+    .where("run_id", "=", input.runId)
     .execute();
 
   return { status: "running", currentPhase: nextPhase };

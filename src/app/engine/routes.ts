@@ -39,6 +39,7 @@ import {
   getSimulationRunById,
   getSimulationRunEvents,
   getSimulationRunDocuments,
+  getSimulationRunMicroBatches,
   pauseSimulationRunManual,
   restartSimulationRunFromPhase,
   resumeSimulationRun,
@@ -1470,6 +1471,31 @@ async function getSimulationRunDocumentsHandler({ params }: RequestInfo) {
   return Response.json({ documents });
 }
 
+async function getSimulationRunMicroBatchesHandler({
+  params,
+  request,
+}: RequestInfo) {
+  const runIdRaw = (params as any)?.runId;
+  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
+  if (!runId) {
+    return Response.json({ error: "Missing runId" }, { status: 400 });
+  }
+
+  const url = new URL(request.url);
+  const r2KeyRaw = url.searchParams.get("r2Key");
+  const r2Key =
+    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
+      ? r2KeyRaw.trim()
+      : null;
+
+  const batches = await getSimulationRunMicroBatches(
+    { env: env as Cloudflare.Env, momentGraphNamespace: null },
+    { runId, r2Key }
+  );
+
+  return Response.json({ batches });
+}
+
 async function pauseSimulationRunHandler({ request }: RequestInfo) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -1599,6 +1625,9 @@ export const routes = [
   }),
   route("/admin/simulation/run/:runId/documents", {
     get: [requireQueryApiKey, getSimulationRunDocumentsHandler],
+  }),
+  route("/admin/simulation/run/:runId/micro-batches", {
+    get: [requireQueryApiKey, getSimulationRunMicroBatchesHandler],
   }),
   route("/admin/simulation/run/:runId/events", {
     get: [requireQueryApiKey, getSimulationRunEventsHandler],

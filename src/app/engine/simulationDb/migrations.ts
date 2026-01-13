@@ -76,5 +76,51 @@ export const simulationStateMigrations = {
       await db.schema.dropTable("simulation_run_documents").execute();
     },
   },
+  "003_add_micro_batches": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_micro_batches")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("r2_key", "text", (col) => col.notNull())
+          .addColumn("batch_index", "integer", (col) => col.notNull())
+          .addColumn("batch_hash", "text", (col) => col.notNull())
+          .addColumn("prompt_context_hash", "text", (col) => col.notNull())
+          .addColumn("status", "text", (col) => col.notNull())
+          .addColumn("error_json", "text")
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_run_micro_batches_pk", [
+            "run_id",
+            "r2_key",
+            "batch_index",
+          ])
+          .execute(),
+        await db.schema
+          .createIndex("simulation_run_micro_batches_run_idx")
+          .on("simulation_run_micro_batches")
+          .columns(["run_id", "r2_key"])
+          .execute(),
+        await db.schema
+          .createTable("simulation_micro_batch_cache")
+          .addColumn("batch_hash", "text", (col) => col.notNull())
+          .addColumn("prompt_context_hash", "text", (col) => col.notNull())
+          .addColumn("micro_items_json", "text", (col) => col.notNull())
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_micro_batch_cache_pk", [
+            "batch_hash",
+            "prompt_context_hash",
+          ])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("simulation_micro_batch_cache").execute();
+      await db.schema.dropTable("simulation_run_micro_batches").execute();
+    },
+  },
 } satisfies Migrations;
 

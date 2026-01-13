@@ -439,5 +439,65 @@ And a Phase A acceptance test that runs against a dev server when an explicit ke
 
 I ran `pnpm test:all` with MACHINEN_TEST_R2_KEY set to a real key (github/redwoodjs/sdk/issues/552/latest.json). Contract + Phase A both passed.
 
+## Phase B (micro_batches) first cut
 
+I implemented a first cut of micro batch caching as the `micro_batches` phase:
 
+- Migration adds `simulation_run_micro_batches` (per-run mapping) and `simulation_micro_batch_cache` (global cache keyed by batch_hash + prompt_context_hash).
+- Advancing a run in `micro_batches` prepares the document via plugins, splits into chunks, groups chunks into bounded batches, computes a batch hash from chunk ids + content hashes, and writes per-run batch rows.
+- If a cache entry exists for the batch key, it marks the run batch row as cached.
+- If no cache entry exists, it writes a cache entry using a deterministic fallback summarization by default.
+- LLM summarization is behind `SIMULATION_MICRO_BATCH_USE_LLM=1` so tests can run without AI calls.
+- Added an endpoint to inspect per-run batches: GET `/admin/simulation/run/:runId/micro-batches` (optional r2Key query param).
+
+I added a suite test `tests/simulation/micro_batches.test.mjs` that verifies the cache reuse behavior without LLM.
+
+## Planned steps
+
+#### Step 1 - Write the structure (no real behavior yet)
+- **Deliverable**: a short architecture note that defines:
+  - phases A-G (or A-H) and their inputs/outputs
+  - persisted artifact keys (what identifies “same inputs”)
+  - run state model (phase cursor, statuses, restart semantics)
+  - invariants + what each phase must log/record
+- **Validation**: everyone can point at one place and agree “this is what a run is” (we mostly have this in the work log already, so this is mostly packaging + clarifying run-state semantics).
+
+#### Step 2 - Implement the runner skeleton (phases stubbed)
+- **Behavior**: can create a run, advance phase cursor, record per-phase start/end and basic telemetry, but phases can be placeholders.
+- **Validation**:
+  - run progresses deterministically through phases (even if phases do nothing)
+  - run can be resumed/restarted at a phase boundary
+  - logs show phase transitions and reasons for stopping
+
+#### Step 3 - Implement Phase A, then validate
+- **Phase A validation**:
+  - deterministic diff identity recorded
+  - rerun with unchanged inputs yields “no changes” and does not enqueue downstream work
+
+#### Step 4 - Implement Phase B, then validate
+- **Phase B validation**:
+  - batch hashes exist
+  - rerun hits cache (batch recompute count near zero)
+  - bounded batch sizes
+
+#### Step 5 - Implement Phase C, then validate
+- **Phase C validation**:
+  - macro outputs + gating + audit logs exist for each doc/stream
+  - rerun does not redo macro work if micro stream identity unchanged
+  - anchors (since we’re bundling) are present in macro outputs
+
+#### Step 6 - Implement Phase D (“moments exist”), then validate
+- **Phase D validation**:
+  - moments visible without cross-doc linking
+  - stable ids + timestamps
+  - rerun is idempotent (no duplicates)
+
+#### Step 7 - Implement Phase E (deterministic linking), then validate
+- **Phase E validation**:
+  - deterministic rules attach expected anchor cases
+  - time-order guard enforced (reject with reason)
+  - decision records written
+
+#### Step 8 - Phase F then G (persist candidates, then timeline-fit), validate each
+- **Phase F validation**: candidate lists persisted and capped
+- **Phase G validation**: attach/reject decisions persisted; pause-on-error vs stall

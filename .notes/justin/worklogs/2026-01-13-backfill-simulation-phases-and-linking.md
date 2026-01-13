@@ -398,5 +398,28 @@ Progress:
 - Added admin endpoints to start a simulation run, advance phases (no-op), and inspect run state and events.
 - Added pause/resume and restart-from-phase controls so we can validate phase-boundary semantics before implementing phase behavior.
 
+Acceptance check (local dev server):
+
+- Started `pnpm dev` (Vite on localhost:5173).
+- Created a simulation run via `/admin/simulation/run/start`.
+- Advanced phase once (A -> B).
+- Paused the run and confirmed advancing while paused does not change phase.
+- Resumed the run and advanced again (B -> C).
+- Restarted from phase A and confirmed run state reset to A.
+- Fetched events and confirmed it recorded phase start/end and pause/resume/restart events.
+
+Added a contract test for this:
+
+- `tests/simulation-runner.contract.test.mjs` (node:test + fetch)
+- `pnpm test:contract` runs it against a running dev server using MACHINEN_BASE_URL and MACHINEN_API_KEY env vars.
+
+Next:
+
+- Add a helper script that starts `pnpm dev` (if needed), waits for the local port, runs `pnpm test:contract`, then shuts `pnpm dev` down when done.
+
+Follow-up:
+
+- I switched `test:contract` to run the helper script. The helper script originally invoked `pnpm test:contract`, which caused it to call itself recursively. Fixed by calling `pnpm test:contract:raw` from the helper script.
+
 
 

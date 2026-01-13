@@ -17,6 +17,8 @@
     "worker:run": "rw-scripts worker-run",
     "clean": "npm run clean:vite",
     "clean:vite": "rm -rf ./node_modules/.vite",
+    "test:contract": "node scripts/test-contract-with-dev.mjs",
+    "test:contract:raw": "node --test tests/simulation-runner.contract.test.mjs",
     "release": "bash -c 'set -a && [ -f .dev.vars ] && source <(grep -v \"^#\" .dev.vars | grep \"=\") && set +a; rw-scripts ensure-deploy-env && npm run clean && RWSDK_DEPLOY=1 npm run build && wrangler deploy'",
     "release:prd": "CLOUDFLARE_ENV=production pnpm release",
     "generate": "rw-scripts ensure-env && wrangler types && npm run generate:discord-types",

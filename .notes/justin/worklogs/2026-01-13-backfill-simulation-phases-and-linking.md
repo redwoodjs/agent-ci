@@ -203,5 +203,102 @@ I do not want to assert every parent link. I want tests that detect shape breaka
 
 Anchor extraction could be its own deterministic phase between materialization and linking, but for now I want to keep it bundled with macro synthesis outputs in Phase C. This keeps the phase graph simpler while the bigger backfill/simulation shape is still in flux.
 
+## How enforcing invariants looks in practice (attempt)
+
+I want the invariants to be enforced by a mix of:
+
+- write-time guards (refuse invalid writes)
+- persisted keys (make recomputation and idempotency explicit)
+- phase-level validation (detect mismatches early and record them)
+- tests that check constraints instead of asserting every link
+
+### Idempotency
+
+What I want:
+
+- Each phase output is keyed by a stable input identity (document id + document hash, batch hash, micro stream hash, etc).
+- Writes are upserts keyed on that identity, not append-only.
+- Rerunning a phase with the same inputs should hit stored outputs and avoid recomputation.
+
+How it is enforced:
+
+- Persist the identity alongside outputs.
+- On phase start, check for an existing output with the same identity and reuse it.
+- If an output exists but does not match what the phase would produce, record a mismatch event and choose one behavior (recompute and overwrite, or fail fast).
+
+How it is tested:
+
+- Run A-G twice with no input changes and assert output counts/fingerprints do not change.
+- Track cache hit rates per phase and alert when hits drop unexpectedly.
+
+### Chronological ordering and no cycles
+
+What I want:
+
+- Parent time is never later than child time.
+- Links never create cycles.
+
+How it is enforced:
+
+- Before writing a parent link, validate parent_time <= child_time and parent_id != child_id.
+- Before writing, check that the proposed parent is not already a descendant of the child (bounded ancestry walk or an ancestry query).
+- On failure, leave the moment unlinked and record a deterministic reject reason.
+
+How it is tested:
+
+- Scan all stored links for time inversions.
+- Run a cycle detector over the stored graph (bounded per node).
+
+### Namespace and prefix scoping
+
+What I want:
+
+- Every read/write in a run is scoped to the same effective namespace (base namespace + prefix).
+- Links never cross namespaces.
+
+How it is enforced:
+
+- Resolve effective namespace once per phase invocation and pass it through explicitly.
+- Always include namespace in storage keys / query filters and maintain indexes so queries do not rely on post-filtering.
+- When linking, require parent and child to share the same effective namespace (deterministic reject otherwise).
+
+How it is tested:
+
+- Run the same corpus into two namespaces and assert no cross-namespace links.
+- Assert vector queries and DB queries return only the scoped namespace (not 'fetch-all then drop').
+
+### Bounded work
+
+What I want:
+
+- Stable caps on per-item work so slow cases do not block the entire run.
+
+How it is enforced:
+
+- Hard caps on candidate list sizes, chain context sizes, and retries.
+- Persist candidate lists so Phase G consumes only the bounded list produced by Phase F.
+- Backoff and pause on repeated failures rather than tight retry loops.
+
+How it is tested:
+
+- Assert candidate list sizes do not exceed caps.
+- Record per-phase budgets (model calls, vector queries, time spent) and compare against baselines for regressions.
+
+### Explainability
+
+What I want:
+
+- Every attach/reject has a recorded reason and inputs, so unexpected behavior can be inspected without reproducing runs.
+
+How it is enforced:
+
+- Deterministic linking writes a decision record including the rule id and evidence.
+- Timeline-fit writes per-candidate decision records including the bounded context inputs and the outcome.
+- Run telemetry records phase start/end, batch completion, item failures, and pause reasons.
+
+How it is tested:
+
+- For sampled moments, assert a decision record exists and references the inputs that were used.
+
 
 

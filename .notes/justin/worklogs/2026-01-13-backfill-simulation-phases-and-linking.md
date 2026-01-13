@@ -611,3 +611,5 @@ Next change is a mechanical refactor:
 - split the simulation DB code into separate modules (runs/events/phases/utils/db)
 - keep the public exports stable so routes, UI, and tests don’t need a large diff
 - avoid behavior changes while doing the split
+
+After the split, I reran the simulation test suite to check that behavior stayed the same.

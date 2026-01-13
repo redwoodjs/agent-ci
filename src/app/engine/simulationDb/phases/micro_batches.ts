@@ -14,6 +14,7 @@ import {
 } from "../phaseUtils";
 import { computeMicroMomentsForChunkBatch } from "../../subjects/computeMicroMomentsForChunkBatch";
 import type { SimulationMicroBatchCacheRow } from "../types";
+import { planMicroBatches } from "../../phaseCores/micro_batches_core";
 
 export async function runPhaseMicroBatches(
   context: SimulationDbContext,
@@ -129,21 +130,21 @@ export async function runPhaseMicroBatches(
         maxBatchItems: chunkBatchSize,
       });
 
-      for (let batchIndex = 0; batchIndex < chunkBatches.length; batchIndex++) {
-        const batchChunks = chunkBatches[batchIndex] ?? [];
-        const batchKeyParts = batchChunks.map((c) => {
-          const hash = c.contentHash ?? "";
-          return `${c.id}:${hash}`;
-        });
-        const batchHash = await sha256Hex(batchKeyParts.join("\n"));
+      const planned = await planMicroBatches({
+        document,
+        indexingContext,
+        plugins,
+        chunkBatches,
+        sha256Hex,
+        getMicroPromptContext,
+      });
 
-        const promptContext = await getMicroPromptContext(
-          document,
-          batchChunks,
-          indexingContext,
-          plugins
-        );
-        const promptContextHash = await sha256Hex(promptContext);
+      for (const p of planned) {
+        const batchIndex = p.batchIndex;
+        const batchHash = p.batchHash;
+        const promptContext = p.promptContext;
+        const promptContextHash = p.promptContextHash;
+        const batchChunks = p.chunks;
 
         const cached = (await db
           .selectFrom("simulation_micro_batch_cache")
@@ -309,4 +310,3 @@ export async function runPhaseMicroBatches(
 
   return { status: "running", currentPhase: nextPhase };
 }
-

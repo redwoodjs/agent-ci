@@ -10,6 +10,10 @@ import {
   sha256Hex,
 } from "../phaseUtils";
 import { synthesizeMicroMomentsIntoStreams } from "../../synthesis/synthesizeMicroMoments";
+import {
+  computeMicroStreamHash,
+  extractAnchorsFromStreams,
+} from "../../phaseCores/macro_synthesis_core";
 
 export async function runPhaseMacroSynthesis(
   context: SimulationDbContext,
@@ -97,7 +101,13 @@ export async function runPhaseMacroSynthesis(
       const identityParts = batches.map(
         (b) => `${b.batch_hash}:${b.prompt_context_hash}`
       );
-      const microStreamHash = await sha256Hex(identityParts.join("\n"));
+      const microStreamHash = await computeMicroStreamHash({
+        batches: batches.map((b) => ({
+          batchHash: b.batch_hash,
+          promptContextHash: b.prompt_context_hash,
+        })),
+        sha256Hex,
+      });
 
       const existing = (await db
         .selectFrom("simulation_run_macro_outputs")
@@ -218,18 +228,12 @@ export async function runPhaseMacroSynthesis(
         ];
       }
 
-      const anchors: string[] = [];
-      for (const s of streams) {
-        const moments = Array.isArray((s as any).macroMoments)
-          ? ((s as any).macroMoments as any[])
-          : [];
-        for (const m of moments) {
-          const text = `${m.title ?? ""}\n${m.summary ?? ""}`.trim();
-          for (const tok of extractAnchorTokens(text, 25)) {
-            anchors.push(tok);
-          }
-        }
-      }
+      const anchors = extractAnchorsFromStreams({
+        streams,
+        extractAnchorTokens,
+        maxTokensPerMoment: 25,
+        maxAnchors: 200,
+      });
 
       const gating = {
         keptStreams: streams.length,
@@ -254,7 +258,7 @@ export async function runPhaseMacroSynthesis(
           streams_json: JSON.stringify(streams),
           audit_json: auditEvents.length > 0 ? JSON.stringify(auditEvents) : null,
           gating_json: JSON.stringify(gating),
-          anchors_json: JSON.stringify(anchors.slice(0, 200)),
+          anchors_json: JSON.stringify(anchors),
           created_at: now,
           updated_at: now,
         } as any)
@@ -266,7 +270,7 @@ export async function runPhaseMacroSynthesis(
             audit_json:
               auditEvents.length > 0 ? JSON.stringify(auditEvents) : null,
             gating_json: JSON.stringify(gating),
-            anchors_json: JSON.stringify(anchors.slice(0, 200)),
+            anchors_json: JSON.stringify(anchors),
             updated_at: now,
           } as any)
         )

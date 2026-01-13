@@ -13,6 +13,10 @@ import {
   sha256Hex,
   uuidFromSha256Hex,
 } from "../phaseUtils";
+import {
+  computeMaterializedMomentIdentity,
+  computeMicroPathsHash,
+} from "../../phaseCores/materialize_moments_core";
 
 export async function runPhaseMaterializeMoments(
   context: SimulationDbContext,
@@ -172,22 +176,20 @@ export async function runPhaseMaterializeMoments(
           const microPaths = Array.isArray(m.microPaths)
             ? m.microPaths.filter((p: any) => typeof p === "string")
             : null;
-          const microPathsHash =
-            microPaths && microPaths.length > 0
-              ? await sha256Hex(microPaths.join("\n"))
-              : null;
+          const microPathsHash = await computeMicroPathsHash({
+            microPaths,
+            sha256Hex,
+          });
 
-          const rawId = await sha256Hex(
-            [
-              "simulation-materialize-moment",
-              input.runId,
-              effectiveNamespace ?? "",
-              document.id,
-              streamId,
-              String(i),
-            ].join("\n")
-          );
-          const momentId = uuidFromSha256Hex(rawId);
+          const { momentId } = await computeMaterializedMomentIdentity({
+            runId: input.runId,
+            effectiveNamespace: effectiveNamespace ?? null,
+            documentId: document.id,
+            streamId,
+            macroIndex: i,
+            sha256Hex,
+            uuidFromSha256Hex,
+          });
 
           await momentDb
             .insertInto("moments")

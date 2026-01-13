@@ -650,3 +650,145 @@ Next is candidate_sets and timeline_fit. I want these to be restartable and insp
 - timeline_fit persists per-candidate decisions and the chosen parent (if any)
 
 I’m going to implement these phases end-to-end (migrations, executors, admin endpoints, audit UI drilldowns, and tests).
+
+## Next refactor attempt: phase cores + storage adapters (live + simulation convergence)
+
+Now that phases A-G exist in simulation (with persisted artifacts and UI drilldowns), the next step is to converge live indexing and simulation onto the same phase logic so control-flow and caching semantics don’t drift.
+
+The shape I want to try:
+
+- Each phase becomes two layers:
+  - phase core: pure-ish computation that consumes in-memory inputs and returns outputs + structured events
+  - storage adapter: reads prior artifacts and writes outputs (simulation persists; live uses minimal persistence)
+
+Decision: core-authoritative identities
+
+- The phase core defines what "same inputs" means for reuse (the identity/fingerprint).
+- Adapters can store/read identities, but they should not invent a different definition.
+
+### Scope
+
+Start by converging phases A-D, then extend to E-G:
+
+- A-D are already largely per-document transforms.
+- E-G depend on cross-document reads, so they likely need slightly different adapters but can still share core logic for ranking/filtering and decision recording.
+
+### Proposed responsibilities
+
+Phase core:
+
+- computes input identity
+- computes outputs and structured events
+- does not directly read/write simulation tables
+
+Simulation adapter:
+
+- reads inputs from simulation tables
+- writes outputs to simulation tables
+- writes run-scoped events
+- advances run phase cursor
+
+Live adapter:
+
+- reads inputs from the live path (plugins + current stored moment graph state)
+- writes only what live already writes (moments, existing state like processed chunk hashes, document audit logs)
+- can keep intermediate values in memory for a single document/event
+
+### Rollout order (attempt)
+
+1. Extract phase A core: document prepare + chunk split + diff identity computation.
+   - Keep simulation ingest_diff behavior unchanged for now, but define a shared identity primitive to converge on later.
+2. Extract phase B core: chunk batching + micro prompt context + micro batch identity.
+3. Extract phase C core: micro stream identity + macro synthesis invocation + anchor extraction.
+4. Extract phase D core: deterministic moment id derivation + moment row upsert inputs.
+5. Extract phase E core: within-stream chaining + deterministic cross-doc attach rule evaluation (and structured decision outputs).
+6. Extract phase F core: candidate filtering + cap enforcement (inputs are vector matches + moment rows).
+7. Extract phase G core: decision application with bounded context (initially keep "choose top candidate" behavior, later adapt timeline-fit linker logic).
+
+### Validation
+
+- Simulation tests remain green (phase outputs and artifacts should remain stable).
+- Live indexing should still produce moments and links; for now it can recompute identities more often than before.
+- Run-scoped audit logging remains available for simulation runs.
+
+Reminder: provenance alignment
+
+When extracting phase cores and introducing live/simulation adapters, I want to keep provenance consistent with the live path.
+
+In particular, I want to verify:
+
+- what provenance fields are written into moment rows today (source metadata, document identifiers, time range metadata, link audit log payloads)
+- whether simulation writes the same fields in the same shape, or whether it diverges (especially in materialize_moments and the linking phases)
+- that the phase cores do not accidentally drop provenance, since the adapters will be reshuffling where data is computed vs persisted
+
+## Starting phase cores + adapters refactor
+
+I wrote `docs/architecture/phase-cores-and-adapters.md` to capture the refactor shape (phase cores + storage adapters, core-authoritative identities, and provenance checks).
+
+## Steps plan (core extraction + adapters)
+
+This is the concrete rollout I want to follow. The goal is to keep each step small, keep tests green, and avoid reintroducing large modules.
+
+### Step 0 - Provenance snapshot (before moving logic)
+
+- Identify the provenance fields written by the live path into:
+  - moment rows (document id, createdAt, author, micro paths, source metadata)
+  - link audit logs
+  - time range metadata used by time ordering guards
+- Compare with what simulation writes today for the same moments and links.
+- Decide what must be aligned as part of extraction (rather than leaving it as a later follow-up).
+
+### Step 1 - Create phase core modules (B/C/D first)
+
+Add a shared directory with separate files per phase core (no monolithic pipeline file).
+
+- Phase B core:
+  - inputs: chunks + prompt context + env caps
+  - identity: batch_hash + prompt_context_hash
+  - outputs: micro items (and any metadata needed downstream)
+- Phase C core:
+  - inputs: ordered micro batch outputs
+  - identity: micro stream hash
+  - outputs: streams, anchors, audit events, gating summary
+- Phase D core:
+  - inputs: macro outputs + document identity + namespace
+  - identity: deterministic moment ids derived from stable inputs
+  - outputs: moment write inputs (including provenance payloads)
+
+### Step 2 - Simulation phases call cores (behavior should remain stable)
+
+For each of B/C/D:
+
+- simulation adapter reads persisted inputs
+- calls core
+- persists outputs using existing tables
+- records run events as before
+
+### Step 3 - Live adapter invokes the same cores (B/C/D)
+
+Introduce a minimal live adapter that:
+
+- prepares inputs using existing live hooks (plugins + current stored state)
+- calls the same B/C/D cores
+- writes only what live already writes (moments, existing state, document audit logs)
+
+### Step 4 - Converge identities for A
+
+After B/C/D are shared, extract identity primitives needed to converge A:
+
+- define a shared document identity for change detection
+- keep simulation’s current ingest_diff behavior stable initially, but introduce the shared identity so both paths can migrate towards the same meaning of “changed”
+
+### Step 5 - Linking phases (E-G)
+
+Once B/C/D are shared and provenance is aligned:
+
+- extract E core (within-stream chaining + deterministic root attach rules) so live and simulation write comparable link audit logs
+- extract F core (candidate filtering + caps) so candidate sets are computed the same way
+- extract G core later (timeline-fit decision). Keep “choose top candidate” behavior initially, then adapt timeline-fit linker logic into the core.
+
+### Step 6 - Validation gates per step
+
+- Keep `pnpm -s test:simulation` green.
+- Add small targeted checks around identities (batch hash, micro stream hash, deterministic moment ids).
+- Use the audit UI drilldowns to compare provenance payloads between live and simulation for a sample run.

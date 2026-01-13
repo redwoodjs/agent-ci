@@ -1,4 +1,5 @@
 import { getIndexingStatesBatch } from "../db";
+import { isDocumentChangedByEtag } from "../indexing/documentChangeIdentity";
 
 export async function scanForUnprocessedFiles(
   env: Cloudflare.Env,
@@ -68,7 +69,12 @@ export async function scanForUnprocessedFiles(
 
             for (const { key, etag } of batchObjects) {
               const state = states.get(key);
-              if (!state || state.etag !== etag) {
+              if (
+                isDocumentChangedByEtag({
+                  previousEtag: state?.etag ?? null,
+                  nextEtag: etag ?? null,
+                })
+              ) {
                 unprocessedKeys.push(key);
               }
             }
@@ -108,7 +114,12 @@ export async function scanForUnprocessedFiles(
 
           for (const { key, etag } of batchObjects) {
             const state = states.get(key);
-            if (!state || state.etag !== etag) {
+            if (
+              isDocumentChangedByEtag({
+                previousEtag: state?.etag ?? null,
+                nextEtag: etag ?? null,
+              })
+            ) {
               unprocessedKeys.push(key);
             }
           }

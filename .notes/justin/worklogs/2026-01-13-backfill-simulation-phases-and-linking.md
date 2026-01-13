@@ -819,3 +819,8 @@ Continued Step 3:
 - Phase D: phase core now has a tagged materialized moment identity helper. Live indexing can optionally use deterministic moment IDs via MACHINEN_LIVE_DETERMINISTIC_MOMENT_IDS=1, while still reusing existing IDs when a moment already exists.
 
 Flipped the default for live deterministic moment ids: removed the env flag gate and always derive ids for newly created macro moments, while still preferring an existing id when a moment is found by micro paths hash.
+
+Step 4: converged the Phase A 'changed' meaning on etag comparisons via a shared helper.
+
+- Added a shared isDocumentChangedByEtag helper outside simulationDb.
+- Simulation ingest_diff and the live scanner now both call the same helper when deciding whether a key is changed.

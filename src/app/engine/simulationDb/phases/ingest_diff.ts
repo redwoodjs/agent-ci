@@ -3,6 +3,7 @@ import { getSimulationDb } from "../db";
 import { addSimulationRunEvent } from "../runEvents";
 import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
+import { isDocumentChangedByEtag } from "../../indexing/documentChangeIdentity";
 
 export async function runPhaseIngestDiff(
   context: SimulationDbContext,
@@ -65,7 +66,10 @@ export async function runPhaseIngestDiff(
         .executeTakeFirst()) as unknown as { etag: string | null } | undefined;
 
       const wasEtag = typeof prev?.etag === "string" ? prev.etag : null;
-      const isChanged = !wasEtag || wasEtag !== etag;
+      const isChanged = isDocumentChangedByEtag({
+        previousEtag: wasEtag,
+        nextEtag: etag,
+      });
 
       if (isChanged) {
         changed++;

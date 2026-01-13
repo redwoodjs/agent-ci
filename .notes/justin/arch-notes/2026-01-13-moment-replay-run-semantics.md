@@ -35,6 +35,7 @@ The system does not currently have a clean way to restitch existing chains after
 ## Approach
 
 #### 1) UI-visible instrumentation (so “stuck vs slow vs failed” is answerable)
+
 - **Persist run telemetry** (in the replay DB, not logs):
   - last progress timestamp
   - replay cursor (lastOrderMs/lastItemId)
@@ -44,6 +45,7 @@ The system does not currently have a clean way to restitch existing chains after
 - **Render it in the Knowledge Graph replay runs list**.
 
 #### 2) Failure handling and retry shaping (robustness to falling over)
+
 - **Per-item failure**:
   - mark replay item `failed` and store an error payload
 - **Run-level failure**:
@@ -55,12 +57,14 @@ The system does not currently have a clean way to restitch existing chains after
   - when upstream calls fail in a retryable way (rate limiting/timeouts), sleep with backoff and then retry, otherwise pause.
 
 #### 3) Restart semantics: clear replay output so chains can rebuild (A -> B -> C)
+
 - Add a restart mode: **Restart (clear replay output)**:
   - delete moments created by the run (moment ids == replay item ids), in the effective namespaces recorded on the replay items
   - reset replay items to pending, clear stream state, reset cursor
 - This is the supported way to handle “we processed out of order earlier”.
 
 #### 4) Replay performance improvements (instrument + apply knobs)
+
 - **Instrument first** (so we know if bottleneck is timeline-fit LLM, embeddings, or DB).
 - Then apply knobs:
   - **Timeline-fit effort knob** during replay (env-configurable; default lower than interactive indexing).
@@ -72,4 +76,6 @@ The system does not currently have a clean way to restitch existing chains after
   - Verify candidate cap stays bounded.
 
 ### Approval checkpoint
+
 If you approve this plan, I’ll start implementing in this order: **DB schema -> worker failure recording/pause/backoff -> UI visibility/actions -> restart(clear output) -> perf knobs**.
+

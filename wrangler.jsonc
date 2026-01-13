@@ -88,6 +88,10 @@
     {
       "tag": "v12",
       "new_sqlite_classes": ["MomentGraphDO"]
+    },
+    {
+      "tag": "v13",
+      "new_sqlite_classes": ["EngineSimulationStateDO"]
     }
   ],
   "durable_objects": {
@@ -103,6 +107,10 @@
       {
         "name": "ENGINE_INDEXING_STATE",
         "class_name": "EngineIndexingStateDO"
+      },
+      {
+        "name": "ENGINE_SIMULATION_STATE",
+        "class_name": "EngineSimulationStateDO"
       },
       {
         "name": "DISCORD_BACKFILL_STATE",

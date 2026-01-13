@@ -378,5 +378,25 @@ Validation:
 - repeated failures pause the run with a recorded failing item (no silent stalls)
 - budgets are visible (counts, time spent) so regressions show up quickly
 
+## Arch notes location
+
+I want long-lived architecture docs to stay under `docs/architecture/`. For working/iterating architecture notes, I want to store them under `.notes/justin/arch-notes/` with dated filenames (YYYY-MM-DD-...).
+
+Moved from `docs/architecture/` into `.notes/justin/arch-notes/`:
+
+- 2026-01-13-timeline-fit-as-linking-plugin.md
+- 2026-01-13-moment-replay-run-semantics.md
+- 2026-01-13-namespace-aware-backfill-and-resync.md
+
+## Step 1 kickoff: fresh DB for phase runner skeleton
+
+I want the phase runner skeleton to start with a fresh DB and a separate Durable Object binding, rather than reusing the existing replay tables in indexing state. The goal is to avoid inheriting replay-specific shape and to make the phase runner state model explicit from day one.
+
+Progress:
+
+- Added a simulation state Durable Object with its own migrations.
+- Added admin endpoints to start a simulation run, advance phases (no-op), and inspect run state and events.
+- Added pause/resume and restart-from-phase controls so we can validate phase-boundary semantics before implementing phase behavior.
+
 
 

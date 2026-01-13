@@ -1,9 +1,11 @@
 import type { SimulationDbContext, SimulationMicroBatchCacheRow } from "../types";
 import { getSimulationDb } from "../db";
-import { getIndexingPlugins, prepareDocumentForR2Key } from "../phaseUtils";
+import { getIndexingPlugins } from "../../indexing/indexingPlugins";
+import { prepareDocumentForR2Key } from "../../indexing/pluginPipeline";
 import { synthesizeMicroMomentsIntoStreams } from "../../synthesis/synthesizeMicroMoments";
 import { computeMicroStreamHash, extractAnchorsFromStreams } from "../../phaseCores/macro_synthesis_core";
-import { extractAnchorTokens, sha256Hex } from "../phaseUtils";
+import { sha256Hex } from "../../utils/crypto";
+import { extractAnchorTokens } from "../../utils/anchorTokens";
 
 export async function runMacroSynthesisAdapter(
   context: SimulationDbContext,

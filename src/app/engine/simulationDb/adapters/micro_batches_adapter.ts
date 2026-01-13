@@ -2,14 +2,14 @@ import type { SimulationDbContext } from "../types";
 import { getSimulationDb } from "../db";
 import type { SimulationMicroBatchCacheRow } from "../types";
 import {
-  chunkChunksForMicroComputation,
-  computeMicroItemsWithoutLlm,
-  getIndexingPlugins,
   getMicroPromptContext,
   prepareDocumentForR2Key,
-  sha256Hex,
   splitDocumentIntoChunks,
-} from "../phaseUtils";
+} from "../../indexing/pluginPipeline";
+import { getIndexingPlugins } from "../../indexing/indexingPlugins";
+import { chunkChunksForMicroComputation } from "../../utils/chunkBatching";
+import { sha256Hex } from "../../utils/crypto";
+import { computeMicroItemsWithoutLlm } from "../../utils/microItems";
 import { computeMicroMomentsForChunkBatch } from "../../subjects/computeMicroMomentsForChunkBatch";
 import { planMicroBatches } from "../../phaseCores/micro_batches_core";
 

@@ -806,3 +806,9 @@ I want the simulation phase executors to read like adapters:
 Next is to make the live indexing path invoke the same phase core logic, starting with Phase B planning (batch identity + prompt context).
 
 The intent is to reduce drift without changing live output shape. I’m starting by swapping the duplicated batch hashing and micro prompt context selection logic in the live path to call the Phase B core via a small live adapter module.
+
+Moved one other helper out of simulationDb while doing this: anchor token extraction for macro synthesis now lives under engine utils, and the sim macro synthesis adapter imports it from there. This keeps the simulationDb tree focused on simulation DB concerns.
+
+Test harness tweak: when forcing a dedicated dev server for tests, the harness now picks a free port instead of hardcoding 5174. This avoids occasional failures when that port is already taken.
+
+Moved the remaining generic helpers out of simulationDb phaseUtils (hashing, chunk batching, plugin pipeline, non-LLM fallback micro items). Simulation adapters now import these from engine indexing/utils modules and the simulationDb phaseUtils file is gone.

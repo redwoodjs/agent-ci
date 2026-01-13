@@ -1,6 +1,8 @@
 import type { SimulationDbContext, SimulationRunMacroOutputRow } from "../types";
 import { getSimulationDb } from "../db";
-import { getIndexingPlugins, prepareDocumentForR2Key, sha256Hex, uuidFromSha256Hex } from "../phaseUtils";
+import { getIndexingPlugins } from "../../indexing/indexingPlugins";
+import { prepareDocumentForR2Key } from "../../indexing/pluginPipeline";
+import { sha256Hex, uuidFromSha256Hex } from "../../utils/crypto";
 import { computeMaterializedMomentIdentity, computeMicroPathsHash } from "../../phaseCores/materialize_moments_core";
 
 export async function runMaterializeMomentsAdapter(

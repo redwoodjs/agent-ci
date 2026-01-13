@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import net from "node:net";
 
 const DEFAULT_BASE_URL = "http://localhost:5173";
 const BASE_URL = process.env.MACHINEN_BASE_URL ?? DEFAULT_BASE_URL;
@@ -76,6 +77,24 @@ async function waitForServer(url, timeoutMs) {
   return false;
 }
 
+async function getFreePort() {
+  return await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.on("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      const port = addr && typeof addr === "object" ? addr.port : null;
+      server.close((err) => {
+        if (err) {
+          reject(err);
+          return;
+        }
+        resolve(port);
+      });
+    });
+  });
+}
+
 function run(cmd, args, opts) {
   return new Promise((resolve, reject) => {
     const child = spawn(cmd, args, {
@@ -105,7 +124,9 @@ async function main() {
   const alreadyUp = await waitForServer(BASE_URL, 250);
 
   const effectiveBaseUrl =
-    forceOwnDev && alreadyUp ? replacePort(BASE_URL, 5174) : BASE_URL;
+    forceOwnDev && alreadyUp
+      ? replacePort(BASE_URL, await getFreePort())
+      : BASE_URL;
 
   let devProc = null;
   let startedDev = false;

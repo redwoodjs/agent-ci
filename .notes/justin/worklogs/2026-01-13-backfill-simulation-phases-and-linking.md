@@ -469,16 +469,25 @@ I added a suite test `tests/simulation/micro_batches.test.mjs` that verifies the
   - run can be resumed/restarted at a phase boundary
   - logs show phase transitions and reasons for stopping
 
- #### Step 3 - Implement ingest_diff, then validate
+ #### Step 3 - Implement ingest_diff, then validate (done)
  - **ingest_diff validation**:
   - deterministic diff identity recorded
   - rerun with unchanged inputs yields “no changes” and does not enqueue downstream work
 
- #### Step 4 - Implement micro_batches, then validate
+ #### Step 4 - Implement micro_batches, then validate (done)
  - **micro_batches validation**:
   - batch hashes exist
   - rerun hits cache (batch recompute count near zero)
   - bounded batch sizes
+
+ #### Step 4.5 - Update audit UI to drive and inspect simulation runs
+ - **UI**:
+   - list recent simulation runs and show status/current phase
+   - show run events in a copyable format
+   - controls: start/advance/pause/resume/restart
+   - drilldowns for per-run artifacts already available: documents and micro batches
+ - **Validation**:
+   - I can run ingest_diff and micro_batches end-to-end from the UI and inspect their stored artifacts without using curl
 
  #### Step 5 - Implement macro_synthesis, then validate
  - **macro_synthesis validation**:
@@ -501,3 +510,21 @@ I added a suite test `tests/simulation/micro_batches.test.mjs` that verifies the
  #### Step 8 - Implement candidate_sets then timeline_fit, validate each
  - **candidate_sets validation**: candidate lists persisted and capped
  - **timeline_fit validation**: attach/reject decisions persisted; pause-on-error vs stall
+
+## Requirement: run-scoped audit logging (persist + UI)
+
+I want each simulation run to have a run-scoped audit log (like CI logs) that is:
+
+- persisted in the simulation state DB
+- surfaced in the UI
+- especially useful for failures (error payloads, last known item, where it failed)
+
+This should be a default part of the system, not optional debugging.
+
+Implementation direction:
+
+- Any place we log to console in the simulation runner should also write a structured event into the run audit log.
+- Add a small utility that can write to both sinks (console + run events) so call sites stay consistent.
+- For volume control:
+  - always persist warn/error
+  - persist info/debug only when enabled (env flag or per-run config)

@@ -8,6 +8,8 @@ import { runPhaseMicroBatches } from "./phases/micro_batches";
 import { runPhaseMacroSynthesis } from "./phases/macro_synthesis";
 import { runPhaseMaterializeMoments } from "./phases/materialize_moments";
 import { runPhaseDeterministicLinking } from "./phases/deterministic_linking";
+import { runPhaseCandidateSets } from "./phases/candidate_sets";
+import { runPhaseTimelineFit } from "./phases/timeline_fit";
 
 export async function advanceSimulationRunPhaseNoop(
   context: SimulationDbContext,
@@ -56,6 +58,12 @@ export async function advanceSimulationRunPhaseNoop(
     }
     if (phase === "deterministic_linking") {
       return await runPhaseDeterministicLinking(context, { runId, phaseIdx });
+    }
+    if (phase === "candidate_sets") {
+      return await runPhaseCandidateSets(context, { runId, phaseIdx });
+    }
+    if (phase === "timeline_fit") {
+      return await runPhaseTimelineFit(context, { runId, phaseIdx });
     }
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

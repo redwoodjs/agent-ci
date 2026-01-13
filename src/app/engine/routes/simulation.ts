@@ -12,6 +12,8 @@ import {
   getSimulationRunMaterializedMoments,
   getSimulationRunMicroBatches,
   getSimulationRunLinkDecisions,
+  getSimulationRunCandidateSets,
+  getSimulationRunTimelineFitDecisions,
   pauseSimulationRunManual,
   restartSimulationRunFromPhase,
   resumeSimulationRun,
@@ -246,6 +248,53 @@ async function getSimulationRunLinkDecisionsHandler({
   return Response.json({ decisions });
 }
 
+async function getSimulationRunCandidateSetsHandler({ params, request }: RequestInfo) {
+  const runIdRaw = (params as any)?.runId;
+  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
+  if (!runId) {
+    return Response.json({ error: "Missing runId" }, { status: 400 });
+  }
+
+  const url = new URL(request.url);
+  const r2KeyRaw = url.searchParams.get("r2Key");
+  const r2Key =
+    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
+      ? r2KeyRaw.trim()
+      : null;
+
+  const sets = await getSimulationRunCandidateSets(
+    { env: env as Cloudflare.Env, momentGraphNamespace: null },
+    { runId, r2Key }
+  );
+
+  return Response.json({ sets });
+}
+
+async function getSimulationRunTimelineFitDecisionsHandler({
+  params,
+  request,
+}: RequestInfo) {
+  const runIdRaw = (params as any)?.runId;
+  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
+  if (!runId) {
+    return Response.json({ error: "Missing runId" }, { status: 400 });
+  }
+
+  const url = new URL(request.url);
+  const r2KeyRaw = url.searchParams.get("r2Key");
+  const r2Key =
+    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
+      ? r2KeyRaw.trim()
+      : null;
+
+  const decisions = await getSimulationRunTimelineFitDecisions(
+    { env: env as Cloudflare.Env, momentGraphNamespace: null },
+    { runId, r2Key }
+  );
+
+  return Response.json({ decisions });
+}
+
 async function pauseSimulationRunHandler({ request }: RequestInfo) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -375,6 +424,12 @@ export const simulationAdminRoutes = [
   }),
   route("/admin/simulation/run/:runId/link-decisions", {
     get: [requireQueryApiKey, getSimulationRunLinkDecisionsHandler],
+  }),
+  route("/admin/simulation/run/:runId/candidate-sets", {
+    get: [requireQueryApiKey, getSimulationRunCandidateSetsHandler],
+  }),
+  route("/admin/simulation/run/:runId/timeline-fit-decisions", {
+    get: [requireQueryApiKey, getSimulationRunTimelineFitDecisionsHandler],
   }),
   route("/admin/simulation/run/:runId/events", {
     get: [requireQueryApiKey, getSimulationRunEventsHandler],

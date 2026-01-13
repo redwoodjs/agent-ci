@@ -222,5 +222,73 @@ export const simulationStateMigrations = {
       await db.schema.dropTable("simulation_run_link_decisions").execute();
     },
   },
+  "007_add_candidate_sets": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_candidate_sets")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("child_moment_id", "text", (col) => col.notNull())
+          .addColumn("r2_key", "text", (col) => col.notNull())
+          .addColumn("stream_id", "text", (col) => col.notNull())
+          .addColumn("macro_index", "integer", (col) => col.notNull())
+          .addColumn("candidates_json", "text", (col) => col.notNull())
+          .addColumn("stats_json", "text")
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_run_candidate_sets_pk", [
+            "run_id",
+            "child_moment_id",
+          ])
+          .execute(),
+        await db.schema
+          .createIndex("simulation_run_candidate_sets_run_idx")
+          .on("simulation_run_candidate_sets")
+          .columns(["run_id", "r2_key"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("simulation_run_candidate_sets").execute();
+    },
+  },
+  "008_add_timeline_fit_decisions": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_timeline_fit_decisions")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("child_moment_id", "text", (col) => col.notNull())
+          .addColumn("r2_key", "text", (col) => col.notNull())
+          .addColumn("stream_id", "text", (col) => col.notNull())
+          .addColumn("macro_index", "integer", (col) => col.notNull())
+          .addColumn("outcome", "text", (col) => col.notNull())
+          .addColumn("chosen_parent_moment_id", "text")
+          .addColumn("decisions_json", "text", (col) => col.notNull())
+          .addColumn("stats_json", "text")
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_run_timeline_fit_decisions_pk", [
+            "run_id",
+            "child_moment_id",
+          ])
+          .execute(),
+        await db.schema
+          .createIndex("simulation_run_timeline_fit_decisions_run_idx")
+          .on("simulation_run_timeline_fit_decisions")
+          .columns(["run_id", "r2_key"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema
+        .dropTable("simulation_run_timeline_fit_decisions")
+        .execute();
+    },
+  },
 } satisfies Migrations;
 

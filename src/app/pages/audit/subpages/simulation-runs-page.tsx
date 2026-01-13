@@ -15,6 +15,8 @@ import {
   getSimulationRunMicroBatches,
   getSimulationRunMacroOutputs,
   getSimulationRunLinkDecisions,
+  getSimulationRunCandidateSets,
+  getSimulationRunTimelineFitDecisions,
   simulationPhases,
 } from "@/app/engine/simulationDb";
 import { SimulationRunControls } from "./simulation-run-controls";
@@ -70,7 +72,9 @@ export function SimulationRunsPage({ request }: { request: Request }) {
     viewRaw === "micro-batches" ||
     viewRaw === "macro-outputs" ||
     viewRaw === "materialized-moments" ||
-    viewRaw === "link-decisions"
+    viewRaw === "link-decisions" ||
+    viewRaw === "candidate-sets" ||
+    viewRaw === "timeline-fit-decisions"
       ? viewRaw
       : null;
 
@@ -114,6 +118,8 @@ async function SimulationRunsContent({
     | "macro-outputs"
     | "materialized-moments"
     | "link-decisions"
+    | "candidate-sets"
+    | "timeline-fit-decisions"
     | null;
 }) {
   const envCloudflare = env as Cloudflare.Env;
@@ -218,6 +224,12 @@ async function SimulationRunsContent({
   const linkDecisionsLink = `/audit/simulation?runId=${encodeURIComponent(
     runId
   )}&view=link-decisions`;
+  const candidateSetsLink = `/audit/simulation?runId=${encodeURIComponent(
+    runId
+  )}&view=candidate-sets`;
+  const timelineFitDecisionsLink = `/audit/simulation?runId=${encodeURIComponent(
+    runId
+  )}&view=timeline-fit-decisions`;
 
   return (
     <div className="space-y-4">
@@ -275,6 +287,18 @@ async function SimulationRunsContent({
             >
               Link decisions
             </a>
+            <a
+              className="text-sm text-blue-600 hover:underline"
+              href={candidateSetsLink}
+            >
+              Candidate sets
+            </a>
+            <a
+              className="text-sm text-blue-600 hover:underline"
+              href={timelineFitDecisionsLink}
+            >
+              Timeline fit decisions
+            </a>
           </div>
         </CardContent>
       </Card>
@@ -289,6 +313,10 @@ async function SimulationRunsContent({
         <MaterializedMomentsCard runId={runId} />
       ) : view === "link-decisions" ? (
         <LinkDecisionsCard runId={runId} />
+      ) : view === "candidate-sets" ? (
+        <CandidateSetsCard runId={runId} />
+      ) : view === "timeline-fit-decisions" ? (
+        <TimelineFitDecisionsCard runId={runId} />
       ) : null}
 
       <Card>
@@ -541,6 +569,94 @@ async function LinkDecisionsCard({ runId }: { runId: string }) {
                     {safeStringify(d.evidence)}
                   </pre>
                 ) : null}
+              </div>
+            ))}
+            {decisions.length > 200 ? (
+              <div className="text-xs text-gray-600">
+                Showing first 200 of {decisions.length}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+async function CandidateSetsCard({ runId }: { runId: string }) {
+  const envCloudflare = env as Cloudflare.Env;
+  const context = { env: envCloudflare, momentGraphNamespace: null as any };
+  const sets = await getSimulationRunCandidateSets(context, { runId });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Candidate sets</CardTitle>
+        <CardDescription>Per-run candidate_sets outputs</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {sets.length === 0 ? (
+          <div className="text-sm text-gray-600">(none)</div>
+        ) : (
+          <div className="space-y-2">
+            {sets.slice(0, 200).map((s: any) => (
+              <div key={s.childMomentId} className="rounded border bg-white">
+                <div className="p-2">
+                  <div className="font-mono text-xs break-all">
+                    {s.childMomentId}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-1">
+                    r2Key={s.r2Key} stream={s.streamId} idx={String(s.macroIndex)} candidates=
+                    {Array.isArray(s.candidates) ? String(s.candidates.length) : "0"}
+                  </div>
+                </div>
+                <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[30vh]">
+                  {safeStringify({ stats: s.stats, candidates: s.candidates })}
+                </pre>
+              </div>
+            ))}
+            {sets.length > 200 ? (
+              <div className="text-xs text-gray-600">
+                Showing first 200 of {sets.length}
+              </div>
+            ) : null}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+async function TimelineFitDecisionsCard({ runId }: { runId: string }) {
+  const envCloudflare = env as Cloudflare.Env;
+  const context = { env: envCloudflare, momentGraphNamespace: null as any };
+  const decisions = await getSimulationRunTimelineFitDecisions(context, { runId });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Timeline fit decisions</CardTitle>
+        <CardDescription>Per-run timeline_fit outputs</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {decisions.length === 0 ? (
+          <div className="text-sm text-gray-600">(none)</div>
+        ) : (
+          <div className="space-y-2">
+            {decisions.slice(0, 200).map((d: any) => (
+              <div key={d.childMomentId} className="rounded border bg-white">
+                <div className="p-2">
+                  <div className="font-mono text-xs break-all">
+                    {d.childMomentId}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-1">
+                    r2Key={d.r2Key} stream={d.streamId} idx={String(d.macroIndex)} outcome=
+                    {d.outcome} chosen={d.chosenParentMomentId ?? "null"}
+                  </div>
+                </div>
+                <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[30vh]">
+                  {safeStringify({ stats: d.stats, decisions: d.decisions })}
+                </pre>
               </div>
             ))}
             {decisions.length > 200 ? (

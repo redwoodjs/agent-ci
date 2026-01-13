@@ -6,6 +6,8 @@ import type {
   SimulationRunMacroOutputRow,
   SimulationRunMaterializedMomentRow,
   SimulationRunLinkDecisionRow,
+  SimulationRunCandidateSetRow,
+  SimulationRunTimelineFitDecisionRow,
   SimulationMicroBatchCacheRow,
 } from "./types";
 import { getSimulationDb, getMomentGraphDb } from "./db";
@@ -311,6 +313,126 @@ export async function getSimulationRunLinkDecisions(
     outcome: (r as any).outcome,
     ruleId: typeof (r as any).rule_id === "string" ? (r as any).rule_id : null,
     evidence: (r as any).evidence_json ?? null,
+    createdAt: (r as any).created_at,
+    updatedAt: (r as any).updated_at,
+  }));
+}
+
+export async function getSimulationRunCandidateSets(
+  context: SimulationDbContext,
+  input: { runId: string; r2Key?: string | null }
+): Promise<
+  Array<{
+    r2Key: string;
+    streamId: string;
+    macroIndex: number;
+    childMomentId: string;
+    candidates: any[];
+    stats: any | null;
+    createdAt: string;
+    updatedAt: string;
+  }>
+> {
+  const db = getSimulationDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return [];
+  }
+
+  const r2Key =
+    typeof input.r2Key === "string" && input.r2Key.trim().length > 0
+      ? input.r2Key.trim()
+      : null;
+
+  let q = db
+    .selectFrom("simulation_run_candidate_sets")
+    .selectAll()
+    .where("run_id", "=", runId);
+
+  if (r2Key) {
+    q = q.where("r2_key", "=", r2Key);
+  }
+
+  const rows = (await q
+    .orderBy("r2_key", "asc")
+    .orderBy("stream_id", "asc")
+    .orderBy("macro_index", "asc")
+    .execute()) as unknown as SimulationRunCandidateSetRow[];
+
+  return rows.map((r) => ({
+    r2Key: (r as any).r2_key,
+    streamId: (r as any).stream_id,
+    macroIndex: Number((r as any).macro_index ?? 0),
+    childMomentId: (r as any).child_moment_id,
+    candidates: Array.isArray((r as any).candidates_json)
+      ? ((r as any).candidates_json as any[])
+      : [],
+    stats: (r as any).stats_json ?? null,
+    createdAt: (r as any).created_at,
+    updatedAt: (r as any).updated_at,
+  }));
+}
+
+export async function getSimulationRunTimelineFitDecisions(
+  context: SimulationDbContext,
+  input: { runId: string; r2Key?: string | null }
+): Promise<
+  Array<{
+    r2Key: string;
+    streamId: string;
+    macroIndex: number;
+    childMomentId: string;
+    outcome: string;
+    chosenParentMomentId: string | null;
+    decisions: any[];
+    stats: any | null;
+    createdAt: string;
+    updatedAt: string;
+  }>
+> {
+  const db = getSimulationDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return [];
+  }
+
+  const r2Key =
+    typeof input.r2Key === "string" && input.r2Key.trim().length > 0
+      ? input.r2Key.trim()
+      : null;
+
+  let q = db
+    .selectFrom("simulation_run_timeline_fit_decisions")
+    .selectAll()
+    .where("run_id", "=", runId);
+
+  if (r2Key) {
+    q = q.where("r2_key", "=", r2Key);
+  }
+
+  const rows = (await q
+    .orderBy("r2_key", "asc")
+    .orderBy("stream_id", "asc")
+    .orderBy("macro_index", "asc")
+    .execute()) as unknown as SimulationRunTimelineFitDecisionRow[];
+
+  return rows.map((r) => ({
+    r2Key: (r as any).r2_key,
+    streamId: (r as any).stream_id,
+    macroIndex: Number((r as any).macro_index ?? 0),
+    childMomentId: (r as any).child_moment_id,
+    outcome: (r as any).outcome,
+    chosenParentMomentId: (r as any).chosen_parent_moment_id ?? null,
+    decisions: Array.isArray((r as any).decisions_json)
+      ? ((r as any).decisions_json as any[])
+      : [],
+    stats: (r as any).stats_json ?? null,
     createdAt: (r as any).created_at,
     updatedAt: (r as any).updated_at,
   }));

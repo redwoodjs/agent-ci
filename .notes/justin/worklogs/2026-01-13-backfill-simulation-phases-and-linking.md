@@ -641,3 +641,12 @@ This likely means live indexing will sometimes recompute identities and intermed
 The next planned step is deterministic_linking. This needs persisted artifacts (decisions, rejects, and chosen parent ids) so it can be restarted and inspected in the audit UI, similar to how micro batch and macro outputs are persisted.
 
 I’m going to start by adding migrations and a phase executor wired into the runner, then implement a small set of deterministic rules with validation checks (idempotency, time ordering, and no cycles).
+
+## Starting Step 8 (candidate_sets + timeline_fit)
+
+Next is candidate_sets and timeline_fit. I want these to be restartable and inspectable like the earlier phases, so they need persisted artifacts:
+
+- candidate_sets persists a bounded list of candidate parents (plus reject reasons)
+- timeline_fit persists per-candidate decisions and the chosen parent (if any)
+
+I’m going to implement these phases end-to-end (migrations, executors, admin endpoints, audit UI drilldowns, and tests).

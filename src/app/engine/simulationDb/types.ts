@@ -106,3 +106,23 @@ export type SimulationRunLinkDecisionRow = Override<
     evidence_json: any;
   }
 >;
+
+type SimulationRunCandidateSetInput =
+  SimulationDatabase["simulation_run_candidate_sets"];
+export type SimulationRunCandidateSetRow = Override<
+  SimulationRunCandidateSetInput,
+  {
+    candidates_json: any;
+    stats_json: any;
+  }
+>;
+
+type SimulationRunTimelineFitDecisionInput =
+  SimulationDatabase["simulation_run_timeline_fit_decisions"];
+export type SimulationRunTimelineFitDecisionRow = Override<
+  SimulationRunTimelineFitDecisionInput,
+  {
+    decisions_json: any;
+    stats_json: any;
+  }
+>;

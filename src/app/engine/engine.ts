@@ -29,7 +29,8 @@ import {
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { planIndexDocumentMicroBatches } from "./liveAdapters/indexDocument_micro_batches";
-import { computeMicroPathsHash } from "./phaseCores/materialize_moments_core";
+import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./phaseCores/materialize_moments_core";
+import { computeIndexDocumentMacroSynthesisIdentity } from "./liveAdapters/indexDocument_macro_synthesis";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,
@@ -563,6 +564,28 @@ export async function indexDocument(
       }
 
       if (streams.length > 0) {
+        const macroIdentity = await computeIndexDocumentMacroSynthesisIdentity({
+          plannedBatches: plannedBatches.map((b) => ({
+            batchHash: b.batchHash,
+            promptContextHash: b.promptContextHash,
+          })),
+          streams,
+          hashStrings,
+        });
+
+        await addDocumentAuditLog(
+          document.id,
+          "indexing:macro-synthesis-identity",
+          {
+            documentId: document.id,
+            r2Key,
+            streamId: streams[0]?.streamId ?? null,
+            microStreamHash: macroIdentity.microStreamHash,
+            anchors: macroIdentity.anchors,
+          },
+          momentGraphContext
+        );
+
         console.log("[moment-linker] macro streams synthesized", {
           documentId: document.id,
           streams: streams.map((s) => ({
@@ -1091,7 +1114,21 @@ export async function indexDocument(
                   )
                 : null;
 
-            const momentId = existing?.id ?? crypto.randomUUID();
+            const deterministicMomentId = (
+              await computeMaterializedMomentIdentityTagged({
+                tag: "live-materialize-moment",
+                identityScope: "live",
+                effectiveNamespace: effectiveNamespace ?? null,
+                documentId: document.id,
+                streamId: stream.streamId,
+                macroIndex: i,
+                sha256Hex: async (value) => await hashStrings([value]),
+                uuidFromSha256Hex,
+              })
+            ).momentId;
+
+            const momentId =
+              existing?.id ?? deterministicMomentId ?? crypto.randomUUID();
             if (i === 0) {
               if (momentReplayRunId) {
                 resolvedParentIdForFirst = undefined;

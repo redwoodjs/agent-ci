@@ -33,6 +33,22 @@ The phase core defines the input identity that is used for reuse decisions.
 
 Adapters can store and read those identities, but should not use different definitions of 'same inputs'. This reduces drift where simulation and live disagree about when work can be skipped.
 
+### Decision: deterministic moment IDs in live
+
+Live indexing creates macro moments and writes them into the moment graph. Historically, the moment id for a newly created moment was a random uuid.
+
+During convergence, live indexing now derives a deterministic moment id for a macro moment from stable inputs:
+
+- identity scope (a constant string for live)
+- effective namespace (or empty)
+- document id
+- stream id
+- macro moment index within the stream
+
+This allows reruns for the same document and stream to produce the same ids.
+
+Compatibility constraint: when live indexing detects an existing moment (by micro paths hash lookup), it reuses the existing moment id. The deterministic id is only used for moments that do not already exist.
+
 ## Rollout
 
 Start by extracting cores for phases B/C/D, then use the same cores from:

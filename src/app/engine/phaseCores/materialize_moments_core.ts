@@ -1,5 +1,6 @@
-export async function computeMaterializedMomentIdentity(input: {
-  runId: string;
+export async function computeMaterializedMomentIdentityTagged(input: {
+  tag: string;
+  identityScope: string;
   effectiveNamespace: string | null;
   documentId: string;
   streamId: string;
@@ -9,8 +10,8 @@ export async function computeMaterializedMomentIdentity(input: {
 }): Promise<{ momentId: string; rawIdHex: string }> {
   const rawIdHex = await input.sha256Hex(
     [
-      "simulation-materialize-moment",
-      input.runId,
+      input.tag,
+      input.identityScope,
       input.effectiveNamespace ?? "",
       input.documentId,
       input.streamId,
@@ -18,6 +19,27 @@ export async function computeMaterializedMomentIdentity(input: {
     ].join("\n")
   );
   return { rawIdHex, momentId: input.uuidFromSha256Hex(rawIdHex) };
+}
+
+export async function computeMaterializedMomentIdentity(input: {
+  runId: string;
+  effectiveNamespace: string | null;
+  documentId: string;
+  streamId: string;
+  macroIndex: number;
+  sha256Hex: (value: string) => Promise<string>;
+  uuidFromSha256Hex: (hex: string) => string;
+}): Promise<{ momentId: string; rawIdHex: string }> {
+  return await computeMaterializedMomentIdentityTagged({
+    tag: "simulation-materialize-moment",
+    identityScope: input.runId,
+    effectiveNamespace: input.effectiveNamespace,
+    documentId: input.documentId,
+    streamId: input.streamId,
+    macroIndex: input.macroIndex,
+    sha256Hex: input.sha256Hex,
+    uuidFromSha256Hex: input.uuidFromSha256Hex,
+  });
 }
 
 export async function computeMicroPathsHash(input: {

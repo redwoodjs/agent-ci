@@ -812,3 +812,10 @@ Moved one other helper out of simulationDb while doing this: anchor token extrac
 Test harness tweak: when forcing a dedicated dev server for tests, the harness now picks a free port instead of hardcoding 5174. This avoids occasional failures when that port is already taken.
 
 Moved the remaining generic helpers out of simulationDb phaseUtils (hashing, chunk batching, plugin pipeline, non-LLM fallback micro items). Simulation adapters now import these from engine indexing/utils modules and the simulationDb phaseUtils file is gone.
+
+Continued Step 3:
+
+- Phase C: live indexing now computes micro stream hash + anchors using the phase core helpers, and stores them in a document audit log entry.
+- Phase D: phase core now has a tagged materialized moment identity helper. Live indexing can optionally use deterministic moment IDs via MACHINEN_LIVE_DETERMINISTIC_MOMENT_IDS=1, while still reusing existing IDs when a moment already exists.
+
+Flipped the default for live deterministic moment ids: removed the env flag gate and always derive ids for newly created macro moments, while still preferring an existing id when a moment is found by micro paths hash.

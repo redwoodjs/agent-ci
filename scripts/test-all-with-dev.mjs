@@ -106,8 +106,12 @@ async function main() {
     ...(TEST_R2_KEY ? { MACHINEN_TEST_R2_KEY: TEST_R2_KEY } : null),
   };
 
+  const testPatterns = process.argv.slice(2);
+  const nodeTestArgs =
+    testPatterns.length > 0 ? testPatterns : ["tests/simulation/*.test.mjs"];
+
   try {
-    await run("pnpm", ["-s", "test:simulation:raw"], { env });
+    await run("node", ["--test", ...nodeTestArgs], { env });
   } finally {
     if (startedDev && devProc) {
       devProc.kill("SIGINT");

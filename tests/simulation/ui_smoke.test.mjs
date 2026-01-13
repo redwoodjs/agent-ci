@@ -6,7 +6,7 @@ const API_KEY = process.env.MACHINEN_API_KEY ?? "";
 
 test("ui smoke: audit simulation runs page (click + dom)", async (t) => {
   if (!API_KEY) {
-    t.skip();
+    t.skip("Missing MACHINEN_API_KEY");
     return;
   }
 
@@ -14,7 +14,7 @@ test("ui smoke: audit simulation runs page (click + dom)", async (t) => {
   try {
     playwright = await import("playwright");
   } catch {
-    t.skip();
+    t.skip("Missing playwright dependency");
     return;
   }
 
@@ -30,7 +30,9 @@ test("ui smoke: audit simulation runs page (click + dom)", async (t) => {
       msg.includes("browserType.launch") ||
       msg.includes("Failed to launch")
     ) {
-      t.skip();
+      t.skip(
+        "Playwright browser not installed. Run: pnpm -s playwright:install"
+      );
       return;
     }
     throw e;

@@ -155,5 +155,37 @@ export const simulationStateMigrations = {
       await db.schema.dropTable("simulation_run_macro_outputs").execute();
     },
   },
+  "005_add_materialize_moments": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_materialized_moments")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("r2_key", "text", (col) => col.notNull())
+          .addColumn("stream_id", "text", (col) => col.notNull())
+          .addColumn("macro_index", "integer", (col) => col.notNull())
+          .addColumn("moment_id", "text", (col) => col.notNull())
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_run_materialized_moments_pk", [
+            "run_id",
+            "r2_key",
+            "stream_id",
+            "macro_index",
+          ])
+          .execute(),
+        await db.schema
+          .createIndex("simulation_run_materialized_moments_run_idx")
+          .on("simulation_run_materialized_moments")
+          .columns(["run_id", "r2_key"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("simulation_run_materialized_moments").execute();
+    },
+  },
 } satisfies Migrations;
 

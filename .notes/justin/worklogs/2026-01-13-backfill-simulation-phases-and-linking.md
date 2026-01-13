@@ -575,3 +575,29 @@ Notes:
 - I added a macro outputs endpoint and surfaced it in the audit UI under the simulation run page.
 
 I added a phase test that runs ingest_diff -> micro_batches -> macro_synthesis, verifies the output exists, restarts from macro_synthesis, and verifies the micro stream identity is stable.
+
+## Starting materialize_moments phase
+
+Next is materialize_moments: write macro synthesis outputs into the moment graph as actual moment rows (no cross-document linking yet).
+
+Checks I want:
+
+- moments exist and are visible without linking
+- ids are stable (rerun does not create duplicates)
+- timestamps are preserved from the macro output data
+
+## Implemented materialize_moments phase
+
+I implemented materialize_moments to insert macro outputs into the moment graph as moment rows without cross-document linking.
+
+Notes:
+
+- Moment ids are stable: derived from (run id, effective namespace, document id, stream id, macro index).
+- I hit a unique constraint from the moment DB schema (unique per document micro_paths_hash) when reusing the default namespace across multiple runs. The fix is to default simulation runs to a per-run moment graph namespace (`sim-<runId>`) when no namespace is provided.
+- I added a simulation DB mapping table so the run can be inspected without querying the moment DB directly.
+
+I added:
+
+- `GET /admin/simulation/run/:runId/materialized-moments`
+- an audit UI drilldown for “Materialized moments”
+- a phase test that checks moments exist, parents are null, and reruns are idempotent.

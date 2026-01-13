@@ -67,7 +67,8 @@ export function SimulationRunsPage({ request }: { request: Request }) {
   const view =
     viewRaw === "documents" ||
     viewRaw === "micro-batches" ||
-    viewRaw === "macro-outputs"
+    viewRaw === "macro-outputs" ||
+    viewRaw === "materialized-moments"
       ? viewRaw
       : null;
 
@@ -105,7 +106,12 @@ async function SimulationRunsContent({
   view,
 }: {
   runId: string | null;
-  view: "documents" | "micro-batches" | "macro-outputs" | null;
+  view:
+    | "documents"
+    | "micro-batches"
+    | "macro-outputs"
+    | "materialized-moments"
+    | null;
 }) {
   const envCloudflare = env as Cloudflare.Env;
   const context = { env: envCloudflare, momentGraphNamespace: null as any };
@@ -203,6 +209,9 @@ async function SimulationRunsContent({
   const macroOutputsLink = `/audit/simulation?runId=${encodeURIComponent(
     runId
   )}&view=macro-outputs`;
+  const materializedLink = `/audit/simulation?runId=${encodeURIComponent(
+    runId
+  )}&view=materialized-moments`;
 
   return (
     <div className="space-y-4">
@@ -248,6 +257,12 @@ async function SimulationRunsContent({
             >
               Macro outputs
             </a>
+            <a
+              className="text-sm text-blue-600 hover:underline"
+              href={materializedLink}
+            >
+              Materialized moments
+            </a>
           </div>
         </CardContent>
       </Card>
@@ -258,6 +273,8 @@ async function SimulationRunsContent({
         <MicroBatchesCard runId={runId} />
       ) : view === "macro-outputs" ? (
         <MacroOutputsCard runId={runId} />
+      ) : view === "materialized-moments" ? (
+        <MaterializedMomentsCard runId={runId} />
       ) : null}
 
       <Card>
@@ -414,6 +431,61 @@ async function MacroOutputsCard({ runId }: { runId: string }) {
                 </pre>
               </div>
             ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+async function MaterializedMomentsCard({ runId }: { runId: string }) {
+  const envCloudflare = env as Cloudflare.Env;
+  const baseUrl = process.env.MACHINEN_BASE_URL ?? "http://localhost:5173";
+  const apiKey = process.env.MACHINEN_API_KEY ?? "";
+  const headers =
+    apiKey.trim().length > 0 ? { Authorization: `Bearer ${apiKey}` } : {};
+
+  const res = await fetch(
+    `${baseUrl}/admin/simulation/run/${encodeURIComponent(
+      runId
+    )}/materialized-moments`,
+    { headers }
+  );
+  const text = await res.text();
+  const parsed = (() => {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return null;
+    }
+  })();
+  const moments = Array.isArray(parsed?.moments) ? parsed.moments : [];
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Materialized moments</CardTitle>
+        <CardDescription>Per-run moment ids written into the moment graph</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {moments.length === 0 ? (
+          <div className="text-sm text-gray-600">(none)</div>
+        ) : (
+          <div className="space-y-2">
+            {moments.slice(0, 200).map((m: any) => (
+              <div key={m.momentId} className="p-2 rounded border bg-white">
+                <div className="font-mono text-xs break-all">{m.momentId}</div>
+                <div className="text-xs text-gray-600 mt-1">
+                  r2Key={m.r2Key} stream={m.streamId} idx={String(m.macroIndex)} parent=
+                  {m.parentId ?? "null"}
+                </div>
+              </div>
+            ))}
+            {moments.length > 200 ? (
+              <div className="text-xs text-gray-600">
+                Showing first 200 of {moments.length}
+              </div>
+            ) : null}
           </div>
         )}
       </CardContent>

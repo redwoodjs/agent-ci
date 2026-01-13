@@ -16,6 +16,8 @@ export async function startSimulationRunAction(input: {
   momentGraphNamespacePrefix: string | null;
 }) {
   const runId = crypto.randomUUID();
+  const effectiveMomentGraphNamespace =
+    input.momentGraphNamespace ?? `sim-${runId}`;
   const cleanedR2Keys = Array.isArray(input.r2Keys)
     ? input.r2Keys.filter((k) => typeof k === "string" && k.trim().length > 0)
     : [];
@@ -24,7 +26,7 @@ export async function startSimulationRunAction(input: {
     { env: env as Cloudflare.Env, momentGraphNamespace: null },
     {
       runId,
-      momentGraphNamespace: input.momentGraphNamespace,
+      momentGraphNamespace: effectiveMomentGraphNamespace,
       momentGraphNamespacePrefix: input.momentGraphNamespacePrefix,
       config: {
         r2Keys: cleanedR2Keys,

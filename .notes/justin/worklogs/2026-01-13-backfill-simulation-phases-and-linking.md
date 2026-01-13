@@ -199,4 +199,9 @@ I do not want to assert every parent link. I want tests that detect shape breaka
   - time spent per phase
   - cache hit rates for micro/macro outputs
 
+## Decision (for now): keep anchor extraction tied to Phase C
+
+Anchor extraction could be its own deterministic phase between materialization and linking, but for now I want to keep it bundled with macro synthesis outputs in Phase C. This keeps the phase graph simpler while the bigger backfill/simulation shape is still in flux.
+
+
 

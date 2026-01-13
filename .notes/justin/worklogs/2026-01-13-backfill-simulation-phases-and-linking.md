@@ -550,3 +550,15 @@ I’m adding a small audit UI page under `/audit` that:
 - links to existing artifact drilldowns (documents, micro batches)
 
 I’m also adding a lightweight UI smoke test using Playwright as a plain library from `node:test` (no Playwright test runner), so we get basic clicking + DOM checks without adding a separate harness.
+
+## Making the UI smoke test runnable
+
+I added Playwright as a dev dependency and a small install script that downloads Chromium, so the `node:test` UI smoke can run locally.
+
+While running the test, the dev server showed a Vite error overlay caused by the rwsdk HMR directive-scan trying to read files that had been deleted earlier. The overlay blocks Playwright clicks. I added empty stub modules at the deleted paths so the dev server no longer throws ENOENT and the UI smoke test can proceed.
+
+I ran:
+
+- `pnpm -s playwright:install`
+- `pnpm -s test:simulation:ui`
+- `pnpm -s test:simulation`

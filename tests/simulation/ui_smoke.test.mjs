@@ -38,10 +38,16 @@ test("ui smoke: audit simulation runs page (click + dom)", async (t) => {
     throw e;
   }
 
-  const page = await browser.newPage();
+  const context = await browser.newContext({
+    httpCredentials: {
+      username: "admin",
+      password: API_KEY,
+    },
+  });
+  const page = await context.newPage();
 
   try {
-    await page.goto(`${BASE_URL}/audit/simulation?api_key=${API_KEY}`, {
+    await page.goto(`${BASE_URL}/audit/simulation`, {
       waitUntil: "networkidle",
     });
 
@@ -75,6 +81,7 @@ test("ui smoke: audit simulation runs page (click + dom)", async (t) => {
     assert.ok(eventsText.includes("phase.end"));
   } finally {
     await page.close().catch(() => {});
+    await context.close().catch(() => {});
     await browser.close().catch(() => {});
   }
 });

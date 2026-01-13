@@ -71,8 +71,16 @@ test("simulation phase: micro_batches (cache reuse without LLM)", async () => {
   );
   assert.ok(Array.isArray(batches1.batches));
   assert.ok(batches1.batches.length > 0);
-  const nonCached = batches1.batches.filter((b) => b.status !== "cached");
-  assert.ok(nonCached.length > 0);
+  assert.ok(
+    batches1.batches.every(
+      (b) =>
+        typeof b.batchHash === "string" &&
+        b.batchHash.length > 0 &&
+        typeof b.promptContextHash === "string" &&
+        b.promptContextHash.length > 0
+    )
+  );
+  const batchHashes1 = batches1.batches.map((b) => b.batchHash);
 
   const restart = await postJson("/admin/simulation/run/restart", {
     runId,
@@ -92,5 +100,7 @@ test("simulation phase: micro_batches (cache reuse without LLM)", async () => {
   assert.ok(Array.isArray(batches2.batches));
   assert.ok(batches2.batches.length > 0);
   assert.ok(batches2.batches.every((b) => b.status === "cached"));
+  const batchHashes2 = batches2.batches.map((b) => b.batchHash);
+  assert.deepEqual(batchHashes2, batchHashes1);
 });
 

@@ -528,3 +528,25 @@ Implementation direction:
 - For volume control:
   - always persist warn/error
   - persist info/debug only when enabled (env flag or per-run config)
+
+## Starting UI + run audit logging step
+
+Next change is to make simulation runs observable and debuggable without using curl or tailing worker logs.
+
+I want:
+
+- a UI view of runs (list + detail)
+- a persisted per-run audit log that is usable when runs pause or fail
+
+Before writing code, I wrote an arch-note that describes the UI surfaces and the shape of persisted run events.
+
+## Implementing audit UI for simulation runs
+
+I’m adding a small audit UI page under `/audit` that:
+
+- lists recent simulation runs
+- shows a run detail view with run status/current phase + the persisted run events stream
+- provides run controls (start/advance/pause/resume/restart)
+- links to existing artifact drilldowns (documents, micro batches)
+
+I’m also adding a lightweight UI smoke test using Playwright as a plain library from `node:test` (no Playwright test runner), so we get basic clicking + DOM checks without adding a separate harness.

@@ -112,6 +112,51 @@ type SimulationDbContext = {
   momentGraphNamespace: string | null;
 };
 
+export function createSimulationRunLogger(
+  context: SimulationDbContext,
+  input: { runId: string; persistInfo?: boolean }
+): {
+  error: (kind: string, payload: Record<string, any>) => Promise<void>;
+  warn: (kind: string, payload: Record<string, any>) => Promise<void>;
+  info: (kind: string, payload: Record<string, any>) => Promise<void>;
+} {
+  const runId = typeof input.runId === "string" ? input.runId.trim() : "";
+  const persistInfo =
+    input.persistInfo === true ||
+    String((context.env as any).SIMULATION_AUDIT_PERSIST_INFO ?? "") === "1";
+
+  return {
+    async error(kind, payload) {
+      console.error(`[simulation:${runId}] ${kind}`, payload);
+      await addSimulationRunEvent(context, {
+        runId,
+        level: "error",
+        kind,
+        payload,
+      });
+    },
+    async warn(kind, payload) {
+      console.warn(`[simulation:${runId}] ${kind}`, payload);
+      await addSimulationRunEvent(context, {
+        runId,
+        level: "warn",
+        kind,
+        payload,
+      });
+    },
+    async info(kind, payload) {
+      if (persistInfo) {
+        await addSimulationRunEvent(context, {
+          runId,
+          level: "info",
+          kind,
+          payload,
+        });
+      }
+    },
+  };
+}
+
 function getSimulationDb(context: SimulationDbContext) {
   return createDb<SimulationDatabase>(
     (context.env as any)
@@ -194,6 +239,51 @@ export async function getSimulationRunById(
     config: (row as any).config_json ?? {},
     lastError: (row as any).last_error_json ?? null,
   };
+}
+
+export async function getRecentSimulationRuns(
+  context: SimulationDbContext,
+  input: { limit?: number }
+): Promise<
+  Array<{
+    runId: string;
+    status: string;
+    currentPhase: SimulationPhase | string;
+    startedAt: string;
+    updatedAt: string;
+    lastProgressAt: string | null;
+    momentGraphNamespace: string | null;
+    momentGraphNamespacePrefix: string | null;
+    config: any;
+    lastError: any | null;
+  }>
+> {
+  const db = getSimulationDb(context);
+  const limitRaw = input.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw)
+      ? Math.max(1, Math.min(200, Math.floor(limitRaw)))
+      : 50;
+
+  const rows = (await db
+    .selectFrom("simulation_runs")
+    .selectAll()
+    .orderBy("started_at", "desc")
+    .limit(limit)
+    .execute()) as unknown as SimulationRunRow[];
+
+  return rows.map((row) => ({
+    runId: row.run_id,
+    status: row.status,
+    currentPhase: normalizePhase(row.current_phase),
+    startedAt: row.started_at,
+    updatedAt: row.updated_at,
+    lastProgressAt: row.last_progress_at ?? null,
+    momentGraphNamespace: row.moment_graph_namespace ?? null,
+    momentGraphNamespacePrefix: row.moment_graph_namespace_prefix ?? null,
+    config: (row as any).config_json ?? {},
+    lastError: (row as any).last_error_json ?? null,
+  }));
 }
 
 export async function addSimulationRunEvent(
@@ -575,18 +665,43 @@ export async function advanceSimulationRunPhaseNoop(
   const phase = normalizePhase(row.current_phase);
   const phaseIdx = simulationPhases.indexOf(phase);
 
-  if (phase === "ingest_diff") {
-    return await runPhaseAIngestDiff(context, {
-      runId,
-      phaseIdx,
-    });
-  }
+  try {
+    if (phase === "ingest_diff") {
+      return await runPhaseAIngestDiff(context, {
+        runId,
+        phaseIdx,
+      });
+    }
 
-  if (phase === "micro_batches") {
-    return await runPhaseMicroBatches(context, {
+    if (phase === "micro_batches") {
+      return await runPhaseMicroBatches(context, {
+        runId,
+        phaseIdx,
+      });
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    await addSimulationRunEvent(context, {
       runId,
-      phaseIdx,
+      level: "error",
+      kind: "phase.error",
+      payload: { phase, error: msg },
     });
+    const now = new Date().toISOString();
+    await db
+      .updateTable("simulation_runs")
+      .set({
+        status: "paused_on_error",
+        updated_at: now,
+        last_progress_at: now,
+        last_error_json: JSON.stringify({
+          message: msg,
+          phase,
+        }),
+      } as any)
+      .where("run_id", "=", runId)
+      .execute();
+    return { status: "paused_on_error", currentPhase: phase };
   }
 
   await addSimulationRunEvent(context, {
@@ -792,6 +907,7 @@ async function runPhaseMicroBatches(
 ): Promise<{ status: string; currentPhase: string } | null> {
   const db = getSimulationDb(context);
   const now = new Date().toISOString();
+  const log = createSimulationRunLogger(context, { runId: input.runId });
 
   const runRow = (await db
     .selectFrom("simulation_runs")
@@ -1012,6 +1128,11 @@ async function runPhaseMicroBatches(
       failed++;
       const msg = e instanceof Error ? e.message : String(e);
       failures.push({ r2Key, error: msg });
+      await log.error("item.error", {
+        phase: "micro_batches",
+        r2Key,
+        error: msg,
+      });
     }
   }
 
@@ -1081,6 +1202,7 @@ async function runPhaseAIngestDiff(
   input: { runId: string; phaseIdx: number }
 ): Promise<{ status: string; currentPhase: string } | null> {
   const db = getSimulationDb(context);
+  const log = createSimulationRunLogger(context, { runId: input.runId });
 
   const runRow = (await db
     .selectFrom("simulation_runs")
@@ -1173,6 +1295,11 @@ async function runPhaseAIngestDiff(
       failed++;
       const msg = e instanceof Error ? e.message : String(e);
       failures.push({ r2Key, error: msg });
+      await log.error("item.error", {
+        phase: "ingest_diff",
+        r2Key,
+        error: msg,
+      });
 
       await db
         .insertInto("simulation_run_documents")

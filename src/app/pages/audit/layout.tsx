@@ -58,6 +58,12 @@ export function AuditLayout({ children }: LayoutProps) {
                   Namespace Audit
                 </a>
                 <a
+                  href="/audit/simulation"
+                  className={getNavLinkClass("/audit/simulation")}
+                >
+                  Simulation
+                </a>
+                <a
                   href="/audit/gateway"
                   className={getNavLinkClass("/audit/gateway")}
                 >

@@ -300,5 +300,83 @@ How it is tested:
 
 - For sampled moments, assert a decision record exists and references the inputs that were used.
 
+## Iterative implementation plan (start with skeleton, then phase-by-phase)
+
+I want to implement this by first creating a runner skeleton that can represent phases and persist run state, then filling in phase behavior one phase at a time. Each phase should have a small validation checklist that proves it is doing what it claims.
+
+### Step 1: runner skeleton (phases stubbed)
+
+Shape:
+
+- define the phase list (A-G or A-H) as an explicit ordered set
+- define a per-run state record that includes:
+  - current phase cursor
+  - status (running, paused_on_error, paused_manual, completed)
+  - last progress timestamp and last item metadata
+  - per-phase events (start/end + counts)
+- implement a way to start a run, advance to the next phase, and resume from a phase boundary
+
+Validation:
+
+- a run can be created and progresses through the phase list deterministically (even if phases are no-ops)
+- restart/resume at a phase boundary is possible without corrupting run state
+- phase transitions and stop reasons are visible in stored run telemetry
+
+### Step 2: implement Phase A (ingest + diff) and validate
+
+Validation:
+
+- the phase records a stable document identity and change signal (unchanged vs changed)
+- rerun with unchanged inputs produces no downstream work (diff short-circuits)
+- phase writes are idempotent (no duplicate per-document state)
+
+### Step 3: implement Phase B (micro batch caching) and validate
+
+Validation:
+
+- batch identities exist and are stable
+- rerun uses cached batch outputs when identities match
+- batch sizes are bounded (no unbounded per-item inputs)
+
+### Step 4: implement Phase C (macro synthesis caching + anchors) and validate
+
+Validation:
+
+- macro outputs exist per stream, along with gating metadata and audit events
+- rerun reuses macro outputs when micro stream identity is unchanged
+- anchors exist as part of macro outputs (for now, bundled with Phase C)
+
+### Step 5: implement Phase D (materialize moments, no cross-document linking) and validate
+
+Validation:
+
+- moment rows exist and are visible without running cross-document linking
+- moment ids and timestamps are stable on rerun
+- parent links are empty (or within-stream only) by construction
+
+### Step 6: implement Phase E (deterministic linking) and validate
+
+Validation:
+
+- deterministic anchor cases attach consistently
+- time ordering guard is enforced (reject with recorded reason rather than writing an invalid link)
+- each attach/reject records a decision event with evidence
+
+### Step 7: implement Phase F (persist candidate lists) and validate
+
+Validation:
+
+- candidate lists are persisted per moment and capped
+- rerunning the decision phase does not require regenerating candidate lists
+- deterministic reject reasons are recorded (namespace mismatch, time inversion, missing rows)
+
+### Step 8: implement Phase G (timeline-fit) and validate
+
+Validation:
+
+- per-candidate attach/reject decisions are recorded with bounded context inputs
+- repeated failures pause the run with a recorded failing item (no silent stalls)
+- budgets are visible (counts, time spent) so regressions show up quickly
+
 
 

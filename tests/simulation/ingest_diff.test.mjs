@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 
 const BASE_URL = process.env.MACHINEN_BASE_URL ?? "http://localhost:5173";
 const API_KEY = process.env.MACHINEN_API_KEY ?? "";
-const R2_KEY = process.env.MACHINEN_TEST_R2_KEY ?? "";
+
+const DEFAULT_R2_KEY = "github/redwoodjs/sdk/issues/552/latest.json";
+const R2_KEY = process.env.MACHINEN_TEST_R2_KEY ?? DEFAULT_R2_KEY;
 
 function authHeaders() {
   if (!API_KEY) {
@@ -44,7 +46,25 @@ async function getJson(path) {
   return JSON.parse(text);
 }
 
-test("simulation phase A acceptance (requires MACHINEN_TEST_R2_KEY)", async (t) => {
+function isMissingFixtureError(run) {
+  const lastError = run?.lastError;
+  const msg = typeof lastError?.message === "string" ? lastError.message : "";
+  const failures = Array.isArray(lastError?.failures) ? lastError.failures : [];
+  const failureMsg = failures
+    .map((f) => (typeof f?.error === "string" ? f.error : ""))
+    .join("\n");
+
+  if (!msg.includes("Phase A ingest+diff failed")) {
+    return false;
+  }
+
+  return (
+    failureMsg.includes("R2 object not found") ||
+    failureMsg.includes("Missing R2 etag")
+  );
+}
+
+test("simulation phase: ingest_diff (etag diff)", async (t) => {
   if (!R2_KEY) {
     t.skip();
     return;
@@ -59,6 +79,14 @@ test("simulation phase A acceptance (requires MACHINEN_TEST_R2_KEY)", async (t) 
   const runId = started.runId;
 
   const adv1 = await postJson("/admin/simulation/run/advance", { runId });
+  if (adv1.status === "paused_on_error") {
+    const run = await getJson(`/admin/simulation/run/${runId}`);
+    if (isMissingFixtureError(run)) {
+      t.skip();
+      return;
+    }
+  }
+
   assert.equal(adv1.status, "running");
   assert.equal(adv1.currentPhase, "micro_batches");
 
@@ -86,4 +114,3 @@ test("simulation phase A acceptance (requires MACHINEN_TEST_R2_KEY)", async (t) 
   assert.equal(docs2.documents[0].etag, docs1.documents[0].etag);
   assert.equal(docs2.documents[0].changed, false);
 });
-

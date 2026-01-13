@@ -437,5 +437,7 @@ And a Phase A acceptance test that runs against a dev server when an explicit ke
 
 - `pnpm test:phase-a` (requires MACHINEN_TEST_R2_KEY; otherwise skips)
 
+I ran `pnpm test:all` with MACHINEN_TEST_R2_KEY set to a real key (github/redwoodjs/sdk/issues/552/latest.json). Contract + Phase A both passed.
+
 
 

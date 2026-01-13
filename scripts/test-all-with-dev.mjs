@@ -5,7 +5,10 @@ const BASE_URL = process.env.MACHINEN_BASE_URL ?? "http://localhost:5173";
 
 function parseDevVarsValue(key) {
   try {
-    const raw = fs.readFileSync(new URL("../.dev.vars", import.meta.url), "utf8");
+    const raw = fs.readFileSync(
+      new URL("../.dev.vars", import.meta.url),
+      "utf8"
+    );
     const line = raw
       .split("\n")
       .map((l) => l.trim())
@@ -20,7 +23,8 @@ function parseDevVarsValue(key) {
   }
 }
 
-const API_KEY = process.env.MACHINEN_API_KEY ?? parseDevVarsValue("API_KEY") ?? "";
+const API_KEY =
+  process.env.MACHINEN_API_KEY ?? parseDevVarsValue("API_KEY") ?? "";
 const TEST_R2_KEY =
   process.env.MACHINEN_TEST_R2_KEY ??
   parseDevVarsValue("MACHINEN_TEST_R2_KEY") ??
@@ -103,8 +107,7 @@ async function main() {
   };
 
   try {
-    await run("pnpm", ["-s", "test:contract:raw"], { env });
-    await run("pnpm", ["-s", "test:phase-a"], { env });
+    await run("pnpm", ["-s", "test:simulation:raw"], { env });
   } finally {
     if (startedDev && devProc) {
       devProc.kill("SIGINT");
@@ -120,4 +123,3 @@ main().catch((err) => {
   console.error(err instanceof Error ? err.stack : String(err));
   process.exit(1);
 });
-

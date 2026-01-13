@@ -421,5 +421,21 @@ Follow-up:
 
 - I switched `test:contract` to run the helper script. The helper script originally invoked `pnpm test:contract`, which caused it to call itself recursively. Fixed by calling `pnpm test:contract:raw` from the helper script.
 
+## Phase A (ingest + diff) first cut
+
+I implemented a first cut of Phase A in the simulation runner:
+
+- Migration adds `simulation_run_documents` keyed by (run_id, r2_key).
+- Advancing a run while in phase A reads each configured r2Key from R2 (head), compares the current etag against the stored etag for the same (run_id, r2_key), and writes changed=0/1.
+- If any head/read fails, the run is set to paused_on_error with last_error_json populated.
+
+I also added an endpoint to inspect the per-run document rows:
+
+- GET `/admin/simulation/run/:runId/documents`
+
+And a Phase A acceptance test that runs against a dev server when an explicit key is provided:
+
+- `pnpm test:phase-a` (requires MACHINEN_TEST_R2_KEY; otherwise skips)
+
 
 

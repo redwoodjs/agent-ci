@@ -55,11 +55,11 @@ test("simulation runner contract: start/advance/pause/resume/restart + events", 
   const run0 = await getJson(`/admin/simulation/run/${runId}`);
   assert.equal(run0.runId, runId);
   assert.equal(run0.status, "running");
-  assert.equal(run0.currentPhase, "A_ingest_diff");
+  assert.equal(run0.currentPhase, "ingest_diff");
 
   const adv1 = await postJson("/admin/simulation/run/advance", { runId });
   assert.equal(adv1.status, "running");
-  assert.equal(adv1.currentPhase, "B_micro_batches");
+  assert.equal(adv1.currentPhase, "micro_batches");
 
   const paused = await postJson("/admin/simulation/run/pause", { runId });
   assert.equal(paused.success, true);
@@ -68,25 +68,25 @@ test("simulation runner contract: start/advance/pause/resume/restart + events", 
     runId,
   });
   assert.equal(advWhilePaused.status, "paused_manual");
-  assert.equal(advWhilePaused.currentPhase, "B_micro_batches");
+  assert.equal(advWhilePaused.currentPhase, "micro_batches");
 
   const resumed = await postJson("/admin/simulation/run/resume", { runId });
   assert.equal(resumed.success, true);
 
   const adv2 = await postJson("/admin/simulation/run/advance", { runId });
   assert.equal(adv2.status, "running");
-  assert.equal(adv2.currentPhase, "C_macro_synthesis");
+  assert.equal(adv2.currentPhase, "macro_synthesis");
 
   const restarted = await postJson("/admin/simulation/run/restart", {
     runId,
-    phase: "A_ingest_diff",
+    phase: "ingest_diff",
   });
   assert.equal(restarted.success, true);
-  assert.equal(restarted.phase, "A_ingest_diff");
+  assert.equal(restarted.phase, "ingest_diff");
 
   const runAfter = await getJson(`/admin/simulation/run/${runId}`);
   assert.equal(runAfter.status, "running");
-  assert.equal(runAfter.currentPhase, "A_ingest_diff");
+  assert.equal(runAfter.currentPhase, "ingest_diff");
 
   const eventsRes = await getJson(
     `/admin/simulation/run/${runId}/events?limit=100`

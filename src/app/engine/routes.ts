@@ -38,6 +38,7 @@ import {
   createSimulationRun,
   getSimulationRunById,
   getSimulationRunEvents,
+  getSimulationRunDocuments,
   pauseSimulationRunManual,
   restartSimulationRunFromPhase,
   resumeSimulationRun,
@@ -1454,6 +1455,21 @@ async function getSimulationRunEventsHandler({ params, request }: RequestInfo) {
   return Response.json({ events });
 }
 
+async function getSimulationRunDocumentsHandler({ params }: RequestInfo) {
+  const runIdRaw = (params as any)?.runId;
+  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
+  if (!runId) {
+    return Response.json({ error: "Missing runId" }, { status: 400 });
+  }
+
+  const documents = await getSimulationRunDocuments(
+    { env: env as Cloudflare.Env, momentGraphNamespace: null },
+    { runId }
+  );
+
+  return Response.json({ documents });
+}
+
 async function pauseSimulationRunHandler({ request }: RequestInfo) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -1580,6 +1596,9 @@ export const routes = [
   }),
   route("/admin/simulation/run/:runId", {
     get: [requireQueryApiKey, getSimulationRunHandler],
+  }),
+  route("/admin/simulation/run/:runId/documents", {
+    get: [requireQueryApiKey, getSimulationRunDocumentsHandler],
   }),
   route("/admin/simulation/run/:runId/events", {
     get: [requireQueryApiKey, getSimulationRunEventsHandler],

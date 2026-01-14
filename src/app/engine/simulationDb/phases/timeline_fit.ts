@@ -7,7 +7,7 @@ import { simulationPhases } from "../types";
 import { getMomentGraphDb } from "../db";
 import { addMoment, getMoments } from "../../momentDb";
 import { callLLM } from "../../utils/llm";
-import { computePhaseGTimelineFitDecision } from "../../linking/phaseG_timeline_fit_orchestrator";
+import { computeTimelineFitDecision } from "../../linking/timeline_fit_orchestrator";
 
 export async function runPhaseTimelineFit(
   context: SimulationDbContext,
@@ -164,7 +164,7 @@ export async function runPhaseTimelineFit(
     const useLlmVeto =
       String((context.env as any).SIMULATION_TIMELINE_FIT_USE_LLM ?? "") === "1";
     const childText = `${child.title ?? ""}\n${child.summary ?? ""}`.trim();
-    const proposal = await computePhaseGTimelineFitDecision({
+    const proposal = await computeTimelineFitDecision({
       ports: {
         llmVeto: async (llmInput) => {
           const prompt =

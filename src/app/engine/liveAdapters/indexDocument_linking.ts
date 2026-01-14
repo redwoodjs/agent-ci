@@ -3,7 +3,7 @@ import { getMoments } from "../momentDb";
 import { getEmbedding } from "../utils/vector";
 import { callLLM } from "../utils/llm";
 import { resolveThreadHeadForDocumentAsOf } from "../linking/explicitRefThreadHead";
-import { computeRootMacroMomentParentSelection } from "../linking/root_macro_moment_linking_orchestrator";
+import { computeRootMacroMomentParentSelection } from "../linking/root_macro_moment_linking";
 
 export async function computeIndexDocumentParentForRootMacroMoment(input: {
   env: Cloudflare.Env;
@@ -25,7 +25,7 @@ export async function computeIndexDocumentParentForRootMacroMoment(input: {
   const ns = input.momentGraphNamespace ?? "default";
   return await computeRootMacroMomentParentSelection({
     ports: {
-      phaseE: {
+      deterministicLinking: {
         resolveThreadHeadForDocumentAsOf: async ({ documentId, asOfMs }) => {
           return await resolveThreadHeadForDocumentAsOf({
             documentId,
@@ -34,7 +34,7 @@ export async function computeIndexDocumentParentForRootMacroMoment(input: {
           });
         },
       },
-      phaseF: {
+      candidateSets: {
         getEmbedding: async (text) => await getEmbedding(text),
         vectorQuery: async (embedding, query) => {
           const queryOptions: Record<string, unknown> = {
@@ -74,7 +74,7 @@ export async function computeIndexDocumentParentForRootMacroMoment(input: {
           return out;
         },
       },
-      phaseG: {
+      timelineFit: {
         llmVeto: async (llmInput) => {
           const prompt =
             `Given a child moment and candidate parent moments, return a JSON object:\n` +

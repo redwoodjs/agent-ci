@@ -60,15 +60,15 @@ function parseGithubRepoFromDocumentId(
   return { owner, repo };
 }
 
-export type PhaseEPorts = {
+export type DeterministicLinkingPorts = {
   resolveThreadHeadForDocumentAsOf: (input: {
     documentId: string;
     asOfMs: number | null;
   }) => Promise<{ headMomentId: string | null; anchorMomentId: string | null }>;
 };
 
-export async function computePhaseEDeterministicLinkingDecision(input: {
-  ports: PhaseEPorts;
+export async function computeDeterministicLinkingDecision(input: {
+  ports: DeterministicLinkingPorts;
   r2Key: string;
   streamId: string;
   macroIndex: number;
@@ -140,7 +140,7 @@ export async function computePhaseEDeterministicLinkingDecision(input: {
   return {
     proposedParentId: proposal.proposedParentId,
     audit: {
-      kind: "phaseE.deterministic_linking",
+      kind: "deterministic_linking",
       ruleId: proposal.ruleId,
       evidence: proposal.evidence,
     },

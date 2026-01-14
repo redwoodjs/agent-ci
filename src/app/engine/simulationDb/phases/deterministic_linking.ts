@@ -6,7 +6,7 @@ import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { addMoment, getMoments } from "../../momentDb";
 import { resolveThreadHeadForDocumentAsOf } from "../../linking/explicitRefThreadHead";
-import { computePhaseEDeterministicLinkingDecision } from "../../linking/phaseE_deterministic_linking_orchestrator";
+import { computeDeterministicLinkingDecision } from "../../linking/deterministic_linking_orchestrator";
 
 function parseIssueRefs(tokens: unknown): string[] {
   if (!Array.isArray(tokens)) {
@@ -200,7 +200,7 @@ export async function runPhaseDeterministicLinking(
         ? `${child.title ?? ""}\n${child.summary ?? ""}`.trim()
         : "";
 
-      const phaseE = await computePhaseEDeterministicLinkingDecision({
+      const deterministic = await computeDeterministicLinkingDecision({
         ports: {
           resolveThreadHeadForDocumentAsOf: async ({ documentId, asOfMs }) => {
             const resolved = await resolveThreadHeadForDocumentAsOf({
@@ -227,9 +227,9 @@ export async function runPhaseDeterministicLinking(
       });
 
       const proposal = {
-        proposedParentId: phaseE.proposedParentId,
-        ruleId: phaseE.audit.ruleId,
-        evidence: phaseE.audit.evidence as any,
+        proposedParentId: deterministic.proposedParentId,
+        ruleId: deterministic.audit.ruleId,
+        evidence: deterministic.audit.evidence as any,
       };
       if (matchedAnchorMomentId) {
         (proposal.evidence as any).matchedAnchorMomentId =

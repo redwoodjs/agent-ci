@@ -6,7 +6,7 @@ import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { getMomentGraphDb } from "../db";
 import { getEmbedding } from "../../utils/vector";
-import { computePhaseFCandidateSet } from "../../linking/phaseF_candidate_sets_orchestrator";
+import { computeCandidateSet } from "../../linking/candidate_sets_orchestrator";
 
 function parseTimeMs(value: unknown): number | null {
   if (typeof value !== "string") {
@@ -115,7 +115,13 @@ export async function runPhaseCandidateSets(
     rootIds.length > 0
       ? await momentDb
           .selectFrom("moments")
-          .select(["id", "parent_id", "document_id", "created_at", "source_metadata"])
+          .select([
+            "id",
+            "parent_id",
+            "document_id",
+            "created_at",
+            "source_metadata",
+          ])
           .where("id", "in", rootIds as any)
           .execute()
       : [];
@@ -185,7 +191,7 @@ export async function runPhaseCandidateSets(
     }
 
     try {
-      const built = await computePhaseFCandidateSet({
+      const built = await computeCandidateSet({
         ports: {
           getEmbedding: async (text) => await getEmbedding(text),
           vectorQuery: async (embedding, query) => {
@@ -327,4 +333,3 @@ export async function runPhaseCandidateSets(
 
   return { status: "running", currentPhase: nextPhase };
 }
-

@@ -1,6 +1,6 @@
 import { buildCandidateSet } from "../phaseCores/candidate_sets_core";
 
-export type PhaseFPorts = {
+export type CandidateSetsPorts = {
   getEmbedding: (text: string) => Promise<number[]>;
   vectorQuery: (embedding: number[], input: { topK: number }) => Promise<{
     matches: Array<{ id: string; score: number | null }>;
@@ -49,8 +49,8 @@ function computeMomentStartMs(input: {
   return parseTimeMs(input.createdAt);
 }
 
-export async function computePhaseFCandidateSet(input: {
-  ports: PhaseFPorts;
+export async function computeCandidateSet(input: {
+  ports: CandidateSetsPorts;
   childMomentId: string;
   childDocumentId: string;
   childCreatedAt: string;

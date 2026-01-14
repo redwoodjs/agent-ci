@@ -1,15 +1,15 @@
 import { computeTimelineFitProposalDeep } from "../phaseCores/timeline_fit_deep_core";
 import { extractAnchorTokens } from "../utils/anchorTokens";
 
-export type PhaseGPorts = {
+export type TimelineFitPorts = {
   llmVeto?: (input: {
     childText: string;
     candidates: Array<{ id: string; title: string | null; summary: string | null }>;
   }) => Promise<{ vetoedIds: string[]; note?: string | null }>;
 };
 
-export async function computePhaseGTimelineFitDecision(input: {
-  ports: PhaseGPorts;
+export async function computeTimelineFitDecision(input: {
+  ports: TimelineFitPorts;
   childMomentId: string;
   childText: string;
   candidates: Array<{

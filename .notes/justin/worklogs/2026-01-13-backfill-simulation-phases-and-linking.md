@@ -920,3 +920,13 @@ Rewired both:
 - simulation phases E/F/G
 
 So live/simulation files now mostly wire ports and persist artifacts, and the phase control flow is shared.
+
+Rename: stop using phase letters in module names and port fields
+
+Phase-letter naming (A/B/C or E/F/G) was leaking ordering assumptions into filenames and APIs.
+
+Renamed linking modules and port fields to use semantic names:
+
+- deterministic_linking
+- candidate_sets
+- timeline_fit

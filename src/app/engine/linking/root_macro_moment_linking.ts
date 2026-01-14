@@ -1,15 +1,15 @@
-import { computePhaseEDeterministicLinkingDecision } from "./phaseE_deterministic_linking_orchestrator";
-import { computePhaseFCandidateSet } from "./phaseF_candidate_sets_orchestrator";
-import { computePhaseGTimelineFitDecision } from "./phaseG_timeline_fit_orchestrator";
+import { computeDeterministicLinkingDecision } from "./deterministic_linking_orchestrator";
+import { computeCandidateSet } from "./candidate_sets_orchestrator";
+import { computeTimelineFitDecision } from "./timeline_fit_orchestrator";
 
-export type RootLinkingPorts = {
-  phaseE: Parameters<typeof computePhaseEDeterministicLinkingDecision>[0]["ports"];
-  phaseF: Parameters<typeof computePhaseFCandidateSet>[0]["ports"];
-  phaseG: Parameters<typeof computePhaseGTimelineFitDecision>[0]["ports"];
+export type RootMacroMomentLinkingPorts = {
+  deterministicLinking: Parameters<typeof computeDeterministicLinkingDecision>[0]["ports"];
+  candidateSets: Parameters<typeof computeCandidateSet>[0]["ports"];
+  timelineFit: Parameters<typeof computeTimelineFitDecision>[0]["ports"];
 };
 
 export async function computeRootMacroMomentParentSelection(input: {
-  ports: RootLinkingPorts;
+  ports: RootMacroMomentLinkingPorts;
   env: Cloudflare.Env;
   r2Key: string;
   streamId: string;
@@ -26,8 +26,8 @@ export async function computeRootMacroMomentParentSelection(input: {
 }> {
   const childText = `${input.childTitle ?? ""}\n${input.childSummary ?? ""}`.trim();
 
-  const phaseE = await computePhaseEDeterministicLinkingDecision({
-    ports: input.ports.phaseE,
+  const deterministic = await computeDeterministicLinkingDecision({
+    ports: input.ports.deterministicLinking,
     r2Key: input.r2Key,
     streamId: input.streamId,
     macroIndex: 0,
@@ -42,18 +42,22 @@ export async function computeRootMacroMomentParentSelection(input: {
 
   const auditLog: Record<string, any> = {
     kind: "live.linking",
-    phaseE: phaseE.audit,
-    phaseF: null,
-    phaseG: null,
+    deterministic_linking: deterministic.audit,
+    candidate_sets: null,
+    timeline_fit: null,
   };
 
-  if (phaseE.proposedParentId) {
-    return { parentId: phaseE.proposedParentId, auditLog };
+  if (deterministic.proposedParentId) {
+    return { parentId: deterministic.proposedParentId, auditLog };
   }
 
   if (!childText) {
-    auditLog.phaseF = { candidates: [], stats: { reason: "empty-query" } };
-    auditLog.phaseG = { chosenParentId: null, decisions: [], stats: { candidateCount: 0 } };
+    auditLog.candidate_sets = { candidates: [], stats: { reason: "empty-query" } };
+    auditLog.timeline_fit = {
+      chosenParentId: null,
+      decisions: [],
+      stats: { candidateCount: 0 },
+    };
     return { parentId: null, auditLog };
   }
 
@@ -65,8 +69,8 @@ export async function computeRootMacroMomentParentSelection(input: {
       ? maxCandidatesRaw
       : 10;
 
-  const phaseF = await computePhaseFCandidateSet({
-    ports: input.ports.phaseF,
+  const candidateSet = await computeCandidateSet({
+    ports: input.ports.candidateSets,
     childMomentId: input.childMomentId,
     childDocumentId: input.childDocumentId,
     childCreatedAt: input.childCreatedAt,
@@ -75,15 +79,15 @@ export async function computeRootMacroMomentParentSelection(input: {
     maxCandidates: Number.isFinite(maxCandidates) ? maxCandidates : 10,
   });
 
-  auditLog.phaseF = {
-    candidates: phaseF.candidates,
-    stats: phaseF.stats,
-    debug: phaseF.debug,
+  auditLog.candidate_sets = {
+    candidates: candidateSet.candidates,
+    stats: candidateSet.stats,
+    debug: candidateSet.debug,
   };
 
-  const candidateIds = phaseF.candidates.map((c) => c.id);
-  const rows = await input.ports.phaseF.loadCandidateRowsById(candidateIds);
-  const deepCandidates = phaseF.candidates.map((c) => {
+  const candidateIds = candidateSet.candidates.map((c) => c.id);
+  const rows = await input.ports.candidateSets.loadCandidateRowsById(candidateIds);
+  const deepCandidates = candidateSet.candidates.map((c) => {
     const row = rows.get(c.id) ?? null;
     return {
       id: c.id,
@@ -101,8 +105,8 @@ export async function computeRootMacroMomentParentSelection(input: {
       (useLlmVetoRaw.trim() === "1" ||
         useLlmVetoRaw.trim().toLowerCase() === "true"));
 
-  const phaseG = await computePhaseGTimelineFitDecision({
-    ports: input.ports.phaseG,
+  const timelineFit = await computeTimelineFitDecision({
+    ports: input.ports.timelineFit,
     childMomentId: input.childMomentId,
     childText,
     candidates: deepCandidates,
@@ -111,7 +115,7 @@ export async function computeRootMacroMomentParentSelection(input: {
     maxSharedAnchorTokens: 12,
   });
 
-  auditLog.phaseG = phaseG;
-  return { parentId: phaseG.chosenParentId, auditLog };
+  auditLog.timeline_fit = timelineFit;
+  return { parentId: timelineFit.chosenParentId, auditLog };
 }
 

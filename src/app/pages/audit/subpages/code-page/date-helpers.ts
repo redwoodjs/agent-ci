@@ -22,15 +22,16 @@ export function groupIntoWeeks(data: MomentDay[]): Week[] {
   let currentWeek: MomentDay[] = [];
 
   // Find the day of week for the first date
-  const firstDate = new Date(data[0].date);
-  const firstDayOfWeek = firstDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
+  // Parse date string as UTC to avoid timezone issues
+  const firstDate = new Date(data[0].date + "T00:00:00Z");
+  const firstDayOfWeek = firstDate.getUTCDay(); // 0 = Sunday, 1 = Monday, etc.
 
   // Add empty days at the start to align with Monday
   // GitHub-style heatmaps start on Monday (day 1)
   const daysToAdd = firstDayOfWeek === 0 ? 6 : firstDayOfWeek - 1;
   for (let i = 0; i < daysToAdd; i++) {
     const emptyDate = new Date(firstDate);
-    emptyDate.setDate(emptyDate.getDate() - (daysToAdd - i));
+    emptyDate.setUTCDate(emptyDate.getUTCDate() - (daysToAdd - i));
     currentWeek.push({
       date: emptyDate.toISOString().split("T")[0],
       count: 0,
@@ -50,11 +51,10 @@ export function groupIntoWeeks(data: MomentDay[]): Week[] {
   if (currentWeek.length > 0) {
     // Fill remaining days with empty entries
     while (currentWeek.length < 7) {
-      const lastDate = new Date(
-        currentWeek[currentWeek.length - 1]?.date || data[data.length - 1].date
-      );
+      const lastDateStr = currentWeek[currentWeek.length - 1]?.date || data[data.length - 1].date;
+      const lastDate = new Date(lastDateStr + "T00:00:00Z");
       const nextDate = new Date(lastDate);
-      nextDate.setDate(nextDate.getDate() + 1);
+      nextDate.setUTCDate(nextDate.getUTCDate() + 1);
       currentWeek.push({
         date: nextDate.toISOString().split("T")[0],
         count: 0,
@@ -115,8 +115,9 @@ export function getMonthLabels(weeks: Week[]): MonthLabel[] {
     const firstDay = week.days[0];
     if (!firstDay) continue;
 
-    const date = new Date(firstDay.date);
-    const month = date.getMonth();
+    // Parse date string as UTC to avoid timezone issues
+    const date = new Date(firstDay.date + "T00:00:00Z");
+    const month = date.getUTCMonth();
 
     // Only add label if it's a new month or the first week
     if (month !== lastMonth || weekIdx === 0) {

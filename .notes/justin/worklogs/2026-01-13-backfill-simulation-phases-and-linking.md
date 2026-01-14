@@ -1236,6 +1236,10 @@ Progress: provenance invariants test
 - pnpm build passes
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
 
+Removed provenance gate script
+
+I removed scripts/provenance-gate.mjs. It was a drift-check tool for comparing live vs simulation provenance, but now that provenance is asserted via invariants tests, I prefer keeping the checks inside node:test.
+
 Provenance contract (moment -> originating document)
 
 I want to make provenance explicit as a small, stable payload on every stored moment.

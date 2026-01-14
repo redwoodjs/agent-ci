@@ -9,6 +9,8 @@ import { getEmbedding } from "../utils/vector";
 import { getChainContextForMoment, getMoments } from "../momentDb";
 import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
 import { callLLM } from "../utils/llm";
+import { buildCandidateSet } from "../phaseCores/candidate_sets_core";
+import { computeTimelineFitProposal } from "../phaseCores/timeline_fit_core";
 
 const DEFAULT_SMART_LINKER_AUTO_ATTACH_THRESHOLD = 0.8;
 const DEFAULT_SMART_LINKER_MAX_QUERY_CHARS = 4000;
@@ -366,21 +368,10 @@ export const timelineFitLinkerPlugin: Plugin = {
         parseTimeMs(macroMoment.createdAt);
 
       const isReplay = context.indexingMode === "replay";
-      const replayFastAttachTop1 = parseEnvBool(
-        (context.env as any).MOMENT_REPLAY_FAST_ATTACH_TOP1,
-        false
-      );
 
       const embedding = await getEmbedding(queryText);
-      const replayFastTopK = parseEnvInt(
-        (context.env as any).MOMENT_REPLAY_FAST_ATTACH_TOPK,
-        5
-      );
       const queryOptions: Record<string, unknown> = {
-        topK:
-          isReplay && replayFastAttachTop1
-            ? replayFastTopK
-            : DEFAULT_SMART_LINKER_VECTOR_TOPK,
+        topK: DEFAULT_SMART_LINKER_VECTOR_TOPK,
         returnMetadata: true,
       };
       if (momentGraphNamespace !== "default") {
@@ -512,125 +503,8 @@ export const timelineFitLinkerPlugin: Plugin = {
         24
       );
 
-      if (isReplay && replayFastAttachTop1) {
-        if (filteredMatches.length === 0) {
-          auditLog.candidates = candidateDecisions;
-          auditLog.outcome = {
-            attached: false,
-            reason: "no-eligible-candidates",
-          };
-          return {
-            parentMomentId: null,
-            matchedSubjectId: null,
-            score: null,
-            auditLog,
-          };
-        }
-
-        const ranked = filteredMatches
-          .map((match) => {
-            const matchMetadata = (match.metadata as any) ?? null;
-            const matchDocumentId =
-              typeof matchMetadata?.documentId === "string"
-                ? matchMetadata.documentId
-                : "";
-            const matchTitle =
-              typeof matchMetadata?.title === "string"
-                ? matchMetadata.title
-                : "";
-            const matchSummary =
-              typeof matchMetadata?.summary === "string"
-                ? matchMetadata.summary
-                : "";
-            const parentAnchorTokens = extractAnchorTokens(
-              `${matchTitle}\n${matchSummary}`,
-              24
-            );
-            const sharedAnchorTokens = intersectTokens(
-              childAnchorTokens,
-              parentAnchorTokens,
-              12
-            );
-            const parentIssueRef = issueRefFromDocumentId(matchDocumentId);
-            const explicitIssueRefMatch =
-              typeof parentIssueRef === "string" &&
-              sharedAnchorTokens.includes(parentIssueRef);
-
-            const decision: Record<string, unknown> = {
-              id: match.id,
-              score: match.score,
-              expectedNamespace: momentGraphNamespace,
-              matchNamespace: matchMetadata?.momentGraphNamespace ?? null,
-              matchDocumentId,
-              matchIsSubject: matchMetadata?.isSubject ?? null,
-              matchType: matchMetadata?.type ?? null,
-              matchTitlePreview: previewText(matchTitle, 120),
-              matchSummaryPreview: previewText(matchSummary, 160),
-              anchorTokens: {
-                shared: sharedAnchorTokens,
-                childSample: childAnchorTokens.slice(0, 12),
-                parentSample: parentAnchorTokens.slice(0, 12),
-              },
-              explicitIssueRefMatch,
-            };
-
-            return {
-              match,
-              decision,
-              explicitIssueRefMatch,
-              sharedAnchorTokens,
-            };
-          })
-          .sort((a, b) => {
-            if (a.explicitIssueRefMatch !== b.explicitIssueRefMatch) {
-              return a.explicitIssueRefMatch ? -1 : 1;
-            }
-            if (a.match.score !== b.match.score) {
-              return b.match.score - a.match.score;
-            }
-            return a.match.id.localeCompare(b.match.id);
-          });
-
-        for (const entry of ranked) {
-          candidateDecisions.push(entry.decision);
-        }
-        auditLog.candidates = candidateDecisions;
-
-        const chosen = ranked[0]!;
-        if (
-          chosen.explicitIssueRefMatch !== true &&
-          replayLowScoreReject > 0 &&
-          chosen.match.score < replayLowScoreReject &&
-          chosen.sharedAnchorTokens.length === 0
-        ) {
-          auditLog.outcome = {
-            attached: false,
-            reason: "replay-fast-top1-rejected",
-          };
-          return {
-            parentMomentId: null,
-            matchedSubjectId: null,
-            score: null,
-            auditLog,
-          };
-        }
-
-        const parentMomentId = String(chosen.match.id);
-        auditLog.outcome = {
-          attached: true,
-          method: chosen.explicitIssueRefMatch
-            ? "explicit-issue-ref"
-            : "replay-fast-top1",
-          parentMomentId,
-          matchedSubjectId: parentMomentId,
-          score: chosen.match.score,
-        };
-        return {
-          parentMomentId,
-          matchedSubjectId: parentMomentId,
-          score: chosen.match.score,
-          auditLog,
-        };
+      if (isReplay) {
+        auditLog.replay = true;
       }
 
       const matchIds = filteredMatches
@@ -640,6 +514,41 @@ export const timelineFitLinkerPlugin: Plugin = {
         matchIds.length > 0
           ? await getMoments(matchIds, momentGraphContext)
           : null;
+
+      if (momentsMap) {
+        const candidateRowsById = new Map<string, any>();
+        for (const [id, m] of momentsMap.entries()) {
+          candidateRowsById.set(id, {
+            id,
+            document_id: (m as any).documentId ?? null,
+            created_at: (m as any).createdAt ?? null,
+            source_metadata: (m as any).sourceMetadata ?? null,
+            title: (m as any).title ?? null,
+            summary: (m as any).summary ?? null,
+          });
+        }
+
+        const coreCandidateSet = buildCandidateSet({
+          childMomentId: "live:pending",
+          childDocumentId: document.id,
+          childStartMs,
+          matches: filteredMatches.map((m) => ({
+            id: String(m.id),
+            score: typeof m.score === "number" ? m.score : null,
+          })),
+          candidateRowsById: candidateRowsById as any,
+          maxCandidates: DEFAULT_SMART_LINKER_MAX_CANDIDATES_AFTER_TIME_FILTER,
+        });
+
+        auditLog.coreCandidateSet = coreCandidateSet;
+        auditLog.coreTimelineFit = computeTimelineFitProposal({
+          childMomentId: "live:pending",
+          candidates: coreCandidateSet.candidates.map((c) => ({
+            id: c.id,
+            score: c.score,
+          })),
+        });
+      }
 
       const scoredCandidates: Array<{
         match: (typeof results.matches)[number];
@@ -934,45 +843,6 @@ export const timelineFitLinkerPlugin: Plugin = {
         const parentAnchorTokens = Array.isArray(anchorTokens?.parentSample)
           ? (anchorTokens.parentSample as string[])
           : [];
-
-        const explicitIssueRefMatch =
-          (entry.decision as any)?.explicitIssueRefMatch === true;
-        if (explicitIssueRefMatch) {
-          entry.decision.chosen = true;
-          entry.decision.chosenMethod = "explicit-issue-ref";
-          entry.decision.timelineFitAnswer = null;
-          entry.decision.timelineFitJson = null;
-          entry.decision.timelineFitAllowed = true;
-
-          console.log("[moment-linker] timeline fit linker chose attachment", {
-            documentId: document.id,
-            macroMomentIndex,
-            matchedSubjectId: subject.id,
-            score,
-            parentMomentId,
-            subjectTitle: subject.title,
-            subjectDocumentId: subject.documentId,
-            subjectSourceRank: entry.rank,
-            childStartMs,
-            parentStartMs: entry.parentStartMs,
-            parentEndMs: entry.parentEndMs,
-            method: "explicit-issue-ref",
-          });
-
-          auditLog.outcome = {
-            attached: true,
-            method: "explicit-issue-ref",
-            parentMomentId,
-            matchedSubjectId: subject.id,
-            score,
-          };
-          return {
-            parentMomentId,
-            matchedSubjectId: subject.id,
-            score,
-            auditLog,
-          };
-        }
 
         if (
           isReplay &&

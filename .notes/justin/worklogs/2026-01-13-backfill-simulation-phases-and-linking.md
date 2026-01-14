@@ -851,3 +851,31 @@ Continued Step 5:
 
 - added a Phase F core helper that filters and caps candidate matches into a persisted candidate list
 - refactored the simulation candidate_sets phase to call the core while keeping vector retrieval and DB writes in the simulation layer
+
+Continued Step 5:
+
+- added a Phase G core helper that chooses a parent proposal from a persisted candidate set and produces an audit decision list
+- refactored the simulation timeline_fit phase to call the core while keeping moment graph writes and decision persistence in the simulation layer
+
+Started wiring the same Phase E/F/G cores into the live path for audit payload alignment:
+
+- live now writes a deterministic_linking link audit payload for within-stream chaining (macroIndex > 0) using the Phase E core
+- the timeline-fit linker plugin now computes and attaches Phase F and Phase G core outputs to its audit log so the payload shape can be compared against simulation artifacts
+
+Removed the replay fast attach top1 path from the timeline-fit linker so replay always uses the deeper ranking/veto code path.
+
+Updated simulation timeline_fit to use a Phase G core that does deeper ranking based on shared anchor tokens (and supports optional LLM veto behind an env flag).
+
+Decision on explicit references (issue/PR refs):
+
+The desired behavior for an explicit reference is to attach to the referenced thread head as-of the child moment time, so timelines read like:
+
+- issue created
+- cursor work / other related moments attached under the issue
+- PR created referencing the issue (attaches to the latest eligible moment already in the issue thread)
+
+Implementation changes:
+
+- Added a shared resolver that finds the referenced document's anchor moment in the current namespace, scans its descendant thread, and picks the latest eligible node (time <= child).
+- Simulation deterministic_linking now uses this resolver instead of attaching to a run-scoped document root moment id.
+- Removed the explicit-issue-ref shortcut attach from the live timeline-fit plugin so Phase G remains the deep check stage.

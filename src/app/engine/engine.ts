@@ -31,6 +31,9 @@ import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { planIndexDocumentMicroBatches } from "./liveAdapters/indexDocument_micro_batches";
 import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./phaseCores/materialize_moments_core";
 import { computeIndexDocumentMacroSynthesisIdentity } from "./liveAdapters/indexDocument_macro_synthesis";
+import { computeDeterministicLinkingProposal } from "./phaseCores/deterministic_linking_core";
+import { resolveThreadHeadForDocumentAsOf } from "./linking/explicitRefThreadHead";
+import { extractAnchorTokens } from "./utils/anchorTokens";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,
@@ -1129,6 +1132,30 @@ export async function indexDocument(
 
             const momentId =
               existing?.id ?? deterministicMomentId ?? crypto.randomUUID();
+            const linkAuditLog =
+              i === 0
+                ? linkAuditLogForFirst ?? undefined
+                : momentReplayRunId
+                ? undefined
+                : previousMomentId
+                ? (() => {
+                    const proposal = computeDeterministicLinkingProposal({
+                      r2Key,
+                      streamId: stream.streamId,
+                      macroIndex: i,
+                      childMomentId: momentId,
+                      prevMomentId: previousMomentId,
+                      candidateParentMomentId: null,
+                      candidateIssueRef: null,
+                      candidateParentR2Key: null,
+                    });
+                    return {
+                      kind: "live.deterministic_linking",
+                      ruleId: proposal.ruleId,
+                      evidence: proposal.evidence,
+                    };
+                  })()
+                : undefined;
             if (i === 0) {
               if (momentReplayRunId) {
                 resolvedParentIdForFirst = undefined;
@@ -1150,6 +1177,65 @@ export async function indexDocument(
                   }
                 );
               } else {
+                const issueTokens = extractAnchorTokens(
+                  `${description.title ?? ""}\n${description.summary ?? ""}`,
+                  24
+                );
+                const issueRefToken =
+                  issueTokens.find((t) => /^#\d{1,10}$/.test(t)) ?? null;
+                const issueNumber =
+                  issueRefToken ? issueRefToken.slice(1) : null;
+                const repoMatch = document.id.match(/^github\/([^/]+)\/([^/]+)\//);
+                if (issueNumber && repoMatch) {
+                  const owner = repoMatch[1] ?? "";
+                  const repo = repoMatch[2] ?? "";
+                  const childStartMs =
+                    (description.sourceMetadata as any)?.timeRange?.start &&
+                    Number.isFinite(Date.parse((description.sourceMetadata as any).timeRange.start))
+                      ? Date.parse((description.sourceMetadata as any).timeRange.start)
+                      : Number.isFinite(Date.parse(description.createdAt))
+                      ? Date.parse(description.createdAt)
+                      : null;
+                  const candidates = [
+                    `github/${owner}/${repo}/issues/${issueNumber}/latest.json`,
+                    `github/${owner}/${repo}/pull-requests/${issueNumber}/latest.json`,
+                  ];
+                  for (const docId of candidates) {
+                    const resolved = await resolveThreadHeadForDocumentAsOf({
+                      documentId: docId,
+                      asOfMs: childStartMs,
+                      context: momentGraphContext,
+                    });
+                    if (resolved.headMomentId) {
+                      resolvedParentIdForFirst = resolved.headMomentId;
+                      linkAuditLogForFirst = {
+                        kind: "live.deterministic_linking",
+                        ruleId: "explicit_issue_ref_thread_head",
+                        evidence: {
+                          phase: "deterministic_linking",
+                          r2Key,
+                          streamId: stream.streamId,
+                          macroIndex: i,
+                          proposedParent: resolved.headMomentId,
+                          issueRef: issueRefToken,
+                          matchedParentDocumentId: docId,
+                          matchedAnchorMomentId: resolved.anchorMomentId,
+                        },
+                      };
+                      break;
+                    }
+                  }
+                }
+
+                if (resolvedParentIdForFirst) {
+                  console.log("[moment-linker] deterministic issue ref attach", {
+                    documentId: document.id,
+                    macroMomentIndex: i,
+                    parentId: resolvedParentIdForFirst,
+                    streamId: stream.streamId,
+                  });
+                }
+
                 const anchorMacroMoment =
                   anchorMacroMomentForLinking ??
                   macroMomentDescriptions[anchorMacroMomentIndex] ??
@@ -1188,11 +1274,13 @@ export async function indexDocument(
                   }
                 }
 
-                resolvedParentIdForFirst =
-                  typeof parentProposal?.parentMomentId === "string" &&
-                  parentProposal.parentMomentId.length > 0
-                    ? parentProposal.parentMomentId
-                    : undefined;
+                if (!resolvedParentIdForFirst) {
+                  resolvedParentIdForFirst =
+                    typeof parentProposal?.parentMomentId === "string" &&
+                    parentProposal.parentMomentId.length > 0
+                      ? parentProposal.parentMomentId
+                      : undefined;
+                }
 
                 linkAuditLogForFirst = parentAuditLog
                   ? {
@@ -1282,7 +1370,7 @@ export async function indexDocument(
                 ? ((description as any).subjectEvidence as any)
                 : undefined,
               linkAuditLog:
-                i === 0 ? linkAuditLogForFirst ?? undefined : undefined,
+                linkAuditLog,
               createdAt: description.createdAt,
               author: description.author,
               sourceMetadata: description.sourceMetadata,

@@ -6,6 +6,7 @@ import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { addMoment, getMoments } from "../../momentDb";
 import { computeDeterministicLinkingProposal } from "../../phaseCores/deterministic_linking_core";
+import { resolveThreadHeadForDocumentAsOf } from "../../linking/explicitRefThreadHead";
 
 function parseIssueRefs(tokens: unknown): string[] {
   if (!Array.isArray(tokens)) {
@@ -31,6 +32,46 @@ function issueNumberFromR2Key(r2Key: string): string | null {
     return null;
   }
   return m[2] ?? null;
+}
+
+function parseGithubRepoFromKey(
+  r2Key: string
+): { owner: string; repo: string } | null {
+  const m = r2Key.match(/^github\/([^/]+)\/([^/]+)\//);
+  if (!m) {
+    return null;
+  }
+  const owner = m[1] ?? "";
+  const repo = m[2] ?? "";
+  if (!owner || !repo) {
+    return null;
+  }
+  return { owner, repo };
+}
+
+function parseTimeMs(value: unknown): number | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const ms = Date.parse(trimmed);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function computeMomentStartMs(input: {
+  createdAt: string;
+  sourceMetadata?: Record<string, any>;
+}): number | null {
+  const range = (input.sourceMetadata as any)?.timeRange;
+  const start = typeof range?.start === "string" ? range.start : null;
+  const rangeStart = start ? parseTimeMs(start) : null;
+  if (rangeStart !== null) {
+    return rangeStart;
+  }
+  return parseTimeMs(input.createdAt);
 }
 
 export async function runPhaseDeterministicLinking(
@@ -92,14 +133,6 @@ export async function runPhaseDeterministicLinking(
     },
   });
 
-  const issueDocR2KeyByNumber = new Map<string, string>();
-  for (const r2Key of r2Keys) {
-    const n = issueNumberFromR2Key(r2Key);
-    if (n) {
-      issueDocR2KeyByNumber.set(n, r2Key);
-    }
-  }
-
   const mappings = (await db
     .selectFrom("simulation_run_materialized_moments")
     .selectAll()
@@ -120,17 +153,6 @@ export async function runPhaseDeterministicLinking(
   }
   for (const list of byStream.values()) {
     list.sort((a, b) => (a.macro_index ?? 0) - (b.macro_index ?? 0));
-  }
-
-  const rootMomentIdByR2Key = new Map<string, string>();
-  for (const [key, list] of byStream.entries()) {
-    const [r2Key] = key.split("\n");
-    const root = list.find((x) => Number(x.macro_index ?? 0) === 0);
-    if (r2Key && root?.moment_id) {
-      if (!rootMomentIdByR2Key.has(r2Key)) {
-        rootMomentIdByR2Key.set(r2Key, root.moment_id);
-      }
-    }
   }
 
   let momentsProcessed = 0;
@@ -162,14 +184,7 @@ export async function runPhaseDeterministicLinking(
 
     const issueRefs = parseIssueRefs(macroRow?.anchors_json);
     const candidateIssueNumber = issueRefs[0] ?? null;
-    const candidateParentR2Key =
-      candidateIssueNumber && issueDocR2KeyByNumber.has(candidateIssueNumber)
-        ? issueDocR2KeyByNumber.get(candidateIssueNumber) ?? null
-        : null;
-    const candidateParentMomentId =
-      candidateParentR2Key && candidateParentR2Key !== r2Key
-        ? rootMomentIdByR2Key.get(candidateParentR2Key) ?? null
-        : null;
+    const repo = candidateIssueNumber ? parseGithubRepoFromKey(r2Key) : null;
 
     for (let i = 0; i < list.length; i++) {
       const row = list[i]!;
@@ -178,6 +193,36 @@ export async function runPhaseDeterministicLinking(
       const prev = i > 0 ? list[i - 1]?.moment_id ?? null : null;
 
       momentsProcessed++;
+
+      let candidateParentMomentId: string | null = null;
+      let candidateParentDocumentId: string | null = null;
+      let matchedAnchorMomentId: string | null = null;
+      if (macroIndex === 0 && repo && candidateIssueNumber) {
+        const child = momentsMap.get(childMomentId) ?? null;
+        const childStartMs = child
+          ? computeMomentStartMs({
+              createdAt: child.createdAt,
+              sourceMetadata: child.sourceMetadata,
+            })
+          : null;
+        const candidates = [
+          `github/${repo.owner}/${repo.repo}/issues/${candidateIssueNumber}/latest.json`,
+          `github/${repo.owner}/${repo.repo}/pull-requests/${candidateIssueNumber}/latest.json`,
+        ];
+        for (const docId of candidates) {
+          const resolved = await resolveThreadHeadForDocumentAsOf({
+            documentId: docId,
+            asOfMs: childStartMs,
+            context: momentGraphContext,
+          });
+          if (resolved.headMomentId) {
+            candidateParentMomentId = resolved.headMomentId;
+            candidateParentDocumentId = docId;
+            matchedAnchorMomentId = resolved.anchorMomentId;
+            break;
+          }
+        }
+      }
 
       const proposal = computeDeterministicLinkingProposal({
         r2Key,
@@ -189,8 +234,11 @@ export async function runPhaseDeterministicLinking(
         candidateIssueRef: candidateIssueNumber
           ? `#${candidateIssueNumber}`
           : null,
-        candidateParentR2Key,
+        candidateParentR2Key: candidateParentDocumentId,
       });
+      if (matchedAnchorMomentId) {
+        proposal.evidence.matchedAnchorMomentId = matchedAnchorMomentId;
+      }
 
       try {
         if (!proposal.proposedParentId) {

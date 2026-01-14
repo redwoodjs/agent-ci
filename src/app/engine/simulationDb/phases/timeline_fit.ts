@@ -6,6 +6,9 @@ import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { getMomentGraphDb } from "../db";
 import { addMoment, getMoments } from "../../momentDb";
+import { computeTimelineFitProposalDeep } from "../../phaseCores/timeline_fit_deep_core";
+import { extractAnchorTokens } from "../../utils/anchorTokens";
+import { callLLM } from "../../utils/llm";
 
 export async function runPhaseTimelineFit(
   context: SimulationDbContext,
@@ -116,83 +119,119 @@ export async function runPhaseTimelineFit(
 
     itemsProcessed++;
 
-    const candidates =
-      Array.isArray((row as any).candidates_json) ? (row as any).candidates_json : [];
-    const decisions: any[] = [];
+    const candidatesRaw = Array.isArray((row as any).candidates_json)
+      ? (row as any).candidates_json
+      : [];
 
-    if (!Array.isArray(candidates) || candidates.length === 0) {
-      noCandidates++;
-      await db
-        .insertInto("simulation_run_timeline_fit_decisions")
-        .values({
-          run_id: input.runId,
-          child_moment_id: childMomentId,
-          r2_key: row.r2_key,
-          stream_id: row.stream_id,
-          macro_index: row.macro_index as any,
-          outcome: "no_candidates",
-          chosen_parent_moment_id: null,
-          decisions_json: JSON.stringify([]),
-          stats_json: JSON.stringify({ candidateCount: 0 }),
-          created_at: now,
-          updated_at: now,
-        } as any)
-        .onConflict((oc) =>
-          oc.columns(["run_id", "child_moment_id"]).doUpdateSet({
-            r2_key: row.r2_key,
-            stream_id: row.stream_id,
-            macro_index: row.macro_index as any,
-            outcome: "no_candidates",
-            chosen_parent_moment_id: null,
-            decisions_json: JSON.stringify([]),
-            stats_json: JSON.stringify({ candidateCount: 0 }),
-            updated_at: now,
-          } as any)
-        )
-        .execute();
-      continue;
-    }
+    const candidateIds = (candidatesRaw ?? [])
+      .map((c: any) => (typeof c?.id === "string" ? c.id : null))
+      .filter((id: any): id is string => typeof id === "string" && id.length > 0);
+    const candidateRows =
+      candidateIds.length > 0
+        ? await momentDb
+            .selectFrom("moments")
+            .select(["id", "document_id", "created_at", "source_metadata", "title", "summary"])
+            .where("id", "in", candidateIds as any)
+            .execute()
+        : [];
+    const candidateById = new Map((candidateRows as any[]).map((r) => [r.id, r]));
 
-    const chosen = candidates[0];
-    const parentId = typeof chosen?.id === "string" ? chosen.id : null;
-    if (!parentId || parentId === childMomentId) {
-      noCandidates++;
-      await db
-        .insertInto("simulation_run_timeline_fit_decisions")
-        .values({
-          run_id: input.runId,
-          child_moment_id: childMomentId,
-          r2_key: row.r2_key,
-          stream_id: row.stream_id,
-          macro_index: row.macro_index as any,
-          outcome: "no_candidates",
-          chosen_parent_moment_id: null,
-          decisions_json: JSON.stringify([]),
-          stats_json: JSON.stringify({ candidateCount: candidates.length }),
-          created_at: now,
-          updated_at: now,
-        } as any)
-        .onConflict((oc) =>
-          oc.columns(["run_id", "child_moment_id"]).doUpdateSet({
-            r2_key: row.r2_key,
-            stream_id: row.stream_id,
-            macro_index: row.macro_index as any,
-            outcome: "no_candidates",
-            chosen_parent_moment_id: null,
-            decisions_json: JSON.stringify([]),
-            stats_json: JSON.stringify({ candidateCount: candidates.length }),
-            updated_at: now,
-          } as any)
-        )
-        .execute();
-      continue;
-    }
+    const deepCandidates = (candidatesRaw ?? [])
+      .map((c: any) => {
+        const id = typeof c?.id === "string" ? c.id : null;
+        if (!id) {
+          return null;
+        }
+        const row2 = candidateById.get(id);
+        if (!row2) {
+          return null;
+        }
+        return {
+          id,
+          score: typeof c?.score === "number" ? c.score : null,
+          documentId: typeof (row2 as any)?.document_id === "string" ? (row2 as any).document_id : null,
+          title: typeof (row2 as any)?.title === "string" ? (row2 as any).title : null,
+          summary: typeof (row2 as any)?.summary === "string" ? (row2 as any).summary : null,
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: string;
+      score: number | null;
+      documentId: string | null;
+      title: string | null;
+      summary: string | null;
+    }>;
 
-    decisions.push({
-      candidateId: parentId,
-      score: typeof chosen?.score === "number" ? chosen.score : null,
-      selected: true,
+    const useLlmVeto = String((context.env as any).SIMULATION_TIMELINE_FIT_USE_LLM ?? "") === "1";
+    const proposal = await computeTimelineFitProposalDeep({
+      childMomentId,
+      childText: `${child.title ?? ""}\n${child.summary ?? ""}`.trim(),
+      candidates: deepCandidates,
+      extractAnchorTokens,
+      maxAnchorTokens: 24,
+      maxSharedAnchorTokens: 12,
+      useLlmVeto,
+      llmVeto: useLlmVeto
+        ? async (llmInput) => {
+            const prompt =
+              `Given a child moment and candidate parent moments, return a JSON object:\n` +
+              `{"vetoedIds":["..."],"note":"..."}\n\n` +
+              `Child:\n${llmInput.childText}\n\n` +
+              `Candidates:\n` +
+              llmInput.candidates
+                .map((c) => `- id=${c.id}\n  title=${c.title ?? ""}\n  summary=${c.summary ?? ""}`)
+                .join("\n\n");
+            try {
+              const out = await callLLM(prompt, { temperature: 0 });
+              const raw = typeof (out as any)?.content === "string" ? (out as any).content : String(out);
+              const parsed = JSON.parse(raw);
+              const vetoedIds = Array.isArray(parsed?.vetoedIds)
+                ? parsed.vetoedIds.filter((x: any) => typeof x === "string")
+                : [];
+              const note = typeof parsed?.note === "string" ? parsed.note : null;
+              return { vetoedIds, note };
+            } catch {
+              return { vetoedIds: [], note: null };
+            }
+          }
+        : undefined,
     });
+
+    if (!proposal.chosenParentId) {
+      noCandidates++;
+      await db
+        .insertInto("simulation_run_timeline_fit_decisions")
+        .values({
+          run_id: input.runId,
+          child_moment_id: childMomentId,
+          r2_key: row.r2_key,
+          stream_id: row.stream_id,
+          macro_index: row.macro_index as any,
+          outcome: "no_candidates",
+          chosen_parent_moment_id: null,
+          decisions_json: JSON.stringify([]),
+          stats_json: JSON.stringify({ candidateCount: proposal.candidateCount }),
+          created_at: now,
+          updated_at: now,
+        } as any)
+        .onConflict((oc) =>
+          oc.columns(["run_id", "child_moment_id"]).doUpdateSet({
+            r2_key: row.r2_key,
+            stream_id: row.stream_id,
+            macro_index: row.macro_index as any,
+            outcome: "no_candidates",
+            chosen_parent_moment_id: null,
+            decisions_json: JSON.stringify([]),
+            stats_json: JSON.stringify({ candidateCount: proposal.candidateCount }),
+            updated_at: now,
+          } as any)
+        )
+        .execute();
+      continue;
+    }
+
+    const parentId = proposal.chosenParentId;
+    const decisions: any[] = [...proposal.decisions];
 
     try {
       const momentWithParent = {
@@ -238,7 +277,7 @@ export async function runPhaseTimelineFit(
           outcome: ok ? "attached" : "rejected",
           chosen_parent_moment_id: ok ? parentId : null,
           decisions_json: JSON.stringify(decisions),
-          stats_json: JSON.stringify({ candidateCount: candidates.length }),
+          stats_json: JSON.stringify({ candidateCount: proposal.candidateCount }),
           created_at: now,
           updated_at: now,
         } as any)
@@ -250,7 +289,7 @@ export async function runPhaseTimelineFit(
             outcome: ok ? "attached" : "rejected",
             chosen_parent_moment_id: ok ? parentId : null,
             decisions_json: JSON.stringify(decisions),
-            stats_json: JSON.stringify({ candidateCount: candidates.length }),
+            stats_json: JSON.stringify({ candidateCount: proposal.candidateCount }),
             updated_at: now,
           } as any)
         )

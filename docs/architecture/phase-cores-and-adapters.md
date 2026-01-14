@@ -125,3 +125,28 @@ The goal is to converge the deterministic filtering and capping rules for candid
 
 - simulation adapter performs embedding + vector retrieval and loads moment rows from the moment graph db, then persists the candidate list
 - live adapter later reuses the same core to filter/cap candidates produced by the live retrieval path, and writes comparable audit payloads
+
+## Rollout continuation: Phase G timeline_fit core
+
+After candidate sets are persisted, extract a core for timeline_fit (Phase G).
+
+The first version should converge on the live timeline-fit linking behavior (ranking + optional LLM veto) rather than choosing the first candidate.
+
+### Inputs
+
+- child moment identity
+- candidate list (ordered, bounded) from Phase F
+- time metadata needed for temporal guards
+- optional timeline context needed for ranking and veto (bounded)
+- dependencies for model calls and embedding (injected)
+
+### Outputs
+
+- chosen parent id (or null)
+- decision list for audit logging (rank, selection, and reject reasons per candidate)
+- stats payload (candidate count)
+
+### Adapter responsibilities
+
+- simulation adapter performs the actual moment graph write and validates whether the parent id changed, then persists the outcome and decisions
+- live adapter uses the same core to choose a parent proposal and to produce comparable decision payloads around its parent selection write

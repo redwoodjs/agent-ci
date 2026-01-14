@@ -7,6 +7,7 @@ import type {
 import { simulationPhases } from "./types";
 import { getSimulationDb } from "./db";
 import { addSimulationRunEvent } from "./runEvents";
+import { computeSimulationRunPrefixBase } from "../../utils/simulationRunPrefix";
 
 const legacyPhaseMap: Record<string, SimulationPhase> = {
   A_ingest_diff: "ingest_diff",
@@ -40,7 +41,34 @@ export async function createSimulationRun(
   }
 ): Promise<void> {
   const db = getSimulationDb(context);
-  const now = new Date().toISOString();
+  const nowDate = new Date();
+  const now = nowDate.toISOString();
+
+  const inputPrefix =
+    typeof input.momentGraphNamespacePrefix === "string" &&
+    input.momentGraphNamespacePrefix.trim().length > 0
+      ? input.momentGraphNamespacePrefix.trim()
+      : null;
+
+  const momentGraphNamespacePrefix = await (async () => {
+    if (inputPrefix) {
+      return inputPrefix;
+    }
+    const base = computeSimulationRunPrefixBase({ env: context.env, now: nowDate });
+    const row = (await db
+      .selectFrom("simulation_runs")
+      .select([(db.fn as any).countAll().as("count")])
+      .where("moment_graph_namespace_prefix", "=", base)
+      .executeTakeFirst()) as any;
+    const count =
+      typeof row?.count === "number"
+        ? row.count
+        : typeof row?.count === "string" && Number.isFinite(Number(row.count))
+        ? Number(row.count)
+        : 0;
+    return count > 0 ? `${base}-${count + 1}` : base;
+  })();
+
   await db
     .insertInto("simulation_runs")
     .values({
@@ -51,7 +79,7 @@ export async function createSimulationRun(
       updated_at: now,
       last_progress_at: null,
       moment_graph_namespace: input.momentGraphNamespace,
-      moment_graph_namespace_prefix: input.momentGraphNamespacePrefix,
+      moment_graph_namespace_prefix: momentGraphNamespacePrefix,
       config_json: JSON.stringify(input.config ?? {}),
       last_error_json: null,
     } as any)

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
 import {
   startSimulationRunAction,
+  runAllSimulationRunAction,
   advanceSimulationRunAction,
   pauseSimulationRunAction,
   resumeSimulationRunAction,
@@ -40,6 +41,8 @@ function StartControls() {
   const [r2KeysText, setR2KeysText] = useState("");
   const [namespace, setNamespace] = useState("");
   const [prefix, setPrefix] = useState("");
+  const [r2Prefix, setR2Prefix] = useState("");
+  const [maxPages, setMaxPages] = useState("5");
   const [error, setError] = useState<string | null>(null);
 
   const start = async () => {
@@ -56,12 +59,36 @@ function StartControls() {
         momentGraphNamespacePrefix: prefix.trim() || null,
       });
       if (res.success && res.runId) {
-        window.location.href = `/audit/simulation?runId=${encodeURIComponent(
-          res.runId
-        )}`;
+        window.location.href = `/audit/simulation?runId=${encodeURIComponent(res.runId)}`;
         return;
       }
       setError(res.error || "Failed to start run");
+      setLoading(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setLoading(false);
+    }
+  };
+
+  const runAll = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const maxPagesNum = Number(maxPages);
+      const res = await runAllSimulationRunAction({
+        r2Prefix: r2Prefix.trim(),
+        limitPerPage: 200,
+        maxPages: Number.isFinite(maxPagesNum) ? Math.floor(maxPagesNum) : 5,
+        momentGraphNamespace: namespace.trim() || null,
+        momentGraphNamespacePrefix: prefix.trim() || null,
+      });
+      if (res.success && res.runId) {
+        window.location.href = `/audit/simulation?runId=${encodeURIComponent(
+          res.runId
+        )}&autorun=1`;
+        return;
+      }
+      setError(res.error || "Failed to run all");
       setLoading(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -93,9 +120,24 @@ function StartControls() {
           onChange={(e) => setPrefix(e.target.value)}
         />
       </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <Input
+          placeholder="r2Prefix for Run all (optional)"
+          value={r2Prefix}
+          onChange={(e) => setR2Prefix(e.target.value)}
+        />
+        <Input
+          placeholder="maxPages (default 5, capped)"
+          value={maxPages}
+          onChange={(e) => setMaxPages(e.target.value)}
+        />
+      </div>
       <div className="flex gap-2 items-center">
         <Button disabled={loading} onClick={start}>
           {loading ? "Starting…" : "Start run"}
+        </Button>
+        <Button disabled={loading} onClick={runAll} variant="secondary">
+          {loading ? "Running…" : "Run all"}
         </Button>
         {error ? <div className="text-xs text-red-700">{error}</div> : null}
       </div>
@@ -117,6 +159,12 @@ function RunControls({
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [restartPhase, setRestartPhase] = useState(currentPhase);
+  const [autoStatus, setAutoStatus] = useState<{
+    status: string;
+    currentPhase: string;
+    steps: number;
+  } | null>(null);
+  const stopRef = useRef(false);
 
   const runAction = async (
     name: string,
@@ -138,9 +186,80 @@ function RunControls({
     }
   };
 
+  const runAuto = async () => {
+    setError(null);
+    stopRef.current = false;
+    setAutoStatus({ status, currentPhase, steps: 0 });
+    const maxSteps = 50;
+    const maxMs = 3 * 60 * 1000;
+    const startedAt = Date.now();
+    let steps = 0;
+    let lastStatus = status;
+    let lastPhase = currentPhase;
+
+    while (true) {
+      if (stopRef.current) {
+        break;
+      }
+      if (Date.now() - startedAt > maxMs) {
+        setError("Auto-run exceeded time limit");
+        break;
+      }
+      if (steps >= maxSteps) {
+        setError("Auto-run exceeded step limit");
+        break;
+      }
+      if (lastStatus !== "running") {
+        break;
+      }
+
+      const res = await advanceSimulationRunAction({ runId });
+      if (!res.success) {
+        setError(res.error || "Advance failed");
+        break;
+      }
+      lastStatus = typeof (res as any).status === "string" ? (res as any).status : "running";
+      lastPhase =
+        typeof (res as any).currentPhase === "string"
+          ? (res as any).currentPhase
+          : lastPhase;
+      steps++;
+      setAutoStatus({ status: lastStatus, currentPhase: lastPhase, steps });
+    }
+
+    window.location.reload();
+  };
+
+  const stopAuto = () => {
+    stopRef.current = true;
+  };
+
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("autorun") === "1" && status === "running") {
+      runAuto().catch((e) => {
+        setError(e instanceof Error ? e.message : String(e));
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <div className="space-y-2">
       <div className="flex gap-2 flex-wrap">
+        <Button
+          disabled={loading !== null || status !== "running"}
+          onClick={() => runAuto()}
+        >
+          Run
+        </Button>
+        <Button
+          disabled={loading !== null || autoStatus === null}
+          onClick={() => stopAuto()}
+          variant="secondary"
+        >
+          Stop
+        </Button>
         <Button
           disabled={loading !== null || status !== "running"}
           onClick={() =>
@@ -194,6 +313,12 @@ function RunControls({
         </Button>
         {error ? <div className="text-xs text-red-700">{error}</div> : null}
       </div>
+      {autoStatus ? (
+        <div className="text-xs text-gray-600">
+          auto: status={autoStatus.status} phase={autoStatus.currentPhase} steps=
+          {autoStatus.steps}
+        </div>
+      ) : null}
     </div>
   );
 }

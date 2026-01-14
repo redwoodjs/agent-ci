@@ -134,7 +134,7 @@ async function SimulationRunsContent({
           <CardHeader>
             <CardTitle className="text-lg">Start a run</CardTitle>
             <CardDescription>
-              Start a run from the UI, then use Advance to execute phases.
+              Start a run from the UI, then use Run to execute phases.
             </CardDescription>
           </CardHeader>
           <CardContent>

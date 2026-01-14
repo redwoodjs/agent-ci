@@ -1117,6 +1117,54 @@ Checks
 - pnpm build passes
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
 
+Next: make 'Run' auto-advance the primary UX, and support 'all' keys
+
+The simulation UI is currently manual (Start creates a run, Advance executes one phase). This is useful for debugging, but the main workflow is usually: pick a corpus and run the full pipeline.
+
+Proposed changes:
+
+- Auto-advance (primary):
+  - Add a primary Run button that repeatedly calls Advance until the run reaches completed/paused.
+  - Keep the existing single-step Advance button as secondary for debugging.
+  - Add a Stop button that cancels the auto-advance loop (client-side) without changing run state.
+  - Add a max-steps / max-ms guard so a bad state does not spin forever in the browser.
+  - Implementation should be client-driven (looping the existing advance endpoint) to avoid long-running server requests.
+
+- 'All' keys:
+  - Primary action should be one click: Run all.
+  - Treat 'all' as "list keys from MACHINEN_BUCKET via a prefix + limit (paged)".
+  - Add UI controls:
+    - prefix (defaults empty)
+    - limit (defaults 200 per page, capped) and maxPages (defaults small, capped)
+    - Run all button that:
+      - fetches keys (paged) using /debug/r2-list
+      - starts the run with the fetched key list
+      - auto-advances until completed/paused
+  - Still allow manual r2Keys input for targeted runs.
+  - Empty runs remain supported for wiring checks.
+
+Notes:
+
+- Namespace behavior:
+  - If the user provides a run namespace, it overrides the scope router.
+  - If namespace is empty, the scope router determines the base namespace per document.
+  - Prefix always applies to the base namespace (either overrideNamespace or scope-router result).
+  - Default prefix generation:
+    - If the user does not provide a prefix, generate one per run using a timestamp format like: prod-2026-01-11-22-35
+    - Use an env label (prod/dev/local) + UTC timestamp to the minute.
+    - Add a short suffix when needed to avoid collisions for multiple runs in the same minute.
+
+Gates:
+
+- pnpm build
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation
+
+Progress: run all + auto-advance + default prefix
+
+- default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)
+- audit UI has a Run all flow (list keys from R2 with paging caps, start run, then auto-run)
+- run view has a Run button that auto-advances phases and a Stop button; Advance remains available for single-step debugging
+
 Provenance history investigation (what we used to have)
 
 I’m noticing I’m not confident we share the same definition of provenance, and I also don’t have a crisp picture of what we “used to have” before the recent refactors.

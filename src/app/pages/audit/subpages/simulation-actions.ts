@@ -38,6 +38,76 @@ export async function startSimulationRunAction(input: {
   return { success: true, runId };
 }
 
+export async function runAllSimulationRunAction(input: {
+  r2Prefix: string;
+  limitPerPage: number;
+  maxPages: number;
+  momentGraphNamespace: string | null;
+  momentGraphNamespacePrefix: string | null;
+}) {
+  const envCloudflare = env as Cloudflare.Env;
+  const bucket = (envCloudflare as any).MACHINEN_BUCKET as R2Bucket | undefined;
+  if (!bucket) {
+    return { success: false, error: "MACHINEN_BUCKET binding not found" };
+  }
+
+  const prefix = typeof input.r2Prefix === "string" ? input.r2Prefix : "";
+  const limitPerPageRaw = input.limitPerPage;
+  const limitPerPage =
+    typeof limitPerPageRaw === "number" && Number.isFinite(limitPerPageRaw)
+      ? Math.max(1, Math.min(200, Math.floor(limitPerPageRaw)))
+      : 200;
+  const maxPagesRaw = input.maxPages;
+  const maxPages =
+    typeof maxPagesRaw === "number" && Number.isFinite(maxPagesRaw)
+      ? Math.max(1, Math.min(25, Math.floor(maxPagesRaw)))
+      : 5;
+
+  const keys: string[] = [];
+  let cursor: string | undefined = undefined;
+  let truncated = true;
+  let pages = 0;
+
+  while (truncated && pages < maxPages) {
+    const res = await bucket.list({ prefix, cursor, limit: limitPerPage });
+    for (const o of res.objects) {
+      const k = typeof (o as any)?.key === "string" ? ((o as any).key as string) : "";
+      if (k) {
+        keys.push(k);
+      }
+    }
+    cursor = (res as any).cursor as string | undefined;
+    truncated = Boolean(res.truncated);
+    pages++;
+  }
+
+  const runId = crypto.randomUUID();
+  const effectiveMomentGraphNamespace =
+    input.momentGraphNamespace ?? `sim-${runId}`;
+
+  await createSimulationRun(
+    { env: envCloudflare, momentGraphNamespace: null },
+    {
+      runId,
+      momentGraphNamespace: effectiveMomentGraphNamespace,
+      momentGraphNamespacePrefix: input.momentGraphNamespacePrefix,
+      config: {
+        r2Keys: keys,
+        createdFrom: "audit.ui.run_all",
+        r2List: { prefix, limitPerPage, maxPages, pages, truncated },
+      },
+    }
+  );
+
+  return {
+    success: true,
+    runId,
+    keysCount: keys.length,
+    pages,
+    truncated,
+  };
+}
+
 export async function advanceSimulationRunAction(input: { runId: string }) {
   const runId = typeof input.runId === "string" ? input.runId.trim() : "";
   if (!runId) {
@@ -50,7 +120,11 @@ export async function advanceSimulationRunAction(input: { runId: string }) {
   if (!updated) {
     return { success: false, error: "Run not found" };
   }
-  return { success: true };
+  return {
+    success: true,
+    status: (updated as any).status ?? null,
+    currentPhase: (updated as any).currentPhase ?? null,
+  };
 }
 
 export async function pauseSimulationRunAction(input: { runId: string }) {

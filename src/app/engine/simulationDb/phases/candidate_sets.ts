@@ -6,7 +6,7 @@ import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { getMomentGraphDb } from "../db";
 import { getEmbedding } from "../../utils/vector";
-import { computeCandidateSet } from "../../linking/candidate_sets_orchestrator";
+import { computeCandidateSet } from "../../core/linking/candidate_sets_orchestrator";
 
 function parseTimeMs(value: unknown): number | null {
   if (typeof value !== "string") {

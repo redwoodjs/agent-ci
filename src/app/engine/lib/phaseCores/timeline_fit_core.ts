@@ -28,8 +28,7 @@ export function computeTimelineFitProposal(input: {
   }
 
   const chosen = candidates[0] ?? null;
-  const parentId =
-    chosen && typeof chosen.id === "string" ? chosen.id : null;
+  const parentId = chosen && typeof chosen.id === "string" ? chosen.id : null;
   if (!parentId || parentId === input.childMomentId) {
     return { candidateCount, chosenParentId: null, decisions: [] };
   }
@@ -149,7 +148,9 @@ export async function computeTimelineFitProposalDeep(input: {
     });
   }
 
-  const firstOk = ranked.find((r) => r.c.id !== input.childMomentId && !vetoed.has(r.c.id)) ?? null;
+  const firstOk =
+    ranked.find((r) => r.c.id !== input.childMomentId && !vetoed.has(r.c.id)) ??
+    null;
   const chosenParentId = firstOk ? firstOk.c.id : null;
 
   return { candidateCount, chosenParentId, decisions, veto };

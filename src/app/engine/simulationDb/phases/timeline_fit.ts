@@ -7,7 +7,7 @@ import { simulationPhases } from "../types";
 import { getMomentGraphDb } from "../db";
 import { addMoment, getMoments } from "../../momentDb";
 import { callLLM } from "../../utils/llm";
-import { computeTimelineFitDecision } from "../../linking/timeline_fit_orchestrator";
+import { computeTimelineFitDecision } from "../../core/linking/timeline_fit_orchestrator";
 
 export async function runPhaseTimelineFit(
   context: SimulationDbContext,

@@ -28,11 +28,11 @@ import {
 } from "./momentDb";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
-import { planIndexDocumentMicroBatches } from "./liveAdapters/indexDocument_micro_batches";
-import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./phaseCores/materialize_moments_core";
-import { computeIndexDocumentMacroSynthesisIdentity } from "./liveAdapters/indexDocument_macro_synthesis";
-import { computeDeterministicLinkingProposal } from "./phaseCores/deterministic_linking_core";
-import { computeIndexDocumentParentForRootMacroMoment } from "./liveAdapters/indexDocument_linking";
+import { planIndexDocumentMicroBatches } from "./adapters/live/micro_batches";
+import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./lib/phaseCores/materialize_moments_core";
+import { computeIndexDocumentMacroSynthesisIdentity } from "./adapters/live/macro_synthesis";
+import { computeDeterministicLinkingProposal } from "./lib/phaseCores/deterministic_linking_core";
+import { computeIndexDocumentParentForRootMacroMoment } from "./adapters/live/linking";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,

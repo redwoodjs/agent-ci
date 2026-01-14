@@ -1,4 +1,4 @@
-import type { Chunk, Document, IndexingHookContext, Plugin } from "../index";
+import type { Chunk, Document, IndexingHookContext, Plugin } from "../../index";
 
 export type MicroBatchPlanItem = {
   batchIndex: number;
@@ -54,3 +54,4 @@ export async function planMicroBatches(input: {
 
   return out;
 }
+

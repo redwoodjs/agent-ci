@@ -3,7 +3,7 @@ import { getSimulationDb } from "../db";
 import { getIndexingPlugins } from "../../indexing/indexingPlugins";
 import { prepareDocumentForR2Key } from "../../indexing/pluginPipeline";
 import { sha256Hex, uuidFromSha256Hex } from "../../utils/crypto";
-import { computeMaterializedMomentIdentity, computeMicroPathsHash } from "../../phaseCores/materialize_moments_core";
+import { computeMaterializedMomentIdentity, computeMicroPathsHash } from "../../lib/phaseCores/materialize_moments_core";
 
 export async function runMaterializeMomentsAdapter(
   context: SimulationDbContext,

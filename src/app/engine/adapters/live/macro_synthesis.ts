@@ -1,5 +1,5 @@
-import { computeMicroStreamHash, extractAnchorsFromStreams } from "../phaseCores/macro_synthesis_core";
-import { extractAnchorTokens } from "../utils/anchorTokens";
+import { computeMicroStreamHash, extractAnchorsFromStreams } from "../../lib/phaseCores/macro_synthesis_core";
+import { extractAnchorTokens } from "../../utils/anchorTokens";
 
 export async function computeIndexDocumentMacroSynthesisIdentity(input: {
   plannedBatches: Array<{ batchHash: string; promptContextHash: string }>;

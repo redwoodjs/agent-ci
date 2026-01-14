@@ -1,9 +1,9 @@
-import type { MomentGraphContext } from "../momentDb";
-import { getMoments } from "../momentDb";
-import { getEmbedding } from "../utils/vector";
-import { callLLM } from "../utils/llm";
-import { resolveThreadHeadForDocumentAsOf } from "../linking/explicitRefThreadHead";
-import { computeRootMacroMomentParentSelection } from "../linking/root_macro_moment_linking";
+import type { MomentGraphContext } from "../../momentDb";
+import { getMoments } from "../../momentDb";
+import { getEmbedding } from "../../utils/vector";
+import { callLLM } from "../../utils/llm";
+import { resolveThreadHeadForDocumentAsOf } from "../../core/linking/explicitRefThreadHead";
+import { computeRootMacroMomentParentSelection } from "../../core/linking/root_macro_moment_linking";
 
 export async function computeIndexDocumentParentForRootMacroMoment(input: {
   env: Cloudflare.Env;
@@ -84,9 +84,7 @@ export async function computeIndexDocumentParentForRootMacroMoment(input: {
             llmInput.candidates
               .map(
                 (c) =>
-                  `- id=${c.id}\n  title=${c.title ?? ""}\n  summary=${
-                    c.summary ?? ""
-                  }`
+                  `- id=${c.id}\n  title=${c.title ?? ""}\n  summary=${c.summary ?? ""}`
               )
               .join("\n\n");
           try {
@@ -121,3 +119,4 @@ export async function computeIndexDocumentParentForRootMacroMoment(input: {
     macroAnchors: null,
   });
 }
+

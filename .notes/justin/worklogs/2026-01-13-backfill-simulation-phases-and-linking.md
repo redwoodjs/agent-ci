@@ -976,3 +976,14 @@ Task list (ordered):
 7. Run `test:simulation` after each major move (at least after steps 2, 4, 6).
 
 After the directory move is stable, repeat the same pattern for B/C/D so live orchestration is not in adapter files.
+
+Progress: moved shared linking and helper libs into core/lib directories
+
+- moved shared linking modules into `src/app/engine/core/linking/`
+- moved helper phase core modules into `src/app/engine/lib/phaseCores/`
+- updated imports and deleted the old directories
+
+Progress: moved live adapters into adapters/live
+
+- moved live adapter modules into `src/app/engine/adapters/live/`
+- updated the live runner imports

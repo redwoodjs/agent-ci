@@ -1,5 +1,5 @@
-import { computeTimelineFitProposalDeep } from "../phaseCores/timeline_fit_deep_core";
-import { extractAnchorTokens } from "../utils/anchorTokens";
+import { computeTimelineFitProposalDeep } from "../../lib/phaseCores/timeline_fit_deep_core";
+import { extractAnchorTokens } from "../../utils/anchorTokens";
 
 export type TimelineFitPorts = {
   llmVeto?: (input: {

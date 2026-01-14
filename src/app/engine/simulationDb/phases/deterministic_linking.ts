@@ -5,8 +5,8 @@ import { addSimulationRunEvent } from "../runEvents";
 import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { addMoment, getMoments } from "../../momentDb";
-import { resolveThreadHeadForDocumentAsOf } from "../../linking/explicitRefThreadHead";
-import { computeDeterministicLinkingDecision } from "../../linking/deterministic_linking_orchestrator";
+import { resolveThreadHeadForDocumentAsOf } from "../../core/linking/explicitRefThreadHead";
+import { computeDeterministicLinkingDecision } from "../../core/linking/deterministic_linking_orchestrator";
 
 function parseIssueRefs(tokens: unknown): string[] {
   if (!Array.isArray(tokens)) {

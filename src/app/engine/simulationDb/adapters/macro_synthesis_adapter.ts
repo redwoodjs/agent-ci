@@ -3,7 +3,7 @@ import { getSimulationDb } from "../db";
 import { getIndexingPlugins } from "../../indexing/indexingPlugins";
 import { prepareDocumentForR2Key } from "../../indexing/pluginPipeline";
 import { synthesizeMicroMomentsIntoStreams } from "../../synthesis/synthesizeMicroMoments";
-import { computeMicroStreamHash, extractAnchorsFromStreams } from "../../phaseCores/macro_synthesis_core";
+import { computeMicroStreamHash, extractAnchorsFromStreams } from "../../lib/phaseCores/macro_synthesis_core";
 import { sha256Hex } from "../../utils/crypto";
 import { extractAnchorTokens } from "../../utils/anchorTokens";
 

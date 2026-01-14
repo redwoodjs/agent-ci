@@ -34,7 +34,9 @@ export function computeDeterministicLinkingProposal(input: {
   if (input.macroIndex > 0) {
     ruleId = "within_stream_chain";
   } else if (proposedParent) {
-    ruleId = input.candidateIssueRef ? "explicit_issue_ref_thread_head" : "explicit_parent_hint";
+    ruleId = input.candidateIssueRef
+      ? "explicit_issue_ref_thread_head"
+      : "explicit_parent_hint";
     evidence.issueRef = input.candidateIssueRef;
     evidence.matchedParentDocumentId = input.candidateParentR2Key;
   }

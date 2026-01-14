@@ -1,5 +1,5 @@
-import { computeDeterministicLinkingProposal } from "../phaseCores/deterministic_linking_core";
-import { extractAnchorTokens } from "../utils/anchorTokens";
+import { computeDeterministicLinkingProposal } from "../../lib/phaseCores/deterministic_linking_core";
+import { extractAnchorTokens } from "../../utils/anchorTokens";
 
 function parseTimeMs(value: unknown): number | null {
   if (typeof value !== "string") {

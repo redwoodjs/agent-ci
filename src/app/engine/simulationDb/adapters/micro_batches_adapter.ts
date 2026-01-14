@@ -11,7 +11,7 @@ import { chunkChunksForMicroComputation } from "../../utils/chunkBatching";
 import { sha256Hex } from "../../utils/crypto";
 import { computeMicroItemsWithoutLlm } from "../../utils/microItems";
 import { computeMicroMomentsForChunkBatch } from "../../subjects/computeMicroMomentsForChunkBatch";
-import { planMicroBatches } from "../../phaseCores/micro_batches_core";
+import { planMicroBatches } from "../../lib/phaseCores/micro_batches_core";
 
 export async function runMicroBatchesAdapter(
   context: SimulationDbContext,

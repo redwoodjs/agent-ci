@@ -1,5 +1,5 @@
-import type { Document, Chunk, IndexingHookContext, Plugin } from "../types";
-import { planMicroBatches } from "../phaseCores/micro_batches_core";
+import type { Document, Chunk, IndexingHookContext, Plugin } from "../../types";
+import { planMicroBatches } from "../../lib/phaseCores/micro_batches_core";
 
 export async function planIndexDocumentMicroBatches(input: {
   document: Document;

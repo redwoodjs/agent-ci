@@ -76,7 +76,7 @@ test("ui smoke: audit simulation runs page (click + dom)", async (t) => {
     const bodyText2 = await page.locator("body").innerText();
     assert.ok(bodyText2.includes("macro_synthesis"));
 
-    const eventsText = await page.locator("pre").first().innerText();
+    const eventsText = await page.locator("textarea").first().inputValue();
     assert.ok(eventsText.includes("phase.start"));
     assert.ok(eventsText.includes("phase.end"));
   } finally {

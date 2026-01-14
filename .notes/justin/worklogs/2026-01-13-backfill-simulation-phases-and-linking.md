@@ -1168,6 +1168,20 @@ Progress: removed replay panel + added run sample + graph link
 - pnpm build passes
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
 
+Small UX tweak: numeric field labels
+
+- updated the simulation start controls to add explicit labels/help text for the numeric inputs (max pages, sample size)
+
+Run sample failure analysis + fixes
+
+I hit a run that paused_on_error in micro_batches with "No plugin could prepare document". The cause is that the R2 bucket contains legacy cursor ingestion keys under cursor-conversations/... which the current cursor plugin does not handle (it only handles cursor/conversations/.../latest.json).
+
+Fixes:
+
+- simulation run log fields are now actually copyable (Copy button + textarea for events, run snapshot, and error payload)
+- Run all / Run sample now filter listed keys to supported prefixes (github/, discord/, cursor/conversations/) and record skippedCount in the run config
+- updated the UI smoke test to read the events textarea instead of a pre block
+
 Progress: run all + auto-advance + default prefix
 
 - default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)

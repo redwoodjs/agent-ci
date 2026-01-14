@@ -151,23 +151,36 @@ function StartControls() {
         />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <Input
-          placeholder="r2Prefix for Run all (optional)"
-          value={r2Prefix}
-          onChange={(e) => setR2Prefix(e.target.value)}
-        />
-        <Input
-          placeholder="maxPages (default 5, capped)"
-          value={maxPages}
-          onChange={(e) => setMaxPages(e.target.value)}
-        />
+        <div className="space-y-1">
+          <div className="text-xs text-gray-600">R2 prefix (for Run all / Run sample)</div>
+          <Input
+            placeholder="github/ or discord/ (optional)"
+            value={r2Prefix}
+            onChange={(e) => setR2Prefix(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1">
+          <div className="text-xs text-gray-600">
+            R2 list max pages (default 5, max 25). 200 keys per page.
+          </div>
+          <Input
+            placeholder="5"
+            value={maxPages}
+            onChange={(e) => setMaxPages(e.target.value)}
+          />
+        </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-        <Input
-          placeholder="sampleSize for Run sample (default 20, capped)"
-          value={sampleSize}
-          onChange={(e) => setSampleSize(e.target.value)}
-        />
+        <div className="space-y-1">
+          <div className="text-xs text-gray-600">
+            Sample size (default 20, max 200). Random keys from the listed set.
+          </div>
+          <Input
+            placeholder="20"
+            value={sampleSize}
+            onChange={(e) => setSampleSize(e.target.value)}
+          />
+        </div>
       </div>
       <div className="flex gap-2 items-center">
         <Button disabled={loading} onClick={start}>

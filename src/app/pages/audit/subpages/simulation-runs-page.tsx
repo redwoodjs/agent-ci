@@ -20,6 +20,7 @@ import {
   simulationPhases,
 } from "@/app/engine/databases/simulationState";
 import { SimulationRunControls } from "./simulation-run-controls";
+import { CopyTextButton } from "./copy-text-button";
 
 function safeStringify(value: unknown): string {
   try {
@@ -57,6 +58,22 @@ function formatEventsAsText(
     lines.push(`${e.createdAt} [${e.level}] ${e.kind} ${payloadOneLine}`);
   }
   return lines.join("\n");
+}
+
+function findLatestPhaseEndPayload(
+  events: Array<{ createdAt: string; level: string; kind: string; payload: any }>,
+  phase: string
+): any | null {
+  for (const e of events) {
+    if (e.kind !== "phase.end") {
+      continue;
+    }
+    const payload = normalizePayload(e.payload) as any;
+    if (payload && typeof payload === "object" && String(payload.phase ?? "") === phase) {
+      return payload;
+    }
+  }
+  return null;
 }
 
 export function SimulationRunsPage({ request }: { request: Request }) {
@@ -208,6 +225,11 @@ async function SimulationRunsContent({
   }
 
   const eventsText = formatEventsAsText(eventsRes);
+  const lastEvent = eventsRes[0] ?? null;
+  const phaseEndPayload = findLatestPhaseEndPayload(
+    eventsRes,
+    String(run.currentPhase)
+  );
 
   const documentsLink = `/audit/simulation?runId=${encodeURIComponent(
     runId
@@ -249,6 +271,18 @@ async function SimulationRunsContent({
             <div>
               updated=<span className="font-mono">{run.updatedAt}</span>
             </div>
+            {lastEvent ? (
+              <div>
+                lastEvent=<span className="font-mono">{lastEvent.kind}</span>{" "}
+                <span className="text-gray-400">{lastEvent.createdAt}</span>
+              </div>
+            ) : null}
+            {phaseEndPayload ? (
+              <div className="text-xs text-gray-600 mt-2">
+                phase.end payload:{" "}
+                <span className="font-mono">{safeStringify(phaseEndPayload)}</span>
+              </div>
+            ) : null}
           </div>
 
           <div className="text-sm">
@@ -321,6 +355,23 @@ async function SimulationRunsContent({
         </CardContent>
       </Card>
 
+      {String(run.status) === "paused_on_error" && run.lastError ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Error</CardTitle>
+            <CardDescription>Run paused on error</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <CopyTextButton text={safeStringify(run.lastError)} label="Copy error" />
+            <textarea
+              className="w-full border rounded p-2 text-xs font-mono min-h-[140px]"
+              readOnly
+              value={safeStringify(run.lastError)}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
+
       {view === "documents" ? (
         <DocumentsCard runId={runId} />
       ) : view === "micro-batches" ? (
@@ -345,9 +396,14 @@ async function SimulationRunsContent({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <pre className="text-xs bg-gray-50 border rounded p-3 overflow-auto max-h-[60vh]">
-            {eventsText || "(no events)"}
-          </pre>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <CopyTextButton text={eventsText || ""} label="Copy events" />
+          </div>
+          <textarea
+            className="w-full border rounded p-2 text-xs font-mono min-h-[280px] max-h-[60vh]"
+            readOnly
+            value={eventsText || "(no events)"}
+          />
         </CardContent>
       </Card>
 
@@ -357,9 +413,14 @@ async function SimulationRunsContent({
           <CardDescription>Raw run fields</CardDescription>
         </CardHeader>
         <CardContent>
-          <pre className="text-xs bg-gray-50 border rounded p-3 overflow-auto max-h-[40vh]">
-            {safeStringify(run)}
-          </pre>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <CopyTextButton text={safeStringify(run)} label="Copy run" />
+          </div>
+          <textarea
+            className="w-full border rounded p-2 text-xs font-mono min-h-[220px] max-h-[40vh]"
+            readOnly
+            value={safeStringify(run)}
+          />
         </CardContent>
       </Card>
     </div>

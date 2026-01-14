@@ -63,7 +63,7 @@ export async function runAllSimulationRunAction(input: {
       ? Math.max(1, Math.min(25, Math.floor(maxPagesRaw)))
       : 5;
 
-  const keys: string[] = [];
+  const keysRaw: string[] = [];
   let cursor: string | undefined = undefined;
   let truncated = true;
   let pages = 0;
@@ -73,12 +73,26 @@ export async function runAllSimulationRunAction(input: {
     for (const o of res.objects) {
       const k = typeof (o as any)?.key === "string" ? ((o as any).key as string) : "";
       if (k) {
-        keys.push(k);
+        keysRaw.push(k);
       }
     }
     cursor = (res as any).cursor as string | undefined;
     truncated = Boolean(res.truncated);
     pages++;
+  }
+
+  const supportedPrefixes = ["github/", "discord/", "cursor/conversations/"];
+  const keys = Array.from(new Set(keysRaw)).filter((k) =>
+    supportedPrefixes.some((p) => k.startsWith(p))
+  );
+  const skippedCount = keysRaw.length - keys.length;
+  if (keys.length === 0) {
+    return {
+      success: false,
+      error: `No supported R2 keys found in the listed set (supported prefixes: ${supportedPrefixes.join(
+        ", "
+      )})`,
+    };
   }
 
   const runId = crypto.randomUUID();
@@ -94,7 +108,15 @@ export async function runAllSimulationRunAction(input: {
       config: {
         r2Keys: keys,
         createdFrom: "audit.ui.run_all",
-        r2List: { prefix, limitPerPage, maxPages, pages, truncated },
+        r2List: {
+          prefix,
+          limitPerPage,
+          maxPages,
+          pages,
+          truncated,
+          supportedPrefixes,
+          skippedCount,
+        },
       },
     }
   );
@@ -105,6 +127,7 @@ export async function runAllSimulationRunAction(input: {
     keysCount: keys.length,
     pages,
     truncated,
+    skippedCount,
   };
 }
 
@@ -139,7 +162,7 @@ export async function runSampleSimulationRunAction(input: {
       ? Math.max(1, Math.min(200, Math.floor(sampleSizeRaw)))
       : 20;
 
-  const allKeys: string[] = [];
+  const allKeysRaw: string[] = [];
   let cursor: string | undefined = undefined;
   let truncated = true;
   let pages = 0;
@@ -149,7 +172,7 @@ export async function runSampleSimulationRunAction(input: {
     for (const o of res.objects) {
       const k = typeof (o as any)?.key === "string" ? ((o as any).key as string) : "";
       if (k) {
-        allKeys.push(k);
+        allKeysRaw.push(k);
       }
     }
     cursor = (res as any).cursor as string | undefined;
@@ -157,8 +180,22 @@ export async function runSampleSimulationRunAction(input: {
     pages++;
   }
 
+  const supportedPrefixes = ["github/", "discord/", "cursor/conversations/"];
+  const supportedKeys = Array.from(new Set(allKeysRaw)).filter((k) =>
+    supportedPrefixes.some((p) => k.startsWith(p))
+  );
+  const skippedCount = allKeysRaw.length - supportedKeys.length;
+  if (supportedKeys.length === 0) {
+    return {
+      success: false,
+      error: `No supported R2 keys found in the listed set (supported prefixes: ${supportedPrefixes.join(
+        ", "
+      )})`,
+    };
+  }
+
   const keys = (() => {
-    const deduped = Array.from(new Set(allKeys));
+    const deduped = supportedKeys.slice();
     for (let i = deduped.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       const tmp = deduped[i];
@@ -181,7 +218,16 @@ export async function runSampleSimulationRunAction(input: {
       config: {
         r2Keys: keys,
         createdFrom: "audit.ui.run_sample",
-        r2List: { prefix, limitPerPage, maxPages, pages, truncated, sampleSize },
+        r2List: {
+          prefix,
+          limitPerPage,
+          maxPages,
+          pages,
+          truncated,
+          sampleSize,
+          supportedPrefixes,
+          skippedCount,
+        },
       },
     }
   );
@@ -189,10 +235,11 @@ export async function runSampleSimulationRunAction(input: {
   return {
     success: true,
     runId,
-    sampledFromCount: allKeys.length,
+    sampledFromCount: supportedKeys.length,
     sampleSize: keys.length,
     pages,
     truncated,
+    skippedCount,
   };
 }
 

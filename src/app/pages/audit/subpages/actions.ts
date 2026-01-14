@@ -3387,6 +3387,7 @@ async function fetchRelatedMomentsForCommit(options: {
     timer.checkpoint("github-api-prs");
 
     const prNumbers = Array.from(prNumbersSet).sort((a, b) => b - a);
+    console.log(`[code-timeline] Found ${prNumbers.length} PR numbers: ${prNumbers.join(", ")}`);
 
     if (prNumbers.length === 0) {
       return {
@@ -3410,131 +3411,100 @@ async function fetchRelatedMomentsForCommit(options: {
     };
     timer.checkpoint("setup-context");
 
-    // Stage 1: Parallel PR data fetch
-    const r2Keys = prNumbers.map(
+    // Stage 1: Construct R2 keys for PRs
+    const prR2Keys = prNumbers.map(
       (prNumber) =>
         `github/${owner}/${repo}/pull-requests/${prNumber}/latest.json`
     );
-    console.log(
-      `[perf:fetchRelatedMomentsForCommit] Fetching ${r2Keys.length} PR files from R2`
-    );
-    const prDataResults = await Promise.all(
-      r2Keys.map(async (r2Key) => {
-        const prObject = await bucket.get(r2Key);
-        if (!prObject) {
-          console.warn(`[code-timeline] PR data not found in R2: ${r2Key}`);
-          return null;
-        }
-        const prData = (await prObject.json()) as any;
-        return { r2Key, prData, prNumber: prNumbers[r2Keys.indexOf(r2Key)] };
-      })
-    );
-    timer.checkpoint("r2-fetch-pr-data");
-
-    const validPrData = prDataResults.filter(
-      (r): r is { r2Key: string; prData: any; prNumber: number } => r !== null
-    );
-
-    if (validPrData.length === 0) {
-      return {
-        success: false,
-        error: `No PR data found in R2 for commit ${commitHash}`,
-      };
-    }
 
     // Stage 2: Bulk discovery - Run Last moments, Reference Search, and Semantic Search in parallel
-    const validR2Keys = validPrData.map((p) => p.r2Key);
-
-    // Prepare semantic queries early (no async work)
-    const semanticQueryTexts: string[] = [];
-    const semanticQueryToPrIndex: number[] = [];
-    for (let i = 0; i < validPrData.length; i++) {
-      const { prData } = validPrData[i];
-      const queryText = `${prData.title || ""}\n\n${
-        prData.body || ""
-      }`.substring(0, 1000);
-      if (queryText.trim().length > 0) {
-        semanticQueryTexts.push(queryText);
-        semanticQueryToPrIndex.push(i);
-      }
-    }
-    timer.checkpoint("prepare-semantic-queries");
-
     // Run all discovery operations in parallel with individual timing
     console.log(
       `[perf:fetchRelatedMomentsForCommit] Running discovery stage in parallel: lastMoments, referenceSearches, semanticSearches`
     );
-    const [lastMomentsMap, referenceSearches, semanticSearches] =
-      await Promise.all([
-        // Last moments lookup
-        (async () => {
-          const lastMomentsTimer = new PerformanceTimer("last-moments");
-          const result = await findLastMomentsForDocumentsLocal(
-            validR2Keys,
-            momentGraphContext
-          );
-          lastMomentsTimer.log("last-moments");
-          return result;
-        })(),
-        // Reference searches (batched)
-        (async () => {
-          const referenceTimer = new PerformanceTimer("reference-searches");
-          const result = await batchPromises(
-            validPrData,
-            20, // increased batch size
-            ({ prNumber }) =>
-              findMomentsBySearchLocal(`#${prNumber}`, momentGraphContext, 10)
-          );
-          referenceTimer.log("reference-searches");
-          return result;
-        })(),
-        // Semantic searches (prepare embeddings, then query)
-        (async () => {
-          const semanticTimer = new PerformanceTimer("semantic-searches");
-          if (semanticQueryTexts.length === 0) {
-            semanticTimer.log("semantic-searches");
-            return [];
-          }
-          try {
-            const embeddingsTimer = new PerformanceTimer(
-              "embeddings-generation"
-            );
-            const embeddings = await getEmbeddings(semanticQueryTexts);
-            embeddingsTimer.log("embeddings-generation");
+    const [lastMomentsMap, referenceSearches] = await Promise.all([
+      // Last moments lookup (this finds the actual PR moments in the graph)
+      (async () => {
+        const lastMomentsTimer = new PerformanceTimer("last-moments");
+        const result = await findLastMomentsForDocumentsLocal(
+          prR2Keys,
+          momentGraphContext
+        );
+        lastMomentsTimer.log("last-moments");
+        return result;
+      })(),
+      // Reference searches (batched) - search for "#123" in the graph
+      (async () => {
+        const referenceTimer = new PerformanceTimer("reference-searches");
+        const result = await batchPromises(
+          prNumbers,
+          20,
+          (prNumber) =>
+            findMomentsBySearchLocal(`#${prNumber}`, momentGraphContext, 10)
+        );
+        console.log(`[code-timeline] Reference search found moments for ${result.filter(m => m.length > 0).length} out of ${prNumbers.length} PRs`);
+        referenceTimer.log("reference-searches");
+        return result;
+      })(),
+    ]);
 
-            const vectorizeTimer = new PerformanceTimer("vectorize-queries");
-            const result = await batchPromises(
-              embeddings,
-              10, // increased batch size for Vectorize
-              (embedding) =>
-                findSimilarMoments(embedding, 10, momentGraphContext)
-            );
-            vectorizeTimer.log("vectorize-queries");
-            semanticTimer.log("semantic-searches");
-            return result;
-          } catch (err) {
-            console.error(`[code-timeline] Bulk semantic search failed:`, err);
-            semanticTimer.log("semantic-searches-failed");
-            return new Array(semanticQueryTexts.length).fill([]);
-          }
-        })(),
-      ]);
+    // Stage 3: Semantic search using the information from the found moments
+    const semanticQueryTexts: string[] = [];
+    for (const r2Key of prR2Keys) {
+      const lastMoment = lastMomentsMap.get(r2Key);
+      if (lastMoment) {
+        // Log the moment content to see what we have for semantic search
+        console.log(`[code-timeline] Moment for ${r2Key}: title="${lastMoment.title}", summaryLength=${lastMoment.summary?.length}, metadataKeys=${Object.keys(lastMoment.sourceMetadata || {}).join(", ")}`);
+        
+        const queryText = `${lastMoment.title || ""}\n\n${
+          lastMoment.summary || ""
+        }`.substring(0, 1000);
+        if (queryText.trim().length > 0) {
+          semanticQueryTexts.push(queryText);
+        }
+      }
+    }
+
+    let semanticSearches: Moment[][] = [];
+    if (semanticQueryTexts.length > 0) {
+      try {
+        const embeddingsTimer = new PerformanceTimer("embeddings-generation");
+        const embeddings = await getEmbeddings(semanticQueryTexts);
+        embeddingsTimer.log("embeddings-generation");
+
+        const vectorizeTimer = new PerformanceTimer("vectorize-queries");
+        semanticSearches = await batchPromises(
+          embeddings,
+          10,
+          (embedding) => findSimilarMoments(embedding, 10, momentGraphContext)
+        );
+        vectorizeTimer.log("vectorize-queries");
+      } catch (err) {
+        console.error(`[code-timeline] Bulk semantic search failed:`, err);
+      }
+    }
     timer.checkpoint("discovery-stage-parallel");
 
     // Collect all last moment IDs that exist
     const lastMomentIds: string[] = [];
-    const r2KeyToPrNumber = new Map<string, number>();
-    for (const { r2Key, prNumber } of validPrData) {
-      r2KeyToPrNumber.set(r2Key, prNumber);
+    for (const r2Key of prR2Keys) {
       const lastMoment = lastMomentsMap.get(r2Key);
       if (lastMoment) {
         lastMomentIds.push(lastMoment.id);
       }
     }
+    console.log(`[code-timeline] Found ${lastMomentIds.length} PR moments in graph for ${prR2Keys.length} R2 keys`);
     timer.checkpoint("collect-last-moment-ids");
 
-    // Stage 3: Bulk traversal - Ancestors, then Descendants
+    // Stage 4: Bulk traversal - Ancestors, then Descendants
     const allRelatedMoments: Moment[] = [];
+
+    // Add the actual PR moments themselves
+    for (const moment of lastMomentsMap.values()) {
+      if (moment) {
+        allRelatedMoments.push(moment);
+      }
+    }
 
     // Add reference search results
     for (const moments of referenceSearches) {
@@ -3542,12 +3512,8 @@ async function fetchRelatedMomentsForCommit(options: {
     }
 
     // Add semantic search results
-    for (
-      let semanticIdx = 0;
-      semanticIdx < semanticSearches.length;
-      semanticIdx++
-    ) {
-      allRelatedMoments.push(...semanticSearches[semanticIdx]);
+    for (const moments of semanticSearches) {
+      allRelatedMoments.push(...moments);
     }
     timer.checkpoint("collect-search-results");
 
@@ -3570,9 +3536,9 @@ async function fetchRelatedMomentsForCommit(options: {
         const root =
           ancestors.length > 0
             ? ancestors[0]
-            : lastMomentsMap.get(
-                validR2Keys[lastMomentIds.indexOf(lastMomentId)]
-              ) || null;
+            : (Array.from(lastMomentsMap.values()).find(
+                (m) => m?.id === lastMomentId
+              ) as Moment | null);
         if (root && !rootIdSet.has(root.id)) {
           rootIds.push(root.id);
           rootIdSet.add(root.id);
@@ -3580,9 +3546,12 @@ async function fetchRelatedMomentsForCommit(options: {
       }
 
       // Add ancestors to results
+      let totalAncestors = 0;
       for (const ancestors of ancestorsMap.values()) {
         allRelatedMoments.push(...ancestors);
+        totalAncestors += ancestors.length;
       }
+      console.log(`[code-timeline] Added ${totalAncestors} ancestors from ${ancestorsMap.size} chains`);
       timer.checkpoint("collect-ancestors");
 
       // Bulk fetch descendants for all roots
@@ -3597,18 +3566,29 @@ async function fetchRelatedMomentsForCommit(options: {
         timer.checkpoint("bulk-descendants");
 
         // Add descendants to results
+        let totalDescendants = 0;
         for (const descendants of descendantsMap.values()) {
           allRelatedMoments.push(...descendants);
+          totalDescendants += descendants.length;
         }
+        console.log(`[code-timeline] Added ${totalDescendants} descendants from ${descendantsMap.size} roots`);
         timer.checkpoint("collect-descendants");
       }
     }
 
-    // Stage 4: Deduplication and Return
+    // Stage 5: Deduplication and Return
     const uniqueMomentsMap = new Map<string, Moment>();
     for (const m of allRelatedMoments) {
       uniqueMomentsMap.set(m.id, m);
     }
+    
+    // Log sample dates to see what we have
+    const sampleDates = Array.from(uniqueMomentsMap.values())
+      .slice(0, 10)
+      .map(m => m.createdAt?.split('T')[0])
+      .filter(Boolean);
+    console.log(`[code-timeline] Total related moments: ${uniqueMomentsMap.size}. Sample dates: ${sampleDates.join(", ")}`);
+    
     timer.checkpoint("deduplicate");
     timer.logAll("fetchRelatedMomentsForCommit");
 
@@ -4002,4 +3982,71 @@ Write a clear narrative that explains the sequence and causal relationships betw
       details: error instanceof Error ? error.message : String(error),
     };
   }
+}
+
+/**
+ * Transform timeline moments into daily count format for heatmap visualization
+ */
+export function transformTimelineToHeatmapData(moments: any[]): Array<{
+  date: string;
+  count: number;
+}> {
+  if (!moments || moments.length === 0) {
+    return [];
+  }
+
+  // Extract dates and count moments per day
+  const dateCountMap = new Map<string, number>();
+
+  for (const moment of moments) {
+    // Use same logic as EvolutionSection for date extraction
+    const sourceType = moment.documentId?.startsWith("cursor/")
+      ? "Cursor"
+      : moment.documentId?.startsWith("github/")
+      ? "GitHub PR"
+      : "Unknown";
+
+    const timeRange = moment.sourceMetadata?.timeRange;
+    const timestamp =
+      sourceType === "Cursor"
+        ? moment.createdAt
+        : timeRange?.start || moment.createdAt;
+
+    if (!timestamp) {
+      continue;
+    }
+
+    // Convert to YYYY-MM-DD format
+    const date = new Date(timestamp);
+    if (isNaN(date.getTime())) {
+      continue;
+    }
+
+    const dateStr = date.toISOString().split("T")[0]; // YYYY-MM-DD
+    dateCountMap.set(dateStr, (dateCountMap.get(dateStr) || 0) + 1);
+  }
+
+  if (dateCountMap.size === 0) {
+    return [];
+  }
+
+  // Find date range
+  const dates = Array.from(dateCountMap.keys()).sort();
+  const startDate = new Date(dates[0]);
+  const endDate = new Date(dates[dates.length - 1]);
+
+  // Fill in all days between start and end with counts
+  const result: Array<{ date: string; count: number }> = [];
+  const currentDate = new Date(startDate);
+
+  while (currentDate <= endDate) {
+    const dateStr = currentDate.toISOString().split("T")[0];
+    result.push({
+      date: dateStr,
+      count: dateCountMap.get(dateStr) || 0,
+    });
+    currentDate.setDate(currentDate.getDate() + 1);
+  }
+
+  return result;
 }

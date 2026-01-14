@@ -34,9 +34,42 @@ export const requireBasicAuth = async ({ request }: { request: Request }) => {
   const apiKeyParam = url.searchParams.get("api_key");
 
   if (apiKeyParam) {
-    if (apiKeyParam !== env.API_KEY) {
-      return new Response("Unauthorized", { status: 401 });
+    const validKey = env.API_KEY || env.INGEST_API_KEY;
+
+    if (!validKey) {
+      console.error(
+        "Neither API_KEY nor INGEST_API_KEY is configured in the environment."
+      );
+      return new Response(
+        "Server configuration error: No API key set in worker environment secrets.",
+        {
+          status: 500,
+        }
+      );
     }
+
+    if (apiKeyParam !== env.API_KEY && apiKeyParam !== env.INGEST_API_KEY) {
+      console.error(
+        `Unauthorized access attempt with API key: ${apiKeyParam.substring(
+          0,
+          4
+        )}...`
+      );
+      return new Response(
+        `Unauthorized: Provided key does not match server secrets. (Provided: ${apiKeyParam.substring(
+          0,
+          4
+        )}..., Expected API_KEY: ${
+          env.API_KEY ? env.API_KEY.substring(0, 4) + "..." : "none"
+        }, Expected INGEST_API_KEY: ${
+          env.INGEST_API_KEY
+            ? env.INGEST_API_KEY.substring(0, 4) + "..."
+            : "none"
+        })`,
+        { status: 401 }
+      );
+    }
+
     // Valid api_key, allow request
     return;
   }
@@ -57,7 +90,8 @@ export const requireBasicAuth = async ({ request }: { request: Request }) => {
     });
   }
   const [username, password] = atob(credentials).split(":");
-  if (username !== "admin" || password !== env.API_KEY) {
+  const validPass = env.API_KEY || env.INGEST_API_KEY;
+  if (username !== "admin" || password !== validPass) {
     return new Response(null, {
       status: 401,
       headers: { "WWW-Authenticate": 'Basic realm="Audit Area"' },

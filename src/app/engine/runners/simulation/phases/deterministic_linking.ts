@@ -4,7 +4,7 @@ import { getMomentGraphDb, getSimulationDb } from "../../../adapters/simulation/
 import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
-import { addMoment, getMoments } from "../../../momentDb";
+import { addMoment, getMoments } from "../../../databases/momentGraph";
 import { resolveThreadHeadForDocumentAsOf } from "../../../core/linking/explicitRefThreadHead";
 import { computeDeterministicLinkingDecision } from "../../../core/linking/deterministic_linking_orchestrator";
 

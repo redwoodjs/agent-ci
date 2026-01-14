@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
-import { CursorEventsDurableObject } from "../../ingestors/cursor/db/durableObject";
+import { CursorEventsDurableObject } from "../../../ingestors/cursor/db/durableObject";
 import { type Database, createDb } from "rwsdk/db";
-import { type migrations } from "../../ingestors/cursor/db/migrations";
+import { type migrations } from "../../../ingestors/cursor/db/migrations";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
 
 type CursorDatabase = Database<typeof migrations>;

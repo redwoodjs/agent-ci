@@ -1,5 +1,5 @@
-import type { MomentGraphContext } from "../../momentDb";
-import { getMoments } from "../../momentDb";
+import type { MomentGraphContext } from "../../databases/momentGraph";
+import { getMoments } from "../../databases/momentGraph";
 import { getEmbedding } from "../../utils/vector";
 import { callLLM } from "../../utils/llm";
 import { resolveThreadHeadForDocumentAsOf } from "../../core/linking/explicitRefThreadHead";

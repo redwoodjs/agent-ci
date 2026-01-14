@@ -1,5 +1,5 @@
-import type { MomentGraphContext } from "../../momentDb";
-import { findDescendants, getMomentsForDocument } from "../../momentDb";
+import type { MomentGraphContext } from "../../databases/momentGraph";
+import { findDescendants, getMomentsForDocument } from "../../databases/momentGraph";
 import type { Moment } from "../../types";
 
 function parseTimeMs(value: unknown): number | null {

@@ -8,7 +8,7 @@ import {
   findMomentsBySearch,
   getDiagnosticInfo,
   type MomentGraphContext,
-} from "@/app/engine/momentDb";
+} from "@/app/engine/databases/momentGraph";
 import { getPullRequestsForCommit, parseGitHubRepo } from "./github-utils";
 import { callLLM } from "@/app/engine/utils/llm";
 import { getEmbedding } from "@/app/engine/utils/vector";

@@ -1,5 +1,5 @@
 import type { MomentDescription, MicroMomentDescription } from "../types";
-import type { MicroMoment } from "../momentDb";
+import type { MicroMoment } from "../databases/momentGraph";
 import { callLLM } from "../utils/llm";
 
 export type MacroMoment = MomentDescription & {

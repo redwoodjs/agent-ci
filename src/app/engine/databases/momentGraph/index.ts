@@ -1,10 +1,10 @@
 import { MomentGraphDO } from "./durableObject";
-import type { Moment, ChunkMetadata, MicroMomentDescription } from "../types";
+import type { Moment, ChunkMetadata, MicroMomentDescription } from "../../types";
 import { type Database, createDb } from "rwsdk/db";
 import { type momentMigrations } from "./migrations";
-import { getEmbedding } from "../utils/vector";
+import { getEmbedding } from "../../utils/vector";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
-import { qualifyName } from "../momentGraphNamespace";
+import { qualifyName } from "../../momentGraphNamespace";
 
 export { MomentGraphDO };
 

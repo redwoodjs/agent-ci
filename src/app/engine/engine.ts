@@ -10,8 +10,11 @@ import type {
   Moment,
   MacroMomentDescription,
 } from "./types";
-import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
-import { addReplayItemsBatch } from "./db/momentReplay";
+import {
+  getProcessedChunkHashes,
+  setProcessedChunkHashes,
+} from "./databases/indexingState";
+import { addReplayItemsBatch } from "./databases/indexingState/momentReplay";
 import {
   addMoment,
   addDocumentAuditLog,
@@ -25,7 +28,7 @@ import {
   getMicroMomentsForDocument,
   findMomentByMicroPathsHash,
   type MicroMoment,
-} from "./momentDb";
+} from "./databases/momentGraph";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { planIndexDocumentMicroBatches } from "./adapters/live/micro_batches";

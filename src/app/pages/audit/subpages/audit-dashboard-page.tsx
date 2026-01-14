@@ -7,7 +7,7 @@ import {
   CardContent,
   CardDescription,
 } from "@/app/components/ui/card";
-import { getIndexingStatesBatch } from "@/app/engine/db";
+import { getIndexingStatesBatch } from "@/app/engine/databases/indexingState";
 import { getMomentGraphNamespacePrefixFromEnv } from "@/app/engine/momentGraphNamespace";
 
 export function AuditDashboardPage() {

@@ -38,13 +38,13 @@ export { Database } from "@/db/durableObject";
 export { CursorEventsDurableObject } from "@/app/ingestors/cursor/db/durableObject";
 export { GitHubRepoDurableObject } from "@/app/ingestors/github/db/durableObject";
 export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durableObject";
-export { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
+export { EngineIndexingStateDO } from "@/app/engine/databases/indexingState/durableObject";
 export { EngineSimulationStateDO } from "@/app/engine/simulationDb/durableObject";
 export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
-export { SubjectDO } from "@/app/engine/subjectDb/durableObject";
+export { SubjectDO } from "@/app/engine/databases/subjects/durableObject";
 // Temporary export for migration - will be removed after v8 migration completes
-export { SubjectDO as SubjectGraphDO } from "@/app/engine/subjectDb/durableObject";
-export { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
+export { SubjectDO as SubjectGraphDO } from "@/app/engine/databases/subjects/durableObject";
+export { MomentGraphDO } from "@/app/engine/databases/momentGraph/durableObject";
 export { DiscordWebhookBatcherDO } from "@/app/ingestors/discord/db/webhook-batcher-durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";

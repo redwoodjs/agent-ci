@@ -18,7 +18,7 @@ import {
   getDocumentAuditLogsForDocument,
   getMomentsForDocument,
   type MomentGraphContext,
-} from "@/app/engine/momentDb";
+} from "@/app/engine/databases/momentGraph";
 
 type DiscordMessage = components["schemas"]["MessageResponse"];
 

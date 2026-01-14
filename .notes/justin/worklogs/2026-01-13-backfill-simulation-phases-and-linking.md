@@ -995,3 +995,65 @@ Progress: introduced runners/live entrypoint
 Scope note: directory moves for consistency
 
 For the remaining engine code that we are not actively changing, prefer directory moves and import rewrites to match the runners/adapters/core/lib structure. Avoid changing behavior unless needed for build correctness.
+
+Plan: consolidate engine DB modules under a databases directory
+
+The engine directory still has DB-shaped modules at the top level:
+
+- db (indexing state durable object)
+- momentDb (moment graph durable object + queries)
+- subjectDb (subject durable object + queries)
+- cursorDb (cursor exchange cache queries)
+- adapters/simulation/db (simulation run state durable object + access)
+
+This makes it harder to see which files are storage adapters vs runners/core logic.
+
+Proposed directory layout (under src/app/engine):
+
+- databases/
+  - indexingState/ (was db/)
+  - momentGraph/ (was momentDb/)
+  - subjects/ (was subjectDb/)
+  - cursorExchangeCache/ (was cursorDb/)
+  - simulationState/ (thin module that exports the simulation DO db factory + migrations, or re-exports from adapters/simulation)
+
+Mapping and rename goals:
+
+- Rename the generic db directory to indexingState (it holds the live indexing state DO tables and helpers).
+- Keep moment graph storage named momentGraph (it holds the moment tables and queries; it is not the same as simulation run state).
+- Keep subject storage named subjects (subject tables and helpers).
+- Cursor cache stays cursorExchangeCache (it is a cache table for cursor conversations).
+- For simulation state, decide whether to:
+  - move the DO db factory and migrations into databases/simulationState and have adapters/simulation import it, or
+  - keep adapters/simulation owning the DO db factory and add databases/simulationState as a re-export for consistency.
+
+Implementation approach (to keep behavior unchanged):
+
+- Move directories and files only, update imports, and keep exported function names the same.
+- Add temporary re-export shims at the old paths (db, momentDb, subjectDb, cursorDb) to reduce churn. Delete shims once downstream imports are updated.
+- After the move, run pnpm build and MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation.
+
+Pause: this is a wide refactor (lots of import rewrites). Stop for approval before starting the directory moves.
+
+Execution: start database directory consolidation
+
+Proceeding with the plan to move the engine DB directories under an engine databases directory, and then rewrite imports. Keeping changes to moves/imports only, and using build + simulation tests as the check.
+
+Progress: moved engine DB directories under engine/databases
+
+- db -> databases/indexingState
+- momentDb -> databases/momentGraph
+- subjectDb -> databases/subjects
+- cursorDb -> databases/cursorExchangeCache
+
+Progress: updated imports to the moved database modules
+
+- updated engine internal imports (engine.ts, routes.ts)
+- updated worker durable object exports
+- updated audit pages and gh routes that referenced momentDb or db/momentReplay
+- updated simulation adapter db to reference momentGraph migrations at the moved path
+
+Checks
+
+- pnpm build passes after rewriting remaining internal imports (services, live adapter linking, simulation phase imports)
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes

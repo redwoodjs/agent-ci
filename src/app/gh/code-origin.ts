@@ -5,7 +5,7 @@ import {
   findLastMomentForDocument,
   findDescendants,
   type MomentGraphContext,
-} from "@/app/engine/momentDb";
+} from "@/app/engine/databases/momentGraph";
 import { getPullRequestsForCommit } from "./github-utils";
 import { callLLM } from "@/app/engine/utils/llm";
 import { getMomentGraphNamespaceFromEnv } from "@/app/engine/momentGraphNamespace";

@@ -1,4 +1,4 @@
-import { getIndexingStatesBatch } from "../db";
+import { getIndexingStatesBatch } from "../databases/indexingState";
 import { isDocumentChangedByEtag } from "../indexing/documentChangeIdentity";
 
 export async function scanForUnprocessedFiles(

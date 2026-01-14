@@ -22,10 +22,10 @@ import {
   getSubjectContextChainForMoment,
   deleteMomentsByIds,
   type MomentGraphContext,
-} from "@/app/engine/momentDb";
-import { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
+} from "@/app/engine/databases/momentGraph";
+import { MomentGraphDO } from "@/app/engine/databases/momentGraph/durableObject";
 import { type Database, createDb, sql } from "rwsdk/db";
-import { type momentMigrations } from "@/app/engine/momentDb/migrations";
+import { type momentMigrations } from "@/app/engine/databases/momentGraph/migrations";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
 import {
   qualifyName,
@@ -45,7 +45,7 @@ import {
   setReplayEnqueuedFlag,
   retryFailedReplayItems,
   pauseReplayRunManual,
-} from "@/app/engine/db/momentReplay";
+} from "@/app/engine/databases/indexingState/momentReplay";
 import { getEmbedding, getEmbeddings } from "@/app/engine/utils/vector";
 import {
   getPullRequestsForCommit,

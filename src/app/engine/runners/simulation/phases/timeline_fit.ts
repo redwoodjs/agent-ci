@@ -4,7 +4,7 @@ import { getSimulationDb, getMomentGraphDb } from "../../../adapters/simulation/
 import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
-import { addMoment, getMoments } from "../../../momentDb";
+import { addMoment, getMoments } from "../../../databases/momentGraph";
 import { callLLM } from "../../../utils/llm";
 import { computeTimelineFitDecision } from "../../../core/linking/timeline_fit_orchestrator";
 

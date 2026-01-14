@@ -6,7 +6,7 @@ import {
   CardTitle,
   CardContent,
 } from "@/app/components/ui/card";
-import { getIndexingStatesBatch } from "@/app/engine/db";
+import { getIndexingStatesBatch } from "@/app/engine/databases/indexingState";
 import { IndexingTable } from "./indexing-table";
 import { getMomentGraphNamespacePrefixFromEnv } from "@/app/engine/momentGraphNamespace";
 

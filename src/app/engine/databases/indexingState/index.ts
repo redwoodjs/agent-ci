@@ -1,7 +1,7 @@
 import { type Database, createDb } from "rwsdk/db";
 import { type indexingStateMigrations } from "./migrations";
 import type { EngineIndexingStateDO } from "./durableObject";
-import { qualifyName } from "../momentGraphNamespace";
+import { qualifyName } from "../../momentGraphNamespace";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
 
 type IndexingStateDatabase = Database<typeof indexingStateMigrations>;

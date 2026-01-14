@@ -7,7 +7,7 @@ import {
   validateQueryInput,
 } from "./interruptors";
 import { query, createEngineContext, indexDocument } from "./index";
-import { createMomentReplayRun } from "./db/momentReplay";
+import { createMomentReplayRun } from "./databases/indexingState/momentReplay";
 import {
   findAncestors,
   getMoment,
@@ -20,13 +20,13 @@ import {
   getDocumentAuditLogsForDocument,
   getRecentDocumentAuditEvents,
   clearAllMomentLinks,
-} from "./momentDb";
+} from "./databases/momentGraph";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
   enqueueUnprocessedFiles,
 } from "./services/scanner-service";
-import { clearAllIndexingState } from "./db";
+import { clearAllIndexingState } from "./databases/indexingState";
 import {
   getMomentGraphNamespaceFromEnv,
   getMomentGraphNamespacePrefixFromEnv,

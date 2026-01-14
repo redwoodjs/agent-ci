@@ -1,10 +1,10 @@
 import { createDb, type Database, sql } from "rwsdk/db";
 import { env } from "cloudflare:workers";
 import { qualifyName } from "@/app/engine/momentGraphNamespace";
-import { type indexingStateMigrations } from "@/app/engine/db/migrations";
-import type { EngineIndexingStateDO } from "@/app/engine/db/durableObject";
-import { type momentMigrations } from "@/app/engine/momentDb/migrations";
-import type { MomentGraphDO } from "@/app/engine/momentDb/durableObject";
+import { type indexingStateMigrations } from "@/app/engine/databases/indexingState/migrations";
+import type { EngineIndexingStateDO } from "@/app/engine/databases/indexingState/durableObject";
+import { type momentMigrations } from "@/app/engine/databases/momentGraph/migrations";
+import type { MomentGraphDO } from "@/app/engine/databases/momentGraph/durableObject";
 
 type IndexingStateDatabase = Database<typeof indexingStateMigrations>;
 type MomentDatabase = Database<typeof momentMigrations>;

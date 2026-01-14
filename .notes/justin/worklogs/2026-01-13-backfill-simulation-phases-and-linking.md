@@ -1244,6 +1244,10 @@ I added a derived progress summary (no schema changes) by counting rows in the e
 - micro batches: docs with at least one batch + batch totals split by status
 - later phases: doc counts and total decision rows where applicable
 
+Tabbed log view
+
+I merged the Events and Run snapshot cards into a single Log card with a tab-style toggle (driven by a query param) so the page is shorter while still keeping both views available.
+
 Progress: run all + auto-advance + default prefix
 
 - default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)

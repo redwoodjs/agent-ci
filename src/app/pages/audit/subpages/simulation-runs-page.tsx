@@ -95,6 +95,8 @@ export function SimulationRunsPage({ request }: { request: Request }) {
     viewRaw === "timeline-fit-decisions"
       ? viewRaw
       : null;
+  const logViewRaw = url.searchParams.get("logView");
+  const logView = logViewRaw === "run" ? "run" : "events";
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -104,7 +106,7 @@ export function SimulationRunsPage({ request }: { request: Request }) {
       </div>
 
       <Suspense fallback={<PageSkeleton />}>
-        <SimulationRunsContent runId={runId} view={view} />
+        <SimulationRunsContent runId={runId} view={view} logView={logView} />
       </Suspense>
     </div>
   );
@@ -128,6 +130,7 @@ function PageSkeleton() {
 async function SimulationRunsContent({
   runId,
   view,
+  logView,
 }: {
   runId: string | null;
   view:
@@ -139,6 +142,7 @@ async function SimulationRunsContent({
     | "candidate-sets"
     | "timeline-fit-decisions"
     | null;
+  logView: "events" | "run";
 }) {
   const envCloudflare = env as Cloudflare.Env;
   const context = { env: envCloudflare, momentGraphNamespace: null as any };
@@ -261,6 +265,18 @@ async function SimulationRunsContent({
   const timelineFitDecisionsLink = `/audit/simulation?runId=${encodeURIComponent(
     runId
   )}&view=timeline-fit-decisions`;
+
+  const logLink = (next: "events" | "run") => {
+    const params = new URLSearchParams();
+    params.set("runId", runId);
+    if (view) {
+      params.set("view", view);
+    }
+    if (next !== "events") {
+      params.set("logView", next);
+    }
+    return `/audit/simulation?${params.toString()}`;
+  };
 
   return (
     <div className="space-y-4">
@@ -441,37 +457,58 @@ async function SimulationRunsContent({
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Events</CardTitle>
+          <CardTitle className="text-lg">Log</CardTitle>
           <CardDescription>
-            Copy/paste friendly view of persisted run events
+            <span className="mr-3">
+              <a
+                className={
+                  logView === "events"
+                    ? "text-blue-700 font-semibold"
+                    : "text-blue-600 hover:underline"
+                }
+                href={logLink("events")}
+              >
+                Events
+              </a>
+            </span>
+            <span>
+              <a
+                className={
+                  logView === "run"
+                    ? "text-blue-700 font-semibold"
+                    : "text-blue-600 hover:underline"
+                }
+                href={logLink("run")}
+              >
+                Run snapshot
+              </a>
+            </span>
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <CopyTextButton text={eventsText || ""} label="Copy events" />
-          </div>
-          <textarea
-            className="w-full border rounded p-2 text-xs font-mono min-h-[280px] max-h-[60vh]"
-            readOnly
-            value={eventsText || "(no events)"}
-          />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Run snapshot</CardTitle>
-          <CardDescription>Raw run fields</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <CopyTextButton text={safeStringify(run)} label="Copy run" />
-          </div>
-          <textarea
-            className="w-full border rounded p-2 text-xs font-mono min-h-[220px] max-h-[40vh]"
-            readOnly
-            value={safeStringify(run)}
-          />
+          {logView === "run" ? (
+            <>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <CopyTextButton text={safeStringify(run)} label="Copy run" />
+              </div>
+              <textarea
+                className="w-full border rounded p-2 text-xs font-mono min-h-[220px] max-h-[60vh]"
+                readOnly
+                value={safeStringify(run)}
+              />
+            </>
+          ) : (
+            <>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <CopyTextButton text={eventsText || ""} label="Copy events" />
+              </div>
+              <textarea
+                className="w-full border rounded p-2 text-xs font-mono min-h-[280px] max-h-[60vh]"
+                readOnly
+                value={eventsText || "(no events)"}
+              />
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

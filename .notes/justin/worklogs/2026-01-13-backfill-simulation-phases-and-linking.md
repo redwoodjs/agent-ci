@@ -1248,6 +1248,41 @@ Tabbed log view
 
 I merged the Events and Run snapshot cards into a single Log card with a tab-style toggle (driven by a query param) so the page is shorter while still keeping both views available.
 
+Knowledge graph link debug
+
+I updated the simulation runs list to show each run's namespace and prefix. I also changed the 'Open in knowledge graph' link to pass an effective namespace (prefix applied) to reduce chances of param mismatches resulting in an empty graph.
+
+I hit a case where the knowledge graph effective namespace showed the default env namespace (redwood:rwsdk) instead of the run namespace. That happens when the run record has a null namespace and the link does not pass one. I updated the link to fall back to sim-<runId> so it always passes a run-scoped namespace.
+
+Knowledge graph subjects vs moments tabs
+
+The knowledge graph page was structured around subjects. I added a simple Subjects/Moments toggle that switches the list query between subject moments and unparented moments, and updates labels accordingly. The toggle is URL-backed (tab=moments) so the state is shareable.
+
+Simulation runs list label
+
+I changed the recent runs list to show the run's namespace prefix as the primary label, with the run id moved to a smaller secondary line.
+
+Prefix mnemonic + larger log pane
+
+I updated the generated simulation run prefix base to include a short mnemonic slug (adjective-animal) while keeping env label + datetime. I also increased the log textarea height on the simulation run page so events/run snapshot are easier to read.
+
+Plan: readable moment previews + more verbose run events
+
+Problem: run artifact views (materialized moments, link decisions, timeline fit) mostly show ids. Run events are mostly phase.start/phase.end and item.error, so it’s hard to see what happened per moment.
+
+Existing data: moments stored in the moment graph already have title and summary, plus subject flags (isSubject / subjectKind / subjectReason / subjectEvidence). Simulation phases already load moments in-memory for linking phases (getMoments).
+
+Proposed changes:
+
+- UI: for run artifact tables that currently show only ids, resolve ids to moment rows (title/summary) by batch loading moments from the run’s effective namespace.
+  - materialized moments: show moment title/summary (and parent title when present)
+  - deterministic linking / candidate sets / timeline fit: show child title/summary, and show chosen parent title/summary where applicable
+
+- Logging: add per-item run events in linking phases (and optionally earlier phases) with a verbosity gate so we can turn it up without always writing huge event logs.
+  - events include: phase, child moment id, title, summary, subject flags, outcome, chosen parent id/title, counts (candidates, etc)
+  - keep phase.start/phase.end, and keep item.error
+  - consider increasing getSimulationRunEvents limit (currently capped) to support higher verbosity
+
 Progress: run all + auto-advance + default prefix
 
 - default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)

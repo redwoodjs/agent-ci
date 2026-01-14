@@ -24,6 +24,55 @@ function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 
+function pickMnemonicSlug(): string {
+  const adjectives = [
+    "interested",
+    "calm",
+    "curious",
+    "focused",
+    "steady",
+    "patient",
+    "quiet",
+    "careful",
+    "gentle",
+    "precise",
+    "nimble",
+    "bright",
+    "thoughtful",
+    "tidy",
+    "brisk",
+    "plain",
+    "solid",
+    "simple",
+  ];
+  const animals = [
+    "sloth",
+    "otter",
+    "fox",
+    "wolf",
+    "yak",
+    "mole",
+    "owl",
+    "koala",
+    "lemur",
+    "panda",
+    "tiger",
+    "eagle",
+    "heron",
+    "gecko",
+    "badger",
+    "beaver",
+    "orca",
+    "wren",
+  ];
+
+  const bytes = new Uint8Array(2);
+  crypto.getRandomValues(bytes);
+  const adj = adjectives[bytes[0] % adjectives.length];
+  const animal = animals[bytes[1] % animals.length];
+  return `${adj}-${animal}`;
+}
+
 export function computeSimulationRunPrefixBase(input: {
   env: unknown;
   now: Date;
@@ -35,5 +84,6 @@ export function computeSimulationRunPrefixBase(input: {
   const day = pad2(d.getUTCDate());
   const hour = pad2(d.getUTCHours());
   const minute = pad2(d.getUTCMinutes());
-  return `${label}-${year}-${month}-${day}-${hour}-${minute}`;
+  const mnemonic = pickMnemonicSlug();
+  return `${label}-${year}-${month}-${day}-${hour}-${minute}-${mnemonic}`;
 }

@@ -208,6 +208,9 @@ export function KnowledgeGraphPage() {
   const [selectedNamespace, setSelectedNamespace] = useState<string | null>(
     null
   );
+  const [entityTab, setEntityTab] = useState<"subjects" | "moments">(
+    "subjects"
+  );
   const [prefix, setPrefix] = useState<string | null>(null);
   const [prefixOverride, setPrefixOverride] = useState<string>("");
   const [effectiveNamespace, setEffectiveNamespace] = useState<string | null>(
@@ -318,6 +321,10 @@ export function KnowledgeGraphPage() {
   // Initialize selectedRootId from URL on mount
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+    const tabFromUrl = urlParams.get("tab");
+    if (tabFromUrl === "moments") {
+      setEntityTab("moments");
+    }
     const rootIdFromUrl = urlParams.get("rootId");
     if (rootIdFromUrl) {
       setSelectedRootId(rootIdFromUrl);
@@ -350,9 +357,27 @@ export function KnowledgeGraphPage() {
     }
   }, []);
 
+  useEffect(() => {
+    setSelectedRootId(null);
+    setSelectedMomentId(null);
+    setPendingHighlightMomentId(null);
+    setContextChainMomentId(null);
+    setSearchQuery("");
+    setSemanticQuery("");
+    setSemanticResults([]);
+    setSemanticError(null);
+    setGraphData([]);
+    setGraphTruncated(false);
+  }, [entityTab]);
+
   // Update URL when selectedRootId changes (using pushState for shareable links)
   useEffect(() => {
     const url = new URL(window.location.href);
+    if (entityTab === "moments") {
+      url.searchParams.set("tab", "moments");
+    } else {
+      url.searchParams.delete("tab");
+    }
     if (selectedRootId) {
       url.searchParams.set("rootId", selectedRootId);
     } else {
@@ -384,6 +409,7 @@ export function KnowledgeGraphPage() {
     }
     window.history.pushState({}, "", url.toString());
   }, [
+    entityTab,
     selectedRootId,
     graphView,
     contextChainMomentId,
@@ -465,7 +491,11 @@ export function KnowledgeGraphPage() {
     async function fetchRootMoments() {
       setRootMomentsLoading(true);
       try {
-        const result = await getSubjectMomentsAction({
+        const listFn =
+          entityTab === "moments"
+            ? getRootMomentsAction
+            : getSubjectMomentsAction;
+        const result = await listFn({
           limit: 1000,
           momentGraphNamespace: selectedNamespace,
           momentGraphNamespacePrefix:
@@ -477,10 +507,10 @@ export function KnowledgeGraphPage() {
             setEffectiveNamespace(result.effectiveNamespace);
           }
         } else {
-          console.error("Failed to fetch subject moments:", result.error);
+          console.error("Failed to fetch list:", result.error);
         }
       } catch (err) {
-        console.error("Error fetching subject moments:", err);
+        console.error("Error fetching list:", err);
       } finally {
         setRootMomentsLoading(false);
       }
@@ -489,7 +519,7 @@ export function KnowledgeGraphPage() {
     if (!selectedRootId) {
       fetchRootMoments();
     }
-  }, [selectedNamespace, selectedRootId, prefixOverride]);
+  }, [selectedNamespace, selectedRootId, prefixOverride, entityTab]);
 
   useEffect(() => {}, []);
 
@@ -1026,27 +1056,59 @@ export function KnowledgeGraphPage() {
             <div>
               <CardTitle>
                 {selectedRootId
-                  ? "Subject Tree Visualization"
+                  ? entityTab === "moments"
+                    ? "Moment Tree Visualization"
+                    : "Subject Tree Visualization"
+                  : entityTab === "moments"
+                  ? "Moments (Select to Drill Down)"
                   : "Subjects (Select to Drill Down)"}
               </CardTitle>
               <CardDescription>
                 {selectedRootId
                   ? "Visual representation of a specific subject's moment tree"
+                  : entityTab === "moments"
+                  ? "Select a moment below to view its tree structure"
                   : "Select a subject below to view its complete tree structure"}
               </CardDescription>
             </div>
-            {selectedRootId && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSelectedRootId(null);
-                  setSearchQuery("");
-                }}
-              >
-                ← Back to Subjects
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center rounded border overflow-hidden">
+                <button
+                  type="button"
+                  className={
+                    entityTab === "subjects"
+                      ? "px-3 py-1 text-sm bg-blue-50 text-blue-700"
+                      : "px-3 py-1 text-sm text-blue-600 hover:bg-gray-50"
+                  }
+                  onClick={() => setEntityTab("subjects")}
+                >
+                  Subjects
+                </button>
+                <button
+                  type="button"
+                  className={
+                    entityTab === "moments"
+                      ? "px-3 py-1 text-sm bg-blue-50 text-blue-700"
+                      : "px-3 py-1 text-sm text-blue-600 hover:bg-gray-50"
+                  }
+                  onClick={() => setEntityTab("moments")}
+                >
+                  Moments
+                </button>
+              </div>
+              {selectedRootId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedRootId(null);
+                    setSearchQuery("");
+                  }}
+                >
+                  ← Back to {entityTab === "moments" ? "Moments" : "Subjects"}
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
@@ -1058,7 +1120,9 @@ export function KnowledgeGraphPage() {
 
           {rootMomentsLoading && !selectedRootId && (
             <div className="text-center py-8">
-              <p className="text-gray-500">Loading subjects...</p>
+              <p className="text-gray-500">
+                Loading {entityTab === "moments" ? "moments" : "subjects"}...
+              </p>
             </div>
           )}
 
@@ -1093,12 +1157,12 @@ export function KnowledgeGraphPage() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="border rounded p-4">
                   <div className="text-sm font-medium text-gray-900 mb-2">
-                    Subject List Controls
+                    List Controls
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Sort (all subjects)
+                        Sort (all)
                       </label>
                       <select
                         value={rootSort}
@@ -1122,7 +1186,7 @@ export function KnowledgeGraphPage() {
                           checked={hideSingletons}
                           onChange={(e) => setHideSingletons(e.target.checked)}
                         />
-                        Hide singletons (all subjects)
+                        Hide singletons (all)
                       </label>
                     </div>
                   </div>
@@ -1206,8 +1270,7 @@ export function KnowledgeGraphPage() {
                             {r.matchSummary}
                           </div>
                           <div className="text-xs text-gray-500 mt-1">
-                            Subject:{" "}
-                            <span className="font-mono">{r.rootId}</span>
+                            Root: <span className="font-mono">{r.rootId}</span>
                           </div>
                         </button>
                       ))}
@@ -1218,21 +1281,26 @@ export function KnowledgeGraphPage() {
 
               {rootMoments.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
-                  No subjects found. Try selecting a different namespace.
+                  No items found. Try selecting a different namespace.
                 </div>
               ) : (
                 <>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm text-gray-600">
-                      Found {filteredRootMoments.length} subject
+                      Found {filteredRootMoments.length}{" "}
+                      {entityTab === "moments" ? "moment" : "subject"}
                       {filteredRootMoments.length !== 1 ? "s" : ""}. Click on
-                      any subject to view its complete tree.
+                      any item to view its tree.
                     </p>
                   </div>
                   <div className="mb-4">
                     <Input
                       type="text"
-                      placeholder="Search subjects by title or ID..."
+                      placeholder={
+                        entityTab === "moments"
+                          ? "Search moments by title or ID..."
+                          : "Search subjects by title or ID..."
+                      }
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full"

@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
 import { Suspense } from "react";
+import { applyMomentGraphNamespacePrefixValue } from "@/app/engine/momentGraphNamespace";
 import {
   Card,
   CardContent,
@@ -43,7 +44,12 @@ function normalizePayload(payload: unknown): unknown {
 }
 
 function formatEventsAsText(
-  events: Array<{ createdAt: string; level: string; kind: string; payload: any }>
+  events: Array<{
+    createdAt: string;
+    level: string;
+    kind: string;
+    payload: any;
+  }>
 ): string {
   const chronological = [...events].reverse();
   const lines: string[] = [];
@@ -62,7 +68,12 @@ function formatEventsAsText(
 }
 
 function findLatestPhaseEndPayload(
-  events: Array<{ createdAt: string; level: string; kind: string; payload: any }>,
+  events: Array<{
+    createdAt: string;
+    level: string;
+    kind: string;
+    payload: any;
+  }>,
   phase: string
 ): any | null {
   for (const e of events) {
@@ -70,7 +81,11 @@ function findLatestPhaseEndPayload(
       continue;
     }
     const payload = normalizePayload(e.payload) as any;
-    if (payload && typeof payload === "object" && String(payload.phase ?? "") === phase) {
+    if (
+      payload &&
+      typeof payload === "object" &&
+      String(payload.phase ?? "") === phase
+    ) {
       return payload;
     }
   }
@@ -180,10 +195,20 @@ async function SimulationRunsContent({
                     className="flex items-start justify-between gap-4 p-2 rounded hover:bg-gray-50"
                   >
                     <div>
-                      <div className="font-mono text-sm">{r.runId}</div>
+                      <div className="font-mono text-sm">
+                        {r.momentGraphNamespacePrefix ?? "(no prefix)"}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-1 font-mono">
+                        runId={r.runId}
+                      </div>
                       <div className="text-xs text-gray-600 mt-1">
-                        status={r.status} phase={String(r.currentPhase)} updated=
+                        status={r.status} phase={String(r.currentPhase)}{" "}
+                        updated=
                         {r.updatedAt}
+                      </div>
+                      <div className="text-xs text-gray-600 mt-1 font-mono">
+                        ns={r.momentGraphNamespace ?? "null"} prefix=
+                        {r.momentGraphNamespacePrefix ?? "null"}
                       </div>
                     </div>
                     <a
@@ -220,7 +245,10 @@ async function SimulationRunsContent({
             No run found for <span className="font-mono">{runId}</span>
           </div>
           <div className="mt-3">
-            <a className="text-sm text-blue-600 hover:underline" href="/audit/simulation">
+            <a
+              className="text-sm text-blue-600 hover:underline"
+              href="/audit/simulation"
+            >
               Back to list
             </a>
           </div>
@@ -283,7 +311,9 @@ async function SimulationRunsContent({
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Run</CardTitle>
-          <CardDescription className="font-mono text-xs">{runId}</CardDescription>
+          <CardDescription className="font-mono text-xs">
+            {runId}
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="text-sm">
@@ -291,7 +321,8 @@ async function SimulationRunsContent({
               status=<span className="font-mono">{run.status}</span>
             </div>
             <div>
-              phase=<span className="font-mono">{String(run.currentPhase)}</span>
+              phase=
+              <span className="font-mono">{String(run.currentPhase)}</span>
             </div>
             <div>
               updated=<span className="font-mono">{run.updatedAt}</span>
@@ -305,7 +336,9 @@ async function SimulationRunsContent({
             {phaseEndPayload ? (
               <div className="text-xs text-gray-600 mt-2">
                 phase.end payload:{" "}
-                <span className="font-mono">{safeStringify(phaseEndPayload)}</span>
+                <span className="font-mono">
+                  {safeStringify(phaseEndPayload)}
+                </span>
               </div>
             ) : null}
           </div>
@@ -314,14 +347,17 @@ async function SimulationRunsContent({
             <div className="font-semibold text-gray-700 mb-1">Progress</div>
             <div className="font-mono">
               docs total={String(progress.totalDocs)} ingest_diff=
-              {String(progress.ingestDiff.docs)}/{String(progress.totalDocs)} changed=
+              {String(progress.ingestDiff.docs)}/{String(progress.totalDocs)}{" "}
+              changed=
               {String(progress.ingestDiff.changed)} unchanged=
               {String(progress.ingestDiff.unchanged)} errors=
               {String(progress.ingestDiff.errors)}
             </div>
             <div className="font-mono">
-              micro_batches docsWithBatches={String(progress.microBatches.docsWithBatches)}/
-              {String(progress.ingestDiff.changed)} batches={String(progress.microBatches.batches)} cached=
+              micro_batches docsWithBatches=
+              {String(progress.microBatches.docsWithBatches)}/
+              {String(progress.ingestDiff.changed)} batches=
+              {String(progress.microBatches.batches)} cached=
               {String(progress.microBatches.cached)} computed_llm=
               {String(progress.microBatches.computedLlm)} computed_fallback=
               {String(progress.microBatches.computedFallback)}
@@ -331,12 +367,14 @@ async function SimulationRunsContent({
               {String(progress.ingestDiff.changed)}
             </div>
             <div className="font-mono">
-              materialize_moments docs={String(progress.materializeMoments.docs)}/
+              materialize_moments docs=
+              {String(progress.materializeMoments.docs)}/
               {String(progress.ingestDiff.changed)} moments=
               {String(progress.materializeMoments.moments)}
             </div>
             <div className="font-mono">
-              deterministic_linking docs={String(progress.deterministicLinking.docs)}/
+              deterministic_linking docs=
+              {String(progress.deterministicLinking.docs)}/
               {String(progress.ingestDiff.changed)} decisions=
               {String(progress.deterministicLinking.decisions)}
             </div>
@@ -357,11 +395,19 @@ async function SimulationRunsContent({
               className="text-blue-600 hover:underline"
               href={`/audit/knowledge-graph?${(() => {
                 const params = new URLSearchParams();
-                if (run.momentGraphNamespace) {
-                  params.set("namespace", run.momentGraphNamespace);
+                const baseNs = run.momentGraphNamespace ?? `sim-${runId}`;
+                const prefix = run.momentGraphNamespacePrefix ?? null;
+                const effectiveNs = applyMomentGraphNamespacePrefixValue(
+                  baseNs,
+                  prefix
+                );
+                if (effectiveNs) {
+                  params.set("namespace", effectiveNs);
+                } else if (baseNs) {
+                  params.set("namespace", baseNs);
                 }
-                if (run.momentGraphNamespacePrefix) {
-                  params.set("prefix", run.momentGraphNamespacePrefix);
+                if (prefix) {
+                  params.set("prefix", prefix);
                 }
                 return params.toString();
               })()}`}
@@ -379,7 +425,10 @@ async function SimulationRunsContent({
           />
 
           <div className="flex gap-2 flex-wrap">
-            <a className="text-sm text-blue-600 hover:underline" href={documentsLink}>
+            <a
+              className="text-sm text-blue-600 hover:underline"
+              href={documentsLink}
+            >
               Documents
             </a>
             <a
@@ -429,7 +478,10 @@ async function SimulationRunsContent({
             <CardDescription>Run paused on error</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
-            <CopyTextButton text={safeStringify(run.lastError)} label="Copy error" />
+            <CopyTextButton
+              text={safeStringify(run.lastError)}
+              label="Copy error"
+            />
             <textarea
               className="w-full border rounded p-2 text-xs font-mono min-h-[140px]"
               readOnly
@@ -492,7 +544,7 @@ async function SimulationRunsContent({
                 <CopyTextButton text={safeStringify(run)} label="Copy run" />
               </div>
               <textarea
-                className="w-full border rounded p-2 text-xs font-mono min-h-[220px] max-h-[60vh]"
+                className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh]"
                 readOnly
                 value={safeStringify(run)}
               />
@@ -503,7 +555,7 @@ async function SimulationRunsContent({
                 <CopyTextButton text={eventsText || ""} label="Copy events" />
               </div>
               <textarea
-                className="w-full border rounded p-2 text-xs font-mono min-h-[280px] max-h-[60vh]"
+                className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh]"
                 readOnly
                 value={eventsText || "(no events)"}
               />
@@ -651,8 +703,10 @@ async function MaterializedMomentsCard({ runId }: { runId: string }) {
   const envCloudflare = env as Cloudflare.Env;
   const baseUrl = process.env.MACHINEN_BASE_URL ?? "http://localhost:5173";
   const apiKey = process.env.MACHINEN_API_KEY ?? "";
-  const headers =
-    apiKey.trim().length > 0 ? { Authorization: `Bearer ${apiKey}` } : {};
+  const headers: Record<string, string> = {};
+  if (apiKey.trim().length > 0) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
 
   const res = await fetch(
     `${baseUrl}/admin/simulation/run/${encodeURIComponent(
@@ -674,7 +728,9 @@ async function MaterializedMomentsCard({ runId }: { runId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Materialized moments</CardTitle>
-        <CardDescription>Per-run moment ids written into the moment graph</CardDescription>
+        <CardDescription>
+          Per-run moment ids written into the moment graph
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {moments.length === 0 ? (
@@ -685,7 +741,8 @@ async function MaterializedMomentsCard({ runId }: { runId: string }) {
               <div key={m.momentId} className="p-2 rounded border bg-white">
                 <div className="font-mono text-xs break-all">{m.momentId}</div>
                 <div className="text-xs text-gray-600 mt-1">
-                  r2Key={m.r2Key} stream={m.streamId} idx={String(m.macroIndex)} parent=
+                  r2Key={m.r2Key} stream={m.streamId} idx={String(m.macroIndex)}{" "}
+                  parent=
                   {m.parentId ?? "null"}
                 </div>
               </div>
@@ -711,7 +768,9 @@ async function LinkDecisionsCard({ runId }: { runId: string }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-lg">Link decisions</CardTitle>
-        <CardDescription>Per-run deterministic_linking decisions</CardDescription>
+        <CardDescription>
+          Per-run deterministic_linking decisions
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {decisions.length === 0 ? (
@@ -727,7 +786,8 @@ async function LinkDecisionsCard({ runId }: { runId: string }) {
                   {d.childMomentId}
                 </div>
                 <div className="text-xs text-gray-600 mt-1">
-                  r2Key={d.r2Key} stream={d.streamId} idx={String(d.macroIndex)} outcome=
+                  r2Key={d.r2Key} stream={d.streamId} idx={String(d.macroIndex)}{" "}
+                  outcome=
                   {d.outcome} parent={d.parentMomentId ?? "null"} rule=
                   {d.ruleId ?? "null"}
                 </div>
@@ -773,8 +833,11 @@ async function CandidateSetsCard({ runId }: { runId: string }) {
                     {s.childMomentId}
                   </div>
                   <div className="text-xs text-gray-600 mt-1">
-                    r2Key={s.r2Key} stream={s.streamId} idx={String(s.macroIndex)} candidates=
-                    {Array.isArray(s.candidates) ? String(s.candidates.length) : "0"}
+                    r2Key={s.r2Key} stream={s.streamId} idx=
+                    {String(s.macroIndex)} candidates=
+                    {Array.isArray(s.candidates)
+                      ? String(s.candidates.length)
+                      : "0"}
                   </div>
                 </div>
                 <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[30vh]">
@@ -797,7 +860,9 @@ async function CandidateSetsCard({ runId }: { runId: string }) {
 async function TimelineFitDecisionsCard({ runId }: { runId: string }) {
   const envCloudflare = env as Cloudflare.Env;
   const context = { env: envCloudflare, momentGraphNamespace: null as any };
-  const decisions = await getSimulationRunTimelineFitDecisions(context, { runId });
+  const decisions = await getSimulationRunTimelineFitDecisions(context, {
+    runId,
+  });
 
   return (
     <Card>
@@ -817,7 +882,8 @@ async function TimelineFitDecisionsCard({ runId }: { runId: string }) {
                     {d.childMomentId}
                   </div>
                   <div className="text-xs text-gray-600 mt-1">
-                    r2Key={d.r2Key} stream={d.streamId} idx={String(d.macroIndex)} outcome=
+                    r2Key={d.r2Key} stream={d.streamId} idx=
+                    {String(d.macroIndex)} outcome=
                     {d.outcome} chosen={d.chosenParentMomentId ?? "null"}
                   </div>
                 </div>

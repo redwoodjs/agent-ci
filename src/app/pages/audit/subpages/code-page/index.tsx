@@ -6,11 +6,12 @@ import {
   CardContent,
   CardDescription,
 } from "@/app/components/ui/card";
-import { fetchCodeTimeline } from "../actions";
+import { fetchCodeTimeline, transformTimelineToHeatmapData } from "../actions";
 import { EvolutionTable } from "./evolution-table";
 import { SourceType } from "./types";
 import { TldrSection } from "./tldr-section";
 import { DecisionGridSection } from "./decision-grid";
+import { TimelineHeatmapWrapper } from "./timeline-heatmap-wrapper";
 
 function getSourceTypeFromDocumentId(
   documentId: string | null | undefined
@@ -210,14 +211,14 @@ async function CodePageContent({
   return (
     <>
       {/* TLDR */}
-      <TldrSection
+      {/* <TldrSection
         repo={repo}
         commit={commit}
         file={file}
         line={line}
         namespace={namespace}
         timelineResult={timelineResult}
-      />
+      /> */}
 
       <RelatedMomentsLoader
         repo={repo}
@@ -228,7 +229,7 @@ async function CodePageContent({
         timelineResult={timelineResult}
       />
 
-      <DecisionGridSection repo={repo} commit={commit} namespace={namespace} />
+      {/* <DecisionGridSection repo={repo} commit={commit} namespace={namespace} /> */}
     </>
   );
 }
@@ -265,13 +266,27 @@ async function RelatedMomentsLoader({
 
   const { sortedTimeline } = timelineResult;
 
+  // Transform timeline for heatmap
+  const heatmapData = transformTimelineToHeatmapData(sortedTimeline || []);
+
   return (
-    <EvolutionSection
-      sortedTimeline={sortedTimeline || []}
-      repo={repo}
-      file={file}
-      line={line}
-    />
+    <>
+      {/* Timeline and Heatmap with interactive linking */}
+      <TimelineHeatmapWrapper
+        heatmapData={heatmapData}
+        moments={sortedTimeline || []}
+        repo={repo}
+        compressThreshold={2}
+      />
+
+      {/* Evolution Table */}
+      {/* <EvolutionSection
+        sortedTimeline={sortedTimeline || []}
+        repo={repo}
+        file={file}
+        line={line}
+      /> */}
+    </>
   );
 }
 

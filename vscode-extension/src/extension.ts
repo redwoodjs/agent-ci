@@ -6,6 +6,32 @@ import * as http from "http";
 
 const logger = vscode.window.createOutputChannel("Machinen");
 
+let extensionMode: vscode.ExtensionMode | undefined;
+
+/**
+ * Get the API URL, defaulting to localhost during development
+ * if no explicit URL is configured.
+ */
+function getApiUrl(): string {
+  const config = vscode.workspace.getConfiguration("machinen");
+  const value = config.get<string>("apiUrl", "");
+
+  // If the extension is running in development mode (Extension Development Host)
+  // and the user hasn't explicitly overridden the API URL to something other than the default,
+  // default to localhost.
+  const isDevelopment = extensionMode === vscode.ExtensionMode.Development;
+
+  if (isDevelopment) {
+    // If it's the default value from package.json, or if no value is set at all,
+    // use localhost for easier development.
+    if (value === "https://machinen.redwoodjs.workers.dev" || !value) {
+      return "http://localhost:5173";
+    }
+  }
+
+  return value;
+}
+
 // Track open webviews to avoid duplicates
 const openWebviews = new Map<string, vscode.WebviewPanel>();
 // Store codeOrigin data for each webview (for "Add to Chat" button)
@@ -82,6 +108,7 @@ interface PrOriginInfo {
 }
 
 export function activate(context: vscode.ExtensionContext) {
+  extensionMode = context.extensionMode;
   logger.appendLine("Machinen is now active!");
 
   /**
@@ -384,8 +411,7 @@ export function activate(context: vscode.ExtensionContext) {
         let citationsHtml = "";
         if (citations.length > 0) {
           // Get API URL from configuration for audit file links
-          const config = vscode.workspace.getConfiguration("machinen");
-          const apiUrl = config.get<string>("apiUrl", "");
+          const apiUrl = getApiUrl();
           const normalizedApiUrl = apiUrl ? apiUrl.replace(/\/$/, "") : "";
 
           const citationsList = citations
@@ -554,13 +580,15 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Get configuration
     const config = vscode.workspace.getConfiguration("machinen");
-    const apiUrl = config.get<string>("apiUrl", "");
+    const apiUrl = getApiUrl();
     const apiKey = config.get<string>("apiKey", "");
     const namespace = config.get<string>("namespace", "");
 
-    if (!apiUrl || !apiKey) {
+    const isLocalhost = apiUrl.includes("localhost") || apiUrl.includes("127.0.0.1");
+
+    if (!apiUrl || (!apiKey && !isLocalhost)) {
       vscode.window.showErrorMessage(
-        "Machinen API URL or API key not configured. Please configure in VS Code settings."
+        `Machinen API URL (${apiUrl || 'not set'}) or API key not configured. Please configure in VS Code settings.`
       );
       return;
     }
@@ -618,7 +646,7 @@ export function activate(context: vscode.ExtensionContext) {
       // Ensure URL is valid
       let url: URL;
       try {
-        url = new URL(`${normalizedApiUrl}/audit/tldr`);
+        url = new URL(`${normalizedApiUrl}/tldr`);
       } catch (e) {
         vscode.window.showErrorMessage(`Invalid API URL: ${apiUrl}`);
         return;
@@ -630,10 +658,17 @@ export function activate(context: vscode.ExtensionContext) {
       if (namespace) {
         url.searchParams.set("namespace", namespace);
       }
-      url.searchParams.set("api_key", apiKey);
+      // No api_key needed - /tldr route doesn't require auth
 
       const tldrUrl = url.toString();
       const apiOrigin = url.origin;
+
+      logger.appendLine(`Opening TLDR webview with URL: ${tldrUrl}`);
+      logger.appendLine(`  API URL: ${normalizedApiUrl}`);
+      logger.appendLine(`  Repo: ${repoParam}`);
+      logger.appendLine(`  Commit: ${commitHash}`);
+      logger.appendLine(`  File: ${fileParam}`);
+      logger.appendLine(`  Namespace: ${namespace || '(none)'}`);
 
       // Create webview panel
       const panel = vscode.window.createWebviewPanel(
@@ -660,6 +695,15 @@ export function activate(context: vscode.ExtensionContext) {
       // Track this webview
       openWebviews.set(documentKey, panel);
 
+      // Handle messages from the webview
+      panel.webview.onDidReceiveMessage((message) => {
+        if (message.command === "log") {
+          logger.appendLine(`[Webview Log] ${message.text}`);
+        } else if (message.command === "error") {
+          logger.appendLine(`[Webview Error] ${message.text}`);
+        }
+      });
+
       // Render iframe with TLDR page
       panel.webview.html = `
       <!DOCTYPE html>
@@ -667,20 +711,23 @@ export function activate(context: vscode.ExtensionContext) {
       <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src ${apiOrigin} http: https:; style-src 'unsafe-inline' var:; script-src 'unsafe-inline';">
+        <meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src * http: https:; connect-src * http: https:; style-src 'unsafe-inline' var:; script-src 'unsafe-inline';">
         <style>
-          body {
+          html, body {
             margin: 0;
             padding: 0;
+            width: 100%;
+            height: 100%;
             overflow: hidden;
             background-color: var(--vscode-editor-background);
             color: var(--vscode-foreground);
             font-family: var(--vscode-font-family);
           }
           iframe {
-            width: 100%;
+            width: 100vw;
             height: 100vh;
             border: none;
+            display: none;
             background-color: var(--vscode-editor-background);
           }
           .status-container {
@@ -705,12 +752,6 @@ export function activate(context: vscode.ExtensionContext) {
             0% { transform: rotate(0deg); }
             100% { transform: rotate(360deg); }
           }
-          code {
-            background-color: var(--vscode-textCodeBlock-background);
-            padding: 2px 4px;
-            border-radius: 3px;
-            font-family: var(--vscode-editor-font-family);
-          }
         </style>
       </head>
       <body>
@@ -721,39 +762,28 @@ export function activate(context: vscode.ExtensionContext) {
         
         <iframe 
           id="tldr-iframe"
-          src="${escapeHtml(tldrUrl)}"
           style="display: none;"
           onload="handleLoad()"
           onerror="handleError()"
         ></iframe>
 
         <script>
+          const vscode = acquireVsCodeApi();
           const iframe = document.getElementById('tldr-iframe');
           const status = document.getElementById('status');
           
           function handleLoad() {
-            status.style.display = 'none';
-            iframe.style.display = 'block';
+            if (iframe.src && iframe.src !== 'about:blank') {
+              status.style.display = 'none';
+              iframe.style.display = 'block';
+            }
           }
 
           function handleError() {
-            status.innerHTML = \`
-              <h3 style="color: var(--vscode-errorForeground);">Error Loading TLDR</h3>
-              <p>The iframe failed to load. This can happen if the server is unreachable or if framing is blocked.</p>
-              <div style="margin-top: 20px;">
-                <a href="${escapeHtml(
-                  tldrUrl
-                )}" style="background-color: var(--vscode-button-background); color: var(--vscode-button-foreground); padding: 8px 16px; border-radius: 2px; text-decoration: none; display: inline-block;">View in Browser</a>
-              </div>
-            \`;
+            status.innerHTML = '<h3 style="color: var(--vscode-errorForeground);">Error Loading TLDR</h3><p>The iframe failed to load.</p>';
           }
 
-          // If iframe doesn't load within 15 seconds, show error
-          setTimeout(() => {
-            if (iframe.style.display === 'none') {
-              handleError();
-            }
-          }, 15000);
+          iframe.src = ${JSON.stringify(tldrUrl)};
         </script>
       </body>
       </html>
@@ -962,8 +992,48 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(prOriginCommand);
 
+  // Register command to process machine callback
+  const processMachineCallbackCommand = vscode.commands.registerCommand(
+    "machinen.processMachineCallback",
+    async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) {
+        vscode.window.showErrorMessage(
+          "No active editor. Please open a file first."
+        );
+        return;
+      }
+
+      const position = editor.selection.active;
+
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Machine is thinking...",
+          cancellable: false,
+        },
+        async () => {
+          try {
+            // Show TLDR webview for the current line
+            await showTldrWebview(editor.document, position);
+          } catch (error) {
+            logger.appendLine(`Error in process machine callback command: ${error}`);
+            vscode.window.showErrorMessage(
+              `Error showing TLDR: ${
+                error instanceof Error ? error.message : String(error)
+              }`
+            );
+          }
+        }
+      );
+    }
+  );
+
+  context.subscriptions.push(processMachineCallbackCommand);
+
   logger.appendLine("Document change listener registered successfully");
   logger.appendLine("PR origin command registered successfully");
+  logger.appendLine("Process machine callback command registered successfully");
 }
 
 /**
@@ -1727,7 +1797,7 @@ async function getPrOrigin(
   }
 ): Promise<PrOriginInfo | null> {
   const config = vscode.workspace.getConfiguration("machinen");
-  const apiUrl = config.get<string>("apiUrl", "");
+  const apiUrl = getApiUrl();
   const apiKey = config.get<string>("apiKey", "");
   const namespace = config.get<string>("namespace", "");
 
@@ -1745,13 +1815,15 @@ async function getPrOrigin(
     `  Namespace: ${namespace || "(not set, will use default)"}`
   );
 
-  if (!apiUrl || !apiKey) {
+  const isLocalhost = apiUrl.includes("localhost") || apiUrl.includes("127.0.0.1");
+
+  if (!apiUrl || (!apiKey && !isLocalhost)) {
     logger.appendLine(
-      "Machinen API URL or API key not configured. Skipping PR origin lookup."
+      `Machinen API URL (${apiUrl || 'not set'}) or API key not configured. Skipping PR origin lookup.`
     );
     return {
       error:
-        "Machinen API is not configured.\n\n" +
+        `Machinen API is not configured (URL: ${apiUrl || 'not set'}).\n\n` +
         "To fix this:\n" +
         "1. Open VS Code Settings.\n" +
         '2. Search for "Machinen".\n' +
@@ -1926,17 +1998,19 @@ async function getCodeOrigin(
   line: number
 ): Promise<CodeOriginInfo | null> {
   const config = vscode.workspace.getConfiguration("machinen");
-  const apiUrl = config.get<string>("apiUrl", "");
+  const apiUrl = getApiUrl();
   const apiKey = config.get<string>("apiKey", "");
   const namespace = config.get<string>("namespace", "");
 
-  if (!apiUrl || !apiKey) {
+  const isLocalhost = apiUrl.includes("localhost") || apiUrl.includes("127.0.0.1");
+
+  if (!apiUrl || (!apiKey && !isLocalhost)) {
     logger.appendLine(
-      "Machinen API URL or API key not configured. Skipping code origin lookup."
+      `Machinen API URL (${apiUrl || 'not set'}) or API key not configured. Skipping code origin lookup.`
     );
     return {
       error:
-        "Machinen API is not configured.\n\n" +
+        `Machinen API is not configured (URL: ${apiUrl || 'not set'}).\n\n` +
         "To fix this:\n" +
         "1. Open VS Code Settings.\n" +
         '2. Search for "Machinen".\n' +

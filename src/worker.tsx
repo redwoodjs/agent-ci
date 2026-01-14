@@ -2,7 +2,7 @@ import { defineApp } from "rwsdk/worker";
 import { render, prefix, route } from "rwsdk/router";
 
 import { Document } from "@/app/Document";
-
+import { CodePage } from "./app/pages/audit/subpages/code-page";
 import { setCommonHeaders } from "./app/headers";
 
 import { auditRoutes } from "./app/pages/audit/routes";
@@ -18,9 +18,13 @@ export type AppContext = {
 };
 
 const app = defineApp([
-  setCommonHeaders(),
+  // setCommonHeaders(),
 
-  render(Document, [route("/", [HomePage]), prefix("/audit", auditRoutes)]),
+  render(Document, [
+    route("/", [HomePage]),
+    route("/tldr", CodePage),
+    prefix("/audit", auditRoutes),
+  ]),
 
   prefix("/ingestors/discord", discordRoutes),
   prefix("/ingestors/cursor", cursorIngestorRoutes),

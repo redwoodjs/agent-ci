@@ -26,5 +26,4 @@ export const auditRoutes = [
     route("/namespace", NamespaceAuditPage),
     route("/namespace/moments", NamespaceMomentsPage),
   ]),
-  route("/tldr", CodePage),
 ];

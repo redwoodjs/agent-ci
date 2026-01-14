@@ -14,8 +14,8 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
-      "configuration": {
-        "title": "Machinen",
+    "configuration": {
+      "title": "Machinen",
       "properties": {
         "machinen.overrideCursorCompletions": {
           "type": "boolean",
@@ -44,8 +44,30 @@
         "command": "machinen.getPrOrigin",
         "title": "Get PR Origin",
         "category": "Machinen"
+      },
+      {
+        "command": "machinen.processMachineCallback",
+        "title": "Machinen TLDR",
+        "category": "Machinen"
       }
-    ]
+    ],
+    "keybindings": [
+      {
+        "command": "machinen.processMachineCallback",
+        "key": "ctrl+shift+m",
+        "mac": "cmd+shift+m",
+        "when": "editorHasSelection"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "machinen.processMachineCallback",
+          "group": "navigation",
+          "when": "editorHasSelection"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "pnpm run compile",

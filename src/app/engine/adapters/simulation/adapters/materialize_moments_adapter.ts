@@ -4,6 +4,7 @@ import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
 import { prepareDocumentForR2Key } from "../../../indexing/pluginPipeline";
 import { sha256Hex, uuidFromSha256Hex } from "../../../utils/crypto";
 import { computeMaterializedMomentIdentity, computeMicroPathsHash } from "../../../lib/phaseCores/materialize_moments_core";
+import { materializeMomentsForDocument } from "../../../core/indexing/materialize_moments_orchestrator";
 
 export async function runMaterializeMomentsAdapter(
   context: SimulationDbContext,
@@ -89,162 +90,156 @@ export async function runMaterializeMomentsAdapter(
       );
 
       for (const stream of streams) {
-        const streamId =
-          typeof (stream as any)?.streamId === "string"
-            ? (stream as any).streamId
-            : "stream";
-        const macroMoments = Array.isArray((stream as any)?.macroMoments)
-          ? ((stream as any).macroMoments as any[])
-          : [];
+        const did = await materializeMomentsForDocument({
+          ports: {
+            computeMomentId: async ({
+              effectiveNamespace,
+              documentId,
+              streamId,
+              macroIndex,
+            }) => {
+              const { momentId } = await computeMaterializedMomentIdentity({
+                runId: input.runId,
+                effectiveNamespace,
+                documentId,
+                streamId,
+                macroIndex,
+                sha256Hex,
+                uuidFromSha256Hex,
+              });
+              return momentId;
+            },
+            computeMicroPathsHash: async ({ microPaths }) => {
+              return await computeMicroPathsHash({ microPaths, sha256Hex });
+            },
+            upsertMoment: async ({ moment }) => {
+              const microPathsJson = Array.isArray(moment.microPaths)
+                ? JSON.stringify(moment.microPaths)
+                : null;
+              const sourceMetadataJson =
+                typeof moment.sourceMetadata === "object" && moment.sourceMetadata
+                  ? JSON.stringify(moment.sourceMetadata)
+                  : null;
 
-        for (let i = 0; i < macroMoments.length; i++) {
-          const m = macroMoments[i] ?? {};
-          const title =
-            typeof m.title === "string" && m.title.trim().length > 0
-              ? m.title.trim()
-              : "(untitled)";
-          const summary =
-            typeof m.summary === "string" && m.summary.trim().length > 0
-              ? m.summary.trim()
-              : "(empty)";
-          const createdAt =
-            typeof m.createdAt === "string" && m.createdAt.trim().length > 0
-              ? m.createdAt.trim()
-              : input.now;
-          const author =
-            typeof m.author === "string" && m.author.trim().length > 0
-              ? m.author.trim()
-              : "machinen";
-          const microPaths = Array.isArray(m.microPaths)
-            ? m.microPaths.filter((p: any) => typeof p === "string")
-            : null;
-
-          const microPathsHash = await computeMicroPathsHash({
-            microPaths,
-            sha256Hex,
-          });
-
-          const { momentId } = await computeMaterializedMomentIdentity({
-            runId: input.runId,
-            effectiveNamespace: input.effectiveNamespace ?? null,
-            documentId: document.id,
-            streamId,
-            macroIndex: i,
-            sha256Hex,
-            uuidFromSha256Hex,
-          });
-
-          await input.momentDb
-            .insertInto("moments")
-            .values({
-              id: momentId,
-              document_id: document.id,
-              summary,
-              title,
-              parent_id: null as any,
-              micro_paths_json: microPaths
-                ? JSON.stringify(microPaths)
-                : (null as any),
-              micro_paths_hash: (microPathsHash ?? null) as any,
-              importance:
-                typeof m.importance === "number" && Number.isFinite(m.importance)
-                  ? (m.importance as any)
-                  : (null as any),
-              link_audit_log: null as any,
-              is_subject: (m.isSubject === true ? 1 : 0) as any,
-              subject_kind:
-                typeof m.subjectKind === "string"
-                  ? (m.subjectKind as any)
-                  : (null as any),
-              subject_reason:
-                typeof m.subjectReason === "string"
-                  ? (m.subjectReason as any)
-                  : (null as any),
-              subject_evidence_json: Array.isArray(m.subjectEvidence)
-                ? (JSON.stringify(m.subjectEvidence) as any)
-                : (null as any),
-              moment_kind:
-                typeof m.momentKind === "string"
-                  ? (m.momentKind as any)
-                  : (null as any),
-              moment_evidence_json: Array.isArray(m.momentEvidence)
-                ? (JSON.stringify(m.momentEvidence) as any)
-                : (null as any),
-              created_at: createdAt,
-              author,
-              source_metadata:
-                typeof m.sourceMetadata === "object" && m.sourceMetadata
-                  ? (JSON.stringify(m.sourceMetadata) as any)
-                  : (JSON.stringify({
-                      simulation: {
-                        runId: input.runId,
-                        r2Key,
-                        streamId,
-                        macroIndex: i,
-                      },
-                    }) as any),
-            } as any)
-            .onConflict((oc: any) =>
-              oc.column("id").doUpdateSet({
-                summary,
-                title,
-                parent_id: null as any,
-                micro_paths_json: microPaths
-                  ? JSON.stringify(microPaths)
-                  : (null as any),
-                micro_paths_hash: (microPathsHash ?? null) as any,
-                importance:
-                  typeof m.importance === "number" && Number.isFinite(m.importance)
-                    ? (m.importance as any)
+              await input.momentDb
+                .insertInto("moments")
+                .values({
+                  id: moment.id,
+                  document_id: moment.documentId,
+                  summary: moment.summary,
+                  title: moment.title,
+                  parent_id: null as any,
+                  micro_paths_json: (microPathsJson ?? null) as any,
+                  micro_paths_hash: ((moment.microPathsHash ?? null) as any) as any,
+                  importance:
+                    typeof moment.importance === "number" &&
+                    Number.isFinite(moment.importance)
+                      ? (moment.importance as any)
+                      : (null as any),
+                  link_audit_log: null as any,
+                  is_subject: (moment.isSubject === true ? 1 : 0) as any,
+                  subject_kind:
+                    typeof moment.subjectKind === "string"
+                      ? (moment.subjectKind as any)
+                      : (null as any),
+                  subject_reason:
+                    typeof moment.subjectReason === "string"
+                      ? (moment.subjectReason as any)
+                      : (null as any),
+                  subject_evidence_json: Array.isArray(moment.subjectEvidence)
+                    ? (JSON.stringify(moment.subjectEvidence) as any)
                     : (null as any),
-                is_subject: (m.isSubject === true ? 1 : 0) as any,
-                subject_kind:
-                  typeof m.subjectKind === "string"
-                    ? (m.subjectKind as any)
+                  moment_kind:
+                    typeof moment.momentKind === "string"
+                      ? (moment.momentKind as any)
+                      : (null as any),
+                  moment_evidence_json: Array.isArray(moment.momentEvidence)
+                    ? (JSON.stringify(moment.momentEvidence) as any)
                     : (null as any),
-                subject_reason:
-                  typeof m.subjectReason === "string"
-                    ? (m.subjectReason as any)
-                    : (null as any),
-                subject_evidence_json: Array.isArray(m.subjectEvidence)
-                  ? (JSON.stringify(m.subjectEvidence) as any)
-                  : (null as any),
-                moment_kind:
-                  typeof m.momentKind === "string"
-                    ? (m.momentKind as any)
-                    : (null as any),
-                moment_evidence_json: Array.isArray(m.momentEvidence)
-                  ? (JSON.stringify(m.momentEvidence) as any)
-                  : (null as any),
-                created_at: createdAt,
-                author,
-              } as any)
-            )
-            .execute();
-
-          await db
-            .insertInto("simulation_run_materialized_moments")
-            .values({
-              run_id: input.runId,
-              r2_key: r2Key,
-              stream_id: streamId,
-              macro_index: i as any,
-              moment_id: momentId,
-              created_at: input.now,
-              updated_at: input.now,
-            } as any)
-            .onConflict((oc) =>
-              oc
-                .columns(["run_id", "r2_key", "stream_id", "macro_index"])
-                .doUpdateSet({
+                  created_at: moment.createdAt,
+                  author: moment.author,
+                  source_metadata: (sourceMetadataJson ?? null) as any,
+                } as any)
+                .onConflict((oc: any) =>
+                  oc.column("id").doUpdateSet({
+                    summary: moment.summary,
+                    title: moment.title,
+                    parent_id: null as any,
+                    micro_paths_json: (microPathsJson ?? null) as any,
+                    micro_paths_hash: ((moment.microPathsHash ?? null) as any) as any,
+                    importance:
+                      typeof moment.importance === "number" &&
+                      Number.isFinite(moment.importance)
+                        ? (moment.importance as any)
+                        : (null as any),
+                    is_subject: (moment.isSubject === true ? 1 : 0) as any,
+                    subject_kind:
+                      typeof moment.subjectKind === "string"
+                        ? (moment.subjectKind as any)
+                        : (null as any),
+                    subject_reason:
+                      typeof moment.subjectReason === "string"
+                        ? (moment.subjectReason as any)
+                        : (null as any),
+                    subject_evidence_json: Array.isArray(moment.subjectEvidence)
+                      ? (JSON.stringify(moment.subjectEvidence) as any)
+                      : (null as any),
+                    moment_kind:
+                      typeof moment.momentKind === "string"
+                        ? (moment.momentKind as any)
+                        : (null as any),
+                    moment_evidence_json: Array.isArray(moment.momentEvidence)
+                      ? (JSON.stringify(moment.momentEvidence) as any)
+                      : (null as any),
+                    created_at: moment.createdAt,
+                    author: moment.author,
+                    source_metadata: (sourceMetadataJson ?? null) as any,
+                  } as any)
+                )
+                .execute();
+            },
+            persistMaterializedMoment: async ({
+              r2Key,
+              streamId,
+              macroIndex,
+              momentId,
+            }) => {
+              await db
+                .insertInto("simulation_run_materialized_moments")
+                .values({
+                  run_id: input.runId,
+                  r2_key: r2Key,
+                  stream_id: streamId,
+                  macro_index: macroIndex as any,
                   moment_id: momentId,
+                  created_at: input.now,
                   updated_at: input.now,
                 } as any)
-            )
-            .execute();
+                .onConflict((oc) =>
+                  oc
+                    .columns(["run_id", "r2_key", "stream_id", "macro_index"])
+                    .doUpdateSet({
+                      moment_id: momentId,
+                      updated_at: input.now,
+                    } as any)
+                )
+                .execute();
+            },
+          },
+          effectiveNamespace: input.effectiveNamespace ?? null,
+          runIdOrScope: input.runId,
+          r2Key,
+          documentId: document.id,
+          now: input.now,
+          streams: [
+            {
+              streamId: typeof (stream as any)?.streamId === "string" ? (stream as any).streamId : "stream",
+              macroMoments: Array.isArray((stream as any)?.macroMoments) ? ((stream as any).macroMoments as any[]) : [],
+            },
+          ],
+        });
 
-          momentsUpserted++;
-        }
+        momentsUpserted += did.momentsUpserted;
       }
     } catch (e) {
       failed++;

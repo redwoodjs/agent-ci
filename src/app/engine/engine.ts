@@ -33,7 +33,8 @@ import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { planIndexDocumentMicroBatches } from "./adapters/live/micro_batches";
 import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./lib/phaseCores/materialize_moments_core";
-import { computeIndexDocumentMacroSynthesisIdentity } from "./adapters/live/macro_synthesis";
+import { computeMacroSynthesisForDocument } from "./core/indexing/macro_synthesis_orchestrator";
+import { computeMicroStreamHash, extractAnchorsFromStreams } from "./lib/phaseCores/macro_synthesis_core";
 import { computeDeterministicLinkingProposal } from "./lib/phaseCores/deterministic_linking_core";
 import { computeIndexDocumentParentForRootMacroMoment } from "./adapters/live/linking";
 import {
@@ -41,6 +42,7 @@ import {
   synthesizeMicroMomentsIntoStreams,
   type SynthesisAuditEvent,
 } from "./synthesis/synthesizeMicroMoments";
+import { extractAnchorTokens } from "./utils/anchorTokens";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
 import { classifyMacroMoments } from "./subjects/classifyMacroMoments";
 import {
@@ -530,18 +532,42 @@ export async function indexDocument(
         });
       }
 
-      const synthesisAuditEvents: SynthesisAuditEvent[] = [];
-      const streams = await synthesizeMicroMomentsIntoStreams(
-        microMomentsForSynthesis,
-        {
-          macroSynthesisPromptContext,
-          auditSink: (event) => {
-            synthesisAuditEvents.push(event);
+      const macroSynthesis = await computeMacroSynthesisForDocument({
+        ports: {
+          computeMicroStreamHash: async ({ batches }) => {
+            return await computeMicroStreamHash({
+              batches,
+              sha256Hex: async (value) => await hashStrings([value]),
+            });
           },
-        }
-      );
+          synthesizeMicroMomentsIntoStreams,
+          extractAnchorsFromStreams: ({ streams }) => {
+            return extractAnchorsFromStreams({
+              streams,
+              extractAnchorTokens,
+              maxTokensPerMoment: 8,
+              maxAnchors: 60,
+            });
+          },
+        },
+        plannedBatches: plannedBatches.map((b) => ({
+          batchHash: b.batchHash,
+          promptContextHash: b.promptContextHash,
+        })),
+        microMoments: microMomentsForSynthesis.map((m) => ({
+          path: m.path,
+          summary: m.summary ?? "",
+          createdAt: m.createdAt,
+        })),
+        macroSynthesisPromptContext: macroSynthesisPromptContext ?? null,
+        useLlm: true,
+        now: new Date().toISOString(),
+        documentId: document.id,
+      });
 
-      for (const event of synthesisAuditEvents) {
+      const streams = macroSynthesis.streams;
+
+      for (const event of macroSynthesis.auditEvents as SynthesisAuditEvent[]) {
         await addDocumentAuditLog(
           document.id,
           `synthesis:${event.kind}`,
@@ -569,15 +595,6 @@ export async function indexDocument(
       }
 
       if (streams.length > 0) {
-        const macroIdentity = await computeIndexDocumentMacroSynthesisIdentity({
-          plannedBatches: plannedBatches.map((b) => ({
-            batchHash: b.batchHash,
-            promptContextHash: b.promptContextHash,
-          })),
-          streams,
-          hashStrings,
-        });
-
         await addDocumentAuditLog(
           document.id,
           "indexing:macro-synthesis-identity",
@@ -585,8 +602,8 @@ export async function indexDocument(
             documentId: document.id,
             r2Key,
             streamId: streams[0]?.streamId ?? null,
-            microStreamHash: macroIdentity.microStreamHash,
-            anchors: macroIdentity.anchors,
+            microStreamHash: macroSynthesis.microStreamHash,
+            anchors: macroSynthesis.anchors,
           },
           momentGraphContext
         );

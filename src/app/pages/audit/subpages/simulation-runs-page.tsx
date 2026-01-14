@@ -19,6 +19,7 @@ import {
   getSimulationRunTimelineFitDecisions,
   simulationPhases,
 } from "@/app/engine/databases/simulationState";
+import { getSimulationRunProgressSummary } from "@/app/engine/adapters/simulation/runProgress";
 import { SimulationRunControls } from "./simulation-run-controls";
 import { CopyTextButton } from "./copy-text-button";
 
@@ -231,6 +232,14 @@ async function SimulationRunsContent({
     String(run.currentPhase)
   );
 
+  const totalDocs = Array.isArray((run as any)?.config?.r2Keys)
+    ? (run as any).config.r2Keys.length
+    : 0;
+  const progress = await getSimulationRunProgressSummary(context, {
+    runId,
+    totalDocs,
+  });
+
   const documentsLink = `/audit/simulation?runId=${encodeURIComponent(
     runId
   )}&view=documents`;
@@ -283,6 +292,48 @@ async function SimulationRunsContent({
                 <span className="font-mono">{safeStringify(phaseEndPayload)}</span>
               </div>
             ) : null}
+          </div>
+
+          <div className="text-xs text-gray-600">
+            <div className="font-semibold text-gray-700 mb-1">Progress</div>
+            <div className="font-mono">
+              docs total={String(progress.totalDocs)} ingest_diff=
+              {String(progress.ingestDiff.docs)}/{String(progress.totalDocs)} changed=
+              {String(progress.ingestDiff.changed)} unchanged=
+              {String(progress.ingestDiff.unchanged)} errors=
+              {String(progress.ingestDiff.errors)}
+            </div>
+            <div className="font-mono">
+              micro_batches docsWithBatches={String(progress.microBatches.docsWithBatches)}/
+              {String(progress.ingestDiff.changed)} batches={String(progress.microBatches.batches)} cached=
+              {String(progress.microBatches.cached)} computed_llm=
+              {String(progress.microBatches.computedLlm)} computed_fallback=
+              {String(progress.microBatches.computedFallback)}
+            </div>
+            <div className="font-mono">
+              macro_synthesis docs={String(progress.macroSynthesis.docs)}/
+              {String(progress.ingestDiff.changed)}
+            </div>
+            <div className="font-mono">
+              materialize_moments docs={String(progress.materializeMoments.docs)}/
+              {String(progress.ingestDiff.changed)} moments=
+              {String(progress.materializeMoments.moments)}
+            </div>
+            <div className="font-mono">
+              deterministic_linking docs={String(progress.deterministicLinking.docs)}/
+              {String(progress.ingestDiff.changed)} decisions=
+              {String(progress.deterministicLinking.decisions)}
+            </div>
+            <div className="font-mono">
+              candidate_sets docs={String(progress.candidateSets.docs)}/
+              {String(progress.ingestDiff.changed)} sets=
+              {String(progress.candidateSets.sets)}
+            </div>
+            <div className="font-mono">
+              timeline_fit docs={String(progress.timelineFit.docs)}/
+              {String(progress.ingestDiff.changed)} decisions=
+              {String(progress.timelineFit.decisions)}
+            </div>
           </div>
 
           <div className="text-sm">

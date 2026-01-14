@@ -1214,6 +1214,36 @@ Run sample previously picked random keys from the supported set, which could eas
 
 Then it fills the remaining slots randomly from the listed keys.
 
+Plan: per-run progress summary in UI
+
+Problem: when a run is executing, it's hard to tell how far it is through a phase (docs done / total, failures, etc).
+
+Approach: compute a progress summary from existing persisted artifacts (no schema changes).
+
+- add a helper in simulation state that returns counts derived from the per-phase tables
+- show those counts on the run details card so it's visible while a run is in progress
+
+Derived progress (initial cut):
+
+- total docs: length of run config r2Keys
+- ingest_diff: count rows in simulation_run_documents (plus changed/unchanged/error counts)
+- micro_batches: count distinct r2_key in simulation_run_micro_batches (plus total batches and failed batches)
+- macro_synthesis: count rows in simulation_run_macro_outputs
+- materialize_moments: count rows in simulation_run_materialized_moments and distinct r2_key
+- deterministic_linking: count rows in simulation_run_link_decisions
+- candidate_sets: count rows in simulation_run_candidate_sets
+- timeline_fit: count rows in simulation_run_timeline_fit_decisions
+
+Note: micro_batches can legitimately produce 0 batches for some docs (eg no chunks), so the progress numbers will report those docs as not contributing batches. If that becomes confusing, add an explicit per-doc skip marker later (schema change).
+
+Progress summary implemented
+
+I added a derived progress summary (no schema changes) by counting rows in the existing per-phase tables and showing it on the run details card. This surfaces:
+
+- ingest diff: docs processed + changed/unchanged/errors
+- micro batches: docs with at least one batch + batch totals split by status
+- later phases: doc counts and total decision rows where applicable
+
 Progress: run all + auto-advance + default prefix
 
 - default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)

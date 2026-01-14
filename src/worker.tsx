@@ -39,7 +39,7 @@ export { CursorEventsDurableObject } from "@/app/ingestors/cursor/db/durableObje
 export { GitHubRepoDurableObject } from "@/app/ingestors/github/db/durableObject";
 export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durableObject";
 export { EngineIndexingStateDO } from "@/app/engine/databases/indexingState/durableObject";
-export { EngineSimulationStateDO } from "@/app/engine/simulationDb/durableObject";
+export { EngineSimulationStateDO } from "@/app/engine/databases/simulationState/durableObject";
 export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
 export { SubjectDO } from "@/app/engine/databases/subjects/durableObject";
 // Temporary export for migration - will be removed after v8 migration completes

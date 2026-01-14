@@ -18,7 +18,7 @@ import {
   restartSimulationRunFromPhase,
   resumeSimulationRun,
   simulationPhases,
-} from "../simulationDb";
+} from "../databases/simulationState";
 
 async function startSimulationRunHandler({ request }: RequestInfo) {
   if (request.method !== "POST") {

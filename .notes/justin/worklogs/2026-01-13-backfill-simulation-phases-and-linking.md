@@ -1057,3 +1057,62 @@ Checks
 
 - pnpm build passes after rewriting remaining internal imports (services, live adapter linking, simulation phase imports)
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
+
+Clarify: provenance vs payload-shape alignment
+
+When I say provenance here, I mean moment metadata that ties a moment back to the source document and origin (issue/PR/discord thread/cursor exchange), so a moment row can be traced back without reconstructing context from logs.
+
+Separately, there is payload-shape alignment between live and simulation (link audit payload structures, decision inputs/outputs). That is related, but it is not the same thing, and it should not be called provenance.
+
+Practical gate while refactoring:
+
+- pick one or two documents (issue + PR is a good pair)
+- index them via live
+- run them via simulation
+- compare:
+  - moment row provenance fields (document id, author, createdAt, source metadata, time range metadata)
+  - link audit payload shapes (keys/structure, null vs missing) for linking decisions
+
+Record mismatches in the worklog and decide whether to align them in the current step.
+
+Clarify: what I meant by 'Phase A core extraction'
+
+We converged the 'changed' meaning using an etag helper, but Phase A in the original plan included more than that:
+
+- document preparation via plugins
+- stable chunking and chunk identity
+- producing the document-level artifacts that downstream phases consume
+
+Right now, live and simulation both do versions of that work, but not via a shared orchestration boundary in the same style as the linking orchestrators. The proposed next step is to apply the same 'core calls ports' pattern so that Phase A behavior is expressed once, and adapters only supply I/O (read the doc, persist artifacts).
+
+Re-centered next steps (attempt)
+
+1. Move simulation state DB module under engine/databases
+   - Move `src/app/engine/simulationDb/` -> `src/app/engine/databases/simulationState/`
+   - Update imports across engine, worker exports, tests, and UI
+   - Keep behavior unchanged
+   - Run pnpm build + MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation
+
+2. Apply the 'core orchestrator calls ports' pattern to micro_batches, macro_synthesis, materialize_moments
+   - Create core orchestrators (one per phase) that express end-to-end phase behavior
+   - Make live + simulation supply ports (read inputs, write outputs, call LLM, vector query, moment writes)
+   - Keep simulation persistence model (restartable artifacts) and keep live writes minimal
+
+3. Phase A: make a shared orchestrator boundary (beyond the etag helper)
+   - Define the in-memory inputs/outputs for document prepare + chunking + diff identity
+   - Keep existing storage decisions (simulation persists A artifacts; live stores what it already stores)
+
+4. Provenance alignment checklist (as a gate on refactors)
+   - For a small sample, compare stored moment fields + link audit payload shapes between live and simulation
+   - Record mismatches and decide whether to align them as part of the current step
+
+Progress: moved simulation state DB module under engine/databases
+
+- moved `src/app/engine/simulationDb/` -> `src/app/engine/databases/simulationState/`
+- updated imports in worker exports, audit UI, and engine routes
+- fixed the internal re-export paths from the moved location
+
+Checks
+
+- pnpm build passes
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes

@@ -5,8 +5,8 @@ import { addSimulationRunEvent } from "../runEvents";
 import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { addMoment, getMoments } from "../../momentDb";
-import { computeDeterministicLinkingProposal } from "../../phaseCores/deterministic_linking_core";
 import { resolveThreadHeadForDocumentAsOf } from "../../linking/explicitRefThreadHead";
+import { computePhaseEDeterministicLinkingDecision } from "../../linking/phaseE_deterministic_linking_orchestrator";
 
 function parseIssueRefs(tokens: unknown): string[] {
   if (!Array.isArray(tokens)) {
@@ -194,50 +194,46 @@ export async function runPhaseDeterministicLinking(
 
       momentsProcessed++;
 
-      let candidateParentMomentId: string | null = null;
-      let candidateParentDocumentId: string | null = null;
       let matchedAnchorMomentId: string | null = null;
-      if (macroIndex === 0 && repo && candidateIssueNumber) {
-        const child = momentsMap.get(childMomentId) ?? null;
-        const childStartMs = child
-          ? computeMomentStartMs({
-              createdAt: child.createdAt,
-              sourceMetadata: child.sourceMetadata,
-            })
-          : null;
-        const candidates = [
-          `github/${repo.owner}/${repo.repo}/issues/${candidateIssueNumber}/latest.json`,
-          `github/${repo.owner}/${repo.repo}/pull-requests/${candidateIssueNumber}/latest.json`,
-        ];
-        for (const docId of candidates) {
-          const resolved = await resolveThreadHeadForDocumentAsOf({
-            documentId: docId,
-            asOfMs: childStartMs,
-            context: momentGraphContext,
-          });
-          if (resolved.headMomentId) {
-            candidateParentMomentId = resolved.headMomentId;
-            candidateParentDocumentId = docId;
-            matchedAnchorMomentId = resolved.anchorMomentId;
-            break;
-          }
-        }
-      }
+      const child = momentsMap.get(childMomentId) ?? null;
+      const childText = child
+        ? `${child.title ?? ""}\n${child.summary ?? ""}`.trim()
+        : "";
 
-      const proposal = computeDeterministicLinkingProposal({
+      const phaseE = await computePhaseEDeterministicLinkingDecision({
+        ports: {
+          resolveThreadHeadForDocumentAsOf: async ({ documentId, asOfMs }) => {
+            const resolved = await resolveThreadHeadForDocumentAsOf({
+              documentId,
+              asOfMs,
+              context: momentGraphContext,
+            });
+            matchedAnchorMomentId = resolved.anchorMomentId;
+            return resolved;
+          },
+        },
         r2Key,
         streamId,
         macroIndex,
         childMomentId,
         prevMomentId: prev,
-        candidateParentMomentId,
-        candidateIssueRef: candidateIssueNumber
-          ? `#${candidateIssueNumber}`
+        childDocumentId: r2Key,
+        childCreatedAt: child?.createdAt ?? now,
+        childSourceMetadata: child?.sourceMetadata,
+        macroAnchors: Array.isArray(macroRow?.anchors_json)
+          ? (macroRow.anchors_json as any[])
           : null,
-        candidateParentR2Key: candidateParentDocumentId,
+        childTextForFallbackAnchors: childText,
       });
+
+      const proposal = {
+        proposedParentId: phaseE.proposedParentId,
+        ruleId: phaseE.audit.ruleId,
+        evidence: phaseE.audit.evidence as any,
+      };
       if (matchedAnchorMomentId) {
-        proposal.evidence.matchedAnchorMomentId = matchedAnchorMomentId;
+        (proposal.evidence as any).matchedAnchorMomentId =
+          matchedAnchorMomentId;
       }
 
       try {

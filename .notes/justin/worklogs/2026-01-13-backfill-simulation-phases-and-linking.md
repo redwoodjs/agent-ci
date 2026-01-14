@@ -879,3 +879,44 @@ Implementation changes:
 - Added a shared resolver that finds the referenced document's anchor moment in the current namespace, scans its descendant thread, and picks the latest eligible node (time <= child).
 - Simulation deterministic_linking now uses this resolver instead of attaching to a run-scoped document root moment id.
 - Removed the explicit-issue-ref shortcut attach from the live timeline-fit plugin so Phase G remains the deep check stage.
+
+Decision: stop preserving live linking implementation during convergence
+
+I expected the core+adapter model to mean:
+
+- simulation defines phase behavior (phase cores)
+- simulation keeps restartable artifacts via simulation adapters
+- live is just adapters for retrieval and writes
+
+That implies we should not keep separate live behavior embedded in plugins while we are converging. If a behavior is intended to exist (explicit ref attach, candidate filtering, ranking, LLM veto), it should live in the phase core and be invoked by both simulation and live adapters.
+
+Next step: remove the live timeline-fit linker plugin
+
+To reduce drift, remove `smart-linker`/timeline-fit plugin code from the live path and implement live linking as adapters that call the shared Phase E/F/G cores. The live adapters load inputs and apply outputs (writes + audit payload), and the simulation adapters continue to persist restartable artifacts.
+
+Noticed a mismatch in what 'core' means
+
+We have been treating 'core' as pure-ish computation helpers, and 'adapters' as orchestrators that do I/O and call those helpers. That shares computation, but it still means phase behavior can live in live code and drift from simulation.
+
+The intended shape is inverted:
+
+- shared phase implementation orchestrates end-to-end behavior
+- it calls injected ports for retrieval, model calls, and writes
+- live and simulation provide port implementations
+
+Arch-note: `.notes/justin/arch-notes/2026-01-14-invert-core-adapter-direction.md`
+
+Progress: moved E/F/G orchestration into shared linking modules
+
+Created shared linking orchestrators for:
+
+- deterministic_linking (explicit ref resolution + proposal shaping)
+- candidate_sets (embedding + vector query + candidate filtering/capping)
+- timeline_fit (deep ranking + optional LLM veto)
+
+Rewired both:
+
+- live root moment parent selection
+- simulation phases E/F/G
+
+So live/simulation files now mostly wire ports and persist artifacts, and the phase control flow is shared.

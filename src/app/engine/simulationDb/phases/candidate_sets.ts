@@ -6,7 +6,7 @@ import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { getMomentGraphDb } from "../db";
 import { getEmbedding } from "../../utils/vector";
-import { buildCandidateSet } from "../../phaseCores/candidate_sets_core";
+import { computePhaseFCandidateSet } from "../../linking/phaseF_candidate_sets_orchestrator";
 
 function parseTimeMs(value: unknown): number | null {
   if (typeof value !== "string") {
@@ -185,53 +185,54 @@ export async function runPhaseCandidateSets(
     }
 
     try {
-      const embedding = await getEmbedding(queryText);
-      const results = await (context.env as any).MOMENT_INDEX.query(embedding, {
-        topK: vectorTopK,
-        returnMetadata: true,
-        filter:
-          (effectiveNamespace ?? "default") !== "default"
-            ? { momentGraphNamespace: effectiveNamespace ?? "default" }
-            : undefined,
-      });
-
-      const matchIds = (results?.matches ?? [])
-        .map((m: any) => (typeof m?.id === "string" ? m.id : null))
-        .filter(Boolean);
-
-      const uniqueIds = Array.from(new Set(matchIds)).slice(0, vectorTopK);
-      const rows = uniqueIds.length
-        ? await momentDb
-            .selectFrom("moments")
-            .select([
-              "id",
-              "document_id",
-              "created_at",
-              "source_metadata",
-              "title",
-              "summary",
-            ])
-            .where("id", "in", uniqueIds as any)
-            .execute()
-        : [];
-      const byId = new Map((rows as any[]).map((r) => [r.id, r]));
-
-      const childStartMs =
-        computeMomentStartMs({
-          createdAt: childRow.created_at,
-          sourceMetadata: childRow.source_metadata ?? undefined,
-        }) ?? null;
-
-      const built = buildCandidateSet({
+      const built = await computePhaseFCandidateSet({
+        ports: {
+          getEmbedding: async (text) => await getEmbedding(text),
+          vectorQuery: async (embedding, query) => {
+            const results = await (context.env as any).MOMENT_INDEX.query(
+              embedding,
+              {
+                topK: query.topK,
+                returnMetadata: true,
+                filter:
+                  (effectiveNamespace ?? "default") !== "default"
+                    ? { momentGraphNamespace: effectiveNamespace ?? "default" }
+                    : undefined,
+              }
+            );
+            return {
+              matches: (results?.matches ?? []).map((m: any) => ({
+                id: typeof m?.id === "string" ? m.id : "",
+                score: typeof m?.score === "number" ? m.score : null,
+              })),
+            };
+          },
+          loadCandidateRowsById: async (ids) => {
+            const rows =
+              ids.length > 0
+                ? await momentDb
+                    .selectFrom("moments")
+                    .select([
+                      "id",
+                      "document_id",
+                      "created_at",
+                      "source_metadata",
+                      "title",
+                      "summary",
+                    ])
+                    .where("id", "in", ids as any)
+                    .execute()
+                : [];
+            return new Map((rows as any[]).map((r) => [r.id, r]));
+          },
+        },
         childMomentId,
         childDocumentId: childRow.document_id,
-        childStartMs,
-        matches: (results?.matches ?? []).map((m: any) => ({
-          id: typeof m?.id === "string" ? m.id : "",
-          score: typeof m?.score === "number" ? m.score : null,
-        })),
-        candidateRowsById: byId as any,
+        childCreatedAt: childRow.created_at,
+        childSourceMetadata: childRow.source_metadata ?? undefined,
+        childText: queryText,
         maxCandidates,
+        vectorTopK,
       });
       const candidates = built.candidates;
 
@@ -244,10 +245,7 @@ export async function runPhaseCandidateSets(
           stream_id: root.stream_id,
           macro_index: root.macro_index as any,
           candidates_json: JSON.stringify(candidates),
-          stats_json: JSON.stringify({
-            ...built.stats,
-            vectorTopK,
-          }),
+          stats_json: JSON.stringify(built.stats),
           created_at: now,
           updated_at: now,
         } as any)
@@ -257,10 +255,7 @@ export async function runPhaseCandidateSets(
             stream_id: root.stream_id,
             macro_index: root.macro_index as any,
             candidates_json: JSON.stringify(candidates),
-            stats_json: JSON.stringify({
-              ...built.stats,
-              vectorTopK,
-            }),
+            stats_json: JSON.stringify(built.stats),
             updated_at: now,
           } as any)
         )

@@ -32,8 +32,7 @@ import { planIndexDocumentMicroBatches } from "./liveAdapters/indexDocument_micr
 import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./phaseCores/materialize_moments_core";
 import { computeIndexDocumentMacroSynthesisIdentity } from "./liveAdapters/indexDocument_macro_synthesis";
 import { computeDeterministicLinkingProposal } from "./phaseCores/deterministic_linking_core";
-import { resolveThreadHeadForDocumentAsOf } from "./linking/explicitRefThreadHead";
-import { extractAnchorTokens } from "./utils/anchorTokens";
+import { computeIndexDocumentParentForRootMacroMoment } from "./liveAdapters/indexDocument_linking";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,
@@ -1177,148 +1176,24 @@ export async function indexDocument(
                   }
                 );
               } else {
-                const issueTokens = extractAnchorTokens(
-                  `${description.title ?? ""}\n${description.summary ?? ""}`,
-                  24
+                const computed = await computeIndexDocumentParentForRootMacroMoment(
+                  {
+                    env: context.env,
+                    r2Key,
+                    documentId: document.id,
+                    momentGraphNamespace: effectiveNamespace,
+                    momentGraphContext,
+                    streamId: stream.streamId,
+                    macroIndex: i,
+                    childMomentId: momentId,
+                    createdAt: description.createdAt,
+                    sourceMetadata: description.sourceMetadata as any,
+                    title: description.title ?? null,
+                    summary: description.summary ?? null,
+                  }
                 );
-                const issueRefToken =
-                  issueTokens.find((t) => /^#\d{1,10}$/.test(t)) ?? null;
-                const issueNumber =
-                  issueRefToken ? issueRefToken.slice(1) : null;
-                const repoMatch = document.id.match(/^github\/([^/]+)\/([^/]+)\//);
-                if (issueNumber && repoMatch) {
-                  const owner = repoMatch[1] ?? "";
-                  const repo = repoMatch[2] ?? "";
-                  const childStartMs =
-                    (description.sourceMetadata as any)?.timeRange?.start &&
-                    Number.isFinite(Date.parse((description.sourceMetadata as any).timeRange.start))
-                      ? Date.parse((description.sourceMetadata as any).timeRange.start)
-                      : Number.isFinite(Date.parse(description.createdAt))
-                      ? Date.parse(description.createdAt)
-                      : null;
-                  const candidates = [
-                    `github/${owner}/${repo}/issues/${issueNumber}/latest.json`,
-                    `github/${owner}/${repo}/pull-requests/${issueNumber}/latest.json`,
-                  ];
-                  for (const docId of candidates) {
-                    const resolved = await resolveThreadHeadForDocumentAsOf({
-                      documentId: docId,
-                      asOfMs: childStartMs,
-                      context: momentGraphContext,
-                    });
-                    if (resolved.headMomentId) {
-                      resolvedParentIdForFirst = resolved.headMomentId;
-                      linkAuditLogForFirst = {
-                        kind: "live.deterministic_linking",
-                        ruleId: "explicit_issue_ref_thread_head",
-                        evidence: {
-                          phase: "deterministic_linking",
-                          r2Key,
-                          streamId: stream.streamId,
-                          macroIndex: i,
-                          proposedParent: resolved.headMomentId,
-                          issueRef: issueRefToken,
-                          matchedParentDocumentId: docId,
-                          matchedAnchorMomentId: resolved.anchorMomentId,
-                        },
-                      };
-                      break;
-                    }
-                  }
-                }
-
-                if (resolvedParentIdForFirst) {
-                  console.log("[moment-linker] deterministic issue ref attach", {
-                    documentId: document.id,
-                    macroMomentIndex: i,
-                    parentId: resolvedParentIdForFirst,
-                    streamId: stream.streamId,
-                  });
-                }
-
-                const anchorMacroMoment =
-                  anchorMacroMomentForLinking ??
-                  macroMomentDescriptions[anchorMacroMomentIndex] ??
-                  macroMomentDescriptions[0];
-                let parentProposal: {
-                  parentMomentId: string | null;
-                  matchedSubjectId: string | null;
-                  score: number | null;
-                  auditLog?: Record<string, any>;
-                } | null = null;
-                let parentAuditLog: Record<string, any> | null = null;
-
-                for (const plugin of context.plugins) {
-                  const propose = plugin.subjects?.proposeMacroMomentParent;
-                  if (!propose) {
-                    continue;
-                  }
-                  const attempt = await propose(
-                    document,
-                    anchorMacroMoment,
-                    anchorMacroMomentIndex,
-                    indexingContext
-                  );
-                  if (attempt?.auditLog && !parentAuditLog) {
-                    parentAuditLog = attempt.auditLog;
-                  }
-                  if (
-                    typeof attempt?.parentMomentId === "string" &&
-                    attempt.parentMomentId.length > 0
-                  ) {
-                    parentProposal = attempt;
-                    if (attempt.auditLog) {
-                      parentAuditLog = attempt.auditLog;
-                    }
-                    break;
-                  }
-                }
-
-                if (!resolvedParentIdForFirst) {
-                  resolvedParentIdForFirst =
-                    typeof parentProposal?.parentMomentId === "string" &&
-                    parentProposal.parentMomentId.length > 0
-                      ? parentProposal.parentMomentId
-                      : undefined;
-                }
-
-                linkAuditLogForFirst = parentAuditLog
-                  ? {
-                      ...parentAuditLog,
-                      proposalMacroMomentIndex: anchorMacroMomentIndex,
-                      proposalMacroMomentImportance:
-                        anchorMacroMomentImportance ?? null,
-                      proposalMacroMomentTitle: anchorMacroMoment.title ?? null,
-                    }
-                  : {
-                      kind: "no-plugin-attempts",
-                      proposalMacroMomentIndex: anchorMacroMomentIndex,
-                      proposalMacroMomentImportance:
-                        anchorMacroMomentImportance ?? null,
-                      proposalMacroMomentTitle: anchorMacroMoment.title ?? null,
-                    };
-
-                if (resolvedParentIdForFirst) {
-                  console.log("[moment-linker] attachment proposal", {
-                    documentId: document.id,
-                    macroMomentIndex: i,
-                    proposalMacroMomentIndex: anchorMacroMomentIndex,
-                    proposalMacroMomentImportance: anchorMacroMomentImportance,
-                    parentMomentId: resolvedParentIdForFirst,
-                    matchedSubjectId: parentProposal?.matchedSubjectId ?? null,
-                    score: parentProposal?.score ?? null,
-                    streamId: stream.streamId,
-                  });
-                } else {
-                  console.log("[moment-linker] no attachment proposal", {
-                    documentId: document.id,
-                    macroMomentIndex: i,
-                    proposalMacroMomentIndex: anchorMacroMomentIndex,
-                    proposalMacroMomentImportance: anchorMacroMomentImportance,
-                    streamId: stream.streamId,
-                    hasAuditLog: Boolean(linkAuditLogForFirst),
-                  });
-                }
+                resolvedParentIdForFirst = computed.parentId ?? undefined;
+                linkAuditLogForFirst = computed.auditLog;
               }
             }
             console.log("[moment-linker] macro correlation", {

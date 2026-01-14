@@ -6,9 +6,8 @@ import { createSimulationRunLogger } from "../logger";
 import { simulationPhases } from "../types";
 import { getMomentGraphDb } from "../db";
 import { addMoment, getMoments } from "../../momentDb";
-import { computeTimelineFitProposalDeep } from "../../phaseCores/timeline_fit_deep_core";
-import { extractAnchorTokens } from "../../utils/anchorTokens";
 import { callLLM } from "../../utils/llm";
+import { computePhaseGTimelineFitDecision } from "../../linking/phaseG_timeline_fit_orchestrator";
 
 export async function runPhaseTimelineFit(
   context: SimulationDbContext,
@@ -162,39 +161,46 @@ export async function runPhaseTimelineFit(
       summary: string | null;
     }>;
 
-    const useLlmVeto = String((context.env as any).SIMULATION_TIMELINE_FIT_USE_LLM ?? "") === "1";
-    const proposal = await computeTimelineFitProposalDeep({
+    const useLlmVeto =
+      String((context.env as any).SIMULATION_TIMELINE_FIT_USE_LLM ?? "") === "1";
+    const childText = `${child.title ?? ""}\n${child.summary ?? ""}`.trim();
+    const proposal = await computePhaseGTimelineFitDecision({
+      ports: {
+        llmVeto: async (llmInput) => {
+          const prompt =
+            `Given a child moment and candidate parent moments, return a JSON object:\n` +
+            `{"vetoedIds":["..."],"note":"..."}\n\n` +
+            `Child:\n${llmInput.childText}\n\n` +
+            `Candidates:\n` +
+            llmInput.candidates
+              .map(
+                (c) =>
+                  `- id=${c.id}\n  title=${c.title ?? ""}\n  summary=${c.summary ?? ""}`
+              )
+              .join("\n\n");
+          try {
+            const out = await callLLM(prompt, "slow-reasoning", { temperature: 0 });
+            const raw =
+              typeof (out as any)?.content === "string"
+                ? (out as any).content
+                : String(out);
+            const parsed = JSON.parse(raw);
+            const vetoedIds = Array.isArray(parsed?.vetoedIds)
+              ? parsed.vetoedIds.filter((x: any) => typeof x === "string")
+              : [];
+            const note = typeof parsed?.note === "string" ? parsed.note : null;
+            return { vetoedIds, note };
+          } catch {
+            return { vetoedIds: [], note: null };
+          }
+        },
+      },
       childMomentId,
-      childText: `${child.title ?? ""}\n${child.summary ?? ""}`.trim(),
+      childText,
       candidates: deepCandidates,
-      extractAnchorTokens,
+      useLlmVeto,
       maxAnchorTokens: 24,
       maxSharedAnchorTokens: 12,
-      useLlmVeto,
-      llmVeto: useLlmVeto
-        ? async (llmInput) => {
-            const prompt =
-              `Given a child moment and candidate parent moments, return a JSON object:\n` +
-              `{"vetoedIds":["..."],"note":"..."}\n\n` +
-              `Child:\n${llmInput.childText}\n\n` +
-              `Candidates:\n` +
-              llmInput.candidates
-                .map((c) => `- id=${c.id}\n  title=${c.title ?? ""}\n  summary=${c.summary ?? ""}`)
-                .join("\n\n");
-            try {
-              const out = await callLLM(prompt, { temperature: 0 });
-              const raw = typeof (out as any)?.content === "string" ? (out as any).content : String(out);
-              const parsed = JSON.parse(raw);
-              const vetoedIds = Array.isArray(parsed?.vetoedIds)
-                ? parsed.vetoedIds.filter((x: any) => typeof x === "string")
-                : [];
-              const note = typeof parsed?.note === "string" ? parsed.note : null;
-              return { vetoedIds, note };
-            } catch {
-              return { vetoedIds: [], note: null };
-            }
-          }
-        : undefined,
     });
 
     if (!proposal.chosenParentId) {
@@ -210,7 +216,7 @@ export async function runPhaseTimelineFit(
           outcome: "no_candidates",
           chosen_parent_moment_id: null,
           decisions_json: JSON.stringify([]),
-          stats_json: JSON.stringify({ candidateCount: proposal.candidateCount }),
+          stats_json: JSON.stringify(proposal.stats),
           created_at: now,
           updated_at: now,
         } as any)
@@ -222,7 +228,7 @@ export async function runPhaseTimelineFit(
             outcome: "no_candidates",
             chosen_parent_moment_id: null,
             decisions_json: JSON.stringify([]),
-            stats_json: JSON.stringify({ candidateCount: proposal.candidateCount }),
+            stats_json: JSON.stringify(proposal.stats),
             updated_at: now,
           } as any)
         )
@@ -277,7 +283,7 @@ export async function runPhaseTimelineFit(
           outcome: ok ? "attached" : "rejected",
           chosen_parent_moment_id: ok ? parentId : null,
           decisions_json: JSON.stringify(decisions),
-          stats_json: JSON.stringify({ candidateCount: proposal.candidateCount }),
+          stats_json: JSON.stringify(proposal.stats),
           created_at: now,
           updated_at: now,
         } as any)
@@ -289,7 +295,7 @@ export async function runPhaseTimelineFit(
             outcome: ok ? "attached" : "rejected",
             chosen_parent_moment_id: ok ? parentId : null,
             decisions_json: JSON.stringify(decisions),
-            stats_json: JSON.stringify({ candidateCount: proposal.candidateCount }),
+            stats_json: JSON.stringify(proposal.stats),
             updated_at: now,
           } as any)
         )

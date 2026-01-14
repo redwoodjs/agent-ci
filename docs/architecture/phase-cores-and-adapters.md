@@ -16,7 +16,7 @@ That drift makes it harder to use simulation runs as a proxy for live behavior.
 
 - Keep the split-module approach (no single monolithic pipeline module).
 - Preserve simulation restart semantics and artifact inspection in the audit UI.
-- Preserve live indexing behavior where possible, but accept some recomputation during convergence.
+- During convergence, treat phase cores as authoritative for behavior. Live indexing should call the same phase cores via adapters rather than maintaining a parallel implementation.
 - Maintain provenance consistency between simulation and live (moment source metadata, document identifiers, time range metadata, link audit log payloads).
 - Keep tests green throughout the refactor.
 
@@ -26,6 +26,16 @@ Split each phase into two layers:
 
 - Phase core: computes phase outputs from in-memory inputs and returns outputs plus structured events.
 - Storage adapter: provides inputs to the core and applies outputs (simulation persists artifacts; live uses minimal persistence).
+
+### Decision: core-authoritative behavior
+
+During convergence, the phase core should be treated as the source of truth for how the phase behaves.
+
+Live indexing should not preserve or evolve separate behavior in a plugin or another pipeline. Instead, live should be implemented as a minimal adapter that:
+
+- loads the same inputs as simulation would load at that point in the pipeline
+- calls the same phase core
+- applies the outputs (writes moment rows and audit payloads)
 
 ### Decision: core-authoritative identities
 

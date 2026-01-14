@@ -9,8 +9,8 @@ import {
 import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
 import { chunkChunksForMicroComputation } from "../../../utils/chunkBatching";
 import { sha256Hex } from "../../../utils/crypto";
-import { computeMicroItemsWithoutLlm } from "../../../utils/microItems";
 import { computeMicroMomentsForChunkBatch } from "../../../subjects/computeMicroMomentsForChunkBatch";
+import { computeMicroBatchesForDocument } from "../../../core/indexing/micro_batches_orchestrator";
 import { planMicroBatches } from "../../../lib/phaseCores/micro_batches_core";
 
 export async function runMicroBatchesAdapter(
@@ -117,99 +117,108 @@ export async function runMicroBatchesAdapter(
         getMicroPromptContext,
       });
 
-      for (const p of planned) {
-        const batchIndex = p.batchIndex;
-        const batchHash = p.batchHash;
-        const promptContext = p.promptContext;
-        const promptContextHash = p.promptContextHash;
-        const batchChunks = p.chunks;
+      const computed = await computeMicroBatchesForDocument({
+        ports: {
+          planMicroBatches,
+          sha256Hex,
+          getMicroPromptContext,
+          loadMicroBatchCache: async ({ batchHash, promptContextHash }) => {
+            const cached = (await db
+              .selectFrom("simulation_micro_batch_cache")
+              .select(["micro_items_json"])
+              .where("batch_hash", "=", batchHash)
+              .where("prompt_context_hash", "=", promptContextHash)
+              .executeTakeFirst()) as unknown as
+              | SimulationMicroBatchCacheRow
+              | undefined;
 
-        const cached = (await db
-          .selectFrom("simulation_micro_batch_cache")
-          .select(["micro_items_json"])
-          .where("batch_hash", "=", batchHash)
-          .where("prompt_context_hash", "=", promptContextHash)
-          .executeTakeFirst()) as unknown as
-          | SimulationMicroBatchCacheRow
-          | undefined;
+            const items =
+              (cached as any)?.micro_items_json &&
+              Array.isArray((cached as any).micro_items_json)
+                ? ((cached as any).micro_items_json as any[])
+                : [];
+            const asStrings = items
+              .filter((x) => typeof x === "string")
+              .map((x) => (x as string).trim())
+              .filter(Boolean);
 
-        if (cached) {
-          batchesCached++;
-          await db
-            .insertInto("simulation_run_micro_batches")
-            .values({
-              run_id: input.runId,
-              r2_key: r2Key,
-              batch_index: batchIndex as any,
-              batch_hash: batchHash,
-              prompt_context_hash: promptContextHash,
-              status: "cached",
-              error_json: null,
-              created_at: input.now,
-              updated_at: input.now,
-            } as any)
-            .onConflict((oc) =>
-              oc.columns(["run_id", "r2_key", "batch_index"]).doUpdateSet({
+            if (asStrings.length === 0) {
+              return null;
+            }
+            return { microItems: asStrings };
+          },
+          storeMicroBatchCache: async ({
+            batchHash,
+            promptContextHash,
+            microItems,
+          }) => {
+            await db
+              .insertInto("simulation_micro_batch_cache")
+              .values({
                 batch_hash: batchHash,
                 prompt_context_hash: promptContextHash,
-                status: "cached",
-                error_json: null,
+                micro_items_json: JSON.stringify(microItems),
+                created_at: input.now,
                 updated_at: input.now,
               } as any)
-            )
-            .execute();
-          continue;
+              .onConflict((oc) =>
+                oc.columns(["batch_hash", "prompt_context_hash"]).doUpdateSet({
+                  micro_items_json: JSON.stringify(microItems),
+                  updated_at: input.now,
+                } as any)
+              )
+              .execute();
+          },
+          computeMicroItemsForChunkBatch: async ({ chunks, promptContext }) => {
+            if (!input.useLlm) {
+              return [];
+            }
+            return (
+              (await computeMicroMomentsForChunkBatch(chunks, {
+                promptContext,
+              })) ?? []
+            );
+          },
+        },
+        document,
+        indexingContext,
+        plugins,
+        chunkBatches,
+      });
+
+      for (const b of computed) {
+        if (b.cached) {
+          batchesCached++;
+        } else {
+          batchesComputed++;
         }
-
-        let microItems: string[] = [];
-        if (input.useLlm) {
-          microItems =
-            (await computeMicroMomentsForChunkBatch(batchChunks, {
-              promptContext,
-            })) ?? [];
-        }
-
-        if (microItems.length === 0) {
-          microItems = computeMicroItemsWithoutLlm(batchChunks);
-        }
-
-        await db
-          .insertInto("simulation_micro_batch_cache")
-          .values({
-            batch_hash: batchHash,
-            prompt_context_hash: promptContextHash,
-            micro_items_json: JSON.stringify(microItems),
-            created_at: input.now,
-            updated_at: input.now,
-          } as any)
-          .onConflict((oc) =>
-            oc.columns(["batch_hash", "prompt_context_hash"]).doUpdateSet({
-              micro_items_json: JSON.stringify(microItems),
-              updated_at: input.now,
-            } as any)
-          )
-          .execute();
-
-        batchesComputed++;
 
         await db
           .insertInto("simulation_run_micro_batches")
           .values({
             run_id: input.runId,
             r2_key: r2Key,
-            batch_index: batchIndex as any,
-            batch_hash: batchHash,
-            prompt_context_hash: promptContextHash,
-            status: input.useLlm ? "computed_llm" : "computed_fallback",
+            batch_index: b.batchIndex as any,
+            batch_hash: b.batchHash,
+            prompt_context_hash: b.promptContextHash,
+            status: b.cached
+              ? "cached"
+              : input.useLlm
+              ? "computed_llm"
+              : "computed_fallback",
             error_json: null,
             created_at: input.now,
             updated_at: input.now,
           } as any)
           .onConflict((oc) =>
             oc.columns(["run_id", "r2_key", "batch_index"]).doUpdateSet({
-              batch_hash: batchHash,
-              prompt_context_hash: promptContextHash,
-              status: input.useLlm ? "computed_llm" : "computed_fallback",
+              batch_hash: b.batchHash,
+              prompt_context_hash: b.promptContextHash,
+              status: b.cached
+                ? "cached"
+                : input.useLlm
+                ? "computed_llm"
+                : "computed_fallback",
               error_json: null,
               updated_at: input.now,
             } as any)

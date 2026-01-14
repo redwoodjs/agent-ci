@@ -1116,3 +1116,17 @@ Checks
 
 - pnpm build passes
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
+
+Progress: start inversion rollout for micro_batches
+
+I started applying the same 'core orchestrator calls ports' pattern (used for linking) to the indexing phases.
+
+First slice: micro_batches
+
+- added a shared micro_batches orchestrator under core/indexing
+- refactored the simulation micro_batches adapter to call the orchestrator and supply ports for cache reads/writes and micro item computation
+- fixed a runtime import issue by supplying the batch planning function via ports
+
+Checks
+
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes after the change

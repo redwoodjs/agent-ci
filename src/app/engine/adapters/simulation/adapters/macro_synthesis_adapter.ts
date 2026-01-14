@@ -6,6 +6,7 @@ import { synthesizeMicroMomentsIntoStreams } from "../../../synthesis/synthesize
 import { computeMicroStreamHash, extractAnchorsFromStreams } from "../../../lib/phaseCores/macro_synthesis_core";
 import { sha256Hex } from "../../../utils/crypto";
 import { extractAnchorTokens } from "../../../utils/anchorTokens";
+import { computeMacroSynthesisForDocument } from "../../../core/indexing/macro_synthesis_orchestrator";
 
 export async function runMacroSynthesisAdapter(
   context: SimulationDbContext,
@@ -158,64 +159,37 @@ export async function runMacroSynthesisAdapter(
         }
       }
 
-      const auditEvents: any[] = [];
-
-      let streams: any[] = [];
-      if (input.useLlm) {
-        const llmStreams = await synthesizeMicroMomentsIntoStreams(
-          microItems.map((m) => ({ ...m } as any)),
-          {
-            macroSynthesisPromptContext: macroPromptContext ?? null,
-            auditSink: (event) => {
-              auditEvents.push(event);
-            },
-          }
-        );
-        streams = llmStreams;
-      } else {
-        const summaries = microItems
-          .map((m) => m.summary)
-          .filter(Boolean)
-          .slice(0, 24);
-        const groups: string[][] = [];
-        for (let i = 0; i < summaries.length; i += 8) {
-          groups.push(summaries.slice(i, i + 8));
-        }
-        const fallbackGroups = groups.length > 0 ? groups : [["(empty)"]];
-        while (fallbackGroups.length < 3) {
-          fallbackGroups.push(["(empty)"]);
-        }
-        const macroMoments = fallbackGroups.slice(0, 3).map((g, idx) => ({
-          title: `Synthesis for ${document.id} (${idx + 1})`,
-          summary: g.join(" ") || "(empty)",
-          microPaths: microItems
-            .slice(idx * 16, idx * 16 + 50)
-            .map((m) => m.path),
-          importance: 0.5,
-          createdAt: new Date(Date.parse(input.now) + idx * 60_000).toISOString(),
-        }));
-        streams = [
-          {
-            streamId: "stream-1",
-            macroMoments,
+      const synthesis = await computeMacroSynthesisForDocument({
+        ports: {
+          computeMicroStreamHash: async ({ batches }) => {
+            return await computeMicroStreamHash({
+              batches,
+              sha256Hex,
+            });
           },
-        ];
-      }
-
-      const anchors = extractAnchorsFromStreams({
-        streams,
-        extractAnchorTokens,
-        maxTokensPerMoment: 25,
-        maxAnchors: 200,
+          synthesizeMicroMomentsIntoStreams,
+          extractAnchorsFromStreams: ({ streams }) => {
+            return extractAnchorsFromStreams({
+              streams,
+              extractAnchorTokens,
+              maxTokensPerMoment: 25,
+              maxAnchors: 200,
+            });
+          },
+        },
+        plannedBatches: batches.map((b) => ({
+          batchHash: b.batch_hash,
+          promptContextHash: b.prompt_context_hash,
+        })),
+        microStreamHash,
+        microMoments: microItems,
+        macroSynthesisPromptContext: macroPromptContext ?? null,
+        useLlm: input.useLlm,
+        now: input.now,
+        documentId: document.id,
       });
-
-      const gating = {
-        keptStreams: streams.length,
-        droppedStreams: 0,
-      };
-
-      streamsProduced += streams.length;
-      for (const s of streams) {
+      streamsProduced += synthesis.streams.length;
+      for (const s of synthesis.streams) {
         const mm = Array.isArray((s as any).macroMoments)
           ? ((s as any).macroMoments as any[])
           : [];
@@ -227,24 +201,29 @@ export async function runMacroSynthesisAdapter(
         .values({
           run_id: input.runId,
           r2_key: r2Key,
-          micro_stream_hash: microStreamHash,
+          micro_stream_hash: synthesis.microStreamHash,
           use_llm: input.useLlm ? (1 as any) : (0 as any),
-          streams_json: JSON.stringify(streams),
-          audit_json: auditEvents.length > 0 ? JSON.stringify(auditEvents) : null,
-          gating_json: JSON.stringify(gating),
-          anchors_json: JSON.stringify(anchors),
+          streams_json: JSON.stringify(synthesis.streams),
+          audit_json:
+            synthesis.auditEvents.length > 0
+              ? JSON.stringify(synthesis.auditEvents)
+              : null,
+          gating_json: JSON.stringify(synthesis.gating),
+          anchors_json: JSON.stringify(synthesis.anchors),
           created_at: input.now,
           updated_at: input.now,
         } as any)
         .onConflict((oc) =>
           oc.columns(["run_id", "r2_key"]).doUpdateSet({
-            micro_stream_hash: microStreamHash,
+            micro_stream_hash: synthesis.microStreamHash,
             use_llm: input.useLlm ? (1 as any) : (0 as any),
-            streams_json: JSON.stringify(streams),
+            streams_json: JSON.stringify(synthesis.streams),
             audit_json:
-              auditEvents.length > 0 ? JSON.stringify(auditEvents) : null,
-            gating_json: JSON.stringify(gating),
-            anchors_json: JSON.stringify(anchors),
+              synthesis.auditEvents.length > 0
+                ? JSON.stringify(synthesis.auditEvents)
+                : null,
+            gating_json: JSON.stringify(synthesis.gating),
+            anchors_json: JSON.stringify(synthesis.anchors),
             updated_at: input.now,
           } as any)
         )

@@ -1202,6 +1202,40 @@ Checks:
 - pnpm build passes
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
 
+Provenance invariants + test coverage
+
+I want provenance to be treated as a system invariant, not best-effort logging.
+
+Proposed invariants for persisted moments:
+
+- moment.documentId is always the R2 key (the document id)
+- moment.sourceMetadata.document exists and includes:
+  - documentId (same value as moment.documentId)
+  - source
+  - type
+  - url (nullable)
+  - identity (plugin-provided parsed identity object; nullable for unknown sources)
+- moment.createdAt is a non-empty ISO timestamp string
+- moment.author is a non-empty string
+- moment.sourceMetadata.timeRange is optional, but when present it must include start/end ISO strings
+
+Test approach:
+
+- add a node:test that runs a simulation run through materialize_moments
+- sample at least one materialized moment id from the run
+- fetch the moment details via the admin debug endpoint
+- assert the invariants on the moment object
+
+Progress: provenance invariants test
+
+- exposed moment.sourceMetadata in /admin/moment-debug so tests can assert persisted provenance
+- added a simulation test that:
+  - runs through materialize_moments
+  - fetches a materialized moment id
+  - asserts document identity fields exist and createdAt/author are populated
+- pnpm build passes
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
+
 Provenance contract (moment -> originating document)
 
 I want to make provenance explicit as a small, stable payload on every stored moment.

@@ -1029,6 +1029,7 @@ async function momentDebugHandler({ request }: RequestInfo) {
       createdAt: moment.createdAt,
       author: moment.author,
       importance: moment.importance ?? null,
+      sourceMetadata: moment.sourceMetadata ?? null,
     },
     documentAudit,
     root: root

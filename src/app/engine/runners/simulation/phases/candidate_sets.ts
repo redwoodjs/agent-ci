@@ -4,8 +4,8 @@ import { getSimulationDb, getMomentGraphDb } from "../../../adapters/simulation/
 import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
-import { getEmbedding } from "../../utils/vector";
-import { computeCandidateSet } from "../../core/linking/candidate_sets_orchestrator";
+import { getEmbedding } from "../../../utils/vector";
+import { computeCandidateSet } from "../../../core/linking/candidate_sets_orchestrator";
 
 function parseTimeMs(value: unknown): number | null {
   if (typeof value !== "string") {

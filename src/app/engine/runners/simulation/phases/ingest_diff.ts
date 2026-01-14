@@ -3,7 +3,7 @@ import { getSimulationDb } from "../../../adapters/simulation/db";
 import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
-import { isDocumentChangedByEtag } from "../../indexing/documentChangeIdentity";
+import { isDocumentChangedByEtag } from "../../../indexing/documentChangeIdentity";
 
 export async function runPhaseIngestDiff(
   context: SimulationDbContext,

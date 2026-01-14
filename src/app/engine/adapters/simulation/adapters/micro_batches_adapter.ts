@@ -5,13 +5,13 @@ import {
   getMicroPromptContext,
   prepareDocumentForR2Key,
   splitDocumentIntoChunks,
-} from "../../indexing/pluginPipeline";
-import { getIndexingPlugins } from "../../indexing/indexingPlugins";
-import { chunkChunksForMicroComputation } from "../../utils/chunkBatching";
-import { sha256Hex } from "../../utils/crypto";
-import { computeMicroItemsWithoutLlm } from "../../utils/microItems";
-import { computeMicroMomentsForChunkBatch } from "../../subjects/computeMicroMomentsForChunkBatch";
-import { planMicroBatches } from "../../lib/phaseCores/micro_batches_core";
+} from "../../../indexing/pluginPipeline";
+import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
+import { chunkChunksForMicroComputation } from "../../../utils/chunkBatching";
+import { sha256Hex } from "../../../utils/crypto";
+import { computeMicroItemsWithoutLlm } from "../../../utils/microItems";
+import { computeMicroMomentsForChunkBatch } from "../../../subjects/computeMicroMomentsForChunkBatch";
+import { planMicroBatches } from "../../../lib/phaseCores/micro_batches_core";
 
 export async function runMicroBatchesAdapter(
   context: SimulationDbContext,

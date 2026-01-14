@@ -71,8 +71,8 @@ export async function getSimulationRunEvents(
   const limitRaw = input.limit;
   const limit =
     typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
-      ? Math.min(500, Math.floor(limitRaw))
-      : 200;
+      ? Math.min(5000, Math.floor(limitRaw))
+      : 2000;
 
   const rows = (await db
     .selectFrom("simulation_run_events")
@@ -90,4 +90,3 @@ export async function getSimulationRunEvents(
     payload: (r as any).payload_json ?? {},
   }));
 }
-

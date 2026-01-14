@@ -43,6 +43,16 @@ export async function runPhaseCandidateSets(
   const db = getSimulationDb(context);
   const now = new Date().toISOString();
   const log = createSimulationRunLogger(context, { runId: input.runId });
+  const verbosityRaw = String(
+    (context.env as any).MACHINEN_SIMULATION_EVENT_VERBOSITY ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  const verbose =
+    verbosityRaw === "1" ||
+    verbosityRaw === "true" ||
+    verbosityRaw === "verbose" ||
+    verbosityRaw === "item";
 
   const runRow = (await db
     .selectFrom("simulation_runs")
@@ -186,6 +196,22 @@ export async function runPhaseCandidateSets(
         )
         .execute();
       setsWritten++;
+      if (verbose) {
+        await addSimulationRunEvent(context, {
+          runId: input.runId,
+          level: "debug",
+          kind: "item.candidate_set",
+          payload: {
+            phase: "candidate_sets",
+            childMomentId,
+            childTitle: typeof childRow?.title === "string" ? childRow.title : null,
+            childSummary:
+              typeof childRow?.summary === "string" ? childRow.summary : null,
+            outcome: "no_candidates",
+            reason: "empty-query",
+          },
+        });
+      }
       continue;
     }
 
@@ -266,6 +292,52 @@ export async function runPhaseCandidateSets(
         )
         .execute();
       setsWritten++;
+
+      if (verbose) {
+        const candPreview = Array.isArray((built as any)?.candidates)
+          ? ((built as any).candidates as any[]).slice(0, 5)
+          : [];
+        const candIds = candPreview
+          .map((c: any) => (typeof c?.id === "string" ? c.id : null))
+          .filter((id: any): id is string => typeof id === "string" && id.length > 0);
+        const candRows =
+          candIds.length > 0
+            ? await momentDb
+                .selectFrom("moments")
+                .select(["id", "title", "summary"])
+                .where("id", "in", candIds as any)
+                .execute()
+            : [];
+        const titleById = new Map(
+          (candRows as any[]).map((r) => [r.id, { title: r.title, summary: r.summary }])
+        );
+        await addSimulationRunEvent(context, {
+          runId: input.runId,
+          level: "debug",
+          kind: "item.candidate_set",
+          payload: {
+            phase: "candidate_sets",
+            childMomentId,
+            childTitle: typeof childRow?.title === "string" ? childRow.title : null,
+            childSummary:
+              typeof childRow?.summary === "string" ? childRow.summary : null,
+            candidatesCount: Array.isArray((built as any)?.candidates)
+              ? (built as any).candidates.length
+              : 0,
+            preview: candPreview.map((c: any) => {
+              const id = typeof c?.id === "string" ? c.id : null;
+              const meta = id ? titleById.get(id) : null;
+              return {
+                id,
+                score: typeof c?.score === "number" ? c.score : null,
+                title: meta?.title ?? null,
+                summary: meta?.summary ?? null,
+              };
+            }),
+            stats: (built as any)?.stats ?? null,
+          },
+        });
+      }
     } catch (e) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);

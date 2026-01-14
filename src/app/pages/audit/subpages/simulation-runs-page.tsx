@@ -18,9 +18,11 @@ import {
   getSimulationRunLinkDecisions,
   getSimulationRunCandidateSets,
   getSimulationRunTimelineFitDecisions,
+  getSimulationRunMaterializedMoments,
   simulationPhases,
 } from "@/app/engine/databases/simulationState";
 import { getSimulationRunProgressSummary } from "@/app/engine/adapters/simulation/runProgress";
+import { getMoments } from "@/app/engine/databases/momentGraph";
 import { SimulationRunControls } from "./simulation-run-controls";
 import { CopyTextButton } from "./copy-text-button";
 
@@ -41,6 +43,50 @@ function normalizePayload(payload: unknown): unknown {
     }
   }
   return payload;
+}
+
+type MomentPreview = {
+  id: string;
+  title: string;
+  summary: string;
+  documentId: string;
+  isSubject?: boolean;
+  subjectKind?: string;
+  subjectReason?: string;
+};
+
+function momentPreviewFrom(m: any, id: string): MomentPreview {
+  return {
+    id,
+    title: typeof m?.title === "string" ? m.title : "",
+    summary: typeof m?.summary === "string" ? m.summary : "",
+    documentId: typeof m?.documentId === "string" ? m.documentId : "",
+    isSubject: Boolean(m?.isSubject),
+    subjectKind: typeof m?.subjectKind === "string" ? m.subjectKind : undefined,
+    subjectReason:
+      typeof m?.subjectReason === "string" ? m.subjectReason : undefined,
+  };
+}
+
+async function loadMomentPreviews(
+  ids: string[],
+  context: { env: Cloudflare.Env; momentGraphNamespace: string | null }
+): Promise<Map<string, MomentPreview>> {
+  const deduped = Array.from(
+    new Set(ids.filter((id) => typeof id === "string" && id.trim().length > 0))
+  );
+  const out = new Map<string, MomentPreview>();
+  if (deduped.length === 0) {
+    return out;
+  }
+  const moments = await getMoments(deduped, context as any);
+  for (const id of deduped) {
+    const m = moments.get(id);
+    if (m) {
+      out.set(id, momentPreviewFrom(m as any, id));
+    }
+  }
+  return out;
 }
 
 function formatEventsAsText(
@@ -262,6 +308,13 @@ async function SimulationRunsContent({
   const phaseEndPayload = findLatestPhaseEndPayload(
     eventsRes,
     String(run.currentPhase)
+  );
+
+  const baseNamespace = run.momentGraphNamespace ?? `sim-${runId}`;
+  const namespacePrefix = run.momentGraphNamespacePrefix ?? null;
+  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+    baseNamespace,
+    namespacePrefix
   );
 
   const totalDocs = Array.isArray((run as any)?.config?.r2Keys)
@@ -498,13 +551,25 @@ async function SimulationRunsContent({
       ) : view === "macro-outputs" ? (
         <MacroOutputsCard runId={runId} />
       ) : view === "materialized-moments" ? (
-        <MaterializedMomentsCard runId={runId} />
+        <MaterializedMomentsCard
+          runId={runId}
+          effectiveNamespace={effectiveNamespace}
+        />
       ) : view === "link-decisions" ? (
-        <LinkDecisionsCard runId={runId} />
+        <LinkDecisionsCard
+          runId={runId}
+          effectiveNamespace={effectiveNamespace}
+        />
       ) : view === "candidate-sets" ? (
-        <CandidateSetsCard runId={runId} />
+        <CandidateSetsCard
+          runId={runId}
+          effectiveNamespace={effectiveNamespace}
+        />
       ) : view === "timeline-fit-decisions" ? (
-        <TimelineFitDecisionsCard runId={runId} />
+        <TimelineFitDecisionsCard
+          runId={runId}
+          effectiveNamespace={effectiveNamespace}
+        />
       ) : null}
 
       <Card>
@@ -699,30 +764,25 @@ async function MacroOutputsCard({ runId }: { runId: string }) {
   );
 }
 
-async function MaterializedMomentsCard({ runId }: { runId: string }) {
+async function MaterializedMomentsCard({
+  runId,
+  effectiveNamespace,
+}: {
+  runId: string;
+  effectiveNamespace: string | null;
+}) {
   const envCloudflare = env as Cloudflare.Env;
-  const baseUrl = process.env.MACHINEN_BASE_URL ?? "http://localhost:5173";
-  const apiKey = process.env.MACHINEN_API_KEY ?? "";
-  const headers: Record<string, string> = {};
-  if (apiKey.trim().length > 0) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  }
+  const context = { env: envCloudflare, momentGraphNamespace: null as any };
+  const moments = await getSimulationRunMaterializedMoments(context, { runId });
 
-  const res = await fetch(
-    `${baseUrl}/admin/simulation/run/${encodeURIComponent(
-      runId
-    )}/materialized-moments`,
-    { headers }
-  );
-  const text = await res.text();
-  const parsed = (() => {
-    try {
-      return JSON.parse(text);
-    } catch {
-      return null;
-    }
-  })();
-  const moments = Array.isArray(parsed?.moments) ? parsed.moments : [];
+  const ids = moments.map((m) => m.momentId);
+  const parentIds = moments
+    .map((m) => m.parentId)
+    .filter((id): id is string => typeof id === "string" && id.length > 0);
+  const previews = await loadMomentPreviews([...ids, ...parentIds], {
+    env: envCloudflare,
+    momentGraphNamespace: effectiveNamespace ?? null,
+  });
 
   return (
     <Card>
@@ -739,12 +799,27 @@ async function MaterializedMomentsCard({ runId }: { runId: string }) {
           <div className="space-y-2">
             {moments.slice(0, 200).map((m: any) => (
               <div key={m.momentId} className="p-2 rounded border bg-white">
-                <div className="font-mono text-xs break-all">{m.momentId}</div>
+                <div className="text-sm font-medium text-gray-900">
+                  {previews.get(m.momentId)?.title ?? "(missing moment)"}
+                </div>
+                <div className="text-xs text-gray-600 mt-1 line-clamp-2">
+                  {previews.get(m.momentId)?.summary ?? ""}
+                </div>
+                <div className="text-xs text-gray-500 mt-1 font-mono break-all">
+                  id={m.momentId}
+                </div>
                 <div className="text-xs text-gray-600 mt-1">
                   r2Key={m.r2Key} stream={m.streamId} idx={String(m.macroIndex)}{" "}
-                  parent=
-                  {m.parentId ?? "null"}
+                  parent={m.parentId ?? "null"}
                 </div>
+                {m.parentId ? (
+                  <div className="text-xs text-gray-600 mt-1">
+                    parentTitle=
+                    <span className="ml-1">
+                      {previews.get(m.parentId)?.title ?? "(missing parent)"}
+                    </span>
+                  </div>
+                ) : null}
               </div>
             ))}
             {moments.length > 200 ? (
@@ -759,10 +834,23 @@ async function MaterializedMomentsCard({ runId }: { runId: string }) {
   );
 }
 
-async function LinkDecisionsCard({ runId }: { runId: string }) {
+async function LinkDecisionsCard({
+  runId,
+  effectiveNamespace,
+}: {
+  runId: string;
+  effectiveNamespace: string | null;
+}) {
   const envCloudflare = env as Cloudflare.Env;
   const context = { env: envCloudflare, momentGraphNamespace: null as any };
   const decisions = await getSimulationRunLinkDecisions(context, { runId });
+  const ids = decisions
+    .flatMap((d: any) => [d.childMomentId, d.parentMomentId].filter(Boolean))
+    .filter(Boolean) as string[];
+  const previews = await loadMomentPreviews(ids, {
+    env: envCloudflare,
+    momentGraphNamespace: effectiveNamespace ?? null,
+  });
 
   return (
     <Card>
@@ -782,8 +870,14 @@ async function LinkDecisionsCard({ runId }: { runId: string }) {
                 key={d.childMomentId}
                 className="p-2 rounded border bg-white"
               >
-                <div className="font-mono text-xs break-all">
-                  {d.childMomentId}
+                <div className="text-sm font-medium text-gray-900">
+                  {previews.get(d.childMomentId)?.title ?? "(missing moment)"}
+                </div>
+                <div className="text-xs text-gray-600 mt-1 line-clamp-2">
+                  {previews.get(d.childMomentId)?.summary ?? ""}
+                </div>
+                <div className="text-xs text-gray-500 mt-1 font-mono break-all">
+                  child={d.childMomentId}
                 </div>
                 <div className="text-xs text-gray-600 mt-1">
                   r2Key={d.r2Key} stream={d.streamId} idx={String(d.macroIndex)}{" "}
@@ -791,6 +885,15 @@ async function LinkDecisionsCard({ runId }: { runId: string }) {
                   {d.outcome} parent={d.parentMomentId ?? "null"} rule=
                   {d.ruleId ?? "null"}
                 </div>
+                {d.parentMomentId ? (
+                  <div className="text-xs text-gray-600 mt-1">
+                    parentTitle=
+                    <span className="ml-1">
+                      {previews.get(d.parentMomentId)?.title ??
+                        "(missing parent)"}
+                    </span>
+                  </div>
+                ) : null}
                 {d.evidence ? (
                   <pre className="text-xs bg-gray-50 border rounded p-2 mt-2 overflow-auto max-h-[30vh]">
                     {safeStringify(d.evidence)}
@@ -810,10 +913,31 @@ async function LinkDecisionsCard({ runId }: { runId: string }) {
   );
 }
 
-async function CandidateSetsCard({ runId }: { runId: string }) {
+async function CandidateSetsCard({
+  runId,
+  effectiveNamespace,
+}: {
+  runId: string;
+  effectiveNamespace: string | null;
+}) {
   const envCloudflare = env as Cloudflare.Env;
   const context = { env: envCloudflare, momentGraphNamespace: null as any };
   const sets = await getSimulationRunCandidateSets(context, { runId });
+  const ids = sets
+    .flatMap((s: any) => {
+      const candIds = Array.isArray(s.candidates)
+        ? s.candidates
+            .map((c: any) => (typeof c?.id === "string" ? c.id : null))
+            .filter(Boolean)
+            .slice(0, 20)
+        : [];
+      return [s.childMomentId, ...candIds].filter(Boolean);
+    })
+    .filter(Boolean) as string[];
+  const previews = await loadMomentPreviews(ids, {
+    env: envCloudflare,
+    momentGraphNamespace: effectiveNamespace ?? null,
+  });
 
   return (
     <Card>
@@ -829,8 +953,14 @@ async function CandidateSetsCard({ runId }: { runId: string }) {
             {sets.slice(0, 200).map((s: any) => (
               <div key={s.childMomentId} className="rounded border bg-white">
                 <div className="p-2">
-                  <div className="font-mono text-xs break-all">
-                    {s.childMomentId}
+                  <div className="text-sm font-medium text-gray-900">
+                    {previews.get(s.childMomentId)?.title ?? "(missing moment)"}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-1 line-clamp-2">
+                    {previews.get(s.childMomentId)?.summary ?? ""}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1 font-mono break-all">
+                    child={s.childMomentId}
                   </div>
                   <div className="text-xs text-gray-600 mt-1">
                     r2Key={s.r2Key} stream={s.streamId} idx=
@@ -839,6 +969,25 @@ async function CandidateSetsCard({ runId }: { runId: string }) {
                       ? String(s.candidates.length)
                       : "0"}
                   </div>
+                  {Array.isArray(s.candidates) && s.candidates.length > 0 ? (
+                    <div className="text-xs text-gray-600 mt-2">
+                      top candidates:
+                      <ul className="mt-1 space-y-1">
+                        {s.candidates.slice(0, 5).map((c: any, idx: number) => {
+                          const id = typeof c?.id === "string" ? c.id : "";
+                          const score =
+                            typeof c?.score === "number" ? c.score : null;
+                          const title = id ? previews.get(id)?.title : null;
+                          return (
+                            <li key={`${id}:${idx}`} className="font-mono">
+                              {score !== null ? score.toFixed(3) : "n/a"}{" "}
+                              {title ?? id}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ) : null}
                 </div>
                 <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[30vh]">
                   {safeStringify({ stats: s.stats, candidates: s.candidates })}
@@ -857,11 +1006,37 @@ async function CandidateSetsCard({ runId }: { runId: string }) {
   );
 }
 
-async function TimelineFitDecisionsCard({ runId }: { runId: string }) {
+async function TimelineFitDecisionsCard({
+  runId,
+  effectiveNamespace,
+}: {
+  runId: string;
+  effectiveNamespace: string | null;
+}) {
   const envCloudflare = env as Cloudflare.Env;
   const context = { env: envCloudflare, momentGraphNamespace: null as any };
   const decisions = await getSimulationRunTimelineFitDecisions(context, {
     runId,
+  });
+  const ids = decisions
+    .flatMap((d: any) => {
+      const extra =
+        Array.isArray(d.decisions) && d.decisions.length > 0
+          ? d.decisions
+              .map((x: any) =>
+                typeof x?.candidateId === "string" ? x.candidateId : null
+              )
+              .filter(Boolean)
+              .slice(0, 20)
+          : [];
+      return [d.childMomentId, d.chosenParentMomentId, ...extra].filter(
+        Boolean
+      );
+    })
+    .filter(Boolean) as string[];
+  const previews = await loadMomentPreviews(ids, {
+    env: envCloudflare,
+    momentGraphNamespace: effectiveNamespace ?? null,
   });
 
   return (
@@ -878,14 +1053,29 @@ async function TimelineFitDecisionsCard({ runId }: { runId: string }) {
             {decisions.slice(0, 200).map((d: any) => (
               <div key={d.childMomentId} className="rounded border bg-white">
                 <div className="p-2">
-                  <div className="font-mono text-xs break-all">
-                    {d.childMomentId}
+                  <div className="text-sm font-medium text-gray-900">
+                    {previews.get(d.childMomentId)?.title ?? "(missing moment)"}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-1 line-clamp-2">
+                    {previews.get(d.childMomentId)?.summary ?? ""}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1 font-mono break-all">
+                    child={d.childMomentId}
                   </div>
                   <div className="text-xs text-gray-600 mt-1">
                     r2Key={d.r2Key} stream={d.streamId} idx=
                     {String(d.macroIndex)} outcome=
                     {d.outcome} chosen={d.chosenParentMomentId ?? "null"}
                   </div>
+                  {d.chosenParentMomentId ? (
+                    <div className="text-xs text-gray-600 mt-1">
+                      chosenTitle=
+                      <span className="ml-1">
+                        {previews.get(d.chosenParentMomentId)?.title ??
+                          "(missing parent)"}
+                      </span>
+                    </div>
+                  ) : null}
                 </div>
                 <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[30vh]">
                   {safeStringify({ stats: d.stats, decisions: d.decisions })}

@@ -15,6 +15,16 @@ export async function runPhaseTimelineFit(
   const db = getSimulationDb(context);
   const now = new Date().toISOString();
   const log = createSimulationRunLogger(context, { runId: input.runId });
+  const verbosityRaw = String(
+    (context.env as any).MACHINEN_SIMULATION_EVENT_VERBOSITY ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  const verbose =
+    verbosityRaw === "1" ||
+    verbosityRaw === "true" ||
+    verbosityRaw === "verbose" ||
+    verbosityRaw === "item";
 
   const runRow = (await db
     .selectFrom("simulation_runs")
@@ -232,6 +242,23 @@ export async function runPhaseTimelineFit(
           } as any)
         )
         .execute();
+      if (verbose) {
+        await addSimulationRunEvent(context, {
+          runId: input.runId,
+          level: "debug",
+          kind: "item.timeline_fit",
+          payload: {
+            phase: "timeline_fit",
+            childMomentId,
+            childTitle: child?.title ?? null,
+            childSummary: child?.summary ?? null,
+            childIsSubject: child?.isSubject ?? null,
+            childSubjectKind: child?.subjectKind ?? null,
+            outcome: "no_candidates",
+            stats: proposal.stats ?? null,
+          },
+        });
+      }
       continue;
     }
 
@@ -299,6 +326,50 @@ export async function runPhaseTimelineFit(
           } as any)
         )
         .execute();
+
+      if (verbose) {
+        const titleById = new Map(
+          deepCandidates
+            .map((c) => [c.id, { title: c.title ?? null, summary: c.summary ?? null }] as const)
+        );
+        const decisionsPreview = Array.isArray(decisions)
+          ? decisions.slice(0, 10).map((x: any) => {
+              const id =
+                typeof x?.candidateId === "string" ? x.candidateId : null;
+              const meta = id ? titleById.get(id) : null;
+              return {
+                candidateId: id,
+                title: meta?.title ?? null,
+                score: typeof x?.score === "number" ? x.score : null,
+                selected: Boolean(x?.selected),
+                vetoed: Boolean(x?.vetoed),
+                rejected: Boolean(x?.rejected),
+                rejectReason:
+                  typeof x?.rejectReason === "string" ? x.rejectReason : null,
+              };
+            })
+          : [];
+        const parentMeta = parentId ? titleById.get(parentId) : null;
+        await addSimulationRunEvent(context, {
+          runId: input.runId,
+          level: "debug",
+          kind: "item.timeline_fit",
+          payload: {
+            phase: "timeline_fit",
+            childMomentId,
+            childTitle: child?.title ?? null,
+            childSummary: child?.summary ?? null,
+            childIsSubject: child?.isSubject ?? null,
+            childSubjectKind: child?.subjectKind ?? null,
+            outcome: ok ? "attached" : "rejected",
+            chosenParentId: ok ? parentId : null,
+            chosenParentTitle: parentMeta?.title ?? null,
+            chosenParentSummary: parentMeta?.summary ?? null,
+            decisionsPreview,
+            stats: proposal.stats ?? null,
+          },
+        });
+      }
     } catch (e) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);

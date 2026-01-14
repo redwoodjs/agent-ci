@@ -1283,6 +1283,12 @@ Proposed changes:
   - keep phase.start/phase.end, and keep item.error
   - consider increasing getSimulationRunEvents limit (currently capped) to support higher verbosity
 
+Readable previews + verbose events implemented (first pass)
+
+- UI: materialized moments, link decisions, candidate sets, and timeline fit views now batch load moment titles/summaries from the run's effective namespace and show them instead of only ids.
+- Events: added per-item decision events in deterministic_linking, candidate_sets, and timeline_fit behind MACHINEN_SIMULATION_EVENT_VERBOSITY (set to 1/true/verbose/item).
+- Increased the simulation run events fetch cap so the UI can load more events when verbosity is enabled.
+
 Progress: run all + auto-advance + default prefix
 
 - default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)

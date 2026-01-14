@@ -81,6 +81,16 @@ export async function runPhaseDeterministicLinking(
   const db = getSimulationDb(context);
   const now = new Date().toISOString();
   const log = createSimulationRunLogger(context, { runId: input.runId });
+  const verbosityRaw = String(
+    (context.env as any).MACHINEN_SIMULATION_EVENT_VERBOSITY ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  const verbose =
+    verbosityRaw === "1" ||
+    verbosityRaw === "true" ||
+    verbosityRaw === "verbose" ||
+    verbosityRaw === "item";
 
   const runRow = (await db
     .selectFrom("simulation_runs")
@@ -269,6 +279,27 @@ export async function runPhaseDeterministicLinking(
               } as any)
             )
             .execute();
+          if (verbose) {
+            await addSimulationRunEvent(context, {
+              runId: input.runId,
+              level: "debug",
+              kind: "item.decision",
+              payload: {
+                phase: "deterministic_linking",
+                r2Key,
+                streamId,
+                macroIndex,
+                childMomentId,
+                childTitle: child?.title ?? null,
+                childSummary: child?.summary ?? null,
+                childIsSubject: child?.isSubject ?? null,
+                childSubjectKind: child?.subjectKind ?? null,
+                outcome: "unlinked",
+                proposedParentId: null,
+                ruleId: proposal.ruleId,
+              },
+            });
+          }
           continue;
         }
 
@@ -306,6 +337,28 @@ export async function runPhaseDeterministicLinking(
               } as any)
             )
             .execute();
+          if (verbose) {
+            await addSimulationRunEvent(context, {
+              runId: input.runId,
+              level: "debug",
+              kind: "item.decision",
+              payload: {
+                phase: "deterministic_linking",
+                r2Key,
+                streamId,
+                macroIndex,
+                childMomentId,
+                childTitle: null,
+                childSummary: null,
+                childIsSubject: null,
+                childSubjectKind: null,
+                outcome: "rejected",
+                proposedParentId: null,
+                ruleId: proposal.ruleId,
+                rejectReason: "missing-child-moment",
+              },
+            });
+          }
           continue;
         }
 
@@ -341,6 +394,34 @@ export async function runPhaseDeterministicLinking(
         } else {
           rejected++;
           proposal.evidence.rejectReason = "write_rejected_by_moment_db";
+        }
+
+        if (verbose) {
+          const parent = proposal.proposedParentId
+            ? (momentsMap.get(proposal.proposedParentId) ?? null)
+            : null;
+          await addSimulationRunEvent(context, {
+            runId: input.runId,
+            level: "debug",
+            kind: "item.decision",
+            payload: {
+              phase: "deterministic_linking",
+              r2Key,
+              streamId,
+              macroIndex,
+              childMomentId,
+              childTitle: child?.title ?? null,
+              childSummary: child?.summary ?? null,
+              childIsSubject: child?.isSubject ?? null,
+              childSubjectKind: child?.subjectKind ?? null,
+              outcome: ok ? "attached" : "rejected",
+              proposedParentId: ok ? proposal.proposedParentId : null,
+              parentTitle: parent?.title ?? null,
+              parentSummary: parent?.summary ?? null,
+              ruleId: proposal.ruleId,
+              rejectReason: ok ? null : "write_rejected_by_moment_db",
+            },
+          });
         }
 
         await db

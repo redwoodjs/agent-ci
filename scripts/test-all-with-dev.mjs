@@ -113,6 +113,37 @@ function run(cmd, args, opts) {
   });
 }
 
+function forwardAndParseDevUrl(proc) {
+  let buffered = "";
+  let detectedUrl = null;
+
+  function onChunk(chunk) {
+    const text = chunk.toString("utf8");
+    buffered += text;
+    const lines = buffered.split("\n");
+    buffered = lines.pop() ?? "";
+    for (const line of lines) {
+      const m = line.match(/Local:\s+(https?:\/\/localhost:\d+\/)/);
+      if (m && m[1]) {
+        detectedUrl = m[1].replace(/\/$/, "");
+      }
+    }
+  }
+
+  proc.stdout?.on("data", (chunk) => {
+    process.stdout.write(chunk);
+    onChunk(chunk);
+  });
+  proc.stderr?.on("data", (chunk) => {
+    process.stderr.write(chunk);
+    onChunk(chunk);
+  });
+
+  return {
+    getUrl: () => detectedUrl,
+  };
+}
+
 async function main() {
   if (!API_KEY) {
     throw new Error(
@@ -123,13 +154,13 @@ async function main() {
   const forceOwnDev = String(process.env.MACHINEN_TEST_FORCE_DEV ?? "") === "1";
   const alreadyUp = await waitForServer(BASE_URL, 250);
 
-  const effectiveBaseUrl =
-    forceOwnDev && alreadyUp
-      ? replacePort(BASE_URL, await getFreePort())
-      : BASE_URL;
+  const effectiveBaseUrl = forceOwnDev
+    ? replacePort(BASE_URL, await getFreePort())
+    : BASE_URL;
 
   let devProc = null;
   let startedDev = false;
+  let actualBaseUrl = effectiveBaseUrl;
 
   const shouldStartDev = forceOwnDev ? true : !alreadyUp;
 
@@ -137,29 +168,41 @@ async function main() {
     const port = parsePortFromUrl(effectiveBaseUrl);
     const devArgs =
       port && port !== 80 && port !== 443
-        ? ["-s", "dev", "--", "--port", String(port)]
-        : ["-s", "dev"];
+        ? ["-s", "dev", "--", "--port", String(port), "--strictPort"]
+        : ["-s", "dev", "--", "--strictPort"];
     devProc = spawn("pnpm", devArgs, {
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"],
       shell: false,
       env: {
         ...process.env,
+        ...(port && port !== 80 && port !== 443 ? { PORT: String(port) } : null),
       },
     });
     startedDev = true;
 
-    const ok = await waitForServer(effectiveBaseUrl, 60_000);
+    const parser = forwardAndParseDevUrl(devProc);
+    const start = Date.now();
+    while (Date.now() - start < 15_000) {
+      const u = parser.getUrl();
+      if (u) {
+        actualBaseUrl = u;
+        break;
+      }
+      await sleep(100);
+    }
+
+    const ok = await waitForServer(actualBaseUrl, 60_000);
     if (!ok) {
       if (devProc) {
         devProc.kill("SIGINT");
       }
-      throw new Error(`Dev server did not become ready at ${effectiveBaseUrl}`);
+      throw new Error(`Dev server did not become ready at ${actualBaseUrl}`);
     }
   }
 
   const env = {
     ...process.env,
-    MACHINEN_BASE_URL: effectiveBaseUrl,
+    MACHINEN_BASE_URL: actualBaseUrl,
     MACHINEN_API_KEY: API_KEY,
     ...(TEST_R2_KEY ? { MACHINEN_TEST_R2_KEY: TEST_R2_KEY } : null),
   };

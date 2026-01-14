@@ -1182,6 +1182,27 @@ Fixes:
 - Run all / Run sample now filter listed keys to supported prefixes (github/, discord/, cursor/conversations/) and record skippedCount in the run config
 - updated the UI smoke test to read the events textarea instead of a pre block
 
+Test coverage gap: one key per source
+
+The simulation tests mostly cover a single known-good GitHub key. To catch issues like cursor documents that prepare but do not produce chunks, add a test that:
+
+- lists keys from R2 for each supported source prefix (github/, discord/, cursor/conversations/)
+- picks one key per prefix deterministically (first page)
+- runs a simulation through micro_batches and asserts it does not pause_on_error
+
+Source coverage test results
+
+The first version of the test immediately hit failures that mirror what I saw in the UI:
+
+- GitHub history keys were present but the GitHub plugin only matched latest.json keys, so prepareSourceDocument returned null
+- Discord day files can contain only empty-content messages, which leads to zero chunks after filtering
+- Cursor conversations can lack the prompt/response event pair used by the current chunker, leading to zero chunks
+
+I adjusted two things so the test captures the boundary we care about (the run should not pause just because a document yields no chunks):
+
+- expand the GitHub plugin key matcher to include history keys under /history/*.json
+- treat 'no chunks' as a skip in simulation micro_batches (Phase A returns empty chunks and the document is skipped for micro batching)
+
 Progress: run all + auto-advance + default prefix
 
 - default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)

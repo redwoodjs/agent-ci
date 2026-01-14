@@ -118,8 +118,17 @@ export async function runMicroBatchesAdapter(
           computeMomentGraphNamespaceForIndexing: async () => null,
           getMomentGraphNamespacePrefixFromEnv,
           applyMomentGraphNamespacePrefixValue,
-          splitDocumentIntoChunks: async ({ document, indexingContext, plugins }) =>
-            await splitDocumentIntoChunks(document, indexingContext, plugins),
+          splitDocumentIntoChunks: async ({ document, indexingContext, plugins }) => {
+            try {
+              return await splitDocumentIntoChunks(document, indexingContext, plugins);
+            } catch (e) {
+              const msg = String((e as any)?.message ?? "");
+              if (msg === "No plugin could split document into chunks") {
+                return [];
+              }
+              throw e;
+            }
+          },
           loadProcessedChunkHashes: async () => [],
           chunkChunksForMicroComputation: ({ chunks, ...opts }) =>
             chunkChunksForMicroComputation(chunks, opts),
@@ -137,6 +146,10 @@ export async function runMicroBatchesAdapter(
           maxBatchItems: chunkBatchSize,
         },
       });
+
+      if (phaseA.chunks.length === 0) {
+        continue;
+      }
 
       const computed = await computeMicroBatchesForDocument({
         ports: {

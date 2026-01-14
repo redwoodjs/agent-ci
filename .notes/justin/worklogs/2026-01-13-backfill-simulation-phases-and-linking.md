@@ -987,3 +987,7 @@ Progress: moved live adapters into adapters/live
 
 - moved live adapter modules into `src/app/engine/adapters/live/`
 - updated the live runner imports
+
+Progress: introduced runners/live entrypoint
+
+- added `src/app/engine/runners/live/` and routed engine exports through it

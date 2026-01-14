@@ -1,4 +1,4 @@
-export { indexDocument, query } from "./engine";
+export { indexDocument, query } from "./runners/live";
 export type {
   Source,
   Document,

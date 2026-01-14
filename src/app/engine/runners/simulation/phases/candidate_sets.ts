@@ -1,4 +1,4 @@
-import { applyMomentGraphNamespacePrefixValue } from "../../momentGraphNamespace";
+import { applyMomentGraphNamespacePrefixValue } from "../../../momentGraphNamespace";
 import type { SimulationDbContext } from "../../../adapters/simulation/types";
 import { getSimulationDb, getMomentGraphDb } from "../../../adapters/simulation/db";
 import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";

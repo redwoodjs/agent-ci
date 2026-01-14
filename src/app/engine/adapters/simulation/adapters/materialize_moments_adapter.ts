@@ -184,7 +184,7 @@ export async function runMaterializeMomentsAdapter(
                       },
                     }) as any),
             } as any)
-            .onConflict((oc) =>
+            .onConflict((oc: any) =>
               oc.column("id").doUpdateSet({
                 summary,
                 title,

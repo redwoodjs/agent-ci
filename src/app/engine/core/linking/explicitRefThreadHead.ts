@@ -1,5 +1,6 @@
-import type { Moment, MomentGraphContext } from "../../momentDb";
+import type { MomentGraphContext } from "../../momentDb";
 import { findDescendants, getMomentsForDocument } from "../../momentDb";
+import type { Moment } from "../../types";
 
 function parseTimeMs(value: unknown): number | null {
   if (typeof value !== "string") {

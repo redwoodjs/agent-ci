@@ -1203,6 +1203,17 @@ I adjusted two things so the test captures the boundary we care about (the run s
 - expand the GitHub plugin key matcher to include history keys under /history/*.json
 - treat 'no chunks' as a skip in simulation micro_batches (Phase A returns empty chunks and the document is skipped for micro batching)
 
+Mixed sampling for Run sample
+
+Run sample previously picked random keys from the supported set, which could easily end up skewed (eg all GitHub or all Cursor). I changed it to try include at least:
+
+- one GitHub issue
+- one GitHub PR
+- one Discord key
+- one Cursor conversation key
+
+Then it fills the remaining slots randomly from the listed keys.
+
 Progress: run all + auto-advance + default prefix
 
 - default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)

@@ -173,7 +173,7 @@ function StartControls() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <div className="space-y-1">
           <div className="text-xs text-gray-600">
-            Sample size (default 20, max 200). Random keys from the listed set.
+            Sample size (default 20, max 200). Picks a mixed sample when available (GitHub issue + GitHub PR + Discord + Cursor), then fills the remainder randomly from the listed set.
           </div>
           <Input
             placeholder="20"

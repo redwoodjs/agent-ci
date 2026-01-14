@@ -195,14 +195,51 @@ export async function runSampleSimulationRunAction(input: {
   }
 
   const keys = (() => {
-    const deduped = supportedKeys.slice();
-    for (let i = deduped.length - 1; i > 0; i--) {
+    const isGithubIssue = (k: string) =>
+      k.startsWith("github/") && k.includes("/issues/");
+    const isGithubPr = (k: string) =>
+      k.startsWith("github/") && k.includes("/pull-requests/");
+    const isDiscord = (k: string) => k.startsWith("discord/");
+    const isCursor = (k: string) => k.startsWith("cursor/conversations/");
+
+    const pool = supportedKeys.slice();
+    for (let i = pool.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
-      const tmp = deduped[i];
-      deduped[i] = deduped[j];
-      deduped[j] = tmp;
+      const tmp = pool[i];
+      pool[i] = pool[j];
+      pool[j] = tmp;
     }
-    return deduped.slice(0, sampleSize);
+
+    const picked: string[] = [];
+    const pickedSet = new Set<string>();
+
+    function pickOne(filter: (k: string) => boolean) {
+      for (const k of pool) {
+        if (!pickedSet.has(k) && filter(k)) {
+          picked.push(k);
+          pickedSet.add(k);
+          return;
+        }
+      }
+    }
+
+    // Mixed sample: ensure each category is represented when available.
+    pickOne(isGithubIssue);
+    pickOne(isGithubPr);
+    pickOne(isDiscord);
+    pickOne(isCursor);
+
+    for (const k of pool) {
+      if (picked.length >= sampleSize) {
+        break;
+      }
+      if (!pickedSet.has(k)) {
+        picked.push(k);
+        pickedSet.add(k);
+      }
+    }
+
+    return picked.slice(0, sampleSize);
   })();
 
   const runId = crypto.randomUUID();
@@ -227,6 +264,7 @@ export async function runSampleSimulationRunAction(input: {
           sampleSize,
           supportedPrefixes,
           skippedCount,
+          sampleStrategy: "mixed-by-source",
         },
       },
     }

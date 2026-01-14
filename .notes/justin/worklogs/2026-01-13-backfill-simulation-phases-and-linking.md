@@ -1144,6 +1144,42 @@ Goal: ensure link audit payload structures did not drift (keys and nested shapes
   - candidate set payload shape
   - timeline-fit payload shape
 
+Next: Phase A boundary beyond etag (prepare + chunk + batch inputs)
+
+Now that the indexing phases B/C/D are shared via orchestrators, the remaining drift point is Phase A behavior beyond etag diff:
+
+- document preparation via plugins
+- stable chunking and chunk identity inputs
+- chunk batching inputs for micro_batches
+
+Plan for the next slice:
+
+- add a shared Phase A orchestrator that returns: document, indexing context, chunks, and chunk batches
+- the orchestrator calls injected ports for reading document content and for plugin-driven transforms (so live and simulation supply ports)
+- rewire both live and simulation micro_batches to call this orchestrator instead of duplicating the preparation/chunking steps
+- keep the current simulation ingest_diff etag behavior unchanged (no schema change), but reduce duplication and make Phase A boundary explicit for downstream phases
+
+Gates:
+
+- pnpm build
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation
+
+Phase A shared boundary implementation
+
+Added a Phase A orchestrator that centralizes:
+
+- prepareSourceDocument
+- computeMomentGraphNamespaceForIndexing + prefix application
+- splitDocumentIntoChunks
+- processed chunk hash loading + new chunk filtering (live)
+- chunk batching for micro moment computation
+
+Wired live indexing to call this orchestrator so Phase A behavior is expressed once, instead of being embedded in engine.ts.
+
+Wired simulation micro_batches to call the same orchestrator, using the run's stored moment graph namespace + prefix for scoping. For simulation, processed chunk hashes are currently treated as empty (so all chunks are considered eligible), matching the existing behavior where ingest_diff gates document-level change.
+
+Ran pnpm build and the simulation test suite after the wiring.
+
 Progress: start Phase A boundary work (ingest_diff)
 
 First slice is just the existing ingest_diff behavior, but expressed as a shared core orchestrator that calls injected ports:

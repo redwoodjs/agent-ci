@@ -1,9 +1,9 @@
 import type { SimulationDbContext } from "../types";
 import { getSimulationDb } from "../db";
 import type { SimulationMicroBatchCacheRow } from "../types";
+import type { Document, IndexingHookContext } from "../../../types";
 import {
   getMicroPromptContext,
-  prepareDocumentForR2Key,
   splitDocumentIntoChunks,
 } from "../../../indexing/pluginPipeline";
 import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
@@ -13,6 +13,11 @@ import { computeMicroItemsWithoutLlm } from "../../../utils/microItems";
 import { computeMicroMomentsForChunkBatch } from "../../../subjects/computeMicroMomentsForChunkBatch";
 import { computeMicroBatchesForDocument } from "../../../core/indexing/micro_batches_orchestrator";
 import { planMicroBatches } from "../../../lib/phaseCores/micro_batches_core";
+import { runPhaseADocumentPreparation } from "../../../core/indexing/phase_a_orchestrator";
+import {
+  applyMomentGraphNamespacePrefixValue,
+  getMomentGraphNamespacePrefixFromEnv,
+} from "../../../momentGraphNamespace";
 
 export async function runMicroBatchesAdapter(
   context: SimulationDbContext,
@@ -22,6 +27,8 @@ export async function runMicroBatchesAdapter(
     useLlm: boolean;
     now: string;
     log: { error: (kind: string, payload: any) => Promise<void> };
+    momentGraphNamespace: string | null;
+    momentGraphNamespacePrefix: string | null;
   }
 ): Promise<{
   docsProcessed: number;
@@ -65,6 +72,18 @@ export async function runMicroBatchesAdapter(
   let failed = 0;
   const failures: Array<{ r2Key: string; error: string }> = [];
 
+  async function prepareSourceDocument(
+    indexingContext: IndexingHookContext
+  ): Promise<Document> {
+    for (const plugin of plugins) {
+      const result = await plugin.prepareSourceDocument?.(indexingContext);
+      if (result) {
+        return result;
+      }
+    }
+    throw new Error("No plugin could prepare document");
+  }
+
   for (const r2Key of input.r2Keys) {
     const docState = (await db
       .selectFrom("simulation_run_documents")
@@ -92,30 +111,31 @@ export async function runMicroBatchesAdapter(
     docsProcessed++;
 
     try {
-      const { document, indexingContext } = await prepareDocumentForR2Key(
+      const phaseA = await runPhaseADocumentPreparation({
+        ports: {
+          prepareSourceDocument: async ({ indexingContext }) =>
+            await prepareSourceDocument(indexingContext),
+          computeMomentGraphNamespaceForIndexing: async () => null,
+          getMomentGraphNamespacePrefixFromEnv,
+          applyMomentGraphNamespacePrefixValue,
+          splitDocumentIntoChunks: async ({ document, indexingContext, plugins }) =>
+            await splitDocumentIntoChunks(document, indexingContext, plugins),
+          loadProcessedChunkHashes: async () => [],
+          chunkChunksForMicroComputation: ({ chunks, ...opts }) =>
+            chunkChunksForMicroComputation(chunks, opts),
+        },
         r2Key,
         env,
-        plugins
-      );
-      const chunks = await splitDocumentIntoChunks(
-        document,
-        indexingContext,
-        plugins
-      );
-
-      const chunkBatches = chunkChunksForMicroComputation(chunks, {
-        maxBatchChars: chunkBatchMaxChars,
-        maxChunkChars: chunkMaxChars,
-        maxBatchItems: chunkBatchSize,
-      });
-
-      const planned = await planMicroBatches({
-        document,
-        indexingContext,
         plugins,
-        chunkBatches,
-        sha256Hex,
-        getMicroPromptContext,
+        overrideNamespace: input.momentGraphNamespace,
+        overridePrefix: input.momentGraphNamespacePrefix,
+        indexingMode: "replay",
+        forceRecollect: true,
+        microBatching: {
+          maxBatchChars: chunkBatchMaxChars,
+          maxChunkChars: chunkMaxChars,
+          maxBatchItems: chunkBatchSize,
+        },
       });
 
       const computed = await computeMicroBatchesForDocument({
@@ -179,10 +199,10 @@ export async function runMicroBatchesAdapter(
           fallbackMicroItemsForChunkBatch: ({ chunks }) =>
             computeMicroItemsWithoutLlm(chunks),
         },
-        document,
-        indexingContext,
+        document: phaseA.document,
+        indexingContext: phaseA.indexingContext,
         plugins,
-        chunkBatches,
+        chunkBatches: phaseA.chunkBatches,
       });
 
       for (const b of computed) {

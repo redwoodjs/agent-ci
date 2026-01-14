@@ -15,7 +15,11 @@ export async function runPhaseMicroBatches(
 
   const runRow = (await db
     .selectFrom("simulation_runs")
-    .select(["config_json"])
+    .select([
+      "config_json",
+      "moment_graph_namespace",
+      "moment_graph_namespace_prefix",
+    ])
     .where("run_id", "=", input.runId)
     .executeTakeFirst()) as unknown as { config_json: any } | undefined;
 
@@ -29,6 +33,14 @@ export async function runPhaseMicroBatches(
     Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
       ? (r2KeysRaw as string[])
       : [];
+  const momentGraphNamespace =
+    typeof (runRow as any)?.moment_graph_namespace === "string"
+      ? ((runRow as any).moment_graph_namespace as string)
+      : null;
+  const momentGraphNamespacePrefix =
+    typeof (runRow as any)?.moment_graph_namespace_prefix === "string"
+      ? ((runRow as any).moment_graph_namespace_prefix as string)
+      : null;
 
   await addSimulationRunEvent(context, {
     runId: input.runId,
@@ -47,6 +59,8 @@ export async function runPhaseMicroBatches(
     useLlm,
     now,
     log,
+    momentGraphNamespace,
+    momentGraphNamespacePrefix,
   });
 
   await addSimulationRunEvent(context, {

@@ -39,6 +39,7 @@ import { computeMacroSynthesisForDocument } from "./core/indexing/macro_synthesi
 import { computeMicroStreamHash, extractAnchorsFromStreams } from "./lib/phaseCores/macro_synthesis_core";
 import { computeDeterministicLinkingProposal } from "./lib/phaseCores/deterministic_linking_core";
 import { computeIndexDocumentParentForRootMacroMoment } from "./adapters/live/linking";
+import { runPhaseADocumentPreparation } from "./core/indexing/phase_a_orchestrator";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,
@@ -47,11 +48,9 @@ import {
 import { extractAnchorTokens } from "./utils/anchorTokens";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
 import { classifyMacroMoments } from "./subjects/classifyMacroMoments";
-import {
-  applyMomentGraphNamespacePrefixValue,
-  getMomentGraphNamespacePrefixFromEnv,
-} from "./momentGraphNamespace";
-import { getMicroPromptContext } from "./indexing/pluginPipeline";
+import { applyMomentGraphNamespacePrefixValue, getMomentGraphNamespacePrefixFromEnv } from "./momentGraphNamespace";
+import { getMicroPromptContext, splitDocumentIntoChunks } from "./indexing/pluginPipeline";
+import { chunkChunksForMicroComputation } from "./utils/chunkBatching";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -82,71 +81,6 @@ function uuidFromSha256Hex(hashHex: string): string {
   )}-${bytes.slice(16, 20)}-${bytes.slice(20, 32)}`;
 }
 
-function truncateToChars(text: string, maxChars: number): string {
-  if (maxChars <= 0) {
-    return "";
-  }
-  if (text.length <= maxChars) {
-    return text;
-  }
-  return text.slice(0, maxChars);
-}
-
-function chunkChunksForMicroComputation(
-  chunks: Chunk[],
-  opts: { maxBatchChars: number; maxChunkChars: number; maxBatchItems: number }
-): Chunk[][] {
-  const maxBatchChars =
-    Number.isFinite(opts.maxBatchChars) && opts.maxBatchChars > 0
-      ? opts.maxBatchChars
-      : 10_000;
-  const maxChunkChars =
-    Number.isFinite(opts.maxChunkChars) && opts.maxChunkChars > 0
-      ? opts.maxChunkChars
-      : 2_000;
-  const maxBatchItems =
-    Number.isFinite(opts.maxBatchItems) && opts.maxBatchItems > 0
-      ? opts.maxBatchItems
-      : 10;
-
-  const out: Chunk[][] = [];
-  let currentBatch: Chunk[] = [];
-  let currentChars = 0;
-
-  function flush() {
-    if (currentBatch.length > 0) {
-      out.push(currentBatch);
-      currentBatch = [];
-      currentChars = 0;
-    }
-  }
-
-  for (const chunk of chunks) {
-    const content = truncateToChars(chunk.content ?? "", maxChunkChars);
-    const projectedChars = currentChars + content.length;
-
-    if (
-      currentBatch.length > 0 &&
-      (currentBatch.length >= maxBatchItems || projectedChars > maxBatchChars)
-    ) {
-      flush();
-    }
-
-    currentBatch.push({
-      ...chunk,
-      content,
-    });
-    currentChars += content.length;
-
-    if (currentBatch.length >= maxBatchItems || currentChars > maxBatchChars) {
-      flush();
-    }
-  }
-
-  flush();
-  return out;
-}
-
 export async function indexDocument(
   r2Key: string,
   context: EngineContext,
@@ -161,19 +95,13 @@ export async function indexDocument(
     r2Key,
     env: context.env,
     momentGraphNamespace: null,
-    indexingMode: "indexing",
+    indexingMode:
+      typeof options?.momentReplayRunId === "string" &&
+      options.momentReplayRunId.trim().length > 0
+        ? "replay"
+        : "indexing",
   };
   console.log("[moment-linker] indexDocument start", { r2Key });
-
-  const document = await runFirstMatchHook(
-    context.plugins,
-    "prepareSourceDocument",
-    (plugin) => plugin.prepareSourceDocument?.(indexingContext)
-  );
-
-  if (!document) {
-    throw new Error(`No plugin could prepare document for R2 key: ${r2Key}`);
-  }
 
   const overrideNamespace =
     typeof options?.momentGraphNamespace === "string" &&
@@ -186,89 +114,113 @@ export async function indexDocument(
       ? options.momentGraphNamespacePrefix.trim()
       : null;
 
-  let baseNamespace: string | null = null;
-  if (overrideNamespace) {
-    baseNamespace = overrideNamespace;
-  } else {
-    for (const plugin of context.plugins) {
-      const nsRaw =
-        await plugin.scoping?.computeMomentGraphNamespaceForIndexing?.(
-          document,
-          indexingContext
-        );
-      const ns =
-        typeof nsRaw === "string" && nsRaw.trim().length > 0
-          ? nsRaw.trim()
-          : null;
-      if (ns) {
-        baseNamespace = ns;
-        break;
-      }
-    }
-  }
-
-  const envPrefix = getMomentGraphNamespacePrefixFromEnv(indexingContext.env);
-  const effectiveNamespace = baseNamespace
-    ? overrideNamespace
-      ? applyMomentGraphNamespacePrefixValue(baseNamespace, overridePrefix)
-      : applyMomentGraphNamespacePrefixValue(
-          baseNamespace,
-          overridePrefix ?? envPrefix
-        )
-    : null;
-
-  indexingContext.momentGraphNamespace = effectiveNamespace;
-
-  const momentGraphContext = {
-    env: context.env,
-    momentGraphNamespace: effectiveNamespace,
-  };
-
-  const momentReplayRunIdRaw = options?.momentReplayRunId;
-  const momentReplayRunId =
-    typeof momentReplayRunIdRaw === "string" &&
-    momentReplayRunIdRaw.trim().length > 0
-      ? momentReplayRunIdRaw.trim()
-      : null;
   const forceRecollect = options?.forceRecollect === true;
+
+  const chunkBatchSizeRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_BATCH_SIZE;
+  const chunkBatchMaxCharsRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_BATCH_MAX_CHARS;
+  const chunkMaxCharsRaw = (indexingContext.env as any).MICRO_MOMENT_CHUNK_MAX_CHARS;
+
+  const chunkBatchSize =
+    typeof chunkBatchSizeRaw === "string"
+      ? Number.parseInt(chunkBatchSizeRaw, 10)
+      : typeof chunkBatchSizeRaw === "number"
+      ? chunkBatchSizeRaw
+      : 10;
+  const chunkBatchMaxChars =
+    typeof chunkBatchMaxCharsRaw === "string"
+      ? Number.parseInt(chunkBatchMaxCharsRaw, 10)
+      : typeof chunkBatchMaxCharsRaw === "number"
+      ? chunkBatchMaxCharsRaw
+      : 10_000;
+  const chunkMaxChars =
+    typeof chunkMaxCharsRaw === "string"
+      ? Number.parseInt(chunkMaxCharsRaw, 10)
+      : typeof chunkMaxCharsRaw === "number"
+      ? chunkMaxCharsRaw
+      : 2_000;
+
+  const momentReplayRunId =
+    typeof options?.momentReplayRunId === "string" &&
+    options.momentReplayRunId.trim().length > 0
+      ? options.momentReplayRunId.trim()
+      : null;
 
   let stage = "start";
   try {
-    stage = "split-document";
-    // 1. Split document into chunks BEFORE subject correlation
-    let chunks: Chunk[] | null = null;
-    for (const plugin of context.plugins) {
-      if (plugin.splitDocumentIntoChunks) {
-        const result = await plugin.splitDocumentIntoChunks(
-          document,
-          indexingContext
-        );
-        if (result && result.length > 0) {
-          chunks = result;
-          break;
-        }
-      }
-    }
+    stage = "phase-a";
+    const phaseA = await runPhaseADocumentPreparation({
+      ports: {
+        prepareSourceDocument: async ({ indexingContext }) => {
+          const doc = await runFirstMatchHook(
+            context.plugins,
+            "prepareSourceDocument",
+            (plugin) => plugin.prepareSourceDocument?.(indexingContext)
+          );
+          if (!doc) {
+            throw new Error(`No plugin could prepare document for R2 key: ${r2Key}`);
+          }
+          return doc;
+        },
+        computeMomentGraphNamespaceForIndexing: async ({ document, indexingContext, plugins }) => {
+          for (const plugin of plugins) {
+            const nsRaw =
+              await plugin.scoping?.computeMomentGraphNamespaceForIndexing?.(
+                document,
+                indexingContext
+              );
+            const ns =
+              typeof nsRaw === "string" && nsRaw.trim().length > 0
+                ? nsRaw.trim()
+                : null;
+            if (ns) {
+              return ns;
+            }
+          }
+          return null;
+        },
+        getMomentGraphNamespacePrefixFromEnv,
+        applyMomentGraphNamespacePrefixValue,
+        splitDocumentIntoChunks: async ({ document, indexingContext, plugins }) =>
+          await splitDocumentIntoChunks(document, indexingContext, plugins),
+        loadProcessedChunkHashes: async ({ r2Key, momentGraphNamespace }) =>
+          await getProcessedChunkHashes(r2Key, {
+            env: context.env,
+            momentGraphNamespace,
+          }),
+        chunkChunksForMicroComputation: ({ chunks, ...opts }) =>
+          chunkChunksForMicroComputation(chunks, opts),
+      },
+      r2Key,
+      env: context.env,
+      plugins: context.plugins,
+      overrideNamespace,
+      overridePrefix,
+      indexingMode: momentReplayRunId ? "replay" : "indexing",
+      forceRecollect,
+      microBatching: {
+        maxBatchChars: chunkBatchMaxChars,
+        maxChunkChars: chunkMaxChars,
+        maxBatchItems: chunkBatchSize,
+      },
+    });
 
-    if (!chunks || chunks.length === 0) {
-      throw new Error(`No plugin could split document into chunks: ${r2Key}`);
-    }
+    const document = phaseA.document;
+    const effectiveNamespace = phaseA.effectiveNamespace;
+    indexingContext.momentGraphNamespace = effectiveNamespace;
 
-    stage = "diff-chunks";
-    // 2. Diff against previously processed chunks to avoid redundant work
-    const oldChunkHashes = await getProcessedChunkHashes(r2Key, {
+    const momentGraphContext = {
       env: context.env,
       momentGraphNamespace: effectiveNamespace,
-    });
-    const oldChunkHashSet = new Set(oldChunkHashes);
+    };
 
-    const newChunks = forceRecollect
-      ? chunks
-      : chunks.filter((chunk) => !oldChunkHashSet.has(chunk.contentHash!));
+    const chunks = phaseA.chunks;
+    const newChunks = phaseA.newChunks;
 
     if (newChunks.length === 0) {
       console.log("[moment-linker] skipping: no new chunks", { r2Key });
-      return []; // Nothing more to do
+      return [];
     }
 
     stage = "micro-moments";
@@ -280,37 +232,7 @@ export async function indexDocument(
       momentGraphContext
     );
 
-    const chunkBatchSizeRaw = (indexingContext.env as any)
-      .MICRO_MOMENT_CHUNK_BATCH_SIZE;
-    const chunkBatchMaxCharsRaw = (indexingContext.env as any)
-      .MICRO_MOMENT_CHUNK_BATCH_MAX_CHARS;
-    const chunkMaxCharsRaw = (indexingContext.env as any)
-      .MICRO_MOMENT_CHUNK_MAX_CHARS;
-
-    const chunkBatchSize =
-      typeof chunkBatchSizeRaw === "string"
-        ? Number.parseInt(chunkBatchSizeRaw, 10)
-        : typeof chunkBatchSizeRaw === "number"
-        ? chunkBatchSizeRaw
-        : 10;
-    const chunkBatchMaxChars =
-      typeof chunkBatchMaxCharsRaw === "string"
-        ? Number.parseInt(chunkBatchMaxCharsRaw, 10)
-        : typeof chunkBatchMaxCharsRaw === "number"
-        ? chunkBatchMaxCharsRaw
-        : 10_000;
-    const chunkMaxChars =
-      typeof chunkMaxCharsRaw === "string"
-        ? Number.parseInt(chunkMaxCharsRaw, 10)
-        : typeof chunkMaxCharsRaw === "number"
-        ? chunkMaxCharsRaw
-        : 2_000;
-
-    const chunkBatches = chunkChunksForMicroComputation(chunks, {
-      maxBatchChars: chunkBatchMaxChars,
-      maxChunkChars: chunkMaxChars,
-      maxBatchItems: chunkBatchSize,
-    });
+    const chunkBatches = phaseA.chunkBatches;
 
     console.log("[moment-linker] micro chunks extracted", {
       documentId: document.id,
@@ -501,13 +423,8 @@ export async function indexDocument(
             return [];
           }
         },
-        fallbackMicroItemsForChunkBatch: ({ chunks }) => {
-          return chunks
-            .map((c) => c.content?.trim() ?? "")
-            .filter(Boolean)
-            .slice(0, 1)
-            .map((c) => c.substring(0, 300));
-        },
+        fallbackMicroItemsForChunkBatch: ({ chunks }) =>
+          computeMicroItemsWithoutLlm(chunks),
       },
       document,
       indexingContext,

@@ -1159,11 +1159,39 @@ Gates:
 - pnpm build
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation
 
+Progress: removed replay panel + added run sample + graph link
+
+- removed the replay/backfill "Backfill progress" panel from the knowledge graph audit page
+- simulation runs UI now has:
+  - Run sample (random pick from an R2 list with caps) and Run all
+  - a run -> knowledge graph link that carries namespace + prefix
+- pnpm build passes
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
+
 Progress: run all + auto-advance + default prefix
 
 - default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)
 - audit UI has a Run all flow (list keys from R2 with paging caps, start run, then auto-run)
 - run view has a Run button that auto-advances phases and a Stop button; Advance remains available for single-step debugging
+
+Next: remove replay UI from knowledge graph page + add Run sample
+
+The knowledge graph audit page currently includes a replay/backfill control surface ("Backfill progress"). This overlaps with the simulation runner UI and makes it unclear which backfill mechanism is the primary one.
+
+Planned changes:
+
+- Remove the replay/backfill "Backfill progress" panel from the knowledge graph audit page.
+- Keep the knowledge graph page focused on graph visualization and inspection.
+- Add a link from the simulation run UI to the knowledge graph page, passing namespace + prefix so it opens scoped correctly.
+- Add a "Run sample" button in the simulation start controls:
+  - list keys from R2 using prefix + paging caps
+  - randomly select N keys (small default, capped)
+  - start a run with those keys and auto-run
+
+Gates:
+
+- pnpm build
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation
 
 Provenance history investigation (what we used to have)
 

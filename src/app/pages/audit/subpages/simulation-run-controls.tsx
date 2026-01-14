@@ -6,6 +6,7 @@ import { Input } from "@/app/components/ui/input";
 import {
   startSimulationRunAction,
   runAllSimulationRunAction,
+  runSampleSimulationRunAction,
   advanceSimulationRunAction,
   pauseSimulationRunAction,
   resumeSimulationRunAction,
@@ -43,6 +44,7 @@ function StartControls() {
   const [prefix, setPrefix] = useState("");
   const [r2Prefix, setR2Prefix] = useState("");
   const [maxPages, setMaxPages] = useState("5");
+  const [sampleSize, setSampleSize] = useState("20");
   const [error, setError] = useState<string | null>(null);
 
   const start = async () => {
@@ -96,6 +98,34 @@ function StartControls() {
     }
   };
 
+  const runSample = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const maxPagesNum = Number(maxPages);
+      const sampleSizeNum = Number(sampleSize);
+      const res = await runSampleSimulationRunAction({
+        r2Prefix: r2Prefix.trim(),
+        limitPerPage: 200,
+        maxPages: Number.isFinite(maxPagesNum) ? Math.floor(maxPagesNum) : 5,
+        sampleSize: Number.isFinite(sampleSizeNum) ? Math.floor(sampleSizeNum) : 20,
+        momentGraphNamespace: namespace.trim() || null,
+        momentGraphNamespacePrefix: prefix.trim() || null,
+      });
+      if (res.success && res.runId) {
+        window.location.href = `/audit/simulation?runId=${encodeURIComponent(
+          res.runId
+        )}&autorun=1`;
+        return;
+      }
+      setError(res.error || "Failed to run sample");
+      setLoading(false);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="space-y-2">
       <div className="text-xs text-gray-600">
@@ -132,12 +162,22 @@ function StartControls() {
           onChange={(e) => setMaxPages(e.target.value)}
         />
       </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        <Input
+          placeholder="sampleSize for Run sample (default 20, capped)"
+          value={sampleSize}
+          onChange={(e) => setSampleSize(e.target.value)}
+        />
+      </div>
       <div className="flex gap-2 items-center">
         <Button disabled={loading} onClick={start}>
           {loading ? "Starting…" : "Start run"}
         </Button>
         <Button disabled={loading} onClick={runAll} variant="secondary">
           {loading ? "Running…" : "Run all"}
+        </Button>
+        <Button disabled={loading} onClick={runSample} variant="secondary">
+          {loading ? "Running…" : "Run sample"}
         </Button>
         {error ? <div className="text-xs text-red-700">{error}</div> : null}
       </div>

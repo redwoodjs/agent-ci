@@ -251,6 +251,24 @@ async function SimulationRunsContent({
             </div>
           </div>
 
+          <div className="text-sm">
+            <a
+              className="text-blue-600 hover:underline"
+              href={`/audit/knowledge-graph?${(() => {
+                const params = new URLSearchParams();
+                if (run.momentGraphNamespace) {
+                  params.set("namespace", run.momentGraphNamespace);
+                }
+                if (run.momentGraphNamespacePrefix) {
+                  params.set("prefix", run.momentGraphNamespacePrefix);
+                }
+                return params.toString();
+              })()}`}
+            >
+              Open in knowledge graph
+            </a>
+          </div>
+
           <SimulationRunControls
             mode="run"
             runId={runId}

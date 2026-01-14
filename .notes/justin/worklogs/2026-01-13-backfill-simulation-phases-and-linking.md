@@ -1117,6 +1117,49 @@ Checks
 - pnpm build passes
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
 
+Provenance gate checklist (moment -> source document/origin metadata)
+
+Goal: verify that moment rows have enough metadata to trace them back to the source document and origin (issue/PR/discord/cursor) after refactors that move phase boundaries.
+
+Concrete checklist for a small sample:
+
+- pick 2 document keys:
+  - one GitHub issue latest.json
+  - one GitHub PR latest.json (or a discord thread jsonl)
+- run live indexing for both keys
+- run a simulation run that includes the same keys
+- for a small set of moments (first 3 per doc, plus a linked root if any), compare:
+  - document id on the moment row
+  - createdAt and author
+  - source metadata presence and structure (whether it contains a stable reference to the source document)
+  - any time-range metadata used by ordering guards (if present)
+
+Separate checklist: payload-shape alignment (not provenance)
+
+Goal: ensure link audit payload structures did not drift (keys and nested shapes), without asserting the exact link choices.
+
+- pick the same sample run and inspect a few link audit payloads
+- compare between live and simulation:
+  - deterministic linking payload shape
+  - candidate set payload shape
+  - timeline-fit payload shape
+
+Progress: start Phase A boundary work (ingest_diff)
+
+First slice is just the existing ingest_diff behavior, but expressed as a shared core orchestrator that calls injected ports:
+
+- added a core ingest_diff orchestrator (core/indexing) that:
+  - reads the current etag for a key
+  - loads the previous etag
+  - computes changed using the shared etag helper
+  - persists either result or error
+- refactored the simulation ingest_diff phase to use this orchestrator via ports
+
+Checks
+
+- pnpm build passes
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
+
 Progress: start inversion rollout for micro_batches
 
 I started applying the same 'core orchestrator calls ports' pattern (used for linking) to the indexing phases.
@@ -1130,3 +1173,15 @@ First slice: micro_batches
 Checks
 
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes after the change
+
+Progress: continued inversion rollout for indexing phases
+
+- macro_synthesis: added a shared core/indexing orchestrator and refactored the simulation macro_synthesis adapter to call it via ports
+- materialize_moments: added a shared core/indexing orchestrator and refactored the simulation materialize_moments adapter to call it via ports
+- micro_batches: refactored the live path in engine.ts to call the shared micro_batches orchestrator, with live-specific ports for caching and persistence
+- macro_synthesis: refactored the live path to call the shared macro_synthesis orchestrator so the same control flow is shared
+
+Checks
+
+- pnpm build passes
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes

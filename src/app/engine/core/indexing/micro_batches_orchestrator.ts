@@ -1,6 +1,5 @@
 import type { Chunk, Document, IndexingHookContext, Plugin } from "../../types";
 import type { MicroBatchPlanItem } from "../../lib/phaseCores/micro_batches_core";
-import { computeMicroItemsWithoutLlm } from "../../utils/microItems";
 
 export type MicroBatchesOrchestratorPorts = {
   planMicroBatches: (input: {
@@ -31,11 +30,15 @@ export type MicroBatchesOrchestratorPorts = {
     batchHash: string;
     promptContextHash: string;
     microItems: string[];
+    chunks: Chunk[];
+    batchIndex: number;
+    promptContext: string;
   }) => Promise<void>;
   computeMicroItemsForChunkBatch: (input: {
     chunks: Chunk[];
     promptContext: string;
   }) => Promise<string[]>;
+  fallbackMicroItemsForChunkBatch: (input: { chunks: Chunk[] }) => string[];
 };
 
 export async function computeMicroBatchesForDocument(input: {
@@ -104,13 +107,18 @@ export async function computeMicroBatchesForDocument(input: {
     }
 
     if (!Array.isArray(microItems) || microItems.length === 0) {
-      microItems = computeMicroItemsWithoutLlm(p.chunks);
+      microItems = input.ports.fallbackMicroItemsForChunkBatch({
+        chunks: p.chunks,
+      });
     }
 
     await input.ports.storeMicroBatchCache({
       batchHash: p.batchHash,
       promptContextHash: p.promptContextHash,
       microItems,
+      chunks: p.chunks,
+      batchIndex: p.batchIndex,
+      promptContext: p.promptContext,
     });
 
     out.push({

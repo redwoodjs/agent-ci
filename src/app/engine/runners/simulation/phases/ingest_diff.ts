@@ -3,7 +3,7 @@ import { getSimulationDb } from "../../../adapters/simulation/db";
 import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
-import { isDocumentChangedByEtag } from "../../../indexing/documentChangeIdentity";
+import { runIngestDiffForKey } from "../../../core/indexing/ingest_diff_orchestrator";
 
 export async function runPhaseIngestDiff(
   context: SimulationDbContext,
@@ -48,93 +48,102 @@ export async function runPhaseIngestDiff(
 
   for (const r2Key of r2Keys) {
     try {
-      const bucket = (context.env as any).MACHINEN_BUCKET;
-      const head = await bucket.head(r2Key);
-      if (!head) {
-        throw new Error("R2 object not found");
-      }
-      const etag = typeof head.etag === "string" ? head.etag : null;
-      if (!etag) {
-        throw new Error("Missing R2 etag");
-      }
+      const result = await runIngestDiffForKey({
+        ports: {
+          headR2Key: async (k) => {
+            const bucket = (context.env as any).MACHINEN_BUCKET;
+            const head = await bucket.head(k);
+            if (!head) {
+              throw new Error("R2 object not found");
+            }
+            const etag = typeof head.etag === "string" ? head.etag : null;
+            if (!etag) {
+              throw new Error("Missing R2 etag");
+            }
+            return { etag };
+          },
+          loadPreviousEtag: async (k) => {
+            const prev = (await db
+              .selectFrom("simulation_run_documents")
+              .select(["etag"])
+              .where("run_id", "=", input.runId)
+              .where("r2_key", "=", k)
+              .executeTakeFirst()) as unknown as
+              | { etag: string | null }
+              | undefined;
+            return typeof prev?.etag === "string" ? prev.etag : null;
+          },
+          persistResult: async ({ r2Key, etag, changed }) => {
+            await db
+              .insertInto("simulation_run_documents")
+              .values({
+                run_id: input.runId,
+                r2_key: r2Key,
+                etag,
+                document_hash: null,
+                changed: changed ? (1 as any) : (0 as any),
+                error_json: null,
+                processed_at: now,
+                updated_at: now,
+              } as any)
+              .onConflict((oc) =>
+                oc.columns(["run_id", "r2_key"]).doUpdateSet({
+                  etag,
+                  document_hash: null,
+                  changed: changed ? (1 as any) : (0 as any),
+                  error_json: null,
+                  processed_at: now,
+                  updated_at: now,
+                } as any)
+              )
+              .execute();
+          },
+          persistError: async ({ r2Key, error }) => {
+            await log.error("item.error", {
+              phase: "ingest_diff",
+              r2Key,
+              error,
+            });
 
-      const prev = (await db
-        .selectFrom("simulation_run_documents")
-        .select(["etag"])
-        .where("run_id", "=", input.runId)
-        .where("r2_key", "=", r2Key)
-        .executeTakeFirst()) as unknown as { etag: string | null } | undefined;
-
-      const wasEtag = typeof prev?.etag === "string" ? prev.etag : null;
-      const isChanged = isDocumentChangedByEtag({
-        previousEtag: wasEtag,
-        nextEtag: etag,
+            await db
+              .insertInto("simulation_run_documents")
+              .values({
+                run_id: input.runId,
+                r2_key: r2Key,
+                etag: null,
+                document_hash: null,
+                changed: 1 as any,
+                error_json: JSON.stringify({ message: error }),
+                processed_at: now,
+                updated_at: now,
+              } as any)
+              .onConflict((oc) =>
+                oc.columns(["run_id", "r2_key"]).doUpdateSet({
+                  etag: null,
+                  document_hash: null,
+                  changed: 1 as any,
+                  error_json: JSON.stringify({ message: error }),
+                  processed_at: now,
+                  updated_at: now,
+                } as any)
+              )
+              .execute();
+          },
+        },
+        r2Key,
       });
 
-      if (isChanged) {
+      if (result.changed) {
         changed++;
       } else {
         unchanged++;
       }
-
-      await db
-        .insertInto("simulation_run_documents")
-        .values({
-          run_id: input.runId,
-          r2_key: r2Key,
-          etag,
-          document_hash: null,
-          changed: isChanged ? (1 as any) : (0 as any),
-          error_json: null,
-          processed_at: now,
-          updated_at: now,
-        } as any)
-        .onConflict((oc) =>
-          oc.columns(["run_id", "r2_key"]).doUpdateSet({
-            etag,
-            document_hash: null,
-            changed: isChanged ? (1 as any) : (0 as any),
-            error_json: null,
-            processed_at: now,
-            updated_at: now,
-          } as any)
-        )
-        .execute();
 
       succeeded++;
     } catch (e) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);
       failures.push({ r2Key, error: msg });
-      await log.error("item.error", {
-        phase: "ingest_diff",
-        r2Key,
-        error: msg,
-      });
-
-      await db
-        .insertInto("simulation_run_documents")
-        .values({
-          run_id: input.runId,
-          r2_key: r2Key,
-          etag: null,
-          document_hash: null,
-          changed: 1 as any,
-          error_json: JSON.stringify({ message: msg }),
-          processed_at: now,
-          updated_at: now,
-        } as any)
-        .onConflict((oc) =>
-          oc.columns(["run_id", "r2_key"]).doUpdateSet({
-            etag: null,
-            document_hash: null,
-            changed: 1 as any,
-            error_json: JSON.stringify({ message: msg }),
-            processed_at: now,
-            updated_at: now,
-          } as any)
-        )
-        .execute();
     }
   }
 

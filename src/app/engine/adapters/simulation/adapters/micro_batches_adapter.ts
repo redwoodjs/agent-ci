@@ -9,6 +9,7 @@ import {
 import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
 import { chunkChunksForMicroComputation } from "../../../utils/chunkBatching";
 import { sha256Hex } from "../../../utils/crypto";
+import { computeMicroItemsWithoutLlm } from "../../../utils/microItems";
 import { computeMicroMomentsForChunkBatch } from "../../../subjects/computeMicroMomentsForChunkBatch";
 import { computeMicroBatchesForDocument } from "../../../core/indexing/micro_batches_orchestrator";
 import { planMicroBatches } from "../../../lib/phaseCores/micro_batches_core";
@@ -147,11 +148,7 @@ export async function runMicroBatchesAdapter(
             }
             return { microItems: asStrings };
           },
-          storeMicroBatchCache: async ({
-            batchHash,
-            promptContextHash,
-            microItems,
-          }) => {
+          storeMicroBatchCache: async ({ batchHash, promptContextHash, microItems }) => {
             await db
               .insertInto("simulation_micro_batch_cache")
               .values({
@@ -179,6 +176,8 @@ export async function runMicroBatchesAdapter(
               })) ?? []
             );
           },
+          fallbackMicroItemsForChunkBatch: ({ chunks }) =>
+            computeMicroItemsWithoutLlm(chunks),
         },
         document,
         indexingContext,

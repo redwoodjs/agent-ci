@@ -130,6 +130,16 @@ export async function runMacroSynthesisAdapter(
         summary: string;
         createdAt: string;
       }> = [];
+      const defaultCreatedAt =
+        typeof (document as any)?.metadata?.createdAt === "string" &&
+        (document as any).metadata.createdAt.trim().length > 0
+          ? ((document as any).metadata.createdAt as string).trim()
+          : input.now;
+      const defaultAuthor =
+        typeof (document as any)?.metadata?.author === "string" &&
+        (document as any).metadata.author.trim().length > 0
+          ? ((document as any).metadata.author as string).trim()
+          : "unknown";
 
       for (let i = 0; i < batches.length; i++) {
         const b = batches[i];
@@ -154,7 +164,7 @@ export async function runMacroSynthesisAdapter(
           microItems.push({
             path: `${r2Key}#${i}#${j}`,
             summary: asStrings[j],
-            createdAt: input.now,
+            createdAt: defaultCreatedAt,
           });
         }
       }
@@ -188,8 +198,26 @@ export async function runMacroSynthesisAdapter(
         now: input.now,
         documentId: document.id,
       });
+
+      const normalizedStreams = synthesis.streams.map((s) => {
+        const macroMoments = Array.isArray((s as any)?.macroMoments)
+          ? ((s as any).macroMoments as any[])
+          : [];
+        const normalizedMacroMoments = macroMoments.map((m) => ({
+          ...m,
+          createdAt:
+            typeof m?.createdAt === "string" && m.createdAt.trim().length > 0
+              ? m.createdAt.trim()
+              : defaultCreatedAt,
+          author:
+            typeof m?.author === "string" && m.author.trim().length > 0
+              ? m.author.trim()
+              : defaultAuthor,
+        }));
+        return { ...s, macroMoments: normalizedMacroMoments };
+      });
       streamsProduced += synthesis.streams.length;
-      for (const s of synthesis.streams) {
+      for (const s of normalizedStreams) {
         const mm = Array.isArray((s as any).macroMoments)
           ? ((s as any).macroMoments as any[])
           : [];
@@ -203,7 +231,7 @@ export async function runMacroSynthesisAdapter(
           r2_key: r2Key,
           micro_stream_hash: synthesis.microStreamHash,
           use_llm: input.useLlm ? (1 as any) : (0 as any),
-          streams_json: JSON.stringify(synthesis.streams),
+          streams_json: JSON.stringify(normalizedStreams),
           audit_json:
             synthesis.auditEvents.length > 0
               ? JSON.stringify(synthesis.auditEvents)
@@ -217,7 +245,7 @@ export async function runMacroSynthesisAdapter(
           oc.columns(["run_id", "r2_key"]).doUpdateSet({
             micro_stream_hash: synthesis.microStreamHash,
             use_llm: input.useLlm ? (1 as any) : (0 as any),
-            streams_json: JSON.stringify(synthesis.streams),
+            streams_json: JSON.stringify(normalizedStreams),
             audit_json:
               synthesis.auditEvents.length > 0
                 ? JSON.stringify(synthesis.auditEvents)

@@ -46,6 +46,11 @@ import {
   type SynthesisAuditEvent,
 } from "./synthesis/synthesizeMicroMoments";
 import { extractAnchorTokens } from "./utils/anchorTokens";
+import {
+  buildParsedDocumentIdentity,
+  computeTimeRangeFromMicroMoments,
+  mergeMomentSourceMetadata,
+} from "./utils/provenance";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
 import { classifyMacroMoments } from "./subjects/classifyMacroMoments";
 import { applyMomentGraphNamespacePrefixValue, getMomentGraphNamespacePrefixFromEnv } from "./momentGraphNamespace";
@@ -1168,6 +1173,26 @@ export async function indexDocument(
                   : previousMomentId ?? null,
               streamId: stream.streamId,
             });
+            const parsedDocumentIdentity = buildParsedDocumentIdentity(document);
+            const timeRangeFromMicro = computeTimeRangeFromMicroMoments({
+              microMoments: microMomentsForSynthesis,
+              microPaths,
+            });
+            const mergedSourceMetadata = mergeMomentSourceMetadata({
+              existing: description.sourceMetadata,
+              parsedDocumentIdentity,
+              timeRange: timeRangeFromMicro,
+            });
+            const createdAt =
+              typeof description.createdAt === "string" &&
+              description.createdAt.trim().length > 0
+                ? description.createdAt.trim()
+                : timeRangeFromMicro?.start ??
+                  (document.metadata?.createdAt ?? new Date().toISOString());
+            const author =
+              typeof description.author === "string" && description.author.trim().length > 0
+                ? description.author.trim()
+                : document.metadata?.author ?? "unknown";
             const moment: Moment = {
               id: momentId,
               documentId: document.id,
@@ -1204,9 +1229,9 @@ export async function indexDocument(
                 : undefined,
               linkAuditLog:
                 linkAuditLog,
-              createdAt: description.createdAt,
-              author: description.author,
-              sourceMetadata: description.sourceMetadata,
+              createdAt,
+              author,
+              sourceMetadata: mergedSourceMetadata,
             };
 
             if (momentReplayRunId) {

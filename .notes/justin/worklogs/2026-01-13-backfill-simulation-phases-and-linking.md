@@ -1117,6 +1117,113 @@ Checks
 - pnpm build passes
 - MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
 
+Provenance history investigation (what we used to have)
+
+I’m noticing I’m not confident we share the same definition of provenance, and I also don’t have a crisp picture of what we “used to have” before the recent refactors.
+
+Next step is to stop making behavioral changes and instead do archaeology:
+
+- search git history for the earlier provenance model (where it lived, what fields existed, and how the UI/system used it)
+- search worklogs for any explicit decisions about provenance and where it is stored (moment row vs derived from documentId vs separate audit tables)
+- pull the relevant diffs and summarize “then vs now”, including what data the UI expects to render source links and trace back to the originating document
+
+Provenance research (target fields from existing ingestion data)
+
+I’m shifting away from “what used to exist” and focusing on “what data we already have, and what the simplest consistent payload is”.
+
+Document-level identity is already present at ingestion time for all current sources:
+
+- GitHub:
+  - document id is the R2 key (github/<owner>/<repo>/<issues|pull-requests>/<number>/latest.json)
+  - document metadata includes createdAt, author, url
+  - document metadata includes a structured identity object (owner/repo/number/type) under sourceMetadata
+  - comment timestamps exist in the ingested JSON (comments[].created_at), but the chunk metadata does not currently expose them as a timestamp field
+- Discord:
+  - document id is the R2 key (discord/...)
+  - document metadata includes createdAt and author
+  - chunks already include per-message timestamp fields in chunk metadata (timestamp: message.timestamp)
+  - document metadata includes structured identity (guild/channel/thread or guild/channel/date)
+- Cursor:
+  - document id is the R2 key (cursor/conversations/...)
+  - document metadata includes createdAt inferred from earliest event timestamp, and author inferred from user handle
+  - document metadata includes structured identity (conversationId, userHandle, workspace roots)
+  - per-event timestamps likely exist, but chunk metadata does not currently expose them
+
+Moment-level fields today:
+
+- moment.documentId is always present and acts as the primary “which document is this” reference
+- moment.createdAt and moment.author exist on the moment row, but simulation tends to fall back to run-time and “machinen” when not present in the macro moment payload
+- moment.sourceMetadata exists as a slot, but isn’t currently guaranteed to contain a structured “document identity” object; materialization falls back to a simulation identity payload when macro moment sourceMetadata is absent
+
+Next research step is to list a small “ideal minimal” provenance payload for moments that is:
+
+- stable across sources
+- derivable from existing ingestion data without reworking ingestion
+- enough for the UI/system to always trace a moment back to the originating document
+
+Provenance contract (target) and rollout
+
+Target per-moment provenance payload:
+
+- required:
+  - document id / r2 key on the moment row
+- recommended:
+  - parsed document identity object (github owner/repo/number, discord thread id, cursor conversation id)
+  - author + createdAt
+- time range:
+  - derive where available without changing ingestion (discord strong, github/cursor weaker unless we later add per-chunk timestamps)
+
+Implementation approach:
+
+- keep moment.documentId as the r2 key
+- when writing moments, always include a structured document identity object derived from the prepared document metadata (source, type, url, and the plugin-provided document identity object)
+- keep existing moment.sourceMetadata keys, but ensure it contains the structured document identity object
+- if macro moments are missing author/createdAt, fall back to the prepared document’s author/createdAt (instead of using run-time defaults)
+
+Gates:
+
+- pnpm build
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation
+
+Progress: provenance contract implementation
+
+Implemented a shared provenance utility and started populating moment provenance consistently:
+
+- required:
+  - moment.documentId remains the r2 key
+- recommended:
+  - moment.sourceMetadata.document now includes { documentId, source, type, url, identity } derived from the prepared document metadata
+  - moment createdAt and author fall back to the prepared document’s createdAt/author when missing in macro moments
+- time range:
+  - when possible, timeRange is derived from micro moment createdAt values (discord gives better precision today because it has per-message timestamps)
+
+Checks:
+
+- pnpm build passes
+- MACHINEN_TEST_FORCE_DEV=1 pnpm test:simulation passes
+
+Provenance contract (moment -> originating document)
+
+I want to make provenance explicit as a small, stable payload on every stored moment.
+
+Fields:
+
+- required:
+  - document id (R2 key) on the moment row
+- recommended:
+  - parsed document identity (source + owner/repo/number for GitHub, thread/channel ids for Discord, conversation id for Cursor)
+  - author + createdAt (prefer source-level values, not run-time fallbacks)
+  - timeRange where derivable from existing timestamps:
+    - Discord: use per-message timestamps already present on chunk metadata
+    - GitHub: comment timestamps exist in latest.json but are not exposed in chunk metadata yet; without ingestion changes timeRange will fall back to coarser values
+    - Cursor: event timestamps exist and are used for document createdAt inference; per-turn timeRange is weaker without emitting per-chunk timestamps
+
+Implementation approach (to keep scope contained):
+
+- keep document id as the primary reference (R2 key)
+- persist a structured parsed identity object onto moment.sourceMetadata (alongside any existing metadata)
+- compute a best-effort timeRange from timestamps already flowing through micro moments and attach it to moment.sourceMetadata
+
 Provenance gate checklist (moment -> source document/origin metadata)
 
 Goal: verify that moment rows have enough metadata to trace them back to the source document and origin (issue/PR/discord/cursor) after refactors that move phase boundaries.

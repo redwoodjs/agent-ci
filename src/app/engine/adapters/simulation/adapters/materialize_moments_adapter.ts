@@ -5,6 +5,8 @@ import { prepareDocumentForR2Key } from "../../../indexing/pluginPipeline";
 import { sha256Hex, uuidFromSha256Hex } from "../../../utils/crypto";
 import { computeMaterializedMomentIdentity, computeMicroPathsHash } from "../../../lib/phaseCores/materialize_moments_core";
 import { materializeMomentsForDocument } from "../../../core/indexing/materialize_moments_orchestrator";
+import { buildParsedDocumentIdentity, mergeMomentSourceMetadata } from "../../../utils/provenance";
+import { buildParsedDocumentIdentity, mergeMomentSourceMetadata } from "../../../utils/provenance";
 
 export async function runMaterializeMomentsAdapter(
   context: SimulationDbContext,
@@ -88,8 +90,31 @@ export async function runMaterializeMomentsAdapter(
         context.env,
         plugins
       );
+      const parsedDocumentIdentity = buildParsedDocumentIdentity(document);
+      const normalizedStreams = streams.map((s) => {
+        const macroMoments = Array.isArray((s as any)?.macroMoments)
+          ? ((s as any).macroMoments as any[])
+          : [];
+        const normalizedMacroMoments = macroMoments.map((m) => {
+          const createdAt =
+            typeof m?.createdAt === "string" && m.createdAt.trim().length > 0
+              ? m.createdAt.trim()
+              : document.metadata?.createdAt ?? input.now;
+          const author =
+            typeof m?.author === "string" && m.author.trim().length > 0
+              ? m.author.trim()
+              : document.metadata?.author ?? "unknown";
+          const mergedSourceMetadata = mergeMomentSourceMetadata({
+            existing: m?.sourceMetadata,
+            parsedDocumentIdentity,
+            timeRange: (m?.sourceMetadata as any)?.timeRange ?? null,
+          });
+          return { ...m, createdAt, author, sourceMetadata: mergedSourceMetadata };
+        });
+        return { ...s, macroMoments: normalizedMacroMoments };
+      });
 
-      for (const stream of streams) {
+      for (const stream of normalizedStreams) {
         const did = await materializeMomentsForDocument({
           ports: {
             computeMomentId: async ({

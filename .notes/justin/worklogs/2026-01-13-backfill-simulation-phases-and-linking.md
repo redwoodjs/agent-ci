@@ -991,3 +991,7 @@ Progress: moved live adapters into adapters/live
 Progress: introduced runners/live entrypoint
 
 - added `src/app/engine/runners/live/` and routed engine exports through it
+
+Scope note: directory moves for consistency
+
+For the remaining engine code that we are not actively changing, prefer directory moves and import rewrites to match the runners/adapters/core/lib structure. Avoid changing behavior unless needed for build correctness.

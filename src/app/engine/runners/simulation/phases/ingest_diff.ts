@@ -1,8 +1,8 @@
-import type { SimulationDbContext } from "../types";
-import { getSimulationDb } from "../db";
-import { addSimulationRunEvent } from "../runEvents";
-import { createSimulationRunLogger } from "../logger";
-import { simulationPhases } from "../types";
+import type { SimulationDbContext } from "../../../adapters/simulation/types";
+import { getSimulationDb } from "../../../adapters/simulation/db";
+import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
+import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
+import { simulationPhases } from "../../../adapters/simulation/types";
 import { isDocumentChangedByEtag } from "../../indexing/documentChangeIdentity";
 
 export async function runPhaseIngestDiff(

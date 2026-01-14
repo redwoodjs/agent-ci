@@ -1,14 +1,11 @@
-import { applyMomentGraphNamespacePrefixValue } from "../../momentGraphNamespace";
-import type {
-  SimulationDbContext,
-} from "../types";
-import { getMomentGraphDb, getSimulationDb } from "../db";
-import { addSimulationRunEvent } from "../runEvents";
-import { createSimulationRunLogger } from "../logger";
-import { simulationPhases } from "../types";
-import { runMaterializeMomentsAdapter } from "../adapters/materialize_moments_adapter";
+import type { SimulationDbContext } from "../../../adapters/simulation/types";
+import { getSimulationDb } from "../../../adapters/simulation/db";
+import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
+import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
+import { simulationPhases } from "../../../adapters/simulation/types";
+import { runMicroBatchesAdapter } from "../../../adapters/simulation/adapters/micro_batches_adapter";
 
-export async function runPhaseMaterializeMoments(
+export async function runPhaseMicroBatches(
   context: SimulationDbContext,
   input: { runId: string; phaseIdx: number }
 ): Promise<{ status: string; currentPhase: string } | null> {
@@ -18,36 +15,13 @@ export async function runPhaseMaterializeMoments(
 
   const runRow = (await db
     .selectFrom("simulation_runs")
-    .select([
-      "config_json",
-      "moment_graph_namespace",
-      "moment_graph_namespace_prefix",
-    ])
+    .select(["config_json"])
     .where("run_id", "=", input.runId)
-    .executeTakeFirst()) as unknown as
-    | {
-        config_json: any;
-        moment_graph_namespace: string | null;
-        moment_graph_namespace_prefix: string | null;
-      }
-    | undefined;
+    .executeTakeFirst()) as unknown as { config_json: any } | undefined;
 
   if (!runRow) {
     return null;
   }
-
-  const baseNamespace =
-    typeof (runRow as any).moment_graph_namespace === "string"
-      ? ((runRow as any).moment_graph_namespace as string)
-      : null;
-  const prefix =
-    typeof (runRow as any).moment_graph_namespace_prefix === "string"
-      ? ((runRow as any).moment_graph_namespace_prefix as string)
-      : null;
-  const effectiveNamespace =
-    baseNamespace && prefix
-      ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix)
-      : baseNamespace;
 
   const config = (runRow as any).config_json ?? {};
   const r2KeysRaw = (config as any)?.r2Keys;
@@ -60,20 +34,17 @@ export async function runPhaseMaterializeMoments(
     runId: input.runId,
     level: "info",
     kind: "phase.start",
-    payload: {
-      phase: "materialize_moments",
-      r2KeysCount: r2Keys.length,
-      effectiveNamespace: effectiveNamespace ?? null,
-    },
+    payload: { phase: "micro_batches", r2KeysCount: r2Keys.length },
   });
 
-  const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
+  const env = context.env;
+  const useLlm =
+    String((env as any).SIMULATION_MICRO_BATCH_USE_LLM ?? "") === "1";
 
-  const result = await runMaterializeMomentsAdapter(context, {
+  const result = await runMicroBatchesAdapter(context, {
     runId: input.runId,
     r2Keys,
-    effectiveNamespace: effectiveNamespace ?? null,
-    momentDb,
+    useLlm,
     now,
     log,
   });
@@ -83,11 +54,13 @@ export async function runPhaseMaterializeMoments(
     level: result.failed > 0 ? "error" : "info",
     kind: "phase.end",
     payload: {
-      phase: "materialize_moments",
+      phase: "micro_batches",
+      useLlm,
       r2KeysCount: r2Keys.length,
       docsProcessed: result.docsProcessed,
       docsSkippedUnchanged: result.docsSkippedUnchanged,
-      momentsUpserted: result.momentsUpserted,
+      batchesComputed: result.batchesComputed,
+      batchesCached: result.batchesCached,
       failed: result.failed,
     },
   });
@@ -100,14 +73,14 @@ export async function runPhaseMaterializeMoments(
         updated_at: now,
         last_progress_at: now,
         last_error_json: JSON.stringify({
-          message: "materialize_moments failed for one or more documents",
+          message: "micro_batches failed for one or more documents",
           failures: result.failures,
         }),
       } as any)
       .where("run_id", "=", input.runId)
       .execute();
 
-    return { status: "paused_on_error", currentPhase: "materialize_moments" };
+    return { status: "paused_on_error", currentPhase: "micro_batches" };
   }
 
   const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
@@ -121,7 +94,7 @@ export async function runPhaseMaterializeMoments(
       } as any)
       .where("run_id", "=", input.runId)
       .execute();
-    return { status: "completed", currentPhase: "materialize_moments" };
+    return { status: "completed", currentPhase: "micro_batches" };
   }
 
   await db

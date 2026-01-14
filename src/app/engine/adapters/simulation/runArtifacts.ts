@@ -1,4 +1,4 @@
-import { applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
+import { applyMomentGraphNamespacePrefixValue } from "../../momentGraphNamespace";
 import type {
   SimulationDbContext,
   SimulationRunDocumentRow,

@@ -1,11 +1,12 @@
-import type { SimulationDbContext } from "../types";
-import { getSimulationDb } from "../db";
-import { addSimulationRunEvent } from "../runEvents";
-import { createSimulationRunLogger } from "../logger";
-import { simulationPhases } from "../types";
-import { runMacroSynthesisAdapter } from "../adapters/macro_synthesis_adapter";
+import { applyMomentGraphNamespacePrefixValue } from "../../../momentGraphNamespace";
+import type { SimulationDbContext } from "../../../adapters/simulation/types";
+import { getMomentGraphDb, getSimulationDb } from "../../../adapters/simulation/db";
+import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
+import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
+import { simulationPhases } from "../../../adapters/simulation/types";
+import { runMaterializeMomentsAdapter } from "../../../adapters/simulation/adapters/materialize_moments_adapter";
 
-export async function runPhaseMacroSynthesis(
+export async function runPhaseMaterializeMoments(
   context: SimulationDbContext,
   input: { runId: string; phaseIdx: number }
 ): Promise<{ status: string; currentPhase: string } | null> {
@@ -15,13 +16,36 @@ export async function runPhaseMacroSynthesis(
 
   const runRow = (await db
     .selectFrom("simulation_runs")
-    .select(["config_json"])
+    .select([
+      "config_json",
+      "moment_graph_namespace",
+      "moment_graph_namespace_prefix",
+    ])
     .where("run_id", "=", input.runId)
-    .executeTakeFirst()) as unknown as { config_json: any } | undefined;
+    .executeTakeFirst()) as unknown as
+    | {
+        config_json: any;
+        moment_graph_namespace: string | null;
+        moment_graph_namespace_prefix: string | null;
+      }
+    | undefined;
 
   if (!runRow) {
     return null;
   }
+
+  const baseNamespace =
+    typeof (runRow as any).moment_graph_namespace === "string"
+      ? ((runRow as any).moment_graph_namespace as string)
+      : null;
+  const prefix =
+    typeof (runRow as any).moment_graph_namespace_prefix === "string"
+      ? ((runRow as any).moment_graph_namespace_prefix as string)
+      : null;
+  const effectiveNamespace =
+    baseNamespace && prefix
+      ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix)
+      : baseNamespace;
 
   const config = (runRow as any).config_json ?? {};
   const r2KeysRaw = (config as any)?.r2Keys;
@@ -30,20 +54,24 @@ export async function runPhaseMacroSynthesis(
       ? (r2KeysRaw as string[])
       : [];
 
-  const env = context.env;
-  const useLlm = String((env as any).SIMULATION_MACRO_USE_LLM ?? "") === "1";
-
   await addSimulationRunEvent(context, {
     runId: input.runId,
     level: "info",
     kind: "phase.start",
-    payload: { phase: "macro_synthesis", r2KeysCount: r2Keys.length, useLlm },
+    payload: {
+      phase: "materialize_moments",
+      r2KeysCount: r2Keys.length,
+      effectiveNamespace: effectiveNamespace ?? null,
+    },
   });
 
-  const result = await runMacroSynthesisAdapter(context, {
+  const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
+
+  const result = await runMaterializeMomentsAdapter(context, {
     runId: input.runId,
     r2Keys,
-    useLlm,
+    effectiveNamespace: effectiveNamespace ?? null,
+    momentDb,
     now,
     log,
   });
@@ -53,14 +81,11 @@ export async function runPhaseMacroSynthesis(
     level: result.failed > 0 ? "error" : "info",
     kind: "phase.end",
     payload: {
-      phase: "macro_synthesis",
-      useLlm,
+      phase: "materialize_moments",
       r2KeysCount: r2Keys.length,
       docsProcessed: result.docsProcessed,
-      docsReused: result.docsReused,
       docsSkippedUnchanged: result.docsSkippedUnchanged,
-      streamsProduced: result.streamsProduced,
-      macroMomentsProduced: result.macroMomentsProduced,
+      momentsUpserted: result.momentsUpserted,
       failed: result.failed,
     },
   });
@@ -73,14 +98,14 @@ export async function runPhaseMacroSynthesis(
         updated_at: now,
         last_progress_at: now,
         last_error_json: JSON.stringify({
-          message: "macro_synthesis failed for one or more documents",
+          message: "materialize_moments failed for one or more documents",
           failures: result.failures,
         }),
       } as any)
       .where("run_id", "=", input.runId)
       .execute();
 
-    return { status: "paused_on_error", currentPhase: "macro_synthesis" };
+    return { status: "paused_on_error", currentPhase: "materialize_moments" };
   }
 
   const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
@@ -94,7 +119,7 @@ export async function runPhaseMacroSynthesis(
       } as any)
       .where("run_id", "=", input.runId)
       .execute();
-    return { status: "completed", currentPhase: "macro_synthesis" };
+    return { status: "completed", currentPhase: "materialize_moments" };
   }
 
   await db
@@ -109,4 +134,3 @@ export async function runPhaseMacroSynthesis(
 
   return { status: "running", currentPhase: nextPhase };
 }
-

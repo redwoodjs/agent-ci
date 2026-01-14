@@ -1,11 +1,11 @@
-import type { SimulationDbContext } from "../types";
-import { getSimulationDb } from "../db";
-import { addSimulationRunEvent } from "../runEvents";
-import { createSimulationRunLogger } from "../logger";
-import { simulationPhases } from "../types";
-import { runMicroBatchesAdapter } from "../adapters/micro_batches_adapter";
+import type { SimulationDbContext } from "../../../adapters/simulation/types";
+import { getSimulationDb } from "../../../adapters/simulation/db";
+import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
+import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
+import { simulationPhases } from "../../../adapters/simulation/types";
+import { runMacroSynthesisAdapter } from "../../../adapters/simulation/adapters/macro_synthesis_adapter";
 
-export async function runPhaseMicroBatches(
+export async function runPhaseMacroSynthesis(
   context: SimulationDbContext,
   input: { runId: string; phaseIdx: number }
 ): Promise<{ status: string; currentPhase: string } | null> {
@@ -30,18 +30,17 @@ export async function runPhaseMicroBatches(
       ? (r2KeysRaw as string[])
       : [];
 
+  const env = context.env;
+  const useLlm = String((env as any).SIMULATION_MACRO_USE_LLM ?? "") === "1";
+
   await addSimulationRunEvent(context, {
     runId: input.runId,
     level: "info",
     kind: "phase.start",
-    payload: { phase: "micro_batches", r2KeysCount: r2Keys.length },
+    payload: { phase: "macro_synthesis", r2KeysCount: r2Keys.length, useLlm },
   });
 
-  const env = context.env;
-  const useLlm =
-    String((env as any).SIMULATION_MICRO_BATCH_USE_LLM ?? "") === "1";
-
-  const result = await runMicroBatchesAdapter(context, {
+  const result = await runMacroSynthesisAdapter(context, {
     runId: input.runId,
     r2Keys,
     useLlm,
@@ -54,13 +53,14 @@ export async function runPhaseMicroBatches(
     level: result.failed > 0 ? "error" : "info",
     kind: "phase.end",
     payload: {
-      phase: "micro_batches",
+      phase: "macro_synthesis",
       useLlm,
       r2KeysCount: r2Keys.length,
       docsProcessed: result.docsProcessed,
+      docsReused: result.docsReused,
       docsSkippedUnchanged: result.docsSkippedUnchanged,
-      batchesComputed: result.batchesComputed,
-      batchesCached: result.batchesCached,
+      streamsProduced: result.streamsProduced,
+      macroMomentsProduced: result.macroMomentsProduced,
       failed: result.failed,
     },
   });
@@ -73,14 +73,14 @@ export async function runPhaseMicroBatches(
         updated_at: now,
         last_progress_at: now,
         last_error_json: JSON.stringify({
-          message: "micro_batches failed for one or more documents",
+          message: "macro_synthesis failed for one or more documents",
           failures: result.failures,
         }),
       } as any)
       .where("run_id", "=", input.runId)
       .execute();
 
-    return { status: "paused_on_error", currentPhase: "micro_batches" };
+    return { status: "paused_on_error", currentPhase: "macro_synthesis" };
   }
 
   const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
@@ -94,7 +94,7 @@ export async function runPhaseMicroBatches(
       } as any)
       .where("run_id", "=", input.runId)
       .execute();
-    return { status: "completed", currentPhase: "micro_batches" };
+    return { status: "completed", currentPhase: "macro_synthesis" };
   }
 
   await db
@@ -109,3 +109,4 @@ export async function runPhaseMicroBatches(
 
   return { status: "running", currentPhase: nextPhase };
 }
+

@@ -1,12 +1,12 @@
-import { applyMomentGraphNamespacePrefixValue } from "../../momentGraphNamespace";
-import type { SimulationDbContext } from "../types";
-import { getMomentGraphDb, getSimulationDb } from "../db";
-import { addSimulationRunEvent } from "../runEvents";
-import { createSimulationRunLogger } from "../logger";
-import { simulationPhases } from "../types";
-import { addMoment, getMoments } from "../../momentDb";
-import { resolveThreadHeadForDocumentAsOf } from "../../core/linking/explicitRefThreadHead";
-import { computeDeterministicLinkingDecision } from "../../core/linking/deterministic_linking_orchestrator";
+import { applyMomentGraphNamespacePrefixValue } from "../../../momentGraphNamespace";
+import type { SimulationDbContext } from "../../../adapters/simulation/types";
+import { getMomentGraphDb, getSimulationDb } from "../../../adapters/simulation/db";
+import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
+import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
+import { simulationPhases } from "../../../adapters/simulation/types";
+import { addMoment, getMoments } from "../../../momentDb";
+import { resolveThreadHeadForDocumentAsOf } from "../../../core/linking/explicitRefThreadHead";
+import { computeDeterministicLinkingDecision } from "../../../core/linking/deterministic_linking_orchestrator";
 
 function parseIssueRefs(tokens: unknown): string[] {
   if (!Array.isArray(tokens)) {

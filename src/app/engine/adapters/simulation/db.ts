@@ -1,8 +1,8 @@
 import { createDb, type Database } from "rwsdk/db";
 import type { EngineSimulationStateDO } from "./durableObject";
 import { simulationStateMigrations } from "./migrations";
-import { qualifyName } from "../momentGraphNamespace";
-import { momentMigrations } from "../momentDb/migrations";
+import { qualifyName } from "../../momentGraphNamespace";
+import { momentMigrations } from "../../momentDb/migrations";
 import type { SimulationDbContext } from "./types";
 
 export function getSimulationDb(context: SimulationDbContext) {

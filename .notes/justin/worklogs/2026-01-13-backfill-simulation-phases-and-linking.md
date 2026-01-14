@@ -930,3 +930,49 @@ Renamed linking modules and port fields to use semantic names:
 - deterministic_linking
 - candidate_sets
 - timeline_fit
+
+Plan: restructure engine code into runners, adapters, core, and lib
+
+The current layout mixes:
+
+- live runner code
+- simulation runner code
+- shared phase orchestration
+- small pure-ish helpers
+
+This makes it hard to see symmetry between live and simulation, and it makes it easy for adapter implementations to grow phase logic.
+
+Target layout (under `src/app/engine/`):
+
+- runners/
+  - live/ (document indexing runner)
+  - simulation/ (simulation run runner + phase driver)
+- adapters/
+  - live/ (ports implementations: vector search, llm veto, moment reads/writes)
+  - simulation/ (ports implementations + simulation artifact persistence)
+- core/
+  - linking/ (deterministic_linking, candidate_sets, timeline_fit, root_macro_moment_linking)
+  - (later) micro_batches, macro_synthesis, materialize_moments orchestrators
+- lib/
+  - (rename current `phaseCores/` to this or split further into smaller libs)
+
+Mapping from current modules:
+
+- `engine.ts` and related live execution helpers -> `runners/live/*`
+- `simulationDb/runner.ts` + `simulationDb/phases/*` -> `runners/simulation/*` (phase driver stays here)
+- `linking/*_orchestrator.ts` + `root_macro_moment_linking.ts` -> `core/linking/*`
+- `liveAdapters/*` -> `adapters/live/*` (these become only port wiring)
+- `simulationDb/phases/*` port wiring + artifact writes -> `adapters/simulation/*` where possible (phases become mostly: enumerate items + call core + persist)
+- `phaseCores/*` -> `lib/*` (keep as helper modules invoked by core orchestrators)
+
+Task list (ordered):
+
+1. Create `runners/`, `adapters/`, `core/`, `lib/` directories under `src/app/engine/`.
+2. Move `linking/` orchestrators to `core/linking/` and update imports.
+3. Move live port wiring (`liveAdapters/indexDocument_linking.ts`, `indexDocument_micro_batches.ts`, `indexDocument_macro_synthesis.ts`) to `adapters/live/` and rename to semantic names.
+4. Split live runner `engine.ts` so its runner entrypoint imports the live adapter ports from `adapters/live/` and the core orchestrators from `core/`.
+5. For simulation linking phases, move the port wiring portions into `adapters/simulation/linking/*` and keep the phase driver in `runners/simulation/` calling the shared core via those ports.
+6. Rename `phaseCores/` to `lib/phaseCores/` (or `lib/` directly) and update imports.
+7. Run `test:simulation` after each major move (at least after steps 2, 4, 6).
+
+After the directory move is stable, repeat the same pattern for B/C/D so live orchestration is not in adapter files.

@@ -4,6 +4,7 @@ import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
 import { runMacroClassificationAdapter } from "./adapter";
+import { callLLM } from "../../../utils/llm";
 
 export async function runPhaseMacroClassification(
   context: SimulationDbContext,
@@ -42,6 +43,10 @@ export async function runPhaseMacroClassification(
     r2Keys,
     now,
     log,
+    ports: {
+      callLLM: async (prompt) =>
+        await callLLM(prompt, "slow-reasoning", { temperature: 0 }),
+    },
   });
 
   await addSimulationRunEvent(context, {

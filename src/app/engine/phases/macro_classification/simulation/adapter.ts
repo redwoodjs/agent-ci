@@ -1,10 +1,8 @@
 import type { SimulationDbContext } from "../../../adapters/simulation/types";
 import { getSimulationDb } from "../../../adapters/simulation/db";
 import type { MacroMomentDescription } from "../../../types";
-import { classifyMacroMoments } from "../../../subjects/classifyMacroMoments";
 import {
-  gateMacroMomentsLikeLiveEngine,
-  classifyMacroMomentsLikeLiveEngine,
+  runMacroClassificationForDocument,
 } from "../core/orchestrator";
 
 type MacroStream = { streamId: string; macroMoments: MacroMomentDescription[] };
@@ -27,6 +25,7 @@ export async function runMacroClassificationAdapter(
     r2Keys: string[];
     now: string;
     log: { error: (kind: string, payload: any) => Promise<void> };
+    ports: { callLLM: (prompt: string) => Promise<string> };
   }
 ): Promise<{
   docsProcessed: number;
@@ -115,54 +114,37 @@ export async function runMacroClassificationAdapter(
     const perStreamAudit: any[] = [];
     const perStreamClassifications: any[] = [];
 
-    streamsIn += streams.length;
-    for (const s of streams) {
-      const streamId =
-        typeof (s as any)?.streamId === "string"
-          ? (s as any).streamId
-          : "stream";
-      const macroMoments: MacroMomentDescription[] = Array.isArray(
-        (s as any)?.macroMoments
-      )
-        ? ((s as any).macroMoments as any[])
-        : [];
-      macroIn += macroMoments.length;
-
-      const gated = gateMacroMomentsLikeLiveEngine(macroMoments, {
-        macroMaxPerStream,
-        macroMinImportance,
-        noisePatternStringsFromEnv,
-        discordNoisePatternStringsFromEnv,
+    try {
+      const res = await runMacroClassificationForDocument({
+        ports: input.ports,
+        documentId: r2Key,
+        streams,
+        gating: {
+          macroMaxPerStream,
+          macroMinImportance,
+          noisePatternStringsFromEnv,
+          discordNoisePatternStringsFromEnv,
+        },
       });
-
-      const macroMomentDescriptions = gated.macroMomentDescriptions;
-
-      let classifications: any[] | null = null;
-      if (macroMomentDescriptions.length > 0) {
-        try {
-          const res = await classifyMacroMomentsLikeLiveEngine({
-            ports: { classifyMacroMoments },
-            documentId: r2Key,
-            macroMoments: macroMomentDescriptions as any,
-          });
-          classifications = res.classifications ?? null;
-        } catch (e) {
-          await input.log.error("macro_classification.error", {
-            runId: input.runId,
-            r2Key,
-            streamId,
-            message: e instanceof Error ? e.message : String(e),
-          });
-        }
-      }
-
-      perStreamAudit.push({ streamId, gating: gated.gatingAudit });
-      perStreamClassifications.push({ streamId, classifications });
-
-      const out = { streamId, macroMoments: macroMomentDescriptions };
-      outStreams.push(out);
-      streamsOut += 1;
-      macroOut += macroMomentDescriptions.length;
+      outStreams.push(...res.streams);
+      perStreamAudit.push(...res.gatingAuditByStream);
+      perStreamClassifications.push(...res.classificationsByStream);
+      streamsIn += res.counts.streamsIn;
+      streamsOut += res.counts.streamsOut;
+      macroIn += res.counts.macroIn;
+      macroOut += res.counts.macroOut;
+    } catch (e) {
+      failed++;
+      failures.push({
+        r2Key,
+        error: e instanceof Error ? e.message : String(e),
+      });
+      await input.log.error("macro_classification.error", {
+        runId: input.runId,
+        r2Key,
+        message: e instanceof Error ? e.message : String(e),
+      });
+      continue;
     }
 
     try {

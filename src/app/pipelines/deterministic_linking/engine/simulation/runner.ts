@@ -9,7 +9,7 @@ import { createSimulationRunLogger } from "../../../../engine/adapters/simulatio
 import { simulationPhases } from "../../../../engine/adapters/simulation/types";
 import { addMoment, getMoments } from "../../../../engine/databases/momentGraph";
 import { resolveThreadHeadForDocumentAsOf } from "../../../../engine/core/linking/explicitRefThreadHead";
-import { computeDeterministicLinkingDecision } from "../../../../engine/core/linking/deterministic_linking_orchestrator";
+import { computeDeterministicLinkingDecision } from "../../../../engine/core/linking/deterministicLinkingOrchestrator";
 
 function parseIssueRefs(tokens: unknown): string[] {
   if (!Array.isArray(tokens)) {

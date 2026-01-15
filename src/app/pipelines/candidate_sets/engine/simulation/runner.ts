@@ -8,7 +8,7 @@ import { addSimulationRunEvent } from "../../../../engine/adapters/simulation/ru
 import { createSimulationRunLogger } from "../../../../engine/adapters/simulation/logger";
 import { simulationPhases } from "../../../../engine/adapters/simulation/types";
 import { getEmbedding } from "../../../../engine/utils/vector";
-import { computeCandidateSet } from "../../../../engine/core/linking/candidate_sets_orchestrator";
+import { computeCandidateSet } from "../../../../engine/core/linking/candidateSetsOrchestrator";
 
 export async function runPhaseCandidateSets(
   context: SimulationDbContext,

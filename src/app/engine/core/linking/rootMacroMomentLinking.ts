@@ -1,6 +1,6 @@
-import { computeDeterministicLinkingDecision } from "./deterministic_linking_orchestrator";
-import { computeCandidateSet } from "./candidate_sets_orchestrator";
-import { computeTimelineFitDecision } from "./timeline_fit_orchestrator";
+import { computeDeterministicLinkingDecision } from "./deterministicLinkingOrchestrator";
+import { computeCandidateSet } from "./candidateSetsOrchestrator";
+import { computeTimelineFitDecision } from "./timelineFitOrchestrator";
 
 export type RootMacroMomentLinkingPorts = {
   deterministicLinking: Parameters<typeof computeDeterministicLinkingDecision>[0]["ports"];

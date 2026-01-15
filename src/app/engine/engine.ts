@@ -32,14 +32,14 @@ import {
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { computeMicroBatchesForDocument } from "../pipelines/micro_batches/engine/core/orchestrator";
-import { planMicroBatches } from "./lib/phaseCores/micro_batches_core";
+import { planMicroBatches } from "./lib/phaseCores/microBatchesCore";
 import { computeMicroItemsWithoutLlm } from "./utils/microItems";
-import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./lib/phaseCores/materialize_moments_core";
+import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./lib/phaseCores/materializeMomentsCore";
 import { computeMacroSynthesisForDocument } from "../pipelines/macro_synthesis/engine/core/orchestrator";
-import { computeMicroStreamHash, extractAnchorsFromStreams } from "./lib/phaseCores/macro_synthesis_core";
-import { computeDeterministicLinkingProposal } from "./lib/phaseCores/deterministic_linking_core";
+import { computeMicroStreamHash, extractAnchorsFromStreams } from "./lib/phaseCores/macroSynthesisCore";
+import { computeDeterministicLinkingProposal } from "./lib/phaseCores/deterministicLinkingCore";
 import { computeIndexDocumentParentForRootMacroMoment } from "./adapters/live/linking";
-import { runPhaseADocumentPreparation } from "./core/indexing/phase_a_orchestrator";
+import { runPhaseADocumentPreparation } from "./core/indexing/phaseAOrchestrator";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,

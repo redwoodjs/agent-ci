@@ -9,7 +9,7 @@ import { createSimulationRunLogger } from "../../../../engine/adapters/simulatio
 import { simulationPhases } from "../../../../engine/adapters/simulation/types";
 import { addMoment, getMoments } from "../../../../engine/databases/momentGraph";
 import { callLLM } from "../../../../engine/utils/llm";
-import { computeTimelineFitDecision } from "../../../../engine/core/linking/timeline_fit_orchestrator";
+import { computeTimelineFitDecision } from "../../../../engine/core/linking/timelineFitOrchestrator";
 
 export async function runPhaseTimelineFit(
   context: SimulationDbContext,

@@ -14,8 +14,8 @@ import {
   runMicroBatchesForDocument,
   type MicroBatchesOrchestratorPorts,
 } from "../core/orchestrator";
-import { planMicroBatches } from "../../../../engine/lib/phaseCores/micro_batches_core";
-import { runPhaseADocumentPreparation } from "../../../../engine/core/indexing/phase_a_orchestrator";
+import { planMicroBatches } from "../../../../engine/lib/phaseCores/microBatchesCore";
+import { runPhaseADocumentPreparation } from "../../../../engine/core/indexing/phaseAOrchestrator";
 import {
   applyMomentGraphNamespacePrefixValue,
   getMomentGraphNamespacePrefixFromEnv,

@@ -4,7 +4,7 @@ import type {
   IndexingHookContext,
   Plugin,
 } from "../../../../engine/types";
-import type { MicroBatchPlanItem } from "../../../../engine/lib/phaseCores/micro_batches_core";
+import type { MicroBatchPlanItem } from "../../../../engine/lib/phaseCores/microBatchesCore";
 
 export type MicroBatchesOrchestratorPorts = {
   planMicroBatches: (input: {

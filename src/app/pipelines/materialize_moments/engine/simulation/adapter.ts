@@ -9,7 +9,7 @@ import { sha256Hex, uuidFromSha256Hex } from "../../../../engine/utils/crypto";
 import {
   computeMaterializedMomentIdentity,
   computeMicroPathsHash,
-} from "../../../../engine/lib/phaseCores/materialize_moments_core";
+} from "../../../../engine/lib/phaseCores/materializeMomentsCore";
 import { materializeMomentsForDocument } from "../core/orchestrator";
 import {
   buildParsedDocumentIdentity,

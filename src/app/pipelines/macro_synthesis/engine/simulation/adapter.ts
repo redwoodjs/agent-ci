@@ -9,7 +9,7 @@ import { prepareDocumentForR2Key } from "../../../../engine/indexing/pluginPipel
 import {
   computeMicroStreamHash,
   extractAnchorsFromStreams,
-} from "../../../../engine/lib/phaseCores/macro_synthesis_core";
+} from "../../../../engine/lib/phaseCores/macroSynthesisCore";
 import { sha256Hex } from "../../../../engine/utils/crypto";
 import { extractAnchorTokens } from "../../../../engine/utils/anchorTokens";
 import { applyMomentGraphNamespacePrefixValue } from "../../../../engine/momentGraphNamespace";

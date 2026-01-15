@@ -1,7 +1,7 @@
 import {
   computeMicroStreamHash,
   extractAnchorsFromStreams,
-} from "../../../../engine/lib/phaseCores/macro_synthesis_core";
+} from "../../../../engine/lib/phaseCores/macroSynthesisCore";
 import { extractAnchorTokens } from "../../../../engine/utils/anchorTokens";
 
 export async function computeIndexDocumentMacroSynthesisIdentity(input: {

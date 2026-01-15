@@ -1,4 +1,4 @@
-import { computeTimelineFitProposalDeep } from "../../lib/phaseCores/timeline_fit_deep_core";
+import { computeTimelineFitProposalDeep } from "../../lib/phaseCores/timelineFitDeepCore";
 import { extractAnchorTokens } from "../../utils/anchorTokens";
 
 export type TimelineFitPorts = {

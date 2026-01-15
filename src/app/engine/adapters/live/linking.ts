@@ -3,7 +3,7 @@ import { getMoments } from "../../databases/momentGraph";
 import { getEmbedding } from "../../utils/vector";
 import { callLLM } from "../../utils/llm";
 import { resolveThreadHeadForDocumentAsOf } from "../../core/linking/explicitRefThreadHead";
-import { computeRootMacroMomentParentSelection } from "../../core/linking/root_macro_moment_linking";
+import { computeRootMacroMomentParentSelection } from "../../core/linking/rootMacroMomentLinking";
 
 export async function computeIndexDocumentParentForRootMacroMoment(input: {
   env: Cloudflare.Env;

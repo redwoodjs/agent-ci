@@ -1,4 +1,4 @@
-import { computeDeterministicLinkingProposal } from "../../lib/phaseCores/deterministic_linking_core";
+import { computeDeterministicLinkingProposal } from "../../lib/phaseCores/deterministicLinkingCore";
 import { extractAnchorTokens } from "../../utils/anchorTokens";
 
 function parseTimeMs(value: unknown): number | null {

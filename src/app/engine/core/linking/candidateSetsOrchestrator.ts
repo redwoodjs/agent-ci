@@ -1,4 +1,4 @@
-import { buildCandidateSet } from "../../lib/phaseCores/candidate_sets_core";
+import { buildCandidateSet } from "../../lib/phaseCores/candidateSetsCore";
 
 export type CandidateSetsPorts = {
   getEmbedding: (text: string) => Promise<number[]>;

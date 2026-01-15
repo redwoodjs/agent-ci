@@ -4,6 +4,7 @@ import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
 import { runMacroSynthesisAdapter } from "./adapter";
+import { synthesizeMicroMomentsIntoStreams } from "../../../synthesis/synthesizeMicroMoments";
 
 export async function runPhaseMacroSynthesis(
   context: SimulationDbContext,
@@ -42,6 +43,7 @@ export async function runPhaseMacroSynthesis(
     r2Keys,
     now,
     log,
+    ports: { synthesizeMicroMomentsIntoStreams },
   });
 
   await addSimulationRunEvent(context, {

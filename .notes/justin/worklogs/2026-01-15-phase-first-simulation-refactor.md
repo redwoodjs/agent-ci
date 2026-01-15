@@ -208,3 +208,40 @@ Check:
 
 - `pnpm -s build` passes after this refactor.
 
+## Progress: macro_classification core owns gating + classification flow
+
+The macro_classification simulation runner and adapter were still owning too much of the flow. In particular, classification behavior was effectively controlled outside the phase core, and the runner had previously drifted toward calling prompt helpers.
+
+Changes:
+
+- Moved the per-document macro stream loop into `src/app/engine/phases/macro_classification/core/orchestrator.ts`.
+- The phase core now:
+  - gates macro moments per stream using the existing gating logic
+  - runs the classification call through a single injected `callLLM` port
+  - mutates macro moments with classification fields
+- The simulation runner now only provides a `callLLM` port wrapper (alias + temperature) and calls the adapter.
+- The simulation adapter loads/persists simulation rows and delegates the stream-level work to the phase core.
+
+Check:
+
+- `pnpm -s build` passes after this refactor.
+
+## Progress: macro_synthesis core owns per-document orchestration
+
+macro_synthesis was still doing the per-document logic in the simulation adapter (reuse checks, assembling micro items, calling synthesis, normalizing and persisting output). That made it hard to keep core/adapter boundaries consistent across simulation and live paths.
+
+Changes:
+
+- Added `runMacroSynthesisForR2Key` in `src/app/engine/phases/macro_synthesis/core/orchestrator.ts` to own:
+  - unchanged/error skipping
+  - micro stream hash computation and reuse check
+  - micro item assembly from moment graph (when available) or micro batch cache
+  - calling `computeMacroSynthesisForDocument`
+  - stream normalization and persistence via ports
+- The simulation adapter now implements the required ports (db reads/writes, moment graph reads, plugin prompt context loading) and aggregates counters.
+- The simulation runner now supplies the LLM-backed `synthesizeMicroMomentsIntoStreams` implementation, so the adapter no longer imports it directly.
+
+Check:
+
+- `pnpm -s build` passes after this refactor.
+

@@ -58,7 +58,8 @@ test("simulation phase: timeline_fit (decisions persisted, run completes)", asyn
 
   await postJson("/admin/simulation/run/advance", { runId }); // ingest_diff -> micro_batches
   await postJson("/admin/simulation/run/advance", { runId }); // micro_batches -> macro_synthesis
-  await postJson("/admin/simulation/run/advance", { runId }); // macro_synthesis -> materialize_moments
+  await postJson("/admin/simulation/run/advance", { runId }); // macro_synthesis -> macro_classification
+  await postJson("/admin/simulation/run/advance", { runId }); // macro_classification -> materialize_moments
   await postJson("/admin/simulation/run/advance", { runId }); // materialize_moments -> deterministic_linking
   await postJson("/admin/simulation/run/advance", { runId }); // deterministic_linking -> candidate_sets
   await postJson("/admin/simulation/run/advance", { runId }); // candidate_sets -> timeline_fit

@@ -290,5 +290,37 @@ export const simulationStateMigrations = {
         .execute();
     },
   },
+  "009_add_macro_classification": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_macro_classified_outputs")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("r2_key", "text", (col) => col.notNull())
+          .addColumn("streams_json", "text", (col) => col.notNull())
+          .addColumn("gating_json", "text")
+          .addColumn("classification_json", "text")
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_run_macro_classified_outputs_pk", [
+            "run_id",
+            "r2_key",
+          ])
+          .execute(),
+        await db.schema
+          .createIndex("simulation_run_macro_classified_outputs_run_idx")
+          .on("simulation_run_macro_classified_outputs")
+          .columns(["run_id", "r2_key"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema
+        .dropTable("simulation_run_macro_classified_outputs")
+        .execute();
+    },
+  },
 } satisfies Migrations;
 

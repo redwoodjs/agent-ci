@@ -118,9 +118,17 @@ export async function runMicroBatchesAdapter(
           computeMomentGraphNamespaceForIndexing: async () => null,
           getMomentGraphNamespacePrefixFromEnv,
           applyMomentGraphNamespacePrefixValue,
-          splitDocumentIntoChunks: async ({ document, indexingContext, plugins }) => {
+          splitDocumentIntoChunks: async ({
+            document,
+            indexingContext,
+            plugins,
+          }) => {
             try {
-              return await splitDocumentIntoChunks(document, indexingContext, plugins);
+              return await splitDocumentIntoChunks(
+                document,
+                indexingContext,
+                plugins
+              );
             } catch (e) {
               const msg = String((e as any)?.message ?? "");
               if (msg === "No plugin could split document into chunks") {
@@ -181,7 +189,11 @@ export async function runMicroBatchesAdapter(
             }
             return { microItems: asStrings };
           },
-          storeMicroBatchCache: async ({ batchHash, promptContextHash, microItems }) => {
+          storeMicroBatchCache: async ({
+            batchHash,
+            promptContextHash,
+            microItems,
+          }) => {
             await db
               .insertInto("simulation_micro_batch_cache")
               .values({
@@ -278,4 +290,3 @@ export async function runMicroBatchesAdapter(
     failures,
   };
 }
-

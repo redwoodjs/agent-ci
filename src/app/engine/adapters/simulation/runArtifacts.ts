@@ -4,6 +4,7 @@ import type {
   SimulationRunDocumentRow,
   SimulationRunMicroBatchRow,
   SimulationRunMacroOutputRow,
+  SimulationRunMacroClassifiedOutputRow,
   SimulationRunMaterializedMomentRow,
   SimulationRunLinkDecisionRow,
   SimulationRunCandidateSetRow,
@@ -161,6 +162,56 @@ export async function getSimulationRunMacroOutputs(
     anchors: (r as any).anchors_json ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+  }));
+}
+
+export async function getSimulationRunMacroClassifiedOutputs(
+  context: SimulationDbContext,
+  input: { runId: string; r2Key?: string | null }
+): Promise<
+  Array<{
+    r2Key: string;
+    streams: any;
+    gating: any | null;
+    classifications: any | null;
+    createdAt: string;
+    updatedAt: string;
+  }>
+> {
+  const db = getSimulationDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return [];
+  }
+
+  const r2Key =
+    typeof input.r2Key === "string" && input.r2Key.trim().length > 0
+      ? input.r2Key.trim()
+      : null;
+
+  let q = db
+    .selectFrom("simulation_run_macro_classified_outputs")
+    .selectAll()
+    .where("run_id", "=", runId);
+
+  if (r2Key) {
+    q = q.where("r2_key", "=", r2Key);
+  }
+
+  const rows = (await q
+    .orderBy("r2_key", "asc")
+    .execute()) as unknown as SimulationRunMacroClassifiedOutputRow[];
+
+  return rows.map((r) => ({
+    r2Key: (r as any).r2_key,
+    streams: (r as any).streams_json ?? [],
+    gating: (r as any).gating_json ?? null,
+    classifications: (r as any).classification_json ?? null,
+    createdAt: (r as any).created_at,
+    updatedAt: (r as any).updated_at,
   }));
 }
 

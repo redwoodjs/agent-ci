@@ -27,6 +27,7 @@ export type SimulationRunProgressSummary = {
     errorRows: number;
   };
   macroSynthesis: { docs: number };
+  macroClassification: { docs: number };
   materializeMoments: { docs: number; moments: number };
   deterministicLinking: { docs: number; decisions: number };
   candidateSets: { docs: number; sets: number };
@@ -59,6 +60,7 @@ export async function getSimulationRunProgressSummary(
         errorRows: 0,
       },
       macroSynthesis: { docs: 0 },
+      macroClassification: { docs: 0 },
       materializeMoments: { docs: 0, moments: 0 },
       deterministicLinking: { docs: 0, decisions: 0 },
       candidateSets: { docs: 0, sets: 0 },
@@ -102,6 +104,12 @@ export async function getSimulationRunProgressSummary(
 
   const macro = (await db
     .selectFrom("simulation_run_macro_outputs")
+    .select([sql<number>`count(*)`.as("docs")])
+    .where("run_id", "=", runId)
+    .executeTakeFirst()) as any;
+
+  const macroClassified = (await db
+    .selectFrom("simulation_run_macro_classified_outputs")
     .select([sql<number>`count(*)`.as("docs")])
     .where("run_id", "=", runId)
     .executeTakeFirst()) as any;
@@ -160,6 +168,9 @@ export async function getSimulationRunProgressSummary(
     },
     macroSynthesis: {
       docs: toNumber(macro?.docs),
+    },
+    macroClassification: {
+      docs: toNumber(macroClassified?.docs),
     },
     materializeMoments: {
       docs: toNumber(materialized?.docs),

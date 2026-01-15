@@ -66,7 +66,11 @@ test("simulation phase: macro_synthesis (stream identity caching)", async () => 
 
   const adv3 = await postJson("/admin/simulation/run/advance", { runId });
   assert.equal(adv3.status, "running");
-  assert.equal(adv3.currentPhase, "materialize_moments");
+  assert.equal(adv3.currentPhase, "macro_classification");
+
+  const adv4 = await postJson("/admin/simulation/run/advance", { runId });
+  assert.equal(adv4.status, "running");
+  assert.equal(adv4.currentPhase, "materialize_moments");
 
   const out1 = await getJson(
     `/admin/simulation/run/${runId}/macro-outputs?r2Key=${encodeURIComponent(
@@ -90,7 +94,7 @@ test("simulation phase: macro_synthesis (stream identity caching)", async () => 
 
   const advAgain = await postJson("/admin/simulation/run/advance", { runId });
   assert.equal(advAgain.status, "running");
-  assert.equal(advAgain.currentPhase, "materialize_moments");
+  assert.equal(advAgain.currentPhase, "macro_classification");
 
   const out2 = await getJson(
     `/admin/simulation/run/${runId}/macro-outputs?r2Key=${encodeURIComponent(

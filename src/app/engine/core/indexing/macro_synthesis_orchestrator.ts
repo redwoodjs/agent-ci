@@ -31,7 +31,8 @@ export async function computeMacroSynthesisForDocument(input: {
   auditEvents: any[];
 }> {
   const microStreamHash =
-    typeof input.microStreamHash === "string" && input.microStreamHash.length > 0
+    typeof input.microStreamHash === "string" &&
+    input.microStreamHash.length > 0
       ? input.microStreamHash
       : await input.ports.computeMicroStreamHash({
           batches: input.plannedBatches,
@@ -40,7 +41,9 @@ export async function computeMacroSynthesisForDocument(input: {
   const auditEvents: any[] = [];
 
   let streams: Array<{ streamId: string; macroMoments: any[] }> = [];
-  if (input.useLlm) {
+  if (!input.useLlm) {
+    streams = [];
+  } else {
     streams = await input.ports.synthesizeMicroMomentsIntoStreams(
       input.microMoments,
       {
@@ -50,34 +53,6 @@ export async function computeMacroSynthesisForDocument(input: {
         },
       }
     );
-  } else {
-    const summaries = input.microMoments
-      .map((m) => m.summary)
-      .filter(Boolean)
-      .slice(0, 24);
-    const groups: string[][] = [];
-    for (let i = 0; i < summaries.length; i += 8) {
-      groups.push(summaries.slice(i, i + 8));
-    }
-    const fallbackGroups = groups.length > 0 ? groups : [["(empty)"]];
-    while (fallbackGroups.length < 3) {
-      fallbackGroups.push(["(empty)"]);
-    }
-    const macroMoments = fallbackGroups.slice(0, 3).map((g, idx) => ({
-      title: `Synthesis for ${input.documentId} (${idx + 1})`,
-      summary: g.join(" ") || "(empty)",
-      microPaths: input.microMoments
-        .slice(idx * 16, idx * 16 + 50)
-        .map((m) => m.path),
-      importance: 0.5,
-      createdAt: new Date(Date.parse(input.now) + idx * 60_000).toISOString(),
-    }));
-    streams = [
-      {
-        streamId: "stream-1",
-        macroMoments,
-      },
-    ];
   }
 
   const anchors = input.ports.extractAnchorsFromStreams({ streams });
@@ -95,4 +70,3 @@ export async function computeMacroSynthesisForDocument(input: {
     auditEvents,
   };
 }
-

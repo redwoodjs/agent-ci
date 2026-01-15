@@ -6,10 +6,28 @@ import { addSimulationRunEvent } from "../../adapters/simulation/runEvents";
 import { runPhaseIngestDiff } from "./phases/ingest_diff";
 import { runPhaseMicroBatches } from "./phases/micro_batches";
 import { runPhaseMacroSynthesis } from "./phases/macro_synthesis";
+import { runPhaseMacroClassification } from "./phases/macro_classification";
 import { runPhaseMaterializeMoments } from "./phases/materialize_moments";
 import { runPhaseDeterministicLinking } from "./phases/deterministic_linking";
 import { runPhaseCandidateSets } from "./phases/candidate_sets";
 import { runPhaseTimelineFit } from "./phases/timeline_fit";
+
+const phaseRunners = {
+  ingest_diff: runPhaseIngestDiff,
+  micro_batches: runPhaseMicroBatches,
+  macro_synthesis: runPhaseMacroSynthesis,
+  macro_classification: runPhaseMacroClassification,
+  materialize_moments: runPhaseMaterializeMoments,
+  deterministic_linking: runPhaseDeterministicLinking,
+  candidate_sets: runPhaseCandidateSets,
+  timeline_fit: runPhaseTimelineFit,
+} satisfies Record<
+  SimulationPhase,
+  (
+    context: SimulationDbContext,
+    input: { runId: string; phaseIdx: number }
+  ) => Promise<{ status: string; currentPhase: string } | null>
+>;
 
 export async function advanceSimulationRunPhaseNoop(
   context: SimulationDbContext,
@@ -44,27 +62,8 @@ export async function advanceSimulationRunPhaseNoop(
   const phaseIdx = simulationPhases.indexOf(phase);
 
   try {
-    if (phase === "ingest_diff") {
-      return await runPhaseIngestDiff(context, { runId, phaseIdx });
-    }
-    if (phase === "micro_batches") {
-      return await runPhaseMicroBatches(context, { runId, phaseIdx });
-    }
-    if (phase === "macro_synthesis") {
-      return await runPhaseMacroSynthesis(context, { runId, phaseIdx });
-    }
-    if (phase === "materialize_moments") {
-      return await runPhaseMaterializeMoments(context, { runId, phaseIdx });
-    }
-    if (phase === "deterministic_linking") {
-      return await runPhaseDeterministicLinking(context, { runId, phaseIdx });
-    }
-    if (phase === "candidate_sets") {
-      return await runPhaseCandidateSets(context, { runId, phaseIdx });
-    }
-    if (phase === "timeline_fit") {
-      return await runPhaseTimelineFit(context, { runId, phaseIdx });
-    }
+    const fn = phaseRunners[phase];
+    return await fn(context, { runId, phaseIdx });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     await addSimulationRunEvent(context, {

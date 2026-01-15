@@ -66,7 +66,7 @@ test("simulation phase: materialize_moments (moments exist + idempotent)", async
 
   const adv3 = await postJson("/admin/simulation/run/advance", { runId });
   assert.equal(adv3.status, "running");
-  assert.equal(adv3.currentPhase, "materialize_moments");
+  assert.equal(adv3.currentPhase, "macro_classification");
 
   const adv4 = await postJson("/admin/simulation/run/advance", { runId });
   if (adv4.status !== "running") {
@@ -77,7 +77,11 @@ test("simulation phase: materialize_moments (moments exist + idempotent)", async
       )}`
     );
   }
-  assert.equal(adv4.currentPhase, "deterministic_linking");
+  assert.equal(adv4.currentPhase, "materialize_moments");
+
+  const adv5 = await postJson("/admin/simulation/run/advance", { runId });
+  assert.equal(adv5.status, "running");
+  assert.equal(adv5.currentPhase, "deterministic_linking");
 
   const m1 = await getJson(
     `/admin/simulation/run/${runId}/materialized-moments?r2Key=${encodeURIComponent(
@@ -111,4 +115,3 @@ test("simulation phase: materialize_moments (moments exist + idempotent)", async
   const ids2 = m2.moments.map((m) => m.momentId);
   assert.deepEqual(ids2, ids1);
 });
-

@@ -15,6 +15,7 @@ import {
   getSimulationRunDocuments,
   getSimulationRunMicroBatches,
   getSimulationRunMacroOutputs,
+  getSimulationRunMacroClassifiedOutputs,
   getSimulationRunLinkDecisions,
   getSimulationRunCandidateSets,
   getSimulationRunTimelineFitDecisions,
@@ -150,6 +151,7 @@ export function SimulationRunsPage({ request }: { request: Request }) {
     viewRaw === "documents" ||
     viewRaw === "micro-batches" ||
     viewRaw === "macro-outputs" ||
+    viewRaw === "macro-classifications" ||
     viewRaw === "materialized-moments" ||
     viewRaw === "link-decisions" ||
     viewRaw === "candidate-sets" ||
@@ -198,6 +200,7 @@ async function SimulationRunsContent({
     | "documents"
     | "micro-batches"
     | "macro-outputs"
+    | "macro-classifications"
     | "materialized-moments"
     | "link-decisions"
     | "candidate-sets"
@@ -334,6 +337,9 @@ async function SimulationRunsContent({
   const macroOutputsLink = `/audit/simulation?runId=${encodeURIComponent(
     runId
   )}&view=macro-outputs`;
+  const macroClassificationsLink = `/audit/simulation?runId=${encodeURIComponent(
+    runId
+  )}&view=macro-classifications`;
   const materializedLink = `/audit/simulation?runId=${encodeURIComponent(
     runId
   )}&view=materialized-moments`;
@@ -420,6 +426,11 @@ async function SimulationRunsContent({
               {String(progress.ingestDiff.changed)}
             </div>
             <div className="font-mono">
+              macro_classification docs=
+              {String(progress.macroClassification.docs)}/
+              {String(progress.ingestDiff.changed)}
+            </div>
+            <div className="font-mono">
               materialize_moments docs=
               {String(progress.materializeMoments.docs)}/
               {String(progress.ingestDiff.changed)} moments=
@@ -498,6 +509,12 @@ async function SimulationRunsContent({
             </a>
             <a
               className="text-sm text-blue-600 hover:underline"
+              href={macroClassificationsLink}
+            >
+              Macro classifications
+            </a>
+            <a
+              className="text-sm text-blue-600 hover:underline"
               href={materializedLink}
             >
               Materialized moments
@@ -550,6 +567,8 @@ async function SimulationRunsContent({
         <MicroBatchesCard runId={runId} />
       ) : view === "macro-outputs" ? (
         <MacroOutputsCard runId={runId} />
+      ) : view === "macro-classifications" ? (
+        <MacroClassificationsCard runId={runId} />
       ) : view === "materialized-moments" ? (
         <MaterializedMomentsCard
           runId={runId}
@@ -753,6 +772,48 @@ async function MacroOutputsCard({ runId }: { runId: string }) {
                     anchors: o.anchors,
                     streams: o.streams,
                     audit: o.audit,
+                  })}
+                </pre>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+async function MacroClassificationsCard({ runId }: { runId: string }) {
+  const envCloudflare = env as Cloudflare.Env;
+  const context = { env: envCloudflare, momentGraphNamespace: null as any };
+  const outputs = await getSimulationRunMacroClassifiedOutputs(context, {
+    runId,
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg">Macro classifications</CardTitle>
+        <CardDescription>
+          Per-run macro gating + classification outputs (ready for
+          materialization)
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {outputs.length === 0 ? (
+          <div className="text-sm text-gray-600">(none)</div>
+        ) : (
+          <div className="space-y-2">
+            {outputs.map((o) => (
+              <div key={o.r2Key} className="rounded border bg-white">
+                <div className="p-2">
+                  <div className="font-mono text-xs break-all">{o.r2Key}</div>
+                </div>
+                <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[40vh]">
+                  {safeStringify({
+                    gating: o.gating,
+                    classifications: o.classifications,
+                    streams: o.streams,
                   })}
                 </pre>
               </div>

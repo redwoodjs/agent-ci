@@ -58,7 +58,8 @@ test("simulation phase: candidate_sets (persisted candidate lists)", async () =>
 
   await postJson("/admin/simulation/run/advance", { runId }); // ingest_diff -> micro_batches
   await postJson("/admin/simulation/run/advance", { runId }); // micro_batches -> macro_synthesis
-  await postJson("/admin/simulation/run/advance", { runId }); // macro_synthesis -> materialize_moments
+  await postJson("/admin/simulation/run/advance", { runId }); // macro_synthesis -> macro_classification
+  await postJson("/admin/simulation/run/advance", { runId }); // macro_classification -> materialize_moments
   await postJson("/admin/simulation/run/advance", { runId }); // materialize_moments -> deterministic_linking
   const advE = await postJson("/admin/simulation/run/advance", { runId }); // deterministic_linking -> candidate_sets
   assert.equal(advE.status, "running");

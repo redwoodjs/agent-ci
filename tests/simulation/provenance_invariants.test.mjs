@@ -73,7 +73,7 @@ test("provenance invariants: moments include document identity + author/createdA
 
   const adv3 = await postJson("/admin/simulation/run/advance", { runId });
   assert.equal(adv3.status, "running");
-  assert.equal(adv3.currentPhase, "materialize_moments");
+  assert.equal(adv3.currentPhase, "macro_classification");
 
   const adv4 = await postJson("/admin/simulation/run/advance", { runId });
   if (adv4.status !== "running") {
@@ -82,6 +82,11 @@ test("provenance invariants: moments include document identity + author/createdA
       `advance(materialize_moments) did not stay running: ${JSON.stringify(run)}`
     );
   }
+  assert.equal(adv4.currentPhase, "materialize_moments");
+
+  const adv5 = await postJson("/admin/simulation/run/advance", { runId });
+  assert.equal(adv5.status, "running");
+  assert.equal(adv5.currentPhase, "deterministic_linking");
 
   const run = await getJson(`/admin/simulation/run/${runId}`);
   const baseNamespace = run?.momentGraphNamespace ?? null;

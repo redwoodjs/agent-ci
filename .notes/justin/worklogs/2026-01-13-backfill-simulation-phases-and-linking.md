@@ -1289,6 +1289,33 @@ Readable previews + verbose events implemented (first pass)
 - Events: added per-item decision events in deterministic_linking, candidate_sets, and timeline_fit behind MACHINEN_SIMULATION_EVENT_VERBOSITY (set to 1/true/verbose/item).
 - Increased the simulation run events fetch cap so the UI can load more events when verbosity is enabled.
 
+Macro classification as its own simulation phase + phase ergonomics
+
+Decision: macro classification should be its own simulation phase (not folded into macro synthesis).
+
+Implementation (new phase):
+
+- added new phase: `macro_classification` (runs after `macro_synthesis`, before `materialize_moments`)
+- purpose: apply macro gating + run `classifyMacroMoments` (LLM) and persist enriched macro moments so downstream phases see consistent `momentKind/isSubject/subjectKind/...`
+- persisted artifact: `simulation_run_macro_classified_outputs` keyed by `(run_id, r2_key)` with:
+  - `streams_json`: gated + classified macro moments per stream
+  - `gating_json`: per-stream gating audit
+  - `classification_json`: raw per-stream classifications for debugging
+
+Ergonomics note (follow-up): adding a phase currently requires touching multiple places (phase list/types, runner dispatch, routes, UI view wiring, progress summary). We should converge on a small registry pattern so the phase list + labels are single-sourced and runner dispatch is exhaustiveness-checked.
+
+Micro batches alignment plan (explicit "what we change")
+
+Goal: align simulation `micro_batches` with the proven old LLM-driven micro-moment semantics and make `microPaths` resolvable + provenance-friendly.
+
+Plan:
+
+- keep using the same micro summary prompt (`computeMicroMomentsForChunkBatch`) for computed_llm batches (already true)
+- change micro-moment path scheme to match the old stable format: `chunk-batch:${batchHash}:${idx}` (instead of `${r2Key}#${batchIdx}#${j}`)
+- persist micro moments into the moment graph `micro_moment_batches` using the same `batch_hash` and item `path` scheme so moment debug can resolve `microPaths` reliably
+- ensure micro moment `sourceMetadata` includes: `chunkBatchHash`, `chunkIds`, and `timeRange` (where available)
+- invariant: if a document yields 0 chunks or 0 micro moments, macro synthesis should produce 0 streams (no placeholder macro moments)
+
 Progress: run all + auto-advance + default prefix
 
 - default simulation run prefix is generated when not provided (env label + UTC minute, with a collision suffix)

@@ -1,4 +1,7 @@
-import type { SimulationDbContext, SimulationRunMacroOutputRow } from "../types";
+import type {
+  SimulationDbContext,
+  SimulationRunMacroClassifiedOutputRow,
+} from "../types";
 import { getSimulationDb } from "../db";
 import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
 import { prepareDocumentForR2Key } from "../../../indexing/pluginPipeline";
@@ -59,13 +62,17 @@ export async function runMaterializeMomentsAdapter(
     }
 
     const macroRow = (await db
-      .selectFrom("simulation_run_macro_outputs")
+      .selectFrom("simulation_run_macro_classified_outputs")
       .select(["streams_json"])
       .where("run_id", "=", input.runId)
       .where("r2_key", "=", r2Key)
-      .executeTakeFirst()) as unknown as SimulationRunMacroOutputRow | undefined;
+      .executeTakeFirst()) as unknown as
+      | SimulationRunMacroClassifiedOutputRow
+      | undefined;
 
     if (!macroRow) {
+      failed++;
+      failures.push({ r2Key, error: "missing macro_classification outputs" });
       continue;
     }
 

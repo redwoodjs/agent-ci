@@ -10,24 +10,18 @@ export type SimulationRunStatus =
   | "paused_manual"
   | "completed";
 
-export type SimulationPhase =
-  | "ingest_diff"
-  | "micro_batches"
-  | "macro_synthesis"
-  | "materialize_moments"
-  | "deterministic_linking"
-  | "candidate_sets"
-  | "timeline_fit";
-
-export const simulationPhases: readonly SimulationPhase[] = [
+export const simulationPhases = [
   "ingest_diff",
   "micro_batches",
   "macro_synthesis",
+  "macro_classification",
   "materialize_moments",
   "deterministic_linking",
   "candidate_sets",
   "timeline_fit",
-];
+] as const;
+
+export type SimulationPhase = (typeof simulationPhases)[number];
 
 export type SimulationRunEventLevel = "debug" | "info" | "warn" | "error";
 
@@ -88,6 +82,17 @@ export type SimulationRunMacroOutputRow = Override<
     audit_json: any;
     gating_json: any;
     anchors_json: any;
+  }
+>;
+
+type SimulationRunMacroClassifiedOutputInput =
+  SimulationDatabase["simulation_run_macro_classified_outputs"];
+export type SimulationRunMacroClassifiedOutputRow = Override<
+  SimulationRunMacroClassifiedOutputInput,
+  {
+    streams_json: any;
+    gating_json: any;
+    classification_json: any;
   }
 >;
 

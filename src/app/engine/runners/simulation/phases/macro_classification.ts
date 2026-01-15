@@ -3,9 +3,9 @@ import { getSimulationDb } from "../../../adapters/simulation/db";
 import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
-import { runMacroSynthesisAdapter } from "../../../adapters/simulation/adapters/macro_synthesis_adapter";
+import { runMacroClassificationAdapter } from "../../../adapters/simulation/adapters/macro_classification_adapter";
 
-export async function runPhaseMacroSynthesis(
+export async function runPhaseMacroClassification(
   context: SimulationDbContext,
   input: { runId: string; phaseIdx: number }
 ): Promise<{ status: string; currentPhase: string } | null> {
@@ -17,35 +17,29 @@ export async function runPhaseMacroSynthesis(
     .selectFrom("simulation_runs")
     .select(["config_json"])
     .where("run_id", "=", input.runId)
-    .executeTakeFirst()) as unknown as { config_json: any } | undefined;
-
+    .executeTakeFirst()) as any;
   if (!runRow) {
     return null;
   }
 
-  const config = (runRow as any).config_json ?? {};
-  const r2KeysRaw = (config as any)?.r2Keys;
+  const config = runRow?.config_json ?? {};
+  const r2KeysRaw = config?.r2Keys;
   const r2Keys =
-    Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
+    Array.isArray(r2KeysRaw) &&
+    r2KeysRaw.every((k: any) => typeof k === "string")
       ? (r2KeysRaw as string[])
       : [];
-
-  const env = context.env;
-  // Default to LLM macro synthesis unless explicitly disabled.
-  const rawFlag = String((env as any).SIMULATION_MACRO_USE_LLM ?? "").trim();
-  const useLlm = rawFlag === "0" ? false : true;
 
   await addSimulationRunEvent(context, {
     runId: input.runId,
     level: "info",
     kind: "phase.start",
-    payload: { phase: "macro_synthesis", r2KeysCount: r2Keys.length, useLlm },
+    payload: { phase: "macro_classification", r2KeysCount: r2Keys.length },
   });
 
-  const result = await runMacroSynthesisAdapter(context, {
+  const result = await runMacroClassificationAdapter(context, {
     runId: input.runId,
     r2Keys,
-    useLlm,
     now,
     log,
   });
@@ -55,14 +49,13 @@ export async function runPhaseMacroSynthesis(
     level: result.failed > 0 ? "error" : "info",
     kind: "phase.end",
     payload: {
-      phase: "macro_synthesis",
-      useLlm,
+      phase: "macro_classification",
       r2KeysCount: r2Keys.length,
       docsProcessed: result.docsProcessed,
-      docsReused: result.docsReused,
-      docsSkippedUnchanged: result.docsSkippedUnchanged,
-      streamsProduced: result.streamsProduced,
-      macroMomentsProduced: result.macroMomentsProduced,
+      streamsIn: result.streamsIn,
+      streamsOut: result.streamsOut,
+      macroIn: result.macroIn,
+      macroOut: result.macroOut,
       failed: result.failed,
     },
   });
@@ -75,14 +68,13 @@ export async function runPhaseMacroSynthesis(
         updated_at: now,
         last_progress_at: now,
         last_error_json: JSON.stringify({
-          message: "macro_synthesis failed for one or more documents",
+          message: "macro_classification failed for one or more documents",
           failures: result.failures,
         }),
       } as any)
       .where("run_id", "=", input.runId)
       .execute();
-
-    return { status: "paused_on_error", currentPhase: "macro_synthesis" };
+    return { status: "paused_on_error", currentPhase: "macro_classification" };
   }
 
   const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
@@ -96,7 +88,7 @@ export async function runPhaseMacroSynthesis(
       } as any)
       .where("run_id", "=", input.runId)
       .execute();
-    return { status: "completed", currentPhase: "macro_synthesis" };
+    return { status: "completed", currentPhase: "macro_classification" };
   }
 
   await db
@@ -111,4 +103,3 @@ export async function runPhaseMacroSynthesis(
 
   return { status: "running", currentPhase: nextPhase };
 }
-

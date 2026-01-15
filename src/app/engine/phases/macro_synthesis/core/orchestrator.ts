@@ -1,11 +1,12 @@
 import type { MomentDescription } from "../../../types";
+import type { MicroMoment } from "../../../databases/momentGraph";
 
 export type MacroSynthesisOrchestratorPorts = {
   computeMicroStreamHash: (input: {
     batches: Array<{ batchHash: string; promptContextHash: string }>;
   }) => Promise<string>;
   synthesizeMicroMomentsIntoStreams: (
-    microMoments: Array<{ path: string; summary: string; createdAt: string }>,
+    microMoments: MicroMoment[],
     options?: {
       macroSynthesisPromptContext?: string | null;
       auditSink?: (event: any) => void;
@@ -39,8 +40,20 @@ export async function computeMacroSynthesisForDocument(input: {
 
   const auditEvents: any[] = [];
 
+  const microMoments: MicroMoment[] = input.microMoments.map((m) => ({
+    id: crypto.randomUUID(),
+    documentId: input.documentId,
+    path: m.path,
+    content: m.summary,
+    summary: m.summary,
+    embedding: [],
+    createdAt: m.createdAt,
+    author: "unknown",
+    sourceMetadata: {},
+  }));
+
   const streams = await input.ports.synthesizeMicroMomentsIntoStreams(
-    input.microMoments,
+    microMoments,
     {
       macroSynthesisPromptContext: input.macroSynthesisPromptContext,
       auditSink: (event) => {

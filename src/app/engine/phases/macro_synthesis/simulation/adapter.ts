@@ -3,6 +3,7 @@ import type {
   SimulationMicroBatchCacheRow,
 } from "../../../adapters/simulation/types";
 import { getSimulationDb } from "../../../adapters/simulation/db";
+import type { MicroMoment } from "../../../databases/momentGraph";
 import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
 import { prepareDocumentForR2Key } from "../../../indexing/pluginPipeline";
 import {
@@ -24,7 +25,7 @@ export async function runMacroSynthesisAdapter(
     log: { error: (kind: string, payload: any) => Promise<void> };
     ports: {
       synthesizeMicroMomentsIntoStreams: (
-        microMoments: any[],
+        microMoments: MicroMoment[],
         options?: any
       ) => Promise<Array<{ streamId: string; macroMoments: any[] }>>;
     };
@@ -234,22 +235,8 @@ export async function runMacroSynthesisAdapter(
               sha256Hex,
             });
           },
-          synthesizeMicroMomentsIntoStreams: async (microMoments, options) => {
-            const asFull = (microMoments ?? []).map((m: any) => ({
-              id: crypto.randomUUID(),
-              documentId: r2Key,
-              path: m.path,
-              content: m.summary,
-              summary: m.summary,
-              embedding: [],
-              createdAt: m.createdAt,
-              author: "unknown",
-            }));
-            return await input.ports.synthesizeMicroMomentsIntoStreams(
-              asFull as any,
-              options as any
-            );
-          },
+          synthesizeMicroMomentsIntoStreams:
+            input.ports.synthesizeMicroMomentsIntoStreams,
           extractAnchorsFromStreams: ({ streams }) => {
             return extractAnchorsFromStreams({
               streams,

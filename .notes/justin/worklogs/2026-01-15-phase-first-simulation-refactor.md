@@ -208,6 +208,19 @@ Check:
 
 - `pnpm -s build` passes after this refactor.
 
+## Progress: build passes; types has unrelated failures
+
+Ran:
+
+- `pnpm -s build`
+- `pnpm -s types`
+
+Notes:
+
+- build passes.
+- types fails in a bunch of places outside the simulation refactor slice (vscode-extension, wsproxy, some audit pages, etc).
+- I fixed the type errors that were introduced by the phase core port refactors (namespace prefix helper typing and micro_batches/macro_synthesis port shapes), then stopped.
+
 ## Progress: macro_classification core owns gating + classification flow
 
 The macro_classification simulation runner and adapter were still owning too much of the flow. In particular, classification behavior was effectively controlled outside the phase core, and the runner had previously drifted toward calling prompt helpers.

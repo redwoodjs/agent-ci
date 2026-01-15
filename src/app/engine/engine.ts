@@ -186,7 +186,8 @@ export async function indexDocument(
           return null;
         },
         getMomentGraphNamespacePrefixFromEnv,
-        applyMomentGraphNamespacePrefixValue,
+        applyMomentGraphNamespacePrefixValue: (baseNamespace: string, prefix: string | null) =>
+          applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) ?? baseNamespace,
         splitDocumentIntoChunks: async ({ document, indexingContext, plugins }) =>
           await splitDocumentIntoChunks(document, indexingContext, plugins),
         loadProcessedChunkHashes: async ({ r2Key, momentGraphNamespace }) =>
@@ -430,6 +431,22 @@ export async function indexDocument(
         },
         fallbackMicroItemsForChunkBatch: ({ chunks }) =>
           computeMicroItemsWithoutLlm(chunks),
+        getEmbeddings: async (texts: string[]) => await getEmbeddings(texts),
+        getEmbedding: async (text: string) => await getEmbedding(text),
+        upsertMicroMomentsBatch: async ({
+          documentId,
+          momentGraphNamespace,
+          microMoments,
+        }) => {
+          await upsertMicroMomentsBatch(
+            documentId,
+            microMoments,
+            {
+              env: context.env,
+              momentGraphNamespace,
+            }
+          );
+        },
       },
       document,
       indexingContext,

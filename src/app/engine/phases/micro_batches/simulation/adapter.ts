@@ -126,7 +126,12 @@ export async function runMicroBatchesAdapter(
             await prepareSourceDocument(indexingContext),
           computeMomentGraphNamespaceForIndexing: async () => null,
           getMomentGraphNamespacePrefixFromEnv,
-          applyMomentGraphNamespacePrefixValue,
+          applyMomentGraphNamespacePrefixValue: (
+            baseNamespace: string,
+            prefix: string | null
+          ) =>
+            applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) ??
+            baseNamespace,
           splitDocumentIntoChunks: async ({
             document,
             indexingContext,

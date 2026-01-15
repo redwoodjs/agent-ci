@@ -287,3 +287,17 @@ Gates for this slice:
 - `pnpm -s build`
 - leave simulation tests for later if the dev/proxy startup still blocks them.
 
+## Switch: phase bundles move under src/app/phases/<phase>/engine + web
+
+The handoff brief structure is now:
+
+- `src/app/phases/<phaseId>/engine/{core,live,simulation}/...`
+- `src/app/phases/<phaseId>/web/{ui,routes}/...`
+
+Next steps:
+
+- inventory the current phase-first files under `src/app/engine/phases/<phase>/...`
+- move them into `src/app/phases/<phase>/engine/...` without changing behavior
+- update imports and centralized wiring (runner dispatch, routes, UI registry) so there is one canonical phase path
+- keep `pnpm -s build` passing after the move
+

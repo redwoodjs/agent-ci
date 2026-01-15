@@ -15,7 +15,7 @@ import {
   type MicroBatchesOrchestratorPorts,
 } from "../core/orchestrator";
 import { planMicroBatches } from "../../../../engine/lib/phaseCores/microBatchesCore";
-import { runPhaseADocumentPreparation } from "../../../../engine/core/indexing/phaseAOrchestrator";
+import { runIndexingDocumentPreparation } from "../../../../engine/indexing/documentPreparation";
 import {
   applyMomentGraphNamespacePrefixValue,
   getMomentGraphNamespacePrefixFromEnv,
@@ -120,7 +120,7 @@ export async function runMicroBatchesAdapter(
     docsProcessed++;
 
     try {
-      const phaseA = await runPhaseADocumentPreparation({
+      const prepared = await runIndexingDocumentPreparation({
         ports: {
           prepareSourceDocument: async ({ indexingContext }) =>
             await prepareSourceDocument(indexingContext),
@@ -169,7 +169,7 @@ export async function runMicroBatchesAdapter(
         },
       });
 
-      if (phaseA.chunks.length === 0) {
+      if (prepared.chunks.length === 0) {
         continue;
       }
 
@@ -235,10 +235,10 @@ export async function runMicroBatchesAdapter(
           getEmbedding: input.ports.getEmbedding,
           upsertMicroMomentsBatch: input.ports.upsertMicroMomentsBatch,
         },
-        document: phaseA.document,
-        indexingContext: phaseA.indexingContext,
+        document: prepared.document,
+        indexingContext: prepared.indexingContext,
         plugins,
-        chunkBatches: phaseA.chunkBatches,
+        chunkBatches: prepared.chunkBatches,
         now: input.now,
       });
 

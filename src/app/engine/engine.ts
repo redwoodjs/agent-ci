@@ -38,8 +38,8 @@ import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "
 import { computeMacroSynthesisForDocument } from "../pipelines/macro_synthesis/engine/core/orchestrator";
 import { computeMicroStreamHash, extractAnchorsFromStreams } from "./lib/phaseCores/macroSynthesisCore";
 import { computeDeterministicLinkingProposal } from "./lib/phaseCores/deterministicLinkingCore";
-import { computeIndexDocumentParentForRootMacroMoment } from "./adapters/live/linking";
-import { runPhaseADocumentPreparation } from "./core/indexing/phaseAOrchestrator";
+import { computeIndexDocumentParentForRootMacroMoment } from "./live/linking";
+import { runIndexingDocumentPreparation } from "./indexing/documentPreparation";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,
@@ -154,8 +154,8 @@ export async function indexDocument(
 
   let stage = "start";
   try {
-    stage = "phase-a";
-    const phaseA = await runPhaseADocumentPreparation({
+    stage = "document-prep";
+    const prepared = await runIndexingDocumentPreparation({
       ports: {
         prepareSourceDocument: async ({ indexingContext }) => {
           const doc = await runFirstMatchHook(
@@ -212,8 +212,8 @@ export async function indexDocument(
       },
     });
 
-    const document = phaseA.document;
-    const effectiveNamespace = phaseA.effectiveNamespace;
+    const document = prepared.document;
+    const effectiveNamespace = prepared.effectiveNamespace;
     indexingContext.momentGraphNamespace = effectiveNamespace;
 
     const momentGraphContext = {
@@ -221,8 +221,8 @@ export async function indexDocument(
       momentGraphNamespace: effectiveNamespace,
     };
 
-    const chunks = phaseA.chunks;
-    const newChunks = phaseA.newChunks;
+    const chunks = prepared.chunks;
+    const newChunks = prepared.newChunks;
 
     if (newChunks.length === 0) {
       console.log("[moment-linker] skipping: no new chunks", { r2Key });
@@ -238,7 +238,7 @@ export async function indexDocument(
       momentGraphContext
     );
 
-    const chunkBatches = phaseA.chunkBatches;
+    const chunkBatches = prepared.chunkBatches;
 
     console.log("[moment-linker] micro chunks extracted", {
       documentId: document.id,

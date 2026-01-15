@@ -170,7 +170,7 @@ export async function runPhaseIngestDiff(
         updated_at: now,
         last_progress_at: now,
         last_error_json: JSON.stringify({
-          message: "Phase A ingest+diff failed for one or more documents",
+          message: "ingest_diff failed for one or more documents",
           failures,
         }),
       } as any)

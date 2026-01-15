@@ -331,3 +331,32 @@ Next slice:
 - Delete the shim files once there are no remaining imports.
 - Gate with `pnpm -s build`.
 
+## Noticed Phase A is still present in live and simulation codepaths
+
+I dug into why `PhaseAOrchestrator` still exists and where it is used.
+
+What it does (semantics):
+
+- calls plugins to prepare a source document
+- computes the moment graph namespace (via plugins, plus optional prefix)
+- splits the document into chunks (via plugins)
+- loads previously processed chunk hashes and filters to new chunks (live path)
+- chunks the chunks into micro computation batches
+
+This is closer to 'document preparation + chunk diff + chunk batching' than to any named pipeline phase.
+
+How it relates to current simulation phases:
+
+- The `ingest_diff` pipeline is an etag diff (head R2 object etag vs last stored etag).
+- `PhaseAOrchestrator` is not that. It prepares the document and chunks for downstream phases.
+- Simulation `micro_batches` currently calls `runPhaseADocumentPreparation` directly (for replay-style processing), so the naming bleeds into simulation too.
+- The `ingest_diff` simulation runner still logs 'Phase A ingest+diff' in an error message, which looks like an old label that no longer matches the code structure.
+
+Next step I think makes sense:
+
+- Rename `PhaseAOrchestrator` to a semantic name (document preparation / indexing preparation).
+- Move it under `src/app/engine/indexing/` (it already houses plugin pipeline helpers), and update call sites.
+- Update the `ingest_diff` runner error message to stop referencing Phase A.
+
+I also want to rename `src/app/engine/adapters/{live,simulation}` to `src/app/engine/{live,simulation}` since those folders are composition/runtime code, not per-port adapters.
+

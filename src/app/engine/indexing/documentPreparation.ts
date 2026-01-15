@@ -1,6 +1,6 @@
-import type { Chunk, Document, IndexingHookContext, Plugin } from "../../types";
+import type { Chunk, Document, IndexingHookContext, Plugin } from "../types";
 
-export type PhaseAOrchestratorPorts = {
+export type IndexingDocumentPreparationPorts = {
   prepareSourceDocument: (input: { indexingContext: IndexingHookContext }) => Promise<Document>;
   computeMomentGraphNamespaceForIndexing: (input: {
     document: Document;
@@ -29,8 +29,8 @@ export type PhaseAOrchestratorPorts = {
   }) => Chunk[][];
 };
 
-export async function runPhaseADocumentPreparation(input: {
-  ports: PhaseAOrchestratorPorts;
+export async function runIndexingDocumentPreparation(input: {
+  ports: IndexingDocumentPreparationPorts;
   r2Key: string;
   env: Cloudflare.Env;
   plugins: Plugin[];

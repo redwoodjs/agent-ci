@@ -503,7 +503,6 @@ export async function indexDocument(
           createdAt: m.createdAt,
         })),
         macroSynthesisPromptContext: macroSynthesisPromptContext ?? null,
-        useLlm: true,
         now: new Date().toISOString(),
         documentId: document.id,
       });

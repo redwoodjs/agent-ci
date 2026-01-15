@@ -30,22 +30,16 @@ export async function runPhaseMacroSynthesis(
       ? (r2KeysRaw as string[])
       : [];
 
-  const env = context.env;
-  // Default to LLM macro synthesis unless explicitly disabled.
-  const rawFlag = String((env as any).SIMULATION_MACRO_USE_LLM ?? "").trim();
-  const useLlm = rawFlag === "0" ? false : true;
-
   await addSimulationRunEvent(context, {
     runId: input.runId,
     level: "info",
     kind: "phase.start",
-    payload: { phase: "macro_synthesis", r2KeysCount: r2Keys.length, useLlm },
+    payload: { phase: "macro_synthesis", r2KeysCount: r2Keys.length },
   });
 
   const result = await runMacroSynthesisAdapter(context, {
     runId: input.runId,
     r2Keys,
-    useLlm,
     now,
     log,
   });
@@ -56,7 +50,6 @@ export async function runPhaseMacroSynthesis(
     kind: "phase.end",
     payload: {
       phase: "macro_synthesis",
-      useLlm,
       r2KeysCount: r2Keys.length,
       docsProcessed: result.docsProcessed,
       docsReused: result.docsReused,

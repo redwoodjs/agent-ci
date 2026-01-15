@@ -14,6 +14,8 @@ import { computeMicroMomentsForChunkBatch } from "../../../subjects/computeMicro
 import { computeMicroBatchesForDocument } from "../../../core/indexing/micro_batches_orchestrator";
 import { planMicroBatches } from "../../../lib/phaseCores/micro_batches_core";
 import { runPhaseADocumentPreparation } from "../../../core/indexing/phase_a_orchestrator";
+import { getEmbeddings, getEmbedding } from "../../../utils/vector";
+import { upsertMicroMomentsBatch } from "../../../databases/momentGraph";
 import {
   applyMomentGraphNamespacePrefixValue,
   getMomentGraphNamespacePrefixFromEnv,
@@ -71,6 +73,44 @@ export async function runMicroBatchesAdapter(
   let batchesCached = 0;
   let failed = 0;
   const failures: Array<{ r2Key: string; error: string }> = [];
+
+  function parseDateMs(value: unknown): number | null {
+    if (typeof value !== "string") {
+      return null;
+    }
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
+  function inferBatchTimeRange(
+    chunks: any[],
+    documentCreatedAt: string
+  ): { start: string; end: string } {
+    let minMs: number | null = null;
+    let maxMs: number | null = null;
+
+    for (const chunk of chunks) {
+      const ts = (chunk?.metadata as any)?.timestamp;
+      const ms = parseDateMs(ts);
+      if (ms === null) {
+        continue;
+      }
+      if (minMs === null || ms < minMs) {
+        minMs = ms;
+      }
+      if (maxMs === null || ms > maxMs) {
+        maxMs = ms;
+      }
+    }
+
+    const fallbackMs = parseDateMs(documentCreatedAt) ?? Date.now();
+    const startMs = minMs ?? fallbackMs;
+    const endMs = maxMs ?? startMs;
+    return {
+      start: new Date(startMs).toISOString(),
+      end: new Date(endMs).toISOString(),
+    };
+  }
 
   async function prepareSourceDocument(
     indexingContext: IndexingHookContext
@@ -229,6 +269,66 @@ export async function runMicroBatchesAdapter(
         plugins,
         chunkBatches: phaseA.chunkBatches,
       });
+
+      // Persist micro moments into the moment graph so macro moments can reference them via microPaths.
+      // Do this for both cached and computed batches (cache is global, moment graph namespace is per-run).
+      for (const b of computed) {
+        const microItems = Array.isArray(b.microItems) ? b.microItems : [];
+        if (microItems.length === 0) {
+          continue;
+        }
+
+        const prefix = `chunk-batch:${b.batchHash}:`;
+        let embeddings: number[][] = [];
+        try {
+          embeddings = await getEmbeddings(microItems);
+        } catch {
+          embeddings = [];
+        }
+
+        const batchTimeRange = inferBatchTimeRange(
+          b.chunks as any[],
+          String((phaseA.document as any)?.metadata?.createdAt ?? input.now)
+        );
+        const batchAuthorRaw = (b.chunks?.[0]?.metadata as any)?.author;
+        const batchAuthor =
+          typeof batchAuthorRaw === "string" && batchAuthorRaw.trim().length > 0
+            ? batchAuthorRaw.trim()
+            : String((phaseA.document as any)?.metadata?.author ?? "unknown");
+
+        const microMomentItems: Array<{
+          path: string;
+          content: string;
+          summary: string;
+          embedding: number[];
+          createdAt?: string;
+          author: string;
+          sourceMetadata?: Record<string, any>;
+        }> = [];
+
+        for (let i = 0; i < microItems.length; i++) {
+          const text = microItems[i] ?? "";
+          const embedding = embeddings[i] ?? (await getEmbedding(text));
+          microMomentItems.push({
+            path: `${prefix}${i + 1}`,
+            content: text,
+            summary: text,
+            embedding,
+            createdAt: batchTimeRange.start,
+            author: batchAuthor,
+            sourceMetadata: {
+              chunkBatchHash: b.batchHash,
+              chunkIds: (b.chunks ?? []).map((c: any) => c.id).filter(Boolean),
+              timeRange: batchTimeRange,
+            },
+          });
+        }
+
+        await upsertMicroMomentsBatch(phaseA.document.id, microMomentItems, {
+          env,
+          momentGraphNamespace: phaseA.effectiveNamespace ?? null,
+        });
+      }
 
       for (const b of computed) {
         if (b.cached) {

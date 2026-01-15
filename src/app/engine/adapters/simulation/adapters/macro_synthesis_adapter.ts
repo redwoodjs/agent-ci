@@ -1,19 +1,26 @@
-import type { SimulationDbContext, SimulationMicroBatchCacheRow } from "../types";
+import type {
+  SimulationDbContext,
+  SimulationMicroBatchCacheRow,
+} from "../types";
 import { getSimulationDb } from "../db";
 import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
 import { prepareDocumentForR2Key } from "../../../indexing/pluginPipeline";
 import { synthesizeMicroMomentsIntoStreams } from "../../../synthesis/synthesizeMicroMoments";
-import { computeMicroStreamHash, extractAnchorsFromStreams } from "../../../lib/phaseCores/macro_synthesis_core";
+import {
+  computeMicroStreamHash,
+  extractAnchorsFromStreams,
+} from "../../../lib/phaseCores/macro_synthesis_core";
 import { sha256Hex } from "../../../utils/crypto";
 import { extractAnchorTokens } from "../../../utils/anchorTokens";
 import { computeMacroSynthesisForDocument } from "../../../core/indexing/macro_synthesis_orchestrator";
+import { applyMomentGraphNamespacePrefixValue } from "../../../momentGraphNamespace";
+import { getMicroMomentsForDocument } from "../../../databases/momentGraph";
 
 export async function runMacroSynthesisAdapter(
   context: SimulationDbContext,
   input: {
     runId: string;
     r2Keys: string[];
-    useLlm: boolean;
     now: string;
     log: { error: (kind: string, payload: any) => Promise<void> };
   }
@@ -38,6 +45,24 @@ export async function runMacroSynthesisAdapter(
   let macroMomentsProduced = 0;
 
   const failures: Array<{ r2Key: string; error: string }> = [];
+
+  const runRow = (await db
+    .selectFrom("simulation_runs")
+    .select(["moment_graph_namespace", "moment_graph_namespace_prefix"])
+    .where("run_id", "=", input.runId)
+    .executeTakeFirst()) as any;
+  const baseNamespace =
+    typeof runRow?.moment_graph_namespace === "string"
+      ? (runRow.moment_graph_namespace as string)
+      : null;
+  const prefix =
+    typeof runRow?.moment_graph_namespace_prefix === "string"
+      ? (runRow.moment_graph_namespace_prefix as string)
+      : null;
+  const effectiveNamespace =
+    baseNamespace && prefix
+      ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix)
+      : baseNamespace;
 
   for (const r2Key of input.r2Keys) {
     const docState = (await db
@@ -113,11 +138,10 @@ export async function runMacroSynthesisAdapter(
 
       const macroPromptContext = await (async () => {
         for (const plugin of plugins) {
-          const v =
-            await plugin.subjects?.getMacroSynthesisPromptContext?.(
-              document,
-              indexingContext
-            );
+          const v = await plugin.subjects?.getMacroSynthesisPromptContext?.(
+            document,
+            indexingContext
+          );
           if (v !== null && v !== undefined) {
             return v;
           }
@@ -125,24 +149,52 @@ export async function runMacroSynthesisAdapter(
         return null;
       })();
 
-      const microItems: Array<{
-        path: string;
-        summary: string;
-        createdAt: string;
-      }> = [];
       const defaultCreatedAt =
         typeof (document as any)?.metadata?.createdAt === "string" &&
         (document as any).metadata.createdAt.trim().length > 0
           ? ((document as any).metadata.createdAt as string).trim()
           : input.now;
+
       const defaultAuthor =
         typeof (document as any)?.metadata?.author === "string" &&
         (document as any).metadata.author.trim().length > 0
           ? ((document as any).metadata.author as string).trim()
           : "unknown";
 
-      for (let i = 0; i < batches.length; i++) {
-        const b = batches[i];
+      const microItems: Array<{
+        path: string;
+        summary: string;
+        createdAt: string;
+      }> = [];
+
+      // Prefer reading micro moments from the moment graph (so microPaths are resolvable and
+      // createdAt/timeRange are consistent). Fall back to the simulation cache if missing.
+      const existingMicroMoments = effectiveNamespace
+        ? await getMicroMomentsForDocument(r2Key, {
+            env,
+            momentGraphNamespace: effectiveNamespace,
+          })
+        : [];
+
+      for (const b of batches) {
+        const prefixPath = `chunk-batch:${b.batch_hash}:`;
+        const fromMomentGraph = existingMicroMoments
+          .filter(
+            (m: any) =>
+              typeof m?.path === "string" && m.path.startsWith(prefixPath)
+          )
+          .map((m: any) => ({
+            path: String(m.path),
+            summary: String(m.summary ?? "").trim(),
+            createdAt: String(m.createdAt ?? input.now),
+          }))
+          .filter((m) => m.summary.length > 0);
+
+        if (fromMomentGraph.length > 0) {
+          microItems.push(...fromMomentGraph);
+          continue;
+        }
+
         const cached = (await db
           .selectFrom("simulation_micro_batch_cache")
           .select(["micro_items_json"])
@@ -151,6 +203,7 @@ export async function runMacroSynthesisAdapter(
           .executeTakeFirst()) as unknown as
           | SimulationMicroBatchCacheRow
           | undefined;
+
         const items =
           (cached as any)?.micro_items_json &&
           Array.isArray((cached as any).micro_items_json)
@@ -160,11 +213,12 @@ export async function runMacroSynthesisAdapter(
           .filter((x) => typeof x === "string")
           .map((x) => (x as string).trim())
           .filter(Boolean);
+
         for (let j = 0; j < asStrings.length; j++) {
           microItems.push({
-            path: `${r2Key}#${i}#${j}`,
+            path: `${prefixPath}${j + 1}`,
             summary: asStrings[j],
-            createdAt: defaultCreatedAt,
+            createdAt: input.now,
           });
         }
       }
@@ -177,7 +231,22 @@ export async function runMacroSynthesisAdapter(
               sha256Hex,
             });
           },
-          synthesizeMicroMomentsIntoStreams,
+          synthesizeMicroMomentsIntoStreams: async (microMoments, options) => {
+            const asFull = (microMoments ?? []).map((m) => ({
+              id: crypto.randomUUID(),
+              documentId: r2Key,
+              path: m.path,
+              content: m.summary,
+              summary: m.summary,
+              embedding: [],
+              createdAt: m.createdAt,
+              author: defaultAuthor,
+            }));
+            return await synthesizeMicroMomentsIntoStreams(
+              asFull as any,
+              options as any
+            );
+          },
           extractAnchorsFromStreams: ({ streams }) => {
             return extractAnchorsFromStreams({
               streams,
@@ -194,7 +263,6 @@ export async function runMacroSynthesisAdapter(
         microStreamHash,
         microMoments: microItems,
         macroSynthesisPromptContext: macroPromptContext ?? null,
-        useLlm: input.useLlm,
         now: input.now,
         documentId: document.id,
       });
@@ -230,7 +298,7 @@ export async function runMacroSynthesisAdapter(
           run_id: input.runId,
           r2_key: r2Key,
           micro_stream_hash: synthesis.microStreamHash,
-          use_llm: input.useLlm ? (1 as any) : (0 as any),
+          use_llm: 1 as any,
           streams_json: JSON.stringify(normalizedStreams),
           audit_json:
             synthesis.auditEvents.length > 0
@@ -244,7 +312,7 @@ export async function runMacroSynthesisAdapter(
         .onConflict((oc) =>
           oc.columns(["run_id", "r2_key"]).doUpdateSet({
             micro_stream_hash: synthesis.microStreamHash,
-            use_llm: input.useLlm ? (1 as any) : (0 as any),
+            use_llm: 1 as any,
             streams_json: JSON.stringify(normalizedStreams),
             audit_json:
               synthesis.auditEvents.length > 0
@@ -278,4 +346,3 @@ export async function runMacroSynthesisAdapter(
     failures,
   };
 }
-

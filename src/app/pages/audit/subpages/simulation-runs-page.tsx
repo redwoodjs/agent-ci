@@ -22,6 +22,11 @@ import {
   getSimulationRunMaterializedMoments,
   simulationPhases,
 } from "@/app/engine/databases/simulationState";
+import {
+  isSimulationRunViewId,
+  simulationRunViews,
+  type SimulationRunViewId,
+} from "@/app/engine/adapters/simulation/phaseRegistry";
 import { getSimulationRunProgressSummary } from "@/app/engine/adapters/simulation/runProgress";
 import { getMoments } from "@/app/engine/databases/momentGraph";
 import { SimulationRunControls } from "./simulation-run-controls";
@@ -147,17 +152,7 @@ export function SimulationRunsPage({ request }: { request: Request }) {
       ? runIdRaw.trim()
       : null;
   const viewRaw = url.searchParams.get("view");
-  const view =
-    viewRaw === "documents" ||
-    viewRaw === "micro-batches" ||
-    viewRaw === "macro-outputs" ||
-    viewRaw === "macro-classifications" ||
-    viewRaw === "materialized-moments" ||
-    viewRaw === "link-decisions" ||
-    viewRaw === "candidate-sets" ||
-    viewRaw === "timeline-fit-decisions"
-      ? viewRaw
-      : null;
+  const view = isSimulationRunViewId(viewRaw) ? viewRaw : null;
   const logViewRaw = url.searchParams.get("logView");
   const logView = logViewRaw === "run" ? "run" : "events";
 
@@ -196,16 +191,7 @@ async function SimulationRunsContent({
   logView,
 }: {
   runId: string | null;
-  view:
-    | "documents"
-    | "micro-batches"
-    | "macro-outputs"
-    | "macro-classifications"
-    | "materialized-moments"
-    | "link-decisions"
-    | "candidate-sets"
-    | "timeline-fit-decisions"
-    | null;
+  view: SimulationRunViewId | null;
   logView: "events" | "run";
 }) {
   const envCloudflare = env as Cloudflare.Env;
@@ -353,6 +339,17 @@ async function SimulationRunsContent({
     runId
   )}&view=timeline-fit-decisions`;
 
+  const viewLinksById: Record<SimulationRunViewId, string> = {
+    documents: documentsLink,
+    "micro-batches": microBatchesLink,
+    "macro-outputs": macroOutputsLink,
+    "macro-classifications": macroClassificationsLink,
+    "materialized-moments": materializedLink,
+    "link-decisions": linkDecisionsLink,
+    "candidate-sets": candidateSetsLink,
+    "timeline-fit-decisions": timelineFitDecisionsLink,
+  };
+
   const logLink = (next: "events" | "run") => {
     const params = new URLSearchParams();
     params.set("runId", runId);
@@ -489,54 +486,15 @@ async function SimulationRunsContent({
           />
 
           <div className="flex gap-2 flex-wrap">
-            <a
-              className="text-sm text-blue-600 hover:underline"
-              href={documentsLink}
-            >
-              Documents
-            </a>
-            <a
-              className="text-sm text-blue-600 hover:underline"
-              href={microBatchesLink}
-            >
-              Micro batches
-            </a>
-            <a
-              className="text-sm text-blue-600 hover:underline"
-              href={macroOutputsLink}
-            >
-              Macro outputs
-            </a>
-            <a
-              className="text-sm text-blue-600 hover:underline"
-              href={macroClassificationsLink}
-            >
-              Macro classifications
-            </a>
-            <a
-              className="text-sm text-blue-600 hover:underline"
-              href={materializedLink}
-            >
-              Materialized moments
-            </a>
-            <a
-              className="text-sm text-blue-600 hover:underline"
-              href={linkDecisionsLink}
-            >
-              Link decisions
-            </a>
-            <a
-              className="text-sm text-blue-600 hover:underline"
-              href={candidateSetsLink}
-            >
-              Candidate sets
-            </a>
-            <a
-              className="text-sm text-blue-600 hover:underline"
-              href={timelineFitDecisionsLink}
-            >
-              Timeline fit decisions
-            </a>
+            {simulationRunViews.map((v) => (
+              <a
+                key={v.id}
+                className="text-sm text-blue-600 hover:underline"
+                href={viewLinksById[v.id]}
+              >
+                {v.label}
+              </a>
+            ))}
           </div>
         </CardContent>
       </Card>
@@ -561,35 +519,56 @@ async function SimulationRunsContent({
         </Card>
       ) : null}
 
-      {view === "documents" ? (
-        <DocumentsCard runId={runId} />
-      ) : view === "micro-batches" ? (
-        <MicroBatchesCard runId={runId} />
-      ) : view === "macro-outputs" ? (
-        <MacroOutputsCard runId={runId} />
-      ) : view === "macro-classifications" ? (
-        <MacroClassificationsCard runId={runId} />
-      ) : view === "materialized-moments" ? (
-        <MaterializedMomentsCard
-          runId={runId}
-          effectiveNamespace={effectiveNamespace}
-        />
-      ) : view === "link-decisions" ? (
-        <LinkDecisionsCard
-          runId={runId}
-          effectiveNamespace={effectiveNamespace}
-        />
-      ) : view === "candidate-sets" ? (
-        <CandidateSetsCard
-          runId={runId}
-          effectiveNamespace={effectiveNamespace}
-        />
-      ) : view === "timeline-fit-decisions" ? (
-        <TimelineFitDecisionsCard
-          runId={runId}
-          effectiveNamespace={effectiveNamespace}
-        />
-      ) : null}
+      {(() => {
+        if (!view) {
+          return null;
+        }
+        if (view === "documents") {
+          return <DocumentsCard runId={runId} />;
+        }
+        if (view === "micro-batches") {
+          return <MicroBatchesCard runId={runId} />;
+        }
+        if (view === "macro-outputs") {
+          return <MacroOutputsCard runId={runId} />;
+        }
+        if (view === "macro-classifications") {
+          return <MacroClassificationsCard runId={runId} />;
+        }
+        if (view === "materialized-moments") {
+          return (
+            <MaterializedMomentsCard
+              runId={runId}
+              effectiveNamespace={effectiveNamespace}
+            />
+          );
+        }
+        if (view === "link-decisions") {
+          return (
+            <LinkDecisionsCard
+              runId={runId}
+              effectiveNamespace={effectiveNamespace}
+            />
+          );
+        }
+        if (view === "candidate-sets") {
+          return (
+            <CandidateSetsCard
+              runId={runId}
+              effectiveNamespace={effectiveNamespace}
+            />
+          );
+        }
+        if (view === "timeline-fit-decisions") {
+          return (
+            <TimelineFitDecisionsCard
+              runId={runId}
+              effectiveNamespace={effectiveNamespace}
+            />
+          );
+        }
+        return null;
+      })()}
 
       <Card>
         <CardHeader>

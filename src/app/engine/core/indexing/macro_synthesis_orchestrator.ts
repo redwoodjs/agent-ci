@@ -20,7 +20,6 @@ export async function computeMacroSynthesisForDocument(input: {
   microStreamHash?: string | null;
   microMoments: Array<{ path: string; summary: string; createdAt: string }>;
   macroSynthesisPromptContext: string | null;
-  useLlm: boolean;
   now: string;
   documentId: string;
 }): Promise<{
@@ -41,19 +40,15 @@ export async function computeMacroSynthesisForDocument(input: {
   const auditEvents: any[] = [];
 
   let streams: Array<{ streamId: string; macroMoments: any[] }> = [];
-  if (!input.useLlm) {
-    streams = [];
-  } else {
-    streams = await input.ports.synthesizeMicroMomentsIntoStreams(
-      input.microMoments,
-      {
-        macroSynthesisPromptContext: input.macroSynthesisPromptContext,
-        auditSink: (event) => {
-          auditEvents.push(event);
-        },
-      }
-    );
-  }
+  streams = await input.ports.synthesizeMicroMomentsIntoStreams(
+    input.microMoments,
+    {
+      macroSynthesisPromptContext: input.macroSynthesisPromptContext,
+      auditSink: (event) => {
+        auditEvents.push(event);
+      },
+    }
+  );
 
   const anchors = input.ports.extractAnchorsFromStreams({ streams });
 

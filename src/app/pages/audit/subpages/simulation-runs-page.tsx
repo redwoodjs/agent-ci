@@ -22,11 +22,7 @@ import {
   getSimulationRunMaterializedMoments,
   simulationPhases,
 } from "@/app/engine/databases/simulationState";
-import {
-  isSimulationRunViewId,
-  simulationRunViews,
-  type SimulationRunViewId,
-} from "@/app/engine/adapters/simulation/phaseRegistry";
+import { type SimulationRunViewId } from "@/app/engine/adapters/simulation/phaseRegistry";
 import { getSimulationRunProgressSummary } from "@/app/engine/adapters/simulation/runProgress";
 import { getMoments } from "@/app/engine/databases/momentGraph";
 import { SimulationRunControls } from "./simulation-run-controls";
@@ -118,6 +114,109 @@ function formatEventsAsText(
   }
   return lines.join("\n");
 }
+
+function isSimulationRunViewId(
+  value: string | null | undefined
+): value is SimulationRunViewId {
+  if (!value) {
+    return false;
+  }
+  return simulationRunViews.some((v) => v.id === value);
+}
+
+const simulationRunViews = [
+  {
+    id: "documents",
+    label: "Documents",
+    render: async (input: {
+      runId: string;
+      effectiveNamespace: string | null;
+    }) => <DocumentsCard runId={input.runId} />,
+  },
+  {
+    id: "micro-batches",
+    label: "Micro batches",
+    render: async (input: {
+      runId: string;
+      effectiveNamespace: string | null;
+    }) => <MicroBatchesCard runId={input.runId} />,
+  },
+  {
+    id: "macro-outputs",
+    label: "Macro outputs",
+    render: async (input: {
+      runId: string;
+      effectiveNamespace: string | null;
+    }) => <MacroOutputsCard runId={input.runId} />,
+  },
+  {
+    id: "macro-classifications",
+    label: "Macro classifications",
+    render: async (input: {
+      runId: string;
+      effectiveNamespace: string | null;
+    }) => <MacroClassificationsCard runId={input.runId} />,
+  },
+  {
+    id: "materialized-moments",
+    label: "Materialized moments",
+    render: async (input: {
+      runId: string;
+      effectiveNamespace: string | null;
+    }) => (
+      <MaterializedMomentsCard
+        runId={input.runId}
+        effectiveNamespace={input.effectiveNamespace}
+      />
+    ),
+  },
+  {
+    id: "link-decisions",
+    label: "Link decisions",
+    render: async (input: {
+      runId: string;
+      effectiveNamespace: string | null;
+    }) => (
+      <LinkDecisionsCard
+        runId={input.runId}
+        effectiveNamespace={input.effectiveNamespace}
+      />
+    ),
+  },
+  {
+    id: "candidate-sets",
+    label: "Candidate sets",
+    render: async (input: {
+      runId: string;
+      effectiveNamespace: string | null;
+    }) => (
+      <CandidateSetsCard
+        runId={input.runId}
+        effectiveNamespace={input.effectiveNamespace}
+      />
+    ),
+  },
+  {
+    id: "timeline-fit-decisions",
+    label: "Timeline fit decisions",
+    render: async (input: {
+      runId: string;
+      effectiveNamespace: string | null;
+    }) => (
+      <TimelineFitDecisionsCard
+        runId={input.runId}
+        effectiveNamespace={input.effectiveNamespace}
+      />
+    ),
+  },
+] as const satisfies ReadonlyArray<{
+  id: SimulationRunViewId;
+  label: string;
+  render: (input: {
+    runId: string;
+    effectiveNamespace: string | null;
+  }) => Promise<React.ReactElement>;
+}>;
 
 function findLatestPhaseEndPayload(
   events: Array<{
@@ -314,41 +413,12 @@ async function SimulationRunsContent({
     totalDocs,
   });
 
-  const documentsLink = `/audit/simulation?runId=${encodeURIComponent(
-    runId
-  )}&view=documents`;
-  const microBatchesLink = `/audit/simulation?runId=${encodeURIComponent(
-    runId
-  )}&view=micro-batches`;
-  const macroOutputsLink = `/audit/simulation?runId=${encodeURIComponent(
-    runId
-  )}&view=macro-outputs`;
-  const macroClassificationsLink = `/audit/simulation?runId=${encodeURIComponent(
-    runId
-  )}&view=macro-classifications`;
-  const materializedLink = `/audit/simulation?runId=${encodeURIComponent(
-    runId
-  )}&view=materialized-moments`;
-  const linkDecisionsLink = `/audit/simulation?runId=${encodeURIComponent(
-    runId
-  )}&view=link-decisions`;
-  const candidateSetsLink = `/audit/simulation?runId=${encodeURIComponent(
-    runId
-  )}&view=candidate-sets`;
-  const timelineFitDecisionsLink = `/audit/simulation?runId=${encodeURIComponent(
-    runId
-  )}&view=timeline-fit-decisions`;
+  const viewLink = (id: SimulationRunViewId) =>
+    `/audit/simulation?runId=${encodeURIComponent(
+      runId
+    )}&view=${encodeURIComponent(id)}`;
 
-  const viewLinksById: Record<SimulationRunViewId, string> = {
-    documents: documentsLink,
-    "micro-batches": microBatchesLink,
-    "macro-outputs": macroOutputsLink,
-    "macro-classifications": macroClassificationsLink,
-    "materialized-moments": materializedLink,
-    "link-decisions": linkDecisionsLink,
-    "candidate-sets": candidateSetsLink,
-    "timeline-fit-decisions": timelineFitDecisionsLink,
-  };
+  const viewDef = view ? simulationRunViews.find((v) => v.id === view) : null;
 
   const logLink = (next: "events" | "run") => {
     const params = new URLSearchParams();
@@ -490,7 +560,7 @@ async function SimulationRunsContent({
               <a
                 key={v.id}
                 className="text-sm text-blue-600 hover:underline"
-                href={viewLinksById[v.id]}
+                href={viewLink(v.id)}
               >
                 {v.label}
               </a>
@@ -519,56 +589,7 @@ async function SimulationRunsContent({
         </Card>
       ) : null}
 
-      {(() => {
-        if (!view) {
-          return null;
-        }
-        if (view === "documents") {
-          return <DocumentsCard runId={runId} />;
-        }
-        if (view === "micro-batches") {
-          return <MicroBatchesCard runId={runId} />;
-        }
-        if (view === "macro-outputs") {
-          return <MacroOutputsCard runId={runId} />;
-        }
-        if (view === "macro-classifications") {
-          return <MacroClassificationsCard runId={runId} />;
-        }
-        if (view === "materialized-moments") {
-          return (
-            <MaterializedMomentsCard
-              runId={runId}
-              effectiveNamespace={effectiveNamespace}
-            />
-          );
-        }
-        if (view === "link-decisions") {
-          return (
-            <LinkDecisionsCard
-              runId={runId}
-              effectiveNamespace={effectiveNamespace}
-            />
-          );
-        }
-        if (view === "candidate-sets") {
-          return (
-            <CandidateSetsCard
-              runId={runId}
-              effectiveNamespace={effectiveNamespace}
-            />
-          );
-        }
-        if (view === "timeline-fit-decisions") {
-          return (
-            <TimelineFitDecisionsCard
-              runId={runId}
-              effectiveNamespace={effectiveNamespace}
-            />
-          );
-        }
-        return null;
-      })()}
+      {viewDef ? await viewDef.render({ runId, effectiveNamespace }) : null}
 
       <Card>
         <CardHeader>

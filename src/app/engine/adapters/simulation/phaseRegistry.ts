@@ -10,13 +10,3 @@ export const simulationRunViews = [
 ] as const;
 
 export type SimulationRunViewId = (typeof simulationRunViews)[number]["id"];
-
-export function isSimulationRunViewId(
-  value: string | null | undefined
-): value is SimulationRunViewId {
-  if (!value) {
-    return false;
-  }
-  return simulationRunViews.some((v) => v.id === value);
-}
-

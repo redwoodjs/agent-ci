@@ -42,7 +42,8 @@ async function startSimulationRunHandler({ request }: RequestInfo) {
   const namespacePrefixRaw =
     body?.momentGraphNamespacePrefix ?? body?.namespacePrefix;
   const momentGraphNamespacePrefix =
-    typeof namespacePrefixRaw === "string" && namespacePrefixRaw.trim().length > 0
+    typeof namespacePrefixRaw === "string" &&
+    namespacePrefixRaw.trim().length > 0
       ? namespacePrefixRaw.trim()
       : null;
 
@@ -274,7 +275,10 @@ async function getSimulationRunLinkDecisionsHandler({
   return Response.json({ decisions });
 }
 
-async function getSimulationRunCandidateSetsHandler({ params, request }: RequestInfo) {
+async function getSimulationRunCandidateSetsHandler({
+  params,
+  request,
+}: RequestInfo) {
   const runIdRaw = (params as any)?.runId;
   const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
   if (!runId) {
@@ -436,32 +440,45 @@ export const simulationAdminRoutes = [
   route("/admin/simulation/run/:runId", {
     get: [requireQueryApiKey, getSimulationRunHandler],
   }),
-  route("/admin/simulation/run/:runId/documents", {
-    get: [requireQueryApiKey, getSimulationRunDocumentsHandler],
-  }),
-  route("/admin/simulation/run/:runId/micro-batches", {
-    get: [requireQueryApiKey, getSimulationRunMicroBatchesHandler],
-  }),
-  route("/admin/simulation/run/:runId/macro-outputs", {
-    get: [requireQueryApiKey, getSimulationRunMacroOutputsHandler],
-  }),
-  route("/admin/simulation/run/:runId/macro-classifications", {
-    get: [requireQueryApiKey, getSimulationRunMacroClassificationsHandler],
-  }),
-  route("/admin/simulation/run/:runId/materialized-moments", {
-    get: [requireQueryApiKey, getSimulationRunMaterializedMomentsHandler],
-  }),
-  route("/admin/simulation/run/:runId/link-decisions", {
-    get: [requireQueryApiKey, getSimulationRunLinkDecisionsHandler],
-  }),
-  route("/admin/simulation/run/:runId/candidate-sets", {
-    get: [requireQueryApiKey, getSimulationRunCandidateSetsHandler],
-  }),
-  route("/admin/simulation/run/:runId/timeline-fit-decisions", {
-    get: [requireQueryApiKey, getSimulationRunTimelineFitDecisionsHandler],
-  }),
+  ...[
+    {
+      path: "/admin/simulation/run/:runId/documents",
+      handler: getSimulationRunDocumentsHandler,
+    },
+    {
+      path: "/admin/simulation/run/:runId/micro-batches",
+      handler: getSimulationRunMicroBatchesHandler,
+    },
+    {
+      path: "/admin/simulation/run/:runId/macro-outputs",
+      handler: getSimulationRunMacroOutputsHandler,
+    },
+    {
+      path: "/admin/simulation/run/:runId/macro-classifications",
+      handler: getSimulationRunMacroClassificationsHandler,
+    },
+    {
+      path: "/admin/simulation/run/:runId/materialized-moments",
+      handler: getSimulationRunMaterializedMomentsHandler,
+    },
+    {
+      path: "/admin/simulation/run/:runId/link-decisions",
+      handler: getSimulationRunLinkDecisionsHandler,
+    },
+    {
+      path: "/admin/simulation/run/:runId/candidate-sets",
+      handler: getSimulationRunCandidateSetsHandler,
+    },
+    {
+      path: "/admin/simulation/run/:runId/timeline-fit-decisions",
+      handler: getSimulationRunTimelineFitDecisionsHandler,
+    },
+  ].map((r) =>
+    route(r.path, {
+      get: [requireQueryApiKey, r.handler],
+    })
+  ),
   route("/admin/simulation/run/:runId/events", {
     get: [requireQueryApiKey, getSimulationRunEventsHandler],
   }),
 ];
-

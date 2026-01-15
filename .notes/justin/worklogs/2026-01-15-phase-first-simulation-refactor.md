@@ -258,3 +258,32 @@ Check:
 
 - `pnpm -s build` passes after this refactor.
 
+## Plan: registry cutover + shim deletions + boundary cleanup
+
+This is the next slice to align with the handoff brief’s registry-driven wiring and no-shims direction.
+
+Work:
+
+- Create a single server-side source of truth for the ordered phase list and runner mapping.
+  - Use it to drive the simulation runner dispatch (instead of scattered imports / ad-hoc maps).
+  - Use it to drive server artifact route wiring (so phases and artifacts stay in sync).
+  - Keep the UI view registry as a separate concern for now, but ensure it derives its phase order from the same canonical list.
+
+- Do a hard cutover and delete shims after imports are updated:
+  - `src/app/engine/core/indexing/ingest_diff_orchestrator.ts`
+  - `src/app/engine/core/indexing/micro_batches_orchestrator.ts`
+  - `src/app/engine/runners/simulation/phases/ingest_diff.ts`
+  - `src/app/engine/runners/simulation/phases/micro_batches.ts`
+  - `src/app/engine/runners/simulation/phases/macro_synthesis.ts`
+  - Any additional re-export shims found during import rewrites.
+
+- Finish enforcing the adapter/orchestrator boundary in the remaining phase-first runners:
+  - candidate_sets: core owns orchestration; vector query is behind ports; runner stays thin; adapter stays I/O.
+  - timeline_fit: core owns orchestration and optional LLM veto via a port; runner stays thin; adapter stays I/O.
+  - deterministic_linking: core owns orchestration; runner stays thin; adapter stays I/O.
+
+Gates for this slice:
+
+- `pnpm -s build`
+- leave simulation tests for later if the dev/proxy startup still blocks them.
+

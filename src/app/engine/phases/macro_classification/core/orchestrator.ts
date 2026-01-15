@@ -381,7 +381,11 @@ ${momentsText}
         : typeof indexRaw === "string"
         ? Number.parseInt(indexRaw, 10)
         : NaN;
-    if (!Number.isFinite(index) || index < 1 || index > input.macroMoments.length) {
+    if (
+      !Number.isFinite(index) ||
+      index < 1 ||
+      index > input.macroMoments.length
+    ) {
       continue;
     }
     byIndex.set(index, item);
@@ -416,8 +420,12 @@ ${momentsText}
     (input.macroMoments[i] as any).subjectKind = isSubject
       ? subjectKind ?? momentKind
       : null;
-    (input.macroMoments[i] as any).subjectReason = isSubject ? subjectReason : null;
-    (input.macroMoments[i] as any).subjectEvidence = isSubject ? subjectEvidence : [];
+    (input.macroMoments[i] as any).subjectReason = isSubject
+      ? subjectReason
+      : null;
+    (input.macroMoments[i] as any).subjectEvidence = isSubject
+      ? subjectEvidence
+      : [];
     (input.macroMoments[i] as any).classificationConfidence = confidence;
   }
 
@@ -438,7 +446,12 @@ export async function runMacroClassificationForDocument(input: {
   streams: MacroStream[];
   gatingAuditByStream: any[];
   classificationsByStream: any[];
-  counts: { streamsIn: number; streamsOut: number; macroIn: number; macroOut: number };
+  counts: {
+    streamsIn: number;
+    streamsOut: number;
+    macroIn: number;
+    macroOut: number;
+  };
 }> {
   const outStreams: MacroStream[] = [];
   const gatingAuditByStream: any[] = [];
@@ -453,7 +466,9 @@ export async function runMacroClassificationForDocument(input: {
   for (const s of input.streams) {
     const streamId =
       typeof (s as any)?.streamId === "string" ? (s as any).streamId : "stream";
-    const macroMoments: MacroMomentDescription[] = Array.isArray((s as any)?.macroMoments)
+    const macroMoments: MacroMomentDescription[] = Array.isArray(
+      (s as any)?.macroMoments
+    )
       ? ((s as any).macroMoments as any[])
       : [];
     macroIn += macroMoments.length;

@@ -44,13 +44,28 @@ All code for a phase should be co-located under:
 
 `src/app/engine/phases/<phaseId>/`
 
-Recommended substructure:
+Required substructure:
 
-- `core/` — **orchestrator(s)** + pure helpers
-- `live/` — live port implementations + thin adapters
-- `simulation/` — simulation port implementations + thin adapters + simulation runner
-- `ui/` — UI view(s) for the phase
-- `routes/` (optional) — phase-specific API routes (or registry-driven generation)
+Each phase is a bundle with a clear split between engine behavior and app wiring:
+
+```
+src/app/phases/<phaseId>/
+  engine/
+    core/
+    live/
+    simulation/
+  web/
+    ui/
+    routes/
+```
+
+Notes:
+
+- `engine/core/`: orchestrator(s) and pure helpers. Owns phase control flow.
+- `engine/live/`: live port implementations and thin adapters.
+- `engine/simulation/`: simulation port implementations, thin adapters, and the simulation runner entrypoint.
+- `app/ui/`: UI view(s) for the phase.
+- `app/routes/`: phase-specific API routes (or registry-driven route generation).
 
 ### Core vs adapters (strict separation)
 

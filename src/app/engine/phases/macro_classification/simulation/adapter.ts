@@ -1,9 +1,7 @@
 import type { SimulationDbContext } from "../../../adapters/simulation/types";
 import { getSimulationDb } from "../../../adapters/simulation/db";
 import type { MacroMomentDescription } from "../../../types";
-import {
-  runMacroClassificationForDocument,
-} from "../core/orchestrator";
+import { runMacroClassificationForDocument } from "../core/orchestrator";
 
 type MacroStream = { streamId: string; macroMoments: MacroMomentDescription[] };
 

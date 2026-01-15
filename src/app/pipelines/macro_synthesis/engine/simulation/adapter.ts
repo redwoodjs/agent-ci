@@ -1,8 +1,8 @@
 import type {
   SimulationDbContext,
   SimulationMicroBatchCacheRow,
-} from "../../../../engine/adapters/simulation/types";
-import { getSimulationDb } from "../../../../engine/adapters/simulation/db";
+} from "../../../../engine/simulation/types";
+import { getSimulationDb } from "../../../../engine/simulation/db";
 import type { MicroMoment } from "../../../../engine/databases/momentGraph";
 import { getIndexingPlugins } from "../../../../engine/indexing/indexingPlugins";
 import { prepareDocumentForR2Key } from "../../../../engine/indexing/pluginPipeline";

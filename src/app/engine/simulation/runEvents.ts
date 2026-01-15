@@ -23,9 +23,7 @@ export async function addSimulationRunEvent(
     return;
   }
   const kind =
-    typeof input.kind === "string" && input.kind.length > 0
-      ? input.kind
-      : "event";
+    typeof input.kind === "string" && input.kind.length > 0 ? input.kind : "event";
   const level: SimulationRunEventLevel =
     input.level === "debug" ||
     input.level === "info" ||
@@ -90,3 +88,4 @@ export async function getSimulationRunEvents(
     payload: (r as any).payload_json ?? {},
   }));
 }
+

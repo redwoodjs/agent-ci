@@ -1,4 +1,4 @@
-import { applyMomentGraphNamespacePrefixValue } from "../../momentGraphNamespace";
+import { applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
 import type {
   SimulationDbContext,
   SimulationRunDocumentRow,
@@ -502,3 +502,4 @@ export async function getMicroBatchCacheEntry(
     .executeTakeFirst()) as unknown as SimulationMicroBatchCacheRow | undefined;
   return row ?? null;
 }
+

@@ -1,7 +1,7 @@
-export * from "../../adapters/simulation";
+export * from "../../simulation";
 export * from "../../runners/simulation/runner";
 
 export {
   getSimulationRunProgressSummary,
   type SimulationRunProgressSummary,
-} from "../../adapters/simulation/runProgress";
+} from "../../simulation/runProgress";

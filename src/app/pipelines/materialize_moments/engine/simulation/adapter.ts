@@ -1,8 +1,8 @@
 import type {
   SimulationDbContext,
   SimulationRunMacroClassifiedOutputRow,
-} from "../../../../engine/adapters/simulation/types";
-import { getSimulationDb } from "../../../../engine/adapters/simulation/db";
+} from "../../../../engine/simulation/types";
+import { getSimulationDb } from "../../../../engine/simulation/db";
 import { getIndexingPlugins } from "../../../../engine/indexing/indexingPlugins";
 import { prepareDocumentForR2Key } from "../../../../engine/indexing/pluginPipeline";
 import { sha256Hex, uuidFromSha256Hex } from "../../../../engine/utils/crypto";

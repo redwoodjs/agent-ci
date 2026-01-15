@@ -22,8 +22,8 @@ import {
   getSimulationRunMaterializedMoments,
   simulationPhases,
 } from "@/app/engine/databases/simulationState";
-import { type SimulationRunViewId } from "@/app/engine/adapters/simulation/phaseRegistry";
-import { getSimulationRunProgressSummary } from "@/app/engine/adapters/simulation/runProgress";
+import { type SimulationRunViewId } from "@/app/engine/simulation/phaseRegistry";
+import { getSimulationRunProgressSummary } from "@/app/engine/simulation/runProgress";
 import { getMoments } from "@/app/engine/databases/momentGraph";
 import { SimulationRunControls } from "./simulation-run-controls";
 import { CopyTextButton } from "./copy-text-button";

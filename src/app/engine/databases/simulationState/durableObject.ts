@@ -1,2 +1,2 @@
-export { EngineSimulationStateDO } from "../../adapters/simulation/durableObject";
+export { EngineSimulationStateDO } from "../../simulation/durableObject";
 

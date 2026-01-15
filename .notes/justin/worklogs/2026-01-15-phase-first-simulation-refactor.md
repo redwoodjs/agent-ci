@@ -360,3 +360,18 @@ Next step I think makes sense:
 
 I also want to rename `src/app/engine/adapters/{live,simulation}` to `src/app/engine/{live,simulation}` since those folders are composition/runtime code, not per-port adapters.
 
+## Moved live and simulation wiring out of engine/adapters
+
+I moved wiring/runtime modules out of `src/app/engine/adapters/`:
+
+- live linking wiring moved to `src/app/engine/live/`
+- simulation state runtime moved to `src/app/engine/simulation/`
+
+This is mostly a path + naming change. The code is still doing the same work, but the directory name now matches the fact that these modules are:
+
+- not phase adapters
+- not pure port implementations
+- mostly runtime / persistence code for the engine
+
+I deleted the old `src/app/engine/adapters/simulation/*` files after updating imports, and kept `pnpm -s build` passing.
+

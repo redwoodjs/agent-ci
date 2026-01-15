@@ -1,12 +1,12 @@
 import { applyMomentGraphNamespacePrefixValue } from "../../../../engine/momentGraphNamespace";
-import type { SimulationDbContext } from "../../../../engine/adapters/simulation/types";
+import type { SimulationDbContext } from "../../../../engine/simulation/types";
 import {
   getMomentGraphDb,
   getSimulationDb,
-} from "../../../../engine/adapters/simulation/db";
-import { addSimulationRunEvent } from "../../../../engine/adapters/simulation/runEvents";
-import { createSimulationRunLogger } from "../../../../engine/adapters/simulation/logger";
-import { simulationPhases } from "../../../../engine/adapters/simulation/types";
+} from "../../../../engine/simulation/db";
+import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
+import { createSimulationRunLogger } from "../../../../engine/simulation/logger";
+import { simulationPhases } from "../../../../engine/simulation/types";
 import { addMoment, getMoments } from "../../../../engine/databases/momentGraph";
 import { resolveThreadHeadForDocumentAsOf } from "../../../../engine/core/linking/explicitRefThreadHead";
 import { computeDeterministicLinkingDecision } from "../../../../engine/core/linking/deterministicLinkingOrchestrator";

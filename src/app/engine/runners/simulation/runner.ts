@@ -1,9 +1,9 @@
-import type { SimulationDbContext } from "../../adapters/simulation/types";
-import type { SimulationPhase } from "../../adapters/simulation/types";
-import { simulationPhases } from "../../adapters/simulation/types";
-import { normalizePhase } from "../../adapters/simulation/runs";
-import { getSimulationDb } from "../../adapters/simulation/db";
-import { addSimulationRunEvent } from "../../adapters/simulation/runEvents";
+import type { SimulationDbContext } from "../../simulation/types";
+import type { SimulationPhase } from "../../simulation/types";
+import { simulationPhases } from "../../simulation/types";
+import { normalizePhase } from "../../simulation/runs";
+import { getSimulationDb } from "../../simulation/db";
+import { addSimulationRunEvent } from "../../simulation/runEvents";
 import { runPhaseIngestDiff } from "../../../pipelines/ingest_diff/engine/simulation/runner";
 import { runPhaseMicroBatches } from "../../../pipelines/micro_batches/engine/simulation/runner";
 import { runPhaseMacroSynthesis } from "../../../pipelines/macro_synthesis/engine/simulation/runner";

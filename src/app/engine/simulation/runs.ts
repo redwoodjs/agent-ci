@@ -7,7 +7,7 @@ import type {
 import { simulationPhases } from "./types";
 import { getSimulationDb } from "./db";
 import { addSimulationRunEvent } from "./runEvents";
-import { computeSimulationRunPrefixBase } from "../../utils/simulationRunPrefix";
+import { computeSimulationRunPrefixBase } from "../utils/simulationRunPrefix";
 
 const legacyPhaseMap: Record<string, SimulationPhase> = {
   A_ingest_diff: "ingest_diff",

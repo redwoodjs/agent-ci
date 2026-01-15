@@ -1,5 +1,5 @@
-import type { SimulationDbContext } from "../../../../engine/adapters/simulation/types";
-import { getSimulationDb } from "../../../../engine/adapters/simulation/db";
+import type { SimulationDbContext } from "../../../../engine/simulation/types";
+import { getSimulationDb } from "../../../../engine/simulation/db";
 import type { MacroMomentDescription } from "../../../../engine/types";
 import { runMacroClassificationForDocument } from "../core/orchestrator";
 

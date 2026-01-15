@@ -1,6 +1,6 @@
-import type { SimulationDbContext } from "../../../../engine/adapters/simulation/types";
-import { getSimulationDb } from "../../../../engine/adapters/simulation/db";
-import type { SimulationMicroBatchCacheRow } from "../../../../engine/adapters/simulation/types";
+import type { SimulationDbContext } from "../../../../engine/simulation/types";
+import { getSimulationDb } from "../../../../engine/simulation/db";
+import type { SimulationMicroBatchCacheRow } from "../../../../engine/simulation/types";
 import type { Document, IndexingHookContext } from "../../../../engine/types";
 import {
   getMicroPromptContext,

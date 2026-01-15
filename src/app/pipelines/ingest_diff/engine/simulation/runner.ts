@@ -1,8 +1,8 @@
-import type { SimulationDbContext } from "../../../../engine/adapters/simulation/types";
-import { getSimulationDb } from "../../../../engine/adapters/simulation/db";
-import { addSimulationRunEvent } from "../../../../engine/adapters/simulation/runEvents";
-import { createSimulationRunLogger } from "../../../../engine/adapters/simulation/logger";
-import { simulationPhases } from "../../../../engine/adapters/simulation/types";
+import type { SimulationDbContext } from "../../../../engine/simulation/types";
+import { getSimulationDb } from "../../../../engine/simulation/db";
+import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
+import { createSimulationRunLogger } from "../../../../engine/simulation/logger";
+import { simulationPhases } from "../../../../engine/simulation/types";
 import { runIngestDiffForKey } from "../core/orchestrator";
 
 export async function runPhaseIngestDiff(

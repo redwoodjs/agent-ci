@@ -301,3 +301,18 @@ Next steps:
 - update imports and centralized wiring (runner dispatch, routes, UI registry) so there is one canonical phase path
 - keep `pnpm -s build` passing after the move
 
+## Progress: moved phase-first code into src/app/phases/<phase>/engine
+
+Moved the existing phase-first phase implementations out of `src/app/engine/phases/` into:
+
+- `src/app/phases/<phase>/engine/core/*`
+- `src/app/phases/<phase>/engine/live/*`
+- `src/app/phases/<phase>/engine/simulation/*`
+
+Also moved `src/app/engine/phases/README.md` to `src/app/phases/README.md` and updated it for the `engine/` + `web/` split.
+
+Follow-up in this slice:
+
+- update all imports and any re-export shims that still point at the old phase paths
+- run `pnpm -s build`
+

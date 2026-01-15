@@ -1,1 +1,1 @@
-export * from "../../../phases/macro_synthesis/simulation/adapter";
+export * from "../../../../phases/macro_synthesis/engine/simulation/adapter";

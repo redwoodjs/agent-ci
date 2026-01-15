@@ -3,14 +3,14 @@ import { simulationPhases } from "../../adapters/simulation/types";
 import { normalizePhase } from "../../adapters/simulation/runs";
 import { getSimulationDb } from "../../adapters/simulation/db";
 import { addSimulationRunEvent } from "../../adapters/simulation/runEvents";
-import { runPhaseIngestDiff } from "./phases/ingest_diff";
-import { runPhaseMicroBatches } from "./phases/micro_batches";
-import { runPhaseMacroSynthesis } from "./phases/macro_synthesis";
-import { runPhaseMacroClassification } from "./phases/macro_classification";
-import { runPhaseMaterializeMoments } from "../../../phases/materialize_moments/engine/simulation/runner";
-import { runPhaseDeterministicLinking } from "../../../phases/deterministic_linking/engine/simulation/runner";
-import { runPhaseCandidateSets } from "../../../phases/candidate_sets/engine/simulation/runner";
-import { runPhaseTimelineFit } from "../../../phases/timeline_fit/engine/simulation/runner";
+import { runPhaseIngestDiff } from "../../../pipelines/ingest_diff/engine/simulation/runner";
+import { runPhaseMicroBatches } from "../../../pipelines/micro_batches/engine/simulation/runner";
+import { runPhaseMacroSynthesis } from "../../../pipelines/macro_synthesis/engine/simulation/runner";
+import { runPhaseMacroClassification } from "../../../pipelines/macro_classification/engine/simulation/runner";
+import { runPhaseMaterializeMoments } from "../../../pipelines/materialize_moments/engine/simulation/runner";
+import { runPhaseDeterministicLinking } from "../../../pipelines/deterministic_linking/engine/simulation/runner";
+import { runPhaseCandidateSets } from "../../../pipelines/candidate_sets/engine/simulation/runner";
+import { runPhaseTimelineFit } from "../../../pipelines/timeline_fit/engine/simulation/runner";
 
 const phaseRunners = {
   ingest_diff: runPhaseIngestDiff,

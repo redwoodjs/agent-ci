@@ -316,3 +316,18 @@ Follow-up in this slice:
 - update all imports and any re-export shims that still point at the old phase paths
 - run `pnpm -s build`
 
+## Check: build after moving phases
+
+- `pnpm -s build` passes after moving phase code to `src/app/phases/*`.
+
+## Plan: delete shims instead of maintaining them
+
+I updated shim import targets during the move so the repo still built, but these shims are not meant to stick around.
+
+Next slice:
+
+- Locate imports that still target the shim modules (engine core re-exports, simulation runner phase re-exports, simulation adapter re-exports).
+- Rewrite those imports to point directly at `src/app/phases/<phase>/engine/...`.
+- Delete the shim files once there are no remaining imports.
+- Gate with `pnpm -s build`.
+

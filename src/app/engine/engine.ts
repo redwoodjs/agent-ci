@@ -31,11 +31,11 @@ import {
 } from "./databases/momentGraph";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
-import { computeMicroBatchesForDocument } from "./core/indexing/micro_batches_orchestrator";
+import { computeMicroBatchesForDocument } from "../pipelines/micro_batches/engine/core/orchestrator";
 import { planMicroBatches } from "./lib/phaseCores/micro_batches_core";
 import { computeMicroItemsWithoutLlm } from "./utils/microItems";
 import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./lib/phaseCores/materialize_moments_core";
-import { computeMacroSynthesisForDocument } from "./core/indexing/macro_synthesis_orchestrator";
+import { computeMacroSynthesisForDocument } from "../pipelines/macro_synthesis/engine/core/orchestrator";
 import { computeMicroStreamHash, extractAnchorsFromStreams } from "./lib/phaseCores/macro_synthesis_core";
 import { computeDeterministicLinkingProposal } from "./lib/phaseCores/deterministic_linking_core";
 import { computeIndexDocumentParentForRootMacroMoment } from "./adapters/live/linking";

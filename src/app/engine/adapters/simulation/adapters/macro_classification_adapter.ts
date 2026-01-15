@@ -1,1 +1,1 @@
-export * from "../../../../phases/macro_classification/engine/simulation/adapter";
+export * from "../../../../pipelines/macro_classification/engine/simulation/adapter";

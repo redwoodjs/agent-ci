@@ -1,4 +1,5 @@
-import type { Document, MicroMoment } from "../types";
+import type { Document } from "../types";
+import type { MicroMoment } from "../databases/momentGraph";
 
 export function buildParsedDocumentIdentity(document: Document): Record<string, any> {
   return {

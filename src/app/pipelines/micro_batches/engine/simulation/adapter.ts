@@ -152,8 +152,6 @@ export async function runMicroBatchesAdapter(
             }
           },
           loadProcessedChunkHashes: async () => [],
-          chunkChunksForMicroComputation: ({ chunks, ...opts }) =>
-            chunkChunksForMicroComputation(chunks, opts),
         },
         r2Key,
         env,
@@ -162,11 +160,6 @@ export async function runMicroBatchesAdapter(
         overridePrefix: input.momentGraphNamespacePrefix,
         indexingMode: "replay",
         forceRecollect: true,
-        microBatching: {
-          maxBatchChars: chunkBatchMaxChars,
-          maxChunkChars: chunkMaxChars,
-          maxBatchItems: chunkBatchSize,
-        },
       });
 
       if (prepared.chunks.length === 0) {
@@ -238,7 +231,11 @@ export async function runMicroBatchesAdapter(
         document: prepared.document,
         indexingContext: prepared.indexingContext,
         plugins,
-        chunkBatches: prepared.chunkBatches,
+        chunkBatches: chunkChunksForMicroComputation(prepared.chunks, {
+          maxBatchChars: chunkBatchMaxChars,
+          maxChunkChars: chunkMaxChars,
+          maxBatchItems: chunkBatchSize,
+        }),
         now: input.now,
       });
 

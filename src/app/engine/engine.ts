@@ -28,15 +28,22 @@ import {
   getMicroMomentsForDocument,
   findMomentByMicroPathsHash,
   type MicroMoment,
+  type MomentGraphContext,
 } from "./databases/momentGraph";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
 import { computeMicroBatchesForDocument } from "../pipelines/micro_batches/engine/core/orchestrator";
 import { planMicroBatches } from "./lib/phaseCores/microBatchesCore";
 import { computeMicroItemsWithoutLlm } from "./utils/microItems";
-import { computeMaterializedMomentIdentityTagged, computeMicroPathsHash } from "./lib/phaseCores/materializeMomentsCore";
+import {
+  computeMaterializedMomentIdentityTagged,
+  computeMicroPathsHash,
+} from "./lib/phaseCores/materializeMomentsCore";
 import { computeMacroSynthesisForDocument } from "../pipelines/macro_synthesis/engine/core/orchestrator";
-import { computeMicroStreamHash, extractAnchorsFromStreams } from "./lib/phaseCores/macroSynthesisCore";
+import {
+  computeMicroStreamHash,
+  extractAnchorsFromStreams,
+} from "./lib/phaseCores/macroSynthesisCore";
 import { computeDeterministicLinkingProposal } from "./lib/phaseCores/deterministicLinkingCore";
 import { computeIndexDocumentParentForRootMacroMoment } from "./live/linking";
 import { runIndexingDocumentPreparation } from "./indexing/documentPreparation";
@@ -53,8 +60,14 @@ import {
 } from "./utils/provenance";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
 import { classifyMacroMoments } from "./subjects/classifyMacroMoments";
-import { applyMomentGraphNamespacePrefixValue, getMomentGraphNamespacePrefixFromEnv } from "./momentGraphNamespace";
-import { getMicroPromptContext, splitDocumentIntoChunks } from "./indexing/pluginPipeline";
+import {
+  applyMomentGraphNamespacePrefixValue,
+  getMomentGraphNamespacePrefixFromEnv,
+} from "./momentGraphNamespace";
+import {
+  getMicroPromptContext,
+  splitDocumentIntoChunks,
+} from "./indexing/pluginPipeline";
 import { chunkChunksForMicroComputation } from "./utils/chunkBatching";
 
 async function hashChunkId(chunkId: string): Promise<string> {
@@ -125,7 +138,8 @@ export async function indexDocument(
     .MICRO_MOMENT_CHUNK_BATCH_SIZE;
   const chunkBatchMaxCharsRaw = (indexingContext.env as any)
     .MICRO_MOMENT_CHUNK_BATCH_MAX_CHARS;
-  const chunkMaxCharsRaw = (indexingContext.env as any).MICRO_MOMENT_CHUNK_MAX_CHARS;
+  const chunkMaxCharsRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_MAX_CHARS;
 
   const chunkBatchSize =
     typeof chunkBatchSizeRaw === "string"
@@ -153,6 +167,8 @@ export async function indexDocument(
       : null;
 
   let stage = "start";
+  let auditDocumentId: string | null = null;
+  let auditMomentGraphContext: MomentGraphContext | null = null;
   try {
     stage = "document-prep";
     const prepared = await runIndexingDocumentPreparation({
@@ -164,11 +180,17 @@ export async function indexDocument(
             (plugin) => plugin.prepareSourceDocument?.(indexingContext)
           );
           if (!doc) {
-            throw new Error(`No plugin could prepare document for R2 key: ${r2Key}`);
+            throw new Error(
+              `No plugin could prepare document for R2 key: ${r2Key}`
+            );
           }
           return doc;
         },
-        computeMomentGraphNamespaceForIndexing: async ({ document, indexingContext, plugins }) => {
+        computeMomentGraphNamespaceForIndexing: async ({
+          document,
+          indexingContext,
+          plugins,
+        }) => {
           for (const plugin of plugins) {
             const nsRaw =
               await plugin.scoping?.computeMomentGraphNamespaceForIndexing?.(
@@ -186,17 +208,22 @@ export async function indexDocument(
           return null;
         },
         getMomentGraphNamespacePrefixFromEnv,
-        applyMomentGraphNamespacePrefixValue: (baseNamespace: string, prefix: string | null) =>
-          applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) ?? baseNamespace,
-        splitDocumentIntoChunks: async ({ document, indexingContext, plugins }) =>
-          await splitDocumentIntoChunks(document, indexingContext, plugins),
+        applyMomentGraphNamespacePrefixValue: (
+          baseNamespace: string,
+          prefix: string | null
+        ) =>
+          applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) ??
+          baseNamespace,
+        splitDocumentIntoChunks: async ({
+          document,
+          indexingContext,
+          plugins,
+        }) => await splitDocumentIntoChunks(document, indexingContext, plugins),
         loadProcessedChunkHashes: async ({ r2Key, momentGraphNamespace }) =>
           await getProcessedChunkHashes(r2Key, {
             env: context.env,
             momentGraphNamespace,
           }),
-        chunkChunksForMicroComputation: ({ chunks, ...opts }) =>
-          chunkChunksForMicroComputation(chunks, opts),
       },
       r2Key,
       env: context.env,
@@ -205,11 +232,6 @@ export async function indexDocument(
       overridePrefix,
       indexingMode: momentReplayRunId ? "replay" : "indexing",
       forceRecollect,
-      microBatching: {
-        maxBatchChars: chunkBatchMaxChars,
-        maxChunkChars: chunkMaxChars,
-        maxBatchItems: chunkBatchSize,
-      },
     });
 
     const document = prepared.document;
@@ -220,6 +242,8 @@ export async function indexDocument(
       env: context.env,
       momentGraphNamespace: effectiveNamespace,
     };
+    auditMomentGraphContext = momentGraphContext;
+    auditDocumentId = document.id;
 
     const chunks = prepared.chunks;
     const newChunks = prepared.newChunks;
@@ -238,7 +262,11 @@ export async function indexDocument(
       momentGraphContext
     );
 
-    const chunkBatches = prepared.chunkBatches;
+    const chunkBatches = chunkChunksForMicroComputation(chunks, {
+      maxBatchChars: chunkBatchMaxChars,
+      maxChunkChars: chunkMaxChars,
+      maxBatchItems: chunkBatchSize,
+    });
 
     console.log("[moment-linker] micro chunks extracted", {
       documentId: document.id,
@@ -356,7 +384,8 @@ export async function indexDocument(
           );
           const batchAuthorRaw = (chunks[0]?.metadata as any)?.author;
           const batchAuthor =
-            typeof batchAuthorRaw === "string" && batchAuthorRaw.trim().length > 0
+            typeof batchAuthorRaw === "string" &&
+            batchAuthorRaw.trim().length > 0
               ? batchAuthorRaw.trim()
               : document.metadata.author;
 
@@ -438,14 +467,10 @@ export async function indexDocument(
           momentGraphNamespace,
           microMoments,
         }) => {
-          await upsertMicroMomentsBatch(
-            documentId,
-            microMoments,
-            {
-              env: context.env,
-              momentGraphNamespace,
-            }
-          );
+          await upsertMicroMomentsBatch(documentId, microMoments, {
+            env: context.env,
+            momentGraphNamespace,
+          });
         },
       },
       document,
@@ -1155,8 +1180,8 @@ export async function indexDocument(
                   }
                 );
               } else {
-                const computed = await computeIndexDocumentParentForRootMacroMoment(
-                  {
+                const computed =
+                  await computeIndexDocumentParentForRootMacroMoment({
                     env: context.env,
                     r2Key,
                     documentId: document.id,
@@ -1169,8 +1194,7 @@ export async function indexDocument(
                     sourceMetadata: description.sourceMetadata as any,
                     title: description.title ?? null,
                     summary: description.summary ?? null,
-                  }
-                );
+                  });
                 resolvedParentIdForFirst = computed.parentId ?? undefined;
                 linkAuditLogForFirst = computed.auditLog;
               }
@@ -1189,7 +1213,8 @@ export async function indexDocument(
                   : previousMomentId ?? null,
               streamId: stream.streamId,
             });
-            const parsedDocumentIdentity = buildParsedDocumentIdentity(document);
+            const parsedDocumentIdentity =
+              buildParsedDocumentIdentity(document);
             const timeRangeFromMicro = computeTimeRangeFromMicroMoments({
               microMoments: microMomentsForSynthesis,
               microPaths,
@@ -1204,9 +1229,11 @@ export async function indexDocument(
               description.createdAt.trim().length > 0
                 ? description.createdAt.trim()
                 : timeRangeFromMicro?.start ??
-                  (document.metadata?.createdAt ?? new Date().toISOString());
+                  document.metadata?.createdAt ??
+                  new Date().toISOString();
             const author =
-              typeof description.author === "string" && description.author.trim().length > 0
+              typeof description.author === "string" &&
+              description.author.trim().length > 0
                 ? description.author.trim()
                 : document.metadata?.author ?? "unknown";
             const moment: Moment = {
@@ -1243,8 +1270,7 @@ export async function indexDocument(
               )
                 ? ((description as any).subjectEvidence as any)
                 : undefined,
-              linkAuditLog:
-                linkAuditLog,
+              linkAuditLog: linkAuditLog,
               createdAt,
               author,
               sourceMetadata: mergedSourceMetadata,
@@ -1375,17 +1401,25 @@ export async function indexDocument(
 
     return enrichedChunks;
   } catch (error) {
-    await addDocumentAuditLog(
-      document.id,
-      "indexing:error",
-      {
+    if (auditDocumentId && auditMomentGraphContext) {
+      await addDocumentAuditLog(
+        auditDocumentId,
+        "indexing:error",
+        {
+          stage,
+          message: error instanceof Error ? error.message : String(error),
+          r2Key,
+          documentId: auditDocumentId,
+        },
+        auditMomentGraphContext
+      );
+    } else {
+      console.error("[moment-linker] indexDocument error", {
         stage,
-        message: error instanceof Error ? error.message : String(error),
         r2Key,
-        documentId: document.id,
-      },
-      momentGraphContext
-    );
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
     throw error;
   } finally {
     // no global namespace mutation

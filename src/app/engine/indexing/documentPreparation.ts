@@ -21,12 +21,6 @@ export type IndexingDocumentPreparationPorts = {
     r2Key: string;
     momentGraphNamespace: string | null;
   }) => Promise<string[]>;
-  chunkChunksForMicroComputation: (input: {
-    chunks: Chunk[];
-    maxBatchChars: number;
-    maxChunkChars: number;
-    maxBatchItems: number;
-  }) => Chunk[][];
 };
 
 export async function runIndexingDocumentPreparation(input: {
@@ -38,14 +32,12 @@ export async function runIndexingDocumentPreparation(input: {
   overridePrefix: string | null;
   indexingMode: "indexing" | "replay";
   forceRecollect: boolean;
-  microBatching: { maxBatchChars: number; maxChunkChars: number; maxBatchItems: number };
 }): Promise<{
   document: Document;
   indexingContext: IndexingHookContext;
   effectiveNamespace: string | null;
   chunks: Chunk[];
   newChunks: Chunk[];
-  chunkBatches: Chunk[][];
   oldChunkHashes: string[];
 }> {
   const indexingContext: IndexingHookContext = {
@@ -95,20 +87,12 @@ export async function runIndexingDocumentPreparation(input: {
     ? chunks
     : chunks.filter((c) => !oldSet.has(c.contentHash ?? ""));
 
-  const chunkBatches = input.ports.chunkChunksForMicroComputation({
-    chunks,
-    maxBatchChars: input.microBatching.maxBatchChars,
-    maxChunkChars: input.microBatching.maxChunkChars,
-    maxBatchItems: input.microBatching.maxBatchItems,
-  });
-
   return {
     document,
     indexingContext,
     effectiveNamespace,
     chunks,
     newChunks,
-    chunkBatches,
     oldChunkHashes,
   };
 }

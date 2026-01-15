@@ -1,4 +1,5 @@
 import type { SimulationDbContext } from "../../adapters/simulation/types";
+import type { SimulationPhase } from "../../adapters/simulation/types";
 import { simulationPhases } from "../../adapters/simulation/types";
 import { normalizePhase } from "../../adapters/simulation/runs";
 import { getSimulationDb } from "../../adapters/simulation/db";

@@ -435,7 +435,7 @@ After imports are updated to new phase-first locations, delete:
 
 And any other remaining re-export shims created during migration.
 
-DO NOT CREATE SHIMS YOURSELF - RATHER SIMPLY `rm` the old code - WE DO NOT NEED SHIMS, THEY WILL ONLY SLOW US DONE - NONE OF THIS WILL BE MERGED HALFWAY.
+DO NOT CREATE SHIMS YOURSELF - RATHER SIMPLY `rm` the old code - WE DO NOT NEED SHIMS, THEY WILL ONLY SLOW US DONE - NONE OF THIS WILL BE MERGED UNTIL WE ARE FULLY DONE.
 
 ### 3) Enforce the adapter/orchestrator boundary
 

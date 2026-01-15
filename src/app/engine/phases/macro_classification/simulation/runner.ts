@@ -25,7 +25,8 @@ export async function runPhaseMacroClassification(
   const config = runRow?.config_json ?? {};
   const r2KeysRaw = config?.r2Keys;
   const r2Keys =
-    Array.isArray(r2KeysRaw) && r2KeysRaw.every((k: any) => typeof k === "string")
+    Array.isArray(r2KeysRaw) &&
+    r2KeysRaw.every((k: any) => typeof k === "string")
       ? (r2KeysRaw as string[])
       : [];
 
@@ -102,4 +103,3 @@ export async function runPhaseMacroClassification(
 
   return { status: "running", currentPhase: nextPhase };
 }
-

@@ -75,36 +75,8 @@ export async function computeIndexDocumentParentForRootMacroMoment(input: {
         },
       },
       timelineFit: {
-        llmVeto: async (llmInput) => {
-          const prompt =
-            `Given a child moment and candidate parent moments, return a JSON object:\n` +
-            `{"vetoedIds":["..."],"note":"..."}\n\n` +
-            `Child:\n${llmInput.childText}\n\n` +
-            `Candidates:\n` +
-            llmInput.candidates
-              .map(
-                (c) =>
-                  `- id=${c.id}\n  title=${c.title ?? ""}\n  summary=${c.summary ?? ""}`
-              )
-              .join("\n\n");
-          try {
-            const out = await callLLM(prompt, "slow-reasoning", {
-              temperature: 0,
-            });
-            const raw =
-              typeof (out as any)?.content === "string"
-                ? (out as any).content
-                : String(out);
-            const parsed = JSON.parse(raw);
-            const vetoedIds = Array.isArray(parsed?.vetoedIds)
-              ? parsed.vetoedIds.filter((x: any) => typeof x === "string")
-              : [];
-            const note = typeof parsed?.note === "string" ? parsed.note : null;
-            return { vetoedIds, note };
-          } catch {
-            return { vetoedIds: [], note: null };
-          }
-        },
+        callLLM: async (prompt) =>
+          await callLLM(prompt, "slow-reasoning", { temperature: 0 }),
       },
     },
     env: input.env,

@@ -4,6 +4,9 @@ import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
 import { runMicroBatchesAdapter } from "./adapter";
+import { computeMicroMomentsForChunkBatch } from "../../../subjects/computeMicroMomentsForChunkBatch";
+import { getEmbedding, getEmbeddings } from "../../../utils/vector";
+import { upsertMicroMomentsBatch } from "../../../databases/momentGraph";
 
 export async function runPhaseMicroBatches(
   context: SimulationDbContext,
@@ -57,6 +60,28 @@ export async function runPhaseMicroBatches(
     runId: input.runId,
     r2Keys,
     useLlm,
+    ports: {
+      computeMicroItemsForChunkBatch: async ({ chunks, promptContext }) => {
+        if (!useLlm) {
+          return [];
+        }
+        return (
+          (await computeMicroMomentsForChunkBatch(chunks, { promptContext })) ?? []
+        );
+      },
+      getEmbeddings: async (texts) => await getEmbeddings(texts),
+      getEmbedding: async (text) => await getEmbedding(text),
+      upsertMicroMomentsBatch: async ({
+        documentId,
+        momentGraphNamespace,
+        microMoments,
+      }) => {
+        await upsertMicroMomentsBatch(documentId, microMoments as any, {
+          env,
+          momentGraphNamespace,
+        });
+      },
+    },
     now,
     log,
     momentGraphNamespace,

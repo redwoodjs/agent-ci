@@ -10,12 +10,12 @@ import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
 import { chunkChunksForMicroComputation } from "../../../utils/chunkBatching";
 import { sha256Hex } from "../../../utils/crypto";
 import { computeMicroItemsWithoutLlm } from "../../../utils/microItems";
-import { computeMicroMomentsForChunkBatch } from "../../../subjects/computeMicroMomentsForChunkBatch";
-import { computeMicroBatchesForDocument } from "../core/orchestrator";
+import {
+  runMicroBatchesForDocument,
+  type MicroBatchesOrchestratorPorts,
+} from "../core/orchestrator";
 import { planMicroBatches } from "../../../lib/phaseCores/micro_batches_core";
 import { runPhaseADocumentPreparation } from "../../../core/indexing/phase_a_orchestrator";
-import { getEmbeddings, getEmbedding } from "../../../utils/vector";
-import { upsertMicroMomentsBatch } from "../../../databases/momentGraph";
 import {
   applyMomentGraphNamespacePrefixValue,
   getMomentGraphNamespacePrefixFromEnv,
@@ -27,6 +27,13 @@ export async function runMicroBatchesAdapter(
     runId: string;
     r2Keys: string[];
     useLlm: boolean;
+    ports: Pick<
+      MicroBatchesOrchestratorPorts,
+      | "computeMicroItemsForChunkBatch"
+      | "getEmbeddings"
+      | "getEmbedding"
+      | "upsertMicroMomentsBatch"
+    >;
     now: string;
     log: { error: (kind: string, payload: any) => Promise<void> };
     momentGraphNamespace: string | null;
@@ -73,44 +80,6 @@ export async function runMicroBatchesAdapter(
   let batchesCached = 0;
   let failed = 0;
   const failures: Array<{ r2Key: string; error: string }> = [];
-
-  function parseDateMs(value: unknown): number | null {
-    if (typeof value !== "string") {
-      return null;
-    }
-    const ms = Date.parse(value);
-    return Number.isFinite(ms) ? ms : null;
-  }
-
-  function inferBatchTimeRange(
-    chunks: any[],
-    documentCreatedAt: string
-  ): { start: string; end: string } {
-    let minMs: number | null = null;
-    let maxMs: number | null = null;
-
-    for (const chunk of chunks) {
-      const ts = (chunk?.metadata as any)?.timestamp;
-      const ms = parseDateMs(ts);
-      if (ms === null) {
-        continue;
-      }
-      if (minMs === null || ms < minMs) {
-        minMs = ms;
-      }
-      if (maxMs === null || ms > maxMs) {
-        maxMs = ms;
-      }
-    }
-
-    const fallbackMs = parseDateMs(documentCreatedAt) ?? Date.now();
-    const startMs = minMs ?? fallbackMs;
-    const endMs = maxMs ?? startMs;
-    return {
-      start: new Date(startMs).toISOString(),
-      end: new Date(endMs).toISOString(),
-    };
-  }
 
   async function prepareSourceDocument(
     indexingContext: IndexingHookContext
@@ -199,7 +168,7 @@ export async function runMicroBatchesAdapter(
         continue;
       }
 
-      const computed = await computeMicroBatchesForDocument({
+      const result = await runMicroBatchesForDocument({
         ports: {
           planMicroBatches,
           sha256Hex,
@@ -233,6 +202,9 @@ export async function runMicroBatchesAdapter(
             batchHash,
             promptContextHash,
             microItems,
+            chunks,
+            batchIndex,
+            promptContext,
           }) => {
             await db
               .insertInto("simulation_micro_batch_cache")
@@ -251,82 +223,21 @@ export async function runMicroBatchesAdapter(
               )
               .execute();
           },
-          computeMicroItemsForChunkBatch: async ({ chunks, promptContext }) => {
-            if (!input.useLlm) {
-              return [];
-            }
-            return (
-              (await computeMicroMomentsForChunkBatch(chunks, {
-                promptContext,
-              })) ?? []
-            );
-          },
+          computeMicroItemsForChunkBatch: input.ports.computeMicroItemsForChunkBatch,
           fallbackMicroItemsForChunkBatch: ({ chunks }) =>
             computeMicroItemsWithoutLlm(chunks),
+          getEmbeddings: input.ports.getEmbeddings,
+          getEmbedding: input.ports.getEmbedding,
+          upsertMicroMomentsBatch: input.ports.upsertMicroMomentsBatch,
         },
         document: phaseA.document,
         indexingContext: phaseA.indexingContext,
         plugins,
         chunkBatches: phaseA.chunkBatches,
+        now: input.now,
       });
 
-      for (const b of computed) {
-        const microItems = Array.isArray(b.microItems) ? b.microItems : [];
-        if (microItems.length === 0) {
-          continue;
-        }
-
-        const prefix = `chunk-batch:${b.batchHash}:`;
-        let embeddings: number[][] = [];
-        try {
-          embeddings = await getEmbeddings(microItems);
-        } catch {
-          embeddings = [];
-        }
-
-        const batchTimeRange = inferBatchTimeRange(
-          b.chunks as any[],
-          String((phaseA.document as any)?.metadata?.createdAt ?? input.now)
-        );
-        const batchAuthorRaw = (b.chunks?.[0]?.metadata as any)?.author;
-        const batchAuthor =
-          typeof batchAuthorRaw === "string" && batchAuthorRaw.trim().length > 0
-            ? batchAuthorRaw.trim()
-            : String((phaseA.document as any)?.metadata?.author ?? "unknown");
-
-        const microMomentItems: Array<{
-          path: string;
-          content: string;
-          summary: string;
-          embedding: number[];
-          createdAt?: string;
-          author: string;
-          sourceMetadata?: Record<string, any>;
-        }> = [];
-
-        for (let i = 0; i < microItems.length; i++) {
-          const text = microItems[i] ?? "";
-          const embedding = embeddings[i] ?? (await getEmbedding(text));
-          microMomentItems.push({
-            path: `${prefix}${i + 1}`,
-            content: text,
-            summary: text,
-            embedding,
-            createdAt: batchTimeRange.start,
-            author: batchAuthor,
-            sourceMetadata: {
-              chunkBatchHash: b.batchHash,
-              chunkIds: (b.chunks ?? []).map((c: any) => c.id).filter(Boolean),
-              timeRange: batchTimeRange,
-            },
-          });
-        }
-
-        await upsertMicroMomentsBatch(phaseA.document.id, microMomentItems, {
-          env,
-          momentGraphNamespace: phaseA.effectiveNamespace ?? null,
-        });
-      }
+      const computed = result.batches;
 
       for (const b of computed) {
         if (b.cached) {

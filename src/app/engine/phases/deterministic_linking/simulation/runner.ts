@@ -242,8 +242,7 @@ export async function runPhaseDeterministicLinking(
         evidence: deterministic.audit.evidence as any,
       };
       if (matchedAnchorMomentId) {
-        (proposal.evidence as any).matchedAnchorMomentId =
-          matchedAnchorMomentId;
+        (proposal.evidence as any).matchedAnchorMomentId = matchedAnchorMomentId;
       }
 
       try {
@@ -374,19 +373,14 @@ export async function runPhaseDeterministicLinking(
 
         await addMoment(withParent as any, momentGraphContext);
 
-        const momentDb = getMomentGraphDb(
-          context.env,
-          effectiveNamespace ?? null
-        );
+        const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
         const row2 = await momentDb
           .selectFrom("moments")
           .select(["parent_id"])
           .where("id", "=", childMomentId)
           .executeTakeFirst();
         const actual =
-          typeof (row2 as any)?.parent_id === "string"
-            ? (row2 as any).parent_id
-            : null;
+          typeof (row2 as any)?.parent_id === "string" ? (row2 as any).parent_id : null;
 
         const ok = actual === proposal.proposedParentId;
         if (ok) {
@@ -525,3 +519,4 @@ export async function runPhaseDeterministicLinking(
 
   return { status: "running", currentPhase: nextPhase };
 }
+

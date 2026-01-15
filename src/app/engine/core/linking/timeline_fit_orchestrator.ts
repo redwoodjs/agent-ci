@@ -2,10 +2,7 @@ import { computeTimelineFitProposalDeep } from "../../lib/phaseCores/timeline_fi
 import { extractAnchorTokens } from "../../utils/anchorTokens";
 
 export type TimelineFitPorts = {
-  llmVeto?: (input: {
-    childText: string;
-    candidates: Array<{ id: string; title: string | null; summary: string | null }>;
-  }) => Promise<{ vetoedIds: string[]; note?: string | null }>;
+  callLLM?: (prompt: string) => Promise<string>;
 };
 
 export async function computeTimelineFitDecision(input: {
@@ -33,9 +30,47 @@ export async function computeTimelineFitDecision(input: {
       ? Math.floor(input.maxAnchorTokens)
       : 24;
   const maxSharedAnchorTokens =
-    Number.isFinite(input.maxSharedAnchorTokens) && input.maxSharedAnchorTokens > 0
+    Number.isFinite(input.maxSharedAnchorTokens) &&
+    input.maxSharedAnchorTokens > 0
       ? Math.floor(input.maxSharedAnchorTokens)
       : 12;
+
+  const llmVeto =
+    input.useLlmVeto && input.ports.callLLM
+      ? async (llmInput: {
+          childText: string;
+          candidates: Array<{
+            id: string;
+            title: string | null;
+            summary: string | null;
+          }>;
+        }) => {
+          const prompt =
+            `Given a child moment and candidate parent moments, return a JSON object:\n` +
+            `{"vetoedIds":["..."],"note":"..."}\n\n` +
+            `Child:\n${llmInput.childText}\n\n` +
+            `Candidates:\n` +
+            llmInput.candidates
+              .map(
+                (c) =>
+                  `- id=${c.id}\n  title=${c.title ?? ""}\n  summary=${
+                    c.summary ?? ""
+                  }`
+              )
+              .join("\n\n");
+          try {
+            const raw = await input.ports.callLLM!(prompt);
+            const parsed = JSON.parse(raw);
+            const vetoedIds = Array.isArray(parsed?.vetoedIds)
+              ? parsed.vetoedIds.filter((x: any) => typeof x === "string")
+              : [];
+            const note = typeof parsed?.note === "string" ? parsed.note : null;
+            return { vetoedIds, note };
+          } catch {
+            return { vetoedIds: [], note: null };
+          }
+        }
+      : undefined;
 
   const proposal = await computeTimelineFitProposalDeep({
     childMomentId: input.childMomentId,
@@ -45,7 +80,7 @@ export async function computeTimelineFitDecision(input: {
     maxAnchorTokens,
     maxSharedAnchorTokens,
     useLlmVeto: input.useLlmVeto,
-    llmVeto: input.useLlmVeto ? input.ports.llmVeto : undefined,
+    llmVeto,
   });
 
   return {
@@ -55,4 +90,3 @@ export async function computeTimelineFitDecision(input: {
     veto: proposal.veto ?? null,
   };
 }
-

@@ -164,3 +164,47 @@ For each of these:
   - `pnpm build`
   - `MACHINEN_TEST_FORCE_DEV=1 pnpm -s test:simulation`
 
+## Progress: moved materialize_moments into phase-first
+
+Changes:
+
+- Added `src/app/engine/phases/materialize_moments/`:
+  - core orchestrator
+  - simulation adapter
+  - simulation runner
+- Rewired simulation runner dispatch to import the new materialize_moments phase runner directly (not via `runners/simulation/phases/materialize_moments.ts`).
+- Deleted the old files:
+  - `src/app/engine/adapters/simulation/adapters/materialize_moments_adapter.ts`
+  - `src/app/engine/runners/simulation/phases/materialize_moments.ts`
+  - `src/app/engine/core/indexing/materialize_moments_orchestrator.ts`
+
+Check:
+
+- `pnpm -s build` passes after this move.
+
+## Progress: moved linking phases into phase-first runners
+
+Changes:
+
+- Added phase-first simulation runners:
+  - `src/app/engine/phases/deterministic_linking/simulation/runner.ts`
+  - `src/app/engine/phases/candidate_sets/simulation/runner.ts`
+  - `src/app/engine/phases/timeline_fit/simulation/runner.ts`
+- Updated `src/app/engine/runners/simulation/runner.ts` to import these runners directly from `phases/*`.
+- Deleted the old simulation runner files for these phases from `src/app/engine/runners/simulation/phases/`.
+
+Follow-up:
+
+- candidate_sets and timeline_fit still have port wiring (vector, LLM call) in the phase runner. Next step is to push that further down behind ports so the simulation adapter/runner stays boring.
+
+## Progress: micro_batches adapter no longer calls LLM/vector directly
+
+Changes:
+
+- Moved micro moment materialization (paths, embeddings, timeRange, upsert) into the micro_batches core orchestrator.
+- Updated the micro_batches simulation runner to supply the LLM/vector/moment-graph write ports, so the simulation adapter no longer imports those modules directly.
+
+Check:
+
+- `pnpm -s build` passes after this refactor.
+

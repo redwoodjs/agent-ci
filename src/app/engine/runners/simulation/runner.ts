@@ -7,10 +7,10 @@ import { runPhaseIngestDiff } from "./phases/ingest_diff";
 import { runPhaseMicroBatches } from "./phases/micro_batches";
 import { runPhaseMacroSynthesis } from "./phases/macro_synthesis";
 import { runPhaseMacroClassification } from "./phases/macro_classification";
-import { runPhaseMaterializeMoments } from "./phases/materialize_moments";
-import { runPhaseDeterministicLinking } from "./phases/deterministic_linking";
-import { runPhaseCandidateSets } from "./phases/candidate_sets";
-import { runPhaseTimelineFit } from "./phases/timeline_fit";
+import { runPhaseMaterializeMoments } from "../../phases/materialize_moments/simulation/runner";
+import { runPhaseDeterministicLinking } from "../../phases/deterministic_linking/simulation/runner";
+import { runPhaseCandidateSets } from "../../phases/candidate_sets/simulation/runner";
+import { runPhaseTimelineFit } from "../../phases/timeline_fit/simulation/runner";
 
 const phaseRunners = {
   ingest_diff: runPhaseIngestDiff,

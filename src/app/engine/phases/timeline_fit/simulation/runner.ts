@@ -138,7 +138,14 @@ export async function runPhaseTimelineFit(
       candidateIds.length > 0
         ? await momentDb
             .selectFrom("moments")
-            .select(["id", "document_id", "created_at", "source_metadata", "title", "summary"])
+            .select([
+              "id",
+              "document_id",
+              "created_at",
+              "source_metadata",
+              "title",
+              "summary",
+            ])
             .where("id", "in", candidateIds as any)
             .execute()
         : [];
@@ -157,9 +164,13 @@ export async function runPhaseTimelineFit(
         return {
           id,
           score: typeof c?.score === "number" ? c.score : null,
-          documentId: typeof (row2 as any)?.document_id === "string" ? (row2 as any).document_id : null,
+          documentId:
+            typeof (row2 as any)?.document_id === "string"
+              ? (row2 as any).document_id
+              : null,
           title: typeof (row2 as any)?.title === "string" ? (row2 as any).title : null,
-          summary: typeof (row2 as any)?.summary === "string" ? (row2 as any).summary : null,
+          summary:
+            typeof (row2 as any)?.summary === "string" ? (row2 as any).summary : null,
         };
       })
       .filter(Boolean) as Array<{
@@ -175,34 +186,8 @@ export async function runPhaseTimelineFit(
     const childText = `${child.title ?? ""}\n${child.summary ?? ""}`.trim();
     const proposal = await computeTimelineFitDecision({
       ports: {
-        llmVeto: async (llmInput) => {
-          const prompt =
-            `Given a child moment and candidate parent moments, return a JSON object:\n` +
-            `{"vetoedIds":["..."],"note":"..."}\n\n` +
-            `Child:\n${llmInput.childText}\n\n` +
-            `Candidates:\n` +
-            llmInput.candidates
-              .map(
-                (c) =>
-                  `- id=${c.id}\n  title=${c.title ?? ""}\n  summary=${c.summary ?? ""}`
-              )
-              .join("\n\n");
-          try {
-            const out = await callLLM(prompt, "slow-reasoning", { temperature: 0 });
-            const raw =
-              typeof (out as any)?.content === "string"
-                ? (out as any).content
-                : String(out);
-            const parsed = JSON.parse(raw);
-            const vetoedIds = Array.isArray(parsed?.vetoedIds)
-              ? parsed.vetoedIds.filter((x: any) => typeof x === "string")
-              : [];
-            const note = typeof parsed?.note === "string" ? parsed.note : null;
-            return { vetoedIds, note };
-          } catch {
-            return { vetoedIds: [], note: null };
-          }
-        },
+        callLLM: async (prompt) =>
+          await callLLM(prompt, "slow-reasoning", { temperature: 0 }),
       },
       childMomentId,
       childText,
@@ -329,13 +314,14 @@ export async function runPhaseTimelineFit(
 
       if (verbose) {
         const titleById = new Map(
-          deepCandidates
-            .map((c) => [c.id, { title: c.title ?? null, summary: c.summary ?? null }] as const)
+          deepCandidates.map(
+            (c) =>
+              [c.id, { title: c.title ?? null, summary: c.summary ?? null }] as const
+          )
         );
         const decisionsPreview = Array.isArray(decisions)
           ? decisions.slice(0, 10).map((x: any) => {
-              const id =
-                typeof x?.candidateId === "string" ? x.candidateId : null;
+              const id = typeof x?.candidateId === "string" ? x.candidateId : null;
               const meta = id ? titleById.get(id) : null;
               return {
                 candidateId: id,

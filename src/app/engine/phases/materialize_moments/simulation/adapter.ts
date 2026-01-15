@@ -1,15 +1,20 @@
 import type {
   SimulationDbContext,
   SimulationRunMacroClassifiedOutputRow,
-} from "../types";
-import { getSimulationDb } from "../db";
+} from "../../../adapters/simulation/types";
+import { getSimulationDb } from "../../../adapters/simulation/db";
 import { getIndexingPlugins } from "../../../indexing/indexingPlugins";
 import { prepareDocumentForR2Key } from "../../../indexing/pluginPipeline";
 import { sha256Hex, uuidFromSha256Hex } from "../../../utils/crypto";
-import { computeMaterializedMomentIdentity, computeMicroPathsHash } from "../../../lib/phaseCores/materialize_moments_core";
-import { materializeMomentsForDocument } from "../../../core/indexing/materialize_moments_orchestrator";
-import { buildParsedDocumentIdentity, mergeMomentSourceMetadata } from "../../../utils/provenance";
-import { buildParsedDocumentIdentity, mergeMomentSourceMetadata } from "../../../utils/provenance";
+import {
+  computeMaterializedMomentIdentity,
+  computeMicroPathsHash,
+} from "../../../lib/phaseCores/materialize_moments_core";
+import { materializeMomentsForDocument } from "../core/orchestrator";
+import {
+  buildParsedDocumentIdentity,
+  mergeMomentSourceMetadata,
+} from "../../../utils/provenance";
 
 export async function runMaterializeMomentsAdapter(
   context: SimulationDbContext,
@@ -265,8 +270,13 @@ export async function runMaterializeMomentsAdapter(
           now: input.now,
           streams: [
             {
-              streamId: typeof (stream as any)?.streamId === "string" ? (stream as any).streamId : "stream",
-              macroMoments: Array.isArray((stream as any)?.macroMoments) ? ((stream as any).macroMoments as any[]) : [],
+              streamId:
+                typeof (stream as any)?.streamId === "string"
+                  ? (stream as any).streamId
+                  : "stream",
+              macroMoments: Array.isArray((stream as any)?.macroMoments)
+                ? ((stream as any).macroMoments as any[])
+                : [],
             },
           ],
         });

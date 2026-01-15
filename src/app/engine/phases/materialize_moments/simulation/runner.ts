@@ -4,7 +4,7 @@ import { getMomentGraphDb, getSimulationDb } from "../../../adapters/simulation/
 import { addSimulationRunEvent } from "../../../adapters/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../adapters/simulation/logger";
 import { simulationPhases } from "../../../adapters/simulation/types";
-import { runMaterializeMomentsAdapter } from "../../../adapters/simulation/adapters/materialize_moments_adapter";
+import { runMaterializeMomentsAdapter } from "./adapter";
 
 export async function runPhaseMaterializeMoments(
   context: SimulationDbContext,
@@ -134,3 +134,4 @@ export async function runPhaseMaterializeMoments(
 
   return { status: "running", currentPhase: nextPhase };
 }
+

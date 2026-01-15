@@ -1,4 +1,4 @@
-import type { Moment } from "../../types";
+import type { Moment } from "../../../types";
 
 export type MaterializeMomentsOrchestratorPorts = {
   computeMomentId: (input: {
@@ -7,7 +7,9 @@ export type MaterializeMomentsOrchestratorPorts = {
     streamId: string;
     macroIndex: number;
   }) => Promise<string>;
-  computeMicroPathsHash: (input: { microPaths: string[] | null }) => Promise<string | null>;
+  computeMicroPathsHash: (input: {
+    microPaths: string[] | null;
+  }) => Promise<string | null>;
   upsertMoment: (input: { moment: Moment }) => Promise<void>;
   persistMaterializedMoment?: (input: {
     r2Key: string;
@@ -99,13 +101,17 @@ export async function materializeMomentsForDocument(input: {
             : undefined,
         linkAuditLog: undefined,
         isSubject: m.isSubject === true ? true : undefined,
-        subjectKind: typeof m.subjectKind === "string" ? (m.subjectKind as any) : undefined,
+        subjectKind:
+          typeof m.subjectKind === "string" ? (m.subjectKind as any) : undefined,
         subjectReason:
-          typeof m.subjectReason === "string" ? (m.subjectReason as any) : undefined,
+          typeof m.subjectReason === "string"
+            ? (m.subjectReason as any)
+            : undefined,
         subjectEvidence: Array.isArray(m.subjectEvidence)
           ? (m.subjectEvidence as any)
           : undefined,
-        momentKind: typeof m.momentKind === "string" ? (m.momentKind as any) : undefined,
+        momentKind:
+          typeof m.momentKind === "string" ? (m.momentKind as any) : undefined,
         momentEvidence: Array.isArray(m.momentEvidence)
           ? (m.momentEvidence as any)
           : undefined,

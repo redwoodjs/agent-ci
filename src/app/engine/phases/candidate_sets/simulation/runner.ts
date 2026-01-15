@@ -7,35 +7,6 @@ import { simulationPhases } from "../../../adapters/simulation/types";
 import { getEmbedding } from "../../../utils/vector";
 import { computeCandidateSet } from "../../../core/linking/candidate_sets_orchestrator";
 
-function parseTimeMs(value: unknown): number | null {
-  if (typeof value !== "string") {
-    return null;
-  }
-  const trimmed = value.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const ms = Date.parse(trimmed);
-  return Number.isFinite(ms) ? ms : null;
-}
-
-function readTimeRangeStartMs(value: unknown): number | null {
-  const range = (value as any)?.timeRange;
-  const start = range?.start;
-  return parseTimeMs(start);
-}
-
-function computeMomentStartMs(input: {
-  createdAt: string;
-  sourceMetadata?: Record<string, any>;
-}): number | null {
-  const rangeStart = readTimeRangeStartMs(input.sourceMetadata);
-  if (rangeStart !== null) {
-    return rangeStart;
-  }
-  return parseTimeMs(input.createdAt);
-}
-
 export async function runPhaseCandidateSets(
   context: SimulationDbContext,
   input: { runId: string; phaseIdx: number }
@@ -130,6 +101,8 @@ export async function runPhaseCandidateSets(
             "document_id",
             "created_at",
             "source_metadata",
+            "title",
+            "summary",
           ])
           .where("id", "in", rootIds as any)
           .execute()
@@ -205,8 +178,7 @@ export async function runPhaseCandidateSets(
             phase: "candidate_sets",
             childMomentId,
             childTitle: typeof childRow?.title === "string" ? childRow.title : null,
-            childSummary:
-              typeof childRow?.summary === "string" ? childRow.summary : null,
+            childSummary: typeof childRow?.summary === "string" ? childRow.summary : null,
             outcome: "no_candidates",
             reason: "empty-query",
           },
@@ -319,8 +291,7 @@ export async function runPhaseCandidateSets(
             phase: "candidate_sets",
             childMomentId,
             childTitle: typeof childRow?.title === "string" ? childRow.title : null,
-            childSummary:
-              typeof childRow?.summary === "string" ? childRow.summary : null,
+            childSummary: typeof childRow?.summary === "string" ? childRow.summary : null,
             candidatesCount: Array.isArray((built as any)?.candidates)
               ? (built as any).candidates.length
               : 0,
@@ -404,3 +375,4 @@ export async function runPhaseCandidateSets(
 
   return { status: "running", currentPhase: nextPhase };
 }
+

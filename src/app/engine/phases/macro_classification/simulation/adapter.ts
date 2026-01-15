@@ -1,16 +1,11 @@
 import type { SimulationDbContext } from "../../../adapters/simulation/types";
 import { getSimulationDb } from "../../../adapters/simulation/db";
+import type { MacroMomentDescription } from "../../../types";
 import { classifyMacroMoments } from "../../../subjects/classifyMacroMoments";
-
-type MacroMomentDescription = {
-  title?: string;
-  summary?: string;
-  microPaths?: string[];
-  createdAt?: string;
-  author?: string;
-  importance?: number;
-  [key: string]: any;
-};
+import {
+  gateMacroMomentsLikeLiveEngine,
+  classifyMacroMomentsLikeLiveEngine,
+} from "../core/orchestrator";
 
 type MacroStream = { streamId: string; macroMoments: MacroMomentDescription[] };
 
@@ -23,19 +18,6 @@ function safeParseJson(value: unknown): any {
   } catch {
     return value;
   }
-}
-
-function clamp01(n: number): number {
-  if (!Number.isFinite(n)) {
-    return 0;
-  }
-  if (n < 0) {
-    return 0;
-  }
-  if (n > 1) {
-    return 1;
-  }
-  return n;
 }
 
 export async function runMacroClassificationAdapter(
@@ -57,7 +39,6 @@ export async function runMacroClassificationAdapter(
 }> {
   const db = getSimulationDb(context);
   const env = context.env as any;
-
   const macroMaxPerStreamRaw = env.MACRO_MOMENT_MAX_PER_STREAM;
   const macroMaxPerStream =
     typeof macroMaxPerStreamRaw === "string"
@@ -83,7 +64,8 @@ export async function runMacroClassificationAdapter(
           .filter((s: string) => s.length > 0)
       : [];
 
-  const discordNoisePatternsFromEnvRaw = env.MACRO_MOMENT_DISCORD_NOISE_PATTERNS;
+  const discordNoisePatternsFromEnvRaw =
+    env.MACRO_MOMENT_DISCORD_NOISE_PATTERNS;
   const discordNoisePatternStringsFromEnv =
     typeof discordNoisePatternsFromEnvRaw === "string"
       ? discordNoisePatternsFromEnvRaw
@@ -91,196 +73,6 @@ export async function runMacroClassificationAdapter(
           .map((s: string) => s.trim())
           .filter((s: string) => s.length > 0)
       : [];
-
-  const noiseRegexes = [
-    "\\bdependabot\\b",
-    "\\bdeployment preview\\b",
-    "\\bpreview deployment\\b",
-    "\\bcloudflare pages\\b",
-    "\\b(successful deployment|deployed successfully)\\b",
-    ...noisePatternStringsFromEnv,
-  ]
-    .map((p) => {
-      try {
-        return new RegExp(p, "i");
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean) as RegExp[];
-
-  const discordNoiseRegexes = [
-    "\\bafk\\b",
-    "\\bbrb\\b",
-    "\\bback\\s+now\\b",
-    "\\bapologiz(e|ed|ing)\\b",
-    "\\bsync\\b",
-    "\\bpair(ing)?\\b",
-    "\\btour\\b",
-    "\\bmeeting\\b",
-    "\\bcall\\b",
-    "\\btimezone\\b",
-    "\\bschedul(e|ed|ing)\\b",
-    ...discordNoisePatternStringsFromEnv,
-  ]
-    .map((p) => {
-      try {
-        return new RegExp(p, "i");
-      } catch {
-        return null;
-      }
-    })
-    .filter(Boolean) as RegExp[];
-
-  function hasTechnicalAnchors(text: string): boolean {
-    if (!text) {
-      return false;
-    }
-    if (text.includes("mchn://gh/")) {
-      return true;
-    }
-    if (text.includes("```")) {
-      return true;
-    }
-    if (/\b(error|exception|stack trace|traceback)\b/i.test(text)) {
-      return true;
-    }
-    if (
-      /\b(fix|fixed|bug|regression|implement|implemented|add|added|remove|removed|merge|merged)\b/i.test(
-        text
-      )
-    ) {
-      return true;
-    }
-    return false;
-  }
-
-  function isNoiseMacroMoment(m: MacroMomentDescription): boolean {
-    const title = typeof m?.title === "string" ? m.title : "";
-    const summary = typeof m?.summary === "string" ? m.summary : "";
-    const author = typeof m?.author === "string" ? m.author : "";
-
-    const combinedLower = `${title}\n${summary}`.toLowerCase();
-    const isGitHub = combinedLower.includes("mchn://gh/");
-    const isDiscord =
-      combinedLower.includes("mchn://dc/") ||
-      title.trim().toLowerCase().startsWith("[discord");
-
-    if (isDiscord) {
-      const combined = `${title}\n${summary}`;
-      if (hasTechnicalAnchors(combined)) {
-        return false;
-      }
-      for (const re of discordNoiseRegexes) {
-        if (re.test(title) || re.test(summary)) {
-          return true;
-        }
-      }
-      return false;
-    }
-
-    if (!isGitHub) {
-      return false;
-    }
-
-    const authorLower = author.toLowerCase();
-    if (
-      authorLower.includes("dependabot") ||
-      authorLower.includes("[bot]") ||
-      authorLower.endsWith("-bot") ||
-      authorLower.endsWith(" bot") ||
-      authorLower.includes(" bot ")
-    ) {
-      return true;
-    }
-
-    const strippedTitleLower = title
-      .replace(/^\s*\[[^\]]+\]\s*/g, "")
-      .trim()
-      .toLowerCase();
-    if (
-      strippedTitleLower.startsWith("praise") ||
-      strippedTitleLower.startsWith("thanks") ||
-      strippedTitleLower.startsWith("thank you") ||
-      strippedTitleLower.startsWith("kudos")
-    ) {
-      return true;
-    }
-
-    for (const re of noiseRegexes) {
-      if (re.test(title) || re.test(summary)) {
-        return true;
-      }
-    }
-
-    if (combinedLower.includes("closed issue")) {
-      const hasTechnicalSignal =
-        /\b(fix|fixed|bug|error|investigat|regression|implement|implemented|add|added|remove|removed|merge|merged|release|released|ship|shipped|deploy|deployed|rollback)\b/i.test(
-          `${title}\n${summary}`
-        );
-      if (!hasTechnicalSignal) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  function gateMacroMoments(macroMoments: MacroMomentDescription[]): {
-    kept: MacroMomentDescription[];
-    audit: Record<string, any>;
-  } {
-    const withIndex = macroMoments
-      .map((m, idx) => ({
-        idx,
-        m,
-        importance: typeof m?.importance === "number" ? m.importance : 0,
-      }))
-      .filter((x) => !isNoiseMacroMoment(x.m));
-
-    const auditBase: any = {
-      inputMacroCount: macroMoments.length,
-      outputMacroCount: 0,
-      noiseDroppedCount: macroMoments.length - withIndex.length,
-    };
-
-    if (withIndex.length === 0) {
-      return { kept: [], audit: auditBase };
-    }
-
-    const sortedByImportance = withIndex
-      .slice()
-      .sort((a, b) => b.importance - a.importance || a.idx - b.idx);
-
-    const max =
-      Number.isFinite(macroMaxPerStream) && macroMaxPerStream > 0
-        ? Math.floor(macroMaxPerStream)
-        : 12;
-    const capped = sortedByImportance.slice(0, max);
-    const cappedSortedByIndex = capped.slice().sort((a, b) => a.idx - b.idx);
-
-    const minImportance =
-      Number.isFinite(macroMinImportance) && macroMinImportance >= 0
-        ? macroMinImportance
-        : 0;
-
-    const filtered = cappedSortedByIndex.filter(
-      (x) => (x.importance ?? 0) >= minImportance
-    );
-
-    if (filtered.length > 0) {
-      return {
-        kept: filtered.map((x) => x.m),
-        audit: { ...auditBase, outputMacroCount: filtered.length, max, minImportance },
-      };
-    }
-
-    const fallback = cappedSortedByIndex[0] ?? sortedByImportance[0];
-    return {
-      kept: fallback ? [fallback.m] : [],
-      audit: { ...auditBase, outputMacroCount: fallback ? 1 : 0, max, minImportance },
-    };
-  }
 
   let docsProcessed = 0;
   let streamsIn = 0;
@@ -326,75 +118,51 @@ export async function runMacroClassificationAdapter(
     streamsIn += streams.length;
     for (const s of streams) {
       const streamId =
-        typeof (s as any)?.streamId === "string" ? (s as any).streamId : "stream";
-      const macroMoments: MacroMomentDescription[] = Array.isArray((s as any)?.macroMoments)
+        typeof (s as any)?.streamId === "string"
+          ? (s as any).streamId
+          : "stream";
+      const macroMoments: MacroMomentDescription[] = Array.isArray(
+        (s as any)?.macroMoments
+      )
         ? ((s as any).macroMoments as any[])
         : [];
       macroIn += macroMoments.length;
 
-      const gated = gateMacroMoments(
-        macroMoments.map((m) => ({
-          ...m,
-          importance:
-            typeof (m as any)?.importance === "number"
-              ? clamp01((m as any).importance)
-              : 0,
-        }))
-      );
+      const gated = gateMacroMomentsLikeLiveEngine(macroMoments, {
+        macroMaxPerStream,
+        macroMinImportance,
+        noisePatternStringsFromEnv,
+        discordNoisePatternStringsFromEnv,
+      });
 
-      let kept = gated.kept;
+      const macroMomentDescriptions = gated.macroMomentDescriptions;
 
-      let classifications: any | null = null;
-      try {
-        const classified = await classifyMacroMoments({
-          documentId: r2Key,
-          macroMoments: kept as any,
-        });
-        classifications = classified ?? null;
-        if (classified) {
-          const byIndex = new Map<number, any>();
-          for (const c of classified) {
-            byIndex.set(c.index, c);
-          }
-          kept = kept.map((m, i) => {
-            const c = byIndex.get(i + 1);
-            if (!c) {
-              return m;
-            }
-            return {
-              ...m,
-              momentKind: c.momentKind,
-              momentEvidence: c.momentEvidence,
-              isSubject: c.isSubject,
-              subjectKind: c.subjectKind,
-              subjectReason: c.subjectReason,
-              subjectEvidence: c.subjectEvidence,
-              classificationConfidence: c.confidence,
-            };
+      let classifications: any[] | null = null;
+      if (macroMomentDescriptions.length > 0) {
+        try {
+          const res = await classifyMacroMomentsLikeLiveEngine({
+            ports: { classifyMacroMoments },
+            documentId: r2Key,
+            macroMoments: macroMomentDescriptions as any,
+          });
+          classifications = res.classifications ?? null;
+        } catch (e) {
+          await input.log.error("macro_classification.error", {
+            runId: input.runId,
+            r2Key,
+            streamId,
+            message: e instanceof Error ? e.message : String(e),
           });
         }
-      } catch (e) {
-        await input.log.error("macro_classification.error", {
-          runId: input.runId,
-          r2Key,
-          streamId,
-          message: e instanceof Error ? e.message : String(e),
-        });
       }
 
-      perStreamAudit.push({
-        streamId,
-        gating: gated.audit,
-      });
-      perStreamClassifications.push({
-        streamId,
-        classifications,
-      });
+      perStreamAudit.push({ streamId, gating: gated.gatingAudit });
+      perStreamClassifications.push({ streamId, classifications });
 
-      const out = { streamId, macroMoments: kept };
+      const out = { streamId, macroMoments: macroMomentDescriptions };
       outStreams.push(out);
       streamsOut += 1;
-      macroOut += kept.length;
+      macroOut += macroMomentDescriptions.length;
     }
 
     try {
@@ -437,4 +205,3 @@ export async function runMacroClassificationAdapter(
     failures,
   };
 }
-

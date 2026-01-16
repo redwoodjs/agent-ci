@@ -10,4 +10,3 @@ export const simulationRunViews = [
 ] as const;
 
 export type SimulationRunViewId = (typeof simulationRunViews)[number]["id"];
-

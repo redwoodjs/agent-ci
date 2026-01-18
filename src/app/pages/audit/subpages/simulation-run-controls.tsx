@@ -43,6 +43,7 @@ function StartControls() {
   const [namespace, setNamespace] = useState("");
   const [prefix, setPrefix] = useState("");
   const [r2Prefix, setR2Prefix] = useState("");
+  const [githubRepo, setGithubRepo] = useState("");
   const [maxPages, setMaxPages] = useState("5");
   const [sampleSize, setSampleSize] = useState("20");
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +82,7 @@ function StartControls() {
       const maxPagesNum = Number(maxPages);
       const res = await runAllSimulationRunAction({
         r2Prefix: r2Prefix.trim(),
+        githubRepo: githubRepo.trim() || undefined,
         limitPerPage: 200,
         maxPages: Number.isFinite(maxPagesNum) ? Math.floor(maxPagesNum) : 5,
         momentGraphNamespace: namespace.trim() || null,
@@ -108,6 +110,7 @@ function StartControls() {
       const sampleSizeNum = Number(sampleSize);
       const res = await runSampleSimulationRunAction({
         r2Prefix: r2Prefix.trim(),
+        githubRepo: githubRepo.trim() || undefined,
         limitPerPage: 200,
         maxPages: Number.isFinite(maxPagesNum) ? Math.floor(maxPagesNum) : 5,
         sampleSize: Number.isFinite(sampleSizeNum)
@@ -162,6 +165,14 @@ function StartControls() {
             />
           </div>
           <div className="space-y-1">
+            <div className="text-xs text-gray-600">GitHub Repo Filter</div>
+            <Input
+              placeholder="e.g. redwoodjs/machinen"
+              value={githubRepo}
+              onChange={(e) => setGithubRepo(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
             <div className="text-xs text-gray-600">Max listing pages</div>
             <Input
               placeholder="5"
@@ -169,18 +180,16 @@ function StartControls() {
               onChange={(e) => setMaxPages(e.target.value)}
             />
           </div>
-        </div>
-
-        <div className="space-y-1 mt-2">
-          <div className="text-xs text-gray-600">
-            Sample size (automatically picks balanced mix of Issues, PRs,
-            Discord, Cursor)
+          <div className="space-y-1">
+            <div className="text-xs text-gray-600">
+              Sample size (balanced mix)
+            </div>
+            <Input
+              placeholder="20"
+              value={sampleSize}
+              onChange={(e) => setSampleSize(e.target.value)}
+            />
           </div>
-          <Input
-            placeholder="20"
-            value={sampleSize}
-            onChange={(e) => setSampleSize(e.target.value)}
-          />
         </div>
       </div>
 

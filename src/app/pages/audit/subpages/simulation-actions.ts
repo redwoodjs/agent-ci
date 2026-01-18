@@ -10,6 +10,55 @@ import {
   simulationPhases,
 } from "@/app/engine/databases/simulationState";
 
+async function listR2KeysHelper(
+  bucket: R2Bucket,
+  inputPrefix: string,
+  maxPages: number,
+  limitPerPage: number,
+  githubRepo?: string
+) {
+  const targetPrefixes = inputPrefix
+    ? [inputPrefix]
+    : [
+        githubRepo ? `github/${githubRepo}/` : "github/",
+        "discord/",
+        "cursor/conversations/",
+      ];
+
+  const allKeysRaw: string[] = [];
+  let totalPages = 0;
+  let isAnyListingTruncated = false;
+
+  for (const p of targetPrefixes) {
+    let cursor: string | undefined = undefined;
+    let truncated = true;
+    let prefixPages = 0;
+    const maxPagesForThisPrefix = inputPrefix
+      ? maxPages
+      : Math.ceil(maxPages / targetPrefixes.length);
+
+    while (truncated && prefixPages < maxPagesForThisPrefix) {
+      const res = await bucket.list({ prefix: p, cursor, limit: limitPerPage });
+      for (const o of res.objects) {
+        const k =
+          typeof (o as any)?.key === "string" ? ((o as any).key as string) : "";
+        if (k) {
+          allKeysRaw.push(k);
+        }
+      }
+      cursor = (res as any).cursor as string | undefined;
+      truncated = Boolean(res.truncated);
+      if (truncated) {
+        isAnyListingTruncated = true;
+      }
+      prefixPages++;
+      totalPages++;
+    }
+  }
+
+  return { allKeysRaw, totalPages, isAnyListingTruncated, targetPrefixes };
+}
+
 export async function startSimulationRunAction(input: {
   r2Keys: string[];
   momentGraphNamespace: string | null;
@@ -44,6 +93,7 @@ export async function startSimulationRunAction(input: {
 
 export async function runAllSimulationRunAction(input: {
   r2Prefix: string;
+  githubRepo?: string;
   limitPerPage: number;
   maxPages: number;
   momentGraphNamespace: string | null;
@@ -55,7 +105,8 @@ export async function runAllSimulationRunAction(input: {
     return { success: false, error: "MACHINEN_BUCKET binding not found" };
   }
 
-  const prefix = typeof input.r2Prefix === "string" ? input.r2Prefix : "";
+  const inputPrefix =
+    typeof input.r2Prefix === "string" ? input.r2Prefix.trim() : "";
   const limitPerPageRaw = input.limitPerPage;
   const limitPerPage =
     typeof limitPerPageRaw === "number" && Number.isFinite(limitPerPageRaw)
@@ -67,35 +118,34 @@ export async function runAllSimulationRunAction(input: {
       ? Math.max(1, Math.min(25, Math.floor(maxPagesRaw)))
       : 5;
 
-  const keysRaw: string[] = [];
-  let cursor: string | undefined = undefined;
-  let truncated = true;
-  let pages = 0;
+  const { allKeysRaw, totalPages, isAnyListingTruncated, targetPrefixes } =
+    await listR2KeysHelper(
+      bucket,
+      inputPrefix,
+      maxPages,
+      limitPerPage,
+      input.githubRepo
+    );
 
-  while (truncated && pages < maxPages) {
-    const res = await bucket.list({ prefix, cursor, limit: limitPerPage });
-    for (const o of res.objects) {
-      const k = typeof (o as any)?.key === "string" ? ((o as any).key as string) : "";
-      if (k) {
-        keysRaw.push(k);
-      }
-    }
-    cursor = (res as any).cursor as string | undefined;
-    truncated = Boolean(res.truncated);
-    pages++;
-  }
+  const isGithubIssue = (k: string) =>
+    k.startsWith("github/") && k.includes("/issues/");
+  const isGithubPr = (k: string) =>
+    k.startsWith("github/") && k.includes("/pull-requests/");
+  const isDiscord = (k: string) => k.startsWith("discord/");
+  const isCursor = (k: string) => k.startsWith("cursor/conversations/");
 
-  const supportedPrefixes = ["github/", "discord/", "cursor/conversations/"];
-  const keys = Array.from(new Set(keysRaw)).filter((k) =>
-    supportedPrefixes.some((p) => k.startsWith(p))
-  );
-  const skippedCount = keysRaw.length - keys.length;
+  const filterSupported = (k: string) =>
+    isGithubIssue(k) || isGithubPr(k) || isDiscord(k) || isCursor(k);
+
+  const keys = Array.from(new Set(allKeysRaw)).filter(filterSupported);
+  const skippedCount = allKeysRaw.length - keys.length;
+
   if (keys.length === 0) {
     return {
       success: false,
-      error: `No supported R2 keys found in the listed set (supported prefixes: ${supportedPrefixes.join(
-        ", "
-      )})`,
+      error: `No supported R2 keys found (listed ${
+        allKeysRaw.length
+      } keys total from prefixes: ${targetPrefixes.join(", ")})`,
     };
   }
 
@@ -113,13 +163,15 @@ export async function runAllSimulationRunAction(input: {
         r2Keys: keys,
         createdFrom: "audit.ui.run_all",
         r2List: {
-          prefix,
+          prefix: inputPrefix || "(multi)",
+          githubRepo: input.githubRepo,
+          targetPrefixes,
           limitPerPage,
           maxPages,
-          pages,
-          truncated,
-          supportedPrefixes,
+          pages: totalPages,
+          truncated: isAnyListingTruncated,
           skippedCount,
+          sampleStrategy: "all-supported",
         },
       },
     }
@@ -129,14 +181,15 @@ export async function runAllSimulationRunAction(input: {
     success: true,
     runId,
     keysCount: keys.length,
-    pages,
-    truncated,
+    pages: totalPages,
+    truncated: isAnyListingTruncated,
     skippedCount,
   };
 }
 
 export async function runSampleSimulationRunAction(input: {
   r2Prefix: string;
+  githubRepo?: string;
   limitPerPage: number;
   maxPages: number;
   sampleSize: number;
@@ -168,40 +221,14 @@ export async function runSampleSimulationRunAction(input: {
       ? Math.max(1, Math.min(200, Math.floor(sampleSizeRaw)))
       : 20;
 
-  const targetPrefixes = inputPrefix
-    ? [inputPrefix]
-    : ["github/", "discord/", "cursor/conversations/"];
-
-  const allKeysRaw: string[] = [];
-  let totalPages = 0;
-  let isAnyListingTruncated = false;
-
-  for (const p of targetPrefixes) {
-    let cursor: string | undefined = undefined;
-    let truncated = true;
-    let prefixPages = 0;
-    const maxPagesForThisPrefix = inputPrefix
-      ? maxPages
-      : Math.ceil(maxPages / targetPrefixes.length);
-
-    while (truncated && prefixPages < maxPagesForThisPrefix) {
-      const res = await bucket.list({ prefix: p, cursor, limit: limitPerPage });
-      for (const o of res.objects) {
-        const k =
-          typeof (o as any)?.key === "string" ? ((o as any).key as string) : "";
-        if (k) {
-          allKeysRaw.push(k);
-        }
-      }
-      cursor = (res as any).cursor as string | undefined;
-      truncated = Boolean(res.truncated);
-      if (truncated) {
-        isAnyListingTruncated = true;
-      }
-      prefixPages++;
-      totalPages++;
-    }
-  }
+  const { allKeysRaw, totalPages, isAnyListingTruncated, targetPrefixes } =
+    await listR2KeysHelper(
+      bucket,
+      inputPrefix,
+      maxPages,
+      limitPerPage,
+      input.githubRepo
+    );
 
   const isGithubIssue = (k: string) =>
     k.startsWith("github/") && k.includes("/issues/");
@@ -245,14 +272,20 @@ export async function runSampleSimulationRunAction(input: {
 
     const picked: string[] = [];
     const pools = [issues, prs, discords, cursors];
-    let poolIdx = 0;
 
-    // Round-robin pick until sampleSize or all exhausted
+    // Priority 1: Pick at least one from each non-empty pool
+    for (const pool of pools) {
+      if (pool.length > 0) {
+        picked.push(pool.pop()!);
+      }
+    }
+
+    // Priority 2: Round-robin pick remaining until sampleSize or all exhausted
+    let poolIdx = 0;
     while (picked.length < sampleSize) {
       const startIdx = poolIdx;
       let pickedInThisRound = false;
 
-      // Try each pool once in this round
       for (let i = 0; i < pools.length; i++) {
         const currentPool = pools[(startIdx + i) % pools.length];
         if (currentPool.length > 0) {

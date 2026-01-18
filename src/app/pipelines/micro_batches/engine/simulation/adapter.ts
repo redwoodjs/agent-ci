@@ -289,6 +289,32 @@ export async function runMicroBatchesAdapter(
 
       const computed = result.batches;
 
+      if (computed.length === 0) {
+        await db
+          .insertInto("simulation_run_micro_batches")
+          .values({
+            run_id: input.runId,
+            r2_key: r2Key,
+            batch_index: -1,
+            batch_hash: "empty",
+            prompt_context_hash: "empty",
+            status: "empty",
+            error_json: null,
+            created_at: input.now,
+            updated_at: input.now,
+          } as any)
+          .onConflict((oc) =>
+            oc.columns(["run_id", "r2_key", "batch_index"]).doUpdateSet({
+              batch_hash: "empty",
+              prompt_context_hash: "empty",
+              status: "empty",
+              error_json: null,
+              updated_at: input.now,
+            } as any)
+          )
+          .execute();
+      }
+
       for (const b of computed) {
         if (b.cached) {
           batchesCached++;

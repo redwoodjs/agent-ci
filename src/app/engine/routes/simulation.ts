@@ -6,20 +6,14 @@ import {
   advanceSimulationRunPhaseNoop,
   createSimulationRun,
   getSimulationRunById,
-  getSimulationRunDocuments,
   getSimulationRunEvents,
-  getSimulationRunMacroOutputs,
-  getSimulationRunMacroClassifiedOutputs,
-  getSimulationRunMaterializedMoments,
-  getSimulationRunMicroBatches,
-  getSimulationRunLinkDecisions,
-  getSimulationRunCandidateSets,
-  getSimulationRunTimelineFitDecisions,
   pauseSimulationRunManual,
   restartSimulationRunFromPhase,
   resumeSimulationRun,
   simulationPhases,
 } from "../databases/simulationState";
+import { pipelineRegistry } from "../simulation/registry";
+
 
 async function startSimulationRunHandler({ request }: RequestInfo) {
   if (request.method !== "POST") {
@@ -135,195 +129,11 @@ async function getSimulationRunEventsHandler({ params, request }: RequestInfo) {
   return Response.json({ events });
 }
 
-async function getSimulationRunDocumentsHandler({ params }: RequestInfo) {
-  const runIdRaw = (params as any)?.runId;
-  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
-  if (!runId) {
-    return Response.json({ error: "Missing runId" }, { status: 400 });
-  }
+// Basic handlers like start/advance/pause/etc stay here, but artifact handlers are moved to pipelines
 
-  const documents = await getSimulationRunDocuments(
-    { env: env as Cloudflare.Env, momentGraphNamespace: null },
-    { runId }
-  );
 
-  return Response.json({ documents });
-}
+// Macro/Materialize/Linking/Candidate/Timeline handlers moved to pipelines
 
-async function getSimulationRunMicroBatchesHandler({
-  params,
-  request,
-}: RequestInfo) {
-  const runIdRaw = (params as any)?.runId;
-  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
-  if (!runId) {
-    return Response.json({ error: "Missing runId" }, { status: 400 });
-  }
-
-  const url = new URL(request.url);
-  const r2KeyRaw = url.searchParams.get("r2Key");
-  const r2Key =
-    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
-      ? r2KeyRaw.trim()
-      : null;
-
-  const batches = await getSimulationRunMicroBatches(
-    { env: env as Cloudflare.Env, momentGraphNamespace: null },
-    { runId, r2Key }
-  );
-
-  return Response.json({ batches });
-}
-
-async function getSimulationRunMacroOutputsHandler({
-  params,
-  request,
-}: RequestInfo) {
-  const runIdRaw = (params as any)?.runId;
-  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
-  if (!runId) {
-    return Response.json({ error: "Missing runId" }, { status: 400 });
-  }
-
-  const url = new URL(request.url);
-  const r2KeyRaw = url.searchParams.get("r2Key");
-  const r2Key =
-    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
-      ? r2KeyRaw.trim()
-      : null;
-
-  const outputs = await getSimulationRunMacroOutputs(
-    { env: env as Cloudflare.Env, momentGraphNamespace: null },
-    { runId, r2Key }
-  );
-
-  return Response.json({ outputs });
-}
-
-async function getSimulationRunMacroClassificationsHandler({
-  params,
-  request,
-}: RequestInfo) {
-  const runIdRaw = (params as any)?.runId;
-  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
-  if (!runId) {
-    return Response.json({ error: "Missing runId" }, { status: 400 });
-  }
-
-  const url = new URL(request.url);
-  const r2KeyRaw = url.searchParams.get("r2Key");
-  const r2Key =
-    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
-      ? r2KeyRaw.trim()
-      : null;
-
-  const outputs = await getSimulationRunMacroClassifiedOutputs(
-    { env: env as Cloudflare.Env, momentGraphNamespace: null },
-    { runId, r2Key }
-  );
-
-  return Response.json({ outputs });
-}
-
-async function getSimulationRunMaterializedMomentsHandler({
-  params,
-  request,
-}: RequestInfo) {
-  const runIdRaw = (params as any)?.runId;
-  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
-  if (!runId) {
-    return Response.json({ error: "Missing runId" }, { status: 400 });
-  }
-
-  const url = new URL(request.url);
-  const r2KeyRaw = url.searchParams.get("r2Key");
-  const r2Key =
-    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
-      ? r2KeyRaw.trim()
-      : null;
-
-  const moments = await getSimulationRunMaterializedMoments(
-    { env: env as Cloudflare.Env, momentGraphNamespace: null },
-    { runId, r2Key }
-  );
-
-  return Response.json({ moments });
-}
-
-async function getSimulationRunLinkDecisionsHandler({
-  params,
-  request,
-}: RequestInfo) {
-  const runIdRaw = (params as any)?.runId;
-  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
-  if (!runId) {
-    return Response.json({ error: "Missing runId" }, { status: 400 });
-  }
-
-  const url = new URL(request.url);
-  const r2KeyRaw = url.searchParams.get("r2Key");
-  const r2Key =
-    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
-      ? r2KeyRaw.trim()
-      : null;
-
-  const decisions = await getSimulationRunLinkDecisions(
-    { env: env as Cloudflare.Env, momentGraphNamespace: null },
-    { runId, r2Key }
-  );
-
-  return Response.json({ decisions });
-}
-
-async function getSimulationRunCandidateSetsHandler({
-  params,
-  request,
-}: RequestInfo) {
-  const runIdRaw = (params as any)?.runId;
-  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
-  if (!runId) {
-    return Response.json({ error: "Missing runId" }, { status: 400 });
-  }
-
-  const url = new URL(request.url);
-  const r2KeyRaw = url.searchParams.get("r2Key");
-  const r2Key =
-    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
-      ? r2KeyRaw.trim()
-      : null;
-
-  const sets = await getSimulationRunCandidateSets(
-    { env: env as Cloudflare.Env, momentGraphNamespace: null },
-    { runId, r2Key }
-  );
-
-  return Response.json({ sets });
-}
-
-async function getSimulationRunTimelineFitDecisionsHandler({
-  params,
-  request,
-}: RequestInfo) {
-  const runIdRaw = (params as any)?.runId;
-  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
-  if (!runId) {
-    return Response.json({ error: "Missing runId" }, { status: 400 });
-  }
-
-  const url = new URL(request.url);
-  const r2KeyRaw = url.searchParams.get("r2Key");
-  const r2Key =
-    typeof r2KeyRaw === "string" && r2KeyRaw.trim().length > 0
-      ? r2KeyRaw.trim()
-      : null;
-
-  const decisions = await getSimulationRunTimelineFitDecisions(
-    { env: env as Cloudflare.Env, momentGraphNamespace: null },
-    { runId, r2Key }
-  );
-
-  return Response.json({ decisions });
-}
 
 async function pauseSimulationRunHandler({ request }: RequestInfo) {
   if (request.method !== "POST") {
@@ -437,48 +247,9 @@ export const simulationAdminRoutes = [
   route("/admin/simulation/run/restart", {
     post: [requireQueryApiKey, restartSimulationRunHandler],
   }),
-  route("/admin/simulation/run/:runId", {
-    get: [requireQueryApiKey, getSimulationRunHandler],
-  }),
-  ...[
-    {
-      path: "/admin/simulation/run/:runId/documents",
-      handler: getSimulationRunDocumentsHandler,
-    },
-    {
-      path: "/admin/simulation/run/:runId/micro-batches",
-      handler: getSimulationRunMicroBatchesHandler,
-    },
-    {
-      path: "/admin/simulation/run/:runId/macro-outputs",
-      handler: getSimulationRunMacroOutputsHandler,
-    },
-    {
-      path: "/admin/simulation/run/:runId/macro-classifications",
-      handler: getSimulationRunMacroClassificationsHandler,
-    },
-    {
-      path: "/admin/simulation/run/:runId/materialized-moments",
-      handler: getSimulationRunMaterializedMomentsHandler,
-    },
-    {
-      path: "/admin/simulation/run/:runId/link-decisions",
-      handler: getSimulationRunLinkDecisionsHandler,
-    },
-    {
-      path: "/admin/simulation/run/:runId/candidate-sets",
-      handler: getSimulationRunCandidateSetsHandler,
-    },
-    {
-      path: "/admin/simulation/run/:runId/timeline-fit-decisions",
-      handler: getSimulationRunTimelineFitDecisionsHandler,
-    },
-  ].map((r) =>
-    route(r.path, {
-      get: [requireQueryApiKey, r.handler],
-    })
-  ),
   route("/admin/simulation/run/:runId/events", {
     get: [requireQueryApiKey, getSimulationRunEventsHandler],
   }),
+  ...Object.values(pipelineRegistry).flatMap((entry) => entry.web?.routes || []),
 ];
+

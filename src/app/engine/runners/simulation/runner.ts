@@ -4,31 +4,10 @@ import { simulationPhases } from "../../simulation/types";
 import { normalizePhase } from "../../simulation/runs";
 import { getSimulationDb } from "../../simulation/db";
 import { addSimulationRunEvent } from "../../simulation/runEvents";
-import { runPhaseIngestDiff } from "../../../pipelines/ingest_diff/engine/simulation/runner";
-import { runPhaseMicroBatches } from "../../../pipelines/micro_batches/engine/simulation/runner";
-import { runPhaseMacroSynthesis } from "../../../pipelines/macro_synthesis/engine/simulation/runner";
-import { runPhaseMacroClassification } from "../../../pipelines/macro_classification/engine/simulation/runner";
-import { runPhaseMaterializeMoments } from "../../../pipelines/materialize_moments/engine/simulation/runner";
-import { runPhaseDeterministicLinking } from "../../../pipelines/deterministic_linking/engine/simulation/runner";
-import { runPhaseCandidateSets } from "../../../pipelines/candidate_sets/engine/simulation/runner";
-import { runPhaseTimelineFit } from "../../../pipelines/timeline_fit/engine/simulation/runner";
+import { pipelineRegistry } from "../../simulation/registry";
 
-const phaseRunners = {
-  ingest_diff: runPhaseIngestDiff,
-  micro_batches: runPhaseMicroBatches,
-  macro_synthesis: runPhaseMacroSynthesis,
-  macro_classification: runPhaseMacroClassification,
-  materialize_moments: runPhaseMaterializeMoments,
-  deterministic_linking: runPhaseDeterministicLinking,
-  candidate_sets: runPhaseCandidateSets,
-  timeline_fit: runPhaseTimelineFit,
-} satisfies Record<
-  SimulationPhase,
-  (
-    context: SimulationDbContext,
-    input: { runId: string; phaseIdx: number }
-  ) => Promise<{ status: string; currentPhase: string } | null>
->;
+// No longer need hardcoded phaseRunners mapping here
+
 
 export async function advanceSimulationRunPhaseNoop(
   context: SimulationDbContext,
@@ -63,8 +42,11 @@ export async function advanceSimulationRunPhaseNoop(
   const phaseIdx = simulationPhases.indexOf(phase);
 
   try {
-    const fn = phaseRunners[phase];
-    return await fn(context, { runId, phaseIdx });
+    const entry = pipelineRegistry[phase];
+    if (!entry) {
+      throw new Error(`No registry entry found for phase: ${phase}`);
+    }
+    return await entry.runner(context, { runId, phaseIdx });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     await addSimulationRunEvent(context, {

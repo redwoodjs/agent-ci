@@ -20,9 +20,8 @@ import {
   getSimulationRunCandidateSets,
   getSimulationRunTimelineFitDecisions,
   getSimulationRunMaterializedMoments,
-  simulationPhases,
 } from "@/app/engine/databases/simulationState";
-import { type SimulationRunViewId } from "@/app/engine/simulation/phaseRegistry";
+import { pipelineRegistry, simulationPhasesOrdered } from "@/app/engine/simulation/registry";
 import { getSimulationRunProgressSummary } from "@/app/engine/simulation/runProgress";
 import { getMoments } from "@/app/engine/databases/momentGraph";
 import { SimulationRunControls } from "./simulation-run-controls";
@@ -115,108 +114,27 @@ function formatEventsAsText(
   return lines.join("\n");
 }
 
-function isSimulationRunViewId(
-  value: string | null | undefined
-): value is SimulationRunViewId {
-  if (!value) {
+export const simulationRunViews = simulationPhasesOrdered
+  .map((p) => {
+    const entry = pipelineRegistry[p];
+    const drilldown = entry?.web?.ui?.drilldown;
+    if (!drilldown) {
+      return null;
+    }
+    return {
+      id: entry.phase as string,
+      label: entry.label,
+      component: drilldown,
+    };
+  })
+  .filter((v): v is { id: string; label: string; component: React.ComponentType<any> } => v !== null);
+
+export function isSimulationRunViewId(id: string | null | undefined): id is string {
+  if (!id) {
     return false;
   }
-  return simulationRunViews.some((v) => v.id === value);
+  return simulationRunViews.some((v) => v.id === id);
 }
-
-const simulationRunViews = [
-  {
-    id: "documents",
-    label: "Documents",
-    render: async (input: {
-      runId: string;
-      effectiveNamespace: string | null;
-    }) => <DocumentsCard runId={input.runId} />,
-  },
-  {
-    id: "micro-batches",
-    label: "Micro batches",
-    render: async (input: {
-      runId: string;
-      effectiveNamespace: string | null;
-    }) => <MicroBatchesCard runId={input.runId} />,
-  },
-  {
-    id: "macro-outputs",
-    label: "Macro outputs",
-    render: async (input: {
-      runId: string;
-      effectiveNamespace: string | null;
-    }) => <MacroOutputsCard runId={input.runId} />,
-  },
-  {
-    id: "macro-classifications",
-    label: "Macro classifications",
-    render: async (input: {
-      runId: string;
-      effectiveNamespace: string | null;
-    }) => <MacroClassificationsCard runId={input.runId} />,
-  },
-  {
-    id: "materialized-moments",
-    label: "Materialized moments",
-    render: async (input: {
-      runId: string;
-      effectiveNamespace: string | null;
-    }) => (
-      <MaterializedMomentsCard
-        runId={input.runId}
-        effectiveNamespace={input.effectiveNamespace}
-      />
-    ),
-  },
-  {
-    id: "link-decisions",
-    label: "Link decisions",
-    render: async (input: {
-      runId: string;
-      effectiveNamespace: string | null;
-    }) => (
-      <LinkDecisionsCard
-        runId={input.runId}
-        effectiveNamespace={input.effectiveNamespace}
-      />
-    ),
-  },
-  {
-    id: "candidate-sets",
-    label: "Candidate sets",
-    render: async (input: {
-      runId: string;
-      effectiveNamespace: string | null;
-    }) => (
-      <CandidateSetsCard
-        runId={input.runId}
-        effectiveNamespace={input.effectiveNamespace}
-      />
-    ),
-  },
-  {
-    id: "timeline-fit-decisions",
-    label: "Timeline fit decisions",
-    render: async (input: {
-      runId: string;
-      effectiveNamespace: string | null;
-    }) => (
-      <TimelineFitDecisionsCard
-        runId={input.runId}
-        effectiveNamespace={input.effectiveNamespace}
-      />
-    ),
-  },
-] as const satisfies ReadonlyArray<{
-  id: SimulationRunViewId;
-  label: string;
-  render: (input: {
-    runId: string;
-    effectiveNamespace: string | null;
-  }) => Promise<React.ReactElement>;
-}>;
 
 function findLatestPhaseEndPayload(
   events: Array<{
@@ -290,7 +208,7 @@ async function SimulationRunsContent({
   logView,
 }: {
   runId: string | null;
-  view: SimulationRunViewId | null;
+  view: string | null;
   logView: "events" | "run";
 }) {
   const envCloudflare = env as Cloudflare.Env;
@@ -413,7 +331,7 @@ async function SimulationRunsContent({
     totalDocs,
   });
 
-  const viewLink = (id: SimulationRunViewId) =>
+  const viewLink = (id: string) =>
     `/audit/simulation?runId=${encodeURIComponent(
       runId
     )}&view=${encodeURIComponent(id)}`;
@@ -552,7 +470,7 @@ async function SimulationRunsContent({
             runId={runId}
             currentPhase={String(run.currentPhase)}
             status={String(run.status)}
-            phases={[...simulationPhases]}
+            phases={[...simulationPhasesOrdered]}
           />
 
           <div className="flex gap-2 flex-wrap">
@@ -589,7 +507,7 @@ async function SimulationRunsContent({
         </Card>
       ) : null}
 
-      {viewDef ? await viewDef.render({ runId, effectiveNamespace }) : null}
+      {viewDef ? <viewDef.component runId={runId} effectiveNamespace={effectiveNamespace} /> : null}
 
       <Card>
         <CardHeader>
@@ -651,506 +569,4 @@ async function SimulationRunsContent({
   );
 }
 
-async function DocumentsCard({ runId }: { runId: string }) {
-  const envCloudflare = env as Cloudflare.Env;
-  const context = { env: envCloudflare, momentGraphNamespace: null as any };
-  const docs = await getSimulationRunDocuments(context, { runId });
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Documents</CardTitle>
-        <CardDescription>Per-run diff results</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {docs.length === 0 ? (
-          <div className="text-sm text-gray-600">(none)</div>
-        ) : (
-          <div className="space-y-2">
-            {docs.map((d) => (
-              <div
-                key={d.r2Key}
-                className="flex items-start justify-between gap-4 p-2 rounded border bg-white"
-              >
-                <div className="min-w-0">
-                  <div className="font-mono text-xs break-all">{d.r2Key}</div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    changed={String(d.changed)} etag={d.etag ?? "null"}
-                  </div>
-                  {d.error ? (
-                    <div className="text-xs text-red-700 mt-1">
-                      {safeStringify(d.error)}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-async function MicroBatchesCard({ runId }: { runId: string }) {
-  const envCloudflare = env as Cloudflare.Env;
-  const context = { env: envCloudflare, momentGraphNamespace: null as any };
-  const batches = await getSimulationRunMicroBatches(context, { runId });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Micro batches</CardTitle>
-        <CardDescription>Per-run micro batch mapping</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {batches.length === 0 ? (
-          <div className="text-sm text-gray-600">(none)</div>
-        ) : (
-          <div className="space-y-2">
-            {batches.slice(0, 200).map((b) => (
-              <div
-                key={`${b.r2Key}:${b.batchIndex}`}
-                className="flex items-start justify-between gap-4 p-2 rounded border bg-white"
-              >
-                <div className="min-w-0">
-                  <div className="font-mono text-xs break-all">{b.r2Key}</div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    idx={String(b.batchIndex)} status={b.status} hash=
-                    {b.batchHash.slice(0, 10)}…
-                  </div>
-                  {b.error ? (
-                    <div className="text-xs text-red-700 mt-1">
-                      {safeStringify(b.error)}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-            ))}
-            {batches.length > 200 ? (
-              <div className="text-xs text-gray-600">
-                Showing first 200 of {batches.length}
-              </div>
-            ) : null}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-async function MacroOutputsCard({ runId }: { runId: string }) {
-  const envCloudflare = env as Cloudflare.Env;
-  const context = { env: envCloudflare, momentGraphNamespace: null as any };
-  const outputs = await getSimulationRunMacroOutputs(context, { runId });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Macro outputs</CardTitle>
-        <CardDescription>
-          Per-run macro synthesis outputs (streams + macro moments)
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {outputs.length === 0 ? (
-          <div className="text-sm text-gray-600">(none)</div>
-        ) : (
-          <div className="space-y-2">
-            {outputs.map((o) => (
-              <div key={o.r2Key} className="rounded border bg-white">
-                <div className="p-2">
-                  <div className="font-mono text-xs break-all">{o.r2Key}</div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    stream_hash={o.microStreamHash.slice(0, 10)}… use_llm=
-                    {String(o.useLlm)}
-                  </div>
-                </div>
-                <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[40vh]">
-                  {safeStringify({
-                    gating: o.gating,
-                    anchors: o.anchors,
-                    streams: o.streams,
-                    audit: o.audit,
-                  })}
-                </pre>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-async function MacroClassificationsCard({ runId }: { runId: string }) {
-  const envCloudflare = env as Cloudflare.Env;
-  const context = { env: envCloudflare, momentGraphNamespace: null as any };
-  const outputs = await getSimulationRunMacroClassifiedOutputs(context, {
-    runId,
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Macro classifications</CardTitle>
-        <CardDescription>
-          Per-run macro gating + classification outputs (ready for
-          materialization)
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {outputs.length === 0 ? (
-          <div className="text-sm text-gray-600">(none)</div>
-        ) : (
-          <div className="space-y-2">
-            {outputs.map((o) => (
-              <div key={o.r2Key} className="rounded border bg-white">
-                <div className="p-2">
-                  <div className="font-mono text-xs break-all">{o.r2Key}</div>
-                </div>
-                <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[40vh]">
-                  {safeStringify({
-                    gating: o.gating,
-                    classifications: o.classifications,
-                    streams: o.streams,
-                  })}
-                </pre>
-              </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-async function MaterializedMomentsCard({
-  runId,
-  effectiveNamespace,
-}: {
-  runId: string;
-  effectiveNamespace: string | null;
-}) {
-  const envCloudflare = env as Cloudflare.Env;
-  const context = { env: envCloudflare, momentGraphNamespace: null as any };
-  const moments = await getSimulationRunMaterializedMoments(context, { runId });
-
-  const ids = moments.map((m) => m.momentId);
-  const parentIds = moments
-    .map((m) => m.parentId)
-    .filter((id): id is string => typeof id === "string" && id.length > 0);
-  const previews = await loadMomentPreviews([...ids, ...parentIds], {
-    env: envCloudflare,
-    momentGraphNamespace: effectiveNamespace ?? null,
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Materialized moments</CardTitle>
-        <CardDescription>
-          Per-run moment ids written into the moment graph
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {moments.length === 0 ? (
-          <div className="text-sm text-gray-600">(none)</div>
-        ) : (
-          <div className="space-y-2">
-            {moments.slice(0, 200).map((m: any) => (
-              <div key={m.momentId} className="p-2 rounded border bg-white">
-                <div className="text-sm font-medium text-gray-900">
-                  {previews.get(m.momentId)?.title ?? "(missing moment)"}
-                </div>
-                <div className="text-xs text-gray-600 mt-1 line-clamp-2">
-                  {previews.get(m.momentId)?.summary ?? ""}
-                </div>
-                <div className="text-xs text-gray-500 mt-1 font-mono break-all">
-                  id={m.momentId}
-                </div>
-                <div className="text-xs text-gray-600 mt-1">
-                  r2Key={m.r2Key} stream={m.streamId} idx={String(m.macroIndex)}{" "}
-                  parent={m.parentId ?? "null"}
-                </div>
-                {m.parentId ? (
-                  <div className="text-xs text-gray-600 mt-1">
-                    parentTitle=
-                    <span className="ml-1">
-                      {previews.get(m.parentId)?.title ?? "(missing parent)"}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-            ))}
-            {moments.length > 200 ? (
-              <div className="text-xs text-gray-600">
-                Showing first 200 of {moments.length}
-              </div>
-            ) : null}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-async function LinkDecisionsCard({
-  runId,
-  effectiveNamespace,
-}: {
-  runId: string;
-  effectiveNamespace: string | null;
-}) {
-  const envCloudflare = env as Cloudflare.Env;
-  const context = { env: envCloudflare, momentGraphNamespace: null as any };
-  const decisions = await getSimulationRunLinkDecisions(context, { runId });
-  const ids = decisions
-    .flatMap((d: any) => [d.childMomentId, d.parentMomentId].filter(Boolean))
-    .filter(Boolean) as string[];
-  const previews = await loadMomentPreviews(ids, {
-    env: envCloudflare,
-    momentGraphNamespace: effectiveNamespace ?? null,
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Link decisions</CardTitle>
-        <CardDescription>
-          Per-run deterministic_linking decisions
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {decisions.length === 0 ? (
-          <div className="text-sm text-gray-600">(none)</div>
-        ) : (
-          <div className="space-y-2">
-            {decisions.slice(0, 200).map((d: any) => (
-              <div
-                key={d.childMomentId}
-                className="p-2 rounded border bg-white"
-              >
-                <div className="text-sm font-medium text-gray-900">
-                  {previews.get(d.childMomentId)?.title ?? "(missing moment)"}
-                </div>
-                <div className="text-xs text-gray-600 mt-1 line-clamp-2">
-                  {previews.get(d.childMomentId)?.summary ?? ""}
-                </div>
-                <div className="text-xs text-gray-500 mt-1 font-mono break-all">
-                  child={d.childMomentId}
-                </div>
-                <div className="text-xs text-gray-600 mt-1">
-                  r2Key={d.r2Key} stream={d.streamId} idx={String(d.macroIndex)}{" "}
-                  outcome=
-                  {d.outcome} parent={d.parentMomentId ?? "null"} rule=
-                  {d.ruleId ?? "null"}
-                </div>
-                {d.parentMomentId ? (
-                  <div className="text-xs text-gray-600 mt-1">
-                    parentTitle=
-                    <span className="ml-1">
-                      {previews.get(d.parentMomentId)?.title ??
-                        "(missing parent)"}
-                    </span>
-                  </div>
-                ) : null}
-                {d.evidence ? (
-                  <pre className="text-xs bg-gray-50 border rounded p-2 mt-2 overflow-auto max-h-[30vh]">
-                    {safeStringify(d.evidence)}
-                  </pre>
-                ) : null}
-              </div>
-            ))}
-            {decisions.length > 200 ? (
-              <div className="text-xs text-gray-600">
-                Showing first 200 of {decisions.length}
-              </div>
-            ) : null}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-async function CandidateSetsCard({
-  runId,
-  effectiveNamespace,
-}: {
-  runId: string;
-  effectiveNamespace: string | null;
-}) {
-  const envCloudflare = env as Cloudflare.Env;
-  const context = { env: envCloudflare, momentGraphNamespace: null as any };
-  const sets = await getSimulationRunCandidateSets(context, { runId });
-  const ids = sets
-    .flatMap((s: any) => {
-      const candIds = Array.isArray(s.candidates)
-        ? s.candidates
-            .map((c: any) => (typeof c?.id === "string" ? c.id : null))
-            .filter(Boolean)
-            .slice(0, 20)
-        : [];
-      return [s.childMomentId, ...candIds].filter(Boolean);
-    })
-    .filter(Boolean) as string[];
-  const previews = await loadMomentPreviews(ids, {
-    env: envCloudflare,
-    momentGraphNamespace: effectiveNamespace ?? null,
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Candidate sets</CardTitle>
-        <CardDescription>Per-run candidate_sets outputs</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {sets.length === 0 ? (
-          <div className="text-sm text-gray-600">(none)</div>
-        ) : (
-          <div className="space-y-2">
-            {sets.slice(0, 200).map((s: any) => (
-              <div key={s.childMomentId} className="rounded border bg-white">
-                <div className="p-2">
-                  <div className="text-sm font-medium text-gray-900">
-                    {previews.get(s.childMomentId)?.title ?? "(missing moment)"}
-                  </div>
-                  <div className="text-xs text-gray-600 mt-1 line-clamp-2">
-                    {previews.get(s.childMomentId)?.summary ?? ""}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1 font-mono break-all">
-                    child={s.childMomentId}
-                  </div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    r2Key={s.r2Key} stream={s.streamId} idx=
-                    {String(s.macroIndex)} candidates=
-                    {Array.isArray(s.candidates)
-                      ? String(s.candidates.length)
-                      : "0"}
-                  </div>
-                  {Array.isArray(s.candidates) && s.candidates.length > 0 ? (
-                    <div className="text-xs text-gray-600 mt-2">
-                      top candidates:
-                      <ul className="mt-1 space-y-1">
-                        {s.candidates.slice(0, 5).map((c: any, idx: number) => {
-                          const id = typeof c?.id === "string" ? c.id : "";
-                          const score =
-                            typeof c?.score === "number" ? c.score : null;
-                          const title = id ? previews.get(id)?.title : null;
-                          return (
-                            <li key={`${id}:${idx}`} className="font-mono">
-                              {score !== null ? score.toFixed(3) : "n/a"}{" "}
-                              {title ?? id}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ) : null}
-                </div>
-                <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[30vh]">
-                  {safeStringify({ stats: s.stats, candidates: s.candidates })}
-                </pre>
-              </div>
-            ))}
-            {sets.length > 200 ? (
-              <div className="text-xs text-gray-600">
-                Showing first 200 of {sets.length}
-              </div>
-            ) : null}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-async function TimelineFitDecisionsCard({
-  runId,
-  effectiveNamespace,
-}: {
-  runId: string;
-  effectiveNamespace: string | null;
-}) {
-  const envCloudflare = env as Cloudflare.Env;
-  const context = { env: envCloudflare, momentGraphNamespace: null as any };
-  const decisions = await getSimulationRunTimelineFitDecisions(context, {
-    runId,
-  });
-  const ids = decisions
-    .flatMap((d: any) => {
-      const extra =
-        Array.isArray(d.decisions) && d.decisions.length > 0
-          ? d.decisions
-              .map((x: any) =>
-                typeof x?.candidateId === "string" ? x.candidateId : null
-              )
-              .filter(Boolean)
-              .slice(0, 20)
-          : [];
-      return [d.childMomentId, d.chosenParentMomentId, ...extra].filter(
-        Boolean
-      );
-    })
-    .filter(Boolean) as string[];
-  const previews = await loadMomentPreviews(ids, {
-    env: envCloudflare,
-    momentGraphNamespace: effectiveNamespace ?? null,
-  });
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-lg">Timeline fit decisions</CardTitle>
-        <CardDescription>Per-run timeline_fit outputs</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {decisions.length === 0 ? (
-          <div className="text-sm text-gray-600">(none)</div>
-        ) : (
-          <div className="space-y-2">
-            {decisions.slice(0, 200).map((d: any) => (
-              <div key={d.childMomentId} className="rounded border bg-white">
-                <div className="p-2">
-                  <div className="text-sm font-medium text-gray-900">
-                    {previews.get(d.childMomentId)?.title ?? "(missing moment)"}
-                  </div>
-                  <div className="text-xs text-gray-600 mt-1 line-clamp-2">
-                    {previews.get(d.childMomentId)?.summary ?? ""}
-                  </div>
-                  <div className="text-xs text-gray-500 mt-1 font-mono break-all">
-                    child={d.childMomentId}
-                  </div>
-                  <div className="text-xs text-gray-600 mt-1">
-                    r2Key={d.r2Key} stream={d.streamId} idx=
-                    {String(d.macroIndex)} outcome=
-                    {d.outcome} chosen={d.chosenParentMomentId ?? "null"}
-                  </div>
-                  {d.chosenParentMomentId ? (
-                    <div className="text-xs text-gray-600 mt-1">
-                      chosenTitle=
-                      <span className="ml-1">
-                        {previews.get(d.chosenParentMomentId)?.title ??
-                          "(missing parent)"}
-                      </span>
-                    </div>
-                  ) : null}
-                </div>
-                <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[30vh]">
-                  {safeStringify({ stats: d.stats, decisions: d.decisions })}
-                </pre>
-              </div>
-            ))}
-            {decisions.length > 200 ? (
-              <div className="text-xs text-gray-600">
-                Showing first 200 of {decisions.length}
-              </div>
-            ) : null}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}

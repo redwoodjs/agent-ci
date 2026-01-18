@@ -11,6 +11,7 @@ import {
   pauseSimulationRunAction,
   resumeSimulationRunAction,
   restartSimulationRunAction,
+  autoAdvanceSimulationRunAction,
 } from "./simulation-actions";
 
 export function SimulationRunControls(
@@ -343,20 +344,16 @@ function RunControls({
       }
 
       try {
-        const res = await advanceSimulationRunAction({ runId });
+        const res = await autoAdvanceSimulationRunAction({ runId });
         if (!res.success) {
           const msg = res.error || "Advance failed";
           setError(msg);
           setAutoStatus((prev) => (prev ? { ...prev, error: msg } : null));
           break;
         }
-        lastStatus =
-          typeof (res as any).status === "string" ? (res as any).status : "running";
-        lastPhase =
-          typeof (res as any).currentPhase === "string"
-            ? (res as any).currentPhase
-            : lastPhase;
-        steps++;
+        lastStatus = res.status ?? "unknown";
+        lastPhase = res.currentPhase ?? lastPhase;
+        steps += res.steps ?? 1;
         setAutoStatus({ status: lastStatus, currentPhase: lastPhase, steps });
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);

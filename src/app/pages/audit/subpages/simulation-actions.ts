@@ -418,3 +418,30 @@ export async function restartSimulationRunAction(input: {
   );
   return ok ? { success: true } : { success: false, error: "Run not found" };
 }
+
+export async function autoAdvanceSimulationRunAction(input: {
+  runId: string;
+  maxMs?: number;
+}) {
+  const runId = typeof input.runId === "string" ? input.runId.trim() : "";
+  if (!runId) {
+    return { success: false, error: "Missing runId" };
+  }
+  try {
+    const { autoAdvanceSimulationRun } = await import(
+      "@/app/engine/runners/simulation/runner"
+    );
+    const result = await autoAdvanceSimulationRun(
+      { env: env as Cloudflare.Env, momentGraphNamespace: null },
+      { runId, maxMs: input.maxMs }
+    );
+    return {
+      success: true,
+      status: result.status,
+      currentPhase: result.currentPhase,
+      steps: result.steps,
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}

@@ -44,21 +44,73 @@ export async function CandidateSetsCard({
             {sets.map((s) => (
               <div
                 key={s.childMomentId}
-                className="p-2 rounded border bg-white flex flex-col gap-1"
+                className="p-3 rounded border bg-white shadow-sm flex flex-col gap-3"
               >
-                <div className="text-[10px] font-mono text-gray-400 break-all">
-                  {s.childMomentId}
+                <div className="space-y-1">
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="font-semibold text-sm text-gray-900">
+                      {s.childTitle || "(Untitled Child)"}
+                    </div>
+                    <div className="text-[10px] font-mono text-gray-400 bg-gray-50 px-1 rounded border border-gray-100 whitespace-nowrap">
+                      {s.childMomentId.slice(0, 8)}...
+                    </div>
+                  </div>
+                  {s.childSummary && (
+                    <div className="text-xs text-gray-600 leading-relaxed italic">
+                      {s.childSummary}
+                    </div>
+                  )}
                 </div>
 
-                <div className="text-xs font-semibold">
-                  Candidates: {s.candidates ? s.candidates.length : 0}
+                <div className="space-y-2">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                    Candidates ({s.candidates.length})
+                  </div>
+                  <div className="space-y-2">
+                    {s.candidates.length === 0 ? (
+                      <div className="text-[10px] text-gray-400 italic px-2">No candidates found.</div>
+                    ) : (
+                      s.candidates.slice(0, 5).map((c, i) => (
+                        <div key={c.momentId || i} className="bg-gray-50/50 p-2 rounded border border-gray-100 text-[11px]">
+                          <div className="flex justify-between items-start gap-2">
+                            <div className="font-medium text-gray-800">
+                              {c.title || "(Untitled Candidate)"}
+                            </div>
+                            <div className="font-mono text-[9px] text-gray-400">
+                              {c.momentId ? c.momentId.slice(0, 8) : "N/A"}
+                            </div>
+                          </div>
+                          {c.summary && (
+                            <div className="text-gray-500 italic mt-0.5 line-clamp-2">
+                              {c.summary}
+                            </div>
+                          )}
+                          <div className="text-[9px] text-gray-400 mt-1 flex gap-2">
+                            {c.score != null && <span>Score: {(Number(c.score) * 100).toFixed(1)}%</span>}
+                            {c.reason && <span className="truncate">Reason: {c.reason}</span>}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    {s.candidates.length > 5 && (
+                      <div className="text-[9px] text-gray-400 text-center italic">
+                        + {s.candidates.length - 5} more candidates
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <pre className="text-[10px] bg-gray-50 border p-1 overflow-auto max-h-[20vh]">
-                  {safeStringify({
-                    candidates: s.candidates,
-                    stats: s.stats,
-                  })}
-                </pre>
+
+                <details className="mt-1">
+                  <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600 font-semibold uppercase tracking-tight">
+                    Candidate Debug Info
+                  </summary>
+                  <pre className="mt-1 text-[10px] bg-gray-50 border p-2 rounded overflow-auto max-h-[30vh] font-mono text-gray-600">
+                    {safeStringify({
+                      candidates: s.candidates,
+                      stats: s.stats,
+                    })}
+                  </pre>
+                </details>
               </div>
             ))}
           </div>

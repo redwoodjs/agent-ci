@@ -41,17 +41,37 @@ export async function MaterializedMomentsCard({
               {moments.slice(0, 200).map((m) => (
                 <div
                   key={m.momentId}
-                  className="p-2 rounded border bg-white flex flex-col gap-1"
+                  className="p-3 rounded border bg-white shadow-sm flex flex-col gap-2"
                 >
-                  <div className="text-[10px] font-mono text-gray-400 break-all">
-                    {m.momentId}
-                  </div>
-                  <div className="font-mono text-xs break-all">{m.r2Key}</div>
-                  <div className="text-[10px] text-gray-500">
-                    momentId={m.momentId} streamId={m.streamId} idx=
-                    {String(m.macroIndex)}
+                  <div className="flex justify-between items-start gap-2">
+                    <div className="font-semibold text-sm text-gray-900 group-hover:text-blue-600 transition-colors">
+                      {m.title || "(Untitled)"}
+                    </div>
+                    <div className="text-[10px] font-mono text-gray-400 bg-gray-50 px-1 rounded border border-gray-100 whitespace-nowrap">
+                      {m.momentId.slice(0, 8)}...
+                    </div>
                   </div>
 
+                  {m.summary ? (
+                    <div className="text-xs text-gray-600 leading-relaxed italic">
+                      {m.summary}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-400 italic">No summary available</div>
+                  )}
+
+                  <div className="pt-2 border-t border-gray-50 mt-1">
+                    <div className="font-mono text-[10px] text-gray-500 truncate" title={m.r2Key}>
+                      Key: {m.r2Key}
+                    </div>
+                    <div className="text-[10px] text-gray-400 flex gap-2 mt-1">
+                      <span>Stream: <span className="text-gray-600 font-medium">{m.streamId}</span></span>
+                      <span>Idx: <span className="text-gray-600 font-medium">{m.macroIndex}</span></span>
+                      {m.parentId && (
+                        <span>Parent: <span className="text-gray-600 font-medium">{m.parentId.slice(0, 8)}</span></span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               ))}
               {moments.length > 200 ? (

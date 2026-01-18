@@ -128,3 +128,42 @@ export async function advanceSimulationRunPhaseNoop(
   }
 }
 
+export async function autoAdvanceSimulationRun(
+  context: SimulationDbContext,
+  input: { runId: string; maxMs?: number }
+): Promise<{ status: string; currentPhase: string; steps: number }> {
+  const startedAt = Date.now();
+  const maxMs = input.maxMs ?? 25000; // Default 25s for Cloudflare worker limits (30s max)
+  let steps = 0;
+  let lastResult: { status: string; currentPhase: string } | null = null;
+
+  while (Date.now() - startedAt < maxMs) {
+    const res = await advanceSimulationRunPhaseNoop(context, { runId: input.runId });
+    if (!res) {
+      break;
+    }
+    lastResult = res;
+    steps++;
+
+    if (res.status !== "running") {
+      break;
+    }
+  }
+
+  if (!lastResult) {
+    const db = getSimulationDb(context);
+    const row = (await db
+      .selectFrom("simulation_runs")
+      .select(["status", "current_phase"])
+      .where("run_id", "=", input.runId)
+      .executeTakeFirst()) as { status: string; current_phase: string } | undefined;
+    return {
+      status: row?.status ?? "unknown",
+      currentPhase: row?.current_phase ?? "unknown",
+      steps,
+    };
+  }
+
+  return { ...lastResult, steps };
+}
+

@@ -46,6 +46,7 @@ function StartControls() {
   const [githubRepo, setGithubRepo] = useState("");
   const [maxPages, setMaxPages] = useState("5");
   const [sampleSize, setSampleSize] = useState("20");
+  const [autoRun, setAutoRun] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const start = async () => {
@@ -64,7 +65,7 @@ function StartControls() {
       if (res.success && res.runId) {
         window.location.href = `/audit/simulation?runId=${encodeURIComponent(
           res.runId
-        )}`;
+        )}${autoRun ? "&autorun=1" : ""}`;
         return;
       }
       setError(res.error || "Failed to start run");
@@ -91,7 +92,7 @@ function StartControls() {
       if (res.success && res.runId) {
         window.location.href = `/audit/simulation?runId=${encodeURIComponent(
           res.runId
-        )}&autorun=1`;
+        )}${autoRun ? "&autorun=1" : ""}`;
         return;
       }
       setError(res.error || "Failed to run all");
@@ -122,7 +123,7 @@ function StartControls() {
       if (res.success && res.runId) {
         window.location.href = `/audit/simulation?runId=${encodeURIComponent(
           res.runId
-        )}&autorun=1`;
+        )}${autoRun ? "&autorun=1" : ""}`;
         return;
       }
       setError(res.error || "Failed to run sample");
@@ -135,6 +136,16 @@ function StartControls() {
 
   return (
     <div className="space-y-4">
+      <div className="space-y-2">
+        <label className="flex items-center gap-2 text-xs font-semibold text-gray-700 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoRun}
+            onChange={(e) => setAutoRun(e.target.checked)}
+          />
+          Auto-run simulation after starting
+        </label>
+      </div>
       <div className="space-y-2">
         <div className="text-xs text-gray-600 font-semibold uppercase">
           Manual input
@@ -336,13 +347,13 @@ function RunControls({
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
-    if (sp.get("autorun") === "1" && status === "running") {
+    if (sp.get("autorun") === "1" && status === "running" && autoStatus === null) {
       runAuto().catch((e) => {
         setError(e instanceof Error ? e.message : String(e));
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [status]);
 
   return (
     <div className="space-y-3">

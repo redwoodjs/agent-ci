@@ -38,6 +38,29 @@ export async function advanceSimulationRunPhaseNoop(
     return { status: row.status, currentPhase: row.current_phase };
   }
 
+  // Atomically set status to busy_running to prevent concurrent advancement
+  const now = new Date().toISOString();
+  await db
+    .updateTable("simulation_runs")
+    .set({
+      status: "busy_running",
+      updated_at: now,
+    } as any)
+    .where("run_id", "=", runId)
+    .where("status", "=", "running")
+    .execute();
+
+  // Verify we actually got the lock
+  const refreshed = (await db
+    .selectFrom("simulation_runs")
+    .select(["status"])
+    .where("run_id", "=", runId)
+    .executeTakeFirst()) as { status: string } | undefined;
+
+  if (refreshed?.status !== "busy_running") {
+    return { status: refreshed?.status ?? row.status, currentPhase: row.current_phase };
+  }
+
   const phase = normalizePhase(row.current_phase);
   const phaseIdx = simulationPhases.indexOf(phase);
 
@@ -53,7 +76,27 @@ export async function advanceSimulationRunPhaseNoop(
     if (!entry) {
       throw new Error(`No registry entry found for phase: ${phase}`);
     }
-    return await entry.runner(context, { runId, phaseIdx });
+    const result = await entry.runner(context, { runId, phaseIdx });
+    
+    // Check if runner updated status. If not, we set it back to running (or result status)
+    const afterRow = (await db
+      .selectFrom("simulation_runs")
+      .select(["status"])
+      .where("run_id", "=", runId)
+      .executeTakeFirst()) as { status: string } | undefined;
+
+    if (afterRow?.status === "busy_running") {
+      await db
+        .updateTable("simulation_runs")
+        .set({ status: result?.status ?? "running" })
+        .where("run_id", "=", runId)
+        .execute();
+    }
+
+    if (result && result.status === "busy_running") {
+      result.status = "running";
+    }
+    return result;
   } catch (error: any) {
     const msg = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;

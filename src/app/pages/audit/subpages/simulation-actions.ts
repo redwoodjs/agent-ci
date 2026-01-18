@@ -365,6 +365,9 @@ export async function advanceSimulationRunAction(input: { runId: string }) {
   if (!updated) {
     return { success: false, error: "Run not found" };
   }
+  if (updated.status === "busy_running") {
+    return { success: false, error: "Run is already busy processing a phase" };
+  }
   return {
     success: true,
     status: (updated as any).status ?? null,

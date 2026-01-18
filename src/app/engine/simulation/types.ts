@@ -6,6 +6,7 @@ export type SimulationDatabase = Database<typeof simulationStateMigrations>;
 
 export type SimulationRunStatus =
   | "running"
+  | "busy_running"
   | "paused_on_error"
   | "paused_manual"
   | "completed";

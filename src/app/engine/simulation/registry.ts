@@ -23,15 +23,6 @@ export function registerPipeline(entry: PipelineRegistryEntry) {
   pipelineRegistry[entry.phase] = entry;
 }
 
-// Import all pipelines to trigger registration
-import "../../pipelines/ingest_diff/web";
-import "../../pipelines/micro_batches/web";
-import "../../pipelines/macro_synthesis/web";
-import "../../pipelines/macro_classification/web";
-import "../../pipelines/materialize_moments/web";
-import "../../pipelines/deterministic_linking/web";
-import "../../pipelines/candidate_sets/web";
-import "../../pipelines/timeline_fit/web";
 
 export const simulationPhasesOrdered = [
   "ingest_diff",

@@ -12,7 +12,7 @@ import {
   resumeSimulationRun,
   simulationPhases,
 } from "../databases/simulationState";
-import { pipelineRegistry } from "../simulation/registry";
+import { pipelineRegistry } from "../simulation/allPipelines";
 
 
 async function startSimulationRunHandler({ request }: RequestInfo) {
@@ -249,6 +249,9 @@ export const simulationAdminRoutes = [
   }),
   route("/admin/simulation/run/:runId/events", {
     get: [requireQueryApiKey, getSimulationRunEventsHandler],
+  }),
+  route("/admin/simulation/run/:runId", {
+    get: [requireQueryApiKey, getSimulationRunHandler],
   }),
   ...Object.values(pipelineRegistry).flatMap((entry) => entry.web?.routes || []),
 ];

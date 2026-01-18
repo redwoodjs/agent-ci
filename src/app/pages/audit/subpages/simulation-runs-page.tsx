@@ -21,7 +21,7 @@ import {
   getSimulationRunTimelineFitDecisions,
   getSimulationRunMaterializedMoments,
 } from "@/app/engine/databases/simulationState";
-import { pipelineRegistry, simulationPhasesOrdered } from "@/app/engine/simulation/registry";
+import { pipelineRegistry, simulationPhasesOrdered } from "@/app/engine/simulation/allPipelines";
 import { getSimulationRunProgressSummary } from "@/app/engine/simulation/runProgress";
 import { getMoments } from "@/app/engine/databases/momentGraph";
 import { SimulationRunControls } from "./simulation-run-controls";

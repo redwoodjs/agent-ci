@@ -4,7 +4,7 @@ import { simulationPhases } from "../../simulation/types";
 import { normalizePhase } from "../../simulation/runs";
 import { getSimulationDb } from "../../simulation/db";
 import { addSimulationRunEvent } from "../../simulation/runEvents";
-import { pipelineRegistry } from "../../simulation/registry";
+import { pipelineRegistry } from "../../simulation/allPipelines";
 
 // No longer need hardcoded phaseRunners mapping here
 

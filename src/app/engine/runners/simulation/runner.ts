@@ -41,20 +41,30 @@ export async function advanceSimulationRunPhaseNoop(
   const phase = normalizePhase(row.current_phase);
   const phaseIdx = simulationPhases.indexOf(phase);
 
+  await addSimulationRunEvent(context, {
+    runId,
+    level: "debug",
+    kind: "host.phase.dispatch",
+    payload: { phase, phaseIdx },
+  });
+
   try {
     const entry = pipelineRegistry[phase];
     if (!entry) {
       throw new Error(`No registry entry found for phase: ${phase}`);
     }
     return await entry.runner(context, { runId, phaseIdx });
-  } catch (error) {
+  } catch (error: any) {
     const msg = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack : undefined;
+
     await addSimulationRunEvent(context, {
       runId,
       level: "error",
       kind: "phase.error",
-      payload: { phase, error: msg },
+      payload: { phase, error: msg, stack },
     });
+
     const now = new Date().toISOString();
     await db
       .updateTable("simulation_runs")
@@ -65,53 +75,13 @@ export async function advanceSimulationRunPhaseNoop(
         last_error_json: JSON.stringify({
           message: msg,
           phase,
+          stack,
         }),
       } as any)
       .where("run_id", "=", runId)
       .execute();
+
     return { status: "paused_on_error", currentPhase: phase };
   }
-
-  await addSimulationRunEvent(context, {
-    runId,
-    level: "info",
-    kind: "phase.start",
-    payload: { phase },
-  });
-
-  await addSimulationRunEvent(context, {
-    runId,
-    level: "info",
-    kind: "phase.end",
-    payload: { phase, didWork: false },
-  });
-
-  const now = new Date().toISOString();
-  const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
-
-  if (!nextPhase) {
-    await db
-      .updateTable("simulation_runs")
-      .set({
-        status: "completed",
-        updated_at: now,
-        last_progress_at: now,
-      } as any)
-      .where("run_id", "=", runId)
-      .execute();
-    return { status: "completed", currentPhase: phase };
-  }
-
-  await db
-    .updateTable("simulation_runs")
-    .set({
-      current_phase: nextPhase,
-      updated_at: now,
-      last_progress_at: now,
-    } as any)
-    .where("run_id", "=", runId)
-    .execute();
-
-  return { status: "running", currentPhase: nextPhase };
 }
 

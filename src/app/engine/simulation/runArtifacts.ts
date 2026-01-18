@@ -64,6 +64,7 @@ export async function getSimulationRunMicroBatches(
     batchHash: string;
     promptContextHash: string;
     status: string;
+    items: string[];
     error: any | null;
     createdAt: string;
     updatedAt: string;
@@ -85,28 +86,61 @@ export async function getSimulationRunMicroBatches(
 
   let q = db
     .selectFrom("simulation_run_micro_batches")
-    .selectAll()
+    .leftJoin("simulation_micro_batch_cache", (join) =>
+      join
+        .onRef(
+          "simulation_run_micro_batches.batch_hash",
+          "=",
+          "simulation_micro_batch_cache.batch_hash"
+        )
+        .onRef(
+          "simulation_run_micro_batches.prompt_context_hash",
+          "=",
+          "simulation_micro_batch_cache.prompt_context_hash"
+        )
+    )
+    .select([
+      "simulation_run_micro_batches.r2_key",
+      "simulation_run_micro_batches.batch_index",
+      "simulation_run_micro_batches.batch_hash",
+      "simulation_run_micro_batches.prompt_context_hash",
+      "simulation_run_micro_batches.status",
+      "simulation_run_micro_batches.error_json",
+      "simulation_run_micro_batches.created_at",
+      "simulation_run_micro_batches.updated_at",
+      "simulation_micro_batch_cache.micro_items_json",
+    ])
     .where("run_id", "=", runId);
 
   if (r2Key) {
     q = q.where("r2_key", "=", r2Key);
   }
 
-  const rows = (await q
+  const rows = await q
     .orderBy("r2_key", "asc")
     .orderBy("batch_index", "asc")
-    .execute()) as unknown as SimulationRunMicroBatchRow[];
+    .execute();
 
-  return rows.map((r) => ({
-    r2Key: r.r2_key,
-    batchIndex: Number((r as any).batch_index ?? 0),
-    batchHash: r.batch_hash,
-    promptContextHash: r.prompt_context_hash,
-    status: r.status,
-    error: (r as any).error_json ?? null,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  }));
+  return rows.map((r) => {
+    const itemsRaw = (r as any).micro_items_json;
+    const items = Array.isArray(itemsRaw)
+      ? (itemsRaw as string[])
+      : typeof itemsRaw === "string"
+      ? (JSON.parse(itemsRaw) as string[])
+      : [];
+
+    return {
+      r2Key: r.r2_key,
+      batchIndex: Number((r as any).batch_index ?? 0),
+      batchHash: r.batch_hash,
+      promptContextHash: r.prompt_context_hash,
+      status: r.status,
+      items,
+      error: (r as any).error_json ?? null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+    };
+  });
 }
 
 export async function getSimulationRunMacroOutputs(

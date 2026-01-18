@@ -258,6 +258,7 @@ export async function runMicroBatchesAdapter(
           r2Key,
           batchIndex: b.batchIndex,
           cached: b.cached,
+          items: b.microItems,
         });
 
         await db

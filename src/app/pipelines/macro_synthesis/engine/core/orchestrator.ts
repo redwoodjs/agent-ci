@@ -128,7 +128,12 @@ export async function runMacroSynthesisForR2Key(input: {
   | { kind: "skipped_unchanged" }
   | { kind: "skipped_error" }
   | { kind: "reused" }
-  | { kind: "computed"; streamsProduced: number; macroMomentsProduced: number }
+  | {
+      kind: "computed";
+      streamsProduced: number;
+      macroMomentsProduced: number;
+      streams: any[];
+    }
 > {
   const state = await input.ports.loadDocState({
     runId: input.runId,
@@ -255,6 +260,7 @@ export async function runMacroSynthesisForR2Key(input: {
     kind: "computed",
     streamsProduced: normalizedStreams.length,
     macroMomentsProduced,
+    streams: normalizedStreams,
   };
 }
 

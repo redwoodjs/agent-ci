@@ -37,12 +37,24 @@ export async function MicroBatchesCard({ runId }: { runId: string }) {
                 key={`${b.r2Key}:${b.batchIndex}`}
                 className="flex items-start justify-between gap-4 p-2 rounded border bg-white"
               >
-                <div className="min-w-0">
+                <div className="flex-1 min-w-0">
                   <div className="font-mono text-xs break-all">{b.r2Key}</div>
                   <div className="text-xs text-gray-600 mt-1">
                     idx={String(b.batchIndex)} status={b.status} hash=
                     {b.batchHash.slice(0, 10)}…
                   </div>
+                  {b.items && b.items.length > 0 ? (
+                    <div className="mt-2 space-y-1">
+                      {b.items.map((item, i) => (
+                        <div
+                          key={i}
+                          className="text-xs bg-gray-50 p-1.5 rounded border border-gray-100 italic text-gray-700"
+                        >
+                          {item}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                   {b.error ? (
                     <div className="text-xs text-red-700 mt-1">
                       {safeStringify(b.error)}

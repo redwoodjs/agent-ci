@@ -43,14 +43,45 @@ export async function MacroOutputsCard({ runId }: { runId: string }) {
                     {String(o.useLlm)}
                   </div>
                 </div>
-                <pre className="text-xs bg-gray-50 border-t p-2 overflow-auto max-h-[40vh]">
-                  {safeStringify({
-                    gating: o.gating,
-                    anchors: o.anchors,
-                    streams: o.streams,
-                    audit: o.audit,
-                  })}
-                </pre>
+                <div className="p-2 space-y-3">
+                  {o.streams && o.streams.length > 0 ? (
+                    <div className="space-y-4">
+                      {o.streams.map((s: any, si: number) => (
+                        <div key={si} className="space-y-1.5">
+                          <div className="text-xs font-bold text-gray-900 border-b pb-1">
+                            Stream: {s.streamId}
+                          </div>
+                          <div className="space-y-2 pl-2 border-l-2 border-gray-100">
+                            {s.macroMoments?.map((m: any, mi: number) => (
+                              <div key={mi} className="space-y-1">
+                                <div className="text-xs font-semibold text-gray-800">
+                                  {m.title}
+                                </div>
+                                <div className="text-xs text-gray-600 leading-relaxed italic">
+                                  {m.summary}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-xs text-gray-500">(no streams produced)</div>
+                  )}
+                  <details className="mt-4">
+                    <summary className="text-[10px] text-gray-400 cursor-pointer hover:text-gray-600">
+                      View raw data
+                    </summary>
+                    <pre className="text-[10px] bg-gray-50 p-2 mt-1 overflow-auto max-h-[20vh] border rounded">
+                      {safeStringify({
+                        gating: o.gating,
+                        anchors: o.anchors,
+                        audit: o.audit,
+                      })}
+                    </pre>
+                  </details>
+                </div>
               </div>
             ))}
           </div>

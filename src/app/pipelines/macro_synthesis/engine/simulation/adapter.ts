@@ -283,6 +283,13 @@ export async function runMacroSynthesisAdapter(
         r2Key,
         streamsProduced: res.streamsProduced,
         macroMomentsProduced: res.macroMomentsProduced,
+        streams: res.streams.map((s) => ({
+          streamId: s.streamId,
+          macroMoments: (s.macroMoments as any[]).map((m) => ({
+            title: m.title,
+            summary: m.summary,
+          })),
+        })),
       });
     } catch (e) {
       failed++;

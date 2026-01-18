@@ -130,6 +130,8 @@ export async function runPhaseTimelineFit(
 
     itemsProcessed++;
 
+    await log.info("item.start", { phase: "timeline_fit", childMomentId });
+
     const candidatesRaw = Array.isArray((row as any).candidates_json)
       ? (row as any).candidates_json
       : [];

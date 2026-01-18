@@ -51,6 +51,7 @@ export async function synthesizeMicroMoments(
   options?: {
     macroSynthesisPromptContext?: string | null;
     auditSink?: (event: SynthesisAuditEvent) => void;
+    logger?: (message: string, data?: any) => void;
   }
 ): Promise<
   Array<
@@ -187,6 +188,7 @@ ${formattedMoments}
       reasoning: {
         effort: "low",
       },
+      logger: options?.logger,
     });
 
     const momentRegex =
@@ -329,6 +331,7 @@ export async function synthesizeMicroMomentsIntoStreams(
   options?: {
     macroSynthesisPromptContext?: string | null;
     auditSink?: (event: SynthesisAuditEvent) => void;
+    logger?: (message: string, data?: any) => void;
   }
 ): Promise<MacroMomentStream[]> {
   if (microMoments.length === 0) {
@@ -493,6 +496,7 @@ ${formattedMoments}
       reasoning: {
         effort: "low",
       },
+      logger: options?.logger,
     });
 
     const streams: MacroMomentStream[] = [];

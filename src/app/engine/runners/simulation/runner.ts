@@ -11,7 +11,7 @@ import { pipelineRegistry } from "../../simulation/allPipelines";
 
 export async function advanceSimulationRunPhaseNoop(
   context: SimulationDbContext,
-  input: { runId: string }
+  input: { runId: string; continueOnError?: boolean }
 ): Promise<{ status: string; currentPhase: string } | null> {
   const db = getSimulationDb(context);
   const runId =
@@ -58,7 +58,10 @@ export async function advanceSimulationRunPhaseNoop(
     .executeTakeFirst()) as { status: string } | undefined;
 
   if (refreshed?.status !== "busy_running") {
-    return { status: refreshed?.status ?? row.status, currentPhase: row.current_phase };
+    return {
+      status: refreshed?.status ?? row.status,
+      currentPhase: row.current_phase,
+    };
   }
 
   const phase = normalizePhase(row.current_phase);
@@ -77,7 +80,7 @@ export async function advanceSimulationRunPhaseNoop(
       throw new Error(`No registry entry found for phase: ${phase}`);
     }
     const result = await entry.runner(context, { runId, phaseIdx });
-    
+
     // Check if runner updated status. If not, we set it back to running (or result status)
     const afterRow = (await db
       .selectFrom("simulation_runs")
@@ -93,10 +96,29 @@ export async function advanceSimulationRunPhaseNoop(
         .execute();
     }
 
-    if (result && result.status === "busy_running") {
-      result.status = "running";
+    let finalStatus = result?.status ?? "running";
+    if (finalStatus === "busy_running") {
+      finalStatus = "running";
     }
-    return result;
+
+    if (finalStatus === "paused_on_error" && input.continueOnError) {
+      // If phase runner reported error but we want to continue, force advance to next phase
+      const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
+      if (nextPhase) {
+        await db
+          .updateTable("simulation_runs")
+          .set({
+            status: "running",
+            current_phase: nextPhase,
+            updated_at: new Date().toISOString(),
+          } as any)
+          .where("run_id", "=", runId)
+          .execute();
+        return { status: "running", currentPhase: nextPhase };
+      }
+    }
+
+    return { ...result, status: finalStatus, currentPhase: result?.currentPhase ?? phase };
   } catch (error: any) {
     const msg = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
@@ -109,6 +131,28 @@ export async function advanceSimulationRunPhaseNoop(
     });
 
     const now = new Date().toISOString();
+
+    if (input.continueOnError) {
+      const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
+      if (nextPhase) {
+        await db
+          .updateTable("simulation_runs")
+          .set({
+            status: "running",
+            current_phase: nextPhase,
+            updated_at: now,
+            last_error_json: JSON.stringify({
+              message: `Crashed in ${phase}: ${msg}`,
+              phase,
+              recovered: true,
+            }),
+          } as any)
+          .where("run_id", "=", runId)
+          .execute();
+        return { status: "running", currentPhase: nextPhase };
+      }
+    }
+
     await db
       .updateTable("simulation_runs")
       .set({
@@ -130,15 +174,19 @@ export async function advanceSimulationRunPhaseNoop(
 
 export async function autoAdvanceSimulationRun(
   context: SimulationDbContext,
-  input: { runId: string; maxMs?: number }
+  input: { runId: string; maxMs?: number; continueOnError?: boolean }
 ): Promise<{ status: string; currentPhase: string; steps: number }> {
   const startedAt = Date.now();
   const maxMs = input.maxMs ?? 25000; // Default 25s for Cloudflare worker limits (30s max)
+  const continueOnError = input.continueOnError ?? true;
   let steps = 0;
   let lastResult: { status: string; currentPhase: string } | null = null;
 
   while (Date.now() - startedAt < maxMs) {
-    const res = await advanceSimulationRunPhaseNoop(context, { runId: input.runId });
+    const res = await advanceSimulationRunPhaseNoop(context, {
+      runId: input.runId,
+      continueOnError,
+    });
     if (!res) {
       break;
     }

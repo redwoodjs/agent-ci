@@ -22,7 +22,12 @@ export async function runMacroClassificationAdapter(
     runId: string;
     r2Keys: string[];
     now: string;
-    log: { error: (kind: string, payload: any) => Promise<void> };
+    log: {
+      error: (kind: string, payload: any) => Promise<void>;
+      warn: (kind: string, payload: any) => Promise<void>;
+      info: (kind: string, payload: any) => Promise<void>;
+      debug: (kind: string, payload: any) => Promise<void>;
+    };
     ports: { callLLM: (prompt: string) => Promise<string> };
   }
 ): Promise<{
@@ -108,13 +113,31 @@ export async function runMacroClassificationAdapter(
 
     docsProcessed++;
 
+    await input.log.info("item.start", {
+      phase: "macro_classification",
+      r2Key,
+    });
+
     const outStreams: MacroStream[] = [];
     const perStreamAudit: any[] = [];
     const perStreamClassifications: any[] = [];
 
     try {
       const res = await runMacroClassificationForDocument({
-        ports: input.ports,
+        ports: {
+          callLLM: async (prompt) => {
+            await input.log.info("process.classification_start", {
+              phase: "macro_classification",
+              r2Key,
+            });
+            const result = await input.ports.callLLM(prompt);
+            await input.log.info("process.classification_end", {
+              phase: "macro_classification",
+              r2Key,
+            });
+            return result;
+          },
+        },
         documentId: r2Key,
         streams,
         gating: {
@@ -146,6 +169,11 @@ export async function runMacroClassificationAdapter(
     }
 
     try {
+      await input.log.info("process.persisting", {
+        phase: "macro_classification",
+        r2Key,
+      });
+
       await db
         .insertInto("simulation_run_macro_classified_outputs")
         .values({

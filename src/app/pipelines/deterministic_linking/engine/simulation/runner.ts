@@ -207,6 +207,12 @@ export async function runPhaseDeterministicLinking(
 
       momentsProcessed++;
 
+      await log.info("item.start", {
+        phase: "deterministic_linking",
+        r2Key,
+        childMomentId,
+      });
+
       let matchedAnchorMomentId: string | null = null;
       const child = momentsMap.get(childMomentId) ?? null;
       const childText = child

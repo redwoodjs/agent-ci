@@ -76,6 +76,7 @@ export async function runMacroSynthesisAdapter(
       : baseNamespace;
 
   for (const r2Key of input.r2Keys) {
+    await input.log.info("item.start", { phase: "macro_synthesis", r2Key });
     try {
       const res = await runMacroSynthesisForR2Key({
         ports: {
@@ -94,6 +95,10 @@ export async function runMacroSynthesisAdapter(
             };
           },
           loadMicroBatches: async ({ runId, r2Key }) => {
+            await input.log.info("process.loading_batches", {
+              phase: "macro_synthesis",
+              r2Key,
+            });
             const batches = (await db
               .selectFrom("simulation_run_micro_batches")
               .select(["batch_index", "batch_hash", "prompt_context_hash"])
@@ -111,6 +116,10 @@ export async function runMacroSynthesisAdapter(
             }));
           },
           loadPreviousMicroStreamHash: async ({ runId, r2Key }) => {
+            await input.log.info("process.loading_prev_hash", {
+              phase: "macro_synthesis",
+              r2Key,
+            });
             const existing = (await db
               .selectFrom("simulation_run_macro_outputs")
               .select(["micro_stream_hash"])
@@ -127,6 +136,10 @@ export async function runMacroSynthesisAdapter(
             documentId,
             effectiveNamespace,
           }) => {
+            await input.log.info("process.loading_moments", {
+              phase: "macro_synthesis",
+              documentId,
+            });
             if (!effectiveNamespace) {
               return [];
             }
@@ -144,6 +157,10 @@ export async function runMacroSynthesisAdapter(
             }));
           },
           loadMicroBatchCacheItems: async ({ batchHash, promptContextHash }) => {
+            await input.log.info("process.loading_cache", {
+              phase: "macro_synthesis",
+              batchHash,
+            });
             const cached = (await db
               .selectFrom("simulation_micro_batch_cache")
               .select(["micro_items_json"])
@@ -160,6 +177,10 @@ export async function runMacroSynthesisAdapter(
             return items.filter((x) => typeof x === "string") as string[];
           },
           getMacroSynthesisInputs: async ({ r2Key }) => {
+            await input.log.info("process.getting_inputs", {
+              phase: "macro_synthesis",
+              r2Key,
+            });
             const { document, indexingContext } = await prepareDocumentForR2Key(
               r2Key,
               env,
@@ -208,6 +229,10 @@ export async function runMacroSynthesisAdapter(
             anchors,
             now,
           }) => {
+            await input.log.info("process.persisting", {
+              phase: "macro_synthesis",
+              r2Key,
+            });
             await db
               .insertInto("simulation_run_macro_outputs")
               .values({
@@ -238,13 +263,57 @@ export async function runMacroSynthesisAdapter(
               .execute();
           },
           computeMicroStreamHash: async ({ batches }) => {
+            await input.log.info("process.computing_hash", {
+              phase: "macro_synthesis",
+              count: batches.length,
+            });
             return await computeMicroStreamHash({
               batches,
               sha256Hex,
             });
           },
-          synthesizeMicroMomentsIntoStreams:
-            input.ports.synthesizeMicroMomentsIntoStreams,
+          synthesizeMicroMomentsIntoStreams: async (microMoments, options) => {
+            await input.log.info("process.synthesize_start", {
+              phase: "macro_synthesis",
+              r2Key,
+              count: microMoments.length,
+            });
+            const res = await input.ports.synthesizeMicroMomentsIntoStreams(
+              microMoments,
+              {
+                ...options,
+                logger: (msg: string, data: any) => {
+                  input.log
+                    .info("process.llm_retry", {
+                      phase: "macro_synthesis",
+                      msg,
+                      ...data,
+                    })
+                    .catch(() => {});
+                },
+                auditSink: (event: any) => {
+                  // Forward to the original sink if it exists (which captures for DB)
+                  options?.auditSink?.(event);
+                  // Also log strictly to console/logger for real-time visibility
+                  input.log
+                    .info("process.synthesis_event", {
+                      phase: "macro_synthesis",
+                      r2Key,
+                      kind: event.kind,
+                      message: event.message,
+                      responseLength: event.responseLength,
+                    })
+                    .catch(() => {});
+                },
+              }
+            );
+            await input.log.info("process.synthesize_end", {
+              phase: "macro_synthesis",
+              r2Key,
+              streamsCount: res.length,
+            });
+            return res;
+          },
           extractAnchorsFromStreams: ({ streams }) => {
             return extractAnchorsFromStreams({
               streams,

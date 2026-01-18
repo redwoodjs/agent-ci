@@ -422,6 +422,7 @@ export async function restartSimulationRunAction(input: {
 export async function autoAdvanceSimulationRunAction(input: {
   runId: string;
   maxMs?: number;
+  continueOnError?: boolean;
 }) {
   const runId = typeof input.runId === "string" ? input.runId.trim() : "";
   if (!runId) {
@@ -433,7 +434,7 @@ export async function autoAdvanceSimulationRunAction(input: {
     );
     const result = await autoAdvanceSimulationRun(
       { env: env as Cloudflare.Env, momentGraphNamespace: null },
-      { runId, maxMs: input.maxMs }
+      { runId, maxMs: input.maxMs, continueOnError: input.continueOnError }
     );
     return {
       success: true,

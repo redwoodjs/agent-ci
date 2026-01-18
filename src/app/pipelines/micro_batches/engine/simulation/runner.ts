@@ -62,7 +62,18 @@ export async function runPhaseMicroBatches(
     ports: {
       computeMicroItemsForChunkBatch: async ({ chunks, promptContext }) => {
         return (
-          (await computeMicroMomentsForChunkBatch(chunks, { promptContext })) ?? []
+          (await computeMicroMomentsForChunkBatch(chunks, {
+            promptContext,
+            logger: (msg, data) => {
+              log
+                .info("process.llm_retry", {
+                  phase: "micro_batches",
+                  msg,
+                  ...data,
+                })
+                .catch(() => {});
+            },
+          })) ?? []
         );
       },
       getEmbeddings: async (texts) => await getEmbeddings(texts),

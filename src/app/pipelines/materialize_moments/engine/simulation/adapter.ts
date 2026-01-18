@@ -88,6 +88,11 @@ export async function runMaterializeMomentsAdapter(
 
     docsProcessed++;
 
+    await input.log.info("item.start", {
+      phase: "materialize_moments",
+      r2Key,
+    });
+
     const streamsAny = (macroRow as any).streams_json;
     const streams = Array.isArray(streamsAny)
       ? (streamsAny as any[])

@@ -44,7 +44,18 @@ export async function runPhaseMacroClassification(
     log,
     ports: {
       callLLM: async (prompt) =>
-        await callLLM(prompt, "slow-reasoning", { temperature: 0 }),
+        await callLLM(prompt, "slow-reasoning", {
+          temperature: 0,
+          logger: (msg, data) => {
+            log
+              .info("process.llm_retry", {
+                phase: "macro_classification",
+                msg,
+                ...data,
+              })
+              .catch(() => {});
+          },
+        }),
     },
   });
 

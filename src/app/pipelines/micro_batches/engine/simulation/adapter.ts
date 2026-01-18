@@ -124,6 +124,11 @@ export async function runMicroBatchesAdapter(
 
     docsProcessed++;
 
+    await input.log.info("item.start", {
+      phase: "micro_batches",
+      r2Key,
+    });
+
     try {
       const prepared = await runIndexingDocumentPreparation({
         ports: {
@@ -142,6 +147,10 @@ export async function runMicroBatchesAdapter(
             indexingContext,
             plugins,
           }) => {
+            await input.log.info("process.splitting_chunks", {
+              phase: "micro_batches",
+              r2Key,
+            });
             try {
               return await splitDocumentIntoChunks(
                 document,
@@ -173,10 +182,20 @@ export async function runMicroBatchesAdapter(
 
       const result = await runMicroBatchesForDocument({
         ports: {
-          planMicroBatches,
+          planMicroBatches: async (args) => {
+            await input.log.info("process.planning_batches", {
+              phase: "micro_batches",
+              r2Key,
+            });
+            return planMicroBatches(args);
+          },
           sha256Hex,
           getMicroPromptContext,
           loadMicroBatchCache: async ({ batchHash, promptContextHash }) => {
+            await input.log.info("process.loading_cache", {
+              phase: "micro_batches",
+              batchHash,
+            });
             const cached = (await db
               .selectFrom("simulation_micro_batch_cache")
               .select(["micro_items_json"])
@@ -209,6 +228,10 @@ export async function runMicroBatchesAdapter(
             batchIndex,
             promptContext,
           }) => {
+            await input.log.info("process.storing_cache", {
+              phase: "micro_batches",
+              batchHash,
+            });
             await db
               .insertInto("simulation_micro_batch_cache")
               .values({
@@ -226,12 +249,32 @@ export async function runMicroBatchesAdapter(
               )
               .execute();
           },
-          computeMicroItemsForChunkBatch: input.ports.computeMicroItemsForChunkBatch,
+          computeMicroItemsForChunkBatch: async (args) => {
+            await input.log.info("process.computing_batch_start", {
+              phase: "micro_batches",
+              r2Key,
+              chunks: args.chunks.length,
+            });
+            const res = await input.ports.computeMicroItemsForChunkBatch(args);
+            await input.log.info("process.computing_batch_end", {
+              phase: "micro_batches",
+              r2Key,
+              itemsCount: res.length,
+            });
+            return res;
+          },
           fallbackMicroItemsForChunkBatch: ({ chunks }) =>
             computeMicroItemsWithoutLlm(chunks),
           getEmbeddings: input.ports.getEmbeddings,
           getEmbedding: input.ports.getEmbedding,
-          upsertMicroMomentsBatch: input.ports.upsertMicroMomentsBatch,
+          upsertMicroMomentsBatch: async (args) => {
+            await input.log.info("process.upserting_moments", {
+              phase: "micro_batches",
+              r2Key,
+              count: args.microMoments.length,
+            });
+            return input.ports.upsertMicroMomentsBatch(args);
+          },
         },
         document: prepared.document,
         indexingContext: prepared.indexingContext,

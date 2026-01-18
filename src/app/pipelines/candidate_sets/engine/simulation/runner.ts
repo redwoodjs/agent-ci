@@ -142,6 +142,8 @@ export async function runPhaseCandidateSets(
 
     itemsProcessed++;
 
+    await log.info("item.start", { phase: "candidate_sets", childMomentId });
+
     const queryText =
       (typeof childRow.summary === "string" && childRow.summary.trim()) ||
       (typeof childRow.title === "string" && childRow.title.trim()) ||

@@ -128,9 +128,13 @@ export async function runAllSimulationRunAction(input: {
     );
 
   const isGithubIssue = (k: string) =>
-    k.startsWith("github/") && k.includes("/issues/");
+    k.startsWith("github/") &&
+    k.includes("/issues/") &&
+    k.endsWith("/latest.json");
   const isGithubPr = (k: string) =>
-    k.startsWith("github/") && k.includes("/pull-requests/");
+    k.startsWith("github/") &&
+    k.includes("/pull-requests/") &&
+    k.endsWith("/latest.json");
   const isDiscord = (k: string) => k.startsWith("discord/");
   const isCursor = (k: string) => k.startsWith("cursor/conversations/");
 
@@ -231,9 +235,13 @@ export async function runSampleSimulationRunAction(input: {
     );
 
   const isGithubIssue = (k: string) =>
-    k.startsWith("github/") && k.includes("/issues/");
+    k.startsWith("github/") &&
+    k.includes("/issues/") &&
+    k.endsWith("/latest.json");
   const isGithubPr = (k: string) =>
-    k.startsWith("github/") && k.includes("/pull-requests/");
+    k.startsWith("github/") &&
+    k.includes("/pull-requests/") &&
+    k.endsWith("/latest.json");
   const isDiscord = (k: string) => k.startsWith("discord/");
   const isCursor = (k: string) => k.startsWith("cursor/conversations/");
 

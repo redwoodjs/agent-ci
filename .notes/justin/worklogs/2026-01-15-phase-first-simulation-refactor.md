@@ -375,3 +375,158 @@ This is mostly a path + naming change. The code is still doing the same work, bu
 
 I deleted the old `src/app/engine/adapters/simulation/*` files after updating imports, and kept `pnpm -s build` passing.
 
+## Where we ended up (handoff notes)
+
+This is a catch-up writeup intended to let someone else pick up the work without having to reconstruct the history from git archaeology.
+
+### What we were trying to fix
+
+The refactor started from the brief: simulation should match the older hardened indexing semantics (Jan 2026 reference worktree), while moving to a phase-first, registry-driven structure and keeping strict boundaries:
+
+- core orchestrators own control flow and call injected ports
+- adapters should be I/O only (read inputs, call core, persist outputs)
+- runners should be thin (phase start/end, status transitions, call adapter)
+- no shims in the long-lived state
+- avoid baking source-specific logic (discord/github/cursor) into pipelines - that belongs in plugins
+
+The behavioral bugs motivating the refactor were around macro streams and linking:
+
+- macro titles/summaries drifting from the hardened prompts
+- a broken invariant where 0 micro moments could still yield macro moments (fabrication/placeholder behavior)
+- non-canonical micro paths causing macro microPaths to not resolve
+- boundary drift (LLM/vector calls appearing in runners/adapters instead of core)
+
+### Major structure decisions we made
+
+- We renamed the top-level phase folder to `pipelines` (instead of `phases`) to make it feel like a first-class app subsystem.
+- We discussed switching phase IDs and directory names to kebab-case, but deferred it because phase IDs are persisted (simulation_runs.current_phase, etc). We leaned toward keeping persisted IDs stable and only changing directory names later, or doing a compatibility map in normalizePhase if/when we change them.
+- We decided the plugin system (discord/github/cursor/default + scope router) should remain the place for source-specific behavior, and pipelines should stay source-agnostic.
+- We decided that the label 'Phase A' is obsolete and should be removed, because it no longer maps cleanly onto a named pipeline phase.
+
+### What Phase A turned out to be
+
+We found that 'Phase A' was not the `ingest_diff` phase:
+
+- `pipelines/ingest_diff` is etag diffing (R2 head etag vs previous etag).
+- The old 'Phase A orchestrator' was doing document preparation and chunk splitting/diffing for downstream phases, plus it was computing the moment graph namespace via plugins (including the redwood scope router).
+
+So we removed the Phase A naming and moved it to a semantic location.
+
+### Concrete code changes we made (high signal)
+
+#### 1) Removed Phase A naming, moved to indexing helpers
+
+- Deleted `src/app/engine/core/indexing/phaseAOrchestrator.ts`
+- Added `src/app/engine/indexing/documentPreparation.ts`
+  - `runIndexingDocumentPreparation` is the replacement for `runPhaseADocumentPreparation`
+- Updated call sites in:
+  - `src/app/engine/engine.ts` (live indexing flow)
+  - `src/app/pipelines/micro_batches/engine/simulation/adapter.ts` (simulation replay-style processing)
+- Updated `pipelines/ingest_diff` runner’s error message to stop referencing 'Phase A ingest+diff'.
+
+#### 2) Made document preparation stop owning micro-batch chunking
+
+We had a design question: document preparation was also doing 'chunkChunksForMicroComputation'. That felt like a micro-batches concern.
+
+We chose to move it out:
+
+- `runIndexingDocumentPreparation` now returns:
+  - document
+  - indexingContext
+  - effectiveNamespace
+  - chunks + newChunks
+  - oldChunkHashes
+- Chunk batching is computed at the call sites that actually need it:
+  - live `engine.ts` computes chunk batches just before micro computation
+  - simulation `micro_batches` adapter computes chunk batches just before calling the micro_batches core orchestrator
+
+This kept behavior the same (same batching function + env-derived limits), while making the boundaries less confusing.
+
+#### 3) Verified plugin routing and namespace scoping was actually wired
+
+We specifically checked that:
+
+- engine context includes `redwoodScopeRouterPlugin` and it is used during indexing namespace selection
+- source-specific behavior (chunk splitting, micro prompt context, document prep) is routed through plugin hooks and the plugin pipeline
+- pipelines do not have explicit branching on document.source (at least from the quick grep pass)
+
+This was important because baking discord/github logic into pipelines would have been a major regression.
+
+#### 4) Renamed 'adapters' folders that were really runtime/wiring code
+
+We noticed a naming mismatch:
+
+- `src/app/engine/adapters/live/linking.ts` was a composition entrypoint that wires multiple ports (moment reads, vector query, LLM call) and calls a core linking decision.
+- `src/app/engine/adapters/simulation/*` is mostly simulation runtime persistence and orchestration helpers (db, migrations, run events, progress, artifact queries).
+
+Those are not phase adapters and not single-port implementations, so the folder name 'adapters' was misleading.
+
+We moved them:
+
+- `src/app/engine/live/linking.ts` now houses the live linking wiring entrypoint
+- `src/app/engine/simulation/*` now houses the simulation runtime modules
+- Deleted the old `src/app/engine/adapters/live/*` and `src/app/engine/adapters/simulation/*`
+
+We updated all imports across:
+
+- `src/app/engine/runners/simulation/runner.ts`
+- pipeline simulation runners + adapters that used simulation runtime types/db/logger
+- `src/app/engine/databases/simulationState/*` wrapper exports
+- `src/app/pages/audit/subpages/simulation-runs-page.tsx` (view registry + progress summary)
+
+`pnpm -s build` passes after this cutover.
+
+Hurdle: while doing the move I accidentally ended up with duplicated content in `engine/simulation/runArtifacts.ts` (a full copy pasted twice), which caused directive scan/build failures with 'multiple exports with the same name'. We fixed it by rewriting `runArtifacts.ts` back down to a single set of exports and re-running build.
+
+#### 5) Types status
+
+We have been using `pnpm -s build` as the main gate because it catches a lot of wiring errors fast.
+
+`pnpm -s types` has a bunch of unrelated failures (vscode extension, wsproxy, various audit pages). The approach we took was:
+
+- fix type errors that were introduced by the refactor slice
+- leave the rest for later unless they block the refactor
+
+Examples we fixed in-slice:
+
+- `engine.ts` catch block was using `document.id` and `momentGraphContext` when they were not in scope in the catch. We changed it to store an audit document id/context once available, and fall back to console.error otherwise.
+- `utils/provenance.ts` was importing MicroMoment from the wrong place; now it imports `MicroMoment` from `databases/momentGraph`.
+- `engine/runners/simulation/runner.ts` was missing a `SimulationPhase` type import.
+
+### Where things are now
+
+Build:
+
+- `pnpm -s build` passes.
+
+Structure:
+
+- pipelines are under `src/app/pipelines/*`
+- live linking wiring is under `src/app/engine/live/*`
+- simulation runtime is under `src/app/engine/simulation/*`
+- indexing preparation helpers are under `src/app/engine/indexing/*`
+
+Naming:
+
+- 'Phase A' label removed from the main codepaths (replaced by document preparation).
+
+### What still looks unfinished / what to do next
+
+1) Finish the registry-driven wiring cutover.
+   - There is still scattered wiring for simulation phases and artifacts in a few places.
+   - There is a `simulationPhases` list, but phase runner mapping and UI view wiring can still drift.
+   - Goal is a single canonical phase registry driving runner dispatch and artifact routes, with UI deriving ordering.
+
+2) Boundary enforcement for candidate_sets and timeline_fit.
+   - These were previously noted as still having vector/LLM calls in runners. Some of that may still exist and needs to be pushed behind core ports so runners/adapters stay boring.
+
+3) Decide on kebab-case phase IDs.
+   - If we do it, it needs a compatibility strategy for persisted phases (`normalizePhase` already has a legacy map for older phase labels).
+   - If we only want kebab-case directory names but keep stable IDs, then we need an explicit mapping layer between IDs and folder paths.
+
+4) Cleanup/rmdir.
+   - There have been multiple directory moves and deletions. It’s worth doing a pass to remove now-empty directories (and confirm no old shims remain).
+
+5) Tests.
+   - Earlier we tried `pnpm -s test:simulation` and hit wrangler/dev session networking issues. We deferred tests and used build/types selectively. Simulation tests should be reattempted once the local dev forcing is stable.
+

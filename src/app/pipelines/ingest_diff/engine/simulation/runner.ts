@@ -139,6 +139,12 @@ export async function runPhaseIngestDiff(
         unchanged++;
       }
 
+      await log.info("item.success", {
+        phase: "ingest_diff",
+        r2Key,
+        changed: result.changed,
+      });
+
       succeeded++;
     } catch (e) {
       failed++;

@@ -98,12 +98,7 @@ export async function computeRootMacroMomentParentSelection(input: {
     };
   });
 
-  const useLlmVetoRaw = (input.env as any).MOMENT_LINKING_TIMELINE_FIT_USE_LLM;
-  const useLlmVeto =
-    useLlmVetoRaw === true ||
-    (typeof useLlmVetoRaw === "string" &&
-      (useLlmVetoRaw.trim() === "1" ||
-        useLlmVetoRaw.trim().toLowerCase() === "true"));
+  const useLlmVeto = true;
 
   const timelineFit = await computeTimelineFitDecision({
     ports: input.ports.timelineFit,

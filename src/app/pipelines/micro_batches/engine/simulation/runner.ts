@@ -53,8 +53,7 @@ export async function runPhaseMicroBatches(
   });
 
   const env = context.env;
-  const useLlm =
-    String((env as any).SIMULATION_MICRO_BATCH_USE_LLM ?? "") === "1";
+  const useLlm = true;
 
   const result = await runMicroBatchesAdapter(context, {
     runId: input.runId,
@@ -62,9 +61,6 @@ export async function runPhaseMicroBatches(
     useLlm,
     ports: {
       computeMicroItemsForChunkBatch: async ({ chunks, promptContext }) => {
-        if (!useLlm) {
-          return [];
-        }
         return (
           (await computeMicroMomentsForChunkBatch(chunks, { promptContext })) ?? []
         );

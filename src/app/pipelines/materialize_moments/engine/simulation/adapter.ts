@@ -24,7 +24,12 @@ export async function runMaterializeMomentsAdapter(
     effectiveNamespace: string | null;
     momentDb: any;
     now: string;
-    log: { error: (kind: string, payload: any) => Promise<void> };
+    log: {
+      error: (kind: string, payload: any) => Promise<void>;
+      warn: (kind: string, payload: any) => Promise<void>;
+      info: (kind: string, payload: any) => Promise<void>;
+      debug: (kind: string, payload: any) => Promise<void>;
+    };
   }
 ): Promise<{
   docsProcessed: number;
@@ -103,7 +108,7 @@ export async function runMaterializeMomentsAdapter(
         plugins
       );
       const parsedDocumentIdentity = buildParsedDocumentIdentity(document);
-      const normalizedStreams = streams.map((s) => {
+      const normalizedStreams = streams.map((s: any) => {
         const macroMoments = Array.isArray((s as any)?.macroMoments)
           ? ((s as any).macroMoments as any[])
           : [];
@@ -288,6 +293,15 @@ export async function runMaterializeMomentsAdapter(
 
         momentsUpserted += did.momentsUpserted;
       }
+
+      await input.log.info("item.success", {
+        phase: "materialize_moments",
+        r2Key,
+        momentsUpserted: streams.reduce(
+          (acc: number, s: any) => acc + (Array.isArray((s as any)?.macroMoments) ? (s as any).macroMoments.length : 0),
+          0
+        ),
+      });
     } catch (e) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);

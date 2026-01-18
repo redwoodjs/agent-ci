@@ -184,8 +184,7 @@ export async function runPhaseTimelineFit(
       summary: string | null;
     }>;
 
-    const useLlmVeto =
-      String((context.env as any).SIMULATION_TIMELINE_FIT_USE_LLM ?? "") === "1";
+    const useLlmVeto = true;
     const childText = `${child.title ?? ""}\n${child.summary ?? ""}`.trim();
     const proposal = await computeTimelineFitDecision({
       ports: {

@@ -22,7 +22,12 @@ export async function runMacroSynthesisAdapter(
     runId: string;
     r2Keys: string[];
     now: string;
-    log: { error: (kind: string, payload: any) => Promise<void> };
+    log: {
+      error: (kind: string, payload: any) => Promise<void>;
+      warn: (kind: string, payload: any) => Promise<void>;
+      info: (kind: string, payload: any) => Promise<void>;
+      debug: (kind: string, payload: any) => Promise<void>;
+    };
     ports: {
       synthesizeMicroMomentsIntoStreams: (
         microMoments: MicroMoment[],
@@ -272,6 +277,13 @@ export async function runMacroSynthesisAdapter(
       docsProcessed++;
       streamsProduced += res.streamsProduced;
       macroMomentsProduced += res.macroMomentsProduced;
+
+      await input.log.info("item.success", {
+        phase: "macro_synthesis",
+        r2Key,
+        streamsProduced: res.streamsProduced,
+        macroMomentsProduced: res.macroMomentsProduced,
+      });
     } catch (e) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);

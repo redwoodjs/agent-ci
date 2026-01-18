@@ -8,11 +8,23 @@ export function createSimulationRunLogger(
   error: (kind: string, payload: Record<string, any>) => Promise<void>;
   warn: (kind: string, payload: Record<string, any>) => Promise<void>;
   info: (kind: string, payload: Record<string, any>) => Promise<void>;
+  debug: (kind: string, payload: Record<string, any>) => Promise<void>;
 } {
   const runId = typeof input.runId === "string" ? input.runId.trim() : "";
-  const persistInfo =
-    input.persistInfo === true ||
-    String((context.env as any).SIMULATION_AUDIT_PERSIST_INFO ?? "") === "1";
+  const verbosityRaw = String(
+    (context.env as any).MACHINEN_SIMULATION_EVENT_VERBOSITY ?? ""
+  )
+    .trim()
+    .toLowerCase();
+  
+  const isVerbose =
+    verbosityRaw === "1" ||
+    verbosityRaw === "true" ||
+    verbosityRaw === "verbose" ||
+    verbosityRaw === "item";
+
+  // Default to persisting info unless explicitly disabled
+  const persistInfo = input.persistInfo !== false;
 
   return {
     async error(kind, payload) {
@@ -38,6 +50,16 @@ export function createSimulationRunLogger(
         await addSimulationRunEvent(context, {
           runId,
           level: "info",
+          kind,
+          payload,
+        });
+      }
+    },
+    async debug(kind, payload) {
+      if (isVerbose) {
+        await addSimulationRunEvent(context, {
+          runId,
+          level: "debug",
           kind,
           payload,
         });

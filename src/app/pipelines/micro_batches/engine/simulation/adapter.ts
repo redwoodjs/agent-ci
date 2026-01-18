@@ -35,7 +35,12 @@ export async function runMicroBatchesAdapter(
       | "upsertMicroMomentsBatch"
     >;
     now: string;
-    log: { error: (kind: string, payload: any) => Promise<void> };
+    log: {
+      error: (kind: string, payload: any) => Promise<void>;
+      warn: (kind: string, payload: any) => Promise<void>;
+      info: (kind: string, payload: any) => Promise<void>;
+      debug: (kind: string, payload: any) => Promise<void>;
+    };
     momentGraphNamespace: string | null;
     momentGraphNamespacePrefix: string | null;
   }
@@ -248,6 +253,13 @@ export async function runMicroBatchesAdapter(
           batchesComputed++;
         }
 
+        await input.log.info("batch.success", {
+          phase: "micro_batches",
+          r2Key,
+          batchIndex: b.batchIndex,
+          cached: b.cached,
+        });
+
         await db
           .insertInto("simulation_run_micro_batches")
           .values({
@@ -256,11 +268,7 @@ export async function runMicroBatchesAdapter(
             batch_index: b.batchIndex as any,
             batch_hash: b.batchHash,
             prompt_context_hash: b.promptContextHash,
-            status: b.cached
-              ? "cached"
-              : input.useLlm
-              ? "computed_llm"
-              : "computed_fallback",
+            status: b.cached ? "cached" : "computed_llm",
             error_json: null,
             created_at: input.now,
             updated_at: input.now,
@@ -269,17 +277,19 @@ export async function runMicroBatchesAdapter(
             oc.columns(["run_id", "r2_key", "batch_index"]).doUpdateSet({
               batch_hash: b.batchHash,
               prompt_context_hash: b.promptContextHash,
-              status: b.cached
-                ? "cached"
-                : input.useLlm
-                ? "computed_llm"
-                : "computed_fallback",
+              status: b.cached ? "cached" : "computed_llm",
               error_json: null,
               updated_at: input.now,
             } as any)
           )
           .execute();
       }
+
+      await input.log.info("item.success", {
+        phase: "micro_batches",
+        r2Key,
+        batchesCount: computed.length,
+      });
     } catch (e) {
       failed++;
       const msg = e instanceof Error ? e.message : String(e);

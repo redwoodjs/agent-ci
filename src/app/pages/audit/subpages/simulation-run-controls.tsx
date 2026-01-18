@@ -49,6 +49,37 @@ function StartControls() {
   const [autoRun, setAutoRun] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    const saved = localStorage.getItem("machinen_simulation_start_prefs");
+    if (saved) {
+      try {
+        const prefs = JSON.parse(saved);
+        if (typeof prefs.namespace === "string") setNamespace(prefs.namespace);
+        if (typeof prefs.prefix === "string") setPrefix(prefs.prefix);
+        if (typeof prefs.r2Prefix === "string") setR2Prefix(prefs.r2Prefix);
+        if (typeof prefs.githubRepo === "string") setGithubRepo(prefs.githubRepo);
+        if (typeof prefs.maxPages === "string") setMaxPages(prefs.maxPages);
+        if (typeof prefs.sampleSize === "string") setSampleSize(prefs.sampleSize);
+        if (typeof prefs.autoRun === "boolean") setAutoRun(prefs.autoRun);
+      } catch (e) {
+        console.error("Failed to load simulation start prefs", e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const prefs = {
+      namespace,
+      prefix,
+      r2Prefix,
+      githubRepo,
+      maxPages,
+      sampleSize,
+      autoRun,
+    };
+    localStorage.setItem("machinen_simulation_start_prefs", JSON.stringify(prefs));
+  }, [namespace, prefix, r2Prefix, githubRepo, maxPages, sampleSize, autoRun]);
+
   const start = async () => {
     setLoading(true);
     setError(null);

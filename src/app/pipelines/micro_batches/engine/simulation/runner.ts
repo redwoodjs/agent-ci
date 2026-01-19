@@ -52,56 +52,12 @@ export async function runPhaseMicroBatches(
     payload: { phase: "micro_batches", r2KeysCount: r2Keys.length },
   });
 
-  // Cursor-based execution: Check which keys are already processed.
-  const completedRows = await db
-    .selectFrom("simulation_run_micro_batches")
-    .select("r2_key")
-    .distinct()
-    .where("run_id", "=", input.runId)
-    .execute();
-  const completedKeys = new Set(completedRows.map((r) => r.r2_key));
-
-  // Find the first key that hasn't been processed yet.
-  const nextKey = r2Keys.find((k) => !completedKeys.has(k));
-
-  if (!nextKey) {
-    // All keys are processed. Mark phase as completed.
-    const now = new Date().toISOString();
-    const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
-
-    if (!nextPhase) {
-      await db
-        .updateTable("simulation_runs")
-        .set({
-          status: "completed",
-          updated_at: now,
-          last_progress_at: now,
-        } as any)
-        .where("run_id", "=", input.runId)
-        .execute();
-      return { status: "completed", currentPhase: "micro_batches" };
-    }
-
-    await db
-      .updateTable("simulation_runs")
-      .set({
-        current_phase: nextPhase,
-        updated_at: now,
-        last_progress_at: now,
-      } as any)
-      .where("run_id", "=", input.runId)
-      .execute();
-
-    return { status: "running", currentPhase: nextPhase };
-  }
-
-  // Not done yet. Process JUST the next key.
   const env = context.env;
   const useLlm = true;
 
   const result = await runMicroBatchesAdapter(context, {
     runId: input.runId,
-    r2Keys: [nextKey],
+    r2Keys,
     useLlm,
     ports: {
       computeMicroItemsForChunkBatch: async ({ chunks, promptContext }) => {
@@ -142,11 +98,15 @@ export async function runPhaseMicroBatches(
   await addSimulationRunEvent(context, {
     runId: input.runId,
     level: result.failed > 0 ? "error" : "info",
-    kind: "phase.tick",
+    kind: "phase.end",
     payload: {
       phase: "micro_batches",
-      r2Key: nextKey,
+      useLlm,
+      r2KeysCount: r2Keys.length,
       docsProcessed: result.docsProcessed,
+      docsSkippedUnchanged: result.docsSkippedUnchanged,
+      batchesComputed: result.batchesComputed,
+      batchesCached: result.batchesCached,
       failed: result.failed,
     },
   });
@@ -169,7 +129,30 @@ export async function runPhaseMicroBatches(
     return { status: "paused_on_error", currentPhase: "micro_batches" };
   }
 
-  // We processed one key successfully. Return "running" to trigger the loop again immediately.
-  return { status: "running", currentPhase: "micro_batches" };
+  const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
+  if (!nextPhase) {
+    await db
+      .updateTable("simulation_runs")
+      .set({
+        status: "completed",
+        updated_at: now,
+        last_progress_at: now,
+      } as any)
+      .where("run_id", "=", input.runId)
+      .execute();
+    return { status: "completed", currentPhase: "micro_batches" };
+  }
+
+  await db
+    .updateTable("simulation_runs")
+    .set({
+      current_phase: nextPhase,
+      updated_at: now,
+      last_progress_at: now,
+    } as any)
+    .where("run_id", "=", input.runId)
+    .execute();
+
+  return { status: "running", currentPhase: nextPhase };
 }
 

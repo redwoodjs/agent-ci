@@ -12,7 +12,14 @@ import {
 } from "../../../../engine/lib/phaseCores/macroSynthesisCore";
 import { sha256Hex } from "../../../../engine/utils/crypto";
 import { extractAnchorTokens } from "../../../../engine/utils/anchorTokens";
-import { applyMomentGraphNamespacePrefixValue } from "../../../../engine/momentGraphNamespace";
+import {
+  applyMomentGraphNamespacePrefixValue,
+  getMomentGraphNamespacePrefixFromEnv,
+} from "../../../../engine/momentGraphNamespace";
+import {
+  computeMomentGraphNamespaceForIndexing,
+  getMicroPromptContext,
+} from "../../../../engine/indexing/pluginPipeline";
 import { getMicroMomentsForDocument } from "../../../../engine/databases/momentGraph";
 import { runMacroSynthesisForR2Key } from "../core/orchestrator";
 
@@ -75,6 +82,23 @@ export async function runMacroSynthesisAdapter(
   for (const r2Key of input.r2Keys) {
     await input.log.info("item.start", { phase: "macro_synthesis", r2Key });
     try {
+      const { document, indexingContext } = await prepareDocumentForR2Key(
+        r2Key,
+        env,
+        plugins
+      );
+
+      const baseDocNamespace = await computeMomentGraphNamespaceForIndexing(
+        document,
+        indexingContext,
+        plugins
+      );
+
+      const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+        baseDocNamespace,
+        prefix
+      );
+
       const res = await runMacroSynthesisForR2Key({
         ports: {
           loadDocState: async ({ runId, r2Key }) => {

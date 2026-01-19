@@ -116,3 +116,6 @@ The user reported that moments in the Knowledge Graph appeared as "Untitled" wit
 - **Root Cause**: The `macro_synthesis` adapter was still using the old namespace logic (`baseNamespace && prefix ? ...`). Since `baseNamespace` is now `null` (by design), the adapter defaulted to `null` and **failed to read the micro-moments** for synthesis. This resulted in empty streams and thus empty materialized moments.
 - **Fix**: Updated `macro_synthesis/engine/simulation/adapter.ts` to correctly apply the prefix even when `baseNamespace` is `null`.
 - **Outcome**: The adapter can now successfully read input data from the prefixed namespace. A re-run is required to regenerate the moments with proper titles and summaries.
+
+### Architecture Note: Namespace Resolution Fragility
+The user observed that this per-phase namespace resolution seems fragile. Each phase (micro-batches, macro-synthesis, materialize-moments) must independently and correctly resolve the namespace (via the router) to ensure they are reading/writing to the same "lane". If one phase misses this (as `macro_synthesis` did), the pipeline breaks. This is a consequence of the decoupled, stateless nature of the phases where namespace context isn't explicitly passed along with the data objects in the simulation SQL DB, but rather re-derived from the source document context or the run configuration.

@@ -15,6 +15,15 @@ import {
   buildParsedDocumentIdentity,
   mergeMomentSourceMetadata,
 } from "../../../../engine/utils/provenance";
+import {
+  computeMomentGraphNamespaceForIndexing,
+  getMicroPromptContext,
+} from "../../../../engine/indexing/pluginPipeline";
+import {
+  applyMomentGraphNamespacePrefixValue,
+  getMomentGraphNamespacePrefixFromEnv,
+} from "../../../../engine/momentGraphNamespace";
+import { getMomentGraphDb } from "../../../../engine/simulation/db";
 
 export async function runMaterializeMomentsAdapter(
   context: SimulationDbContext,
@@ -60,6 +69,7 @@ export async function runMaterializeMomentsAdapter(
     const hadError = Boolean((docState as any)?.error_json);
     const changedFlag = Number((docState as any)?.changed ?? 1) !== 0;
 
+
     if (hadError) {
       failed++;
       failures.push({ r2Key, error: "ingest_diff error" });
@@ -70,6 +80,14 @@ export async function runMaterializeMomentsAdapter(
       docsSkippedUnchanged++;
       continue;
     }
+
+    // Get namespace configurations
+    const runRow = (await db
+      .selectFrom("simulation_runs")
+      .select(["moment_graph_namespace_prefix"])
+      .where("run_id", "=", input.runId)
+      .executeTakeFirst()) as any;
+    const prefix = runRow?.moment_graph_namespace_prefix ?? null;
 
     const macroRow = (await db
       .selectFrom("simulation_run_macro_classified_outputs")
@@ -107,11 +125,24 @@ export async function runMaterializeMomentsAdapter(
       : [];
 
     try {
-      const { document } = await prepareDocumentForR2Key(
+      const { document, indexingContext } = await prepareDocumentForR2Key(
         r2Key,
         context.env,
         plugins
       );
+
+      const baseDocNamespace = await computeMomentGraphNamespaceForIndexing(
+        document,
+        indexingContext,
+        plugins
+      );
+
+      const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+        baseDocNamespace,
+        prefix
+      );
+
+      const momentDb = getMomentGraphDb(context.env, effectiveNamespace);
       const parsedDocumentIdentity = buildParsedDocumentIdentity(document);
       const normalizedStreams = streams.map((s: any) => {
         const macroMoments = Array.isArray((s as any)?.macroMoments)
@@ -173,7 +204,7 @@ export async function runMaterializeMomentsAdapter(
                   ? JSON.stringify(moment.sourceMetadata)
                   : null;
 
-              await input.momentDb
+              await momentDb
                 .insertInto("moments")
                 .values({
                   id: moment.id,
@@ -278,7 +309,7 @@ export async function runMaterializeMomentsAdapter(
                 .execute();
             },
           },
-          effectiveNamespace: input.effectiveNamespace ?? null,
+          effectiveNamespace: effectiveNamespace ?? null,
           runIdOrScope: input.runId,
           r2Key,
           documentId: document.id,

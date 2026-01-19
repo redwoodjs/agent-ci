@@ -316,7 +316,7 @@ async function SimulationRunsContent({
     String(run.currentPhase)
   );
 
-  const baseNamespace = run.momentGraphNamespace ?? `sim-${runId}`;
+  const baseNamespace = run.momentGraphNamespace;
   const namespacePrefix = run.momentGraphNamespacePrefix ?? null;
   const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
     baseNamespace,
@@ -444,7 +444,7 @@ async function SimulationRunsContent({
               className="text-blue-600 hover:underline"
               href={`/audit/knowledge-graph?${(() => {
                 const params = new URLSearchParams();
-                const baseNs = run.momentGraphNamespace ?? `sim-${runId}`;
+                const baseNs = run.momentGraphNamespace;
                 const prefix = run.momentGraphNamespacePrefix ?? null;
                 const effectiveNs = applyMomentGraphNamespacePrefixValue(
                   baseNs,

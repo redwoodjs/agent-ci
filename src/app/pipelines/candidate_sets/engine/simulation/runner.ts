@@ -30,7 +30,7 @@ export async function runPhaseCandidateSets(
 
   const baseNamespace = runRow.moment_graph_namespace;
   const prefix = runRow.moment_graph_namespace_prefix;
-  const effectiveNamespace = baseNamespace && prefix ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) : baseNamespace;
+  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
 
   // 1. Get relevant documents (those changed in ingest_diff)
   const changedDocs = await db.selectFrom("simulation_run_documents").select("r2_key").where("run_id", "=", input.runId).where("changed", "=", 1).where("error_json", "is", null).execute();

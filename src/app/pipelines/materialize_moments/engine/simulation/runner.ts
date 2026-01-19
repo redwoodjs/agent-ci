@@ -41,10 +41,7 @@ export async function runPhaseMaterializeMoments(
 
   const baseNamespace = runRow.moment_graph_namespace;
   const prefix = runRow.moment_graph_namespace_prefix;
-  const effectiveNamespace =
-    baseNamespace && prefix
-      ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix)
-      : baseNamespace;
+  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
 
   // 1. Get relevant documents (those that were changed in ingest_diff)
   const changedDocs = await db

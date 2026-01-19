@@ -31,7 +31,7 @@ export async function runPhaseDeterministicLinking(
 
   const baseNamespace = runRow.moment_graph_namespace;
   const prefix = runRow.moment_graph_namespace_prefix;
-  const effectiveNamespace = baseNamespace && prefix ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) : baseNamespace;
+  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
   
   const config = runRow.config_json ?? {};
   const r2KeysRaw = config?.r2Keys;

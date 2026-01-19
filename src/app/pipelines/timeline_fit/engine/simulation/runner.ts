@@ -31,7 +31,7 @@ export async function runPhaseTimelineFit(
 
   const baseNamespace = runRow.moment_graph_namespace;
   const prefix = runRow.moment_graph_namespace_prefix;
-  const effectiveNamespace = baseNamespace && prefix ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) : baseNamespace;
+  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
 
   const changedDocs = await db.selectFrom("simulation_run_documents").select("r2_key").where("run_id", "=", input.runId).where("changed", "=", 1).where("error_json", "is", null).execute();
   const relevantR2Keys = changedDocs.map(d => d.r2_key);

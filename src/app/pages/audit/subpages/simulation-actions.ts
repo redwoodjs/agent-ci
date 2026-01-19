@@ -66,8 +66,7 @@ export async function startSimulationRunAction(input: {
 }) {
   try {
     const runId = crypto.randomUUID();
-    const effectiveMomentGraphNamespace =
-      input.momentGraphNamespace ?? `sim-${runId}`;
+    const effectiveMomentGraphNamespace = input.momentGraphNamespace ?? null;
     const cleanedR2Keys = Array.isArray(input.r2Keys)
       ? input.r2Keys.filter((k) => typeof k === "string" && k.trim().length > 0)
       : [];
@@ -155,7 +154,7 @@ export async function runAllSimulationRunAction(input: {
 
   const runId = crypto.randomUUID();
   const effectiveMomentGraphNamespace =
-    input.momentGraphNamespace ?? `sim-${runId}`;
+    input.momentGraphNamespace ?? null;
 
   await createSimulationRun(
     { env: envCloudflare, momentGraphNamespace: null },
@@ -316,7 +315,7 @@ export async function runSampleSimulationRunAction(input: {
 
   const runId = crypto.randomUUID();
   const effectiveMomentGraphNamespace =
-    input.momentGraphNamespace ?? `sim-${runId}`;
+    input.momentGraphNamespace ?? null;
 
   await createSimulationRun(
     { env: envCloudflare, momentGraphNamespace: null },

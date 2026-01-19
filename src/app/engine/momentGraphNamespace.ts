@@ -62,6 +62,10 @@ export function applyMomentGraphNamespacePrefixValue(
   if (!withoutDelimiter) {
     return namespace;
   }
+
+  if (!namespace) {
+    return withoutDelimiter;
+  }
   const prefixWithDelimiter = `${withoutDelimiter}:`;
   if (namespace.startsWith(prefixWithDelimiter)) {
     return namespace;

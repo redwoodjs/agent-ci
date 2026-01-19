@@ -32,8 +32,8 @@ export async function runPhaseMicroBatches(
   const r2KeysRaw = config?.r2Keys;
   const r2Keys = Array.isArray(r2KeysRaw) && r2KeysRaw.every((k: any) => typeof k === "string") ? (r2KeysRaw as string[]) : [];
   
-  const momentGraphNamespace = runRow.moment_graph_namespace ?? null;
-  const momentGraphNamespacePrefix = runRow.moment_graph_namespace_prefix ?? null;
+  const momentGraphNamespace = runRow.moment_graph_namespace;
+  const momentGraphNamespacePrefix = runRow.moment_graph_namespace_prefix;
 
   if (!input.r2Key) {
     // Polling / Startup mode

@@ -3,6 +3,7 @@ import { getSimulationDb } from "../../../../engine/simulation/db";
 import type { SimulationMicroBatchCacheRow } from "../../../../engine/simulation/types";
 import type { Document, IndexingHookContext } from "../../../../engine/types";
 import {
+  computeMomentGraphNamespaceForIndexing,
   getMicroPromptContext,
   splitDocumentIntoChunks,
 } from "../../../../engine/indexing/pluginPipeline";
@@ -135,7 +136,16 @@ export async function runMicroBatchesAdapter(
         ports: {
           prepareSourceDocument: async ({ indexingContext }) =>
             await prepareSourceDocument(indexingContext),
-          computeMomentGraphNamespaceForIndexing: async () => null,
+          computeMomentGraphNamespaceForIndexing: async ({
+            document,
+            indexingContext,
+            plugins,
+          }) =>
+            await computeMomentGraphNamespaceForIndexing(
+              document,
+              indexingContext,
+              plugins
+            ),
           getMomentGraphNamespacePrefixFromEnv,
           applyMomentGraphNamespacePrefixValue: (
             baseNamespace: string,

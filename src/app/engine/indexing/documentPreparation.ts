@@ -64,10 +64,10 @@ export async function runIndexingDocumentPreparation(input: {
       ? input.overridePrefix.trim()
       : envPrefix;
 
-  const effectiveNamespace =
-    baseNamespace && baseNamespace.trim().length > 0
-      ? input.ports.applyMomentGraphNamespacePrefixValue(baseNamespace, prefix)
-      : null;
+  const effectiveNamespace = input.ports.applyMomentGraphNamespacePrefixValue(
+    baseNamespace ?? "",
+    prefix
+  );
 
   indexingContext.momentGraphNamespace = effectiveNamespace;
 

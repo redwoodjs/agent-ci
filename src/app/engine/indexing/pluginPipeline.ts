@@ -74,3 +74,16 @@ export async function getMicroPromptContext(
   );
 }
 
+export async function computeMomentGraphNamespaceForIndexing(
+  document: Document,
+  indexingContext: IndexingHookContext,
+  plugins: Plugin[]
+): Promise<string | null> {
+  const namespace = await runFirstMatchHook(plugins, async (plugin) =>
+    plugin.scoping?.computeMomentGraphNamespaceForIndexing?.(
+      document,
+      indexingContext
+    )
+  );
+  return namespace ?? null;
+}

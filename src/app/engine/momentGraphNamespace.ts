@@ -46,9 +46,9 @@ export function applyMomentGraphNamespacePrefixValue(
   namespace: string | null,
   prefix: string | null
 ): string | null {
-  if (!namespace) {
-    return namespace;
-  }
+  // if (!namespace) {
+  //   return namespace;
+  // }
   if (!prefix) {
     return namespace;
   }

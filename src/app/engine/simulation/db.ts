@@ -3,10 +3,10 @@ import type { EngineSimulationStateDO } from "./durableObject";
 import { simulationStateMigrations } from "./migrations";
 import { qualifyName } from "../momentGraphNamespace";
 import { momentMigrations } from "../databases/momentGraph/migrations";
-import type { SimulationDbContext } from "./types";
+import type { SimulationDatabase, SimulationDbContext } from "./types";
 
 export function getSimulationDb(context: SimulationDbContext) {
-  return createDb<Database<typeof simulationStateMigrations>>(
+  return createDb<SimulationDatabase>(
     (context.env as any)
       .ENGINE_SIMULATION_STATE as DurableObjectNamespace<EngineSimulationStateDO>,
     qualifyName("engine-simulation-state", context.momentGraphNamespace)

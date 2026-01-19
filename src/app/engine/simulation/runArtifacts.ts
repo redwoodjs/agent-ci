@@ -315,36 +315,86 @@ export async function getSimulationRunMaterializedMoments(
     typeof (runRow as any)?.moment_graph_namespace_prefix === "string"
       ? ((runRow as any).moment_graph_namespace_prefix as string)
       : null;
-  const effectiveNamespace =
-    baseNamespace && prefix
-      ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix)
-      : baseNamespace;
 
-  const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
+  // 1. Try to get explicitly recorded namespaces from the run
+  const participatingRows = await db
+    .selectFrom("simulation_run_participating_namespaces")
+    .select("namespace")
+    .where("run_id", "=", runId)
+    .execute();
+
+  const namespacesToCheck = new Set<string | null>();
+
+  if (participatingRows.length > 0) {
+    participatingRows.forEach((r) => namespacesToCheck.add(r.namespace));
+  } else {
+    // Fallback logic for old runs or runs that haven't recorded anything yet:
+    // Check all "known" namespaces + the run's default
+    const candidateBaseNamespaces = [
+      baseNamespace, // The run's default
+      "redwood:rwsdk",
+      "redwood:machinen",
+      "redwood:internal",
+      null, // Default/global
+    ];
+
+    for (const base of candidateBaseNamespaces) {
+      const effective =
+        base && prefix
+          ? applyMomentGraphNamespacePrefixValue(base, prefix)
+          : prefix && !base
+          ? prefix // If base is null but prefix exists, it's just the prefix
+          : applyMomentGraphNamespacePrefixValue(base, prefix);
+      namespacesToCheck.add(effective);
+    }
+  }
+
   const ids = rows.map((r) => (r as any).moment_id).filter(Boolean);
-  const momentRows =
-    ids.length > 0
-      ? await momentDb
-          .selectFrom("moments")
-          .select(["id", "parent_id", "title", "summary", "source_metadata", "author"])
-          .where("id", "in", ids as any)
-          .execute()
-      : [];
-  const detailsById = new Map(
-    (momentRows as any[]).map((r) => [
-      r.id,
-      {
-        parentId: r.parent_id ?? null,
-        title: r.title ?? null,
-        summary: r.summary ?? null,
-        sourceMetadata: r.source_metadata ?? null,
-        author: r.author ?? null,
-      },
-    ])
-  );
+  const momentDetailsMap = new Map<string, any>();
+
+  if (ids.length > 0) {
+    // We can run these in parallel
+    await Promise.all(
+      Array.from(namespacesToCheck).map(async (ns) => {
+        try {
+          const momentDb = getMomentGraphDb(context.env, ns);
+          const momentRows = await momentDb
+            .selectFrom("moments")
+            .select([
+              "id",
+              "parent_id",
+              "title",
+              "summary",
+              "source_metadata",
+              "author",
+              "created_at", // Fetch created_at for sorting/display
+            ])
+            .where("id", "in", ids as any)
+            .execute();
+
+          for (const r of momentRows) {
+            // Only add if not already found (race condition benign here as IDs are unique)
+            if (!momentDetailsMap.has(r.id)) {
+              momentDetailsMap.set(r.id, {
+                parentId: r.parent_id ?? null,
+                title: r.title ?? null,
+                summary: r.summary ?? null,
+                sourceMetadata: r.source_metadata ?? null,
+                author: r.author ?? null,
+                createdAt: r.created_at ?? null,
+              });
+            }
+          }
+        } catch (e) {
+          // Ignore errors from missing namespaces or DB failures, just try best effort
+          console.warn(`Failed to fetch moments from namespace ${ns}:`, e);
+        }
+      })
+    );
+  }
 
   return rows.map((r) => {
-    const details = detailsById.get((r as any).moment_id);
+    const details = momentDetailsMap.get((r as any).moment_id);
     return {
       r2Key: (r as any).r2_key,
       streamId: (r as any).stream_id,

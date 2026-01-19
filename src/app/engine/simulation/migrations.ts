@@ -361,5 +361,26 @@ export const simulationStateMigrations = {
     },
     async down(db) {},
   },
+  "012_add_participating_namespaces": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_participating_namespaces")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("namespace", "text", (col) => col.notNull())
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_run_participating_namespaces_pk", [
+            "run_id",
+            "namespace",
+          ])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("simulation_run_participating_namespaces").execute();
+    },
+  },
 } satisfies Migrations;
 

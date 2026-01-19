@@ -797,7 +797,27 @@ Once B/C/D are shared and provenance is aligned:
 
 I want the simulation phase executors to read like adapters:
 
-- phase cores hold shared logic (identities and derivations)
+
+## Fixing "Untitled" Materialized Moments
+
+Problem: Materialized moments were appearing as "(Untitled)" in the debug UI. This was because the reader (`runArtifacts.ts`) was only querying the run's default moment graph namespace. When the router directed documents to other namespaces (like `redwood:rwsdk` or `redwood:machinen`), the reader didn't know to look there, so it couldn't find the moment details (title, summary) to populate the UI.
+
+Discarded Idea: Duplicating Router Logic.
+I considered importing the router logic into the reader to re-derive the namespace for each document.
+- Cons: High coupling. The reader would need to know exactly how the ingestion pipeline makes routing decisions. Any change to the router would break the reader if not kept in sync.
+
+Discarded Idea: Hardcoded List.
+I considered just keeping a hardcoded list of "known namespaces" in the reader.
+- Cons: Maintenance burden. If we add a new namespace, we have to remember to update the reader. It feels "magic" and fragile.
+
+Chosen Solution: "Seen Namespaces" Persistence.
+We decided to make the writer record where it put things, and the reader just read that record.
+- **Writer**: The `materialize_moments` adapter tracks every `effectiveNamespace` it encounters while processing documents. At the end of the batch, it inserts these into a new `simulation_run_participating_namespaces` table.
+- **Reader**: `runArtifacts.ts` queries this table to get the exact list of namespaces to check. It checks them all in parallel.
+- **Backwards Compatibility**: For older runs (or before the table is populated), we fall back to a hardcoded list of common namespaces.
+
+This decouples the reader from the routing logic and ensures the UI always looks in the right place, provided the run has recorded its activity.
+
 - simulation adapters handle DB reads/writes and per-item loops
 - phase executors do orchestration (phase start/end events, status transitions)
 

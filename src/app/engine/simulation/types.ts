@@ -2,7 +2,27 @@ import type { Database } from "rwsdk/db";
 import type { simulationStateMigrations } from "./migrations";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
 
-export type SimulationDatabase = Database<typeof simulationStateMigrations>;
+// We use Override to manually patch the type because Kysely's inference
+// might miss columns added in try/catch blocks in migrations 010/011.
+type SimulationRunDocumentsTable = {
+  run_id: string;
+  r2_key: string;
+  etag: string | null;
+  document_hash: string | null;
+  changed: number;
+  error_json: any;
+  processed_at: string;
+  updated_at: string;
+  dispatched_phases_json: string | null;
+  processed_phases_json: string | null;
+};
+
+export type SimulationDatabase = Override<
+  Database<typeof simulationStateMigrations>,
+  {
+    simulation_run_documents: SimulationRunDocumentsTable;
+  }
+>;
 
 export type SimulationRunStatus =
   | "running"

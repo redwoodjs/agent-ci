@@ -55,6 +55,7 @@ export async function runMaterializeMomentsAdapter(
   let docsProcessed = 0;
   let failed = 0;
   const failures: Array<{ r2Key: string; error: string }> = [];
+  const participatingNamespaces = new Set<string>();
 
   for (const r2Key of input.r2Keys) {
     const docState = (await db
@@ -147,6 +148,10 @@ export async function runMaterializeMomentsAdapter(
         r2Key,
         effectiveNamespace,
       });
+
+      if (effectiveNamespace) {
+        participatingNamespaces.add(effectiveNamespace);
+      }
 
       const momentDb = getMomentGraphDb(context.env, effectiveNamespace);
       const parsedDocumentIdentity = buildParsedDocumentIdentity(document);
@@ -353,6 +358,28 @@ export async function runMaterializeMomentsAdapter(
         r2Key,
         error: msg,
       });
+    }
+  }
+
+  // Record participating namespaces
+  if (participatingNamespaces.size > 0) {
+    const namespaces = Array.from(participatingNamespaces);
+    // Batch insert namespaces
+    // Since Kysely doesn't support ON CONFLICT DO NOTHING for arbitrary primary keys universally clearly in all dialects without specific syntax,
+    // and we want to be safe, we'll just do individual inserts or a careful batch with ignore.
+    // SQLite supports INSERT OR IGNORE.
+    
+    // We can just loop and insert ignore. It's low volume (1-2 namespaces per batch usually).
+    for (const ns of namespaces) {
+      await db
+        .insertInto("simulation_run_participating_namespaces")
+        .values({
+          run_id: input.runId,
+          namespace: ns,
+          created_at: input.now,
+        } as any)
+        .onConflict((oc) => oc.doNothing())
+        .execute();
     }
   }
 

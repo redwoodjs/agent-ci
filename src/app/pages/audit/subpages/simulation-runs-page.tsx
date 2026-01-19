@@ -26,7 +26,6 @@ import { getSimulationRunProgressSummary } from "@/app/engine/simulation/runProg
 import { getMoments } from "@/app/engine/databases/momentGraph";
 import { SimulationRunControls } from "./simulation-run-controls";
 import { CopyTextButton } from "./copy-text-button";
-import { LogViewer } from "./log-viewer";
 
 function safeStringify(value: unknown): string {
   try {
@@ -542,9 +541,27 @@ async function SimulationRunsContent({
         </CardHeader>
         <CardContent>
           {logView === "run" ? (
-            <LogViewer text={safeStringify(run)} label="Copy run" />
+            <>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <CopyTextButton text={safeStringify(run)} label="Copy run" />
+              </div>
+              <textarea
+                className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh]"
+                readOnly
+                value={safeStringify(run)}
+              />
+            </>
           ) : (
-            <LogViewer text={eventsText || "(no events)"} label="Copy events" />
+            <>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <CopyTextButton text={eventsText || ""} label="Copy events" />
+              </div>
+              <textarea
+                className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh]"
+                readOnly
+                value={eventsText || "(no events)"}
+              />
+            </>
           )}
         </CardContent>
       </Card>

@@ -121,11 +121,6 @@ export async function runMicroBatchesAdapter(
 
     if (!changedFlag) {
       docsSkippedUnchanged++;
-      await input.log.info("item.success", {
-        phase: "micro_batches",
-        r2Key,
-        skipped: true,
-      });
       continue;
     }
 

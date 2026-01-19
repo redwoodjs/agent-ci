@@ -13,6 +13,134 @@ import type {
 } from "./types";
 import { getSimulationDb, getMomentGraphDb } from "./db";
 
+/**
+ * Helper to fetch moment details (title, summary, etc.) across potentially multiple namespaces.
+ * It first checks `simulation_run_participating_namespaces`.
+ * If empty, it falls back to known legacy namespaces + the run's default.
+ */
+async function fetchMomentDetails(
+  context: SimulationDbContext,
+  runId: string,
+  momentIds: string[]
+): Promise<
+  Map<
+    string,
+    {
+      parentId: string | null;
+      title: string | null;
+      summary: string | null;
+      sourceMetadata: any | null;
+      author: string | null;
+      createdAt: string | null;
+    }
+  >
+> {
+  const db = getSimulationDb(context);
+  const distinctIds = Array.from(new Set(momentIds)).filter(Boolean);
+  const detailsMap = new Map<string, any>();
+
+  if (distinctIds.length === 0) {
+    return detailsMap;
+  }
+
+  // 1. Get run info for legacy fallback
+  const runRow = (await db
+    .selectFrom("simulation_runs")
+    .select(["moment_graph_namespace", "moment_graph_namespace_prefix"])
+    .where("run_id", "=", runId)
+    .executeTakeFirst()) as unknown as
+    | {
+        moment_graph_namespace: string | null;
+        moment_graph_namespace_prefix: string | null;
+      }
+    | undefined;
+
+  const baseNamespace =
+    typeof (runRow as any)?.moment_graph_namespace === "string"
+      ? ((runRow as any).moment_graph_namespace as string)
+      : null;
+  const prefix =
+    typeof (runRow as any)?.moment_graph_namespace_prefix === "string"
+      ? ((runRow as any).moment_graph_namespace_prefix as string)
+      : null;
+
+  // 2. Try to get explicitly recorded namespaces from the run
+  const participatingRows = await db
+    .selectFrom("simulation_run_participating_namespaces")
+    .select("namespace")
+    .where("run_id", "=", runId)
+    .execute();
+
+  const namespacesToCheck = new Set<string | null>();
+
+  // Always add explicitly recorded namespaces
+  if (participatingRows.length > 0) {
+    participatingRows.forEach((r) => namespacesToCheck.add(r.namespace));
+  }
+
+  // AND ALWAYS add fallback namespaces to be safe (for mixed runs or missed recordings)
+  const candidateBaseNamespaces = [
+    baseNamespace, // The run's default
+    "redwood:rwsdk",
+    "redwood:machinen",
+    "redwood:internal",
+    null, // Default/global
+  ];
+
+  for (const base of candidateBaseNamespaces) {
+    const effective =
+      base && prefix
+        ? applyMomentGraphNamespacePrefixValue(base, prefix)
+        : prefix && !base
+        ? prefix // If base is null but prefix exists, it's just the prefix
+        : applyMomentGraphNamespacePrefixValue(base, prefix);
+    namespacesToCheck.add(effective);
+  }
+
+  // 3. Query all candidate namespaces in parallel
+  await Promise.all(
+    Array.from(namespacesToCheck).map(async (ns) => {
+      try {
+        const momentDb = getMomentGraphDb(context.env, ns);
+        // We only fetch IDs that we haven't found yet to optimize?
+        // Actually, for simplicity and ensuring we find the *correct* one if ID collisions were possible (unlikely with UUIDs),
+        // we just query all and merge.
+        const momentRows = await momentDb
+          .selectFrom("moments")
+          .select([
+            "id",
+            "parent_id",
+            "title",
+            "summary",
+            "source_metadata",
+            "author",
+            "created_at",
+          ])
+          .where("id", "in", distinctIds as any)
+          .execute();
+
+        for (const r of momentRows) {
+          if (!detailsMap.has(r.id)) {
+            detailsMap.set(r.id, {
+              parentId: r.parent_id ?? null,
+              title: r.title ?? null,
+              summary: r.summary ?? null,
+              sourceMetadata: r.source_metadata ?? null,
+              author: r.author ?? null,
+              createdAt: r.created_at ?? null,
+            });
+          }
+        }
+      } catch (e) {
+        // Ignore errors from missing namespaces or DB failures, just try best effort
+        console.warn(`Failed to fetch moments from namespace ${ns}:`, e);
+      }
+    })
+  );
+
+  return detailsMap;
+}
+
 export async function getSimulationRunDocuments(
   context: SimulationDbContext,
   input: { runId: string }
@@ -260,7 +388,7 @@ export async function getSimulationRunMaterializedMoments(
     momentId: string;
     parentId: string | null;
     title: string | null;
-        summary: string | null;
+    summary: string | null;
     sourceMetadata: any | null;
     author: string | null;
     createdAt: string;
@@ -296,102 +424,8 @@ export async function getSimulationRunMaterializedMoments(
     .orderBy("macro_index", "asc")
     .execute()) as unknown as SimulationRunMaterializedMomentRow[];
 
-  const runRow = (await db
-    .selectFrom("simulation_runs")
-    .select(["moment_graph_namespace", "moment_graph_namespace_prefix"])
-    .where("run_id", "=", runId)
-    .executeTakeFirst()) as unknown as
-    | {
-        moment_graph_namespace: string | null;
-        moment_graph_namespace_prefix: string | null;
-      }
-    | undefined;
-
-  const baseNamespace =
-    typeof (runRow as any)?.moment_graph_namespace === "string"
-      ? ((runRow as any).moment_graph_namespace as string)
-      : null;
-  const prefix =
-    typeof (runRow as any)?.moment_graph_namespace_prefix === "string"
-      ? ((runRow as any).moment_graph_namespace_prefix as string)
-      : null;
-
-  // 1. Try to get explicitly recorded namespaces from the run
-  const participatingRows = await db
-    .selectFrom("simulation_run_participating_namespaces")
-    .select("namespace")
-    .where("run_id", "=", runId)
-    .execute();
-
-  const namespacesToCheck = new Set<string | null>();
-
-  if (participatingRows.length > 0) {
-    participatingRows.forEach((r) => namespacesToCheck.add(r.namespace));
-  } else {
-    // Fallback logic for old runs or runs that haven't recorded anything yet:
-    // Check all "known" namespaces + the run's default
-    const candidateBaseNamespaces = [
-      baseNamespace, // The run's default
-      "redwood:rwsdk",
-      "redwood:machinen",
-      "redwood:internal",
-      null, // Default/global
-    ];
-
-    for (const base of candidateBaseNamespaces) {
-      const effective =
-        base && prefix
-          ? applyMomentGraphNamespacePrefixValue(base, prefix)
-          : prefix && !base
-          ? prefix // If base is null but prefix exists, it's just the prefix
-          : applyMomentGraphNamespacePrefixValue(base, prefix);
-      namespacesToCheck.add(effective);
-    }
-  }
-
   const ids = rows.map((r) => (r as any).moment_id).filter(Boolean);
-  const momentDetailsMap = new Map<string, any>();
-
-  if (ids.length > 0) {
-    // We can run these in parallel
-    await Promise.all(
-      Array.from(namespacesToCheck).map(async (ns) => {
-        try {
-          const momentDb = getMomentGraphDb(context.env, ns);
-          const momentRows = await momentDb
-            .selectFrom("moments")
-            .select([
-              "id",
-              "parent_id",
-              "title",
-              "summary",
-              "source_metadata",
-              "author",
-              "created_at", // Fetch created_at for sorting/display
-            ])
-            .where("id", "in", ids as any)
-            .execute();
-
-          for (const r of momentRows) {
-            // Only add if not already found (race condition benign here as IDs are unique)
-            if (!momentDetailsMap.has(r.id)) {
-              momentDetailsMap.set(r.id, {
-                parentId: r.parent_id ?? null,
-                title: r.title ?? null,
-                summary: r.summary ?? null,
-                sourceMetadata: r.source_metadata ?? null,
-                author: r.author ?? null,
-                createdAt: r.created_at ?? null,
-              });
-            }
-          }
-        } catch (e) {
-          // Ignore errors from missing namespaces or DB failures, just try best effort
-          console.warn(`Failed to fetch moments from namespace ${ns}:`, e);
-        }
-      })
-    );
-  }
+  const momentDetailsMap = await fetchMomentDetails(context, runId, ids);
 
   return rows.map((r) => {
     const details = momentDetailsMap.get((r as any).moment_id);
@@ -462,42 +496,21 @@ export async function getSimulationRunLinkDecisions(
     .orderBy("macro_index", "asc")
     .execute()) as unknown as SimulationRunLinkDecisionRow[];
 
-  const runRow = await db
-    .selectFrom("simulation_runs")
-    .select(["moment_graph_namespace", "moment_graph_namespace_prefix"])
-    .where("run_id", "=", runId)
-    .executeTakeFirst();
-  const effectiveNamespace =
-    runRow?.moment_graph_namespace && runRow?.moment_graph_namespace_prefix
-      ? applyMomentGraphNamespacePrefixValue(
-          runRow.moment_graph_namespace,
-          runRow.moment_graph_namespace_prefix
-        )
-      : runRow?.moment_graph_namespace;
-  const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
-
   const momentIds = new Set<string>();
   for (const r of rows) {
-    if ((r as any).child_moment_id) momentIds.add((r as any).child_moment_id);
+    if ((r as any).child_moment_id && !(r as any).child_moment_id.startsWith("noop-")) {
+        momentIds.add((r as any).child_moment_id);
+    }
     if ((r as any).parent_moment_id) momentIds.add((r as any).parent_moment_id);
   }
-  const ids = Array.from(momentIds);
-  const momentRows =
-    ids.length > 0
-      ? await momentDb
-          .selectFrom("moments")
-          .select(["id", "title", "summary"])
-          .where("id", "in", ids as any)
-          .execute()
-      : [];
-  const detailsById = new Map(
-    (momentRows as any[]).map((r) => [
-      r.id,
-      { title: r.title ?? null, summary: r.summary ?? null },
-    ])
+  const detailsById = await fetchMomentDetails(
+    context,
+    runId,
+    Array.from(momentIds)
   );
 
   return rows.map((r) => {
+    const isNoop = (r as any).child_moment_id.startsWith("noop-");
     const child = detailsById.get((r as any).child_moment_id);
     const parent = (r as any).parent_moment_id
       ? detailsById.get((r as any).parent_moment_id)
@@ -507,8 +520,8 @@ export async function getSimulationRunLinkDecisions(
       streamId: (r as any).stream_id,
       macroIndex: Number((r as any).macro_index ?? 0),
       childMomentId: (r as any).child_moment_id,
-      childTitle: child?.title ?? null,
-      childSummary: child?.summary ?? null,
+      childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
+      childSummary: isNoop ? "No moments were found in this document." : (child?.summary ?? null),
       parentMomentId: (r as any).parent_moment_id ?? null,
       parentTitle: parent?.title ?? null,
       parentSummary: parent?.summary ?? null,
@@ -573,23 +586,11 @@ export async function getSimulationRunCandidateSets(
     .orderBy("macro_index", "asc")
     .execute()) as unknown as SimulationRunCandidateSetRow[];
 
-  const runRow = await db
-    .selectFrom("simulation_runs")
-    .select(["moment_graph_namespace", "moment_graph_namespace_prefix"])
-    .where("run_id", "=", runId)
-    .executeTakeFirst();
-  const effectiveNamespace =
-    runRow?.moment_graph_namespace && runRow?.moment_graph_namespace_prefix
-      ? applyMomentGraphNamespacePrefixValue(
-          runRow.moment_graph_namespace,
-          runRow.moment_graph_namespace_prefix
-        )
-      : runRow?.moment_graph_namespace;
-  const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
-
   const momentIds = new Set<string>();
   for (const r of rows) {
-    if ((r as any).child_moment_id) momentIds.add((r as any).child_moment_id);
+    if ((r as any).child_moment_id && !(r as any).child_moment_id.startsWith("noop-")) {
+        momentIds.add((r as any).child_moment_id);
+    }
     const candidates = (r as any).candidates_json;
     if (Array.isArray(candidates)) {
       for (const c of candidates) {
@@ -598,23 +599,14 @@ export async function getSimulationRunCandidateSets(
     }
   }
 
-  const ids = Array.from(momentIds);
-  const momentRows =
-    ids.length > 0
-      ? await momentDb
-          .selectFrom("moments")
-          .select(["id", "title", "summary"])
-          .where("id", "in", ids as any)
-          .execute()
-      : [];
-  const detailsById = new Map(
-    (momentRows as any[]).map((r) => [
-      r.id,
-      { title: r.title ?? null, summary: r.summary ?? null },
-    ])
+  const detailsById = await fetchMomentDetails(
+    context,
+    runId,
+    Array.from(momentIds)
   );
 
   return rows.map((r) => {
+    const isNoop = (r as any).child_moment_id.startsWith("noop-");
     const child = detailsById.get((r as any).child_moment_id);
     const rawCandidates = Array.isArray((r as any).candidates_json)
       ? ((r as any).candidates_json as any[])
@@ -633,8 +625,8 @@ export async function getSimulationRunCandidateSets(
       streamId: (r as any).stream_id,
       macroIndex: Number((r as any).macro_index ?? 0),
       childMomentId: (r as any).child_moment_id,
-      childTitle: child?.title ?? null,
-      childSummary: child?.summary ?? null,
+      childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
+      childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (child?.summary ?? null),
       candidates,
       stats: (r as any).stats_json ?? null,
       createdAt: (r as any).created_at,
@@ -693,23 +685,11 @@ export async function getSimulationRunTimelineFitDecisions(
     .orderBy("macro_index", "asc")
     .execute()) as unknown as SimulationRunTimelineFitDecisionRow[];
 
-  const runRow = await db
-    .selectFrom("simulation_runs")
-    .select(["moment_graph_namespace", "moment_graph_namespace_prefix"])
-    .where("run_id", "=", runId)
-    .executeTakeFirst();
-  const effectiveNamespace =
-    runRow?.moment_graph_namespace && runRow?.moment_graph_namespace_prefix
-      ? applyMomentGraphNamespacePrefixValue(
-          runRow.moment_graph_namespace,
-          runRow.moment_graph_namespace_prefix
-        )
-      : runRow?.moment_graph_namespace;
-  const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
-
   const momentIds = new Set<string>();
   for (const r of rows) {
-    if ((r as any).child_moment_id) momentIds.add((r as any).child_moment_id);
+    if ((r as any).child_moment_id && !(r as any).child_moment_id.startsWith("noop-")) {
+        momentIds.add((r as any).child_moment_id);
+    }
     if ((r as any).chosen_parent_moment_id)
       momentIds.add((r as any).chosen_parent_moment_id);
     const decisions = (r as any).decisions_json;
@@ -720,23 +700,14 @@ export async function getSimulationRunTimelineFitDecisions(
     }
   }
 
-  const ids = Array.from(momentIds);
-  const momentRows =
-    ids.length > 0
-      ? await momentDb
-          .selectFrom("moments")
-          .select(["id", "title", "summary"])
-          .where("id", "in", ids as any)
-          .execute()
-      : [];
-  const detailsById = new Map(
-    (momentRows as any[]).map((r) => [
-      r.id,
-      { title: r.title ?? null, summary: r.summary ?? null },
-    ])
+  const detailsById = await fetchMomentDetails(
+    context,
+    runId,
+    Array.from(momentIds)
   );
 
   return rows.map((r) => {
+    const isNoop = (r as any).child_moment_id.startsWith("noop-");
     const child = detailsById.get((r as any).child_moment_id);
     const chosenParent = (r as any).chosen_parent_moment_id
       ? detailsById.get((r as any).chosen_parent_moment_id)
@@ -758,8 +729,8 @@ export async function getSimulationRunTimelineFitDecisions(
       streamId: (r as any).stream_id,
       macroIndex: Number((r as any).macro_index ?? 0),
       childMomentId: (r as any).child_moment_id,
-      childTitle: child?.title ?? null,
-      childSummary: child?.summary ?? null,
+      childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
+      childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (child?.summary ?? null),
       outcome: (r as any).outcome,
       chosenParentMomentId: (r as any).chosen_parent_moment_id ?? null,
       chosenParentTitle: chosenParent?.title ?? null,

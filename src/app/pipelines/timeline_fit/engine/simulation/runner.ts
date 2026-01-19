@@ -9,6 +9,11 @@ import { createSimulationRunLogger } from "../../../../engine/simulation/logger"
 import { simulationPhases } from "../../../../engine/simulation/types";
 import { addMoment, getMoments } from "../../../../engine/databases/momentGraph";
 import { callLLM } from "../../../../engine/utils/llm";
+import { getIndexingPlugins } from "../../../../engine/indexing/indexingPlugins";
+import {
+  prepareDocumentForR2Key,
+  computeMomentGraphNamespaceForIndexing,
+} from "../../../../engine/indexing/pluginPipeline";
 import { computeTimelineFitDecision } from "../../../../engine/core/linking/timelineFitOrchestrator";
 
 export async function runPhaseTimelineFit(
@@ -29,9 +34,7 @@ export async function runPhaseTimelineFit(
 
   if (!runRow) return null;
 
-  const baseNamespace = runRow.moment_graph_namespace;
   const prefix = runRow.moment_graph_namespace_prefix;
-  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
 
   const changedDocs = await db.selectFrom("simulation_run_documents").select("r2_key").where("run_id", "=", input.runId).where("changed", "=", 1).where("error_json", "is", null).execute();
   const relevantR2Keys = changedDocs.map(d => d.r2_key);
@@ -94,8 +97,23 @@ export async function runPhaseTimelineFit(
   }
 
   // Granular execution
-  const momentGraphContext = { env: context.env, momentGraphNamespace: effectiveNamespace ?? null };
-  const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
+  // Re-compute the namespace for this document, matching materialize_moments behavior
+  const plugins = getIndexingPlugins(context.env);
+  let docEffectiveNamespace: string | null = null;
+  try {
+      const { document, indexingContext } = await prepareDocumentForR2Key(input.r2Key, context.env, plugins);
+      const baseDocNamespace = await computeMomentGraphNamespaceForIndexing(document, indexingContext, plugins);
+      docEffectiveNamespace = applyMomentGraphNamespacePrefixValue(baseDocNamespace, prefix);
+  } catch (e) {
+      // If we can't load the doc to check namespace, we can't find its moments anyway.
+      await log.error("item.error", { phase: "timeline_fit", r2Key: input.r2Key, error: `Failed to resolve namespace: ${e}` });
+      // We proceed with empty namespace? Or default?
+      // Attempt default from run for safety fallback, though likely won't find anything if split.
+      docEffectiveNamespace = applyMomentGraphNamespacePrefixValue(runRow.moment_graph_namespace, prefix);
+  }
+
+  const momentGraphContext = { env: context.env, momentGraphNamespace: docEffectiveNamespace ?? null };
+  const momentDb = getMomentGraphDb(context.env, docEffectiveNamespace ?? null);
   const roots = await db.selectFrom("simulation_run_materialized_moments").select(["moment_id", "r2_key", "stream_id", "macro_index"]).where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).execute();
   const rootIds = roots.map(r => r.moment_id);
   const momentsList = rootIds.length > 0 ? await momentDb.selectFrom("moments").select(["id", "document_id", "created_at", "source_metadata", "title", "summary", "parent_id"]).where("id", "in", rootIds).execute() : [];

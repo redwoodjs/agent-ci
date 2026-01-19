@@ -8,6 +8,11 @@ import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../../engine/simulation/logger";
 import { simulationPhases } from "../../../../engine/simulation/types";
 import { getEmbedding } from "../../../../engine/utils/vector";
+import { getIndexingPlugins } from "../../../../engine/indexing/indexingPlugins";
+import {
+  prepareDocumentForR2Key,
+  computeMomentGraphNamespaceForIndexing,
+} from "../../../../engine/indexing/pluginPipeline";
 import { computeCandidateSet } from "../../../../engine/core/linking/candidateSetsOrchestrator";
 
 export async function runPhaseCandidateSets(
@@ -28,9 +33,7 @@ export async function runPhaseCandidateSets(
 
   if (!runRow) return null;
 
-  const baseNamespace = runRow.moment_graph_namespace;
   const prefix = runRow.moment_graph_namespace_prefix;
-  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
 
   // 1. Get relevant documents (those changed in ingest_diff)
   const changedDocs = await db.selectFrom("simulation_run_documents").select("r2_key").where("run_id", "=", input.runId).where("changed", "=", 1).where("error_json", "is", null).execute();
@@ -94,7 +97,20 @@ export async function runPhaseCandidateSets(
   }
 
   // Granular execution
-  const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
+  // Re-compute the namespace for this document, matching materialize_moments behavior
+  const plugins = getIndexingPlugins(context.env);
+  let docEffectiveNamespace: string | null = null;
+  try {
+      const { document, indexingContext } = await prepareDocumentForR2Key(input.r2Key, context.env, plugins);
+      const baseDocNamespace = await computeMomentGraphNamespaceForIndexing(document, indexingContext, plugins);
+      docEffectiveNamespace = applyMomentGraphNamespacePrefixValue(baseDocNamespace, prefix);
+  } catch (e) {
+      // If we can't load the doc to check namespace, we can't find its moments anyway.
+      await log.error("item.error", { phase: "candidate_sets", r2Key: input.r2Key, error: `Failed to resolve namespace: ${e}` });
+      docEffectiveNamespace = applyMomentGraphNamespacePrefixValue(runRow.moment_graph_namespace, prefix);
+  }
+
+  const momentDb = getMomentGraphDb(context.env, docEffectiveNamespace ?? null);
   const roots = await db.selectFrom("simulation_run_materialized_moments").select(["moment_id", "r2_key", "stream_id", "macro_index"]).where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).execute();
   const rootIds = roots.map(r => r.moment_id);
   const moments = rootIds.length > 0 ? await momentDb.selectFrom("moments").select(["id", "document_id", "created_at", "source_metadata", "title", "summary", "parent_id"]).where("id", "in", rootIds).execute() : [];

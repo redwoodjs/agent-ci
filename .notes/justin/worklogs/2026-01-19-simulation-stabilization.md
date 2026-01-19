@@ -119,3 +119,14 @@ The user reported that moments in the Knowledge Graph appeared as "Untitled" wit
 
 ### Architecture Note: Namespace Resolution Fragility
 The user observed that this per-phase namespace resolution seems fragile. Each phase (micro-batches, macro-synthesis, materialize-moments) must independently and correctly resolve the namespace (via the router) to ensure they are reading/writing to the same "lane". If one phase misses this (as `macro_synthesis` did), the pipeline breaks. This is a consequence of the decoupled, stateless nature of the phases where namespace context isn't explicitly passed along with the data objects in the simulation SQL DB, but rather re-derived from the source document context or the run configuration.
+
+## Draft PR Description
+
+### The Problem: Divergence and Opacity
+Our backfill simulation system had organically drifted from the live indexing (aka "fast") path. It became a separate code lineage that was hard to trust, slow to iterate on, and opaque—often requiring us to wait hours for a full run to complete before seeing if "moments" even appeared. We needed a way to evaluate system changes that was rigorous, fast, and restartable.
+
+### The Solution: A Phased, Restartable Pipeline
+We have re-architected the simulation engine into a strict 8-phase pipeline (Ingest → Micro Batches → Macro Synthesis → ... → Timeline Fit). Key architectural shifts include:
+
+*   **Phase-First Architecture**: We moved from monolithic runners to a modular "phase-first" directory structure (`src/app/pipelines/<phase>`). Each phase now encapsulates its core business logic, simulation adapter (I/O), and web UI components. A central Registry now drives execution, ensuring routes and runners never drift.
+*   **Restartability & Caching**: Artifacts are persisted at every phase boundary. This allows us to "resume" runs from any point (e.g., tweaking the linking logic in Phase 7 without re-running the expensive LLM synthesis in Phase 3).

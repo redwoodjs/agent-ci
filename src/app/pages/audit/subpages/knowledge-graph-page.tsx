@@ -229,7 +229,7 @@ export function KnowledgeGraphPage() {
   >([]);
   const [rootMomentsLoading, setRootMomentsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [hideSingletons, setHideSingletons] = useState(true);
+  const [hideSingletons, setHideSingletons] = useState(false);
   const [rootSort, setRootSort] = useState<"descendants" | "createdAt">(
     "descendants"
   );

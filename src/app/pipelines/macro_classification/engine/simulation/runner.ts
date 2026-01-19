@@ -32,24 +32,18 @@ export async function runPhaseMacroClassification(
       return advance(db, input.runId, input.phaseIdx, now);
     }
 
-    const processedRows = await db
-      .selectFrom("simulation_run_macro_classified_outputs")
-      .select("r2_key")
+    const processedKeys = await db
+      .selectFrom("simulation_run_documents")
+      .select(["r2_key", "dispatched_phases_json", "processed_phases_json"])
       .where("run_id", "=", input.runId)
       .execute();
     
-    const docDispatchRows = await db
-      .selectFrom("simulation_run_documents")
-      .select(["r2_key", "dispatched_phases_json"])
-      .where("run_id", "=", input.runId)
-      .execute();
+    const finishedSet = new Set(processedKeys.filter(k => (((k as any).processed_phases_json || []) as string[]).includes("macro_classification")).map(k => k.r2_key));
+    const processedSet = new Set(processedKeys.map(k => k.r2_key));
+    const dispatchMap = new Map(processedKeys.map(k => [k.r2_key, (k.dispatched_phases_json || []) as string[]]));
 
-    const processedSet = new Set(processedRows.map(r => r.r2_key));
-    const dispatchMap = new Map(docDispatchRows.map(r => [r.r2_key, JSON.parse(r.dispatched_phases_json || "[]") as string[]]));
-
-    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const missingKeys = relevantR2Keys.filter(k => !finishedSet.has(k));
     const undecpatchedKeys = relevantR2Keys.filter(k => {
-      if (processedSet.has(k)) return false;
       const dispatched = dispatchMap.get(k) || [];
       return !dispatched.includes("macro_classification");
     });
@@ -65,13 +59,24 @@ export async function runPhaseMacroClassification(
         });
 
         for (const k of undecpatchedKeys) {
-          const dispatched = dispatchMap.get(k) || [];
+          const dispatched = (dispatchMap.get(k) || []) as string[];
           const nextDispatched = [...new Set([...dispatched, "macro_classification"])];
           
-          await db.updateTable("simulation_run_documents")
-            .set({ dispatched_phases_json: JSON.stringify(nextDispatched), updated_at: now })
-            .where("run_id", "=", input.runId)
-            .where("r2_key", "=", k)
+          await db
+            .insertInto("simulation_run_documents")
+            .values({
+              run_id: input.runId,
+              r2_key: k,
+              changed: 1, // Must be 1 if we're here
+              processed_at: "pending",
+              updated_at: now,
+              dispatched_phases_json: nextDispatched,
+              processed_phases_json: [],
+            } as any)
+            .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
+              dispatched_phases_json: nextDispatched,
+              updated_at: now,
+            } as any))
             .execute();
 
           await queue.send({
@@ -113,6 +118,16 @@ export async function runPhaseMacroClassification(
     // Actually, the adapter doesn't seem to persist "error rows" in macro_classified_outputs
     // We should probably rely on the host runner to see errors if we want to pause.
   }
+
+  // Mark doc as processed for this phase
+  const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();
+  const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
+  const nextPhases = [...new Set([...currentPhases, "macro_classification"])];
+  await db.updateTable("simulation_run_documents")
+    .set({ processed_phases_json: nextPhases as any, updated_at: now })
+    .where("run_id", "=", input.runId)
+    .where("r2_key", "=", input.r2Key)
+    .execute();
 
   return { status: "running", currentPhase: "macro_classification" };
 }

@@ -328,6 +328,7 @@ export const simulationStateMigrations = {
         await db.schema
           .alterTable("simulation_run_documents")
           .addColumn("dispatched_phases_json", "text")
+          .addColumn("processed_phases_json", "text")
           .execute(),
       ];
     },
@@ -335,6 +336,24 @@ export const simulationStateMigrations = {
       // Alter table drop column not supported in some DBs, but let's try if it is
       // Otherwise we'd just leave it.
     },
+  },
+  "011_add_processed_phases_json_retry": {
+    async up(db) {
+      try {
+        await db.schema
+          .alterTable("simulation_run_documents")
+          .addColumn("dispatched_phases_json", "text")
+          .execute();
+      } catch (e) {}
+      try {
+        await db.schema
+          .alterTable("simulation_run_documents")
+          .addColumn("processed_phases_json", "text")
+          .execute();
+      } catch (e) {}
+      return [];
+    },
+    async down(db) {},
   },
 } satisfies Migrations;
 

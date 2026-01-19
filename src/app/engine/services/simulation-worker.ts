@@ -19,11 +19,9 @@ export async function processSimulationJob(
   switch (message.jobType) {
     case "simulation-advance": {
       // Advance to the next phase (it will then enqueue docs/batches if refactored)
-      // Pass deferToQueue: true so that it enqueues the NEXT attempt if it reports "running"
       await advanceSimulationRunPhaseNoop(context, {
         runId: message.runId,
         continueOnError: true,
-        deferToQueue: true,
       });
       break;
     }

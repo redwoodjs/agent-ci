@@ -44,7 +44,6 @@ export async function runMicroBatchesAdapter(
     momentGraphNamespace: string | null;
     momentGraphNamespacePrefix: string | null;
     batchIndex?: number;
-    deferToQueue?: boolean;
   }
 ): Promise<{
   docsProcessed: number;
@@ -295,10 +294,32 @@ export async function runMicroBatchesAdapter(
 
       const computed = result.batches;
 
-      if (input.deferToQueue && input.batchIndex === undefined) {
+      if (input.batchIndex === undefined) {
          const queue = (env as any).ENGINE_INDEXING_QUEUE;
          if (queue) {
             for (const b of computed) {
+              await db
+                .insertInto("simulation_run_micro_batches")
+                .values({
+                  run_id: input.runId,
+                  r2_key: r2Key,
+                  batch_index: b.batchIndex as any,
+                  batch_hash: b.batchHash,
+                  prompt_context_hash: b.promptContextHash,
+                  status: "enqueued",
+                  error_json: null,
+                  created_at: input.now,
+                  updated_at: input.now,
+                } as any)
+                .onConflict((oc) =>
+                  oc.columns(["run_id", "r2_key", "batch_index"]).doUpdateSet({
+                    batch_hash: b.batchHash,
+                    prompt_context_hash: b.promptContextHash,
+                    status: "enqueued",
+                    updated_at: input.now,
+                  } as any)
+                )
+                .execute();
               await queue.send({
                 jobType: "simulation-batch",
                 runId: input.runId,

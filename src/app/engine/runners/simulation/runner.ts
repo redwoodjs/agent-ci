@@ -11,7 +11,7 @@ import { pipelineRegistry } from "../../simulation/allPipelines";
 
 export async function advanceSimulationRunPhaseNoop(
   context: SimulationDbContext,
-  input: { runId: string; continueOnError?: boolean; deferToQueue?: boolean }
+  input: { runId: string; continueOnError?: boolean }
 ): Promise<{ status: string; currentPhase: string } | null> {
   const db = getSimulationDb(context);
   const runId =
@@ -82,7 +82,6 @@ export async function advanceSimulationRunPhaseNoop(
     const result = await entry.runner(context, {
       runId,
       phaseIdx,
-      deferToQueue: input.deferToQueue,
     });
 
     // Check if runner updated status. If not, we set it back to running (or result status)
@@ -109,7 +108,7 @@ export async function advanceSimulationRunPhaseNoop(
       // If phase runner reported error but we want to continue, force advance to next phase
       const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
       if (nextPhase) {
-        if (input.deferToQueue && (context.env as any).ENGINE_INDEXING_QUEUE) {
+        if ((context.env as any).ENGINE_INDEXING_QUEUE) {
           await (context.env as any).ENGINE_INDEXING_QUEUE.send({
             jobType: "simulation-advance",
             runId,
@@ -129,7 +128,7 @@ export async function advanceSimulationRunPhaseNoop(
       }
     }
 
-    if (finalStatus === "running" && input.deferToQueue && (context.env as any).ENGINE_INDEXING_QUEUE) {
+    if (finalStatus === "running" && (context.env as any).ENGINE_INDEXING_QUEUE) {
        await (context.env as any).ENGINE_INDEXING_QUEUE.send({
          jobType: "simulation-advance",
          runId,

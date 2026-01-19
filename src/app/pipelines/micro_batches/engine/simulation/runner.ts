@@ -42,16 +42,26 @@ export async function runPhaseMicroBatches(
 
     if (relevantR2Keys.length === 0) return advance(db, input.runId, input.phaseIdx, now);
 
-    // Done if every relevant doc has at least one entry in simulation_run_micro_batches (or marked as noop)
-    const processedRows = await db.selectFrom("simulation_run_micro_batches").select("r2_key").where("run_id", "=", input.runId).distinct().execute();
-    const docDispatchRows = await db.selectFrom("simulation_run_documents").select(["r2_key", "dispatched_phases_json"]).where("run_id", "=", input.runId).execute();
-    
-    const processedSet = new Set(processedRows.map(r => r.r2_key));
-    const dispatchMap = new Map(docDispatchRows.map(r => [r.r2_key, JSON.parse(r.dispatched_phases_json || "[]") as string[]]));
+    // Are there any batches still in 'enqueued' state for this run?
+    const enqueuedCountRow = await db.selectFrom("simulation_run_micro_batches")
+      .select(({ fn }) => fn.count<number>("r2_key").as("count"))
+      .where("run_id", "=", input.runId)
+      .where("status", "=", "enqueued")
+      .executeTakeFirst();
+    const enqueuedCount = Number(enqueuedCountRow?.count ?? 0);
 
-    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const processedKeys = await db
+      .selectFrom("simulation_run_documents")
+      .select(["r2_key", "dispatched_phases_json", "processed_phases_json"])
+      .where("run_id", "=", input.runId)
+      .execute();
+
+    const finishedSet = new Set(processedKeys.filter(k => ((k.processed_phases_json as any) || []).includes("micro_batches")).map(k => k.r2_key));
+    const processedSet = new Set(processedKeys.map(k => k.r2_key));
+    const dispatchMap = new Map(processedKeys.map(k => [k.r2_key, (k.dispatched_phases_json || []) as string[]]));
+
+    const missingKeys = relevantR2Keys.filter(k => !finishedSet.has(k));
     const undecpatchedKeys = relevantR2Keys.filter(k => {
-      if (processedSet.has(k)) return false;
       const dispatched = dispatchMap.get(k) || [];
       return !dispatched.includes("micro_batches");
     });
@@ -61,13 +71,24 @@ export async function runPhaseMicroBatches(
       if (queue) {
         await addSimulationRunEvent(context, { runId: input.runId, level: "info", kind: "phase.dispatch_docs", payload: { phase: "micro_batches", count: undecpatchedKeys.length } });
         for (const k of undecpatchedKeys) {
-          const dispatched = dispatchMap.get(k) || [];
+          const dispatched = (dispatchMap.get(k) || []) as string[];
           const nextDispatched = [...new Set([...dispatched, "micro_batches"])];
           
-          await db.updateTable("simulation_run_documents")
-            .set({ dispatched_phases_json: JSON.stringify(nextDispatched), updated_at: now })
-            .where("run_id", "=", input.runId)
-            .where("r2_key", "=", k)
+          await db
+            .insertInto("simulation_run_documents")
+            .values({
+              run_id: input.runId,
+              r2_key: k,
+              changed: 1, // Must be 1 if we're here
+              processed_at: "pending",
+              updated_at: now,
+              dispatched_phases_json: nextDispatched,
+              processed_phases_json: [],
+            } as any)
+            .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
+              dispatched_phases_json: nextDispatched,
+              updated_at: now,
+            } as any))
             .execute();
 
           await queue.send({ jobType: "simulation-document", runId: input.runId, phase: "micro_batches", r2Key: k });
@@ -77,7 +98,7 @@ export async function runPhaseMicroBatches(
       throw new Error("ENGINE_INDEXING_QUEUE is required");
     }
 
-    if (missingKeys.length > 0) {
+    if (missingKeys.length > 0 || enqueuedCount > 0) {
       return { status: "awaiting_documents", currentPhase: "micro_batches" };
     }
 
@@ -121,11 +142,18 @@ export async function runPhaseMicroBatches(
     momentGraphNamespace,
     momentGraphNamespacePrefix,
     batchIndex: input.batchIndex,
-    deferToQueue: input.batchIndex === undefined, // Defer to queue for batches if we are processing the doc
   });
 
-  if (input.batchIndex === undefined && result.docsProcessed > 0) {
-      // If we just planned batches and enqueued them, we returned early in the adapter.
+  // If this was a full doc (not just a batch), mark as processed
+  if (input.batchIndex === undefined) {
+    const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();
+    const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
+    const nextPhases = [...new Set([...currentPhases, "micro_batches"])];
+    await db.updateTable("simulation_run_documents")
+      .set({ processed_phases_json: nextPhases as any, updated_at: now })
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", input.r2Key)
+      .execute();
   }
 
   return { status: "running", currentPhase: "micro_batches" };

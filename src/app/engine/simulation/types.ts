@@ -55,6 +55,7 @@ export type SimulationRunDocumentRow = Override<
   {
     error_json: any;
     dispatched_phases_json: string[] | null;
+    processed_phases_json: string[] | null;
   }
 >;
 

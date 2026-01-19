@@ -66,24 +66,18 @@ export async function runPhaseMaterializeMoments(
     // A document is considered "done" if it has at least one entry in simulation_run_materialized_moments
     // OR if it's been processed by the adapter. 
     // Actually, let's use a distinct set of keys that have been processed.
-    const processedRows = await db
-      .selectFrom("simulation_run_materialized_moments")
-      .select("r2_key")
+    const processedKeys = await db
+      .selectFrom("simulation_run_documents")
+      .select(["r2_key", "dispatched_phases_json", "processed_phases_json"])
       .where("run_id", "=", input.runId)
       .execute();
     
-    const docDispatchRows = await db
-      .selectFrom("simulation_run_documents")
-      .select(["r2_key", "dispatched_phases_json"])
-      .where("run_id", "=", input.runId)
-      .execute();
+    const finishedSet = new Set(processedKeys.filter(k => (((k as any).processed_phases_json || []) as string[]).includes("materialize_moments")).map(k => k.r2_key));
+    const processedSet = new Set(processedKeys.map(k => k.r2_key));
+    const dispatchMap = new Map(processedKeys.map(k => [k.r2_key, (k.dispatched_phases_json || []) as string[]]));
 
-    const processedSet = new Set(processedRows.map(r => r.r2_key));
-    const dispatchMap = new Map(docDispatchRows.map(r => [r.r2_key, JSON.parse(r.dispatched_phases_json || "[]") as string[]]));
-
-    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const missingKeys = relevantR2Keys.filter(k => !finishedSet.has(k));
     const undecpatchedKeys = relevantR2Keys.filter(k => {
-      if (processedSet.has(k)) return false;
       const dispatched = dispatchMap.get(k) || [];
       return !dispatched.includes("materialize_moments");
     });
@@ -99,13 +93,24 @@ export async function runPhaseMaterializeMoments(
         });
 
         for (const k of undecpatchedKeys) {
-          const dispatched = dispatchMap.get(k) || [];
+          const dispatched = (dispatchMap.get(k) || []) as string[];
           const nextDispatched = [...new Set([...dispatched, "materialize_moments"])];
           
-          await db.updateTable("simulation_run_documents")
-            .set({ dispatched_phases_json: JSON.stringify(nextDispatched), updated_at: now })
-            .where("run_id", "=", input.runId)
-            .where("r2_key", "=", k)
+          await db
+            .insertInto("simulation_run_documents")
+            .values({
+              run_id: input.runId,
+              r2_key: k,
+              changed: 1, // Must be 1 if we're here
+              processed_at: "pending",
+              updated_at: now,
+              dispatched_phases_json: nextDispatched,
+              processed_phases_json: [],
+            } as any)
+            .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
+              dispatched_phases_json: nextDispatched,
+              updated_at: now,
+            } as any))
             .execute();
 
           await queue.send({
@@ -138,6 +143,16 @@ export async function runPhaseMaterializeMoments(
     now,
     log,
   });
+
+  // Mark doc as processed for this phase
+  const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();
+  const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
+  const nextPhases = [...new Set([...currentPhases, "materialize_moments"])];
+  await db.updateTable("simulation_run_documents")
+    .set({ processed_phases_json: nextPhases as any, updated_at: now })
+    .where("run_id", "=", input.runId)
+    .where("r2_key", "=", input.r2Key)
+    .execute();
 
   return { status: "running", currentPhase: "materialize_moments" };
 }

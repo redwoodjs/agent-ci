@@ -6,7 +6,7 @@ export type PipelineRegistryEntry = {
   label: string;
   runner: (
     context: SimulationDbContext,
-    input: { runId: string; phaseIdx: number; r2Key?: string; batchIndex?: number; deferToQueue?: boolean }
+    input: { runId: string; phaseIdx: number; r2Key?: string; batchIndex?: number }
   ) => Promise<{ status: string; currentPhase: string } | null>;
   web?: {
     routes?: any[];

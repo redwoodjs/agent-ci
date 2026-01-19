@@ -31,24 +31,17 @@ export async function runPhaseMacroSynthesis(
       return advance(db, input.runId, input.phaseIdx, now);
     }
 
-    const processedRows = await db
-      .selectFrom("simulation_run_macro_outputs")
-      .select("r2_key")
-      .where("run_id", "=", input.runId)
-      .execute();
-    
-    const docDispatchRows = await db
+    const docRows = await db
       .selectFrom("simulation_run_documents")
-      .select(["r2_key", "dispatched_phases_json"])
+      .select(["r2_key", "dispatched_phases_json", "processed_phases_json"])
       .where("run_id", "=", input.runId)
       .execute();
 
-    const processedSet = new Set(processedRows.map(r => r.r2_key));
-    const dispatchMap = new Map(docDispatchRows.map(r => [r.r2_key, JSON.parse(r.dispatched_phases_json || "[]") as string[]]));
+    const dispatchMap = new Map(docRows.map(r => [r.r2_key, (r.dispatched_phases_json || []) as string[]]));
+    const processedSet = new Set(docRows.filter(r => ((r.processed_phases_json as any) || []).includes("macro_synthesis")).map(r => r.r2_key));
 
     const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
     const undecpatchedKeys = relevantR2Keys.filter(k => {
-      if (processedSet.has(k)) return false;
       const dispatched = dispatchMap.get(k) || [];
       return !dispatched.includes("macro_synthesis");
     });
@@ -64,11 +57,11 @@ export async function runPhaseMacroSynthesis(
         });
 
         for (const k of undecpatchedKeys) {
-          const dispatched = dispatchMap.get(k) || [];
+          const dispatched = (dispatchMap.get(k) || []) as string[];
           const nextDispatched = [...new Set([...dispatched, "macro_synthesis"])];
           
           await db.updateTable("simulation_run_documents")
-            .set({ dispatched_phases_json: JSON.stringify(nextDispatched), updated_at: now })
+            .set({ dispatched_phases_json: nextDispatched as any, updated_at: now })
             .where("run_id", "=", input.runId)
             .where("r2_key", "=", k)
             .execute();
@@ -100,6 +93,16 @@ export async function runPhaseMacroSynthesis(
     log,
     ports: { synthesizeMicroMomentsIntoStreams },
   });
+
+  // Mark doc as processed for this phase
+  const doc = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();
+  const processed = (doc?.processed_phases_json || []) as string[];
+  const nextProcessed = [...new Set([...processed, "macro_synthesis"])];
+  await db.updateTable("simulation_run_documents")
+    .set({ processed_phases_json: nextProcessed as any, updated_at: now })
+    .where("run_id", "=", input.runId)
+    .where("r2_key", "=", input.r2Key)
+    .execute();
 
   return { status: "running", currentPhase: "macro_synthesis" };
 }

@@ -36,18 +36,22 @@ export async function runPhaseIngestDiff(
     // Check if we already have results for all keys
     const processedKeys = await db
       .selectFrom("simulation_run_documents")
-      .select(["r2_key", "dispatched_phases_json"])
+      .selectAll()
       .where("run_id", "=", input.runId)
       .execute();
     
+    const finishedSet = new Set(processedKeys.filter(k => (((k as any).processed_phases_json || []) as string[]).includes("ingest_diff")).map(k => k.r2_key));
     const processedSet = new Set(processedKeys.map(k => k.r2_key));
-    const dispatchedMap = new Map(processedKeys.map(k => [k.r2_key, JSON.parse(k.dispatched_phases_json || "[]") as string[]]));
+    const dispatchedMap = new Map(processedKeys.map(k => [k.r2_key, (k.dispatched_phases_json || []) as string[]]));
     
-    const missingKeys = r2Keys.filter(k => !processedSet.has(k));
+    const missingKeys = r2Keys.filter(k => !finishedSet.has(k));
     const undecpatchedKeys = r2Keys.filter(k => {
-      if (processedSet.has(k)) return false;
-      const dispatched = dispatchedMap.get(k) || [];
-      return !dispatched.includes("ingest_diff");
+      if (processedSet.has(k)) {
+        // Even if in processedSet, if it's "pending" and NOT in dispatched_phases_json (unlikely but safe), we skip re-dispatching
+        const dispatched = dispatchedMap.get(k) || [];
+        return !dispatched.includes("ingest_diff");
+      }
+      return true;
     });
 
     if (undecpatchedKeys.length > 0) {
@@ -62,7 +66,7 @@ export async function runPhaseIngestDiff(
 
         for (const r2Key of undecpatchedKeys) {
           // Register the document if it doesn't exist, and mark as dispatched
-          const dispatched = dispatchedMap.get(r2Key) || [];
+          const dispatched = (dispatchedMap.get(r2Key) || []) as string[];
           const nextDispatched = [...new Set([...dispatched, "ingest_diff"])];
           
           await db
@@ -73,10 +77,11 @@ export async function runPhaseIngestDiff(
               changed: 0,
               processed_at: "pending",
               updated_at: now,
-              dispatched_phases_json: JSON.stringify(nextDispatched),
+              dispatched_phases_json: nextDispatched,
+              processed_phases_json: [],
             } as any)
             .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
-              dispatched_phases_json: JSON.stringify(nextDispatched),
+              dispatched_phases_json: nextDispatched,
               updated_at: now,
             } as any))
             .execute();
@@ -175,6 +180,10 @@ export async function runPhaseIngestDiff(
           return prev?.etag ?? null;
         },
         persistResult: async ({ r2Key, etag, changed }) => {
+          const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", r2Key).executeTakeFirst();
+          const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
+          const nextPhases = [...new Set([...currentPhases, "ingest_diff"])];
+
           await db
             .insertInto("simulation_run_documents")
             .values({
@@ -184,12 +193,14 @@ export async function runPhaseIngestDiff(
               changed: changed ? 1 : 0,
               processed_at: now,
               updated_at: now,
+              processed_phases_json: nextPhases,
             } as any)
             .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
                 etag,
                 changed: changed ? 1 : 0,
                 processed_at: now,
                 updated_at: now,
+                processed_phases_json: nextPhases as any,
             } as any))
             .execute();
         },
@@ -201,13 +212,13 @@ export async function runPhaseIngestDiff(
               run_id: input.runId,
               r2_key: r2Key,
               changed: 1,
-              error_json: JSON.stringify({ message: error }),
+              error_json: { message: error },
               processed_at: now,
               updated_at: now,
             } as any)
             .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
                 changed: 1,
-                error_json: JSON.stringify({ message: error }),
+                error_json: { message: error },
                 processed_at: now,
                 updated_at: now,
             } as any))

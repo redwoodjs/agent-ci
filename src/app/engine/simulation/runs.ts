@@ -341,6 +341,48 @@ export async function restartSimulationRunFromPhase(
     .where("run_id", "=", runId)
     .execute();
 
+  // Clear document tracking for this phase and subsequent ones
+  const phaseIdx = simulationPhases.indexOf(phase);
+  const phasesToClear = simulationPhases.slice(phaseIdx);
+
+  // We can't easily clear specific phases from the JSON array in SQL without complexity, 
+  // but we can at least clear processed_at for all docs if we restart from ingest_diff or anytime we want a full re-eval.
+  // Actually, the safest is to just clear the dispatched_phases_json and processed_at for all docs 
+  // because ingest_diff is the only one that sets processed_at on simulation_run_documents.
+  if (phase === "ingest_diff") {
+     await db.updateTable("simulation_run_documents")
+      .set({ processed_at: "pending", dispatched_phases_json: null, processed_phases_json: null, changed: 0, error_json: null } as any)
+      .where("run_id", "=", runId)
+      .execute();
+  } else {
+     // For other phases, we just need to ensure they don't think they've already dispatched or processed
+     // We'll do a crude clear for now to be safe.
+      await db.updateTable("simulation_run_documents")
+      .set({ dispatched_phases_json: null, processed_phases_json: null, error_json: null } as any)
+      .where("run_id", "=", runId)
+      .execute();
+  }
+
+  // Clear artifact tables
+  const artifactTables = [
+    "simulation_run_micro_batches",
+    "simulation_run_macro_outputs",
+    "simulation_run_macro_classified_outputs",
+    "simulation_run_materialized_moments",
+    "simulation_run_link_decisions",
+    "simulation_run_candidate_sets",
+    "simulation_run_timeline_fit_decisions"
+  ];
+
+  // We only clear tables that correspond to the restarted phase and LATER.
+  // This is a bit mapping-heavy, so let's just clear all of them for now to be safe, 
+  // or use the phase index to filter.
+  const tablesToClear = artifactTables.slice(Math.max(0, phaseIdx - 1)); // -1 because ingest_diff doesn't have a table in this list
+
+  for (const table of tablesToClear) {
+    await db.deleteFrom(table as any).where("run_id", "=", runId).execute();
+  }
+
   return true;
 }
 

@@ -108,3 +108,11 @@ After the above fix, the user reported that logs were still showing `effectiveNa
   - Exported `computeMomentGraphNamespaceForIndexing` from `pluginPipeline.ts` and wired it into `micro_batches/engine/simulation/adapter.ts`.
   
 **Result**: Simulation ingestion now correctly uses the router plugin to resolve namespaces (e.g. `redwood:machinen`) and correctly prefixes them (e.g. `local-...:redwood:machinen`), eliminating the `null` namespace issue.
+
+## Bug Fix: "Untitled" Moments in Knowledge Graph
+
+The user reported that moments in the Knowledge Graph appeared as "Untitled" with "No summary available".
+
+- **Root Cause**: The `macro_synthesis` adapter was still using the old namespace logic (`baseNamespace && prefix ? ...`). Since `baseNamespace` is now `null` (by design), the adapter defaulted to `null` and **failed to read the micro-moments** for synthesis. This resulted in empty streams and thus empty materialized moments.
+- **Fix**: Updated `macro_synthesis/engine/simulation/adapter.ts` to correctly apply the prefix even when `baseNamespace` is `null`.
+- **Outcome**: The adapter can now successfully read input data from the prefixed namespace. A re-run is required to regenerate the moments with proper titles and summaries.

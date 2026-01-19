@@ -9,11 +9,7 @@ import { createSimulationRunLogger } from "../../../../engine/simulation/logger"
 import { simulationPhases } from "../../../../engine/simulation/types";
 import { addMoment, getMoments } from "../../../../engine/databases/momentGraph";
 import { callLLM } from "../../../../engine/utils/llm";
-import { getIndexingPlugins } from "../../../../engine/indexing/indexingPlugins";
-import {
-  prepareDocumentForR2Key,
-  computeMomentGraphNamespaceForIndexing,
-} from "../../../../engine/indexing/pluginPipeline";
+import { fetchMomentsFromRun } from "../../../../engine/simulation/runArtifacts";
 import { computeTimelineFitDecision } from "../../../../engine/core/linking/timelineFitOrchestrator";
 
 export async function runPhaseTimelineFit(
@@ -97,43 +93,46 @@ export async function runPhaseTimelineFit(
   }
 
   // Granular execution
-  // Re-compute the namespace for this document, matching materialize_moments behavior
-  const plugins = getIndexingPlugins(context.env);
-  let docEffectiveNamespace: string | null = null;
-  try {
-      const { document, indexingContext } = await prepareDocumentForR2Key(input.r2Key, context.env, plugins);
-      const baseDocNamespace = await computeMomentGraphNamespaceForIndexing(document, indexingContext, plugins);
-      docEffectiveNamespace = applyMomentGraphNamespacePrefixValue(baseDocNamespace, prefix);
-  } catch (e) {
-      // If we can't load the doc to check namespace, we can't find its moments anyway.
-      await log.error("item.error", { phase: "timeline_fit", r2Key: input.r2Key, error: `Failed to resolve namespace: ${e}` });
-      // We proceed with empty namespace? Or default?
-      // Attempt default from run for safety fallback, though likely won't find anything if split.
-      docEffectiveNamespace = applyMomentGraphNamespacePrefixValue(runRow.moment_graph_namespace, prefix);
-  }
-
-  const momentGraphContext = { env: context.env, momentGraphNamespace: docEffectiveNamespace ?? null };
-  const momentDb = getMomentGraphDb(context.env, docEffectiveNamespace ?? null);
   const roots = await db.selectFrom("simulation_run_materialized_moments").select(["moment_id", "r2_key", "stream_id", "macro_index"]).where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).execute();
   const rootIds = roots.map(r => r.moment_id);
-  const momentsList = rootIds.length > 0 ? await momentDb.selectFrom("moments").select(["id", "document_id", "created_at", "source_metadata", "title", "summary", "parent_id"]).where("id", "in", rootIds).execute() : [];
+  
+  const momentsList = await fetchMomentsFromRun(context, input.runId, rootIds);
   const rootById = new Map((momentsList as any[]).map(r => [r.id, r]));
 
   for (const root of roots) {
-    const child = rootById.get(root.moment_id);
-    if (!child || child.parent_id) continue;
+    const childRaw = rootById.get(root.moment_id);
+    if (!childRaw || childRaw.parent_id) continue;
+    
+    // Use the namespace where the moment was found for any updates
+    const momentGraphContext = { env: context.env, momentGraphNamespace: childRaw._namespace };
+    const momentDb = getMomentGraphDb(context.env, childRaw._namespace);
+    
+    // Re-format just enough for existing code if needed, but the row shape is mostly compatible
+    const child = {
+        ...childRaw,
+        sourceMetadata: childRaw.source_metadata,
+        createdAt: childRaw.created_at,
+        documentId: childRaw.document_id,
+        summary: childRaw.summary,
+        title: childRaw.title,
+    };
 
     try {
       const candidatesRow = await db.selectFrom("simulation_run_candidate_sets").select("candidates_json").where("run_id", "=", input.runId).where("child_moment_id", "=", root.moment_id).executeTakeFirst();
       const candidates = (candidatesRow?.candidates_json as any) ?? [];
+      const candidateIds = candidates.map((c: any) => c.id);
 
-      const deepCandidates = candidates.length > 0 ? await momentDb.selectFrom("moments").select(["id", "document_id", "title", "summary"]).where("id", "in", candidates.map((c: any) => c.id)).execute() : [];
+      // We need to fetch candidates too - they might be in different namespaces if cross-doc linking?
+      // Assuming candidates are from the same simulation run or at least discoverable.
+      // fetchMomentsFromRun works for ANY moment ID in the run's scope.
+      const deepCandidatesList = candidateIds.length > 0 ? await fetchMomentsFromRun(context, input.runId, candidateIds) : [];
+      // No Map needed for candidates list passed to orchestrator, just the array
 
       const proposal = await computeTimelineFitDecision({
         ports: { callLLM: (p) => callLLM(p, "slow-reasoning", { temperature: 0 }) },
         childMomentId: root.moment_id,
         childText: `${child.title ?? ""}\n${child.summary ?? ""}`.trim(),
-        candidates: deepCandidates as any,
+        candidates: deepCandidatesList as any,
         useLlmVeto: true,
         maxAnchorTokens: 24,
         maxSharedAnchorTokens: 12,

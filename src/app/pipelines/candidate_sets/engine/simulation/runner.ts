@@ -8,11 +8,7 @@ import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../../engine/simulation/logger";
 import { simulationPhases } from "../../../../engine/simulation/types";
 import { getEmbedding } from "../../../../engine/utils/vector";
-import { getIndexingPlugins } from "../../../../engine/indexing/indexingPlugins";
-import {
-  prepareDocumentForR2Key,
-  computeMomentGraphNamespaceForIndexing,
-} from "../../../../engine/indexing/pluginPipeline";
+import { fetchMomentsFromRun } from "../../../../engine/simulation/runArtifacts";
 import { computeCandidateSet } from "../../../../engine/core/linking/candidateSetsOrchestrator";
 
 export async function runPhaseCandidateSets(
@@ -21,6 +17,7 @@ export async function runPhaseCandidateSets(
 ): Promise<{ status: string; currentPhase: string } | null> {
   const db = getSimulationDb(context);
   const now = new Date().toISOString();
+  // ... (keeping standard setup) ...
   const log = createSimulationRunLogger(context, { runId: input.runId });
   const verbosityRaw = String((context.env as any).MACHINEN_SIMULATION_EVENT_VERBOSITY ?? "").trim().toLowerCase();
   const verbose = verbosityRaw === "1" || verbosityRaw === "true" || verbosityRaw === "verbose" || verbosityRaw === "item";
@@ -97,23 +94,9 @@ export async function runPhaseCandidateSets(
   }
 
   // Granular execution
-  // Re-compute the namespace for this document, matching materialize_moments behavior
-  const plugins = getIndexingPlugins(context.env);
-  let docEffectiveNamespace: string | null = null;
-  try {
-      const { document, indexingContext } = await prepareDocumentForR2Key(input.r2Key, context.env, plugins);
-      const baseDocNamespace = await computeMomentGraphNamespaceForIndexing(document, indexingContext, plugins);
-      docEffectiveNamespace = applyMomentGraphNamespacePrefixValue(baseDocNamespace, prefix);
-  } catch (e) {
-      // If we can't load the doc to check namespace, we can't find its moments anyway.
-      await log.error("item.error", { phase: "candidate_sets", r2Key: input.r2Key, error: `Failed to resolve namespace: ${e}` });
-      docEffectiveNamespace = applyMomentGraphNamespacePrefixValue(runRow.moment_graph_namespace, prefix);
-  }
-
-  const momentDb = getMomentGraphDb(context.env, docEffectiveNamespace ?? null);
   const roots = await db.selectFrom("simulation_run_materialized_moments").select(["moment_id", "r2_key", "stream_id", "macro_index"]).where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).execute();
   const rootIds = roots.map(r => r.moment_id);
-  const moments = rootIds.length > 0 ? await momentDb.selectFrom("moments").select(["id", "document_id", "created_at", "source_metadata", "title", "summary", "parent_id"]).where("id", "in", rootIds).execute() : [];
+  const moments = await fetchMomentsFromRun(context, input.runId, rootIds);
   const rootById = new Map((moments as any[]).map(r => [r.id, r]));
 
   for (const root of roots) {
@@ -131,11 +114,17 @@ export async function runPhaseCandidateSets(
         ports: {
           getEmbedding: async (text) => await getEmbedding(text),
           vectorQuery: async (embedding, query) => {
-            const results = await (context.env as any).MOMENT_INDEX.query(embedding, { topK: query.topK, returnMetadata: true, filter: (effectiveNamespace ?? "default") !== "default" ? { momentGraphNamespace: effectiveNamespace ?? "default" } : undefined });
+            // For broadcasting, we query the index without namespace filter? or with specific filter?
+            // The existing code filtered by ONE namespace.
+            // If we have mixed/many namespaces, filtering by one excludes matches from others.
+            // So we should PROBABLY omit the filter (undefined) to search GLOBAL index, or iterate.
+            // Vector index might support array of namespaces? Unlikely.
+            // Safest: undefined (global search) if we are in broadcast mode.
+            const results = await (context.env as any).MOMENT_INDEX.query(embedding, { topK: query.topK, returnMetadata: true, filter: undefined });
             return { matches: (results?.matches ?? []).map((m: any) => ({ id: m.id, score: m.score })) };
           },
           loadCandidateRowsById: async (ids) => {
-            const rows = ids.length > 0 ? await momentDb.selectFrom("moments").select(["id", "document_id", "created_at", "source_metadata", "title", "summary"]).where("id", "in", ids as any).execute() : [];
+            const rows = ids.length > 0 ? await fetchMomentsFromRun(context, input.runId, ids) : [];
             return new Map((rows as any[]).map(r => [r.id, r]));
           },
         },

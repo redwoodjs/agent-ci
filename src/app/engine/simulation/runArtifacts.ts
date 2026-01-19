@@ -18,29 +18,20 @@ import { getSimulationDb, getMomentGraphDb } from "./db";
  * It first checks `simulation_run_participating_namespaces`.
  * If empty, it falls back to known legacy namespaces + the run's default.
  */
-async function fetchMomentDetails(
+/**
+ * Helper to fetch raw moment rows across all participating namespaces for a run.
+ * Used by runners (timeline_fit, candidate_sets, linking) to find moments without needing to re-route.
+ */
+export async function fetchMomentsFromRun(
   context: SimulationDbContext,
   runId: string,
   momentIds: string[]
-): Promise<
-  Map<
-    string,
-    {
-      parentId: string | null;
-      title: string | null;
-      summary: string | null;
-      sourceMetadata: any | null;
-      author: string | null;
-      createdAt: string | null;
-    }
-  >
-> {
+): Promise<any[]> {
   const db = getSimulationDb(context);
   const distinctIds = Array.from(new Set(momentIds)).filter(Boolean);
-  const detailsMap = new Map<string, any>();
-
+  
   if (distinctIds.length === 0) {
-    return detailsMap;
+    return [];
   }
 
   // 1. Get run info for legacy fallback
@@ -98,45 +89,73 @@ async function fetchMomentDetails(
   }
 
   // 3. Query all candidate namespaces in parallel
-  await Promise.all(
+  const results = await Promise.all(
     Array.from(namespacesToCheck).map(async (ns) => {
       try {
         const momentDb = getMomentGraphDb(context.env, ns);
-        // We only fetch IDs that we haven't found yet to optimize?
-        // Actually, for simplicity and ensuring we find the *correct* one if ID collisions were possible (unlikely with UUIDs),
-        // we just query all and merge.
-        const momentRows = await momentDb
+        const rows = await momentDb
           .selectFrom("moments")
           .select([
             "id",
+            "document_id",
             "parent_id",
             "title",
             "summary",
             "source_metadata",
             "author",
             "created_at",
+            "importance",
+            "is_subject",
+            "moment_kind",
           ])
           .where("id", "in", distinctIds as any)
           .execute();
-
-        for (const r of momentRows) {
-          if (!detailsMap.has(r.id)) {
-            detailsMap.set(r.id, {
-              parentId: r.parent_id ?? null,
-              title: r.title ?? null,
-              summary: r.summary ?? null,
-              sourceMetadata: r.source_metadata ?? null,
-              author: r.author ?? null,
-              createdAt: r.created_at ?? null,
-            });
-          }
-        }
+        return rows.map(r => ({ ...r, _namespace: ns }));
       } catch (e) {
-        // Ignore errors from missing namespaces or DB failures, just try best effort
-        console.warn(`Failed to fetch moments from namespace ${ns}:`, e);
+        // Ignore errors from missing namespaces or DB failures
+        return [];
       }
     })
   );
+
+  return results.flat();
+}
+
+/**
+ * Helper to fetch moment details (title, summary, etc.) across potentially multiple namespaces.
+ */
+async function fetchMomentDetails(
+  context: SimulationDbContext,
+  runId: string,
+  momentIds: string[]
+): Promise<
+  Map<
+    string,
+    {
+      parentId: string | null;
+      title: string | null;
+      summary: string | null;
+      sourceMetadata: any | null;
+      author: string | null;
+      createdAt: string | null;
+    }
+  >
+> {
+  const rows = await fetchMomentsFromRun(context, runId, momentIds);
+  const detailsMap = new Map<string, any>();
+
+  for (const r of rows) {
+    if (!detailsMap.has(r.id)) {
+      detailsMap.set(r.id, {
+        parentId: r.parent_id ?? null,
+        title: r.title ?? null,
+        summary: r.summary ?? null,
+        sourceMetadata: r.source_metadata ?? null,
+        author: r.author ?? null,
+        createdAt: r.created_at ?? null,
+      });
+    }
+  }
 
   return detailsMap;
 }

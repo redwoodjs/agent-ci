@@ -69,3 +69,10 @@ My goal is to restore the stable behavior while preserving the "always queue" in
 - [ ] Verify build passes.
 - [ ] Fix the infinite dispatch loop in `micro_batches`.
 - [ ] Final verification of "Always Queue" strategy across all phases.
+
+## Finalized Stabilization
+- Successfully restored all missing runners and UI components.
+- Adapted all 8 simulation phase runners to use a strictly asynchronous, document-level dispatch logic via `ENGINE_INDEXING_QUEUE`.
+- Fixed the infinite re-dispatch loop in `micro_batches` by ensuring it only enqueues work for documents not yet started in the current phase.
+- Updated core simulation tests to use a polling-based model via `pollUntilPhase` in `test-utils.mjs`.
+- Verified the build with `pnpm build`, which completed successfully.

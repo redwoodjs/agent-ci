@@ -5,7 +5,7 @@ import type {
   Moment,
 } from "../types";
 import { createEngineContext } from "../index";
-import { addMoment, findMomentByMicroPathsHash } from "../momentDb";
+import { addMoment, findMomentByMicroPathsHash } from "../databases/momentGraph";
 import { getEmbeddings } from "../utils/vector";
 import {
   fetchReplayItemsBatch,
@@ -22,7 +22,7 @@ import {
   setReplayEnqueuedFlag,
   setReplayRunStatus,
   setReplayStreamState,
-} from "../db/momentReplay";
+} from "../databases/indexingState/momentReplay";
 
 type ReplayMessage = {
   jobType?: unknown;

@@ -1,10 +1,10 @@
 import { indexDocument, createEngineContext } from "../index";
-import { updateIndexingState } from "../db";
+import { updateIndexingState } from "../databases/indexingState";
 import { Chunk } from "../types";
 import {
   recordReplayDocumentResult,
   setReplayEnqueued,
-} from "../db/momentReplay";
+} from "../databases/indexingState/momentReplay";
 
 interface IndexingMessage {
   r2Key: string;

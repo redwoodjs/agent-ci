@@ -54,7 +54,7 @@ interface GitHubProjectLatestJson {
 function isGitHubR2Key(r2Key: string): boolean {
   return (
     r2Key.startsWith("github/") &&
-    r2Key.endsWith("/latest.json") &&
+    (r2Key.endsWith("/latest.json") || r2Key.includes("/history/")) &&
     (r2Key.includes("/pull-requests/") ||
       r2Key.includes("/issues/") ||
       r2Key.includes("/projects/"))
@@ -75,7 +75,7 @@ function parseR2Key(r2Key: string):
     }
   | null {
   const prIssueMatch = r2Key.match(
-    /^github\/([^\/]+)\/([^\/]+)\/(pull-requests|issues)\/(\d+)\/latest\.json$/
+    /^github\/([^\/]+)\/([^\/]+)\/(pull-requests|issues)\/(\d+)\/(?:latest\.json|history\/[^\/]+\.json)$/
   );
   if (prIssueMatch) {
     return {

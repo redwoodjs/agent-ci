@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/app/components/ui/ca
 import {
   getReplayRunById,
   getReplayRunEvents,
-} from "@/app/engine/db/momentReplay";
+} from "@/app/engine/databases/indexingState/momentReplay";
 import { ReplayRunLogText } from "./replay-run-log-text";
 
 function safeStringify(value: unknown): string {

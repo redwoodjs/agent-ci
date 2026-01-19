@@ -10,8 +10,11 @@ import type {
   Moment,
   MacroMomentDescription,
 } from "./types";
-import { getProcessedChunkHashes, setProcessedChunkHashes } from "./db";
-import { addReplayItemsBatch } from "./db/momentReplay";
+import {
+  getProcessedChunkHashes,
+  setProcessedChunkHashes,
+} from "./databases/indexingState";
+import { addReplayItemsBatch } from "./databases/indexingState/momentReplay";
 import {
   addMoment,
   addDocumentAuditLog,
@@ -25,20 +28,47 @@ import {
   getMicroMomentsForDocument,
   findMomentByMicroPathsHash,
   type MicroMoment,
-} from "./momentDb";
+  type MomentGraphContext,
+} from "./databases/momentGraph";
 import { callLLM } from "./utils/llm";
 import { getEmbedding, getEmbeddings } from "./utils/vector";
+import { computeMicroBatchesForDocument } from "../pipelines/micro_batches/engine/core/orchestrator";
+import { planMicroBatches } from "./lib/phaseCores/microBatchesCore";
+import { computeMicroItemsWithoutLlm } from "./utils/microItems";
+import {
+  computeMaterializedMomentIdentityTagged,
+  computeMicroPathsHash,
+} from "./lib/phaseCores/materializeMomentsCore";
+import { computeMacroSynthesisForDocument } from "../pipelines/macro_synthesis/engine/core/orchestrator";
+import {
+  computeMicroStreamHash,
+  extractAnchorsFromStreams,
+} from "./lib/phaseCores/macroSynthesisCore";
+import { computeDeterministicLinkingProposal } from "./lib/phaseCores/deterministicLinkingCore";
+import { computeIndexDocumentParentForRootMacroMoment } from "./live/linking";
+import { runIndexingDocumentPreparation } from "./indexing/documentPreparation";
 import {
   synthesizeMicroMoments,
   synthesizeMicroMomentsIntoStreams,
   type SynthesisAuditEvent,
 } from "./synthesis/synthesizeMicroMoments";
+import { extractAnchorTokens } from "./utils/anchorTokens";
+import {
+  buildParsedDocumentIdentity,
+  computeTimeRangeFromMicroMoments,
+  mergeMomentSourceMetadata,
+} from "./utils/provenance";
 import { computeMicroMomentsForChunkBatch } from "./subjects/computeMicroMomentsForChunkBatch";
 import { classifyMacroMoments } from "./subjects/classifyMacroMoments";
 import {
   applyMomentGraphNamespacePrefixValue,
   getMomentGraphNamespacePrefixFromEnv,
 } from "./momentGraphNamespace";
+import {
+  getMicroPromptContext,
+  splitDocumentIntoChunks,
+} from "./indexing/pluginPipeline";
+import { chunkChunksForMicroComputation } from "./utils/chunkBatching";
 
 async function hashChunkId(chunkId: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -49,14 +79,6 @@ async function hashChunkId(chunkId: string): Promise<string> {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   return hashHex.substring(0, 16);
-}
-
-async function hashMicroPaths(microPaths: string[]): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(microPaths.join("\n"));
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 async function hashStrings(values: string[]): Promise<string> {
@@ -77,71 +99,6 @@ function uuidFromSha256Hex(hashHex: string): string {
   )}-${bytes.slice(16, 20)}-${bytes.slice(20, 32)}`;
 }
 
-function truncateToChars(text: string, maxChars: number): string {
-  if (maxChars <= 0) {
-    return "";
-  }
-  if (text.length <= maxChars) {
-    return text;
-  }
-  return text.slice(0, maxChars);
-}
-
-function chunkChunksForMicroComputation(
-  chunks: Chunk[],
-  opts: { maxBatchChars: number; maxChunkChars: number; maxBatchItems: number }
-): Chunk[][] {
-  const maxBatchChars =
-    Number.isFinite(opts.maxBatchChars) && opts.maxBatchChars > 0
-      ? opts.maxBatchChars
-      : 10_000;
-  const maxChunkChars =
-    Number.isFinite(opts.maxChunkChars) && opts.maxChunkChars > 0
-      ? opts.maxChunkChars
-      : 2_000;
-  const maxBatchItems =
-    Number.isFinite(opts.maxBatchItems) && opts.maxBatchItems > 0
-      ? opts.maxBatchItems
-      : 10;
-
-  const out: Chunk[][] = [];
-  let currentBatch: Chunk[] = [];
-  let currentChars = 0;
-
-  function flush() {
-    if (currentBatch.length > 0) {
-      out.push(currentBatch);
-      currentBatch = [];
-      currentChars = 0;
-    }
-  }
-
-  for (const chunk of chunks) {
-    const content = truncateToChars(chunk.content ?? "", maxChunkChars);
-    const projectedChars = currentChars + content.length;
-
-    if (
-      currentBatch.length > 0 &&
-      (currentBatch.length >= maxBatchItems || projectedChars > maxBatchChars)
-    ) {
-      flush();
-    }
-
-    currentBatch.push({
-      ...chunk,
-      content,
-    });
-    currentChars += content.length;
-
-    if (currentBatch.length >= maxBatchItems || currentChars > maxBatchChars) {
-      flush();
-    }
-  }
-
-  flush();
-  return out;
-}
-
 export async function indexDocument(
   r2Key: string,
   context: EngineContext,
@@ -156,19 +113,13 @@ export async function indexDocument(
     r2Key,
     env: context.env,
     momentGraphNamespace: null,
-    indexingMode: "indexing",
+    indexingMode:
+      typeof options?.momentReplayRunId === "string" &&
+      options.momentReplayRunId.trim().length > 0
+        ? "replay"
+        : "indexing",
   };
   console.log("[moment-linker] indexDocument start", { r2Key });
-
-  const document = await runFirstMatchHook(
-    context.plugins,
-    "prepareSourceDocument",
-    (plugin) => plugin.prepareSourceDocument?.(indexingContext)
-  );
-
-  if (!document) {
-    throw new Error(`No plugin could prepare document for R2 key: ${r2Key}`);
-  }
 
   const overrideNamespace =
     typeof options?.momentGraphNamespace === "string" &&
@@ -181,89 +132,125 @@ export async function indexDocument(
       ? options.momentGraphNamespacePrefix.trim()
       : null;
 
-  let baseNamespace: string | null = null;
-  if (overrideNamespace) {
-    baseNamespace = overrideNamespace;
-  } else {
-    for (const plugin of context.plugins) {
-      const nsRaw =
-        await plugin.scoping?.computeMomentGraphNamespaceForIndexing?.(
-          document,
-          indexingContext
-        );
-      const ns =
-        typeof nsRaw === "string" && nsRaw.trim().length > 0
-          ? nsRaw.trim()
-          : null;
-      if (ns) {
-        baseNamespace = ns;
-        break;
-      }
-    }
-  }
-
-  const envPrefix = getMomentGraphNamespacePrefixFromEnv(indexingContext.env);
-  const effectiveNamespace = baseNamespace
-    ? overrideNamespace
-      ? applyMomentGraphNamespacePrefixValue(baseNamespace, overridePrefix)
-      : applyMomentGraphNamespacePrefixValue(
-          baseNamespace,
-          overridePrefix ?? envPrefix
-        )
-    : null;
-
-  indexingContext.momentGraphNamespace = effectiveNamespace;
-
-  const momentGraphContext = {
-    env: context.env,
-    momentGraphNamespace: effectiveNamespace,
-  };
-
-  const momentReplayRunIdRaw = options?.momentReplayRunId;
-  const momentReplayRunId =
-    typeof momentReplayRunIdRaw === "string" &&
-    momentReplayRunIdRaw.trim().length > 0
-      ? momentReplayRunIdRaw.trim()
-      : null;
   const forceRecollect = options?.forceRecollect === true;
 
+  const chunkBatchSizeRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_BATCH_SIZE;
+  const chunkBatchMaxCharsRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_BATCH_MAX_CHARS;
+  const chunkMaxCharsRaw = (indexingContext.env as any)
+    .MICRO_MOMENT_CHUNK_MAX_CHARS;
+
+  const chunkBatchSize =
+    typeof chunkBatchSizeRaw === "string"
+      ? Number.parseInt(chunkBatchSizeRaw, 10)
+      : typeof chunkBatchSizeRaw === "number"
+      ? chunkBatchSizeRaw
+      : 10;
+  const chunkBatchMaxChars =
+    typeof chunkBatchMaxCharsRaw === "string"
+      ? Number.parseInt(chunkBatchMaxCharsRaw, 10)
+      : typeof chunkBatchMaxCharsRaw === "number"
+      ? chunkBatchMaxCharsRaw
+      : 10_000;
+  const chunkMaxChars =
+    typeof chunkMaxCharsRaw === "string"
+      ? Number.parseInt(chunkMaxCharsRaw, 10)
+      : typeof chunkMaxCharsRaw === "number"
+      ? chunkMaxCharsRaw
+      : 2_000;
+
+  const momentReplayRunId =
+    typeof options?.momentReplayRunId === "string" &&
+    options.momentReplayRunId.trim().length > 0
+      ? options.momentReplayRunId.trim()
+      : null;
+
   let stage = "start";
+  let auditDocumentId: string | null = null;
+  let auditMomentGraphContext: MomentGraphContext | null = null;
   try {
-    stage = "split-document";
-    // 1. Split document into chunks BEFORE subject correlation
-    let chunks: Chunk[] | null = null;
-    for (const plugin of context.plugins) {
-      if (plugin.splitDocumentIntoChunks) {
-        const result = await plugin.splitDocumentIntoChunks(
+    stage = "document-prep";
+    const prepared = await runIndexingDocumentPreparation({
+      ports: {
+        prepareSourceDocument: async ({ indexingContext }) => {
+          const doc = await runFirstMatchHook(
+            context.plugins,
+            "prepareSourceDocument",
+            (plugin) => plugin.prepareSourceDocument?.(indexingContext)
+          );
+          if (!doc) {
+            throw new Error(
+              `No plugin could prepare document for R2 key: ${r2Key}`
+            );
+          }
+          return doc;
+        },
+        computeMomentGraphNamespaceForIndexing: async ({
           document,
-          indexingContext
-        );
-        if (result && result.length > 0) {
-          chunks = result;
-          break;
-        }
-      }
-    }
+          indexingContext,
+          plugins,
+        }) => {
+          for (const plugin of plugins) {
+            const nsRaw =
+              await plugin.scoping?.computeMomentGraphNamespaceForIndexing?.(
+                document,
+                indexingContext
+              );
+            const ns =
+              typeof nsRaw === "string" && nsRaw.trim().length > 0
+                ? nsRaw.trim()
+                : null;
+            if (ns) {
+              return ns;
+            }
+          }
+          return null;
+        },
+        getMomentGraphNamespacePrefixFromEnv,
+        applyMomentGraphNamespacePrefixValue: (
+          baseNamespace: string,
+          prefix: string | null
+        ) =>
+          applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) ??
+          baseNamespace,
+        splitDocumentIntoChunks: async ({
+          document,
+          indexingContext,
+          plugins,
+        }) => await splitDocumentIntoChunks(document, indexingContext, plugins),
+        loadProcessedChunkHashes: async ({ r2Key, momentGraphNamespace }) =>
+          await getProcessedChunkHashes(r2Key, {
+            env: context.env,
+            momentGraphNamespace,
+          }),
+      },
+      r2Key,
+      env: context.env,
+      plugins: context.plugins,
+      overrideNamespace,
+      overridePrefix,
+      indexingMode: momentReplayRunId ? "replay" : "indexing",
+      forceRecollect,
+    });
 
-    if (!chunks || chunks.length === 0) {
-      throw new Error(`No plugin could split document into chunks: ${r2Key}`);
-    }
+    const document = prepared.document;
+    const effectiveNamespace = prepared.effectiveNamespace;
+    indexingContext.momentGraphNamespace = effectiveNamespace;
 
-    stage = "diff-chunks";
-    // 2. Diff against previously processed chunks to avoid redundant work
-    const oldChunkHashes = await getProcessedChunkHashes(r2Key, {
+    const momentGraphContext = {
       env: context.env,
       momentGraphNamespace: effectiveNamespace,
-    });
-    const oldChunkHashSet = new Set(oldChunkHashes);
+    };
+    auditMomentGraphContext = momentGraphContext;
+    auditDocumentId = document.id;
 
-    const newChunks = forceRecollect
-      ? chunks
-      : chunks.filter((chunk) => !oldChunkHashSet.has(chunk.contentHash!));
+    const chunks = prepared.chunks;
+    const newChunks = prepared.newChunks;
 
     if (newChunks.length === 0) {
       console.log("[moment-linker] skipping: no new chunks", { r2Key });
-      return []; // Nothing more to do
+      return [];
     }
 
     stage = "micro-moments";
@@ -274,32 +261,6 @@ export async function indexDocument(
       document.id,
       momentGraphContext
     );
-
-    const chunkBatchSizeRaw = (indexingContext.env as any)
-      .MICRO_MOMENT_CHUNK_BATCH_SIZE;
-    const chunkBatchMaxCharsRaw = (indexingContext.env as any)
-      .MICRO_MOMENT_CHUNK_BATCH_MAX_CHARS;
-    const chunkMaxCharsRaw = (indexingContext.env as any)
-      .MICRO_MOMENT_CHUNK_MAX_CHARS;
-
-    const chunkBatchSize =
-      typeof chunkBatchSizeRaw === "string"
-        ? Number.parseInt(chunkBatchSizeRaw, 10)
-        : typeof chunkBatchSizeRaw === "number"
-        ? chunkBatchSizeRaw
-        : 10;
-    const chunkBatchMaxChars =
-      typeof chunkBatchMaxCharsRaw === "string"
-        ? Number.parseInt(chunkBatchMaxCharsRaw, 10)
-        : typeof chunkBatchMaxCharsRaw === "number"
-        ? chunkBatchMaxCharsRaw
-        : 10_000;
-    const chunkMaxChars =
-      typeof chunkMaxCharsRaw === "string"
-        ? Number.parseInt(chunkMaxCharsRaw, 10)
-        : typeof chunkMaxCharsRaw === "number"
-        ? chunkMaxCharsRaw
-        : 2_000;
 
     const chunkBatches = chunkChunksForMicroComputation(chunks, {
       maxBatchChars: chunkBatchMaxChars,
@@ -358,156 +319,173 @@ export async function indexDocument(
       };
     }
 
-    for (let batchIndex = 0; batchIndex < chunkBatches.length; batchIndex++) {
-      const batchChunks = chunkBatches[batchIndex] ?? [];
-      const batchKeyParts = batchChunks.map((c) => {
-        const hash = c.contentHash ?? "";
-        return `${c.id}:${hash}`;
-      });
-      const batchHash = await hashStrings(batchKeyParts);
-      const prefix = `chunk-batch:${batchHash}:`;
+    const microBatchResults = await computeMicroBatchesForDocument({
+      ports: {
+        planMicroBatches,
+        sha256Hex: async (value: string) => await hashStrings([value]),
+        getMicroPromptContext: async (doc, chunks, ctx, plugins) =>
+          await getMicroPromptContext(doc, chunks, ctx, plugins),
+        loadMicroBatchCache: async ({ batchHash }) => {
+          const prefix = `chunk-batch:${batchHash}:`;
+          const existingBatchItems = existingMicroMoments
+            .filter((m) => m.path.startsWith(prefix))
+            .map((m) => {
+              const idxStr = m.path.slice(prefix.length);
+              const idx = Number.parseInt(idxStr, 10);
+              return { idx, m };
+            })
+            .filter((x) => Number.isFinite(x.idx) && x.idx > 0)
+            .sort((a, b) => a.idx - b.idx)
+            .map((x) => x.m);
 
-      const existingBatchItems = existingMicroMoments
-        .filter((m) => m.path.startsWith(prefix))
-        .map((m) => {
-          const idxStr = m.path.slice(prefix.length);
-          const idx = Number.parseInt(idxStr, 10);
-          return { idx, m };
-        })
-        .filter((x) => Number.isFinite(x.idx) && x.idx > 0)
-        .sort((a, b) => a.idx - b.idx)
-        .map((x) => x.m);
+          const hasFullCachedBatch =
+            existingBatchItems.length > 0 &&
+            existingBatchItems.every((m) => !!m.summary && !!m.embedding);
 
-      const hasFullCachedBatch =
-        existingBatchItems.length > 0 &&
-        existingBatchItems.every((m) => !!m.summary && !!m.embedding);
+          if (!hasFullCachedBatch) {
+            return null;
+          }
 
-      if (hasFullCachedBatch) {
-        microMomentsForSynthesis.push(...existingBatchItems);
-        continue;
-      }
+          microMomentsForSynthesis.push(...existingBatchItems);
+          return {
+            microItems: existingBatchItems
+              .map((m) => (m.summary ?? "").trim())
+              .filter(Boolean),
+          };
+        },
+        storeMicroBatchCache: async ({
+          batchHash,
+          microItems,
+          chunks,
+          batchIndex,
+        }) => {
+          const prefix = `chunk-batch:${batchHash}:`;
 
-      const microPromptContext = await runFirstMatchHook(
-        context.plugins,
-        "getMicroMomentBatchPromptContext",
-        (plugin) =>
-          plugin.subjects?.getMicroMomentBatchPromptContext?.(
-            document,
-            batchChunks,
-            indexingContext
-          )
-      );
+          let embeddings: number[][] = [];
+          try {
+            embeddings = await getEmbeddings(microItems);
+          } catch (error) {
+            await addDocumentAuditLog(
+              document.id,
+              "indexing:micro-moment-embedding-error",
+              {
+                message: error instanceof Error ? error.message : String(error),
+                batchHash,
+                batchIndex,
+              },
+              momentGraphContext
+            );
+            embeddings = [];
+          }
 
-      const promptContext =
-        microPromptContext ??
-        `Context: These chunks are from a single document.\n` +
-          `Focus on concrete details and avoid generic summaries.\n`;
+          const batchTimeRange = inferBatchTimeRange(
+            chunks,
+            document.metadata.createdAt
+          );
+          const batchAuthorRaw = (chunks[0]?.metadata as any)?.author;
+          const batchAuthor =
+            typeof batchAuthorRaw === "string" &&
+            batchAuthorRaw.trim().length > 0
+              ? batchAuthorRaw.trim()
+              : document.metadata.author;
 
-      let computedItems: string[] = [];
-      try {
-        computedItems =
-          (await computeMicroMomentsForChunkBatch(batchChunks, {
-            promptContext,
-          })) ?? [];
-      } catch (error) {
-        await addDocumentAuditLog(
-          document.id,
-          "indexing:micro-moment-batch-error",
-          {
-            message: error instanceof Error ? error.message : String(error),
-            batchHash,
-            batchIndex,
-            chunkIds: batchChunks.map((c) => c.id),
-          },
-          momentGraphContext
-        );
-        computedItems = [];
-      }
+          const microMomentItems: Array<{
+            path: string;
+            content: string;
+            summary: string;
+            embedding: number[];
+            createdAt?: string;
+            author: string;
+            sourceMetadata?: Record<string, any>;
+          }> = [];
 
-      const itemsToStore =
-        computedItems.length > 0
-          ? computedItems
-          : batchChunks
-              .map((c) => c.content?.trim() ?? "")
-              .filter(Boolean)
-              .slice(0, 1)
-              .map((c) => c.substring(0, 300));
+          for (let i = 0; i < microItems.length; i++) {
+            const text = microItems[i] ?? "";
+            const embedding = embeddings[i] ?? (await getEmbedding(text));
+            const path = `${prefix}${i + 1}`;
+            const sourceMetadata = {
+              chunkBatchHash: batchHash,
+              chunkIds: chunks.map((c) => c.id),
+              timeRange: batchTimeRange,
+            };
 
-      let embeddings: number[][] = [];
-      try {
-        embeddings = await getEmbeddings(itemsToStore);
-      } catch (error) {
-        await addDocumentAuditLog(
-          document.id,
-          "indexing:micro-moment-embedding-error",
-          {
-            message: error instanceof Error ? error.message : String(error),
-            batchHash,
-            batchIndex,
-          },
-          momentGraphContext
-        );
-        embeddings = [];
-      }
-      const batchTimeRange = inferBatchTimeRange(
-        batchChunks,
-        document.metadata.createdAt
-      );
-      const batchAuthorRaw = (batchChunks[0]?.metadata as any)?.author;
-      const batchAuthor =
-        typeof batchAuthorRaw === "string" && batchAuthorRaw.trim().length > 0
-          ? batchAuthorRaw.trim()
-          : document.metadata.author;
+            microMomentItems.push({
+              path,
+              content: text,
+              summary: text,
+              embedding,
+              createdAt: batchTimeRange.start,
+              author: batchAuthor,
+              sourceMetadata,
+            });
 
-      const microMomentItems: Array<{
-        path: string;
-        content: string;
-        summary: string;
-        embedding: number[];
-        createdAt?: string;
-        author: string;
-        sourceMetadata?: Record<string, any>;
-      }> = [];
+            microMomentsForSynthesis.push({
+              id: crypto.randomUUID(),
+              documentId: document.id,
+              path,
+              content: text,
+              summary: text,
+              embedding,
+              createdAt: batchTimeRange.start,
+              author: batchAuthor,
+              sourceMetadata,
+            });
+          }
 
-      for (let i = 0; i < itemsToStore.length; i++) {
-        const text = itemsToStore[i] ?? "";
-        const embedding = embeddings[i] ?? (await getEmbedding(text));
-        const path = `${prefix}${i + 1}`;
-        const sourceMetadata = {
-          chunkBatchHash: batchHash,
-          chunkIds: batchChunks.map((c) => c.id),
-          timeRange: batchTimeRange,
-        };
+          await upsertMicroMomentsBatch(
+            document.id,
+            microMomentItems,
+            momentGraphContext
+          );
+        },
+        computeMicroItemsForChunkBatch: async ({ chunks, promptContext, batchIndex }) => {
+          try {
+            return (
+              (await computeMicroMomentsForChunkBatch(chunks, {
+                promptContext,
+              })) ?? []
+            );
+          } catch (error) {
+            await addDocumentAuditLog(
+              document.id,
+              "indexing:micro-moment-batch-error",
+              {
+                message: error instanceof Error ? error.message : String(error),
+                chunkIds: chunks.map((c) => c.id),
+              },
+              momentGraphContext
+            );
+            return [];
+          }
+        },
+        fallbackMicroItemsForChunkBatch: ({ chunks }) =>
+          computeMicroItemsWithoutLlm(chunks),
+        getEmbeddings: async (texts: string[]) => await getEmbeddings(texts),
+        getEmbedding: async (text: string) => await getEmbedding(text),
+        upsertMicroMomentsBatch: async ({
+          documentId,
+          momentGraphNamespace,
+          microMoments,
+        }) => {
+          await upsertMicroMomentsBatch(documentId, microMoments, {
+            env: context.env,
+            momentGraphNamespace,
+          });
+        },
+      },
+      document,
+      indexingContext,
+      plugins: context.plugins,
+      chunkBatches,
+    });
 
-        microMomentItems.push({
-          path,
-          content: text,
-          summary: text,
-          embedding,
-          createdAt: batchTimeRange.start,
-          author: batchAuthor,
-          sourceMetadata,
-        });
-
-        microMomentsForSynthesis.push({
-          id: crypto.randomUUID(),
-          documentId: document.id,
-          path,
-          content: text,
-          summary: text,
-          embedding: embedding,
-          createdAt: batchTimeRange.start,
-          author: batchAuthor,
-          sourceMetadata,
-        });
-      }
-
-      await upsertMicroMomentsBatch(
-        document.id,
-        microMomentItems,
-        momentGraphContext
-      );
-    }
+    const plannedBatches = microBatchResults.map((b) => ({
+      batchIndex: b.batchIndex,
+      batchHash: b.batchHash,
+      promptContext: b.promptContext,
+      promptContextHash: b.promptContextHash,
+      batchChunks: b.chunks,
+    }));
 
     if (microMomentsForSynthesis.length > 0) {
       microMomentsForSynthesis.sort((a, b) => {
@@ -539,18 +517,41 @@ export async function indexDocument(
         });
       }
 
-      const synthesisAuditEvents: SynthesisAuditEvent[] = [];
-      const streams = await synthesizeMicroMomentsIntoStreams(
-        microMomentsForSynthesis,
-        {
-          macroSynthesisPromptContext,
-          auditSink: (event) => {
-            synthesisAuditEvents.push(event);
+      const macroSynthesis = await computeMacroSynthesisForDocument({
+        ports: {
+          computeMicroStreamHash: async ({ batches }) => {
+            return await computeMicroStreamHash({
+              batches,
+              sha256Hex: async (value) => await hashStrings([value]),
+            });
           },
-        }
-      );
+          synthesizeMicroMomentsIntoStreams,
+          extractAnchorsFromStreams: ({ streams }) => {
+            return extractAnchorsFromStreams({
+              streams,
+              extractAnchorTokens,
+              maxTokensPerMoment: 8,
+              maxAnchors: 60,
+            });
+          },
+        },
+        plannedBatches: plannedBatches.map((b) => ({
+          batchHash: b.batchHash,
+          promptContextHash: b.promptContextHash,
+        })),
+        microMoments: microMomentsForSynthesis.map((m) => ({
+          path: m.path,
+          summary: m.summary ?? "",
+          createdAt: m.createdAt,
+        })),
+        macroSynthesisPromptContext: macroSynthesisPromptContext ?? null,
+        now: new Date().toISOString(),
+        documentId: document.id,
+      });
 
-      for (const event of synthesisAuditEvents) {
+      const streams = macroSynthesis.streams;
+
+      for (const event of macroSynthesis.auditEvents as SynthesisAuditEvent[]) {
         await addDocumentAuditLog(
           document.id,
           `synthesis:${event.kind}`,
@@ -578,6 +579,19 @@ export async function indexDocument(
       }
 
       if (streams.length > 0) {
+        await addDocumentAuditLog(
+          document.id,
+          "indexing:macro-synthesis-identity",
+          {
+            documentId: document.id,
+            r2Key,
+            streamId: streams[0]?.streamId ?? null,
+            microStreamHash: macroSynthesis.microStreamHash,
+            anchors: macroSynthesis.anchors,
+          },
+          momentGraphContext
+        );
+
         console.log("[moment-linker] macro streams synthesized", {
           documentId: document.id,
           streams: streams.map((s) => ({
@@ -1089,10 +1103,14 @@ export async function indexDocument(
             }
 
             const microPaths = description.microPaths || [];
-            const microPathsHash =
+            const microPathsHashRaw =
               microPaths.length > 0
-                ? await hashMicroPaths(microPaths)
-                : undefined;
+                ? await computeMicroPathsHash({
+                    microPaths,
+                    sha256Hex: async (value) => await hashStrings([value]),
+                  })
+                : null;
+            const microPathsHash = microPathsHashRaw ?? undefined;
             const existing =
               microPathsHash !== undefined
                 ? await findMomentByMicroPathsHash(
@@ -1102,7 +1120,45 @@ export async function indexDocument(
                   )
                 : null;
 
-            const momentId = existing?.id ?? crypto.randomUUID();
+            const deterministicMomentId = (
+              await computeMaterializedMomentIdentityTagged({
+                tag: "live-materialize-moment",
+                identityScope: "live",
+                effectiveNamespace: effectiveNamespace ?? null,
+                documentId: document.id,
+                streamId: stream.streamId,
+                macroIndex: i,
+                sha256Hex: async (value) => await hashStrings([value]),
+                uuidFromSha256Hex,
+              })
+            ).momentId;
+
+            const momentId =
+              existing?.id ?? deterministicMomentId ?? crypto.randomUUID();
+            const linkAuditLog =
+              i === 0
+                ? linkAuditLogForFirst ?? undefined
+                : momentReplayRunId
+                ? undefined
+                : previousMomentId
+                ? (() => {
+                    const proposal = computeDeterministicLinkingProposal({
+                      r2Key,
+                      streamId: stream.streamId,
+                      macroIndex: i,
+                      childMomentId: momentId,
+                      prevMomentId: previousMomentId,
+                      candidateParentMomentId: null,
+                      candidateIssueRef: null,
+                      candidateParentR2Key: null,
+                    });
+                    return {
+                      kind: "live.deterministic_linking",
+                      ruleId: proposal.ruleId,
+                      evidence: proposal.evidence,
+                    };
+                  })()
+                : undefined;
             if (i === 0) {
               if (momentReplayRunId) {
                 resolvedParentIdForFirst = undefined;
@@ -1124,87 +1180,23 @@ export async function indexDocument(
                   }
                 );
               } else {
-                const anchorMacroMoment =
-                  anchorMacroMomentForLinking ??
-                  macroMomentDescriptions[anchorMacroMomentIndex] ??
-                  macroMomentDescriptions[0];
-                let parentProposal: {
-                  parentMomentId: string | null;
-                  matchedSubjectId: string | null;
-                  score: number | null;
-                  auditLog?: Record<string, any>;
-                } | null = null;
-                let parentAuditLog: Record<string, any> | null = null;
-
-                for (const plugin of context.plugins) {
-                  const propose = plugin.subjects?.proposeMacroMomentParent;
-                  if (!propose) {
-                    continue;
-                  }
-                  const attempt = await propose(
-                    document,
-                    anchorMacroMoment,
-                    anchorMacroMomentIndex,
-                    indexingContext
-                  );
-                  if (attempt?.auditLog && !parentAuditLog) {
-                    parentAuditLog = attempt.auditLog;
-                  }
-                  if (
-                    typeof attempt?.parentMomentId === "string" &&
-                    attempt.parentMomentId.length > 0
-                  ) {
-                    parentProposal = attempt;
-                    if (attempt.auditLog) {
-                      parentAuditLog = attempt.auditLog;
-                    }
-                    break;
-                  }
-                }
-
-                resolvedParentIdForFirst =
-                  typeof parentProposal?.parentMomentId === "string" &&
-                  parentProposal.parentMomentId.length > 0
-                    ? parentProposal.parentMomentId
-                    : undefined;
-
-                linkAuditLogForFirst = parentAuditLog
-                  ? {
-                      ...parentAuditLog,
-                      proposalMacroMomentIndex: anchorMacroMomentIndex,
-                      proposalMacroMomentImportance:
-                        anchorMacroMomentImportance ?? null,
-                      proposalMacroMomentTitle: anchorMacroMoment.title ?? null,
-                    }
-                  : {
-                      kind: "no-plugin-attempts",
-                      proposalMacroMomentIndex: anchorMacroMomentIndex,
-                      proposalMacroMomentImportance:
-                        anchorMacroMomentImportance ?? null,
-                      proposalMacroMomentTitle: anchorMacroMoment.title ?? null,
-                    };
-
-                if (resolvedParentIdForFirst) {
-                  console.log("[moment-linker] attachment proposal", {
+                const computed =
+                  await computeIndexDocumentParentForRootMacroMoment({
+                    env: context.env,
+                    r2Key,
                     documentId: document.id,
-                    macroMomentIndex: i,
-                    proposalMacroMomentIndex: anchorMacroMomentIndex,
-                    proposalMacroMomentImportance: anchorMacroMomentImportance,
-                    parentMomentId: resolvedParentIdForFirst,
-                    matchedSubjectId: parentProposal?.matchedSubjectId ?? null,
-                    score: parentProposal?.score ?? null,
+                    momentGraphNamespace: effectiveNamespace,
+                    momentGraphContext,
                     streamId: stream.streamId,
+                    macroIndex: i,
+                    childMomentId: momentId,
+                    createdAt: description.createdAt,
+                    sourceMetadata: description.sourceMetadata as any,
+                    title: description.title ?? null,
+                    summary: description.summary ?? null,
                   });
-                } else {
-                  console.log("[moment-linker] no attachment proposal", {
-                    documentId: document.id,
-                    macroMomentIndex: i,
-                    proposalMacroMomentIndex: anchorMacroMomentIndex,
-                    proposalMacroMomentImportance: anchorMacroMomentImportance,
-                    streamId: stream.streamId,
-                    hasAuditLog: Boolean(linkAuditLogForFirst),
-                  });
-                }
+                resolvedParentIdForFirst = computed.parentId ?? undefined;
+                linkAuditLogForFirst = computed.auditLog;
               }
             }
             console.log("[moment-linker] macro correlation", {
@@ -1221,6 +1213,29 @@ export async function indexDocument(
                   : previousMomentId ?? null,
               streamId: stream.streamId,
             });
+            const parsedDocumentIdentity =
+              buildParsedDocumentIdentity(document);
+            const timeRangeFromMicro = computeTimeRangeFromMicroMoments({
+              microMoments: microMomentsForSynthesis,
+              microPaths,
+            });
+            const mergedSourceMetadata = mergeMomentSourceMetadata({
+              existing: description.sourceMetadata,
+              parsedDocumentIdentity,
+              timeRange: timeRangeFromMicro,
+            });
+            const createdAt =
+              typeof description.createdAt === "string" &&
+              description.createdAt.trim().length > 0
+                ? description.createdAt.trim()
+                : timeRangeFromMicro?.start ??
+                  document.metadata?.createdAt ??
+                  new Date().toISOString();
+            const author =
+              typeof description.author === "string" &&
+              description.author.trim().length > 0
+                ? description.author.trim()
+                : document.metadata?.author ?? "unknown";
             const moment: Moment = {
               id: momentId,
               documentId: document.id,
@@ -1255,11 +1270,10 @@ export async function indexDocument(
               )
                 ? ((description as any).subjectEvidence as any)
                 : undefined,
-              linkAuditLog:
-                i === 0 ? linkAuditLogForFirst ?? undefined : undefined,
-              createdAt: description.createdAt,
-              author: description.author,
-              sourceMetadata: description.sourceMetadata,
+              linkAuditLog: linkAuditLog,
+              createdAt,
+              author,
+              sourceMetadata: mergedSourceMetadata,
             };
 
             if (momentReplayRunId) {
@@ -1387,17 +1401,25 @@ export async function indexDocument(
 
     return enrichedChunks;
   } catch (error) {
-    await addDocumentAuditLog(
-      document.id,
-      "indexing:error",
-      {
+    if (auditDocumentId && auditMomentGraphContext) {
+      await addDocumentAuditLog(
+        auditDocumentId,
+        "indexing:error",
+        {
+          stage,
+          message: error instanceof Error ? error.message : String(error),
+          r2Key,
+          documentId: auditDocumentId,
+        },
+        auditMomentGraphContext
+      );
+    } else {
+      console.error("[moment-linker] indexDocument error", {
         stage,
-        message: error instanceof Error ? error.message : String(error),
         r2Key,
-        documentId: document.id,
-      },
-      momentGraphContext
-    );
+        message: error instanceof Error ? error.message : String(error),
+      });
+    }
     throw error;
   } finally {
     // no global namespace mutation

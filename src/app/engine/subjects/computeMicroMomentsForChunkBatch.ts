@@ -5,6 +5,7 @@ export async function computeMicroMomentsForChunkBatch(
   chunks: Chunk[],
   options: {
     promptContext: string;
+    logger?: (message: string, data?: any) => void;
   }
 ): Promise<string[] | null> {
   if (chunks.length === 0) {
@@ -37,9 +38,9 @@ export async function computeMicroMomentsForChunkBatch(
     `- Each summary must be <= 400 characters.\n` +
     `- Include concrete terms (names, ids, file paths, errors, decisions) when present.\n` +
     `- Each summary should explicitly attribute key statements to the relevant person.\n` +
-    `  - Prefer the author shown in the CHUNK header (author=...).\n` +
-    `  - If a different person is explicitly mentioned in the content (e.g. quoted), attribute to that person.\n` +
-    `  - Example: "@peter suggested ...", "Peter noted ...", "@alice proposed ...".\n` +
+    `- Prefer the author shown in the CHUNK header (author=...).\n` +
+    `- If a different person is explicitly mentioned in the content (e.g. quoted), attribute to that person.\n` +
+    `- Example: "@peter suggested ...", "Peter noted ...", "@alice proposed ...".\n` +
     `- Do not include phrases like "Content about".\n` +
     `- Do not output meta commentary about summarizing.\n` +
     `- Return between 1 and 12 items.\n\n` +
@@ -54,6 +55,7 @@ export async function computeMicroMomentsForChunkBatch(
         effort: "low",
         summary: "concise",
       },
+      logger: options.logger,
     });
 
     return parseMicroMomentLines(response);

@@ -1,4 +1,4 @@
-export { indexDocument, query } from "./engine";
+export { indexDocument, query } from "./runners/live";
 export type {
   Source,
   Document,
@@ -16,7 +16,6 @@ import {
   discordPlugin,
   cursorPlugin,
   defaultPlugin,
-  timelineFitLinkerPlugin,
 } from "./plugins";
 
 export function createEngineContext(
@@ -26,7 +25,6 @@ export function createEngineContext(
   return {
     plugins: [
       redwoodScopeRouterPlugin,
-      timelineFitLinkerPlugin,
       githubPlugin,
       discordPlugin,
       cursorPlugin,

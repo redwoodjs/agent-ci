@@ -7,7 +7,7 @@ import {
   validateQueryInput,
 } from "./interruptors";
 import { query, createEngineContext, indexDocument } from "./index";
-import { createMomentReplayRun } from "./db/momentReplay";
+import { createMomentReplayRun } from "./databases/indexingState/momentReplay";
 import {
   findAncestors,
   getMoment,
@@ -20,19 +20,20 @@ import {
   getDocumentAuditLogsForDocument,
   getRecentDocumentAuditEvents,
   clearAllMomentLinks,
-} from "./momentDb";
+} from "./databases/momentGraph";
 import {
   processScannerJob,
   scanForUnprocessedFiles,
   enqueueUnprocessedFiles,
 } from "./services/scanner-service";
-import { clearAllIndexingState } from "./db";
+import { clearAllIndexingState } from "./databases/indexingState";
 import {
   getMomentGraphNamespaceFromEnv,
   getMomentGraphNamespacePrefixFromEnv,
   applyMomentGraphNamespacePrefixValue,
 } from "./momentGraphNamespace";
 import { reconcileRedwoodSdkPrsAndIssues } from "./services/redwoodSdkPrIssueReconcile";
+import { simulationAdminRoutes } from "./routes/simulation";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const body = (ctx as any)?.parsedBody as
@@ -705,6 +706,69 @@ async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
   }
 }
 
+async function r2ListHandler({ request }: RequestInfo) {
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
+  }
+
+  let body:
+    | { prefix?: unknown; cursor?: unknown; limit?: unknown }
+    | undefined = undefined;
+  try {
+    body = (await request.json()) as any;
+  } catch {
+    body = undefined;
+  }
+
+  const prefixRaw = (body as any)?.prefix;
+  const prefix = typeof prefixRaw === "string" ? prefixRaw : "";
+
+  const cursorRaw = (body as any)?.cursor;
+  const cursor =
+    typeof cursorRaw === "string" && cursorRaw.trim().length > 0
+      ? cursorRaw.trim()
+      : undefined;
+
+  const limitRaw = (body as any)?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : typeof limitRaw === "string" && Number.isFinite(Number(limitRaw))
+      ? Math.floor(Number(limitRaw))
+      : 100;
+  const cappedLimit = Math.max(1, Math.min(200, limit));
+
+  const envCloudflare = env as Cloudflare.Env;
+  const bucket = (envCloudflare as any).MACHINEN_BUCKET as R2Bucket | undefined;
+  if (!bucket) {
+    return Response.json(
+      { error: "MACHINEN_BUCKET binding not found" },
+      { status: 500 }
+    );
+  }
+
+  const res = await bucket.list({
+    prefix,
+    cursor,
+    limit: cappedLimit,
+  });
+  const cursorOut = (res as any).cursor as string | undefined;
+
+  const keys = res.objects
+    .map((o) =>
+      typeof (o as any)?.key === "string" ? ((o as any).key as string) : null
+    )
+    .filter((k): k is string => typeof k === "string");
+
+  return Response.json({
+    prefix,
+    cursor: cursorOut,
+    truncated: res.truncated,
+    limit: cappedLimit,
+    keys,
+  });
+}
+
 async function treeStatsHandler({ request }: RequestInfo) {
   if (request.method !== "POST") {
     return Response.json({ error: "Method not allowed" }, { status: 405 });
@@ -965,6 +1029,7 @@ async function momentDebugHandler({ request }: RequestInfo) {
       createdAt: moment.createdAt,
       author: moment.author,
       importance: moment.importance ?? null,
+      sourceMetadata: moment.sourceMetadata ?? null,
     },
     documentAudit,
     root: root
@@ -1345,6 +1410,7 @@ export const routes = [
   route("/admin/index", {
     post: [requireQueryApiKey, indexHandler],
   }),
+  ...simulationAdminRoutes,
   route("/admin/backfill", {
     post: [requireQueryApiKey, backfillHandler],
   }),
@@ -1374,6 +1440,9 @@ export const routes = [
   }),
   route("/debug/query-subject-index", {
     post: [requireQueryApiKey, querySubjectIndexHandler],
+  }),
+  route("/debug/r2-list", {
+    post: [requireQueryApiKey, r2ListHandler],
   }),
   route("/timeline", {
     get: [requireQueryApiKey, timelineHandler],

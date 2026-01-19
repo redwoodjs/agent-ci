@@ -11,6 +11,7 @@ import { NamespaceAuditPage } from "./subpages/namespace-audit-page";
 import { NamespaceMomentsPage } from "./subpages/namespace-moments-page";
 import { CodePage } from "./subpages/code-page";
 import { ReplayRunLogPage } from "./subpages/replay-run-log-page";
+import { SimulationRunsPage } from "./subpages/simulation-runs-page";
 import { requireBasicAuth } from "@/app/ingestors/interruptors";
 
 export const auditRoutes = [
@@ -23,6 +24,7 @@ export const auditRoutes = [
     route("/query", QueryPage),
     route("/knowledge-graph", KnowledgeGraphPage),
     route("/replay-run-log", ReplayRunLogPage),
+    route("/simulation", SimulationRunsPage),
     route("/namespace", NamespaceAuditPage),
     route("/namespace/moments", NamespaceMomentsPage),
   ]),

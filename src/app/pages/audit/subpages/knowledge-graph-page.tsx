@@ -22,16 +22,6 @@ import {
   getMomentDetailsAction,
   getMomentContextChainAction,
   getRecentDocumentAuditEventsAction,
-  getReplayBackfillProgressAction,
-  getReplayRunAction,
-  getReplayRunEventsAction,
-  resumeReplayRunAction,
-  pauseReplayRunAction,
-  retryFailedReplayItemsAction,
-  restartReplayRunAction,
-  restartReplayRunClearOutputAction,
-  replaySelectedDocumentsAction,
-  recollectSelectedDocumentsAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -218,6 +208,9 @@ export function KnowledgeGraphPage() {
   const [selectedNamespace, setSelectedNamespace] = useState<string | null>(
     null
   );
+  const [entityTab, setEntityTab] = useState<"subjects" | "moments">(
+    "subjects"
+  );
   const [prefix, setPrefix] = useState<string | null>(null);
   const [prefixOverride, setPrefixOverride] = useState<string>("");
   const [effectiveNamespace, setEffectiveNamespace] = useState<string | null>(
@@ -236,7 +229,7 @@ export function KnowledgeGraphPage() {
   >([]);
   const [rootMomentsLoading, setRootMomentsLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState<string>("");
-  const [hideSingletons, setHideSingletons] = useState(true);
+  const [hideSingletons, setHideSingletons] = useState(false);
   const [rootSort, setRootSort] = useState<"descendants" | "createdAt">(
     "descendants"
   );
@@ -263,38 +256,6 @@ export function KnowledgeGraphPage() {
   const [recentAuditDocsError, setRecentAuditDocsError] = useState<
     string | null
   >(null);
-  const [replayRuns, setReplayRuns] = useState<any[] | null>(null);
-  const [replayRunsLoading, setReplayRunsLoading] = useState(false);
-  const [replayRunsError, setReplayRunsError] = useState<string | null>(null);
-  const [replayRunEventsByRunId, setReplayRunEventsByRunId] = useState<
-    Record<string, any[]>
-  >({});
-  const [replayRunEventsLoadingByRunId, setReplayRunEventsLoadingByRunId] =
-    useState<Record<string, boolean>>({});
-  const [resumeReplayError, setResumeReplayError] = useState<string | null>(
-    null
-  );
-  const [resumeReplayBusyRunId, setResumeReplayBusyRunId] = useState<
-    string | null
-  >(null);
-
-  function upsertReplayRun(run: any) {
-    const runId = String(run?.runId ?? "");
-    if (!runId) {
-      return;
-    }
-    setReplayRuns((prev) => {
-      const list = Array.isArray(prev) ? prev.slice() : [];
-      const idx = list.findIndex(
-        (r) => String((r as any)?.runId ?? "") === runId
-      );
-      if (idx !== -1) {
-        list[idx] = run;
-        return list;
-      }
-      return [run, ...list];
-    });
-  }
   const mermaidContainerRef = useRef<HTMLDivElement>(null);
   const mermaidScriptRef = useRef<HTMLScriptElement | null>(null);
   const [zoom, setZoom] = useState(1);
@@ -360,6 +321,10 @@ export function KnowledgeGraphPage() {
   // Initialize selectedRootId from URL on mount
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
+    const tabFromUrl = urlParams.get("tab");
+    if (tabFromUrl === "moments") {
+      setEntityTab("moments");
+    }
     const rootIdFromUrl = urlParams.get("rootId");
     if (rootIdFromUrl) {
       setSelectedRootId(rootIdFromUrl);
@@ -392,9 +357,27 @@ export function KnowledgeGraphPage() {
     }
   }, []);
 
+  useEffect(() => {
+    setSelectedRootId(null);
+    setSelectedMomentId(null);
+    setPendingHighlightMomentId(null);
+    setContextChainMomentId(null);
+    setSearchQuery("");
+    setSemanticQuery("");
+    setSemanticResults([]);
+    setSemanticError(null);
+    setGraphData([]);
+    setGraphTruncated(false);
+  }, [entityTab]);
+
   // Update URL when selectedRootId changes (using pushState for shareable links)
   useEffect(() => {
     const url = new URL(window.location.href);
+    if (entityTab === "moments") {
+      url.searchParams.set("tab", "moments");
+    } else {
+      url.searchParams.delete("tab");
+    }
     if (selectedRootId) {
       url.searchParams.set("rootId", selectedRootId);
     } else {
@@ -426,6 +409,7 @@ export function KnowledgeGraphPage() {
     }
     window.history.pushState({}, "", url.toString());
   }, [
+    entityTab,
     selectedRootId,
     graphView,
     contextChainMomentId,
@@ -507,7 +491,11 @@ export function KnowledgeGraphPage() {
     async function fetchRootMoments() {
       setRootMomentsLoading(true);
       try {
-        const result = await getSubjectMomentsAction({
+        const listFn =
+          entityTab === "moments"
+            ? getRootMomentsAction
+            : getSubjectMomentsAction;
+        const result = await listFn({
           limit: 1000,
           momentGraphNamespace: selectedNamespace,
           momentGraphNamespacePrefix:
@@ -519,10 +507,10 @@ export function KnowledgeGraphPage() {
             setEffectiveNamespace(result.effectiveNamespace);
           }
         } else {
-          console.error("Failed to fetch subject moments:", result.error);
+          console.error("Failed to fetch list:", result.error);
         }
       } catch (err) {
-        console.error("Error fetching subject moments:", err);
+        console.error("Error fetching list:", err);
       } finally {
         setRootMomentsLoading(false);
       }
@@ -531,7 +519,7 @@ export function KnowledgeGraphPage() {
     if (!selectedRootId) {
       fetchRootMoments();
     }
-  }, [selectedNamespace, selectedRootId, prefixOverride]);
+  }, [selectedNamespace, selectedRootId, prefixOverride, entityTab]);
 
   useEffect(() => {}, []);
 
@@ -687,38 +675,6 @@ export function KnowledgeGraphPage() {
     }
     fetchRecentFailures();
   }, [selectedNamespace, prefixOverride]);
-
-  useEffect(() => {
-    async function fetchReplayProgress() {
-      setReplayRunsLoading(true);
-      setReplayRunsError(null);
-      try {
-        const res = await getReplayBackfillProgressAction({
-          momentGraphNamespacePrefix:
-            prefixOverride.trim().length > 0 ? prefixOverride.trim() : null,
-          limit: 5,
-        });
-        if ((res as any)?.success) {
-          setReplayRuns((res as any).runs ?? []);
-        } else {
-          setReplayRuns(null);
-          setReplayRunsError(
-            (res as any)?.error ?? "Failed to fetch backfill progress"
-          );
-        }
-      } catch (err) {
-        setReplayRuns(null);
-        setReplayRunsError(
-          err instanceof Error
-            ? err.message
-            : "Failed to fetch backfill progress"
-        );
-      } finally {
-        setReplayRunsLoading(false);
-      }
-    }
-    fetchReplayProgress();
-  }, [prefixOverride]);
 
   useEffect(() => {
     if (loading) {
@@ -1046,757 +1002,6 @@ export function KnowledgeGraphPage() {
         </div>
       </details>
 
-      <Card className="mb-6">
-        <CardHeader>
-          <CardTitle>Backfill progress</CardTitle>
-          <CardDescription>
-            Moment replay runs for the selected namespace prefix
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {resumeReplayError && (
-            <div className="text-sm text-red-600 mb-2">{resumeReplayError}</div>
-          )}
-          {replayRunsLoading && (
-            <div className="text-sm text-gray-600">Loading…</div>
-          )}
-          {replayRunsError && (
-            <div className="text-sm text-red-600">{replayRunsError}</div>
-          )}
-          {!replayRunsLoading &&
-            !replayRunsError &&
-            (!Array.isArray(replayRuns) || replayRuns.length === 0) && (
-              <div className="text-sm text-gray-600">
-                No replay runs found for this prefix yet.
-              </div>
-            )}
-          {Array.isArray(replayRuns) && replayRuns.length > 0 && (
-            <div className="space-y-2">
-              {replayRuns.map((r) => {
-                const runId = String((r as any)?.runId ?? "");
-                const status = String((r as any)?.status ?? "unknown");
-                const updatedAt = String((r as any)?.updatedAt ?? "");
-                const expected = Number((r as any)?.expectedDocuments ?? 0);
-                const processed = Number((r as any)?.processedDocuments ?? 0);
-                const succeeded = Number((r as any)?.succeededDocuments ?? 0);
-                const failed = Number((r as any)?.failedDocuments ?? 0);
-                const replayed = Number((r as any)?.replayedItems ?? 0);
-                const totalItems = Number((r as any)?.totalItems ?? 0);
-                const pendingItems = Number((r as any)?.pendingItems ?? 0);
-                const doneItems = Number((r as any)?.doneItems ?? 0);
-                const failedItems = Number((r as any)?.failedItems ?? 0);
-                const lastProgressAt = String((r as any)?.lastProgressAt ?? "");
-                const lastItemId = String((r as any)?.lastItemId ?? "");
-                const lastItemOrderMsRaw = (r as any)?.lastItemOrderMs;
-                const lastItemOrderMs =
-                  typeof lastItemOrderMsRaw === "number" &&
-                  Number.isFinite(lastItemOrderMsRaw)
-                    ? Math.floor(lastItemOrderMsRaw)
-                    : null;
-                const lastItemDocumentId = String(
-                  (r as any)?.lastItemDocumentId ?? ""
-                );
-                const lastItemEffectiveNamespace = String(
-                  (r as any)?.lastItemEffectiveNamespace ?? ""
-                );
-                const consecutiveFailures = Number(
-                  (r as any)?.consecutiveFailures ?? 0
-                );
-                const lastError = (r as any)?.lastError ?? null;
-                const lastErrorMessage =
-                  lastError && typeof lastError?.message === "string"
-                    ? String(lastError.message)
-                    : typeof lastError === "string"
-                    ? lastError
-                    : lastError && typeof lastError?.phase === "string"
-                    ? String(lastError.phase)
-                    : "";
-                const replayEnqueued = Boolean(
-                  (r as any)?.replayEnqueued ?? false
-                );
-                const lastProgressMs =
-                  typeof lastProgressAt === "string" &&
-                  lastProgressAt.length > 0
-                    ? Date.parse(lastProgressAt)
-                    : NaN;
-                const nowMs =
-                  typeof performance !== "undefined" && performance?.timeOrigin
-                    ? Date.now()
-                    : Date.now();
-                const progressAgeMs =
-                  Number.isFinite(lastProgressMs) && Number.isFinite(nowMs)
-                    ? Math.max(0, nowMs - lastProgressMs)
-                    : null;
-                const staleMs = 3 * 60 * 1000;
-                const looksStalled =
-                  status === "replaying" &&
-                  pendingItems > 0 &&
-                  !replayEnqueued &&
-                  (progressAgeMs === null || progressAgeMs > staleMs);
-                const embeddingCalls = Number((r as any)?.embeddingCalls ?? 0);
-                const embeddingTotalMs = Number(
-                  (r as any)?.embeddingTotalMs ?? 0
-                );
-                const timelineFitCalls = Number(
-                  (r as any)?.timelineFitCalls ?? 0
-                );
-                const timelineFitTotalMs = Number(
-                  (r as any)?.timelineFitTotalMs ?? 0
-                );
-                const dbWrites = Number((r as any)?.dbWrites ?? 0);
-                const dbWritesTotalMs = Number(
-                  (r as any)?.dbWritesTotalMs ?? 0
-                );
-                const canResume =
-                  runId.length > 0 &&
-                  (status === "paused_on_error" || status === "paused_manual");
-                const canShowControls = runId.length > 0;
-                const canPause =
-                  runId.length > 0 &&
-                  (status === "replaying" || status === "ready_to_replay");
-                return (
-                  <div key={runId || updatedAt} className="border rounded p-2">
-                    <div className="text-xs text-gray-600">
-                      <span className="font-mono">{status}</span>{" "}
-                      <span className="text-gray-400">{updatedAt}</span>
-                    </div>
-                    <div className="text-xs mt-1">
-                      Run id:{" "}
-                      <span className="font-mono break-all">{runId}</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-                      <div>
-                        Docs:{" "}
-                        <span className="font-mono">
-                          {processed}/{expected}
-                        </span>
-                      </div>
-                      <div>
-                        Replay:{" "}
-                        <span className="font-mono">
-                          {doneItems}/{totalItems}
-                        </span>{" "}
-                        <span className="text-gray-400">
-                          (counter {replayed})
-                        </span>
-                      </div>
-                      <div>
-                        Succeeded:{" "}
-                        <span className="font-mono">{succeeded}</span>
-                      </div>
-                      <div>
-                        Failed: <span className="font-mono">{failed}</span>
-                      </div>
-                      <div>
-                        Items pending:{" "}
-                        <span className="font-mono">{pendingItems}</span>
-                      </div>
-                      <div>
-                        Items failed:{" "}
-                        <span className="font-mono">{failedItems}</span>
-                      </div>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-700 space-y-1">
-                      <div>
-                        Last progress:{" "}
-                        <span className="font-mono">
-                          {lastProgressAt || "—"}
-                        </span>
-                      </div>
-                      <div>
-                        Cursor:{" "}
-                        <span className="font-mono">
-                          {lastItemOrderMs !== null ? lastItemOrderMs : "—"} /{" "}
-                          {lastItemId || "—"}
-                        </span>
-                      </div>
-                      <div>
-                        Last item:{" "}
-                        <span className="font-mono">
-                          {lastItemDocumentId || "—"}
-                        </span>
-                      </div>
-                      <div>
-                        Effective namespace:{" "}
-                        <span className="font-mono">
-                          {lastItemEffectiveNamespace || "—"}
-                        </span>
-                      </div>
-                      <div>
-                        Consecutive failures:{" "}
-                        <span className="font-mono">{consecutiveFailures}</span>
-                      </div>
-                      <div>
-                        Replay enqueued:{" "}
-                        <span className="font-mono">
-                          {replayEnqueued ? "true" : "false"}
-                        </span>
-                      </div>
-                      {looksStalled && (
-                        <div className="text-red-700">
-                          Status is replaying with pending items, and last
-                          progress is stale.
-                          <br />
-                          Note: replayEnqueued=false can mean a worker is
-                          currently processing (the worker clears the flag at
-                          start, then sets it true when enqueueing the next
-                          batch). Check the replay run log for the most recent
-                          worker.batch_done / worker.unhandled_error vs
-                          worker.enqueued_next.
-                        </div>
-                      )}
-                      {lastErrorMessage && (
-                        <div className="text-red-700">
-                          Last error:{" "}
-                          <span className="font-mono break-all">
-                            {lastErrorMessage}
-                          </span>
-                        </div>
-                      )}
-                      <details className="mt-1">
-                        <summary className="cursor-pointer text-gray-700">
-                          Rollups
-                        </summary>
-                        <div className="mt-1 space-y-1">
-                          <div>
-                            Embeddings:{" "}
-                            <span className="font-mono">
-                              {embeddingCalls} calls, {embeddingTotalMs}ms
-                            </span>
-                          </div>
-                          <div>
-                            Timeline fit:{" "}
-                            <span className="font-mono">
-                              {timelineFitCalls} calls, {timelineFitTotalMs}ms
-                            </span>
-                          </div>
-                          <div>
-                            Moment writes:{" "}
-                            <span className="font-mono">
-                              {dbWrites} writes, {dbWritesTotalMs}ms
-                            </span>
-                          </div>
-                        </div>
-                      </details>
-                      {lastError && (
-                        <details className="mt-1">
-                          <summary className="cursor-pointer text-gray-700">
-                            Error payload
-                          </summary>
-                          <pre className="text-xs overflow-auto max-h-64 mt-2 p-2 bg-white border rounded">
-                            {JSON.stringify(lastError, null, 2)}
-                          </pre>
-                        </details>
-                      )}
-                    </div>
-                    {canShowControls && (
-                      <div className="mt-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={
-                              resumeReplayBusyRunId === runId || !canPause
-                            }
-                            onClick={async () => {
-                              setResumeReplayError(null);
-                              setResumeReplayBusyRunId(runId);
-                              try {
-                                const res = await pauseReplayRunAction({
-                                  runId,
-                                });
-                                if (!(res as any)?.success) {
-                                  setResumeReplayError(
-                                    (res as any)?.error ?? "Pause failed"
-                                  );
-                                } else {
-                                  const refreshed =
-                                    await getReplayBackfillProgressAction({
-                                      momentGraphNamespacePrefix:
-                                        prefixOverride.trim().length > 0
-                                          ? prefixOverride.trim()
-                                          : null,
-                                      limit: 5,
-                                    });
-                                  if ((refreshed as any)?.success) {
-                                    setReplayRuns(
-                                      (refreshed as any).runs ?? []
-                                    );
-                                  }
-                                }
-                              } catch (err) {
-                                setResumeReplayError(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Pause failed"
-                                );
-                              } finally {
-                                setResumeReplayBusyRunId(null);
-                              }
-                            }}
-                          >
-                            {resumeReplayBusyRunId === runId
-                              ? "Pausing..."
-                              : "Pause replay"}
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={
-                              resumeReplayBusyRunId === runId || !canResume
-                            }
-                            onClick={async () => {
-                              setResumeReplayError(null);
-                              setResumeReplayBusyRunId(runId);
-                              try {
-                                const res = await resumeReplayRunAction({
-                                  runId,
-                                });
-                                if (!(res as any)?.success) {
-                                  setResumeReplayError(
-                                    (res as any)?.error ?? "Resume failed"
-                                  );
-                                } else {
-                                  const refreshed =
-                                    await getReplayBackfillProgressAction({
-                                      momentGraphNamespacePrefix:
-                                        prefixOverride.trim().length > 0
-                                          ? prefixOverride.trim()
-                                          : null,
-                                      limit: 5,
-                                    });
-                                  if ((refreshed as any)?.success) {
-                                    setReplayRuns(
-                                      (refreshed as any).runs ?? []
-                                    );
-                                  }
-                                }
-                              } catch (err) {
-                                setResumeReplayError(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Resume failed"
-                                );
-                              } finally {
-                                setResumeReplayBusyRunId(null);
-                              }
-                            }}
-                          >
-                            {resumeReplayBusyRunId === runId
-                              ? "Resuming..."
-                              : "Resume replay"}
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={
-                              resumeReplayBusyRunId === runId ||
-                              failedItems <= 0
-                            }
-                            onClick={async () => {
-                              const ok = window.confirm(
-                                "Retry failed replay items for this run?\n\nThis sets failed items back to pending and resets the run cursor."
-                              );
-                              if (!ok) {
-                                return;
-                              }
-                              setResumeReplayError(null);
-                              setResumeReplayBusyRunId(runId);
-                              try {
-                                const res = await retryFailedReplayItemsAction({
-                                  runId,
-                                });
-                                if (!(res as any)?.success) {
-                                  setResumeReplayError(
-                                    (res as any)?.error ??
-                                      "Retry failed items failed"
-                                  );
-                                } else {
-                                  const refreshed =
-                                    await getReplayBackfillProgressAction({
-                                      momentGraphNamespacePrefix:
-                                        prefixOverride.trim().length > 0
-                                          ? prefixOverride.trim()
-                                          : null,
-                                      limit: 5,
-                                    });
-                                  if ((refreshed as any)?.success) {
-                                    setReplayRuns(
-                                      (refreshed as any).runs ?? []
-                                    );
-                                  }
-                                }
-                              } catch (err) {
-                                setResumeReplayError(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Retry failed items failed"
-                                );
-                              } finally {
-                                setResumeReplayBusyRunId(null);
-                              }
-                            }}
-                          >
-                            {resumeReplayBusyRunId === runId
-                              ? "Retrying..."
-                              : "Retry failed items"}
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={resumeReplayBusyRunId === runId}
-                            onClick={async () => {
-                              const ok = window.confirm(
-                                "Restart replay from the beginning for this run?\n\nThis resets the run cursor and marks all replay items as pending."
-                              );
-                              if (!ok) {
-                                return;
-                              }
-                              setResumeReplayError(null);
-                              setResumeReplayBusyRunId(runId);
-                              try {
-                                const res = await restartReplayRunAction({
-                                  runId,
-                                });
-                                if (!(res as any)?.success) {
-                                  setResumeReplayError(
-                                    (res as any)?.error ?? "Restart failed"
-                                  );
-                                } else {
-                                  const refreshed =
-                                    await getReplayBackfillProgressAction({
-                                      momentGraphNamespacePrefix:
-                                        prefixOverride.trim().length > 0
-                                          ? prefixOverride.trim()
-                                          : null,
-                                      limit: 5,
-                                    });
-                                  if ((refreshed as any)?.success) {
-                                    setReplayRuns(
-                                      (refreshed as any).runs ?? []
-                                    );
-                                  }
-                                }
-                              } catch (err) {
-                                setResumeReplayError(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Restart failed"
-                                );
-                              } finally {
-                                setResumeReplayBusyRunId(null);
-                              }
-                            }}
-                          >
-                            Restart replay
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={resumeReplayBusyRunId === runId}
-                            onClick={async () => {
-                              const ok = window.confirm(
-                                "Restart replay from the beginning for this run and clear replay output?\n\nThis deletes moments created by this run (moment id == replay item id) in the effective namespaces recorded on the replay items, then resets the run cursor and marks replay items as pending."
-                              );
-                              if (!ok) {
-                                return;
-                              }
-                              setResumeReplayError(null);
-                              setResumeReplayBusyRunId(runId);
-                              try {
-                                const res =
-                                  await restartReplayRunClearOutputAction({
-                                    runId,
-                                  });
-                                if (!(res as any)?.success) {
-                                  setResumeReplayError(
-                                    (res as any)?.error ??
-                                      "Restart (clear output) failed"
-                                  );
-                                } else {
-                                  const runFromAction =
-                                    (res as any)?.run ?? null;
-                                  if (runFromAction) {
-                                    upsertReplayRun(runFromAction);
-                                  } else {
-                                    const refreshed = await getReplayRunAction({
-                                      runId,
-                                    });
-                                    if ((refreshed as any)?.success) {
-                                      upsertReplayRun((refreshed as any).run);
-                                    }
-                                  }
-                                }
-                              } catch (err) {
-                                setResumeReplayError(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Restart (clear output) failed"
-                                );
-                              } finally {
-                                setResumeReplayBusyRunId(null);
-                              }
-                            }}
-                          >
-                            Restart (clear output)
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={Boolean(
-                              replayRunEventsLoadingByRunId[runId]
-                            )}
-                            onClick={async () => {
-                              if (!runId) {
-                                return;
-                              }
-                              setReplayRunEventsLoadingByRunId((prev) => ({
-                                ...prev,
-                                [runId]: true,
-                              }));
-                              try {
-                                const res = await getReplayRunEventsAction({
-                                  runId,
-                                  limit: 80,
-                                });
-                                if ((res as any)?.success) {
-                                  setReplayRunEventsByRunId((prev) => ({
-                                    ...prev,
-                                    [runId]: (res as any).events ?? [],
-                                  }));
-                                } else {
-                                  setResumeReplayError(
-                                    (res as any)?.error ??
-                                      "Failed to load replay events"
-                                  );
-                                }
-                              } catch (err) {
-                                setResumeReplayError(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Failed to load replay events"
-                                );
-                              } finally {
-                                setReplayRunEventsLoadingByRunId((prev) => ({
-                                  ...prev,
-                                  [runId]: false,
-                                }));
-                              }
-                            }}
-                          >
-                            {replayRunEventsLoadingByRunId[runId]
-                              ? "Loading events..."
-                              : "Load replay events"}
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              if (!runId) {
-                                return;
-                              }
-                              const params = new URLSearchParams();
-                              params.set("runId", runId);
-                              params.set("limit", "800");
-                              window.location.href = `/audit/replay-run-log?${params.toString()}`;
-                            }}
-                          >
-                            Open log
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={resumeReplayBusyRunId === runId}
-                            onClick={async () => {
-                              const raw = window.prompt(
-                                "Replay selected documents (R2 keys or ingestion file URLs).\n\nSeparate items with newlines, spaces, or commas.\n\nNote: this only works for replay items that have document metadata populated.",
-                                ""
-                              );
-                              if (raw === null) {
-                                return;
-                              }
-                              const documentIds = raw
-                                .split(/[\s,]+/g)
-                                .map((s) => s.trim())
-                                .filter((s) => s.length > 0);
-                              if (documentIds.length === 0) {
-                                setResumeReplayError(
-                                  "No document ids provided."
-                                );
-                                return;
-                              }
-                              setResumeReplayError(null);
-                              setResumeReplayBusyRunId(runId);
-                              try {
-                                const res = await replaySelectedDocumentsAction(
-                                  {
-                                    runId,
-                                    documentIds,
-                                  }
-                                );
-                                if (!(res as any)?.success) {
-                                  setResumeReplayError(
-                                    (res as any)?.error ??
-                                      "Replay selected documents failed"
-                                  );
-                                } else {
-                                  const refreshed =
-                                    await getReplayBackfillProgressAction({
-                                      momentGraphNamespacePrefix:
-                                        prefixOverride.trim().length > 0
-                                          ? prefixOverride.trim()
-                                          : null,
-                                      limit: 5,
-                                    });
-                                  if ((refreshed as any)?.success) {
-                                    setReplayRuns(
-                                      (refreshed as any).runs ?? []
-                                    );
-                                  }
-                                }
-                              } catch (err) {
-                                setResumeReplayError(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Replay selected documents failed"
-                                );
-                              } finally {
-                                setResumeReplayBusyRunId(null);
-                              }
-                            }}
-                          >
-                            Replay selected docs
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            disabled={resumeReplayBusyRunId === runId}
-                            onClick={async () => {
-                              const raw = window.prompt(
-                                "Recollect selected documents (R2 keys or ingestion file URLs).\n\nSeparate items with newlines, spaces, or commas.\n\nThis enqueues collect jobs with force recollect enabled.",
-                                ""
-                              );
-                              if (raw === null) {
-                                return;
-                              }
-                              const r2Keys = raw
-                                .split(/[\s,]+/g)
-                                .map((s) => s.trim())
-                                .filter((s) => s.length > 0);
-                              if (r2Keys.length === 0) {
-                                setResumeReplayError("No R2 keys provided.");
-                                return;
-                              }
-                              setResumeReplayError(null);
-                              setResumeReplayBusyRunId(runId);
-                              try {
-                                const res =
-                                  await recollectSelectedDocumentsAction({
-                                    runId,
-                                    r2Keys,
-                                    momentGraphNamespace:
-                                      typeof selectedNamespace === "string" &&
-                                      selectedNamespace.trim().length > 0
-                                        ? selectedNamespace.trim()
-                                        : null,
-                                    momentGraphNamespacePrefix:
-                                      prefixOverride.trim().length > 0
-                                        ? prefixOverride.trim()
-                                        : null,
-                                  });
-                                if (!(res as any)?.success) {
-                                  setResumeReplayError(
-                                    (res as any)?.error ??
-                                      "Recollect selected documents failed"
-                                  );
-                                } else {
-                                  const refreshed =
-                                    await getReplayBackfillProgressAction({
-                                      momentGraphNamespacePrefix:
-                                        prefixOverride.trim().length > 0
-                                          ? prefixOverride.trim()
-                                          : null,
-                                      limit: 5,
-                                    });
-                                  if ((refreshed as any)?.success) {
-                                    setReplayRuns(
-                                      (refreshed as any).runs ?? []
-                                    );
-                                  }
-                                }
-                              } catch (err) {
-                                setResumeReplayError(
-                                  err instanceof Error
-                                    ? err.message
-                                    : "Recollect selected documents failed"
-                                );
-                              } finally {
-                                setResumeReplayBusyRunId(null);
-                              }
-                            }}
-                          >
-                            Recollect selected docs
-                          </Button>
-                        </div>
-
-                        {Array.isArray(replayRunEventsByRunId[runId]) && (
-                          <details className="mt-2">
-                            <summary className="cursor-pointer text-gray-700 text-xs">
-                              Replay events (
-                              {replayRunEventsByRunId[runId]!.length})
-                            </summary>
-                            <div className="mt-2 space-y-2">
-                              {replayRunEventsByRunId[runId]!.map((e: any) => (
-                                <div
-                                  key={String(e?.id ?? Math.random())}
-                                  className="border rounded p-2 bg-gray-50"
-                                >
-                                  <div className="text-xs text-gray-600">
-                                    <span className="font-mono">
-                                      {String(e?.level ?? "")}
-                                    </span>{" "}
-                                    <span className="font-mono">
-                                      {String(e?.kind ?? "")}
-                                    </span>{" "}
-                                    <span className="text-gray-400">
-                                      {String(e?.createdAt ?? "")}
-                                    </span>
-                                  </div>
-                                  <details className="mt-2">
-                                    <summary className="text-xs font-medium text-gray-700 cursor-pointer">
-                                      Payload
-                                    </summary>
-                                    <pre className="text-xs overflow-auto max-h-64 mt-2 p-2 bg-white border rounded">
-                                      {JSON.stringify(
-                                        e?.payload ?? null,
-                                        null,
-                                        2
-                                      )}
-                                    </pre>
-                                  </details>
-                                </div>
-                              ))}
-                            </div>
-                          </details>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Database Stats Card */}
       <Card className="mb-6">
         <CardHeader>
@@ -1851,39 +1056,69 @@ export function KnowledgeGraphPage() {
             <div>
               <CardTitle>
                 {selectedRootId
-                  ? "Subject Tree Visualization"
+                  ? entityTab === "moments"
+                    ? "Moment Tree Visualization"
+                    : "Subject Tree Visualization"
+                  : entityTab === "moments"
+                  ? "Moments (Select to Drill Down)"
                   : "Subjects (Select to Drill Down)"}
               </CardTitle>
               <CardDescription>
                 {selectedRootId
                   ? "Visual representation of a specific subject's moment tree"
+                  : entityTab === "moments"
+                  ? "Select a moment below to view its tree structure"
                   : "Select a subject below to view its complete tree structure"}
               </CardDescription>
             </div>
-            {selectedRootId && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  setSelectedRootId(null);
-                  setSearchQuery("");
-                }}
-              >
-                ← Back to Subjects
-              </Button>
-            )}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center rounded border overflow-hidden">
+                <button
+                  type="button"
+                  className={
+                    entityTab === "subjects"
+                      ? "px-3 py-1 text-sm bg-blue-50 text-blue-700"
+                      : "px-3 py-1 text-sm text-blue-600 hover:bg-gray-50"
+                  }
+                  onClick={() => setEntityTab("subjects")}
+                >
+                  Subjects
+                </button>
+                <button
+                  type="button"
+                  className={
+                    entityTab === "moments"
+                      ? "px-3 py-1 text-sm bg-blue-50 text-blue-700"
+                      : "px-3 py-1 text-sm text-blue-600 hover:bg-gray-50"
+                  }
+                  onClick={() => setEntityTab("moments")}
+                >
+                  Moments
+                </button>
+              </div>
+              {selectedRootId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setSelectedRootId(null);
+                    setSearchQuery("");
+                  }}
+                >
+                  ← Back to {entityTab === "moments" ? "Moments" : "Subjects"}
+                </Button>
+              )}
+            </div>
           </div>
         </CardHeader>
         <CardContent>
-          {loading && (
-            <div className="text-center py-8">
-              <p className="text-gray-500">Loading graph data...</p>
-            </div>
-          )}
+
 
           {rootMomentsLoading && !selectedRootId && (
             <div className="text-center py-8">
-              <p className="text-gray-500">Loading subjects...</p>
+              <p className="text-gray-500">
+                Loading {entityTab === "moments" ? "moments" : "subjects"}...
+              </p>
             </div>
           )}
 
@@ -1918,12 +1153,12 @@ export function KnowledgeGraphPage() {
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div className="border rounded p-4">
                   <div className="text-sm font-medium text-gray-900 mb-2">
-                    Subject List Controls
+                    List Controls
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Sort (all subjects)
+                        Sort (all)
                       </label>
                       <select
                         value={rootSort}
@@ -1947,7 +1182,7 @@ export function KnowledgeGraphPage() {
                           checked={hideSingletons}
                           onChange={(e) => setHideSingletons(e.target.checked)}
                         />
-                        Hide singletons (all subjects)
+                        Hide singletons (all)
                       </label>
                     </div>
                   </div>
@@ -2031,8 +1266,7 @@ export function KnowledgeGraphPage() {
                             {r.matchSummary}
                           </div>
                           <div className="text-xs text-gray-500 mt-1">
-                            Subject:{" "}
-                            <span className="font-mono">{r.rootId}</span>
+                            Root: <span className="font-mono">{r.rootId}</span>
                           </div>
                         </button>
                       ))}
@@ -2043,21 +1277,26 @@ export function KnowledgeGraphPage() {
 
               {rootMoments.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
-                  No subjects found. Try selecting a different namespace.
+                  No items found. Try selecting a different namespace.
                 </div>
               ) : (
                 <>
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm text-gray-600">
-                      Found {filteredRootMoments.length} subject
+                      Found {filteredRootMoments.length}{" "}
+                      {entityTab === "moments" ? "moment" : "subject"}
                       {filteredRootMoments.length !== 1 ? "s" : ""}. Click on
-                      any subject to view its complete tree.
+                      any item to view its tree.
                     </p>
                   </div>
                   <div className="mb-4">
                     <Input
                       type="text"
-                      placeholder="Search subjects by title or ID..."
+                      placeholder={
+                        entityTab === "moments"
+                          ? "Search moments by title or ID..."
+                          : "Search subjects by title or ID..."
+                      }
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       className="w-full"

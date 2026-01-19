@@ -34,6 +34,7 @@ export async function runPhaseMicroBatches(
   
   const momentGraphNamespace = runRow.moment_graph_namespace;
   const momentGraphNamespacePrefix = runRow.moment_graph_namespace_prefix;
+  await log.info("debug.namespace", { phase: "micro_batches", momentGraphNamespace, momentGraphNamespacePrefix });
 
   if (!input.r2Key) {
     // Polling / Startup mode

@@ -10,7 +10,7 @@ import { upsertMicroMomentsBatch } from "../../../../engine/databases/momentGrap
 
 export async function runPhaseMicroBatches(
   context: SimulationDbContext,
-  input: { runId: string; phaseIdx: number }
+  input: { runId: string; phaseIdx: number; r2Key?: string; batchIndex?: number }
 ): Promise<{ status: string; currentPhase: string } | null> {
   const db = getSimulationDb(context);
   const now = new Date().toISOString();
@@ -45,11 +45,41 @@ export async function runPhaseMicroBatches(
       ? ((runRow as any).moment_graph_namespace_prefix as string)
       : null;
 
+  if (!input.r2Key) {
+    // If no specific key, enqueue all documents that are "changed" and not yet processed in this phase
+    // For now, let's just enqueue all r2Keys from config
+    const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
+    if (queue && r2Keys.length > 0) {
+      await addSimulationRunEvent(context, {
+        runId: input.runId,
+        level: "info",
+        kind: "phase.dispatch_docs",
+        payload: { phase: "micro_batches", count: r2Keys.length },
+      });
+
+      for (const r2Key of r2Keys) {
+        await queue.send({
+          jobType: "simulation-document",
+          runId: input.runId,
+          phase: "micro_batches",
+          r2Key,
+        });
+      }
+      return { status: "running", currentPhase: "micro_batches" };
+    }
+  }
+
+  const activeR2Keys = input.r2Key ? [input.r2Key] : r2Keys;
+
   await addSimulationRunEvent(context, {
     runId: input.runId,
     level: "info",
     kind: "phase.start",
-    payload: { phase: "micro_batches", r2KeysCount: r2Keys.length },
+    payload: { 
+      phase: "micro_batches", 
+      r2KeysCount: activeR2Keys.length,
+      isGranular: !!input.r2Key 
+    },
   });
 
   const env = context.env;
@@ -57,10 +87,10 @@ export async function runPhaseMicroBatches(
 
   const result = await runMicroBatchesAdapter(context, {
     runId: input.runId,
-    r2Keys,
+    r2Keys: activeR2Keys,
     useLlm,
     ports: {
-      computeMicroItemsForChunkBatch: async ({ chunks, promptContext }) => {
+      computeMicroItemsForChunkBatch: async ({ chunks, promptContext, batchIndex }) => {
         return (
           (await computeMicroMomentsForChunkBatch(chunks, {
             promptContext,
@@ -69,6 +99,7 @@ export async function runPhaseMicroBatches(
                 .info("process.llm_retry", {
                   phase: "micro_batches",
                   msg,
+                  batchIndex,
                   ...data,
                 })
                 .catch(() => {});
@@ -93,6 +124,8 @@ export async function runPhaseMicroBatches(
     log,
     momentGraphNamespace,
     momentGraphNamespacePrefix,
+    batchIndex: input.batchIndex,
+    deferToQueue: !input.r2Key && !input.batchIndex, // Defer to queue if we are starting the whole phase
   });
 
   await addSimulationRunEvent(context, {
@@ -110,6 +143,22 @@ export async function runPhaseMicroBatches(
       failed: result.failed,
     },
   });
+
+  if (input.r2Key) {
+    // If it was a granular run, we don't advance the phase here.
+    // We just return 'running' for the phase.
+    // The next 'advance' call (automatic or manual) will check if all docs are done.
+    
+    // Optional: Trigger an advance attempt just in case this was the last doc
+    if ((context.env as any).ENGINE_INDEXING_QUEUE) {
+       await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+         jobType: "simulation-advance",
+         runId: input.runId,
+       });
+    }
+
+    return { status: "running", currentPhase: "micro_batches" };
+  }
 
   if (result.failed > 0) {
     await db

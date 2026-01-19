@@ -132,4 +132,21 @@ export type SimulationRunTimelineFitDecisionRow = Override<
     stats_json: any;
   }
 >;
-
+export type SimulationQueueMessage =
+  | {
+      jobType: "simulation-advance";
+      runId: string;
+    }
+  | {
+      jobType: "simulation-document";
+      runId: string;
+      phase: SimulationPhase;
+      r2Key: string;
+    }
+  | {
+      jobType: "simulation-batch";
+      runId: string;
+      phase: "micro_batches";
+      r2Key: string;
+      batchIndex: number;
+    };

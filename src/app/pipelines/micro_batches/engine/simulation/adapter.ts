@@ -43,6 +43,8 @@ export async function runMicroBatchesAdapter(
     };
     momentGraphNamespace: string | null;
     momentGraphNamespacePrefix: string | null;
+    batchIndex?: number;
+    deferToQueue?: boolean;
   }
 ): Promise<{
   docsProcessed: number;
@@ -250,6 +252,10 @@ export async function runMicroBatchesAdapter(
               .execute();
           },
           computeMicroItemsForChunkBatch: async (args) => {
+             // If we are granularly processing a batch, skip others
+             if (input.batchIndex !== undefined && args.batchIndex !== input.batchIndex) {
+                return [];
+             }
             await input.log.info("process.computing_batch_start", {
               phase: "micro_batches",
               r2Key,
@@ -289,7 +295,27 @@ export async function runMicroBatchesAdapter(
 
       const computed = result.batches;
 
-      for (const b of computed) {
+      if (input.deferToQueue && input.batchIndex === undefined) {
+         const queue = (env as any).ENGINE_INDEXING_QUEUE;
+         if (queue) {
+            for (const b of computed) {
+              await queue.send({
+                jobType: "simulation-batch",
+                runId: input.runId,
+                phase: "micro_batches",
+                r2Key,
+                batchIndex: b.batchIndex,
+              });
+            }
+            continue;
+         }
+      }
+
+      const activeBatches = input.batchIndex !== undefined 
+        ? computed.filter(b => b.batchIndex === input.batchIndex)
+        : computed;
+
+      for (const b of activeBatches) {
         if (b.cached) {
           batchesCached++;
         } else {

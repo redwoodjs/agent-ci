@@ -56,13 +56,13 @@ import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app
 import { handleWebhookEvent } from "@/app/ingestors/discord/services/webhook-handler";
 import { processIndexingJob } from "@/app/engine/services/indexing-scheduler-worker";
 import { processMomentReplayReplayJob } from "@/app/engine/services/moment-replay-worker";
-import { processChunkJob } from "@/app/engine/services/chunk-processor-worker";
-import { processChunkBatch } from "@/app/engine/services/chunk-processor-worker";
+import { processChunkJob, processChunkBatch } from "@/app/engine/services/chunk-processor-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
+import { processSimulationJob } from "@/app/engine/services/simulation-worker";
 import type { QueueMessage } from "@/app/ingestors/github/services/backfill-types";
 import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
-import { Chunk } from "./app/engine/types";
+import { Chunk, SimulationQueueMessage } from "./app/engine/types";
 
 export default {
   fetch: app.fetch,
@@ -200,6 +200,20 @@ export default {
                 momentGraphNamespace,
                 momentGraphNamespacePrefix,
               },
+              env as Cloudflare.Env
+            );
+            message.ack();
+            continue;
+          }
+
+          if (
+            jobType === "simulation-advance" ||
+            jobType === "simulation-document" ||
+            jobType === "simulation-batch" ||
+            jobType === "simulation-synthesis"
+          ) {
+            await processSimulationJob(
+              indexingMessage as unknown as SimulationQueueMessage,
               env as Cloudflare.Env
             );
             message.ack();

@@ -11,7 +11,7 @@ import { pipelineRegistry } from "../../simulation/allPipelines";
 
 export async function advanceSimulationRunPhaseNoop(
   context: SimulationDbContext,
-  input: { runId: string; continueOnError?: boolean }
+  input: { runId: string; continueOnError?: boolean; deferToQueue?: boolean }
 ): Promise<{ status: string; currentPhase: string } | null> {
   const db = getSimulationDb(context);
   const runId =
@@ -105,6 +105,13 @@ export async function advanceSimulationRunPhaseNoop(
       // If phase runner reported error but we want to continue, force advance to next phase
       const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
       if (nextPhase) {
+        if (input.deferToQueue && (context.env as any).ENGINE_INDEXING_QUEUE) {
+          await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+            jobType: "simulation-advance",
+            runId,
+          });
+          return { status: "running", currentPhase: nextPhase };
+        }
         await db
           .updateTable("simulation_runs")
           .set({
@@ -116,6 +123,16 @@ export async function advanceSimulationRunPhaseNoop(
           .execute();
         return { status: "running", currentPhase: nextPhase };
       }
+    }
+
+    if (finalStatus === "running" && input.deferToQueue && (context.env as any).ENGINE_INDEXING_QUEUE) {
+       // Check if current phase actually finished or just reported "running" (which usually means next phase ready)
+       // The runners currently update current_phase themselves on success.
+       // If it says "running", we can enqueue the next attempt to advance.
+       await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+         jobType: "simulation-advance",
+         runId,
+       });
     }
 
     return { ...result, status: finalStatus, currentPhase: result?.currentPhase ?? phase };

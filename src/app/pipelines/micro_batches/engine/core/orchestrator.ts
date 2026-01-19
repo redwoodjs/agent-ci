@@ -42,6 +42,7 @@ export type MicroBatchesOrchestratorPorts = {
   computeMicroItemsForChunkBatch: (input: {
     chunks: Chunk[];
     promptContext: string;
+    batchIndex: number;
   }) => Promise<string[]>;
   fallbackMicroItemsForChunkBatch: (input: { chunks: Chunk[] }) => string[];
   getEmbeddings: (texts: string[]) => Promise<number[][]>;
@@ -67,6 +68,7 @@ export async function computeMicroBatchesForDocument(input: {
   indexingContext: IndexingHookContext;
   plugins: Plugin[];
   chunkBatches: Chunk[][];
+  batchIndex?: number;
 }): Promise<
   Array<{
     batchIndex: number;
@@ -98,6 +100,10 @@ export async function computeMicroBatchesForDocument(input: {
   }> = [];
 
   for (const p of planned) {
+    if (input.batchIndex !== undefined && p.batchIndex !== input.batchIndex) {
+      continue;
+    }
+
     const cached = await input.ports.loadMicroBatchCache({
       batchHash: p.batchHash,
       promptContextHash: p.promptContextHash,
@@ -121,6 +127,7 @@ export async function computeMicroBatchesForDocument(input: {
       microItems = await input.ports.computeMicroItemsForChunkBatch({
         chunks: p.chunks,
         promptContext: p.promptContext,
+        batchIndex: p.batchIndex,
       });
     } catch {
       microItems = [];
@@ -202,6 +209,7 @@ export async function runMicroBatchesForDocument(input: {
   plugins: Plugin[];
   chunkBatches: Chunk[][];
   now: string;
+  batchIndex?: number;
 }): Promise<{
   batches: Array<{
     batchIndex: number;
@@ -220,6 +228,7 @@ export async function runMicroBatchesForDocument(input: {
     indexingContext: input.indexingContext,
     plugins: input.plugins,
     chunkBatches: input.chunkBatches,
+    batchIndex: input.batchIndex,
   });
 
   let microMomentsUpserted = 0;

@@ -244,6 +244,7 @@ export interface CursorConversationLatestJson {
   workspace_roots?: string[];
   generations: {
     id: string;
-    events: any[];
   }[];
 }
+
+export type { SimulationQueueMessage } from "./simulation/types";

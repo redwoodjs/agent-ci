@@ -143,10 +143,7 @@ export async function runPhaseCandidateSets(
     }
   }
 
-  // Ensure doc marked as done
-  if (roots.length === 0) {
-      await db.insertInto("simulation_run_candidate_sets").values({ run_id: input.runId, child_moment_id: `noop-${input.r2Key}`, r2_key: input.r2Key, stream_id: "none", macro_index: 0, candidates_json: "[]", stats_json: "{}", created_at: now, updated_at: now }).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({ updated_at: now } as any)).execute();
-  }
+
 
   // Mark doc as processed for this phase
   const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();

@@ -206,23 +206,7 @@ export async function runPhaseDeterministicLinking(
       .execute();
   }
 
-  // Ensure we have at least one entry to mark this doc as done if it had no subject moments
-  if (moments.length === 0 || !moments.some(m => m.isSubject)) {
-      await db.insertInto("simulation_run_link_decisions").values({
-          run_id: input.runId,
-          child_moment_id: `noop-${input.r2Key}`,
-          r2_key: input.r2Key,
-          stream_id: "none",
-          macro_index: 0,
-          phase: "deterministic_linking",
-          outcome: "noop",
-          parent_moment_id: null,
-          rule_id: "none",
-          evidence_json: "{}",
-          created_at: now,
-          updated_at: now,
-      } as any).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({ outcome: "noop", updated_at: now } as any)).execute();
-  }
+
 
   // Mark doc as processed for this phase
   const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();

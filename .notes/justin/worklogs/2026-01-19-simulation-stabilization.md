@@ -96,3 +96,15 @@ I investigated a reported issue where the "Open in knowledge graph" link in the 
   - Patched 5 simulation runners (`materialize_moments`, `candidate_sets`, `deterministic_linking`, `timeline_fit`, `micro_batches`) to correctly invoke this prefix application logic, ensuring that `null` base namespace correctly resolves to the prefixed graph location.
   
 **Status**: Resolved. New simulation runs now write to the correct location, and the UI links correctly follow the data.
+
+## Bug Fix: Null Effective Namespace & Scope Router
+
+After the above fix, the user reported that logs were still showing `effectiveNamespace: null`.
+
+- **Root Cause 1**: A bug in `applyMomentGraphNamespacePrefixValue` in `momentGraphNamespace.ts` caused it to return `null` immediately if the input namespace was null, bypassing the prefix application logic.
+- **Root Cause 2**: The `micro_batches` simulation adapter was stubbing the `computeMomentGraphNamespaceForIndexing` port to return `null`, effectively disabling the `redwood-scope-router` plugin for simulation ingestion.
+- **Fix**:
+  - Removed the incorrect early return in `momentGraphNamespace.ts`.
+  - Exported `computeMomentGraphNamespaceForIndexing` from `pluginPipeline.ts` and wired it into `micro_batches/engine/simulation/adapter.ts`.
+  
+**Result**: Simulation ingestion now correctly uses the router plugin to resolve namespaces (e.g. `redwood:machinen`) and correctly prefixes them (e.g. `local-...:redwood:machinen`), eliminating the `null` namespace issue.

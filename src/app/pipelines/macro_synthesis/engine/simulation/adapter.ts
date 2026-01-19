@@ -70,10 +70,7 @@ export async function runMacroSynthesisAdapter(
     typeof runRow?.moment_graph_namespace_prefix === "string"
       ? (runRow.moment_graph_namespace_prefix as string)
       : null;
-  const effectiveNamespace =
-    baseNamespace && prefix
-      ? applyMomentGraphNamespacePrefixValue(baseNamespace, prefix)
-      : baseNamespace;
+  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
 
   for (const r2Key of input.r2Keys) {
     await input.log.info("item.start", { phase: "macro_synthesis", r2Key });

@@ -47,10 +47,25 @@ My goal is to restore the stable behavior while preserving the "always queue" in
 4.  **Verify with tests**: Re-run the simulation test suite once restored to ensure the hardened semantics are preserved.
 5.  **Re-align work log**: Ensure the 2026-01-18 work log reflects the actual final state once we are back on track.
 
+## Critical Constraints for Stabilization
+
+- **Strict Asynchronicity**: No synchronous processing for simulation or live indexing. Everything must walk through queues.
+- **Serverless Timeouts**: Cloudflare Workers (and similar environments) have a strict ~3s execution limit for compute. We cannot have long-running loops or complex computation in a single request.
+- **Aggressive Chunking**: Break down work into the smallest possible units (documents, batches, moments) and dispatch them to the queue.
+- **Replay/Simulation Polling**: The host runner should primarily dispatch to queues and return. The UI/tests are responsible for polling status to observe progression.
+
+## Implementation Plan (Revised)
+
+1.  **Restore and Adapt Runners**: Bring back `ingest_diff`, `macro_classification`, and `macro_synthesis` runners, but ensure they immediately dispatch to the `ENGINE_INDEXING_QUEUE` instead of performing work inline.
+2.  **Fix Dispatch Loops**: Ensure `micro_batches` (and other phases) have clear termination conditions and don't re-enqueue the same work indefinitely.
+3.  **Restore Tests**: Bring back `tests/simulation/*.test.mjs` and ensure they work with the polling-based async flow.
+4.  **UI Build Fix**: Restore `replay-run-log-text.tsx` and ensure `LogViewer` is functioning correctly.
+
 ## Next steps
 
-- [ ] Restore `ingest_diff`, `macro_classification`, and `macro_synthesis` runners.
+- [/] Restore and Adapt `ingest_diff`, `macro_classification`, and `macro_synthesis` runners.
 - [ ] Restore `tests/simulation/*.test.mjs`.
 - [ ] Restore `replay-run-log-text.tsx`.
 - [ ] Verify build passes.
 - [ ] Fix the infinite dispatch loop in `micro_batches`.
+- [ ] Final verification of "Always Queue" strategy across all phases.

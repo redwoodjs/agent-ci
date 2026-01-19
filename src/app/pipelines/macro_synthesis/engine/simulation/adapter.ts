@@ -99,6 +99,12 @@ export async function runMacroSynthesisAdapter(
         prefix
       );
 
+      await input.log.info("debug.resolved_namespace", {
+        phase: "macro_synthesis",
+        r2Key,
+        effectiveNamespace,
+      });
+
       const res = await runMacroSynthesisForR2Key({
         ports: {
           loadDocState: async ({ runId, r2Key }) => {

@@ -142,6 +142,12 @@ export async function runMaterializeMomentsAdapter(
         prefix
       );
 
+      await input.log.info("debug.resolved_namespace", {
+        phase: "materialize_moments",
+        r2Key,
+        effectiveNamespace,
+      });
+
       const momentDb = getMomentGraphDb(context.env, effectiveNamespace);
       const parsedDocumentIdentity = buildParsedDocumentIdentity(document);
       const normalizedStreams = streams.map((s: any) => {

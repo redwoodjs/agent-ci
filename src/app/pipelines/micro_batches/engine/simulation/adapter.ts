@@ -186,6 +186,12 @@ export async function runMicroBatchesAdapter(
         indexingMode: "replay",
         forceRecollect: true,
       });
+      
+      await input.log.info("debug.resolved_namespace", {
+         phase: "micro_batches",
+         r2Key,
+         docNamespace: prepared.indexingContext.momentGraphNamespace || "null",
+      });
 
       if (prepared.chunks.length === 0) {
         continue;

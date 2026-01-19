@@ -45,93 +45,9 @@ export async function runPhaseMicroBatches(
       ? ((runRow as any).moment_graph_namespace_prefix as string)
       : null;
 
-  const events = (await db
-    .selectFrom("simulation_run_events")
-    .select(["kind", "payload_json"])
-    .where("run_id", "=", input.runId)
-    .where("kind", "in", ["phase.dispatch_docs", "item.success", "item.error"])
-    .execute()) as Array<{ kind: string; payload_json: any }>;
-
-  const dispatchEvent = events.find(
-    (e) =>
-      e.kind === "phase.dispatch_docs" &&
-      JSON.parse(e.payload_json).phase === "micro_batches"
-  );
-
-  // --- CASE 1: Granular Document Processing ---
-  if (input.r2Key) {
-    await addSimulationRunEvent(context, {
-      runId: input.runId,
-      level: "info",
-      kind: "phase.start",
-      payload: { 
-        phase: "micro_batches", 
-        r2KeysCount: 1,
-        isGranular: true,
-        r2Key: input.r2Key
-      },
-    });
-
-    const env = context.env;
-    const useLlm = true;
-
-    const result = await runMicroBatchesAdapter(context, {
-      runId: input.runId,
-      r2Keys: [input.r2Key],
-      useLlm,
-      ports: {
-        computeMicroItemsForChunkBatch: async ({ chunks, promptContext, batchIndex }) => {
-          return (
-            (await computeMicroMomentsForChunkBatch(chunks, {
-              promptContext,
-              logger: (msg, data) => {
-                log
-                  .info("process.llm_retry", {
-                    phase: "micro_batches",
-                    msg,
-                    batchIndex,
-                    ...data,
-                  })
-                  .catch(() => {});
-              },
-            })) ?? []
-          );
-        },
-        getEmbeddings: async (texts) => await getEmbeddings(texts),
-        getEmbedding: async (text) => await getEmbedding(text),
-        upsertMicroMomentsBatch: async ({
-          documentId,
-          momentGraphNamespace,
-          microMoments,
-        }) => {
-          await upsertMicroMomentsBatch(documentId, microMoments as any, {
-            env,
-            momentGraphNamespace,
-          });
-        },
-      },
-      now,
-      log,
-      momentGraphNamespace,
-      momentGraphNamespacePrefix,
-      batchIndex: input.batchIndex,
-      deferToQueue: !input.batchIndex, // Defer to queue if we are processing a whole document
-    });
-
-    // Optional: Trigger an advance attempt just in case this was the last doc
-    if ((context.env as any).ENGINE_INDEXING_QUEUE) {
-       await (context.env as any).ENGINE_INDEXING_QUEUE.send({
-         jobType: "simulation-advance",
-         runId: input.runId,
-       });
-    }
-
-    return { status: "running", currentPhase: "micro_batches" };
-  }
-
-  // --- CASE 2: Phase Control (Non-granular) ---
-  if (!dispatchEvent) {
-    // Stage A: Start of phase - Dispatch all docs
+  if (!input.r2Key) {
+    // If no specific key, enqueue all documents that are "changed" and not yet processed in this phase
+    // For now, let's just enqueue all r2Keys from config
     const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
     if (queue && r2Keys.length > 0) {
       await addSimulationRunEvent(context, {
@@ -153,47 +69,98 @@ export async function runPhaseMicroBatches(
     }
   }
 
-  // Stage B: Check progress
-  const finishedEvents = events.filter((e) => {
-    if (e.kind !== "item.success" && e.kind !== "item.error") {
-      return false;
-    }
-    const payload = JSON.parse(e.payload_json);
-    return payload.phase === "micro_batches";
-  });
-
-  if (finishedEvents.length < r2Keys.length) {
-    // Still working
-    return { status: "running", currentPhase: "micro_batches" };
-  }
-
-  // Stage C: Phase Completion logic
-  const failedDocs = finishedEvents.filter(e => e.kind === 'item.error').length;
-  const successes = finishedEvents.filter(e => e.kind === 'item.success');
-  
-  // Aggregate stats from successes if needed
-  let docsSkippedUnchanged = 0;
-  for (const e of successes) {
-     const payload = JSON.parse(e.payload_json);
-     if (payload.skipped) {
-        docsSkippedUnchanged++;
-     }
-  }
+  const activeR2Keys = input.r2Key ? [input.r2Key] : r2Keys;
 
   await addSimulationRunEvent(context, {
     runId: input.runId,
-    level: failedDocs > 0 ? "error" : "info",
-    kind: "phase.end",
-    payload: {
-      phase: "micro_batches",
-      r2KeysCount: r2Keys.length,
-      docsProcessed: finishedEvents.length - docsSkippedUnchanged,
-      docsSkippedUnchanged,
-      failed: failedDocs,
+    level: "info",
+    kind: "phase.start",
+    payload: { 
+      phase: "micro_batches", 
+      r2KeysCount: activeR2Keys.length,
+      isGranular: !!input.r2Key 
     },
   });
 
-  if (failedDocs > 0) {
+  const env = context.env;
+  const useLlm = true;
+
+  const result = await runMicroBatchesAdapter(context, {
+    runId: input.runId,
+    r2Keys: activeR2Keys,
+    useLlm,
+    ports: {
+      computeMicroItemsForChunkBatch: async ({ chunks, promptContext, batchIndex }) => {
+        return (
+          (await computeMicroMomentsForChunkBatch(chunks, {
+            promptContext,
+            logger: (msg, data) => {
+              log
+                .info("process.llm_retry", {
+                  phase: "micro_batches",
+                  msg,
+                  batchIndex,
+                  ...data,
+                })
+                .catch(() => {});
+            },
+          })) ?? []
+        );
+      },
+      getEmbeddings: async (texts) => await getEmbeddings(texts),
+      getEmbedding: async (text) => await getEmbedding(text),
+      upsertMicroMomentsBatch: async ({
+        documentId,
+        momentGraphNamespace,
+        microMoments,
+      }) => {
+        await upsertMicroMomentsBatch(documentId, microMoments as any, {
+          env,
+          momentGraphNamespace,
+        });
+      },
+    },
+    now,
+    log,
+    momentGraphNamespace,
+    momentGraphNamespacePrefix,
+    batchIndex: input.batchIndex,
+    deferToQueue: !input.r2Key && !input.batchIndex, // Defer to queue if we are starting the whole phase
+  });
+
+  await addSimulationRunEvent(context, {
+    runId: input.runId,
+    level: result.failed > 0 ? "error" : "info",
+    kind: "phase.end",
+    payload: {
+      phase: "micro_batches",
+      useLlm,
+      r2KeysCount: r2Keys.length,
+      docsProcessed: result.docsProcessed,
+      docsSkippedUnchanged: result.docsSkippedUnchanged,
+      batchesComputed: result.batchesComputed,
+      batchesCached: result.batchesCached,
+      failed: result.failed,
+    },
+  });
+
+  if (input.r2Key) {
+    // If it was a granular run, we don't advance the phase here.
+    // We just return 'running' for the phase.
+    // The next 'advance' call (automatic or manual) will check if all docs are done.
+    
+    // Optional: Trigger an advance attempt just in case this was the last doc
+    if ((context.env as any).ENGINE_INDEXING_QUEUE) {
+       await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+         jobType: "simulation-advance",
+         runId: input.runId,
+       });
+    }
+
+    return { status: "running", currentPhase: "micro_batches" };
+  }
+
+  if (result.failed > 0) {
     await db
       .updateTable("simulation_runs")
       .set({
@@ -202,6 +169,7 @@ export async function runPhaseMicroBatches(
         last_progress_at: now,
         last_error_json: JSON.stringify({
           message: "micro_batches failed for one or more documents",
+          failures: result.failures,
         }),
       } as any)
       .where("run_id", "=", input.runId)
@@ -236,3 +204,4 @@ export async function runPhaseMicroBatches(
 
   return { status: "running", currentPhase: nextPhase };
 }
+

@@ -101,8 +101,6 @@ export async function advanceSimulationRunPhaseNoop(
       finalStatus = "running";
     }
 
-    const advancedCurrentPhase = result?.currentPhase ?? phase;
-
     if (finalStatus === "paused_on_error" && input.continueOnError) {
       // If phase runner reported error but we want to continue, force advance to next phase
       const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
@@ -130,16 +128,14 @@ export async function advanceSimulationRunPhaseNoop(
     if (finalStatus === "running" && input.deferToQueue && (context.env as any).ENGINE_INDEXING_QUEUE) {
        // Check if current phase actually finished or just reported "running" (which usually means next phase ready)
        // The runners currently update current_phase themselves on success.
-       // If it says "running" AND the phase advanced, we can enqueue the next attempt to advance.
-       if (advancedCurrentPhase !== phase) {
-         await (context.env as any).ENGINE_INDEXING_QUEUE.send({
-           jobType: "simulation-advance",
-           runId,
-         });
-       }
+       // If it says "running", we can enqueue the next attempt to advance.
+       await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+         jobType: "simulation-advance",
+         runId,
+       });
     }
 
-    return { ...result, status: finalStatus, currentPhase: advancedCurrentPhase };
+    return { ...result, status: finalStatus, currentPhase: result?.currentPhase ?? phase };
   } catch (error: any) {
     const msg = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;

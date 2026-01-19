@@ -1,50 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-
-const BASE_URL = process.env.MACHINEN_BASE_URL ?? "http://localhost:5173";
-const API_KEY = process.env.MACHINEN_API_KEY ?? "";
+import { postJson, getJson, waitForPhase } from "./test_utils.mjs";
 
 const DEFAULT_R2_KEY = "github/redwoodjs/sdk/issues/552/latest.json";
 const R2_KEY = process.env.MACHINEN_TEST_R2_KEY ?? DEFAULT_R2_KEY;
-
-function authHeaders() {
-  if (!API_KEY) {
-    throw new Error("Missing MACHINEN_API_KEY env var");
-  }
-  return {
-    Authorization: `Bearer ${API_KEY}`,
-  };
-}
-
-async function postJson(path, body) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "POST",
-    headers: {
-      ...authHeaders(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body ?? {}),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`POST ${path} failed: ${res.status} ${text}`);
-  }
-  return JSON.parse(text);
-}
-
-async function getJson(path) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "GET",
-    headers: {
-      ...authHeaders(),
-    },
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`GET ${path} failed: ${res.status} ${text}`);
-  }
-  return JSON.parse(text);
-}
 
 test("simulation phase: micro_batches (cache reuse without LLM)", async () => {
   if (!R2_KEY) {
@@ -56,13 +15,11 @@ test("simulation phase: micro_batches (cache reuse without LLM)", async () => {
   });
   const runId = started.runId;
 
-  const advA = await postJson("/admin/simulation/run/advance", { runId });
-  assert.equal(advA.status, "running");
-  assert.equal(advA.currentPhase, "micro_batches");
+  await postJson("/admin/simulation/run/advance", { runId });
+  await waitForPhase(runId, "micro_batches");
 
-  const advB = await postJson("/admin/simulation/run/advance", { runId });
-  assert.equal(advB.status, "running");
-  assert.equal(advB.currentPhase, "macro_synthesis");
+  await postJson("/admin/simulation/run/advance", { runId });
+  await waitForPhase(runId, "macro_synthesis");
 
   const batches1 = await getJson(
     `/admin/simulation/run/${runId}/micro-batches?r2Key=${encodeURIComponent(
@@ -88,9 +45,8 @@ test("simulation phase: micro_batches (cache reuse without LLM)", async () => {
   });
   assert.equal(restart.success, true);
 
-  const advBAgain = await postJson("/admin/simulation/run/advance", { runId });
-  assert.equal(advBAgain.status, "running");
-  assert.equal(advBAgain.currentPhase, "macro_synthesis");
+  await postJson("/admin/simulation/run/advance", { runId });
+  await waitForPhase(runId, "macro_synthesis");
 
   const batches2 = await getJson(
     `/admin/simulation/run/${runId}/micro-batches?r2Key=${encodeURIComponent(
@@ -103,4 +59,3 @@ test("simulation phase: micro_batches (cache reuse without LLM)", async () => {
   const batchHashes2 = batches2.batches.map((b) => b.batchHash);
   assert.deepEqual(batchHashes2, batchHashes1);
 });
-

@@ -63,18 +63,21 @@ test("ui smoke: audit simulation runs page (click + dom)", async (t) => {
 
     await page.waitForSelector("text=Run");
 
+    // Advance from ingest_diff to micro_batches
     await page.getByRole("button", { name: "Advance" }).click();
-    await page.waitForLoadState("networkidle");
+    
+    // Polling for UI update since advancement is async
+    await page.waitForFunction(
+        () => document.body.innerText.includes("micro_batches"),
+        { timeout: 30000 }
+    );
 
-    const bodyText = await page.locator("body").innerText();
-    assert.ok(bodyText.includes("phase="));
-    assert.ok(bodyText.includes("micro_batches"));
-
+    // Advance from micro_batches to macro_synthesis
     await page.getByRole("button", { name: "Advance" }).click();
-    await page.waitForLoadState("networkidle");
-
-    const bodyText2 = await page.locator("body").innerText();
-    assert.ok(bodyText2.includes("macro_synthesis"));
+    await page.waitForFunction(
+        () => document.body.innerText.includes("macro_synthesis"),
+        { timeout: 30000 }
+    );
 
     const eventsText = await page.locator("textarea").first().inputValue();
     assert.ok(eventsText.includes("phase.start"));

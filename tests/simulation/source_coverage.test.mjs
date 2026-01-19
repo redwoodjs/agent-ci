@@ -1,47 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-
-const BASE_URL = process.env.MACHINEN_BASE_URL ?? "http://localhost:5173";
-const API_KEY = process.env.MACHINEN_API_KEY ?? "";
-
-function authHeaders() {
-  if (!API_KEY) {
-    throw new Error("Missing MACHINEN_API_KEY env var");
-  }
-  return {
-    Authorization: `Bearer ${API_KEY}`,
-  };
-}
-
-async function postJson(path, body) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "POST",
-    headers: {
-      ...authHeaders(),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body ?? {}),
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`POST ${path} failed: ${res.status} ${text}`);
-  }
-  return JSON.parse(text);
-}
-
-async function getJson(path) {
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method: "GET",
-    headers: {
-      ...authHeaders(),
-    },
-  });
-  const text = await res.text();
-  if (!res.ok) {
-    throw new Error(`GET ${path} failed: ${res.status} ${text}`);
-  }
-  return JSON.parse(text);
-}
+import { postJson, getJson, waitForPhase } from "./test_utils.mjs";
 
 async function listKeys(prefix) {
   const res = await postJson("/debug/r2-list", { prefix, limit: 200 });
@@ -49,11 +8,6 @@ async function listKeys(prefix) {
 }
 
 test("source coverage: one key per source can run through micro_batches", async (t) => {
-  if (!API_KEY) {
-    t.skip("Missing MACHINEN_API_KEY");
-    return;
-  }
-
   const prefixes = ["github/", "discord/", "cursor/conversations/"];
   const keys = [];
 
@@ -72,15 +26,12 @@ test("source coverage: one key per source can run through micro_batches", async 
   });
   const runId = started.runId;
 
-  const adv1 = await postJson("/admin/simulation/run/advance", { runId });
-  assert.equal(adv1.status, "running");
-  assert.equal(adv1.currentPhase, "micro_batches");
+  await postJson("/admin/simulation/run/advance", { runId });
+  await waitForPhase(runId, "micro_batches");
 
-  const adv2 = await postJson("/admin/simulation/run/advance", { runId });
-  if (adv2.status !== "running") {
-    const run = await getJson(`/admin/simulation/run/${runId}`);
-    throw new Error(`micro_batches paused: ${JSON.stringify(run)}`);
-  }
-  assert.equal(adv2.currentPhase, "macro_synthesis");
+  await postJson("/admin/simulation/run/advance", { runId });
+  const run = await waitForPhase(runId, "macro_synthesis");
+  
+  assert.equal(run.status, "running");
+  assert.equal(run.currentPhase, "macro_synthesis");
 });
-

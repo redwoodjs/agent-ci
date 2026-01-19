@@ -324,13 +324,19 @@ export const simulationStateMigrations = {
   },
   "010_add_dispatch_tracking": {
     async up(db) {
-      return [
+      try {
         await db.schema
           .alterTable("simulation_run_documents")
           .addColumn("dispatched_phases_json", "text")
+          .execute();
+      } catch (e) {}
+      try {
+        await db.schema
+          .alterTable("simulation_run_documents")
           .addColumn("processed_phases_json", "text")
-          .execute(),
-      ];
+          .execute();
+      } catch (e) {}
+      return [];
     },
     async down(db) {
       // Alter table drop column not supported in some DBs, but let's try if it is

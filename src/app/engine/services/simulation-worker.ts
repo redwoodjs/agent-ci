@@ -62,6 +62,7 @@ export async function processSimulationJob(
           r2Key: message.r2Key,
           batchIndex: message.batchIndex,
         });
+      }
       break;
     }
 

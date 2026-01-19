@@ -19,7 +19,7 @@ test("simulation phase: deterministic_linking (intra-stream chaining + decision 
   await pollUntilPhase(runId, "candidate_sets");
 
   const decisions = await getJson(
-    `/admin/simulation/run/${runId}/deterministic-linking-decisions`
+    `/admin/simulation/run/${runId}/link-decisions`
   );
   assert.ok(Array.isArray(decisions.decisions));
   assert.ok(decisions.decisions.length >= 0);

@@ -260,7 +260,9 @@ export async function getSimulationRunMaterializedMoments(
     momentId: string;
     parentId: string | null;
     title: string | null;
-    summary: string | null;
+        summary: string | null;
+    sourceMetadata: any | null;
+    author: string | null;
     createdAt: string;
     updatedAt: string;
   }>
@@ -324,14 +326,20 @@ export async function getSimulationRunMaterializedMoments(
     ids.length > 0
       ? await momentDb
           .selectFrom("moments")
-          .select(["id", "parent_id", "title", "summary"])
+          .select(["id", "parent_id", "title", "summary", "source_metadata", "author"])
           .where("id", "in", ids as any)
           .execute()
       : [];
   const detailsById = new Map(
     (momentRows as any[]).map((r) => [
       r.id,
-      { parentId: r.parent_id ?? null, title: r.title ?? null, summary: r.summary ?? null },
+      {
+        parentId: r.parent_id ?? null,
+        title: r.title ?? null,
+        summary: r.summary ?? null,
+        sourceMetadata: r.source_metadata ?? null,
+        author: r.author ?? null,
+      },
     ])
   );
 
@@ -345,6 +353,8 @@ export async function getSimulationRunMaterializedMoments(
       parentId: details?.parentId ?? null,
       title: details?.title ?? null,
       summary: details?.summary ?? null,
+      sourceMetadata: details?.sourceMetadata ?? null,
+      author: details?.author ?? null,
       createdAt: (r as any).created_at,
       updatedAt: (r as any).updated_at,
     };

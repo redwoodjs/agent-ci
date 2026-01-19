@@ -79,7 +79,11 @@ export async function advanceSimulationRunPhaseNoop(
     if (!entry) {
       throw new Error(`No registry entry found for phase: ${phase}`);
     }
-    const result = await entry.runner(context, { runId, phaseIdx });
+    const result = await entry.runner(context, {
+      runId,
+      phaseIdx,
+      deferToQueue: input.deferToQueue,
+    });
 
     // Check if runner updated status. If not, we set it back to running (or result status)
     const afterRow = (await db

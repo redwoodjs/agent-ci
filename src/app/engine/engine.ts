@@ -438,7 +438,7 @@ export async function indexDocument(
             momentGraphContext
           );
         },
-        computeMicroItemsForChunkBatch: async ({ chunks, promptContext }) => {
+        computeMicroItemsForChunkBatch: async ({ chunks, promptContext, batchIndex }) => {
           try {
             return (
               (await computeMicroMomentsForChunkBatch(chunks, {

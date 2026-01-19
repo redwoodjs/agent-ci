@@ -83,3 +83,16 @@ I addressed the infinite dispatch loop by introducing a more robust control flow
 The system is now stable, strictly asynchronous, and adheres to the queue-based model with efficient dispatching.
 
 **Status**: Stable and verified with polling-based tests.
+
+## Knowledge Graph Visibility Fix (Refactoring Namespace)
+
+I investigated a reported issue where the "Open in knowledge graph" link in the simulation UI resulted in an infinite loading state. 
+
+- **Root Cause**: The simulation runner actions were defaulting to a `sim-{uuid}` namespace when no explicit namespace was provided. However, the UI (and the user's mental model) expected the data to reside in the "default" namespace, locally scoped by the `prefix` (e.g. `local-2026-01-19-...`).
+- **User Preference**: The user confirmed that `sim-{uuid}` adds unnecessary redundancy and requested its removal.
+- **Fix**:
+  - Removed the `sim-{uuid}` default fallback from `simulation-actions.ts`.
+  - Updated `momentGraphNamespace.ts` to allow `applyMomentGraphNamespacePrefixValue` to work even when the base namespace is null (returning just the prefix).
+  - Patched 5 simulation runners (`materialize_moments`, `candidate_sets`, `deterministic_linking`, `timeline_fit`, `micro_batches`) to correctly invoke this prefix application logic, ensuring that `null` base namespace correctly resolves to the prefixed graph location.
+  
+**Status**: Resolved. New simulation runs now write to the correct location, and the UI links correctly follow the data.

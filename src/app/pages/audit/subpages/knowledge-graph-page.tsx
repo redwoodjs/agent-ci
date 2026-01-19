@@ -1112,11 +1112,7 @@ export function KnowledgeGraphPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {loading && (
-            <div className="text-center py-8">
-              <p className="text-gray-500">Loading graph data...</p>
-            </div>
-          )}
+
 
           {rootMomentsLoading && !selectedRootId && (
             <div className="text-center py-8">

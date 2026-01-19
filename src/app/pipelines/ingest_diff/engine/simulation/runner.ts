@@ -36,24 +36,51 @@ export async function runPhaseIngestDiff(
     // Check if we already have results for all keys
     const processedKeys = await db
       .selectFrom("simulation_run_documents")
-      .select("r2_key")
+      .select(["r2_key", "dispatched_phases_json"])
       .where("run_id", "=", input.runId)
       .execute();
     
     const processedSet = new Set(processedKeys.map(k => k.r2_key));
+    const dispatchedMap = new Map(processedKeys.map(k => [k.r2_key, JSON.parse(k.dispatched_phases_json || "[]") as string[]]));
+    
     const missingKeys = r2Keys.filter(k => !processedSet.has(k));
+    const undecpatchedKeys = r2Keys.filter(k => {
+      if (processedSet.has(k)) return false;
+      const dispatched = dispatchedMap.get(k) || [];
+      return !dispatched.includes("ingest_diff");
+    });
 
-    if (missingKeys.length > 0) {
+    if (undecpatchedKeys.length > 0) {
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
       if (queue) {
         await addSimulationRunEvent(context, {
           runId: input.runId,
           level: "info",
           kind: "phase.dispatch_docs",
-          payload: { phase: "ingest_diff", count: missingKeys.length },
+          payload: { phase: "ingest_diff", count: undecpatchedKeys.length },
         });
 
-        for (const r2Key of missingKeys) {
+        for (const r2Key of undecpatchedKeys) {
+          // Register the document if it doesn't exist, and mark as dispatched
+          const dispatched = dispatchedMap.get(r2Key) || [];
+          const nextDispatched = [...new Set([...dispatched, "ingest_diff"])];
+          
+          await db
+            .insertInto("simulation_run_documents")
+            .values({
+              run_id: input.runId,
+              r2_key: r2Key,
+              changed: 0,
+              processed_at: "pending",
+              updated_at: now,
+              dispatched_phases_json: JSON.stringify(nextDispatched),
+            } as any)
+            .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
+              dispatched_phases_json: JSON.stringify(nextDispatched),
+              updated_at: now,
+            } as any))
+            .execute();
+
           await queue.send({
             jobType: "simulation-document",
             runId: input.runId,
@@ -61,10 +88,15 @@ export async function runPhaseIngestDiff(
             r2Key,
           });
         }
-        return { status: "running", currentPhase: "ingest_diff" };
+        return { status: "awaiting_documents", currentPhase: "ingest_diff" };
       }
       
       throw new Error("ENGINE_INDEXING_QUEUE is required for async simulation runners");
+    }
+
+    if (missingKeys.length > 0) {
+      // We have missing keys but they are all dispatched
+      return { status: "awaiting_documents", currentPhase: "ingest_diff" };
     }
 
     // All keys have entries. Check if any have errors.

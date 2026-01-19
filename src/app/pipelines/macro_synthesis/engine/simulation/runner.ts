@@ -37,20 +37,42 @@ export async function runPhaseMacroSynthesis(
       .where("run_id", "=", input.runId)
       .execute();
     
-    const processedSet = new Set(processedRows.map(r => r.r2_key));
-    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const docDispatchRows = await db
+      .selectFrom("simulation_run_documents")
+      .select(["r2_key", "dispatched_phases_json"])
+      .where("run_id", "=", input.runId)
+      .execute();
 
-    if (missingKeys.length > 0) {
+    const processedSet = new Set(processedRows.map(r => r.r2_key));
+    const dispatchMap = new Map(docDispatchRows.map(r => [r.r2_key, JSON.parse(r.dispatched_phases_json || "[]") as string[]]));
+
+    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const undecpatchedKeys = relevantR2Keys.filter(k => {
+      if (processedSet.has(k)) return false;
+      const dispatched = dispatchMap.get(k) || [];
+      return !dispatched.includes("macro_synthesis");
+    });
+
+    if (undecpatchedKeys.length > 0) {
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
       if (queue) {
         await addSimulationRunEvent(context, {
           runId: input.runId,
           level: "info",
           kind: "phase.dispatch_docs",
-          payload: { phase: "macro_synthesis", count: missingKeys.length },
+          payload: { phase: "macro_synthesis", count: undecpatchedKeys.length },
         });
 
-        for (const k of missingKeys) {
+        for (const k of undecpatchedKeys) {
+          const dispatched = dispatchMap.get(k) || [];
+          const nextDispatched = [...new Set([...dispatched, "macro_synthesis"])];
+          
+          await db.updateTable("simulation_run_documents")
+            .set({ dispatched_phases_json: JSON.stringify(nextDispatched), updated_at: now })
+            .where("run_id", "=", input.runId)
+            .where("r2_key", "=", k)
+            .execute();
+
           await queue.send({
             jobType: "simulation-document",
             runId: input.runId,
@@ -58,9 +80,13 @@ export async function runPhaseMacroSynthesis(
             r2Key: k,
           });
         }
-        return { status: "running", currentPhase: "macro_synthesis" };
+        return { status: "awaiting_documents", currentPhase: "macro_synthesis" };
       }
       throw new Error("ENGINE_INDEXING_QUEUE is required");
+    }
+
+    if (missingKeys.length > 0) {
+      return { status: "awaiting_documents", currentPhase: "macro_synthesis" };
     }
 
     return advance(db, input.runId, input.phaseIdx, now);

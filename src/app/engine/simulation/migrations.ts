@@ -322,5 +322,19 @@ export const simulationStateMigrations = {
         .execute();
     },
   },
+  "010_add_dispatch_tracking": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("simulation_run_documents")
+          .addColumn("dispatched_phases_json", "text")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      // Alter table drop column not supported in some DBs, but let's try if it is
+      // Otherwise we'd just leave it.
+    },
+  },
 } satisfies Migrations;
 

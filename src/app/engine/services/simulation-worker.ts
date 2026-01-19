@@ -49,6 +49,12 @@ export async function processSimulationJob(
           phaseIdx,
           r2Key: message.r2Key,
         });
+
+        // Trigger advance check
+        const queue = (env as any).ENGINE_INDEXING_QUEUE;
+        if (queue) {
+          await queue.send({ jobType: "simulation-advance", runId: message.runId });
+        }
       }
       break;
     }
@@ -62,6 +68,12 @@ export async function processSimulationJob(
           r2Key: message.r2Key,
           batchIndex: message.batchIndex,
         });
+
+        // Trigger advance check
+        const queue = (env as any).ENGINE_INDEXING_QUEUE;
+        if (queue) {
+          await queue.send({ jobType: "simulation-advance", runId: message.runId });
+        }
       }
       break;
     }

@@ -34,7 +34,7 @@ export async function advanceSimulationRunPhaseNoop(
     return null;
   }
 
-  if (row.status !== "running") {
+  if (row.status !== "running" && row.status !== "awaiting_documents") {
     return { status: row.status, currentPhase: row.current_phase };
   }
 
@@ -47,7 +47,7 @@ export async function advanceSimulationRunPhaseNoop(
       updated_at: now,
     } as any)
     .where("run_id", "=", runId)
-    .where("status", "=", "running")
+    .where("status", "in", ["running", "awaiting_documents"])
     .execute();
 
   // Verify we actually got the lock
@@ -130,9 +130,6 @@ export async function advanceSimulationRunPhaseNoop(
     }
 
     if (finalStatus === "running" && input.deferToQueue && (context.env as any).ENGINE_INDEXING_QUEUE) {
-       // Check if current phase actually finished or just reported "running" (which usually means next phase ready)
-       // The runners currently update current_phase themselves on success.
-       // If it says "running", we can enqueue the next attempt to advance.
        await (context.env as any).ENGINE_INDEXING_QUEUE.send({
          jobType: "simulation-advance",
          runId,

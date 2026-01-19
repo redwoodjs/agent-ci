@@ -40,19 +40,41 @@ export async function runPhaseCandidateSets(
     if (relevantR2Keys.length === 0) return advance(db, input.runId, input.phaseIdx, now);
 
     const processedRows = await db.selectFrom("simulation_run_candidate_sets").select("r2_key").where("run_id", "=", input.runId).distinct().execute();
+    const docDispatchRows = await db.selectFrom("simulation_run_documents").select(["r2_key", "dispatched_phases_json"]).where("run_id", "=", input.runId).execute();
+    
     const processedSet = new Set(processedRows.map(r => r.r2_key));
-    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const dispatchMap = new Map(docDispatchRows.map(r => [r.r2_key, JSON.parse(r.dispatched_phases_json || "[]") as string[]]));
 
-    if (missingKeys.length > 0) {
+    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const undecpatchedKeys = relevantR2Keys.filter(k => {
+      if (processedSet.has(k)) return false;
+      const dispatched = dispatchMap.get(k) || [];
+      return !dispatched.includes("candidate_sets");
+    });
+
+    if (undecpatchedKeys.length > 0) {
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
       if (queue) {
-        await addSimulationRunEvent(context, { runId: input.runId, level: "info", kind: "phase.dispatch_docs", payload: { phase: "candidate_sets", count: missingKeys.length } });
-        for (const k of missingKeys) {
+        await addSimulationRunEvent(context, { runId: input.runId, level: "info", kind: "phase.dispatch_docs", payload: { phase: "candidate_sets", count: undecpatchedKeys.length } });
+        for (const k of undecpatchedKeys) {
+          const dispatched = dispatchMap.get(k) || [];
+          const nextDispatched = [...new Set([...dispatched, "candidate_sets"])];
+          
+          await db.updateTable("simulation_run_documents")
+            .set({ dispatched_phases_json: JSON.stringify(nextDispatched), updated_at: now })
+            .where("run_id", "=", input.runId)
+            .where("r2_key", "=", k)
+            .execute();
+
           await queue.send({ jobType: "simulation-document", runId: input.runId, phase: "candidate_sets", r2Key: k });
         }
-        return { status: "running", currentPhase: "candidate_sets" };
+        return { status: "awaiting_documents", currentPhase: "candidate_sets" };
       }
       throw new Error("ENGINE_INDEXING_QUEUE is required");
+    }
+
+    if (missingKeys.length > 0) {
+      return { status: "awaiting_documents", currentPhase: "candidate_sets" };
     }
     return advance(db, input.runId, input.phaseIdx, now);
   }

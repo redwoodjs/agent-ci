@@ -44,19 +44,41 @@ export async function runPhaseMicroBatches(
 
     // Done if every relevant doc has at least one entry in simulation_run_micro_batches (or marked as noop)
     const processedRows = await db.selectFrom("simulation_run_micro_batches").select("r2_key").where("run_id", "=", input.runId).distinct().execute();
+    const docDispatchRows = await db.selectFrom("simulation_run_documents").select(["r2_key", "dispatched_phases_json"]).where("run_id", "=", input.runId).execute();
+    
     const processedSet = new Set(processedRows.map(r => r.r2_key));
-    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const dispatchMap = new Map(docDispatchRows.map(r => [r.r2_key, JSON.parse(r.dispatched_phases_json || "[]") as string[]]));
 
-    if (missingKeys.length > 0) {
+    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const undecpatchedKeys = relevantR2Keys.filter(k => {
+      if (processedSet.has(k)) return false;
+      const dispatched = dispatchMap.get(k) || [];
+      return !dispatched.includes("micro_batches");
+    });
+
+    if (undecpatchedKeys.length > 0) {
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
       if (queue) {
-        await addSimulationRunEvent(context, { runId: input.runId, level: "info", kind: "phase.dispatch_docs", payload: { phase: "micro_batches", count: missingKeys.length } });
-        for (const k of missingKeys) {
+        await addSimulationRunEvent(context, { runId: input.runId, level: "info", kind: "phase.dispatch_docs", payload: { phase: "micro_batches", count: undecpatchedKeys.length } });
+        for (const k of undecpatchedKeys) {
+          const dispatched = dispatchMap.get(k) || [];
+          const nextDispatched = [...new Set([...dispatched, "micro_batches"])];
+          
+          await db.updateTable("simulation_run_documents")
+            .set({ dispatched_phases_json: JSON.stringify(nextDispatched), updated_at: now })
+            .where("run_id", "=", input.runId)
+            .where("r2_key", "=", k)
+            .execute();
+
           await queue.send({ jobType: "simulation-document", runId: input.runId, phase: "micro_batches", r2Key: k });
         }
-        return { status: "running", currentPhase: "micro_batches" };
+        return { status: "awaiting_documents", currentPhase: "micro_batches" };
       }
       throw new Error("ENGINE_INDEXING_QUEUE is required");
+    }
+
+    if (missingKeys.length > 0) {
+      return { status: "awaiting_documents", currentPhase: "micro_batches" };
     }
 
     // All documents have been started. Now check if any are still in "planned" state but not done? 

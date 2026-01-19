@@ -38,20 +38,42 @@ export async function runPhaseMacroClassification(
       .where("run_id", "=", input.runId)
       .execute();
     
-    const processedSet = new Set(processedRows.map(r => r.r2_key));
-    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const docDispatchRows = await db
+      .selectFrom("simulation_run_documents")
+      .select(["r2_key", "dispatched_phases_json"])
+      .where("run_id", "=", input.runId)
+      .execute();
 
-    if (missingKeys.length > 0) {
+    const processedSet = new Set(processedRows.map(r => r.r2_key));
+    const dispatchMap = new Map(docDispatchRows.map(r => [r.r2_key, JSON.parse(r.dispatched_phases_json || "[]") as string[]]));
+
+    const missingKeys = relevantR2Keys.filter(k => !processedSet.has(k));
+    const undecpatchedKeys = relevantR2Keys.filter(k => {
+      if (processedSet.has(k)) return false;
+      const dispatched = dispatchMap.get(k) || [];
+      return !dispatched.includes("macro_classification");
+    });
+
+    if (undecpatchedKeys.length > 0) {
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
       if (queue) {
         await addSimulationRunEvent(context, {
           runId: input.runId,
           level: "info",
           kind: "phase.dispatch_docs",
-          payload: { phase: "macro_classification", count: missingKeys.length },
+          payload: { phase: "macro_classification", count: undecpatchedKeys.length },
         });
 
-        for (const k of missingKeys) {
+        for (const k of undecpatchedKeys) {
+          const dispatched = dispatchMap.get(k) || [];
+          const nextDispatched = [...new Set([...dispatched, "macro_classification"])];
+          
+          await db.updateTable("simulation_run_documents")
+            .set({ dispatched_phases_json: JSON.stringify(nextDispatched), updated_at: now })
+            .where("run_id", "=", input.runId)
+            .where("r2_key", "=", k)
+            .execute();
+
           await queue.send({
             jobType: "simulation-document",
             runId: input.runId,
@@ -59,9 +81,13 @@ export async function runPhaseMacroClassification(
             r2Key: k,
           });
         }
-        return { status: "running", currentPhase: "macro_classification" };
+        return { status: "awaiting_documents", currentPhase: "macro_classification" };
       }
       throw new Error("ENGINE_INDEXING_QUEUE is required");
+    }
+
+    if (missingKeys.length > 0) {
+      return { status: "awaiting_documents", currentPhase: "macro_classification" };
     }
 
     // All done? Check if we had errors (actually the adapter might log errors elsewhere, 

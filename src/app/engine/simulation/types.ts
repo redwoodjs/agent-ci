@@ -6,6 +6,7 @@ export type SimulationDatabase = Database<typeof simulationStateMigrations>;
 
 export type SimulationRunStatus =
   | "running"
+  | "awaiting_documents"
   | "busy_running"
   | "paused_on_error"
   | "paused_manual"
@@ -53,6 +54,7 @@ export type SimulationRunDocumentRow = Override<
   SimulationRunDocumentInput,
   {
     error_json: any;
+    dispatched_phases_json: string[] | null;
   }
 >;
 

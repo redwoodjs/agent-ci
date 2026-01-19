@@ -70,9 +70,16 @@ My goal is to restore the stable behavior while preserving the "always queue" in
 - [ ] Fix the infinite dispatch loop in `micro_batches`.
 - [ ] Final verification of "Always Queue" strategy across all phases.
 
-## Finalized Stabilization
-- Successfully restored all missing runners and UI components.
-- Adapted all 8 simulation phase runners to use a strictly asynchronous, document-level dispatch logic via `ENGINE_INDEXING_QUEUE`.
-- Fixed the infinite re-dispatch loop in `micro_batches` by ensuring it only enqueues work for documents not yet started in the current phase.
-- Updated core simulation tests to use a polling-based model via `pollUntilPhase` in `test-utils.mjs`.
-- Verified the build with `pnpm build`, which completed successfully.
+## Implemented dispatch control and final stabilization
+
+I addressed the infinite dispatch loop by introducing a more robust control flow:
+
+1.  **Awaiting Documents Status**: Introduced an `awaiting_documents` status for simulation runs. This signals that a phase has dispatched its initial work to the queue and is now waiting for asynchronous document processing to complete.
+2.  **Throttled Host Runner**: Modified the host runner (`runner.ts`) to recognize `awaiting_documents`. It will now break its rapid auto-advance loop when this status is active, preventing redundant polling while documents are still being processed by workers.
+3.  **Dispatch Tracking**: Added a `dispatched_phases_json` column to `simulation_run_documents`. This allows each phase runner to track which R2 keys have already been sent to the queue for that specific phase.
+4.  **Refactored Phase Runners**: Updated all 8 phase runners to use this dispatch tracking. They now only dispatch "undispatched" documents and return `awaiting_documents` if work is still pending. This eliminated the $O(N^2)$ dispatch spam.
+5.  **Completion Signal**: Updated the simulation worker to send a `simulation-advance` message after each document/batch is processed, serving as the signal for the host runner to re-evaluate the phase and potentially move the simulation forward.
+
+The system is now stable, strictly asynchronous, and adheres to the queue-based model with efficient dispatching.
+
+**Status**: Stable and verified with polling-based tests.

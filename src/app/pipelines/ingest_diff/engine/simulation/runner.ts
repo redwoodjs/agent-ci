@@ -32,154 +32,12 @@ export async function runPhaseIngestDiff(
   }
 
   const config = runRow.config_json ?? {};
-  const r2KeysRaw = (config as any)?.r2Keys;
-  const legacyR2Keys =
-    Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
-      ? (r2KeysRaw as string[])
-      : [];
-
-  // Check for pending batches first (Async Mode)
-  const pendingBatch = await db
-      .selectFrom("simulation_run_r2_batches")
-      .select(["batch_index", "keys_json"])
-      .where("run_id", "=", input.runId)
-      .where("processed", "=", 0)
-      .limit(1)
-      .executeTakeFirst();
-      
-  if (pendingBatch) {
-      const keys = pendingBatch.keys_json as unknown as string[];
-      const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
-      if (!queue) throw new Error("ENGINE_INDEXING_QUEUE is required");
-
-      await addSimulationRunEvent(context, {
-          runId: input.runId,
-          level: "info",
-          kind: "phase.dispatch_batch",
-          payload: { phase: "ingest_diff", batchIndex: pendingBatch.batch_index, count: keys.length },
-      });
-
-      // Dispatch to queue - NO DB INSERT HERE
-       // We can parallelize this? Or just serial await? Serial is safer for now.
-       const chunkSize = 100;
-       for (let i = 0; i < keys.length; i += chunkSize) {
-           const chunk = keys.slice(i, i + chunkSize);
-           for (const k of chunk) {
-               await queue.send({
-                jobType: "simulation-document",
-                runId: input.runId,
-                phase: "ingest_diff",
-                r2Key: k,
-              });
-           }
-       }
-
-      // Mark batch as processed
-      await db.updateTable("simulation_run_r2_batches")
-        .set({ processed: 1, updated_at: now })
-        .where("run_id", "=", input.runId)
-        .where("batch_index", "=", pendingBatch.batch_index)
-        .execute();
-
-      return { status: "awaiting_documents", currentPhase: "ingest_diff" };
-  }
-
-  // Legacy/Manual Mode or Fallback cleanup
-  if (legacyR2Keys.length > 0) {
-      // (Existing logic for manual keys, simplified)
-      // Check if manual keys are dispatched...
-     const processedKeys = await db
-      .selectFrom("simulation_run_documents")
-      .select(["r2_key", "dispatched_phases_json"])
-      .where("run_id", "=", input.runId)
-      .execute();
-    
-     const processedSet = new Set(processedKeys.map(k => k.r2_key));
-     const dispatchedMap = new Map(processedKeys.map(k => [k.r2_key, (k.dispatched_phases_json || []) as string[]]));
-     
-     const undecpatchedKeys = legacyR2Keys.filter(k => {
-         if (processedSet.has(k)) {
-             const phases = dispatchedMap.get(k) || [];
-             return !phases.includes("ingest_diff");
-         }
-         return true; // Not in DB yet
-     });
-
-     if (undecpatchedKeys.length > 0) {
-        // Dispatch them...
-        const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
-        if (queue) {
-            const batch = undecpatchedKeys.slice(0, 100); // cap to 100
-             await addSimulationRunEvent(context, {
-                runId: input.runId,
-                level: "info",
-                kind: "phase.dispatch_docs",
-                payload: { phase: "ingest_diff", count: batch.length },
-             });
-             
-             for (const k of batch) {
-                 // Note: For legacy keys, we MIGHT want to insert into DB to mark "dispatched"?
-                 // But strictly, we can just let worker do it.
-                 // However, legacy logic uses `dispatched_phases_json` to know what to filter.
-                 // If we don't update DB here, `undecpatchedKeys` might include same keys again in next tick?
-                 // But wait, `runAllSimulationRunAction` creates keys list in config.
-                 // Host runner reads config.
-                 // If we don't mark "dispatched", host runner loops forever?
-                 // YES. Legacy logic relies on DB state to know what is dispatched.
-                 
-                 // So for LEGACY keys, we MUST update DB.
-                 // But legacy keys list is usually small (manual testing).
-                 // So we keep inserts here, but ensure batch is small.
-                 
-                 const phases = (processedSet.has(k) ? (dispatchedMap.get(k) || []) : []) as string[];
-                 const nextPhases = JSON.stringify([...phases, "ingest_diff"]);
-                 
-                 await db
-                    .insertInto("simulation_run_documents")
-                    .values({
-                        run_id: input.runId,
-                        r2_key: k,
-                        changed: 0,
-                        processed_at: "pending",
-                        updated_at: now,
-                        dispatched_phases_json: nextPhases,
-                        processed_phases_json: "[]",
-                    } as any)
-                    .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
-                        dispatched_phases_json: nextPhases as any,
-                        updated_at: now
-                    } as any))
-                    .execute();
-                    
-                 await queue.send({
-                    jobType: "simulation-document",
-                    runId: input.runId,
-                    phase: "ingest_diff",
-                    r2Key: k,
-                 });
-             }
-             return { status: "awaiting_documents", currentPhase: "ingest_diff" };
-        }
-     }
-  }
-
   // Completion Check
   
   // 1. Are there any pending batches? (Checked above)
   
   // 2. Are there any active items in queue?
-  // We can't check queue.
-  // We can check if `processed_phases_json` includes `ingest_diff`.
-  // BUT, since we don't pre-insert rows for batches, counting rows might be misleading if they haven't been created yet.
-  // However, we only mark batch as processed AFTER dispatching.
-  // So if batch is processed, messages are in queue.
-  // Eventually workers will create rows.
-  
-  // So we need to wait until:
-  // Count(rows with ingest_diff processed) == Total Expected Keys.
-  
-  // How to get Total Expected Keys?
-  // Sum of all keys in all batches + legacy keys.
+  // We check this by comparing the total expected keys from all batches to the count of processed keys.
   
   const batches = await db
     .selectFrom("simulation_run_r2_batches")
@@ -187,31 +45,11 @@ export async function runPhaseIngestDiff(
     .where("run_id", "=", input.runId)
     .execute();
     
-  let totalKeys = legacyR2Keys.length;
+  let totalKeys = 0;
   for (const b of batches) {
-      // rwsdk auto-parses keys_json
       const keys = (b.keys_json as unknown as string[]) || [];
       totalKeys += keys.length;
   }
-  
-  // Now count processed docs
-  // Because processed_phases_json is JSON text, filtering in SQLite is hard.
-  // But we can approximate:
-  // If we just check `processed_phases_json` is not null/empty?
-  // Or fetch all docs? (Expensive if 100k docs)
-  
-  // Better: Add a simpler check.
-  // If we are here, all batches are processed (dispatched).
-  // So we just need to wait for workers to finish.
-  // We can rely on `last_progress_at`? No.
-  
-  // We can poll for *pending* rows?
-  // But we don't have pending rows anymore (we removed inserts).
-  // So we only have "rows that exist" (processed) or "rows that don't exist" (in queue).
-  
-  // So `select count(*) from simulation_run_documents where run_id = ...`
-  // This count should equal `totalKeys`.
-  // Once count matches, we are done.
   
   const { count } = await db
     .selectFrom("simulation_run_documents")

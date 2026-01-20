@@ -15,7 +15,7 @@ export async function runPhaseIngestDiff(
 
   // If input.r2Key is provided, this is a worker execution for a specific key
   if (input.r2Key) {
-     return runIngestDiffWorker(context, input, db, log, now);
+     return runIngestDiffWorker(context, { ...input, r2Key: input.r2Key }, db, log, now);
   }
 
   // Host Runner Logic
@@ -48,7 +48,7 @@ export async function runPhaseIngestDiff(
       .executeTakeFirst();
       
   if (pendingBatch) {
-      const keys = JSON.parse(pendingBatch.keys_json) as string[];
+      const keys = pendingBatch.keys_json as unknown as string[];
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
       if (!queue) throw new Error("ENGINE_INDEXING_QUEUE is required");
 
@@ -131,7 +131,7 @@ export async function runPhaseIngestDiff(
      
      const undecpatchedKeys = legacyR2Keys.filter(k => {
          if (processedSet.has(k)) {
-             const phases = JSON.parse((dispatchedMap.get(k) as any) || "[]");
+             const phases = dispatchedMap.get(k) || [];
              return !phases.includes("ingest_diff");
          }
          return true; // Not in DB yet
@@ -151,7 +151,7 @@ export async function runPhaseIngestDiff(
              });
              
              for (const k of batch) {
-                 const phases = processedSet.has(k) ? JSON.parse((dispatchedMap.get(k) as any) || "[]") : [];
+                 const phases = processedSet.has(k) ? (dispatchedMap.get(k) || []) : [];
                  const nextPhases = JSON.stringify([...phases, "ingest_diff"]);
                  
                  await db
@@ -291,7 +291,7 @@ async function runIngestDiffWorker(
         },
         persistResult: async ({ r2Key, etag, changed }) => {
           const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", r2Key).executeTakeFirst();
-          const currentPhases = JSON.parse((docMetadata?.processed_phases_json as any) || "[]");
+          const currentPhases = (docMetadata?.processed_phases_json ?? []) as string[];
           const nextPhases = JSON.stringify([...new Set([...currentPhases, "ingest_diff"])]);
 
           await db

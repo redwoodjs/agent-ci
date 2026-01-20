@@ -33,6 +33,7 @@ export type SimulationRunStatus =
   | "completed";
 
 export const simulationPhases = [
+  "r2_listing",
   "ingest_diff",
   "micro_batches",
   "macro_synthesis",

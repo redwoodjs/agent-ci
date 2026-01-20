@@ -99,58 +99,29 @@ export async function runAllSimulationRunAction(input: {
   momentGraphNamespacePrefix: string | null;
 }) {
   const envCloudflare = env as Cloudflare.Env;
-  const bucket = (envCloudflare as any).MACHINEN_BUCKET as R2Bucket | undefined;
-  if (!bucket) {
-    return { success: false, error: "MACHINEN_BUCKET binding not found" };
-  }
-
+  // We don't need bucket here anymore as we don't list
+  
   const inputPrefix =
     typeof input.r2Prefix === "string" ? input.r2Prefix.trim() : "";
   const limitPerPageRaw = input.limitPerPage;
   const limitPerPage =
     typeof limitPerPageRaw === "number" && Number.isFinite(limitPerPageRaw)
-      ? Math.max(1, Math.min(200, Math.floor(limitPerPageRaw)))
+      ? Math.max(1, Math.min(1000, Math.floor(limitPerPageRaw)))
       : 200;
   const maxPagesRaw = input.maxPages;
   const maxPages =
     typeof maxPagesRaw === "number" && Number.isFinite(maxPagesRaw)
-      ? Math.max(1, Math.min(25, Math.floor(maxPagesRaw)))
-      : 5;
+      ? Math.max(1, Math.min(10000, Math.floor(maxPagesRaw)))
+      : 100;
 
-  const { allKeysRaw, totalPages, isAnyListingTruncated, targetPrefixes } =
-    await listR2KeysHelper(
-      bucket,
-      inputPrefix,
-      maxPages,
-      limitPerPage,
-      input.githubRepo
-    );
-
-  const isGithubIssue = (k: string) =>
-    k.startsWith("github/") &&
-    k.includes("/issues/") &&
-    k.endsWith("/latest.json");
-  const isGithubPr = (k: string) =>
-    k.startsWith("github/") &&
-    k.includes("/pull-requests/") &&
-    k.endsWith("/latest.json");
-  const isDiscord = (k: string) => k.startsWith("discord/");
-  const isCursor = (k: string) => k.startsWith("cursor/conversations/");
-
-  const filterSupported = (k: string) =>
-    isGithubIssue(k) || isGithubPr(k) || isDiscord(k) || isCursor(k);
-
-  const keys = Array.from(new Set(allKeysRaw)).filter(filterSupported);
-  const skippedCount = allKeysRaw.length - keys.length;
-
-  if (keys.length === 0) {
-    return {
-      success: false,
-      error: `No supported R2 keys found (listed ${
-        allKeysRaw.length
-      } keys total from prefixes: ${targetPrefixes.join(", ")})`,
-    };
-  }
+  // Reconstruct target prefixes logic
+  const targetPrefixes = inputPrefix
+    ? [inputPrefix]
+    : [
+        input.githubRepo ? `github/${input.githubRepo}/` : "github/",
+        "discord/",
+        "cursor/conversations/",
+      ];
 
   const runId = crypto.randomUUID();
   const effectiveMomentGraphNamespace =
@@ -163,18 +134,16 @@ export async function runAllSimulationRunAction(input: {
       momentGraphNamespace: effectiveMomentGraphNamespace,
       momentGraphNamespacePrefix: input.momentGraphNamespacePrefix,
       config: {
-        r2Keys: keys,
-        createdFrom: "audit.ui.run_all",
+        r2Keys: [], // Empty, will be populated by r2_listing phase into DB
+        createdFrom: "audit.ui.run_all.v2_async_listing",
         r2List: {
           prefix: inputPrefix || "(multi)",
-          githubRepo: input.githubRepo,
           targetPrefixes,
           limitPerPage,
           maxPages,
-          pages: totalPages,
-          truncated: isAnyListingTruncated,
-          skippedCount,
-          sampleStrategy: "all-supported",
+          // Initial state
+          currentPrefixIdx: 0,
+          pagesProcessed: 0,
         },
       },
     }
@@ -183,10 +152,11 @@ export async function runAllSimulationRunAction(input: {
   return {
     success: true,
     runId,
-    keysCount: keys.length,
-    pages: totalPages,
-    truncated: isAnyListingTruncated,
-    skippedCount,
+    keysCount: 0, // Unknown yet
+    pages: 0,
+    truncated: false, 
+    skippedCount: 0,
+    message: "Simulation started with async R2 listing",
   };
 }
 

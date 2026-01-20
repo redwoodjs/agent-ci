@@ -25,6 +25,7 @@ export function registerPipeline(entry: PipelineRegistryEntry) {
 
 
 export const simulationPhasesOrdered = [
+  "r2_listing",
   "ingest_diff",
   "micro_batches",
   "macro_synthesis",

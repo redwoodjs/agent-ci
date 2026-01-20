@@ -3,6 +3,7 @@
 
 import "./registry"; // Ensure the registry is defined first
 
+import "../../pipelines/r2_listing/web";
 import "../../pipelines/ingest_diff/web";
 import "../../pipelines/micro_batches/web";
 import "../../pipelines/macro_synthesis/web";

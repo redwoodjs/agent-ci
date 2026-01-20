@@ -382,5 +382,34 @@ export const simulationStateMigrations = {
       await db.schema.dropTable("simulation_run_participating_namespaces").execute();
     },
   },
+  "013_add_r2_batches": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_r2_batches")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("batch_index", "integer", (col) => col.notNull())
+          .addColumn("keys_json", "text", (col) => col.notNull())
+          .addColumn("processed", "integer", (col) => col.notNull())
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_run_r2_batches_pk", [
+            "run_id",
+            "batch_index",
+          ])
+          .execute(),
+        await db.schema
+          .createIndex("simulation_run_r2_batches_run_processed_idx")
+          .on("simulation_run_r2_batches")
+          .columns(["run_id", "processed"])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("simulation_run_r2_batches").execute();
+    },
+  },
 } satisfies Migrations;
 

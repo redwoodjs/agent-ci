@@ -21,6 +21,14 @@ export type SimulationDatabase = Override<
   Database<typeof simulationStateMigrations>,
   {
     simulation_run_documents: SimulationRunDocumentsTable;
+    simulation_run_r2_batches: {
+        run_id: string;
+        batch_index: number;
+        keys_json: string;
+        processed: number;
+        created_at: string;
+        updated_at: string;
+    };
   }
 >;
 
@@ -154,6 +162,13 @@ export type SimulationRunTimelineFitDecisionRow = Override<
   {
     decisions_json: any;
     stats_json: any;
+  }
+>;
+type SimulationRunR2BatchInput = SimulationDatabase["simulation_run_r2_batches"];
+export type SimulationRunR2BatchRow = Override<
+  SimulationRunR2BatchInput,
+  {
+    keys_json: string[];
   }
 >;
 export type SimulationQueueMessage =

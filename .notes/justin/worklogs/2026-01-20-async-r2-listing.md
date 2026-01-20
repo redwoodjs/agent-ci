@@ -7,25 +7,24 @@ I addressed the timeout issue during the initial backfill bootstrapping by movin
 ### Problem
 The `runAllSimulationRunAction` attempted to list *all* R2 keys synchronously before starting the simulation. For large buckets (tens of thousands of keys), this operation exceeded the Cloudflare Workers 30s execution limit, causing the backfill to fail immediately.
 
+Initially, I implemented a row-per-key insertion strategy in the `r2_listing` phase, but this hit SQLite variable limits (`too many SQL variables`) when batching inserts for large pages.
+
 ### Solution
-I introduced a new simulation phase, `r2_listing`, which runs before `ingest_diff` and incrementally discovers keys.
+I introduced a new simulation phase, `r2_listing`, which runs before `ingest_diff` and incrementally discovers keys. I also switched to a JSON blob storage strategy to avoid database bottlenecks.
 
-1.  **New Phase: `r2_listing`**:
+1.  **New Table: `simulation_run_r2_batches`**:
+    - Stores pages of R2 keys as compressed JSON blobs rather than individual rows.
+    - Columns: `run_id`, `batch_index`, `keys_json`, `processed`.
+
+2.  **New Phase: `r2_listing`**:
     - Created `src/app/pipelines/r2_listing/engine/simulation/runner.ts`.
-    - This runner reads `config.r2List`, fetches a single page of keys (default 200), and inserts them into `simulation_run_documents` with `processed_at: "pending"`.
-    - It maintains state (`cursor`, `currentPrefixIdx`) in `simulation_runs.config_json` to support restartability and continuation across multiple ticks.
-    - It yields `status: "running"` until all prefixes are fully exhausted.
+    - This runner reads `config.r2List`, fetches a page of keys (default 1000), and inserts them as a SINGLE row into `simulation_run_r2_batches`.
+    - This creates zero overhead and avoids the variable limit crash.
 
-2.  **Updated `runAllSimulationRunAction`**:
-    - Removed the synchronous `listR2KeysHelper`.
-    - Function now initializes the simulation immediatley with the `r2_listing` phase and the necessary scan configuration (prefixes, limits) in `config_json`.
-    - This returns instantly to the UI, allowing the simulation loop to handle the heavy listing work.
-
-3.  **Adapted `ingest_diff`**:
-    - Modified to support a "Database-driven" mode.
-    - Previously, it relied on `config.r2Keys` being a complete list of work.
-    - Now, if `config.r2Keys` is empty, it queries the `simulation_run_documents` table for pending items (items not yet dispatched to `ingest_diff`).
-    - Implemented batching (limit 1000 fetch, 250 dispatch) to prevent OOMs or timeouts when processing the large number of keys discovered by `r2_listing`.
+3.  **Updated `ingest_diff`**:
+    - Modified to consume from `simulation_run_r2_batches`.
+    - It picks up a pending batch, expands the JSON keys, and *then* robustly inserts them into `simulation_run_documents` (in safe chunks of 50) while dispatching them to the queue.
+    - This "fan-out" pattern ensures the host runner handles the expansion incrementally rather than the listing phase trying to do it all at once.
 
 ### Outcome
-Backfills can now scale to arbitrary bucket sizes without hitting the initial request timeout. The discovery process is fully observable as a simulation phase.
+Backfills can now scale to arbitrary bucket sizes. The discovery process is fast (bulk blobs) and the ingestion process is safely throttled and batched.

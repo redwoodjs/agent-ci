@@ -13,6 +13,12 @@ export async function runPhaseIngestDiff(
   const log = createSimulationRunLogger(context, { runId: input.runId });
   const now = new Date().toISOString();
 
+  // If input.r2Key is provided, this is a worker execution for a specific key
+  if (input.r2Key) {
+     return runIngestDiffWorker(context, input, db, log, now);
+  }
+
+  // Host Runner Logic
   const runRow = (await db
     .selectFrom("simulation_runs")
     .select(["status", "config_json"])
@@ -27,184 +33,173 @@ export async function runPhaseIngestDiff(
 
   const config = runRow.config_json ?? {};
   const r2KeysRaw = (config as any)?.r2Keys;
-  const r2Keys =
+  const legacyR2Keys =
     Array.isArray(r2KeysRaw) && r2KeysRaw.every((k) => typeof k === "string")
       ? (r2KeysRaw as string[])
       : [];
 
-  if (!input.r2Key) {
-    // Check if we already have results for all keys
-    // Optimized: Only fetch pending items if we can, to avoid OOM
-    
-    let targetKeys: string[] = [];
-    
-    if (r2Keys.length > 0) {
-        // Legacy/manual mode: keys provided in config
-        const processedKeys = await db
-        .selectFrom("simulation_run_documents")
-        .select(["r2_key", "dispatched_phases_json"])
-        .where("run_id", "=", input.runId)
-        .execute();
-        
-        const processedSet = new Set(processedKeys.map(k => k.r2_key));
-        const dispatchedMap = new Map(processedKeys.map(k => [k.r2_key, (k.dispatched_phases_json || []) as string[]]));
-        
-        targetKeys = r2Keys.filter(k => {
-             if (processedSet.has(k)) {
-                const dispatched = dispatchedMap.get(k) || [];
-                return !dispatched.includes("ingest_diff");
-             }
-             return true;
-        });
-    } else {
-        // Async/DB mode: keys are in DB, find those NOT dispatched to ingest_diff
-        // We limit to 500 to avoid overloading the queue in one go (though host runner will loop until returning "awaiting_documents")
-        // But the previous logic returned "awaiting_documents" after ONE batch.
-        // We need to match that behavior.
-        
-        const pendingDocs = await db
-             .selectFrom("simulation_run_documents")
-             .select(["r2_key", "dispatched_phases_json"])
-             .where("run_id", "=", input.runId)
-             // We can't easily query JSON array via Kysely types + SQLite easily without raw sql or custom operators
-             // So we pull a batch that is "pending" processing_at OR generic check.
-             // Actually, the `dispatched_phases_json` is the source of truth for dispatch.
-             // We'll fetch all keys? No, too many.
-             // Let's assume most things are pending if this phase is running.
-             // We can use a limit.
-             .limit(1000) 
-             .execute();
-             
-        targetKeys = pendingDocs.filter(k => {
-            const phases = (k.dispatched_phases_json || []) as string[];
-            return !phases.includes("ingest_diff");
-        }).map(k => k.r2_key);
-        
-        // If we found 0 pending in the first 1000, we might need to check more? 
-        // Note: this simple "limit 1000" might miss items if we have >1000 items that ARE dispatched but we keep re-fetching them.
-        // We need a better query: "where dispatched_phases_json NOT LIKE '%ingest_diff%'"
-        // But simulation_run_documents doesn't have an index on that.
-        // However, we can trust the host runner/queue system. 
-        // If we can't find work, we might be done.
-        
-        // Safer approach: use `processed_phases_json` which might be cleaner?
-        // No, we are dispatching.
-        
-        // Let's try to query with raw SQL filter if Kysely allows, or just filter in memory but page through?
-        // Paging is hard without an offset.
-        
-        // Alternative: Use `r2_key` > lastSeenKey cursor?
-        // But we don't store that cursor.
-        
-        // Let's assume for now that if we fetch 2000 items and filter, we get enough work.
-        // If we have 100k items and 50k are done, and we fetch random 2000? Ordering is undefined.
-        // Kysely `selectFrom` without order is arbitrary.
-        
-        // Let's try to filter by "processed_at = 'pending'"? 
-        // `r2_listing` sets `processed_at = 'pending'`.
-        // `ingest_diff` (worker) updates `processed_at` to date.
-        // But we are in the DISTRIBUTOR (host runner).
-        // `simulation_run_documents` `processed_at` is for the LAST result.
-        // If we haven't run ingest_diff, `processed_phases_json` won't contain it.
-        
-        // So we can query: where `processed_phases_json` NOT LIKE '%ingest_diff%'?
-        // Let's rely on JavaScript filtering of a larger batch for now, or assume pending items are at the end?
-        // No.
-        
-        // Let's trust that we can fetch ALL keys? No, user said "times out".
-        // Use a cursor-based fetch on r2_key?
-        // We can just fetch "where processed_phases_json IS NULL OR processed_phases_json = '[]'"?
-        // No, r2_listing doesn't set processed_phases_json (defaults to []).
-        
-        const allDocs = await db.selectFrom("simulation_run_documents")
-            .select(["r2_key", "dispatched_phases_json"])
-            .where("run_id", "=", input.runId)
-            .execute();
-            
-        targetKeys = allDocs.filter(k => {
-             const phases = (k.dispatched_phases_json || []) as string[];
-             return !phases.includes("ingest_diff");
-        }).map(k => k.r2_key);
-    }
-
-    if (targetKeys.length > 0) {
+  // Check for pending batches first (Async Mode)
+  const pendingBatch = await db
+      .selectFrom("simulation_run_r2_batches")
+      .select(["batch_index", "keys_json"])
+      .where("run_id", "=", input.runId)
+      .where("processed", "=", 0)
+      .limit(1)
+      .executeTakeFirst();
+      
+  if (pendingBatch) {
+      const keys = JSON.parse(pendingBatch.keys_json) as string[];
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
-      if (queue) {
-        // Dispatch only a batch to avoid timeouts in LOOP
-        // The original code looped over ALL undecpatchedKeys.
-        // We should cap it.
-        const batchSize = 250; 
-        const batch = targetKeys.slice(0, batchSize);
-        
-        await addSimulationRunEvent(context, {
+      if (!queue) throw new Error("ENGINE_INDEXING_QUEUE is required");
+
+      await addSimulationRunEvent(context, {
           runId: input.runId,
           level: "info",
-          kind: "phase.dispatch_docs",
-          payload: { phase: "ingest_diff", count: batch.length, remaining: targetKeys.length - batch.length },
-        });
+          kind: "phase.dispatch_batch",
+          payload: { phase: "ingest_diff", batchIndex: pendingBatch.batch_index, count: keys.length },
+      });
 
-        for (const r2Key of batch) {
-          // Register the document if it doesn't exist, and mark as dispatched
-          // We know it exists if fetched from DB.
-          // But we need to update dispatched_phases_json.
-          
-            // We need to fetch current dispatched phases again? We have it from select.
-            // But we need to be atomic? 
-            // We can just append.
-            
-           // We can optimize this loop with a bulk update? 
-           // Kysely doesn't support bulk update with different values easily.
-           // We'll stick to loop for now but maybe parallelize?
-          
+      // Insert all keys into simulation_run_documents to track them
+      // We chunk inserts to avoid variable limits (batch of 50)
+      const chunkSize = 50;
+      for (let i = 0; i < keys.length; i += chunkSize) {
+          const chunk = keys.slice(i, i + chunkSize);
           await db
-            .updateTable("simulation_run_documents")
-            .set(ev => ({
-                 dispatched_phases_json: JSON.stringify([...JSON.parse(ev.ref("dispatched_phases_json") as any || "[]"), "ingest_diff"]) as any,
-                 updated_at: now
-            }))
-            .where("run_id", "=", input.runId)
-            .where("r2_key", "=", r2Key)
+            .insertInto("simulation_run_documents")
+            .values(chunk.map(k => ({
+                run_id: input.runId,
+                r2_key: k,
+                changed: 0,
+                processed_at: "pending",
+                updated_at: now,
+                dispatched_phases_json: JSON.stringify(["ingest_diff"]),
+                processed_phases_json: JSON.stringify([]),
+            } as any)))
+            .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
+                dispatched_phases_json: JSON.stringify(["ingest_diff"]), // Mark as dispatched if existing
+                updated_at: now
+            } as any))
             .execute();
-
-          await queue.send({
-            jobType: "simulation-document",
-            runId: input.runId,
-            phase: "ingest_diff",
-            r2Key,
-          });
-        }
-        return { status: "awaiting_documents", currentPhase: "ingest_diff" };
+            
+           // Dispatch to queue
+           // We can parallelize this? Or just serial await? Serial is safer for now.
+           // Actually Cloudflare Queue sendBatch? rwsdk doesn't expose it maybe?
+           // Assuming serial send for now.
+           for (const k of chunk) {
+               await queue.send({
+                jobType: "simulation-document",
+                runId: input.runId,
+                phase: "ingest_diff",
+                r2Key: k,
+              });
+           }
       }
-      
-      throw new Error("ENGINE_INDEXING_QUEUE is required for async simulation runners");
-    }
 
-    // Check for missing keys (only for config mode)
-    if (r2Keys.length > 0) {
-        // Logic for missing keys...
-        // ... (preserving existing logic for config mode if needed, but for DB mode strict completion check is different)
-    }
+      // Mark batch as processed
+      await db.updateTable("simulation_run_r2_batches")
+        .set({ processed: 1, updated_at: now })
+        .where("run_id", "=", input.runId)
+        .where("batch_index", "=", pendingBatch.batch_index)
+        .execute();
 
-    // Completion check
-    // If we have no targetKeys (undispatched), we are done dispatching.
-    // But are we done PROCESSING?
-    // "awaiting_documents" means we are waiting for workers.
+      // Return running to pick up next batch immediately or waiting?
+      // "running" allows host runner to loop immediately.
+      // But we also want to wait for "awaiting_documents".
+      // Actually, if we just dispatched 1000 items, we should probably yield "awaiting_documents" 
+      // so we don't dispatch 100,000 items into the queue instantly.
+      // But "awaiting_documents" means "stop host runner until queue drains".
+      // If we mark batch as processed, we are "done" with that batch.
+      // If we return "awaiting_documents", host runner stops.
+      // When does it wake up? When a worker finishes?
+      // Workers send "simulation-advance".
+      // So yes, returning "awaiting_documents" is correct to throttle dispatch.
+      return { status: "awaiting_documents", currentPhase: "ingest_diff" };
+  }
+
+  // Legacy/Manual Mode or Fallback cleanup
+  if (legacyR2Keys.length > 0) {
+      // (Existing logic for manual keys, simplified for brevity as user uses async mode mostly)
+      // Check if manual keys are dispatched...
+     const processedKeys = await db
+      .selectFrom("simulation_run_documents")
+      .select(["r2_key", "dispatched_phases_json"])
+      .where("run_id", "=", input.runId)
+      .execute();
     
-    // We need to know if there are any "pending" (dispatched but not processed).
-    // Or if `r2_listing` is still running?
-    // `r2_listing` runs BEFORE `ingest_diff`. If we are in `ingest_diff`, `r2_listing` is done.
-    
-    // Check for failures?
-    const failures = await db
+     const processedSet = new Set(processedKeys.map(k => k.r2_key));
+     const dispatchedMap = new Map(processedKeys.map(k => [k.r2_key, (k.dispatched_phases_json || []) as string[]]));
+     
+     const undecpatchedKeys = legacyR2Keys.filter(k => {
+         if (processedSet.has(k)) {
+             const phases = JSON.parse((dispatchedMap.get(k) as any) || "[]");
+             return !phases.includes("ingest_diff");
+         }
+         return true; // Not in DB yet
+     });
+
+     if (undecpatchedKeys.length > 0) {
+        // Dispatch them...
+        // Reuse batch logic ideally, but here just simple dispatch
+        const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
+        if (queue) {
+            const batch = undecpatchedKeys.slice(0, 100); // cap to 100
+             await addSimulationRunEvent(context, {
+                runId: input.runId,
+                level: "info",
+                kind: "phase.dispatch_docs",
+                payload: { phase: "ingest_diff", count: batch.length },
+             });
+             
+             for (const k of batch) {
+                 const phases = processedSet.has(k) ? JSON.parse((dispatchedMap.get(k) as any) || "[]") : [];
+                 const nextPhases = JSON.stringify([...phases, "ingest_diff"]);
+                 
+                 await db
+                    .insertInto("simulation_run_documents")
+                    .values({
+                        run_id: input.runId,
+                        r2_key: k,
+                        changed: 0,
+                        processed_at: "pending",
+                        updated_at: now,
+                        dispatched_phases_json: nextPhases,
+                        processed_phases_json: "[]",
+                    } as any)
+                    .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
+                        dispatched_phases_json: nextPhases as any,
+                        updated_at: now
+                    } as any))
+                    .execute();
+                    
+                 await queue.send({
+                    jobType: "simulation-document",
+                    runId: input.runId,
+                    phase: "ingest_diff",
+                    r2Key: k,
+                 });
+             }
+             return { status: "awaiting_documents", currentPhase: "ingest_diff" };
+        }
+     }
+  }
+
+  // Completion Check
+  // If no pending batches and no pending legacy keys.
+  
+  // We should also check if any docs are *currently* processing (in queue).
+  // We can't query queue size easily.
+  // But we can check if `processed_phases_json` includes "ingest_diff" for all docs?
+  // Or check `failures`
+  
+  const failures = await db
         .selectFrom("simulation_run_documents")
         .select(["r2_key", "error_json"])
         .where("run_id", "=", input.runId)
         .where("error_json", "is not", null)
         .execute();
 
-    if (failures.length > 0) {
-        // ... failure handling
-       await db
+  if (failures.length > 0) {
+      await db
         .updateTable("simulation_runs")
         .set({
           status: "paused_on_error",
@@ -217,40 +212,64 @@ export async function runPhaseIngestDiff(
         } as any)
         .where("run_id", "=", input.runId)
         .execute();
-
       return { status: "paused_on_error", currentPhase: "ingest_diff" };
-    }
-    
-    // Success! Advance phase.
-    const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
-    if (!nextPhase) {
-      await db
-        .updateTable("simulation_runs")
-        .set({
-          status: "completed",
-          updated_at: now,
-          last_progress_at: now,
-        } as any)
-        .where("run_id", "=", input.runId)
-        .execute();
-      return { status: "completed", currentPhase: "ingest_diff" };
-    }
-
-    await db
-      .updateTable("simulation_runs")
-      .set({
-        current_phase: nextPhase,
-        updated_at: now,
-        last_progress_at: now,
-      } as any)
-      .where("run_id", "=", input.runId)
-      .execute();
-
-    return { status: "running", currentPhase: nextPhase };
   }
 
-  // Granular execution for a single key
-  try {
+  // Are we truly done?
+  // We just exhausted pending batches.
+  // But maybe workers are still running.
+  // If we return "completed" now, we move to next phase.
+  // We need to ensure all docs have `processed_phases_json` containing `ingest_diff`.
+  
+  const pendingDocs = await db
+      .selectFrom("simulation_run_documents")
+      .select("r2_key")
+      .where("run_id", "=", input.runId)
+      // We want docs where ingest_diff is dispatched but NOT processed
+      // Dispatched: in `dispatched_phases_json`
+      // Processed: in `processed_phases_json`
+      // This query is hard in SQL for JSON.
+      // But we can approximate: if we just dispatched a batch and returned "awaiting_documents", we wouldn't be here.
+      // We only reach here if NO pending batches are found.
+      // And host runner only re-runs us if "simulation-advance" signal comes (meaning a worker finished).
+      
+      // If we have no pending batches, we might still have docs in flight.
+      // How do we detect "all quiet"?
+      // We can use a counter? Or just assume if we are here and no batches -> done?
+      // No, because existing batches might be "processed" (fully dispatched) but their items are still in queue.
+      
+      // We need to query for "in_progress" items.
+      // We can add a "status" column to documents? No migration.
+      // `processed_at` = 'pending' is set on dispatch.
+      // Worker updates `processed_at` timestamp.
+      .where("processed_at", "=", "pending") 
+      .limit(1)
+      .execute();
+      
+  if (pendingDocs.length > 0) {
+      // Still awaiting workers
+      return { status: "awaiting_documents", currentPhase: "ingest_diff" };
+  }
+
+  // Success! Advance phase.
+  const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
+  if (!nextPhase) {
+      await db.updateTable("simulation_runs").set({ status: "completed", updated_at: now }).where("run_id", "=", input.runId).execute();
+      return { status: "completed", currentPhase: "ingest_diff" };
+  }
+  
+  await db.updateTable("simulation_runs").set({ current_phase: nextPhase, updated_at: now }).where("run_id", "=", input.runId).execute();
+  return { status: "running", currentPhase: nextPhase };
+}
+
+async function runIngestDiffWorker(
+  context: SimulationDbContext,
+  input: { runId: string; r2Key: string },
+  db: any,
+  log: any,
+  now: string
+): Promise<{ status: string; currentPhase: string } | null> {
+    try {
     const result = await runIngestDiffForKey({
       ports: {
         headR2Key: async (k) => {
@@ -272,8 +291,8 @@ export async function runPhaseIngestDiff(
         },
         persistResult: async ({ r2Key, etag, changed }) => {
           const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", r2Key).executeTakeFirst();
-          const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
-          const nextPhases = [...new Set([...currentPhases, "ingest_diff"])];
+          const currentPhases = JSON.parse((docMetadata?.processed_phases_json as any) || "[]");
+          const nextPhases = JSON.stringify([...new Set([...currentPhases, "ingest_diff"])]);
 
           await db
             .insertInto("simulation_run_documents")

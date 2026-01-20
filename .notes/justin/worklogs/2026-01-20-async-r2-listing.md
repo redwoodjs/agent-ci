@@ -26,9 +26,10 @@ Initial implementation attempted to insert discovered keys as individual rows (`
 The `ingest_diff` phase was updated to consume these JSON blobs. However, the host runner *still* crashed when trying to "hydrate" a batch into 1,000 rows for insertion.
 -   **Issue**: The host runner cannot efficienty insert 1,000 rows due to the same variable limits.
 -   **Fix**: Implemented a **Distributed Insert Strategy**.
-    -   **Host Runner**: Expands the JSON batch and simply dispatches 1,000 messages to the work queue. It performs **ZERO** database writes per document.
+    -   **Host Runner**: Expands the JSON batch and dispatches messages to the work queue.
+        -   **Optimization**: Switched to `queue.sendBatch` (100 messages/call) to avoid timeouts from serial network calls.
     -   **Worker Runner**: Receives a single key message and processes the `UPSERT` on the `simulation_run_documents` table.
--   **Outcome**: The high-volume write load is distributed across thousands of parallel workers, bypassing single-connection limits.
+-   **Outcome**: The high-volume write load is distributed across thousands of parallel workers.
 
 ### 3. Cleanup
 We removed legacy code that supported manual key lists to simplify the runner logic, as all large-scale testing now uses the async listing path.
@@ -37,5 +38,5 @@ We removed legacy code that supported manual key lists to simplify the runner lo
 Backfills are now fully asynchronous from the first click.
 1.  **Trigger**: UI creates run record and returns instantly.
 2.  **Discovery**: `r2_listing` pages through bucket, storing compressed blobs.
-3.  **Ingestion**: `ingest_diff` fans out blobs to queue.
+3.  **Ingestion**: `ingest_diff` uses `sendBatch` to rapidly fan out blobs to queue.
 4.  **Processing**: Workers upsert rows and process content.

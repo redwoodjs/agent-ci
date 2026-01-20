@@ -32,6 +32,53 @@ export async function runPhaseIngestDiff(
   }
 
   const config = runRow.config_json ?? {};
+  // Check for pending batches first (Async Mode)
+  const pendingBatch = await db
+      .selectFrom("simulation_run_r2_batches")
+      .select(["batch_index", "keys_json"])
+      .where("run_id", "=", input.runId)
+      .where("processed", "=", 0)
+      .limit(1)
+      .executeTakeFirst();
+      
+  if (pendingBatch) {
+      const keys = pendingBatch.keys_json as unknown as string[];
+      const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
+      if (!queue) throw new Error("ENGINE_INDEXING_QUEUE is required");
+
+      await addSimulationRunEvent(context, {
+          runId: input.runId,
+          level: "info",
+          kind: "phase.dispatch_batch",
+          payload: { phase: "ingest_diff", batchIndex: pendingBatch.batch_index, count: keys.length },
+      });
+
+      // Dispatch to queue - NO DB INSERT HERE
+       // Use sendBatch for efficiency
+       const chunkSize = 100;
+       for (let i = 0; i < keys.length; i += chunkSize) {
+           const chunk = keys.slice(i, i + chunkSize);
+           const messages = chunk.map(k => ({
+               body: {
+                jobType: "simulation-document",
+                runId: input.runId,
+                phase: "ingest_diff",
+                r2Key: k,
+               }
+           }));
+           await queue.sendBatch(messages);
+       }
+
+      // Mark batch as processed
+      await db.updateTable("simulation_run_r2_batches")
+        .set({ processed: 1, updated_at: now })
+        .where("run_id", "=", input.runId)
+        .where("batch_index", "=", pendingBatch.batch_index)
+        .execute();
+
+      return { status: "awaiting_documents", currentPhase: "ingest_diff" };
+  }
+
   // Completion Check
   
   // 1. Are there any pending batches? (Checked above)

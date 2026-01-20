@@ -59,32 +59,11 @@ export async function runPhaseIngestDiff(
           payload: { phase: "ingest_diff", batchIndex: pendingBatch.batch_index, count: keys.length },
       });
 
-      // Insert all keys into simulation_run_documents to track them
-      // We chunk inserts to avoid variable limits (batch of 50)
-      const chunkSize = 50;
-      for (let i = 0; i < keys.length; i += chunkSize) {
-          const chunk = keys.slice(i, i + chunkSize);
-          await db
-            .insertInto("simulation_run_documents")
-            .values(chunk.map(k => ({
-                run_id: input.runId,
-                r2_key: k,
-                changed: 0,
-                processed_at: "pending",
-                updated_at: now,
-                dispatched_phases_json: JSON.stringify(["ingest_diff"]),
-                processed_phases_json: JSON.stringify([]),
-            } as any)))
-            .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
-                dispatched_phases_json: JSON.stringify(["ingest_diff"]), // Mark as dispatched if existing
-                updated_at: now
-            } as any))
-            .execute();
-            
-           // Dispatch to queue
-           // We can parallelize this? Or just serial await? Serial is safer for now.
-           // Actually Cloudflare Queue sendBatch? rwsdk doesn't expose it maybe?
-           // Assuming serial send for now.
+      // Dispatch to queue - NO DB INSERT HERE
+       // We can parallelize this? Or just serial await? Serial is safer for now.
+       const chunkSize = 100;
+       for (let i = 0; i < keys.length; i += chunkSize) {
+           const chunk = keys.slice(i, i + chunkSize);
            for (const k of chunk) {
                await queue.send({
                 jobType: "simulation-document",
@@ -93,7 +72,7 @@ export async function runPhaseIngestDiff(
                 r2Key: k,
               });
            }
-      }
+       }
 
       // Mark batch as processed
       await db.updateTable("simulation_run_r2_batches")
@@ -102,23 +81,12 @@ export async function runPhaseIngestDiff(
         .where("batch_index", "=", pendingBatch.batch_index)
         .execute();
 
-      // Return running to pick up next batch immediately or waiting?
-      // "running" allows host runner to loop immediately.
-      // But we also want to wait for "awaiting_documents".
-      // Actually, if we just dispatched 1000 items, we should probably yield "awaiting_documents" 
-      // so we don't dispatch 100,000 items into the queue instantly.
-      // But "awaiting_documents" means "stop host runner until queue drains".
-      // If we mark batch as processed, we are "done" with that batch.
-      // If we return "awaiting_documents", host runner stops.
-      // When does it wake up? When a worker finishes?
-      // Workers send "simulation-advance".
-      // So yes, returning "awaiting_documents" is correct to throttle dispatch.
       return { status: "awaiting_documents", currentPhase: "ingest_diff" };
   }
 
   // Legacy/Manual Mode or Fallback cleanup
   if (legacyR2Keys.length > 0) {
-      // (Existing logic for manual keys, simplified for brevity as user uses async mode mostly)
+      // (Existing logic for manual keys, simplified)
       // Check if manual keys are dispatched...
      const processedKeys = await db
       .selectFrom("simulation_run_documents")
@@ -139,7 +107,6 @@ export async function runPhaseIngestDiff(
 
      if (undecpatchedKeys.length > 0) {
         // Dispatch them...
-        // Reuse batch logic ideally, but here just simple dispatch
         const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
         if (queue) {
             const batch = undecpatchedKeys.slice(0, 100); // cap to 100
@@ -151,7 +118,20 @@ export async function runPhaseIngestDiff(
              });
              
              for (const k of batch) {
-                 const phases = processedSet.has(k) ? (dispatchedMap.get(k) || []) : [];
+                 // Note: For legacy keys, we MIGHT want to insert into DB to mark "dispatched"?
+                 // But strictly, we can just let worker do it.
+                 // However, legacy logic uses `dispatched_phases_json` to know what to filter.
+                 // If we don't update DB here, `undecpatchedKeys` might include same keys again in next tick?
+                 // But wait, `runAllSimulationRunAction` creates keys list in config.
+                 // Host runner reads config.
+                 // If we don't mark "dispatched", host runner loops forever?
+                 // YES. Legacy logic relies on DB state to know what is dispatched.
+                 
+                 // So for LEGACY keys, we MUST update DB.
+                 // But legacy keys list is usually small (manual testing).
+                 // So we keep inserts here, but ensure batch is small.
+                 
+                 const phases = (processedSet.has(k) ? (dispatchedMap.get(k) || []) : []) as string[];
                  const nextPhases = JSON.stringify([...phases, "ingest_diff"]);
                  
                  await db
@@ -184,13 +164,66 @@ export async function runPhaseIngestDiff(
   }
 
   // Completion Check
-  // If no pending batches and no pending legacy keys.
   
-  // We should also check if any docs are *currently* processing (in queue).
-  // We can't query queue size easily.
-  // But we can check if `processed_phases_json` includes "ingest_diff" for all docs?
-  // Or check `failures`
+  // 1. Are there any pending batches? (Checked above)
   
+  // 2. Are there any active items in queue?
+  // We can't check queue.
+  // We can check if `processed_phases_json` includes `ingest_diff`.
+  // BUT, since we don't pre-insert rows for batches, counting rows might be misleading if they haven't been created yet.
+  // However, we only mark batch as processed AFTER dispatching.
+  // So if batch is processed, messages are in queue.
+  // Eventually workers will create rows.
+  
+  // So we need to wait until:
+  // Count(rows with ingest_diff processed) == Total Expected Keys.
+  
+  // How to get Total Expected Keys?
+  // Sum of all keys in all batches + legacy keys.
+  
+  const batches = await db
+    .selectFrom("simulation_run_r2_batches")
+    .select("keys_json")
+    .where("run_id", "=", input.runId)
+    .execute();
+    
+  let totalKeys = legacyR2Keys.length;
+  for (const b of batches) {
+      // rwsdk auto-parses keys_json
+      const keys = (b.keys_json as unknown as string[]) || [];
+      totalKeys += keys.length;
+  }
+  
+  // Now count processed docs
+  // Because processed_phases_json is JSON text, filtering in SQLite is hard.
+  // But we can approximate:
+  // If we just check `processed_phases_json` is not null/empty?
+  // Or fetch all docs? (Expensive if 100k docs)
+  
+  // Better: Add a simpler check.
+  // If we are here, all batches are processed (dispatched).
+  // So we just need to wait for workers to finish.
+  // We can rely on `last_progress_at`? No.
+  
+  // We can poll for *pending* rows?
+  // But we don't have pending rows anymore (we removed inserts).
+  // So we only have "rows that exist" (processed) or "rows that don't exist" (in queue).
+  
+  // So `select count(*) from simulation_run_documents where run_id = ...`
+  // This count should equal `totalKeys`.
+  // Once count matches, we are done.
+  
+  const { count } = await db
+    .selectFrom("simulation_run_documents")
+    .select(db.fn.count("r2_key").as("count"))
+    .where("run_id", "=", input.runId)
+    .executeTakeFirst() as { count: number };
+    
+  if (Number(count) < totalKeys) {
+      return { status: "awaiting_documents", currentPhase: "ingest_diff" };
+  }
+  
+  // Double check failures
   const failures = await db
         .selectFrom("simulation_run_documents")
         .select(["r2_key", "error_json"])
@@ -215,41 +248,6 @@ export async function runPhaseIngestDiff(
       return { status: "paused_on_error", currentPhase: "ingest_diff" };
   }
 
-  // Are we truly done?
-  // We just exhausted pending batches.
-  // But maybe workers are still running.
-  // If we return "completed" now, we move to next phase.
-  // We need to ensure all docs have `processed_phases_json` containing `ingest_diff`.
-  
-  const pendingDocs = await db
-      .selectFrom("simulation_run_documents")
-      .select("r2_key")
-      .where("run_id", "=", input.runId)
-      // We want docs where ingest_diff is dispatched but NOT processed
-      // Dispatched: in `dispatched_phases_json`
-      // Processed: in `processed_phases_json`
-      // This query is hard in SQL for JSON.
-      // But we can approximate: if we just dispatched a batch and returned "awaiting_documents", we wouldn't be here.
-      // We only reach here if NO pending batches are found.
-      // And host runner only re-runs us if "simulation-advance" signal comes (meaning a worker finished).
-      
-      // If we have no pending batches, we might still have docs in flight.
-      // How do we detect "all quiet"?
-      // We can use a counter? Or just assume if we are here and no batches -> done?
-      // No, because existing batches might be "processed" (fully dispatched) but their items are still in queue.
-      
-      // We need to query for "in_progress" items.
-      // We can add a "status" column to documents? No migration.
-      // `processed_at` = 'pending' is set on dispatch.
-      // Worker updates `processed_at` timestamp.
-      .where("processed_at", "=", "pending") 
-      .limit(1)
-      .execute();
-      
-  if (pendingDocs.length > 0) {
-      // Still awaiting workers
-      return { status: "awaiting_documents", currentPhase: "ingest_diff" };
-  }
 
   // Success! Advance phase.
   const nextPhase = simulationPhases[input.phaseIdx + 1] ?? null;
@@ -290,10 +288,12 @@ async function runIngestDiffWorker(
           return prev?.etag ?? null;
         },
         persistResult: async ({ r2Key, etag, changed }) => {
+          // Note: Row might not exist yet if host runner skipped insert.
           const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", r2Key).executeTakeFirst();
           const currentPhases = (docMetadata?.processed_phases_json ?? []) as string[];
           const nextPhases = JSON.stringify([...new Set([...currentPhases, "ingest_diff"])]);
 
+          // We use UPSERT, so safe to call insert
           await db
             .insertInto("simulation_run_documents")
             .values({
@@ -304,13 +304,15 @@ async function runIngestDiffWorker(
               processed_at: now,
               updated_at: now,
               processed_phases_json: nextPhases,
+              dispatched_phases_json: JSON.stringify(["ingest_diff"]), // Mark as dispatched too
             } as any)
             .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
                 etag,
                 changed: changed ? 1 : 0,
-                processed_at: now,
+                processed_at: now, // Worker completion updates processed_at
                 updated_at: now,
                 processed_phases_json: nextPhases as any,
+                dispatched_phases_json: JSON.stringify(["ingest_diff"]),
             } as any))
             .execute();
         },
@@ -325,12 +327,14 @@ async function runIngestDiffWorker(
               error_json: { message: error },
               processed_at: now,
               updated_at: now,
+              dispatched_phases_json: JSON.stringify(["ingest_diff"]),
             } as any)
             .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
                 changed: 1,
                 error_json: { message: error },
                 processed_at: now,
                 updated_at: now,
+                dispatched_phases_json: JSON.stringify(["ingest_diff"]),
             } as any))
             .execute();
         },
@@ -352,12 +356,14 @@ async function runIngestDiffWorker(
         error_json: JSON.stringify({ message: msg }),
         processed_at: now,
         updated_at: now,
+        dispatched_phases_json: JSON.stringify(["ingest_diff"]),
       } as any)
       .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
           changed: 1,
           error_json: JSON.stringify({ message: msg }),
           processed_at: now,
           updated_at: now,
+          dispatched_phases_json: JSON.stringify(["ingest_diff"]),
       } as any))
       .execute();
     return { status: "running", currentPhase: "ingest_diff" };

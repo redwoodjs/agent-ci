@@ -11,6 +11,8 @@ Initially, I implemented a row-per-key insertion strategy in the `r2_listing` ph
 
 Then, I encountered a `SyntaxError: Unexpected token 'g'...` in the `ingest_diff` phase because I was manually `JSON.parse`-ing columns that `rwsdk` had already auto-parsed.
 
+Finally, even with batched JSON storage, the `ingest_diff` host runner hit variable limits when expanding the batches back into rows (inserting 50 at a time).
+
 ### Solution
 I introduced a new simulation phase, `r2_listing`, which runs before `ingest_diff` and incrementally discovers keys. I also switched to a JSON blob storage strategy to avoid database bottlenecks.
 
@@ -25,9 +27,10 @@ I introduced a new simulation phase, `r2_listing`, which runs before `ingest_dif
     - It uses `JSON.stringify` on write (required).
 
 3.  **Updated `ingest_diff`**:
-    - Modified to consume from `simulation_run_r2_batches`.
-    - It picks up a pending batch, expands the JSON keys (auto-parsed on read), and *then* robustly inserts them into `simulation_run_documents` (in safe chunks of 50) while dispatching them to the queue.
-    - Fixed `JSON.parse` double-parsing bug.
+    - **Distributed Insert Strategy**:
+    - Host runner consumes `simulation_run_r2_batches`, expands the keys, and **ONLY** dispatches messages to the queue. It performs **ZERO** document checks or inserts, completely avoiding SQL variable limits.
+    - Worker runner receives the key, performs the logic, and effectively handles the "Create or update" (UPSERT) of the document row in `simulation_run_documents`.
+    - Completion is tracked by `COUNT(simulation_run_documents) == Total Keys in Batches`.
 
 ### Outcome
-Backfills can now scale to arbitrary bucket sizes. The discovery process is fast (bulk blobs) and the ingestion process is safely throttled and batched.
+Backfills can now scale to arbitrary bucket sizes. The discovery process is fast (bulk blobs) and the ingestion process is safely throttled, with write pressure distributed across workers.

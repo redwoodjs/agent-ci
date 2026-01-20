@@ -48,19 +48,7 @@ export async function runPhaseR2Listing(
     throw new Error("MACHINEN_BUCKET not found in env");
   }
 
-  // r2ListConfig structure:
-  // {
-  //   targetPrefixes: string[];
-  //   limitPerPage: number;
-  //   maxPages: number; (global limit, simplified)
-  //   
-  //   // State
-  //   currentPrefixIdx: number;
-  //   cursor?: string;
-  //   pagesProcessed: number;
-  // }
-
-  // Initialize state if needed
+  // State initialization
   if (typeof r2ListConfig.currentPrefixIdx !== "number") {
     r2ListConfig.currentPrefixIdx = 0;
     r2ListConfig.pagesProcessed = 0;
@@ -70,7 +58,7 @@ export async function runPhaseR2Listing(
     ? r2ListConfig.targetPrefixes 
     : [];
   
-  const limit = r2ListConfig.limitPerPage || 200;
+  const limit = r2ListConfig.limitPerPage || 1000; // Can safely boost to 1000 now
   const maxPages = r2ListConfig.maxPages || 1000;
 
   if (r2ListConfig.currentPrefixIdx >= prefixes.length || r2ListConfig.pagesProcessed >= maxPages) {
@@ -109,7 +97,7 @@ export async function runPhaseR2Listing(
   const result = await bucket.list(listOpts);
   const keys = result.objects.map(o => o.key).filter(k => !!k);
   
-  // Filtering logic (similar to simulation-actions.ts)
+  // Filtering logic
   const isGithubIssue = (k: string) => k.startsWith("github/") && k.includes("/issues/") && k.endsWith("/latest.json");
   const isGithubPr = (k: string) => k.startsWith("github/") && k.includes("/pull-requests/") && k.endsWith("/latest.json");
   const isDiscord = (k: string) => k.startsWith("discord/");
@@ -118,32 +106,24 @@ export async function runPhaseR2Listing(
 
   const validKeys = keys.filter(filterSupported);
 
-  // Batch insert into simulation_run_documents
+  // Insert batch as JSON blob
   if (validKeys.length > 0) {
-     // We define 50 items per chunk for insert to avoid statement limits if needed, but 200 checks is fine
-     // Actually validKeys can be up to 1000 if limit is high. 
-     // We should chunk installs.
-     const chunkSize = 50;
-     for (let i = 0; i < validKeys.length; i += chunkSize) {
-        const chunk = validKeys.slice(i, i + chunkSize);
-        await db
-        .insertInto("simulation_run_documents")
-        .values(chunk.map(k => ({
+      const batchIndex = r2ListConfig.pagesProcessed; // Use pages processed as batch index
+      await db
+        .insertInto("simulation_run_r2_batches")
+        .values({
             run_id: input.runId,
-            r2_key: k,
-            changed: 0,
-            processed_at: "pending",
+            batch_index: batchIndex,
+            keys_json: JSON.stringify(validKeys),
+            processed: 0,
+            created_at: now,
             updated_at: now,
-            dispatched_phases_json: [], // Not dispatched yet
-            processed_phases_json: [],
-        } as any)))
-        // Ignore conflicts (if key already exists, we just want to ensure it's there)
-        // Actually if it exists, we preserve its state? Or do we reset? 
-        // For backfill, we might want to respect existing state if we are resuming?
-        // Safe to ignore.
-        .onConflict(oc => oc.columns(["run_id", "r2_key"]).doNothing())
+        })
+        .onConflict(oc => oc.columns(["run_id", "batch_index"]).doUpdateSet({
+            keys_json: JSON.stringify(validKeys),
+            updated_at: now
+        }))
         .execute();
-     }
   }
 
   // Update State
@@ -178,8 +158,6 @@ export async function runPhaseR2Listing(
     .execute();
 
   // If we still have more work (prefix idx within range or truncated), we return running to loop.
-  // The host runner will re-call us.
-  
   if (nextPrefixIdx < prefixes.length || result.truncated) {
      return { status: "running", currentPhase: "r2_listing" };
   } else {

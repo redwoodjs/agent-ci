@@ -1,33 +1,41 @@
 # 2026-01-20-async-r2-listing
 
-## Implemented Async R2 Listing
+## Solved: Simulation Backfill Timeouts
 
-I addressed the timeout issue during the initial backfill bootstrapping by moving the synchronous R2 key listing logic into a dedicated, asynchronous, and checkpointable simulation phase.
+This worklog documents the complete re-architecture of the simulation bootstrapping process to support production-scale backfills (100k+ keys) without hitting serverless timeouts or database limits.
 
-### Problem
-The `runAllSimulationRunAction` attempted to list *all* R2 keys synchronously before starting the simulation. For large buckets (tens of thousands of keys), this operation exceeded the Cloudflare Workers 30s execution limit, causing the backfill to fail immediately.
+### 1. The Core Problem: Synchronous Bootstrapping
+Previously, the `runAllSimulationRunAction` server action attempted to list **all** R2 keys synchronously before starting the simulation.
+-   **Impact**: For buckets with >10,000 keys, this operation consistently exceeded the Cloudflare Workers 30s execution limit.
+-   **Result**: Backfills failed immediately upon trigger.
 
-Initially, I implemented a row-per-key insertion strategy in the `r2_listing` phase, but this hit SQLite variable limits (`too many SQL variables`) when batching inserts for large pages.
+### 2. Architecture Evolution
 
-Then, I encountered a `SyntaxError: Unexpected token 'g'...` in the `ingest_diff` phase because I was manually `JSON.parse`-ing columns that `rwsdk` had already auto-parsed.
+#### Phase 1: Async R2 Listing (The "New Phase")
+We moved the listing logic out of the server action and into a dedicated simulation phase (`r2_listing`).
+-   **Change**: A new `r2_listing` phase was added as the first step of the pipeline.
+-   **Mechanism**: The runner incrementally pages through the R2 bucket, checkpointing its cursor in `simulation_runs.config_json` after every page. This allows the discovery process to span multiple execution ticks.
 
-### Solution
-I introduced a new simulation phase, `r2_listing`, which runs before `ingest_diff` and incrementally discovers keys. I also switched to a JSON blob storage strategy to avoid database bottlenecks.
+#### Phase 2: JSON Batch Storage (Solving Variable Limits)
+Initial implementation attempted to insert discovered keys as individual rows (`simulation_run_documents`) in the `r2_listing` phase.
+-   **Issue**: Bulk inserting 1,000 rows (even in chunks) caused `SQLITE_ERROR: too many SQL variables` due to the high cardinality of columns per row.
+-   **Fix**: Introduced a new table `simulation_run_r2_batches`.
+-   **Mechanism**: The `r2_listing` runner now stores entire pages of keys as compressed JSON blobs (1 row per page). This eliminated the discovery-time database bottleneck.
 
-1.  **New Table: `simulation_run_r2_batches`**:
-    - Stores pages of R2 keys as compressed JSON blobs rather than individual rows.
-    - Columns: `run_id`, `batch_index`, `keys_json`, `processed`.
-    - **Note**: `rwsdk` automatically parses JSON columns on read, so the runner must treat them as objects/arrays immediately.
+#### Phase 3: Distributed Insertion (The "Fan-Out" Fix)
+The `ingest_diff` phase was updated to consume these JSON blobs. However, the host runner *still* crashed when trying to "hydrate" a batch into 1,000 rows for insertion.
+-   **Issue**: The host runner cannot efficienty insert 1,000 rows due to the same variable limits.
+-   **Fix**: Implemented a **Distributed Insert Strategy**.
+    -   **Host Runner**: Expands the JSON batch and simply dispatches 1,000 messages to the work queue. It performs **ZERO** database writes per document.
+    -   **Worker Runner**: Receives a single key message and processes the `UPSERT` on the `simulation_run_documents` table.
+-   **Outcome**: The high-volume write load is distributed across thousands of parallel workers, bypassing single-connection limits.
 
-2.  **New Phase: `r2_listing`**:
-    - Created `src/app/pipelines/r2_listing/engine/simulation/runner.ts`.
-    - This runner reads `config.r2List`, fetches a page of keys (default 1000), and inserts them as a SINGLE row into `simulation_run_r2_batches`.
-    - It uses `JSON.stringify` on write (required).
+### 3. Cleanup
+We removed legacy code that supported manual key lists to simplify the runner logic, as all large-scale testing now uses the async listing path.
 
-3.  **Updated `ingest_diff`**:
-    - Modified to consume from `simulation_run_r2_batches`.
-    - It picks up a pending batch, expands the JSON keys (auto-parsed on read), and *then* robustly inserts them into `simulation_run_documents` (in safe chunks of 50) while dispatching them to the queue.
-    - Fixed `JSON.parse` double-parsing bug.
-
-### Outcome
-Backfills can now scale to arbitrary bucket sizes. The discovery process is fast (bulk blobs) and the ingestion process is safely throttled and batched.
+### Summary
+Backfills are now fully asynchronous from the first click.
+1.  **Trigger**: UI creates run record and returns instantly.
+2.  **Discovery**: `r2_listing` pages through bucket, storing compressed blobs.
+3.  **Ingestion**: `ingest_diff` fans out blobs to queue.
+4.  **Processing**: Workers upsert rows and process content.

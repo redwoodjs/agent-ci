@@ -153,11 +153,7 @@ export async function runPhaseTimelineFit(
 
       await log.info("debug.linking_decision", {
         momentId: root.moment_id,
-<<<<<<< HEAD
-        outcome: proposal.chosenParentId ? "attached" : "no_candidates",
-=======
         outcome: proposal.chosenParentId ? "fit" : "no_fit",
->>>>>>> fix-improve-moment-graph
         proposedParentId: proposal.chosenParentId ?? null,
         contextNamespace: momentGraphContext.momentGraphNamespace
       });

@@ -31,6 +31,12 @@ export async function runPhaseCandidateSets(
   if (!runRow) return null;
 
   const prefix = runRow.moment_graph_namespace_prefix;
+  
+  await log.info("debug.run_context", {
+    prefix,
+    baseNamespace: runRow.moment_graph_namespace,
+    r2Key: input.r2Key
+  });
 
   // 1. Get relevant documents (those changed in ingest_diff)
   const changedDocs = await db.selectFrom("simulation_run_documents").select("r2_key").where("run_id", "=", input.runId).where("changed", "=", 1).where("error_json", "is", null).execute();
@@ -103,6 +109,12 @@ export async function runPhaseCandidateSets(
     const childRow = rootById.get(root.moment_id);
     if (!childRow || childRow.parent_id) continue;
 
+    await log.info("debug.moment_source", {
+        momentId: root.moment_id,
+        documentId: childRow.document_id,
+        sourceNamespace: childRow._namespace
+    });
+
     const queryText = (childRow.summary?.trim() || childRow.title?.trim() || "");
     if (!queryText) {
       await db.insertInto("simulation_run_candidate_sets").values({ run_id: input.runId, child_moment_id: root.moment_id, r2_key: input.r2Key, stream_id: root.stream_id, macro_index: root.macro_index as any, candidates_json: "[]", stats_json: '{"reason":"empty-query"}', created_at: now, updated_at: now }).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({ updated_at: now } as any)).execute();
@@ -120,11 +132,32 @@ export async function runPhaseCandidateSets(
             // So we should PROBABLY omit the filter (undefined) to search GLOBAL index, or iterate.
             // Vector index might support array of namespaces? Unlikely.
             // Safest: undefined (global search) if we are in broadcast mode.
-            const results = await (context.env as any).MOMENT_INDEX.query(embedding, { topK: query.topK, returnMetadata: true, filter: undefined });
-            return { matches: (results?.matches ?? []).map((m: any) => ({ id: m.id, score: m.score })) };
+            const results = await (context.env as any).MOMENT_INDEX.query(embedding, { 
+              topK: query.topK, 
+              returnMetadata: true, 
+              filter: { momentGraphNamespace: childRow._namespace } 
+            });
+            const matches = (results?.matches ?? []).map((m: any) => ({ id: m.id, score: m.score }));
+            
+            await log.info("debug.vector_results", {
+                childMomentId: root.moment_id,
+                filterNamespace: childRow._namespace,
+                matchesCount: matches.length,
+                topMatch: matches[0] ? { id: matches[0].id, score: matches[0].score } : null
+            });
+
+            return { matches };
           },
           loadCandidateRowsById: async (ids) => {
             const rows = ids.length > 0 ? await fetchMomentsFromRun(context, input.runId, ids) : [];
+            
+            await log.info("debug.candidates_loaded", {
+                childMomentId: root.moment_id,
+                loadedNamespace: childRow._namespace,
+                requestedCount: ids.length,
+                loadedCount: rows.length
+            });
+
             return new Map((rows as any[]).map(r => [r.id, r]));
           },
         },

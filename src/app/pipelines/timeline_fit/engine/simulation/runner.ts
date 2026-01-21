@@ -31,6 +31,12 @@ export async function runPhaseTimelineFit(
   if (!runRow) return null;
 
   const prefix = runRow.moment_graph_namespace_prefix;
+  
+  await log.info("debug.run_context", {
+    prefix,
+    baseNamespace: runRow.moment_graph_namespace,
+    r2Key: input.r2Key
+  });
 
   const changedDocs = await db.selectFrom("simulation_run_documents").select("r2_key").where("run_id", "=", input.runId).where("changed", "=", 1).where("error_json", "is", null).execute();
   const relevantR2Keys = changedDocs.map(d => d.r2_key);
@@ -105,6 +111,13 @@ export async function runPhaseTimelineFit(
     
     // Use the namespace where the moment was found for any updates
     const momentGraphContext = { env: context.env, momentGraphNamespace: childRaw._namespace };
+    
+    await log.info("debug.moment_source", {
+        momentId: root.moment_id,
+        documentId: childRaw.document_id,
+        sourceNamespace: childRaw._namespace
+    });
+
     const momentDb = getMomentGraphDb(context.env, childRaw._namespace);
     
     // Re-format just enough for existing code if needed, but the row shape is mostly compatible
@@ -136,6 +149,13 @@ export async function runPhaseTimelineFit(
         useLlmVeto: true,
         maxAnchorTokens: 24,
         maxSharedAnchorTokens: 12,
+      });
+
+      await log.info("debug.linking_decision", {
+        momentId: root.moment_id,
+        outcome: proposal.chosenParentId ? "attached" : "no_candidates",
+        proposedParentId: proposal.chosenParentId ?? null,
+        contextNamespace: momentGraphContext.momentGraphNamespace
       });
 
       if (proposal.chosenParentId) {

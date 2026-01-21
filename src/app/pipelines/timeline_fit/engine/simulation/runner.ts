@@ -153,7 +153,7 @@ export async function runPhaseTimelineFit(
 
       await log.info("debug.linking_decision", {
         momentId: root.moment_id,
-        outcome: proposal.chosenParentId ? "attached" : "no_candidates",
+        outcome: proposal.chosenParentId ? "fit" : "no_fit",
         proposedParentId: proposal.chosenParentId ?? null,
         contextNamespace: momentGraphContext.momentGraphNamespace
       });
@@ -162,7 +162,7 @@ export async function runPhaseTimelineFit(
           await addMoment({ ...child, parentId: proposal.chosenParentId } as any, momentGraphContext);
       }
 
-      await db.insertInto("simulation_run_timeline_fit_decisions").values({ run_id: input.runId, child_moment_id: root.moment_id, r2_key: input.r2Key, stream_id: root.stream_id, macro_index: root.macro_index as any, outcome: proposal.chosenParentId ? "attached" : "no_candidates", chosen_parent_moment_id: proposal.chosenParentId, decisions_json: JSON.stringify(proposal.decisions), stats_json: JSON.stringify(proposal.stats), created_at: now, updated_at: now }).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({ updated_at: now } as any)).execute();
+      await db.insertInto("simulation_run_timeline_fit_decisions").values({ run_id: input.runId, child_moment_id: root.moment_id, r2_key: input.r2Key, stream_id: root.stream_id, macro_index: root.macro_index as any, outcome: proposal.chosenParentId ? "fit" : "no_fit", chosen_parent_moment_id: proposal.chosenParentId, decisions_json: JSON.stringify(proposal.decisions), stats_json: JSON.stringify(proposal.stats), created_at: now, updated_at: now }).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({ updated_at: now } as any)).execute();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await log.error("item.error", { phase: "timeline_fit", childMomentId: root.moment_id, r2Key: input.r2Key, error: msg });

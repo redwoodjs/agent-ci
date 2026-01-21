@@ -100,6 +100,7 @@ export async function runPhaseR2Listing(
   if (typeof r2ListConfig.currentPrefixIdx !== "number") {
     r2ListConfig.currentPrefixIdx = 0;
     r2ListConfig.pagesProcessed = 0;
+    r2ListConfig.prefixPagesProcessed = 0;
   }
 
   const prefixes = Array.isArray(r2ListConfig.targetPrefixes) 
@@ -177,13 +178,20 @@ export async function runPhaseR2Listing(
   // Update State
   let nextCursor: string | undefined = undefined;
   let nextPrefixIdx = r2ListConfig.currentPrefixIdx;
-  
-  if (result.truncated) {
-    nextCursor = result.cursor;
-  } else {
-    // Move to next prefix
+  let nextPrefixPagesProcessed = (r2ListConfig.prefixPagesProcessed || 0) + 1;
+
+  const maxPagesPerPrefix = prefixes.length > 1
+    ? Math.ceil(maxPages / prefixes.length)
+    : maxPages;
+
+  if (nextPrefixPagesProcessed >= maxPagesPerPrefix || !result.truncated) {
+    // Move to next prefix if we hit the per-prefix budget OR we finished the current prefix
     nextPrefixIdx++;
     nextCursor = undefined;
+    nextPrefixPagesProcessed = 0;
+  } else {
+    // Continue with current prefix
+    nextCursor = result.cursor;
   }
   
   const nextConfig = {
@@ -193,6 +201,7 @@ export async function runPhaseR2Listing(
         currentPrefixIdx: nextPrefixIdx,
         cursor: nextCursor,
         pagesProcessed: r2ListConfig.pagesProcessed + 1,
+        prefixPagesProcessed: nextPrefixPagesProcessed,
     }
   };
 

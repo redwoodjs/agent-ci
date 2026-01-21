@@ -32,6 +32,13 @@ export async function runPhaseDeterministicLinking(
   const prefix = runRow.moment_graph_namespace_prefix;
   
   const config = runRow.config_json ?? {};
+  
+  await log.info("debug.run_context", {
+    prefix,
+    baseNamespace: runRow.moment_graph_namespace,
+    r2Key: input.r2Key
+  });
+
   const r2KeysRaw = config?.r2Keys;
   const r2Keys = Array.isArray(r2KeysRaw) && r2KeysRaw.every((k: any) => typeof k === "string") ? (r2KeysRaw as string[]) : [];
 
@@ -141,6 +148,12 @@ export async function runPhaseDeterministicLinking(
     // Use the namespace found for this moment
     const momentGraphContext = { env: context.env, momentGraphNamespace: childRaw._namespace };
     
+    await log.info("debug.moment_source", {
+      momentId: child.id,
+      documentId: child.documentId,
+      sourceNamespace: childRaw._namespace
+    });
+
     // We treat the "previous moment" as null for now unless we iterate streams carefully.
     // For deterministic linking per-item, it might be fine.
     
@@ -170,6 +183,14 @@ export async function runPhaseDeterministicLinking(
       childSourceMetadata: child.sourceMetadata,
       childTextForFallbackAnchors: childText,
       macroAnchors: null,
+    });
+
+    await log.info("debug.linking_decision", {
+      momentId: child.id,
+      outcome: proposal.proposedParentId ? "attached" : "no_candidate",
+      proposedParentId: proposal.proposedParentId ?? null,
+      ruleId: proposal.audit.ruleId ?? null,
+      contextNamespace: momentGraphContext.momentGraphNamespace
     });
 
     if (proposal.proposedParentId) {

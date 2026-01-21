@@ -67,9 +67,9 @@ export async function TimelineFitDecisionsCard({
                 <div className="flex items-center gap-2 py-1">
                   <div className="h-px flex-1 bg-gray-100" />
                   <div className={`px-2 py-0.5 rounded-full text-[10px] uppercase font-bold tracking-wider border ${
-                    d.outcome === "fit" ? "bg-green-50 text-green-700 border-green-100" : "bg-red-50 text-red-700 border-red-100"
+                    (d.outcome === "fit" || d.outcome === "attached") ? "bg-green-50 text-green-700 border-green-100" : "bg-red-50 text-red-700 border-red-100"
                   }`}>
-                    {d.outcome === "fit" ? "Fit to Timeline" : "Rejected / No Fit"}
+                    {(d.outcome === "fit" || d.outcome === "attached") ? "Fit to Timeline" : "Rejected / No Fit"}
                   </div>
                   <div className="h-px flex-1 bg-gray-100" />
                 </div>

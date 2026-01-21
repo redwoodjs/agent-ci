@@ -24,6 +24,54 @@ export async function runPhaseR2Listing(
   const config = runRow.config_json || {};
   const r2ListConfig = config.r2List;
 
+  // If we have upfront keys (e.g. from runSample), we use them instead of listing
+  if (Array.isArray(config.r2Keys) && config.r2Keys.length > 0) {
+    const keys = config.r2Keys as string[];
+    const chunkSize = 1000;
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      const batchIndex = Math.floor(i / chunkSize);
+      await db
+        .insertInto("simulation_run_r2_batches")
+        .values({
+          run_id: input.runId,
+          batch_index: batchIndex,
+          keys_json: JSON.stringify(chunk),
+          processed: 0,
+          created_at: now,
+          updated_at: now,
+        })
+        .onConflict((oc) =>
+          oc.columns(["run_id", "batch_index"]).doUpdateSet({
+            keys_json: JSON.stringify(chunk),
+            updated_at: now,
+          })
+        )
+        .execute();
+    }
+
+    await addSimulationRunEvent(context, {
+      runId: input.runId,
+      level: "info",
+      kind: "phase.r2_keys_prepopulated",
+      payload: { count: keys.length },
+    });
+
+    const nextPhase = simulationPhases[input.phaseIdx + 1];
+    if (nextPhase) {
+      await db
+        .updateTable("simulation_runs")
+        .set({
+          current_phase: nextPhase,
+          updated_at: now,
+        } as any)
+        .where("run_id", "=", input.runId)
+        .execute();
+      return { status: "running", currentPhase: nextPhase };
+    }
+    return { status: "completed", currentPhase: "r2_listing" };
+  }
+
   // If no r2List config, this phase is a no-op (maybe manually provided keys?)
   // We just advance to next phase.
   if (!r2ListConfig) {

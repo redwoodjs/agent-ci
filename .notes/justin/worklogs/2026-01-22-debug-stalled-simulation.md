@@ -24,7 +24,7 @@ Instead, we are opting for a "Resilient Barrier" approach: hardening the current
 - **Implement Zombie Task Detection**: The Runner will act as a "Supervisor". If a batch remains `enqueued` for > 10 minutes (implied timeout), the Runner explicitly fails it.
 - **Goal**: Ensure the "Done" condition (`enqueued == 0`) is always reachable.
 
-## Revised Plan
+### Revised Plan
 - [ ] Implement "Zombie Sweeper" in `micro_batches` runner
     - [ ] Detect batches stuck in `enqueued` state for > 10m
     - [ ] Mark as `failed` with "Timeout" error

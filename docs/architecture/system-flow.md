@@ -36,6 +36,16 @@ For connections that aren't explicitly stated, we need to search. The `candidate
 ### 8. Timeline Fit
  Finally, we make the call. The `timeline_fit` phase evaluates the candidates and decides which parent is the best fit for the current moment, enforcing logical constraints (like time causality). This completes the graph, turning a loose collection of events into a connected narrative.
 
+## Pipeline Resiliency
+
+In a distributed system, jobs can fail silently (e.g., Worker OOM, Time Limit Exceeded), leaving the simulation in an indeterminate state. To ensure robustness, we implemented a **Supervisor Pattern**:
+
+1.  **Watchdog Heartbeat**: A CRON job (`processResiliencyHeartbeat`) runs every minute to "poke" all active simulation runs. This ensures the runner wakes up periodically, even if the queue is empty.
+2.  **Supervisor Check**: Before processing new work, the Phase Runner invokes a mandatory `recoverZombies` routine.
+3.  **Zombie Sweeper**: Each phase defines logic to identify and fail "Zombie Tasks"—items that have been `enqueued` for too long (e.g., >15 minutes) without an update.
+
+ This ensures the simulation always converges to a terminal state (Completed or Failed) and never stalls indefinitely due to transient infrastructure failures.
+
 ## Unified "Phase Core" Architecture
 
 Running two parallel pipelines (Live vs. Simulation) introduces a risk: the logic might drift. If the Live pipeline calculates a checksum one way, and the Simulation pipeline does it another, our replays become useless as predictors of live behavior.

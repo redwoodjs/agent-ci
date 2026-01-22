@@ -21,6 +21,7 @@ import {
   findSimilarMoments,
   getSubjectContextChainForMoment,
   deleteMomentsByIds,
+  getDiagnosticInfo,
   type MomentGraphContext,
 } from "@/app/engine/databases/momentGraph";
 import { MomentGraphDO } from "@/app/engine/databases/momentGraph/durableObject";
@@ -512,7 +513,54 @@ export async function getMomentGraphNamespace() {
   }
 }
 
-export async function getRootMomentsAction(options?: {
+export async function getKnowledgeGraphDiagnosticsAction(options: {
+  documentIdNeedles: string[];
+  momentGraphNamespace?: string | null;
+  momentGraphNamespacePrefix?: string | null;
+}) {
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const baseNamespace = options.momentGraphNamespace ?? null;
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
+    const prefixOverrideRaw = options.momentGraphNamespacePrefix;
+    const prefixOverride =
+      typeof prefixOverrideRaw === "string" &&
+      prefixOverrideRaw.trim().length > 0
+        ? prefixOverrideRaw.trim()
+        : null;
+    const effectivePrefix = prefixOverride ?? envPrefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+      baseNamespace,
+      effectivePrefix
+    );
+
+    const context = {
+      env: envCloudflare,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    const diagnostics = await getDiagnosticInfo(
+      context,
+      options.documentIdNeedles
+    );
+
+    return {
+      success: true,
+      data: diagnostics,
+      effectiveNamespace,
+      prefix: effectivePrefix,
+    };
+  } catch (error) {
+    console.error("[actions] Error fetching diagnostics:", error);
+    return {
+      success: false,
+      error: "Failed to fetch diagnostics",
+      details: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export async function getAllMomentsAction(options?: {
   limit?: number;
   momentGraphNamespace?: string | null;
   momentGraphNamespacePrefix?: string | null;
@@ -538,22 +586,22 @@ export async function getRootMomentsAction(options?: {
       momentGraphNamespace: effectiveNamespace,
     };
 
-    const rootMoments = await getUnparentedMomentsLocal(context, {
+    const allMoments = await getAllMomentsLocal(context, {
       limit: options?.limit ?? 1000,
     });
 
     return {
       success: true,
-      data: rootMoments,
-      count: rootMoments.length,
+      data: allMoments,
+      count: allMoments.length,
       effectiveNamespace,
       prefix: effectivePrefix,
     };
   } catch (error) {
-    console.error("[actions] Error fetching root moments:", error);
+    console.error("[actions] Error fetching all moments:", error);
     return {
       success: false,
-      error: "Failed to fetch root moments",
+      error: "Failed to fetch all moments",
       details: error instanceof Error ? error.message : String(error),
     };
   }
@@ -2286,7 +2334,7 @@ export type DescendantNode = {
   timeRangeEnd?: string;
 };
 
-async function getUnparentedMomentsLocal(
+async function getAllMomentsLocal(
   context: MomentGraphContext,
   options?: {
     limit?: number;
@@ -2318,7 +2366,6 @@ async function getUnparentedMomentsLocal(
       "parent.created_at as created_at",
       sql<number>`count(child.id)`.as("childCount"),
     ])
-    .where("parent.parent_id", "is", null)
     .groupBy([
       "parent.id",
       "parent.title",

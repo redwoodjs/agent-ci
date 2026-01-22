@@ -27,3 +27,22 @@ Instead, we opted for a "Resilient Barrier" (Supervisor) approach.
 - [x] **Supervisor Interface**: Added mandatory `recoverZombies`.
 - [x] **Sweepers**: Implemented `micro_batches` sweeper and no-ops for others.
 - [x] **Refactor**: Moved `web/index.ts` -> `index.ts` for all phases.
+
+## PR Draft
+
+# Implement Resilient Runner Supervisor and Watchdog Heartbeat
+
+### Problem & Context
+The Simulation Pipeline was susceptible to infinite stalls when tasks failed silently (e.g., Worker OOM or Time Limit Exceeded). Because the runner relied on an `enqueued == 0` terminal condition, any "lost" task in the `simulation_run_micro_batches` table prevented the pipeline from advancing. Additionally, if the message queue became empty, the runner would never wake up to re-evaluate the state or prune these dead tasks.
+
+### Solution & Implementation
+We implemented a **Supervisor Pattern** supported by a periodic **Watchdog Heartbeat**:
+
+- **Watchdog Heartbeat**: Added `processResiliencyHeartbeat` to the scheduled CRON worker. It periodically dispatches `simulation-advance` messages to all active runs (status: `running`, `busy_running`, or `awaiting_documents`), ensuring the system "ticks" even if the queue is idle.
+- **Supervisor Interface**: Added a mandatory `recoverZombies` method to the `PipelineRegistryEntry` interface. The `Simulation Runner` now invokes this method on every tick before processing new work.
+- **Zombie Sweeper**: Implemented `recoverMicroBatchZombies` for the `micro_batches` phase. It identifies items in `enqueued` status that haven't been updated in over 15 minutes and marks them as `failed` with a `ZOMBIE_TIMEOUT` error. This allows the phase to reach its terminal condition and proceed.
+- **Refactor**: Decoupled phase definitions from the Web UI by moving entry points from `src/app/pipelines/<phase>/web/index.ts` to `src/app/pipelines/<phase>/index.ts`.
+
+### Validation
+- **Micro-Batch Sweeper**: Verified logic for identifying and updating `enqueued` items with stale `updated_at` timestamps.
+- **Heartbeat Logic**: Verified that active simulations are correctly identified and "poked" via the indexing queue.

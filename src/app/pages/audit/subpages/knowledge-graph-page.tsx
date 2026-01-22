@@ -15,13 +15,14 @@ import {
   getKnowledgeGraphStatsAction,
   getMomentGraphNamespace,
   getMomentGraphNamespacePrefix,
-  getRootMomentsAction,
+  getAllMomentsAction,
   getSubjectMomentsAction,
   getDescendantsForRootSlimAction,
   searchMomentsAction,
   getMomentDetailsAction,
   getMomentContextChainAction,
   getRecentDocumentAuditEventsAction,
+  getKnowledgeGraphDiagnosticsAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -250,6 +251,11 @@ export function KnowledgeGraphPage() {
   const [pendingHighlightMomentId, setPendingHighlightMomentId] = useState<
     string | null
   >(null);
+
+  const [diagnosticsNeedles, setDiagnosticsNeedles] = useState<string>("");
+  const [diagnosticsResults, setDiagnosticsResults] = useState<any>(null);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null);
 
   const [recentAuditDocs, setRecentAuditDocs] = useState<any[] | null>(null);
   const [recentAuditDocsLoading, setRecentAuditDocsLoading] = useState(false);
@@ -488,12 +494,12 @@ export function KnowledgeGraphPage() {
   }, [selectedNamespace, prefixOverride]);
 
   useEffect(() => {
-    async function fetchRootMoments() {
+    async function fetchAllMoments() {
       setRootMomentsLoading(true);
       try {
         const listFn =
           entityTab === "moments"
-            ? getRootMomentsAction
+            ? getAllMomentsAction
             : getSubjectMomentsAction;
         const result = await listFn({
           limit: 1000,
@@ -517,7 +523,7 @@ export function KnowledgeGraphPage() {
     }
 
     if (!selectedRootId) {
-      fetchRootMoments();
+      fetchAllMoments();
     }
   }, [selectedNamespace, selectedRootId, prefixOverride, entityTab]);
 
@@ -1060,7 +1066,7 @@ export function KnowledgeGraphPage() {
                     ? "Moment Tree Visualization"
                     : "Subject Tree Visualization"
                   : entityTab === "moments"
-                  ? "Moments (Select to Drill Down)"
+                  ? "All Moments (Flat List)"
                   : "Subjects (Select to Drill Down)"}
               </CardTitle>
               <CardDescription>
@@ -1093,7 +1099,7 @@ export function KnowledgeGraphPage() {
                   }
                   onClick={() => setEntityTab("moments")}
                 >
-                  Moments
+                  All Moments
                 </button>
               </div>
               {selectedRootId && (
@@ -1105,7 +1111,7 @@ export function KnowledgeGraphPage() {
                     setSearchQuery("");
                   }}
                 >
-                  ← Back to {entityTab === "moments" ? "Moments" : "Subjects"}
+                  ← Back to {entityTab === "moments" ? "All Moments" : "Subjects"}
                 </Button>
               )}
             </div>
@@ -1294,7 +1300,7 @@ export function KnowledgeGraphPage() {
                       type="text"
                       placeholder={
                         entityTab === "moments"
-                          ? "Search moments by title or ID..."
+                          ? "Search all moments by title or ID..."
                           : "Search subjects by title or ID..."
                       }
                       value={searchQuery}
@@ -1311,28 +1317,33 @@ export function KnowledgeGraphPage() {
                         day: "numeric",
                       });
                       return (
-                        <button
-                          key={root.id}
-                          onClick={() => setSelectedRootId(root.id)}
-                          className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                        >
-                          <div className="font-medium text-gray-900 mb-2">
-                            {root.title}
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
-                            <span>{formattedDate}</span>
-                            <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
-                              {typeof root.descendantCount === "number"
-                                ? `${root.descendantCount} moment${
-                                    root.descendantCount !== 1 ? "s" : ""
-                                  }`
-                                : "descendants=N/A"}
-                            </span>
-                          </div>
-                          <div className="text-xs text-gray-400 font-mono mt-1">
-                            {root.id.substring(0, 8)}...
-                          </div>
-                        </button>
+                          <button
+                            key={root.id}
+                            onClick={() => setSelectedRootId(root.id)}
+                            className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                          >
+                            <div className="font-medium text-gray-900 mb-2 truncate">
+                              {root.title}
+                            </div>
+                            <div className="flex items-center justify-between text-xs text-gray-500 mb-1">
+                              <span>{formattedDate}</span>
+                              {root.descendantCount !== null &&
+                                root.descendantCount > 0 && (
+                                  <span className="bg-blue-100 text-blue-700 px-2 py-0.5 rounded">
+                                    {root.descendantCount} descendant
+                                    {root.descendantCount !== 1 ? "s" : ""}
+                                  </span>
+                                )}
+                              {root.parentId && (
+                                <span className="text-blue-600 font-mono">
+                                  Linked
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-xs text-gray-400 font-mono mt-1">
+                              {root.id.substring(0, 8)}...
+                            </div>
+                          </button>
                       );
                     })}
                   </div>
@@ -2146,6 +2157,134 @@ export function KnowledgeGraphPage() {
               )}
             </>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Diagnostics Section */}
+      <Card className="mt-8 mb-6">
+        <CardHeader>
+          <CardTitle>Diagnostics</CardTitle>
+          <CardDescription>
+            Troubleshoot moment presence by searching for document ID patterns
+            (max 20 needles).
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                placeholder="needle1, needle2 (e.g. pull-requests/123)"
+                value={diagnosticsNeedles}
+                onChange={(e) => setDiagnosticsNeedles(e.target.value)}
+                className="font-mono"
+              />
+              <Button
+                variant="outline"
+                onClick={async () => {
+                  setDiagnosticsError(null);
+                  setDiagnosticsResults(null);
+                  const needles = diagnosticsNeedles
+                    .split(",")
+                    .map((n) => n.trim())
+                    .filter((n) => n.length > 0);
+                  if (needles.length === 0) return;
+
+                  setDiagnosticsLoading(true);
+                  try {
+                    const res = await getKnowledgeGraphDiagnosticsAction({
+                      documentIdNeedles: needles,
+                      momentGraphNamespace: selectedNamespace,
+                      momentGraphNamespacePrefix:
+                        prefixOverride.trim().length > 0
+                          ? prefixOverride.trim()
+                          : null,
+                    });
+                    if (res.success) {
+                      setDiagnosticsResults(res.data);
+                    } else {
+                      setDiagnosticsError(res.error || "Diagnostics failed");
+                    }
+                  } catch (err) {
+                    setDiagnosticsError(
+                      err instanceof Error ? err.message : "Diagnostics failed"
+                    );
+                  } finally {
+                    setDiagnosticsLoading(false);
+                  }
+                }}
+                disabled={diagnosticsLoading}
+              >
+                {diagnosticsLoading ? "Running..." : "Run Diagnostics"}
+              </Button>
+            </div>
+
+            {diagnosticsError && (
+              <div className="text-sm text-red-600 italic">
+                {diagnosticsError}
+              </div>
+            )}
+
+            {diagnosticsResults && (
+              <div className="p-4 bg-gray-50 rounded border space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <div className="text-xs font-semibold text-gray-500 uppercase">
+                      Total Moments in Namespace
+                    </div>
+                    <div className="text-lg font-mono">
+                      {diagnosticsResults.totalMoments}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="text-xs font-semibold text-gray-500 uppercase mb-2">
+                    Matching Moments ({diagnosticsResults.matchingDocumentIds.length})
+                  </div>
+                  {diagnosticsResults.matchingDocumentIds.length === 0 ? (
+                    <div className="text-sm text-gray-500 italic">
+                      No moments found matching these needles.
+                    </div>
+                  ) : (
+                    <div className="max-h-64 overflow-auto border rounded bg-white">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-1/3">Moment ID</TableHead>
+                            <TableHead>Document ID</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {diagnosticsResults.matchingDocumentIds.map(
+                            (item: any, idx: number) => (
+                              <TableRow key={idx}>
+                                <TableCell className="font-mono text-xs">
+                                  <button
+                                    onClick={() => {
+                                      setEntityTab("moments");
+                                      setPendingHighlightMomentId(item.momentId);
+                                      setSelectedMomentId(item.momentId);
+                                    }}
+                                    className="text-blue-600 hover:underline"
+                                  >
+                                    {item.momentId}
+                                  </button>
+                                </TableCell>
+                                <TableCell className="font-mono text-xs break-all">
+                                  {item.documentId}
+                                </TableCell>
+                              </TableRow>
+                            )
+                          )}
+                        </TableBody>
+                      </Table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
         </CardContent>
       </Card>
     </div>

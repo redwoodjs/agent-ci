@@ -1,6 +1,6 @@
 # Debug Stalled Simulation Run
 
-// context(agent, 2026-01-22): The user reported a stalled simulation run `sim-prd` during the `micro_batches` phase. The logs show successful item processing but the run does not advance. We need to investigate potential causes like timeouts, empty queues, or logic errors in the runner.
+The user reported a stalled simulation run `sim-prd` during the `micro_batches` phase. The logs show successful item processing but the run does not advance. We need to investigate potential causes like timeouts, empty queues, or logic errors in the runner.
 
 ## Plan
 - [/] Investigate `micro_batches` logic
@@ -13,9 +13,11 @@
 
 ## Resilience & Architecture Discussion
 
-// context(justinvdm, 2026-01-22): We discussed the inherent fragility of the current "Phase Barrier" model, where a single stuck task prevents the simulation from advancing.
-// We considered a "Streaming" approach (pipelining phases) but decided it requires a major architectural rewrite (e.g. tracking per-document phase progress).
-// Instead, we are opting for a "Resilient Barrier" approach: hardening the current system to ensure "Silent Failures" (timeouts, OOMs) are detected and resolved to a terminal state ("Failed"), preserving the barrier invariant (Processed Count == Total Count).
+We discussed the inherent fragility of the current "Phase Barrier" model, where a single stuck task prevents the simulation from advancing.
+
+We considered a "Streaming" approach (pipelining phases) but decided it requires a major architectural rewrite (e.g. tracking per-document phase progress).
+
+Instead, we are opting for a "Resilient Barrier" approach: hardening the current system to ensure "Silent Failures" (timeouts, OOMs) are detected and resolved to a terminal state ("Failed"), preserving the barrier invariant (Processed Count == Total Count).
 
 ### Decisions
 - **Reject Streaming (for now)**: Too high complexity/effort for current needs.

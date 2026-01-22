@@ -401,11 +401,26 @@ export async function runMicroBatchesAdapter(
       failed++;
       const msg = e instanceof Error ? e.message : String(e);
       failures.push({ r2Key, error: msg });
+      
       await input.log.error("item.error", {
         phase: "micro_batches",
         r2Key,
         error: msg,
       });
+
+      // If specific batches were active, mark them as failed
+      if (input.batchIndex !== undefined) {
+          await db.updateTable("simulation_run_micro_batches")
+             .set({ 
+                 status: "failed", 
+                 error_json: JSON.stringify({ message: msg }),
+                 updated_at: input.now 
+             })
+             .where("run_id", "=", input.runId)
+             .where("r2_key", "=", r2Key)
+             .where("batch_index", "=", input.batchIndex as any)
+             .execute();
+      }
     }
   }
 

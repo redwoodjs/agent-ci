@@ -1,6 +1,6 @@
 # Debug Stalled Simulation Run
 
-// context(agent, 2026-01-22): The user reported a stalled simulation run `sim-prd` during the `micro_batches` phase. The logs show successful item processing but the run does not advance. We need to investigate potential causes like timeouts, empty queues, or logic errors in the runner.
+The user reported a stalled simulation run `sim-prd` during the `micro_batches` phase. The logs show successful item processing but the run does not advance. We need to investigate potential causes like timeouts, empty queues, or logic errors in the runner.
 
 ## Plan
 - [x] Investigate `micro_batches` logic

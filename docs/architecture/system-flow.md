@@ -1,67 +1,49 @@
 # System Flow
 
-This document describes the high-level, end-to-end flow of how data is ingested, processed, and queried. The system is designed as an event-driven pipeline that transforms raw data into a structured knowledge base comprising two main components:
+We designed our system to transform raw, chaotic event streams into a structured, queryable knowledge graph. While our initial approach prioritized "live" indexing for speed, we found that complex narrative synthesis requires a rigorous, replayable environment to test improvements. 
 
-1.  **The Evidence Locker**: A vector index for factual, semantic search (see `evidence-locker-engine.md`).
-2.  **The Knowledge Graph**: A graph of "Moments" for narrative synthesis and "why" questions (see `knowledge-synthesis-engine.md`).
+Today, the system operates in two modes that share the same brain: a **Simulation Pipeline** (for backfills, replays, and development) and a **Live Pipeline** (for low-latency updates).
 
-## The Data Pipeline
+## The Simulation Pipeline
 
-The flow is broken down into five key stages, moving from an external event to a fully indexed state.
+We built the Simulation Pipeline to solve a specific problem: "How do we safely improve our logic when the data is constantly changing?" 
 
-### 1. Ingestion & Denormalization
-The process begins with an event (webhook or backfill) triggering an ingestion service (e.g., `github-proxy-worker`).
-1.  **Fetch**: The service fetches the full, current state of the entity from the source API.
-2.  **Denormalize**: It assembles a "page-centric" view (e.g., embedding comments into a PR object).
-3.  **Store**: It writes the denormalized JSON file to R2, triggering the next stage via R2 Event Notifications.
+The simulation engine treats data processing not as a stream, but as a series of resumable, inspectable **Phases**. By persisting the state after each distinct operation, we can pause, debug, and even restart execution from the middle of the pipeline. This allows us to iterate on our "smart" logic (like linking or synthesis) without re-running expensive ingestion steps.
 
-### 2. The Scheduler & Diffing Engine
-The `indexing-scheduler-worker` consumes R2 events and acts as the gatekeeper.
-1.  **Diffing**: Using the `EngineIndexingStateDO`, it checks if the file has changed. It splits the document into chunks and compares their content hashes against the previous state.
-2.  **Filtering**: Only **new or modified chunks** are selected for processing. Unchanged chunks are skipped entirely.
+The data flows through eight distinct phases, moving from raw external state to a fully linked graph.
 
-### 3. Parallel Chunk Processing (Evidence Locker)
-The scheduler fans out the new chunks to the `chunk-processor-worker` via a queue.
-*   **Vectorization**: Each worker generates an embedding for its assigned chunk.
-*   **Indexing**: The vector and metadata are inserted into the Evidence Locker (Vectorize).
+### 1. Ingestion & Diffing
+The process begins by looking at the outside world. In the `ingest_diff` phase, we fetch the current state of source documents (like GitHub Issues or Pull Requests) and compare them against our last known state. We do this first so that we can immediately discard anything that hasn't changed, saving downstream compute.
 
-### 4. Knowledge Synthesis (Moment Graph)
-Concurrent with chunk processing, the scheduler triggers the Knowledge Synthesis Engine for the document.
-1.  **Chunk batching and micro-moment summarization**: The engine batches chunks for performance (token/size caps) and uses an engine-owned summarizer. This summarizer calls a plugin hook (`getMicroMomentBatchPromptContext`) to ensure summaries reflect the source's narrative context (e.g., issue proposal vs. PR changes).
+### 2. Micro-Batching
+Once we have a set of changed documents, we need to prepare them for the LLM. The `micro_batches` phase splits large documents into manageable chunks and groups them into batches. We isolate this as a separate step because chunking logic rarely changes, but the downstream synthesis prompts change often. By caching these batches, we can experiment with new prompts without paying the cost of re-chunking.
 
-    There are two caching layers in play:
-    - The scheduler's chunk diffing avoids reprocessing unchanged chunks for both the Evidence Locker and Knowledge Synthesis paths.
-    - The Knowledge Synthesis Engine caches micro-moment batch outputs keyed by a batch hash so re-indexing only recomputes batches whose inputs changed.
-2.  **Synthesis**: Micro-moments are synthesized by an LLM into higher-level "Macro-Moments." The synthesis prompt uses plugin-provided context (`getMacroSynthesisPromptContext`) to inject source formatting guidance and canonical reference tokens (`mchn://...`) so macro moments can identify their originating entities across sources.
-3.  **Graph Update**: Macro-moments are inserted into the Moment Graph with parent relationships. The first macro-moment can attach under an existing moment (Smart Linker) to stitch documents into a shared graph. Root moments are indexed as **Subjects**.
+### 3. Macro Synthesis
+This is where the raw text is transformed into meaning. In `macro_synthesis`, we feed the micro-batches into an LLM to generate "Macro Moments"—high-level summaries of what happened. This phase focuses purely on understanding the *content* of a single document, without worrying about how it connects to the rest of the world.
 
-    Note: For sources that often start with low-signal content (example: Cursor conversations), using the first macro-moment as the correlation representative can cause missed attachments. A correlation step can select a representative macro-moment (for example, the highest-importance macro-moment) to decide whether to attach the document under an existing timeline.
+### 4. Classification
+Not every moment is equal. The `macro_classification` phase acts as a filter, allowing us to label moments (e.g., distinguishing a "Bug Fix" from a "Chore") and gate which ones are important enough to enter the permanent graph.
 
-### 5. Query & Retrieval
-When a user asks a question, the system first attempts a narrative query path, then falls back to RAG. The query endpoint (`/query`) supports multiple output modes to serve both human users and agentic tools:
+### 5. Materialization
+Up to this point, our data has been transient. The `materialize_moments` phase commits our work, writing the synthesized moments into the database with stable IDs. This provides a hard checkpoint: once materialized, a moment "exists" in our system, even if it isn't linked to anything yet.
 
--   **Answer Mode** (Default): The system constructs a narrative prompt and calls an LLM to generate a natural language answer.
--   **Brief Mode**: The system returns the raw narrative context (Subject summary + Timeline) as plain text without calling an LLM. This is optimized for agentic clients (like Cursor MCP) that want to perform their own reasoning over the retrieved context.
--   **Prompt Mode**: The system returns the exact prompt that would have been sent to the LLM.
+### 6. Deterministic Linking
+Now we begin to stitch the graph together. We start with what we know for sure. The `deterministic_linking` phase looks for explicit signals—like a "Fixes #123" string in a PR body—to create high-confidence links between moments. We run this before fuzzy vector search because it is fast, cheap, and precise.
 
-The retrieval logic remains the same regardless of the output mode:
+### 7. Candidate Generation
+For connections that aren't explicitly stated, we need to search. The `candidate_sets` phase uses vector embeddings to find moments that *might* be related. We separate this "search" step from the final "decision" step so that we can inspect the recall of our retrieval (i.e., "Did we find the right candidate?") independently of the LLM's judgment.
 
-1.  **Identify anchor Moments**: The query is used to find similar Moments in the `MOMENT_INDEX`.
-2.  **Resolve Root & Build Timeline**: For matched Moments, the engine resolves the root Subject and retrieves the **full descendant timeline**. This ensures that linked work (like a Discord thread attached to a GitHub issue) is included in the narrative context.
-3.  **Fallback to Evidence Locker**: If no narrative context is found, the system falls back to a standard RAG search against the Evidence Locker.
+### 8. Timeline Fit
+ Finally, we make the call. The `timeline_fit` phase evaluates the candidates and decides which parent is the best fit for the current moment, enforcing logical constraints (like time causality). This completes the graph, turning a loose collection of events into a connected narrative.
 
-#### Root-to-leaf narrative context (primary retrieval mode)
-For cross-document, cross-source timelines, ancestor trails can omit linked descendant work (example: a Discord thread or PR attached under a root, while the query matches a moment higher up in the tree).
+## Unified "Phase Core" Architecture
 
-The primary retrieval mode for narrative queries is:
+Running two parallel pipelines (Live vs. Simulation) introduces a risk: the logic might drift. If the Live pipeline calculates a checksum one way, and the Simulation pipeline does it another, our replays become useless as predictors of live behavior.
 
-1. Identify anchor Moments (vector match against `MOMENT_INDEX`).
-2. For each anchor Moment, resolve its root Subject.
-3. For each resolved root, traverse descendants and build root-to-leaf paths.
-4. Provide the LLM with the full timeline context (capped by token budget) rather than only ancestor trails.
+To solve this, we use a **Phase Core** pattern. 
 
-## Architecture Map
+We extract the pure business logic—"how to hash a chunk," "how to format a prompt," "how to decide a link"—into a shared **Phase Core**. Both pipelines then wrap this core with their own **Adapters**:
+*   The **Simulation Adapter** handles the "batch" mechanics: loading massive datasets from disk, managing checkpoints, and persisting full artifacts for inspection.
+*   The **Live Adapter** handles the "stream" mechanics: listening for webhooks, performing optimistic locks, and writing directly to the operational database.
 
-*   **Evidence Locker (RAG)**: See `evidence-locker-engine.md` for details on vector indexing and incremental diffing.
-*   **Knowledge Synthesis**: See `knowledge-synthesis-engine.md` for details on the Moment Graph, Micro-Moments, and root-to-leaf narrative querying.
-*   **Plugin System**: See `plugin-system.md` for details on the hooks that power these pipelines.
+This ensures that while the *runtime mechanics* differ to suit the use case (throughput vs. rigor), the *decisions* the system makes are always identical.

@@ -79,6 +79,11 @@ export async function advanceSimulationRunPhaseNoop(
     if (!entry) {
       throw new Error(`No registry entry found for phase: ${phase}`);
     }
+
+    // Supervisor Check: Sweep for zombies
+    // This expects all phases to implement recoverZombies (enforced by type)
+    await entry.recoverZombies(context, { runId });
+
     const result = await entry.runner(context, {
       runId,
       phaseIdx,

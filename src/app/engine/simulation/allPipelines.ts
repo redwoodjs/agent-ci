@@ -3,14 +3,14 @@
 
 import "./registry"; // Ensure the registry is defined first
 
-import "../../pipelines/r2_listing/web";
-import "../../pipelines/ingest_diff/web";
-import "../../pipelines/micro_batches/web";
-import "../../pipelines/macro_synthesis/web";
-import "../../pipelines/macro_classification/web";
-import "../../pipelines/materialize_moments/web";
-import "../../pipelines/deterministic_linking/web";
-import "../../pipelines/candidate_sets/web";
-import "../../pipelines/timeline_fit/web";
+import "../../pipelines/r2_listing";
+import "../../pipelines/ingest_diff";
+import "../../pipelines/micro_batches";
+import "../../pipelines/macro_synthesis";
+import "../../pipelines/macro_classification";
+import "../../pipelines/materialize_moments";
+import "../../pipelines/deterministic_linking";
+import "../../pipelines/candidate_sets";
+import "../../pipelines/timeline_fit";
 
 export * from "./registry";

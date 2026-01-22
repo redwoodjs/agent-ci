@@ -15,6 +15,10 @@ export type PipelineRegistryEntry = {
       drilldown?: React.ComponentType<{ runId: string; effectiveNamespace: string | null }>;
     };
   };
+  recoverZombies: (
+    context: SimulationDbContext,
+    input: { runId: string }
+  ) => Promise<void>;
 };
 
 export const pipelineRegistry: Record<SimulationPhase, PipelineRegistryEntry> = {} as any;

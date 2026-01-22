@@ -63,6 +63,7 @@ import { processMomentReplayReplayJob } from "@/app/engine/services/moment-repla
 import { processChunkJob, processChunkBatch } from "@/app/engine/services/chunk-processor-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
 import { processSimulationJob } from "@/app/engine/services/simulation-worker";
+import { processResiliencyHeartbeat } from "@/app/engine/services/resiliency-service";
 import type { QueueMessage } from "@/app/ingestors/github/services/backfill-types";
 import type { QueueMessage as DiscordQueueMessage } from "@/app/ingestors/discord/services/backfill-types";
 import { formatLog } from "@/app/ingestors/github/utils/inspect";
@@ -444,5 +445,6 @@ export default {
   async scheduled(event, env, ctx) {
     console.log(`[cron] Scheduled event triggered: ${event.cron}`);
     ctx.waitUntil(processScannerJob(env as Cloudflare.Env));
+    ctx.waitUntil(processResiliencyHeartbeat(env as Cloudflare.Env));
   },
 } as ExportedHandler;

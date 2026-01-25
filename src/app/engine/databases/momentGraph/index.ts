@@ -2209,6 +2209,87 @@ export async function getRootMoments(
   return await getUnparentedMoments(context, options);
 }
 
+export async function getAllMoments(
+  context: MomentGraphContext,
+  options?: {
+    limit?: number;
+  }
+): Promise<
+  Array<{
+    id: string;
+    title: string;
+    parentId: string | null;
+    createdAt: string;
+    descendantCount: number;
+  }>
+> {
+  const db = getMomentDb(context);
+
+  const limitRaw = options?.limit;
+  const limit =
+    typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.floor(limitRaw)
+      : 1000;
+
+  const rows = (await db
+    .selectFrom("moments")
+    .select(["id", "title", "parent_id", "created_at"])
+    .orderBy("created_at", "asc")
+    .limit(limit)
+    .execute()) as Array<{
+    id: string;
+    title: string;
+    parent_id: string | null;
+    created_at: string;
+  }>;
+
+  // Fetch all parent-child relationships to compute descendant counts
+  const allRows = (await db
+    .selectFrom("moments")
+    .select(["id", "parent_id"])
+    .execute()) as Array<{
+    id: string;
+    parent_id: string | null;
+  }>;
+
+  // Build a map of parent -> children
+  const childrenByParent = new Map<string, string[]>();
+  for (const row of allRows) {
+    if (row.parent_id) {
+      const children = childrenByParent.get(row.parent_id) || [];
+      children.push(row.id);
+      childrenByParent.set(row.parent_id, children);
+    }
+  }
+
+  // Compute descendant count for each root using DFS
+  function countDescendants(rootId: string): number {
+    const visited = new Set<string>();
+    let count = 0;
+
+    function visit(id: string) {
+      if (visited.has(id)) return;
+      visited.add(id);
+      const children = childrenByParent.get(id) || [];
+      count += children.length;
+      for (const childId of children) {
+        visit(childId);
+      }
+    }
+
+    visit(rootId);
+    return count;
+  }
+
+  return rows.map((row) => ({
+    id: row.id,
+    title: row.title || `Moment ${row.id.substring(0, 8)}`,
+    parentId: row.parent_id,
+    createdAt: row.created_at,
+    descendantCount: countDescendants(row.id),
+  }));
+}
+
 export async function getUnparentedMoments(
   context: MomentGraphContext,
   options?: {

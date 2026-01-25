@@ -23,6 +23,7 @@ import {
   getMomentContextChainAction,
   getRecentDocumentAuditEventsAction,
   getKnowledgeGraphDiagnosticsAction,
+  getRootAncestorAction,
 } from "./actions";
 import type { Moment } from "@/app/engine/types";
 import {
@@ -252,6 +253,23 @@ export function KnowledgeGraphPage() {
     string | null
   >(null);
 
+  const isInitialMount = useRef(true);
+
+  const handleTabChange = (newTab: "subjects" | "moments") => {
+    if (newTab === entityTab) return;
+    setEntityTab(newTab);
+    setSelectedRootId(null);
+    setSelectedMomentId(null);
+    setPendingHighlightMomentId(null);
+    setContextChainMomentId(null);
+    setSearchQuery("");
+    setSemanticQuery("");
+    setSemanticResults([]);
+    setSemanticError(null);
+    setGraphData([]);
+    setGraphTruncated(false);
+  };
+
   const [diagnosticsNeedles, setDiagnosticsNeedles] = useState<string>("");
   const [diagnosticsResults, setDiagnosticsResults] = useState<any>(null);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
@@ -324,12 +342,14 @@ export function KnowledgeGraphPage() {
     }
   }, []);
 
-  // Initialize selectedRootId from URL on mount
+  // Initialize from URL on mount
   useEffect(() => {
     const urlParams = new URLSearchParams(window.location.search);
     const tabFromUrl = urlParams.get("tab");
     if (tabFromUrl === "moments") {
       setEntityTab("moments");
+    } else {
+      setEntityTab("subjects");
     }
     const rootIdFromUrl = urlParams.get("rootId");
     if (rootIdFromUrl) {
@@ -338,6 +358,8 @@ export function KnowledgeGraphPage() {
     const viewFromUrl = urlParams.get("view");
     if (viewFromUrl === "chain") {
       setGraphView("chain");
+    } else {
+      setGraphView("tree");
     }
     const highlightMomentIdFromUrl = urlParams.get("highlightMomentId");
     if (
@@ -361,20 +383,32 @@ export function KnowledgeGraphPage() {
     if (typeof prefixFromUrl === "string" && prefixFromUrl.trim().length > 0) {
       setPrefixOverride(prefixFromUrl.trim());
     }
-  }, []);
 
-  useEffect(() => {
-    setSelectedRootId(null);
-    setSelectedMomentId(null);
-    setPendingHighlightMomentId(null);
-    setContextChainMomentId(null);
-    setSearchQuery("");
-    setSemanticQuery("");
-    setSemanticResults([]);
-    setSemanticError(null);
-    setGraphData([]);
-    setGraphTruncated(false);
-  }, [entityTab]);
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const tab = params.get("tab");
+      const rootId = params.get("rootId");
+      const view = params.get("view");
+      const highlight = params.get("highlightMomentId");
+      const ns = params.get("namespace");
+      const pre = params.get("prefix") ?? params.get("namespacePrefix");
+
+      setEntityTab(tab === "moments" ? "moments" : "subjects");
+      setSelectedRootId(rootId);
+      setGraphView(view === "chain" ? "chain" : "tree");
+      if (highlight) {
+        setPendingHighlightMomentId(highlight);
+        if (view === "chain") setContextChainMomentId(highlight);
+      }
+      setSelectedNamespace(ns);
+      if (pre) setPrefixOverride(pre);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    isInitialMount.current = false;
+
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   // Update URL when selectedRootId changes (using pushState for shareable links)
   useEffect(() => {
@@ -413,7 +447,12 @@ export function KnowledgeGraphPage() {
     } else {
       url.searchParams.delete("highlightMomentId");
     }
-    window.history.pushState({}, "", url.toString());
+    
+    const currentUrl = window.location.search + window.location.hash;
+    const nextUrl = url.search + url.hash;
+    if (currentUrl !== nextUrl) {
+      window.history.pushState({}, "", url.toString());
+    }
   }, [
     entityTab,
     selectedRootId,
@@ -744,9 +783,8 @@ export function KnowledgeGraphPage() {
                     node.style.cursor = "pointer";
                     const handler = (e: Event) => {
                       e.stopPropagation();
-                      setGraphView("chain");
-                      setContextChainMomentId(moment.id);
                       setPendingHighlightMomentId(moment.id);
+                      setSelectedMomentId(moment.id);
                     };
                     node.addEventListener("click", handler);
                     cleanups.push(() =>
@@ -1086,7 +1124,7 @@ export function KnowledgeGraphPage() {
                       ? "px-3 py-1 text-sm bg-blue-50 text-blue-700"
                       : "px-3 py-1 text-sm text-blue-600 hover:bg-gray-50"
                   }
-                  onClick={() => setEntityTab("subjects")}
+                  onClick={() => handleTabChange("subjects")}
                 >
                   Subjects
                 </button>
@@ -1097,7 +1135,7 @@ export function KnowledgeGraphPage() {
                       ? "px-3 py-1 text-sm bg-blue-50 text-blue-700"
                       : "px-3 py-1 text-sm text-blue-600 hover:bg-gray-50"
                   }
-                  onClick={() => setEntityTab("moments")}
+                  onClick={() => handleTabChange("moments")}
                 >
                   All Moments
                 </button>
@@ -1257,6 +1295,7 @@ export function KnowledgeGraphPage() {
                           onClick={() => {
                             setSelectedRootId(r.rootId);
                             setPendingHighlightMomentId(r.matchId);
+                            setGraphView("tree");
                           }}
                           className="w-full text-left border rounded p-2 hover:bg-blue-50 hover:border-blue-300 transition-colors"
                         >
@@ -1319,7 +1358,10 @@ export function KnowledgeGraphPage() {
                       return (
                           <button
                             key={root.id}
-                            onClick={() => setSelectedRootId(root.id)}
+                            onClick={() => {
+                              setSelectedRootId(root.id);
+                              setGraphView("tree");
+                            }}
                             className="p-4 text-left border rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-colors"
                           >
                             <div className="font-medium text-gray-900 mb-2 truncate">
@@ -1431,23 +1473,57 @@ export function KnowledgeGraphPage() {
                           Math.max(100, Math.min(20000, Math.floor(n)))
                         );
                       }}
-                      className="w-[140px] font-mono"
+                      className="w-[140px] font-mono h-8 text-xs"
                     />
                   </div>
+
+                  <div className="flex items-center rounded border overflow-hidden mr-4 h-8">
+                    <button
+                      type="button"
+                      className={`px-3 py-1 text-xs h-full ${
+                        graphView === "tree"
+                          ? "bg-blue-50 text-blue-700"
+                          : "text-gray-600 hover:bg-gray-50"
+                      }`}
+                      onClick={() => setGraphView("tree")}
+                    >
+                      Tree View
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-3 py-1 text-xs h-full ${
+                        graphView === "chain"
+                          ? "bg-blue-50 text-blue-700"
+                          : "text-gray-600 hover:bg-gray-50"
+                      }`}
+                      disabled={!selectedMomentId && !contextChainMomentId}
+                      onClick={() => {
+                        if (selectedMomentId) {
+                          setContextChainMomentId(selectedMomentId);
+                        }
+                        setGraphView("chain");
+                      }}
+                    >
+                      Chain View
+                    </button>
+                  </div>
+
                   <Button
                     variant="outline"
                     size="sm"
+                    className="h-8 text-xs"
                     onClick={() => setZoom(Math.max(0.5, zoom - 0.25))}
                     disabled={zoom <= 0.5}
                   >
                     Zoom Out
                   </Button>
-                  <span className="text-sm text-gray-600 min-w-[80px] text-center">
+                  <span className="text-xs text-gray-600 min-w-[60px] text-center">
                     {Math.round(zoom * 100)}%
                   </span>
                   <Button
                     variant="outline"
                     size="sm"
+                    className="h-8 text-xs"
                     onClick={() => setZoom(Math.min(3, zoom + 0.25))}
                     disabled={zoom >= 3}
                   >
@@ -1456,6 +1532,7 @@ export function KnowledgeGraphPage() {
                   <Button
                     variant="outline"
                     size="sm"
+                    className="h-8 text-xs"
                     onClick={() => {
                       setZoom(1);
                       setPan({ x: 0, y: 0 });
@@ -1612,6 +1689,66 @@ export function KnowledgeGraphPage() {
                                 {selectedMomentDetails.parentId || "Root"}
                               </div>
                             </div>
+                          </div>
+
+                          <div className="flex flex-col gap-2 pt-4 border-t">
+                            <div className="text-xs font-medium text-gray-500 mb-1">
+                              Actions
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full justify-start text-xs h-8"
+                              onClick={() => {
+                                setContextChainMomentId(selectedMomentDetails.id);
+                                setGraphView("chain");
+                              }}
+                            >
+                              <span className="mr-2">🔗</span> View Context Chain
+                              (Linear)
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full justify-start text-xs h-8"
+                              onClick={async () => {
+                                setLoading(true);
+                                try {
+                                  const res = await getRootAncestorAction(
+                                    selectedMomentDetails.id,
+                                    {
+                                      momentGraphNamespace: selectedNamespace,
+                                      momentGraphNamespacePrefix:
+                                        prefixOverride.trim().length > 0
+                                          ? prefixOverride.trim()
+                                          : null,
+                                    }
+                                  );
+                                  if (res.success && res.rootId) {
+                                    setSelectedRootId(res.rootId);
+                                    setPendingHighlightMomentId(
+                                      selectedMomentDetails.id
+                                    );
+                                    setGraphView("tree");
+                                  } else {
+                                    setError(
+                                      res.error || "Failed to find root ancestor"
+                                    );
+                                  }
+                                } catch (err) {
+                                  setError(
+                                    err instanceof Error
+                                      ? err.message
+                                      : "Unexpected error"
+                                  );
+                                } finally {
+                                  setLoading(false);
+                                }
+                              }}
+                            >
+                              <span className="mr-2">🌳</span> View in Full Tree
+                              (Root)
+                            </Button>
                           </div>
 
                           <div className="grid grid-cols-2 gap-3">

@@ -2,6 +2,7 @@ import { route, layout } from "rwsdk/router";
 
 import { AuditLayout } from "./layout";
 import { AuditDashboardPage } from "./subpages/audit-dashboard-page";
+import { knowledgeGraphJsonHandler } from "./subpages/knowledge-graph-json";
 import { IngestionListPage } from "./subpages/ingestion-list-page";
 import { IngestionFilePage } from "./subpages/ingestion-file-page";
 import { IndexingStatusPage } from "./subpages/indexing-status-page";
@@ -16,6 +17,7 @@ import { requireBasicAuth } from "@/app/ingestors/interruptors";
 
 export const auditRoutes = [
   requireBasicAuth,
+  route("/knowledge-graph.json", knowledgeGraphJsonHandler),
   layout(AuditLayout, [
     route("/", AuditDashboardPage),
     route("/ingestion", IngestionListPage),

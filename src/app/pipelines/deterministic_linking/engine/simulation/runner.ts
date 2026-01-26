@@ -194,7 +194,11 @@ export async function runPhaseDeterministicLinking(
     });
 
     if (proposal.proposedParentId) {
-       await addMoment({ ...child, parentId: proposal.proposedParentId } as any, momentGraphContext);
+       await addMoment({
+         ...child,
+         parentId: proposal.proposedParentId,
+         linkAuditLog: proposal.audit,
+       } as any, momentGraphContext);
     }
     
     const outcome = proposal.proposedParentId ? "attached" : "no_candidate";

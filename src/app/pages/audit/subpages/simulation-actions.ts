@@ -168,6 +168,7 @@ export async function runSampleSimulationRunAction(input: {
   sampleSize: number;
   momentGraphNamespace: string | null;
   momentGraphNamespacePrefix: string | null;
+  seed?: string;
 }) {
   const envCloudflare = env as Cloudflare.Env;
   const bucket = (envCloudflare as any).MACHINEN_BUCKET as R2Bucket | undefined;
@@ -229,26 +230,24 @@ export async function runSampleSimulationRunAction(input: {
     };
   }
 
+  const seed = input.seed || crypto.randomUUID();
+
   const keys = (() => {
     const issues = supportedKeys.filter(isGithubIssue);
     const prs = supportedKeys.filter(isGithubPr);
     const discords = supportedKeys.filter(isDiscord);
     const cursors = supportedKeys.filter(isCursor);
 
-    // Shuffle each pool
-    const shuffle = (arr: string[]) => {
-      for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-      }
-    };
-    shuffle(issues);
-    shuffle(prs);
-    shuffle(discords);
-    shuffle(cursors);
+    const { someOf } = require("fictional");
+
+    // Deterministically shuffle each pool using fictional
+    const shuffledIssues = someOf(seed + ":issues", issues.length, issues);
+    const shuffledPrs = someOf(seed + ":prs", prs.length, prs);
+    const shuffledDiscords = someOf(seed + ":discords", discords.length, discords);
+    const shuffledCursors = someOf(seed + ":cursors", cursors.length, cursors);
 
     const picked: string[] = [];
-    const pools = [issues, prs, discords, cursors];
+    const pools = [shuffledIssues, shuffledPrs, shuffledDiscords, shuffledCursors];
 
     // Priority 1: Pick at least one from each non-empty pool
     for (const pool of pools) {
@@ -296,6 +295,7 @@ export async function runSampleSimulationRunAction(input: {
       config: {
         r2Keys: keys,
         createdFrom: "audit.ui.run_sample",
+        seed,
         r2List: {
           prefix: inputPrefix || "(multi)",
           targetPrefixes,

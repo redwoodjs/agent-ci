@@ -47,6 +47,7 @@ function StartControls() {
   const [githubRepo, setGithubRepo] = useState("");
   const [maxPages, setMaxPages] = useState("5");
   const [sampleSize, setSampleSize] = useState("20");
+  const [seed, setSeed] = useState("");
   const [autoRun, setAutoRun] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -61,6 +62,7 @@ function StartControls() {
         if (typeof prefs.githubRepo === "string") setGithubRepo(prefs.githubRepo);
         if (typeof prefs.maxPages === "string") setMaxPages(prefs.maxPages);
         if (typeof prefs.sampleSize === "string") setSampleSize(prefs.sampleSize);
+        if (typeof prefs.seed === "string") setSeed(prefs.seed);
         if (typeof prefs.autoRun === "boolean") setAutoRun(prefs.autoRun);
       } catch (e) {
         console.error("Failed to load simulation start prefs", e);
@@ -76,10 +78,11 @@ function StartControls() {
       githubRepo,
       maxPages,
       sampleSize,
+      seed,
       autoRun,
     };
     localStorage.setItem("machinen_simulation_start_prefs", JSON.stringify(prefs));
-  }, [namespace, prefix, r2Prefix, githubRepo, maxPages, sampleSize, autoRun]);
+  }, [namespace, prefix, r2Prefix, githubRepo, maxPages, sampleSize, seed, autoRun]);
 
   const start = async () => {
     setLoading(true);
@@ -151,6 +154,7 @@ function StartControls() {
           : 20,
         momentGraphNamespace: namespace.trim() || null,
         momentGraphNamespacePrefix: prefix.trim() || null,
+        seed: seed.trim() || undefined,
       });
       if (res.success && res.runId) {
         window.location.href = `/audit/simulation?runId=${encodeURIComponent(
@@ -231,6 +235,16 @@ function StartControls() {
               placeholder="20"
               value={sampleSize}
               onChange={(e) => setSampleSize(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1">
+            <div className="text-xs text-gray-600">
+              Seed (optional, for determinism)
+            </div>
+            <Input
+              placeholder="e.g. static-sample-1"
+              value={seed}
+              onChange={(e) => setSeed(e.target.value)}
             />
           </div>
         </div>

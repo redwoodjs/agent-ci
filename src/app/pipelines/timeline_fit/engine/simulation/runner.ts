@@ -159,7 +159,28 @@ export async function runPhaseTimelineFit(
       });
 
       if (proposal.chosenParentId) {
-          await addMoment({ ...child, parentId: proposal.chosenParentId } as any, momentGraphContext);
+        const linkAuditLog = {
+          kind: "timeline_fit",
+          ruleId: "anchor_token_fit",
+          evidence: {
+            phase: "timeline_fit",
+            r2Key: input.r2Key,
+            streamId: root.stream_id,
+            macroIndex: root.macro_index,
+            chosenParentId: proposal.chosenParentId,
+            decisions: proposal.decisions,
+            stats: proposal.stats,
+            veto: proposal.veto,
+          },
+        };
+        await addMoment(
+          {
+            ...child,
+            parentId: proposal.chosenParentId,
+            linkAuditLog,
+          } as any,
+          momentGraphContext
+        );
       }
 
       await db.insertInto("simulation_run_timeline_fit_decisions").values({ run_id: input.runId, child_moment_id: root.moment_id, r2_key: input.r2Key, stream_id: root.stream_id, macro_index: root.macro_index as any, outcome: proposal.chosenParentId ? "fit" : "no_fit", chosen_parent_moment_id: proposal.chosenParentId, decisions_json: JSON.stringify(proposal.decisions), stats_json: JSON.stringify(proposal.stats), created_at: now, updated_at: now }).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({ updated_at: now } as any)).execute();

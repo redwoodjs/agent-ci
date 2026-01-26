@@ -99,12 +99,14 @@ export async function computeTimelineFitProposalDeep(input: {
     const id = entry.c.id;
     const isSelf = id === input.childMomentId;
     const isVetoed = vetoed.has(id);
+    const hasSignal = entry.shared.length > 0;
+    
     decisions.push({
       candidateId: id,
       score: typeof entry.c.score === "number" ? entry.c.score : null,
-      selected: !isSelf && !isVetoed && i === 0,
-      rejected: isSelf || isVetoed,
-      rejectReason: isSelf ? "self" : isVetoed ? "llm-veto" : undefined,
+      selected: !isSelf && !isVetoed && hasSignal && i === 0,
+      rejected: isSelf || isVetoed || !hasSignal,
+      rejectReason: isSelf ? "self" : isVetoed ? "llm-veto" : !hasSignal ? "no-shared-anchors" : undefined,
       rank: i + 1,
       details: {
         sharedAnchorTokens: entry.shared,
@@ -113,7 +115,7 @@ export async function computeTimelineFitProposalDeep(input: {
   }
 
   const firstOk =
-    ranked.find((r) => r.c.id !== input.childMomentId && !vetoed.has(r.c.id)) ??
+    ranked.find((r) => r.c.id !== input.childMomentId && !vetoed.has(r.c.id) && r.shared.length > 0) ??
     null;
   const chosenParentId = firstOk ? firstOk.c.id : null;
 

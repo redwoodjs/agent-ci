@@ -72,4 +72,54 @@ Reverted the previous "hacky" attempts in `adapter.ts` and `runner.ts` to clear 
 *   **Workflows**: Created `global_workflows/update-arch.md` to standardize future docs maintenance.
 
 ## Next Steps
-The system is ready for manual verification via simulation run.
+## Investigation: Linkage Discrepancy & Missing Audit Logs (Revised)
+
+### Corrections & Constraints
+- **JSON Handling**: The DB layer automatically parses JSON columns. We must **NOT** use `JSON.parse()` on selected columns.
+- **Evidence Requirement**: All claims regarding linkage must be backed by concrete evidence from the data.
+
+### Next Steps: Evidence Gathering
+1.  **Database Query**: Directly inspect the `moments` table for ids `26c662cf-5242-240b-cc5e-2b25edde7b31` and `917387a7-dded-09c7-9cb1-b1b698d392ff` in the `local-2026-01-26-16-12-bright-eagle` namespace.
+2.  **Verify Audit Log**: Check if `link_audit_log` is actually populated and what its type is at runtime.
+3.  **Identify Linkage Trigger**: Look at the `summary` and `title` of moment `917387a7` to see if it contains `#351` or other tokens that would trigger the linker.
+## Found "Smoking Gun" in Timeline Fit linkage
+###
+We analyzed the database and the source code, finding that moment `917387a7` (#398) was linked to `26c662cf` (#351) during the `timeline_fit` phase despite having **0 shared anchor tokens**. The code in `timelineFitDeepCore.ts` uses a greedy ranker that defaults to alphabetical ID sorting as a tie-breaker when signals are equal. Since no minimum signal threshold exists, it arbitrarily selects the first candidate.
+
+Additionally, we confirmed that the `link_audit_log` is missing from the `moments` table because the `timeline_fit` runner (`src/app/pipelines/timeline_fit/engine/simulation/runner.ts`) does not pass the linkage decision as an audit log to `addMoment`.
+
+### Plan
+## Work Task Blueprint: Fix Arbitrary Linkage & Missing Audit Logs
+
+### Directory & File Structure
+```text
+src/app/
+├── engine/
+│   └── lib/
+│       └── phaseCores/
+│           └── [MODIFY] timelineFitDeepCore.ts
+└── pipelines/
+    └── timeline_fit/
+        └── engine/
+            └── simulation/
+                └── [MODIFY] runner.ts
+```
+
+### Invariants & Constraints
+- **Invariants**: A linkage decision in `timeline_fit` MUST have at least 1 shared anchor token to be considered valid (unless overridden).
+- **Invariants**: Every linkage decision MUST be stored in the `link_audit_log` column of the `moments` table for auditability.
+
+### System Flow (Snapshot Diff)
+**Previous Flow**: 
+- `timeline_fit` ranks candidates by shared tokens -> tie-break by ID -> pick first regardless of signal.
+- Runner updates moment parent but ignores the audit log.
+
+**New Flow**:
+- `timeline_fit` ranks candidates -> **IF shared tokens == 0, reject** -> pick first valid candidate (if any remain)
+- Runner constructs `linkAuditLog` object and passes it to `addMoment`.
+
+### Suggested Verification (Manual)
+1. Trigger a simulation run.
+2. Verify in Global Knowledge Graph that #398 is NO LONGER linked to #351.
+3. Select a moment that WAS linked in `timeline_fit` and verify "Linkage" audit log is visible.
+

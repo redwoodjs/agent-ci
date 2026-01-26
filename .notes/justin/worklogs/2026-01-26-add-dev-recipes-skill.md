@@ -14,6 +14,13 @@ The user wants a way for the AI to record and refer to "recipes" for common task
 - [x] Broaden Scope of Skill
 - [x] Verify Knowledge
 
+## Added new specialized workflows
+###
+Implemented three new global workflows to institutionalize our planning and documentation processes:
+- `update-blueprints.md`: For keeping `docs/blueprints/` in sync.
+- `draft-plan.md`: For generating implementation plans from discussion.
+- `record-recipe.md`: For capturing practical knowledge in `docs/dev-recipes/`.
+
 ## Broadened scope of dev-recipes skill
 ###
 Per feedback, updated the skill to be more broad, covering code writing and any repeatable development patterns or tasks.

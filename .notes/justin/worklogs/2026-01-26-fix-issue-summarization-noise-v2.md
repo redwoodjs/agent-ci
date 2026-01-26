@@ -5,7 +5,11 @@ time: 2026-01-26
 ## Initializing Task: Fix Summarization Noise (Protocol Corrected)
 
 ### Context
-We are treating "LLM Sway" (Issue 432 linked to 375 via comment noise). The correct approach is to modify the **Core** logic to handle this globally.
+We investigated a data quality issue where the Knowledge Graph incorrectly linked two unrelated GitHub Issues (Issue 432 "Vite Config" linked to Parent Issue 375 "Auth Demos").
+
+The root cause was "LLM Sway": The summarization pipeline (Macro Synthesis) was treating the Issue Body and all Comments as a single flat context. A comment on Issue 432 mentioned "Issue 375". The LLM included this reference in the summary of Issue 432, causing the Deterministic Linker to create a strong causal link between them.
+
+We need to enforce **Identity Purity**: The identity/summary of a Moment must be derived *strictly* from the Issue Description (the author's intent), while comments should be treated as secondary context that cannot define the moment's identity.
 
 ### Plan (Work Task Blueprint / Implementation Plan)
 
@@ -49,23 +53,23 @@ We are fixing the "telephone game" by moving domain knowledge (what is a GitHub 
 *   **Check Audit**: Verify `linkAuditLog` exists in the debug response.
 
 ### Tasks
-- [ ] Revert `adapter.ts` changes
-- [ ] Revert `runner.ts` changes (refactor to use Core shape)
-- [ ] Modify `GitHubPlugin` (`index.ts`) to improve prompt context
-- [ ] Modify `deterministicLinkingOrchestrator.ts` to standardize audit return
+- [x] Revert `adapter.ts` changes
+- [x] Revert `runner.ts` changes (refactor to use Core shape)
+- [x] Modify `GitHubPlugin` (`index.ts`) to improve prompt context
+- [x] Modify `deterministicLinkingOrchestrator.ts` to standardize audit return
 
 ## Implementation Execution
 
 ### 1. Cleaned Up ("The Revert")
-Reverted the previous "hacky" attempts in \`adapter.ts\` and \`runner.ts\` to clear the path for the architectural fix.
+Reverted the previous "hacky" attempts in `adapter.ts` and `runner.ts` to clear the path for the architectural fix.
 
 ### 2. Applied Architectural Fixes
-*   **Prompt Engineering (Plugin)**: Modified \`src/app/engine/plugins/github.ts\` to inject strict identity rules.
-*   **Audit Integration (Runner)**: Updated \`runner.ts\` to correctly map the Orchestrator's \`audit\` payload to the storage layer, ensuring auditability.
+*   **Prompt Engineering (Plugin)**: Modified `src/app/engine/plugins/github.ts` to inject strict identity rules.
+*   **Audit Integration (Runner)**: Updated `runner.ts` to correctly map the Orchestrator's `audit` payload to the storage layer, ensuring auditability.
 
 ### 3. Documentation Updates
-*   **Blueprints**: Updated \`knowledge-synthesis.md\` (Identity Purity) and \`linking-and-graph.md\` (Core Audit).
-*   **Workflows**: Created \`global_workflows/update-arch.md\` to standardize future docs maintenance.
+*   **Blueprints**: Updated `knowledge-synthesis.md` (Identity Purity) and `linking-and-graph.md` (Core Audit).
+*   **Workflows**: Created `global_workflows/update-arch.md` to standardize future docs maintenance.
 
 ## Next Steps
 The system is ready for manual verification via simulation run.

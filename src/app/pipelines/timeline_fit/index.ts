@@ -2,6 +2,7 @@ import { registerPipeline } from "../../engine/simulation/registry";
 import { runPhaseTimelineFit } from "./engine/simulation/runner";
 import { timelineFitRoutes } from "./web/routes/timeline-fit";
 import { TimelineFitDecisionsCard } from "./web/ui/TimelineFitDecisionsCard";
+import { recoverZombiesForPhase } from "../../engine/simulation/resiliency";
 
 registerPipeline({
   phase: "timeline_fit",
@@ -13,5 +14,5 @@ registerPipeline({
       drilldown: TimelineFitDecisionsCard,
     },
   },
-  recoverZombies: async () => {},
+  recoverZombies: (context, input) => recoverZombiesForPhase(context, { ...input, phase: "timeline_fit" }),
 });

@@ -130,108 +130,106 @@ export async function runPhaseDeterministicLinking(
   const moments = await fetchMomentsFromRun(context, input.runId, momentIds);
   const momentsById = new Map((moments as any[]).map(m => [m.id, m]));
   
-  // Sort by created_at to process in order? Or just iterate matRows which are usually ordered by stream/macro index.
-  // matRows are "roots".
-  
-  for (const row of matRows) {
-    const childRaw = momentsById.get(row.moment_id);
-    if (!childRaw) continue;
+  try {
+    for (const row of matRows) {
+      const childRaw = momentsById.get(row.moment_id);
+      if (!childRaw) continue;
 
-    const child = {
-        ...childRaw,
-        id: childRaw.id,
-        documentId: childRaw.document_id,
-        createdAt: childRaw.created_at,
-        sourceMetadata: childRaw.source_metadata
-    };
+      const child = {
+          ...childRaw,
+          id: childRaw.id,
+          documentId: childRaw.document_id,
+          createdAt: childRaw.created_at,
+          sourceMetadata: childRaw.source_metadata
+      };
 
-    // Use the namespace found for this moment
-    const momentGraphContext = { env: context.env, momentGraphNamespace: childRaw._namespace };
-    
-    await log.info("debug.moment_source", {
-      momentId: child.id,
-      documentId: child.documentId,
-      sourceNamespace: childRaw._namespace
-    });
+      // Use the namespace found for this moment
+      const momentGraphContext = { env: context.env, momentGraphNamespace: childRaw._namespace };
+      
+      await log.info("debug.moment_source", {
+        momentId: child.id,
+        documentId: child.documentId,
+        sourceNamespace: childRaw._namespace
+      });
 
-    // We treat the "previous moment" as null for now unless we iterate streams carefully.
-    // For deterministic linking per-item, it might be fine.
-    
-    // We also need macro output anchors? 
-    // For now we pass null, falling back to text. 
-    // Ideally we'd fetch macro outputs to get explicit anchors if they exist.
-    
-    const childText = `${childRaw.title || ""} ${childRaw.summary || ""}`;
+      const childText = `${childRaw.title || ""} ${childRaw.summary || ""}`;
 
-    const proposal = await computeDeterministicLinkingDecision({
-      ports: {
-        resolveThreadHeadForDocumentAsOf: async (args) => {
-          return await resolveThreadHeadForDocumentAsOf({
-            documentId: args.documentId,
-            asOfMs: args.asOfMs,
-            context: momentGraphContext
-          });
-        }
-      },
-      r2Key: input.r2Key,
-      streamId: row.stream_id,
-      macroIndex: row.macro_index as any,
-      childMomentId: child.id,
-      prevMomentId: null,
-      childDocumentId: child.documentId,
-      childCreatedAt: child.createdAt,
-      childSourceMetadata: child.sourceMetadata,
-      childTextForFallbackAnchors: childText,
-      macroAnchors: null,
-    });
+      const proposal = await computeDeterministicLinkingDecision({
+        ports: {
+          resolveThreadHeadForDocumentAsOf: async (args) => {
+            return await resolveThreadHeadForDocumentAsOf({
+              documentId: args.documentId,
+              asOfMs: args.asOfMs,
+              context: momentGraphContext
+            });
+          }
+        },
+        r2Key: input.r2Key,
+        streamId: row.stream_id,
+        macroIndex: row.macro_index as any,
+        childMomentId: child.id,
+        prevMomentId: null,
+        childDocumentId: child.documentId,
+        childCreatedAt: child.createdAt,
+        childSourceMetadata: child.sourceMetadata,
+        childTextForFallbackAnchors: childText,
+        macroAnchors: null,
+      });
 
-    await log.info("debug.linking_decision", {
-      momentId: child.id,
-      outcome: proposal.proposedParentId ? "attached" : "no_candidate",
-      proposedParentId: proposal.proposedParentId ?? null,
-      ruleId: proposal.audit.ruleId ?? null,
-      contextNamespace: momentGraphContext.momentGraphNamespace
-    });
+      await log.info("debug.linking_decision", {
+        momentId: child.id,
+        outcome: proposal.proposedParentId ? "attached" : "no_candidate",
+        proposedParentId: proposal.proposedParentId ?? null,
+        ruleId: proposal.audit.ruleId ?? null,
+        contextNamespace: momentGraphContext.momentGraphNamespace
+      });
 
-    if (proposal.proposedParentId) {
-       await addMoment({
-         ...child,
-         parentId: proposal.proposedParentId,
-         linkAuditLog: proposal.audit,
-       } as any, momentGraphContext);
-    }
-    
-    const outcome = proposal.proposedParentId ? "attached" : "no_candidate";
+      if (proposal.proposedParentId) {
+         await addMoment({
+           ...child,
+           parentId: proposal.proposedParentId,
+           linkAuditLog: proposal.audit,
+         } as any, momentGraphContext);
+      }
+      
+      const outcome = proposal.proposedParentId ? "attached" : "no_candidate";
 
-    await db
-      .insertInto("simulation_run_link_decisions")
-      .values({
-        run_id: input.runId,
-        child_moment_id: row.moment_id,
-        r2_key: input.r2Key,
-        stream_id: row.stream_id,
-        macro_index: row.macro_index as any,
-        phase: "deterministic_linking",
-        outcome: outcome,
-        rule_id: proposal.audit.ruleId ?? null,
-        parent_moment_id: proposal.proposedParentId ?? null,
-        evidence_json: proposal.audit.evidence ? JSON.stringify(proposal.audit.evidence) : null,
-        created_at: now,
-        updated_at: now,
-      })
-      .onConflict((oc) =>
-        oc.columns(["run_id", "child_moment_id"]).doUpdateSet({
+      await db
+        .insertInto("simulation_run_link_decisions")
+        .values({
+          run_id: input.runId,
+          child_moment_id: row.moment_id,
+          r2_key: input.r2Key,
+          stream_id: row.stream_id,
+          macro_index: row.macro_index as any,
+          phase: "deterministic_linking",
           outcome: outcome,
           rule_id: proposal.audit.ruleId ?? null,
           parent_moment_id: proposal.proposedParentId ?? null,
           evidence_json: proposal.audit.evidence ? JSON.stringify(proposal.audit.evidence) : null,
+          created_at: now,
           updated_at: now,
-        } as any)
-      )
+        })
+        .onConflict((oc) =>
+          oc.columns(["run_id", "child_moment_id"]).doUpdateSet({
+            outcome: outcome,
+            rule_id: proposal.audit.ruleId ?? null,
+            parent_moment_id: proposal.proposedParentId ?? null,
+            evidence_json: proposal.audit.evidence ? JSON.stringify(proposal.audit.evidence) : null,
+            updated_at: now,
+          } as any)
+        )
+        .execute();
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await log.error("item.error", { phase: "deterministic_linking", r2Key: input.r2Key, error: msg });
+    await db.updateTable("simulation_run_documents")
+      .set({ error_json: JSON.stringify({ error: msg }) as any, updated_at: now })
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", input.r2Key)
       .execute();
   }
-
-
 
   // Mark doc as processed for this phase
   const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();

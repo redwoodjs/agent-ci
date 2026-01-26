@@ -173,10 +173,13 @@ export async function runPhaseCandidateSets(
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       await log.error("item.error", { phase: "candidate_sets", childMomentId: root.moment_id, r2Key: input.r2Key, error: msg });
+      await db.updateTable("simulation_run_documents")
+        .set({ error_json: JSON.stringify({ error: msg }) as any, updated_at: now })
+        .where("run_id", "=", input.runId)
+        .where("r2_key", "=", input.r2Key)
+        .execute();
     }
   }
-
-
 
   // Mark doc as processed for this phase
   const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();

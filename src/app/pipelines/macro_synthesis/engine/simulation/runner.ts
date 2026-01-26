@@ -86,13 +86,22 @@ export async function runPhaseMacroSynthesis(
   }
 
   // Granular execution
-  await runMacroSynthesisAdapter(context, {
+  const result = await runMacroSynthesisAdapter(context, {
     runId: input.runId,
     r2Keys: [input.r2Key],
     now,
     log,
     ports: { synthesizeMicroMomentsIntoStreams },
   });
+
+  if (result.failed > 0) {
+    const errorJson = JSON.stringify(result.failures);
+    await db.updateTable("simulation_run_documents")
+      .set({ error_json: errorJson as any, updated_at: now })
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", input.r2Key)
+      .execute();
+  }
 
   // Mark doc as processed for this phase
   const doc = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();

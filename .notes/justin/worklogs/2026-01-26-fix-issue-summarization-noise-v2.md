@@ -53,3 +53,19 @@ We are fixing the "telephone game" by moving domain knowledge (what is a GitHub 
 - [ ] Revert `runner.ts` changes (refactor to use Core shape)
 - [ ] Modify `GitHubPlugin` (`index.ts`) to improve prompt context
 - [ ] Modify `deterministicLinkingOrchestrator.ts` to standardize audit return
+
+## Implementation Execution
+
+### 1. Cleaned Up ("The Revert")
+Reverted the previous "hacky" attempts in \`adapter.ts\` and \`runner.ts\` to clear the path for the architectural fix.
+
+### 2. Applied Architectural Fixes
+*   **Prompt Engineering (Plugin)**: Modified \`src/app/engine/plugins/github.ts\` to inject strict identity rules.
+*   **Audit Integration (Runner)**: Updated \`runner.ts\` to correctly map the Orchestrator's \`audit\` payload to the storage layer, ensuring auditability.
+
+### 3. Documentation Updates
+*   **Blueprints**: Updated \`knowledge-synthesis.md\` (Identity Purity) and \`linking-and-graph.md\` (Core Audit).
+*   **Workflows**: Created \`global_workflows/update-arch.md\` to standardize future docs maintenance.
+
+## Next Steps
+The system is ready for manual verification via simulation run.

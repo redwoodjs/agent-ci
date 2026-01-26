@@ -1,6 +1,7 @@
 "use server";
 
 import { env } from "cloudflare:workers";
+import { someOf } from "fictional";
 import {
   createSimulationRun,
   advanceSimulationRunPhaseNoop,
@@ -237,8 +238,6 @@ export async function runSampleSimulationRunAction(input: {
     const prs = supportedKeys.filter(isGithubPr);
     const discords = supportedKeys.filter(isDiscord);
     const cursors = supportedKeys.filter(isCursor);
-
-    const { someOf } = require("fictional");
 
     // Deterministically shuffle each pool using fictional
     const shuffledIssues = someOf(seed + ":issues", issues.length, issues);

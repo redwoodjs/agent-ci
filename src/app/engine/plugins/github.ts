@@ -544,6 +544,15 @@ export const githubPlugin: Plugin = {
         lines.push(
           `- Avoid implying implementation happened unless the text explicitly states it.`
         );
+        
+        // [New Invariant] Strict separation of Body vs Comments for Identity Purity
+        lines.push("");
+        lines.push("IMPORTANT - IDENTITY & SUMMARIZATION RULES:");
+        lines.push(`1. The DEFINITION and IDENTITY of this moment comes STRICTLY from the Issue Description/Author's initial text.`); 
+        lines.push(`2. Comments are secondary discussion context only.`);
+        lines.push(`3. IGNORE references to other issues/PRs found in comments unless they are central to the *original* proposal.`);
+        lines.push(`4. Do NOT let a casual mention in a comment (e.g. "duplicates #375") hijack the Summary or Title.`);
+        lines.push(`5. Your goal is to capture the "Gist" of the Issue Body.`);
       } else if (isPullRequest) {
         lines.push(
           `- This is a pull request. Treat the text as describing changes, review feedback, and decisions.`

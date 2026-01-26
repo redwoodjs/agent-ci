@@ -44,4 +44,4 @@ Every phase MUST persist its outputs to `simulation_*` tables. This enables:
 *   **No Synchronous Loops**: The Host Runner must never loop indefinitely. It must do a bounded scan and exit.
 *   **Zombie Recovery**: The engine must have a "Watchdog" to recover runs that stalled due to dropped queue messages.
 *   **Isolation**: A simulation run operates in its own "Lane". It should not affect other runs.
-*   **Prefixing**: If configured, the `moment_graph_namespace` must be prefixed (e.g., `local-2026-01-26-...`) to avoid colliding with Production data.
+*   **Determinism**: Simulation runs, including sampled subsets, must be deterministic and reproducible. Sampling must support seeding.

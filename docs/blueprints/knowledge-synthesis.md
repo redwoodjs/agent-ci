@@ -36,5 +36,6 @@ Once synthesized, moments are "Materialized" into the database.
 ## 4. Invariants
 
 *   **Content Identity**: If the input text hasn't changed, the Moment ID must not change.
-*   **Noise Filtering**: The system must be robust to "comment noise". A casual mention of an issue in a comment should not change the *identity* of the main issue moment (though it might create a link).
+*   **Identity Purity**: A moment's identity must be derived from its primary content (e.g., Issue Body). Secondary content (Comments) must not alter the core identity or summary, though it may provide context.
+*   **Noise Filtering**: The system must be robust to "comment noise". A casual mention of an issue in a comment should not change the *identity* of the main issue moment.
 *   **Provenance**: Every moment must track its `source_metadata` (where did it come from?) for debugging.

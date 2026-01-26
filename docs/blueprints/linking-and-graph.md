@@ -40,6 +40,6 @@ We link in layers, starting with the cheapest/most-certain linkers and moving to
 *   **Time Travel**: A Child Moment usually cannot occur before its Parent. (Exception: Planning meetings might precede the work, but causality usually flows forward in time).
 *   **Namespace Scoping**: A Moment in the `redwood` namespace cannot link to a parent in the `test` namespace.
 *   **Single Parent (Loose)**: We generally prefer a single primary parent for narrative clarity, though the data model allows multiple.
-*   **Audit Trail**: Every link must explain *why* it exists.
+*   **Audit Trail**: Every link must explain *why* it exists. The **Core logic** (not the Runner) must produce this explanation.
     *   `Deterministic`: "Matched rule `fixes-keyword` in body."
     *   `TimelineFit`: "LLM confidence 0.95: Logical follow-up to discussion."

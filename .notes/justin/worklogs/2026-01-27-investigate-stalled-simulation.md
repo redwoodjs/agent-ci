@@ -82,3 +82,25 @@ We implemented a robust status cleanup mechanism that ensures the system returns
 ### Verification
 We verified the status cleanup by inducing failures and ensuring the system recovered into a ready state. The document recovery was tested by simulating worker dropouts and verifying that the items were correctly picked up by the next sweep.
 
+
+## Investigation Findings
+
+We have identified a critical bug in the simulation runner that causes it to hang indefinitely in `busy_running` status.
+
+### The Root Cause
+The `advanceSimulationRunPhaseNoop` function has a guard check at the beginning:
+```typescript
+  if (row.status !== "running" && row.status !== "awaiting_documents") {
+    return { status: row.status, currentPhase: row.current_phase };
+  }
+```
+This guard returns early if the status is `busy_running`. However, the lock-breaking logic for `busy_running` (which handles locks older than 5 minutes) is located *after* this guard. This means if a run ever gets stuck in `busy_running` (e.g. due to a worker crash during a critical section), the watchdog can never break the lock because it always returns early.
+
+### Additional Issues
+- **Lock Ownership**: The current lock verification only checks if the status is `busy_running`. If multiple watchers try to break an old lock simultaneously, they might all proceed to run the phase concurrently because they all see `busy_running` after the update.
+- **Sweeper Visibility**: The `micro_batches` sweeper lacks sufficient logging, making it hard to track its interventions.
+
+### Evidence
+- Run `2fb5b97d-e94a-42f3-ba82-95efe4eb7c60` is in `busy_running` since `16:00:15.924Z` (over 5 hours ago).
+- Status endpoint shows 1208 stalled documents and 114 enqueued batches.
+

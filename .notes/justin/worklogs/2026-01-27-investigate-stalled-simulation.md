@@ -71,3 +71,17 @@ The `busy_running` lock is currently "leaky" because it relies on the runner com
     - [x] Suggest manual verification steps to user
 - [ ] Implement improvements to heartbeat visibility
 - [ ] Implement improvements to heartbeat visibility
+## PR Draft: Implement Lock Safety and Document-Level Zombie Recovery
+
+### Problem
+The simulation engine's `busy_running` lock was "leaky." If a phase runner crashed or encountered a database error, the lock would remain in the database until the 5-minute watchdog timeout, stalling progress and potentially re-locking immediately after the watchdog broke it. Additionally, the `micro_batches` phase lacked document-level zombie recovery, meaning any document that failed during the initial dispatch/planning phase would stay "dispatched" forever, blocking the entire simulation run from advancing.
+
+### Solution
+1. **Runner Lock Robustness**: Refactored `advanceSimulationRunPhaseNoop` in `runner.ts` to use a `try...finally` block. The `finally` block ensures that if the run status is still `busy_running` (indicating an incomplete or failed pass), it is reset to `running` to allow subsequent attempts.
+2. **Micro-Batch Document Recovery**: Updated the `micro_batches` sweeper to invoke `recoverZombiesForPhase`. This adds document-level recovery alongside the existing batch-level recovery, ensuring that stalled documents are re-dispatched.
+3. **Debug Status Endpoint**: Added a new endpoint `GET /admin/simulation/run/:runId/debug/status` that provides a detailed breakdown of document and batch counts, including specific lists of "stalled" items (older than 5 minutes) to facilitate investigation of stalled runs.
+4. **Blueprints**: Updated `docs/blueprints/simulation-engine.md` with registry and watchdog details and created `docs/blueprints/debug-endpoints.md`.
+
+### Verification
+- **Code Review**: Verified the `finally` block logic and the integration of `recoverZombiesForPhase` in the `micro_batches` sweeper.
+- **Manual Verification**: Detailed in [walkthrough.md](file:///Users/justin/.gemini/antigravity/brain/7951f078-e7bc-43b0-b130-55bf11dcdfdd/walkthrough.md).

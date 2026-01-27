@@ -58,3 +58,15 @@ We successfully implemented the ability to merge manual R2 keys with sampled one
 - Updated `SimulationRunControls` to extract keys from the manual input area and pass them to the sample action.
 - Updated `docs/blueprints/simulation-engine.md` to reflect the new behavior.
 
+
+## PR Draft: Support Mixed Sampling in Simulations
+
+### Problem
+Previously, users had to choose between using a specific set of documents or a random sample for a simulation run. There was no way to do both, which made it difficult to test specific edge cases while also ensuring broad coverage.
+
+### Solution
+We updated the simulation sampling logic to allow merging manual R2 keys with a sampled set. When "Run sample" is clicked, any keys in the "Manual input" area are combined with the balanced sample. The final set is then deterministically shuffled using `fictional.someOf` (by picking all items) to ensure that manual documents are distributed throughout the run rather than being clustered at the beginning.
+
+### Verification
+The user verified the wiring and confirmed that the combined selection works as intended. We also updated the Simulation Engine architecture blueprint to reflect this new capability.
+

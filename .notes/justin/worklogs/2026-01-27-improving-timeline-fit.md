@@ -52,4 +52,9 @@ No type changes.
 3.  **Evidence Inspection**: Check if PR 933 sees Issue 552 as a candidate. If it doesn't even appear in the vector search, we have a retrieval/indexing issue. If it's excluded, we'll see the reason.
 
 ## Plan for certainty (Minimal Investigation)
-We will add minimal diagnostic logs to `src/app/pipelines/candidate_sets/engine/simulation/runner.ts` and run a 4-document simulation. This avoids broad changes while giving us the "ground truth" for why our known links are failing.
+We have added minimal diagnostic logs to `src/app/pipelines/candidate_sets/engine/simulation/runner.ts` and prepared for a 4-document simulation.
+
+### Status
+- [x] Implement diagnostic logs (COMPLETED)
+- [ ] Trigger focused simulation (PENDING)
+- [ ] Inspect logs for vector results and rejections (PENDING)

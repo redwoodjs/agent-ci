@@ -170,6 +170,7 @@ export async function runSampleSimulationRunAction(input: {
   momentGraphNamespace: string | null;
   momentGraphNamespacePrefix: string | null;
   seed?: string;
+  additionalR2Keys?: string[];
 }) {
   const envCloudflare = env as Cloudflare.Env;
   const bucket = (envCloudflare as any).MACHINEN_BUCKET as R2Bucket | undefined;
@@ -222,7 +223,7 @@ export async function runSampleSimulationRunAction(input: {
   const supportedKeys = Array.from(new Set(allKeysRaw)).filter(filterSupported);
   const skippedCount = allKeysRaw.length - supportedKeys.length;
 
-  if (supportedKeys.length === 0) {
+  if (supportedKeys.length === 0 && (!input.additionalR2Keys || input.additionalR2Keys.length === 0)) {
     return {
       success: false,
       error: `No supported R2 keys found (listed ${allKeysRaw.length} keys total from prefixes: ${targetPrefixes.join(
@@ -278,7 +279,12 @@ export async function runSampleSimulationRunAction(input: {
       }
     }
 
-    return picked;
+    // Combine with manual keys and shuffle
+    const manualKeys = Array.isArray(input.additionalR2Keys) ? input.additionalR2Keys : [];
+    const combined = Array.from(new Set([...manualKeys, ...picked]));
+    
+    // someOf(seed, length, array) effectively shuffles when length === array.length
+    return someOf(seed + ":mixed_shuffle", combined.length, combined);
   })();
 
   const runId = crypto.randomUUID();

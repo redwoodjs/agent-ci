@@ -55,4 +55,5 @@ Each phase MUST implement `recoverZombies`. Typically, this uses `recoverZombies
 *   **Watchdog Guaranteed**: A simulation run must eventually progress or fail if the environment is healthy. `busy_running` is a temporary lock, not a permanent state.
 *   **Zombie Recovery**: The engine must recover runs that stalled due to dropped queue messages or worker crashes.
 *   **Isolation**: A simulation run operates in its own "Lane". It should not affect other runs.
-*   **Determinism**: Simulation runs, including sampled subsets, must be deterministic and reproducible. Sampling must support seeding.
+*   **Determinism**: Simulation runs, including sampled subsets, must be deterministic and reproducible. Sampling must support seeding via `fictional`.
+*   **Mixed Sampling**: The engine supports combining explicitly defined R2 keys with a sampled set. When mixed, all explicit keys are included, and additional keys are sampled up to the requested size. The final combined list is deterministically shuffled to ensure representative ordering.

@@ -144,6 +144,11 @@ function StartControls() {
     try {
       const maxPagesNum = Number(maxPages);
       const sampleSizeNum = Number(sampleSize);
+      const manualKeys = r2KeysText
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+
       const res = await runSampleSimulationRunAction({
         r2Prefix: r2Prefix.trim(),
         githubRepo: githubRepo.trim() || undefined,
@@ -155,6 +160,7 @@ function StartControls() {
         momentGraphNamespace: namespace.trim() || null,
         momentGraphNamespacePrefix: prefix.trim() || null,
         seed: seed.trim() || undefined,
+        additionalR2Keys: manualKeys,
       });
       if (res.success && res.runId) {
         window.location.href = `/audit/simulation?runId=${encodeURIComponent(

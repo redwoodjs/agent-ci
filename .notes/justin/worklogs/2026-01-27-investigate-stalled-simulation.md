@@ -81,3 +81,4 @@ We implemented a robust status cleanup mechanism that ensures the system returns
 
 ### Verification
 We verified the status cleanup by inducing failures and ensuring the system recovered into a ready state. The document recovery was tested by simulating worker dropouts and verifying that the items were correctly picked up by the next sweep.
+

@@ -104,3 +104,15 @@ This guard returns early if the status is `busy_running`. However, the lock-brea
 - Run `2fb5b97d-e94a-42f3-ba82-95efe4eb7c60` is in `busy_running` since `16:00:15.924Z` (over 5 hours ago).
 - Status endpoint shows 1208 stalled documents and 114 enqueued batches.
 
+
+## Confirmed stall in busy_running via browser
+We verified that run `2fb5b97d-e94a-42f3-ba82-95efe4eb7c60` is indeed stuck in `busy_running` status. The last update was hours ago, and refreshing the page shows no progress. This confirms that the watchdog is failing to break the lock.
+
+## Identified guard check bug in runner.ts
+We analyzed `src/app/engine/runners/simulation/runner.ts` and found that `advanceSimulationRunPhaseNoop` returns early if the status is `busy_running`, preventing the lock-breaking logic (which is located later in the function) from ever executing. This explains why the system cannot recover from a leaked `busy_running` lock.
+
+## Implemented lock safety fix in runner.ts
+We updated `advanceSimulationRunPhaseNoop` to include `updated_at` in the initial query and modified the guard check to allow stale `busy_running` locks to bypass the early return. We also removed a redundant redeclaration of `fiveMinutesAgo` to satisfy the linter. This fix ensures that the watchdog can correctly break leaked locks.
+
+## Added lock breaking visibility
+We added explicit logging and a `host.lock_broken` event when a stale `busy_running` lock is overcome. This improves the observability of the self-healing process.

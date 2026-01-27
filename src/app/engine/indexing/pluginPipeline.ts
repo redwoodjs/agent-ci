@@ -30,13 +30,24 @@ export async function prepareDocumentForR2Key(
     indexingMode: "indexing",
   };
 
-  const document = await runFirstMatchHook(plugins, (plugin) =>
-    plugin.prepareSourceDocument?.(indexingContext)
-  );
-  if (!document) {
-    throw new Error("No plugin could prepare document");
+  let lastError: any;
+  for (let i = 0; i < 3; i++) {
+    try {
+      const document = await runFirstMatchHook(plugins, (plugin) =>
+        plugin.prepareSourceDocument?.(indexingContext)
+      );
+      if (document) {
+        return { document, indexingContext };
+      }
+    } catch (e) {
+      lastError = e;
+      if (i < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (i + 1)));
+      }
+    }
   }
-  return { document, indexingContext };
+
+  throw lastError || new Error("No plugin could prepare document");
 }
 
 export async function splitDocumentIntoChunks(

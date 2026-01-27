@@ -227,6 +227,26 @@ export async function runMacroSynthesisAdapter(
               return null;
             })();
 
+            // [Patch] For GitHub Issues and PRs, prepend instructions to prioritize the body/description
+            // and ignore noise/references in comments to prevent false linkage.
+            let finalPromptContext = macroPromptContext;
+            const docId = document.id || "";
+            if (
+              (docId.startsWith("github/") && docId.includes("/issues/")) ||
+              docId.includes("/pull-requests/")
+            ) {
+              const instructions =
+                "IMPORTANT: When synthesizing this document, prioritize the main ISSUE DESCRIPTION or PR BODY above all else. " +
+                "The identity and summary of this moment must reflect the core topic proposed or reported by the author. " +
+                "Treat comments as secondary discussion. Do NOT let references to other issues in the comments (e.g. 'related to #123') " +
+                "dominate the summary or confuse the identity of this item. " +
+                "If a comment mentions another issue, do NOT include that reference in the summary unless it is critical to the CORE definition of this issue.";
+              
+              finalPromptContext = finalPromptContext
+                ? `${instructions}\n\n${finalPromptContext}`
+                : instructions;
+            }
+
             const defaultCreatedAt =
               typeof (document as any)?.metadata?.createdAt === "string" &&
               (document as any).metadata.createdAt.trim().length > 0
@@ -243,7 +263,7 @@ export async function runMacroSynthesisAdapter(
               documentId: document.id,
               defaultAuthor,
               defaultCreatedAt,
-              macroSynthesisPromptContext: macroPromptContext ?? null,
+              macroSynthesisPromptContext: finalPromptContext ?? null,
             };
           },
           persistMacroOutputs: async ({

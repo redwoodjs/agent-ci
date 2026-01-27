@@ -20,4 +20,7 @@ We are seeing reports of the Knowledge Graph UI displaying unexpected tree struc
 - [ ] Implement fixes for tree rendering and state persistence <!-- id: 3 -->
 
 ## Identified race condition in state initialization
-We found that `entityTab` defaults to `"subjects"`, then the mount effect updates it from the URL. This update triggers another effect that clears `selectedRootId`, effectively losing the URL-provided selection on every reload. We also noted that clicking a node in the Mermaid graph forces a switch to `"chain"` view, which might be jarring and is hard to reverse. Browser navigation is also broken as there is no `popstate` listener.
+We found that `entityTab` defaults to `"subjects"`, then the mount effect updates it from the URL. This update triggers another effect that clears `selectedRootId`, effectively losing the URL-provided selection on every reload. We also noted that clicking a node in the Mermaid graph forces a switch to `"chain"` view, which might be jarring and is hard to reverse. 
+
+## Removed client-side navigation logic
+Per user request, we removed the `popstate` listener and the `pushState` URL synchronization. The UI still initializes state from URL parameters on first load (deep linking), but further interactions no longer update the browser history or address bar. This removes the "Back/Forward" workflow but simplifies the state management strictly to data fetching.

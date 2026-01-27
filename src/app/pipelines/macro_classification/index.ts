@@ -2,6 +2,7 @@ import { registerPipeline } from "../../engine/simulation/registry";
 import { runPhaseMacroClassification } from "./engine/simulation/runner";
 import { macroClassificationRoutes } from "./web/routes/classifications";
 import { MacroClassificationsCard } from "./web/ui/MacroClassificationsCard";
+import { recoverZombiesForPhase } from "../../engine/simulation/resiliency";
 
 registerPipeline({
   phase: "macro_classification",
@@ -13,5 +14,5 @@ registerPipeline({
       drilldown: MacroClassificationsCard,
     },
   },
-  recoverZombies: async () => {},
+  recoverZombies: (context, input) => recoverZombiesForPhase(context, { ...input, phase: "macro_classification" }),
 });

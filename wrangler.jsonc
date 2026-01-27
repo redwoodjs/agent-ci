@@ -9,7 +9,11 @@
   "observability": {
     "enabled": true
   },
-
+  "triggers": {
+    "crons": [
+      "* * * * *" // Heartbeat
+    ],
+  },
   "r2_buckets": [
     {
       "binding": "MACHINEN_BUCKET",

@@ -145,6 +145,15 @@ export async function runPhaseMicroBatches(
     batchIndex: input.batchIndex,
   });
 
+  if (result.failed > 0) {
+    const errorJson = JSON.stringify(result.failures);
+    await db.updateTable("simulation_run_documents")
+      .set({ error_json: errorJson as any, updated_at: now })
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", input.r2Key)
+      .execute();
+  }
+
   // If this was a full doc (not just a batch), mark as processed
   if (input.batchIndex === undefined) {
     const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();

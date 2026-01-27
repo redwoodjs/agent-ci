@@ -133,7 +133,7 @@ export async function runPhaseMaterializeMoments(
   // Granular execution
   const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
 
-  await runMaterializeMomentsAdapter(context, {
+  const result = await runMaterializeMomentsAdapter(context, {
     runId: input.runId,
     r2Keys: [input.r2Key],
     effectiveNamespace: effectiveNamespace ?? null,
@@ -142,12 +142,26 @@ export async function runPhaseMaterializeMoments(
     log,
   });
 
+  const errorJson = result.failed > 0 ? JSON.stringify(result.failures) : null;
+
   // Mark doc as processed for this phase
-  const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();
+  const docMetadata = await db
+    .selectFrom("simulation_run_documents")
+    .select("processed_phases_json")
+    .where("run_id", "=", input.runId)
+    .where("r2_key", "=", input.r2Key)
+    .executeTakeFirst();
+  
   const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
   const nextPhases = [...new Set([...currentPhases, "materialize_moments"])];
-  await db.updateTable("simulation_run_documents")
-    .set({ processed_phases_json: nextPhases as any, updated_at: now })
+  
+  await db
+    .updateTable("simulation_run_documents")
+    .set({
+      processed_phases_json: nextPhases as any,
+      error_json: errorJson as any,
+      updated_at: now,
+    })
     .where("run_id", "=", input.runId)
     .where("r2_key", "=", input.r2Key)
     .execute();

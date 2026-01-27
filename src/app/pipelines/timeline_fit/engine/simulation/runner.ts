@@ -105,41 +105,28 @@ export async function runPhaseTimelineFit(
   const momentsList = await fetchMomentsFromRun(context, input.runId, rootIds);
   const rootById = new Map((momentsList as any[]).map(r => [r.id, r]));
 
-  for (const root of roots) {
-    const childRaw = rootById.get(root.moment_id);
-    if (!childRaw || childRaw.parent_id) continue;
-    
-    // Use the namespace where the moment was found for any updates
-    const momentGraphContext = { env: context.env, momentGraphNamespace: childRaw._namespace };
-    
-    await log.info("debug.moment_source", {
-        momentId: root.moment_id,
-        documentId: childRaw.document_id,
-        sourceNamespace: childRaw._namespace
-    });
+  try {
+    for (const root of roots) {
+      const childRaw = rootById.get(root.moment_id);
+      if (!childRaw || childRaw.parent_id) continue;
+      
+      const momentGraphContext = { env: context.env, momentGraphNamespace: childRaw._namespace };
+      const momentDb = getMomentGraphDb(context.env, childRaw._namespace);
+      
+      const child = {
+          ...childRaw,
+          sourceMetadata: childRaw.source_metadata,
+          createdAt: childRaw.created_at,
+          documentId: childRaw.document_id,
+          summary: childRaw.summary,
+          title: childRaw.title,
+      };
 
-    const momentDb = getMomentGraphDb(context.env, childRaw._namespace);
-    
-    // Re-format just enough for existing code if needed, but the row shape is mostly compatible
-    const child = {
-        ...childRaw,
-        sourceMetadata: childRaw.source_metadata,
-        createdAt: childRaw.created_at,
-        documentId: childRaw.document_id,
-        summary: childRaw.summary,
-        title: childRaw.title,
-    };
-
-    try {
       const candidatesRow = await db.selectFrom("simulation_run_candidate_sets").select("candidates_json").where("run_id", "=", input.runId).where("child_moment_id", "=", root.moment_id).executeTakeFirst();
       const candidates = (candidatesRow?.candidates_json as any) ?? [];
       const candidateIds = candidates.map((c: any) => c.id);
 
-      // We need to fetch candidates too - they might be in different namespaces if cross-doc linking?
-      // Assuming candidates are from the same simulation run or at least discoverable.
-      // fetchMomentsFromRun works for ANY moment ID in the run's scope.
       const deepCandidatesList = candidateIds.length > 0 ? await fetchMomentsFromRun(context, input.runId, candidateIds) : [];
-      // No Map needed for candidates list passed to orchestrator, just the array
 
       const proposal = await computeTimelineFitDecision({
         ports: { callLLM: (p) => callLLM(p, "slow-reasoning", { temperature: 0 }) },
@@ -151,25 +138,42 @@ export async function runPhaseTimelineFit(
         maxSharedAnchorTokens: 12,
       });
 
-      await log.info("debug.linking_decision", {
-        momentId: root.moment_id,
-        outcome: proposal.chosenParentId ? "fit" : "no_fit",
-        proposedParentId: proposal.chosenParentId ?? null,
-        contextNamespace: momentGraphContext.momentGraphNamespace
-      });
-
       if (proposal.chosenParentId) {
-          await addMoment({ ...child, parentId: proposal.chosenParentId } as any, momentGraphContext);
+        const linkAuditLog = {
+          kind: "timeline_fit",
+          ruleId: "anchor_token_fit",
+          evidence: {
+            phase: "timeline_fit",
+            r2Key: input.r2Key,
+            streamId: root.stream_id,
+            macroIndex: root.macro_index,
+            chosenParentId: proposal.chosenParentId,
+            decisions: proposal.decisions,
+            stats: proposal.stats,
+            veto: proposal.veto,
+          },
+        } as any;
+        await addMoment(
+          {
+            ...child,
+            parentId: proposal.chosenParentId,
+            linkAuditLog,
+          } as any,
+          momentGraphContext
+        );
       }
 
       await db.insertInto("simulation_run_timeline_fit_decisions").values({ run_id: input.runId, child_moment_id: root.moment_id, r2_key: input.r2Key, stream_id: root.stream_id, macro_index: root.macro_index as any, outcome: proposal.chosenParentId ? "fit" : "no_fit", chosen_parent_moment_id: proposal.chosenParentId, decisions_json: JSON.stringify(proposal.decisions), stats_json: JSON.stringify(proposal.stats), created_at: now, updated_at: now }).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({ updated_at: now } as any)).execute();
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      await log.error("item.error", { phase: "timeline_fit", childMomentId: root.moment_id, r2Key: input.r2Key, error: msg });
     }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await log.error("item.error", { phase: "timeline_fit", r2Key: input.r2Key, error: msg });
+    await db.updateTable("simulation_run_documents")
+      .set({ error_json: JSON.stringify({ error: msg }) as any, updated_at: now })
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", input.r2Key)
+      .execute();
   }
-
-
 
   // Mark doc as processed for this phase
   const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", input.r2Key).executeTakeFirst();

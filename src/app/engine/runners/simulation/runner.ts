@@ -39,7 +39,10 @@ export async function advanceSimulationRunPhaseNoop(
   }
 
   // Atomically set status to busy_running to prevent concurrent advancement
+  // We allow breaking a "busy_running" lock if it hasn't been updated for more than 5 minutes
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
+  
   await db
     .updateTable("simulation_runs")
     .set({
@@ -47,7 +50,13 @@ export async function advanceSimulationRunPhaseNoop(
       updated_at: now,
     } as any)
     .where("run_id", "=", runId)
-    .where("status", "in", ["running", "awaiting_documents"])
+    .where((eb) => eb.or([
+      eb("status", "in", ["running", "awaiting_documents"]),
+      eb.and([
+        eb("status", "=", "busy_running"),
+        eb("updated_at", "<", fiveMinutesAgo)
+      ])
+    ]))
     .execute();
 
   // Verify we actually got the lock

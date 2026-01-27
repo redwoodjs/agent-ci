@@ -13,8 +13,8 @@ type SimulationRunDocumentsTable = {
   error_json: any;
   processed_at: string;
   updated_at: string;
-  dispatched_phases_json: string | null;
-  processed_phases_json: string | null;
+  dispatched_phases_json: string[] | null;
+  processed_phases_json: string[] | null;
 };
 
 export type SimulationDatabase = Override<

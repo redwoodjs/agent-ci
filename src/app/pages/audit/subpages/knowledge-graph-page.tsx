@@ -253,7 +253,7 @@ export function KnowledgeGraphPage() {
     string | null
   >(null);
 
-  const isInitialMount = useRef(true);
+
 
   const handleTabChange = (newTab: "subjects" | "moments") => {
     if (newTab === entityTab) return;
@@ -383,86 +383,8 @@ export function KnowledgeGraphPage() {
     if (typeof prefixFromUrl === "string" && prefixFromUrl.trim().length > 0) {
       setPrefixOverride(prefixFromUrl.trim());
     }
-
-    const handlePopState = () => {
-      const params = new URLSearchParams(window.location.search);
-      const tab = params.get("tab");
-      const rootId = params.get("rootId");
-      const view = params.get("view");
-      const highlight = params.get("highlightMomentId");
-      const ns = params.get("namespace");
-      const pre = params.get("prefix") ?? params.get("namespacePrefix");
-
-      setEntityTab(tab === "moments" ? "moments" : "subjects");
-      setSelectedRootId(rootId);
-      setGraphView(view === "chain" ? "chain" : "tree");
-      if (highlight) {
-        setPendingHighlightMomentId(highlight);
-        if (view === "chain") setContextChainMomentId(highlight);
-      }
-      setSelectedNamespace(ns);
-      if (pre) setPrefixOverride(pre);
-    };
-
-    window.addEventListener("popstate", handlePopState);
-    isInitialMount.current = false;
-
-    return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  // Update URL when selectedRootId changes (using pushState for shareable links)
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    if (entityTab === "moments") {
-      url.searchParams.set("tab", "moments");
-    } else {
-      url.searchParams.delete("tab");
-    }
-    if (selectedRootId) {
-      url.searchParams.set("rootId", selectedRootId);
-    } else {
-      url.searchParams.delete("rootId");
-    }
-    if (graphView === "chain") {
-      url.searchParams.set("view", "chain");
-    } else {
-      url.searchParams.delete("view");
-    }
-    if (typeof selectedNamespace === "string" && selectedNamespace.length > 0) {
-      url.searchParams.set("namespace", selectedNamespace);
-    } else {
-      url.searchParams.delete("namespace");
-    }
-    if (prefixOverride.trim().length > 0) {
-      url.searchParams.set("prefix", prefixOverride.trim());
-    } else {
-      url.searchParams.delete("prefix");
-    }
-    const highlightMomentId =
-      graphView === "chain"
-        ? contextChainMomentId
-        : selectedMomentId ?? pendingHighlightMomentId;
-    if (typeof highlightMomentId === "string" && highlightMomentId.length > 0) {
-      url.searchParams.set("highlightMomentId", highlightMomentId);
-    } else {
-      url.searchParams.delete("highlightMomentId");
-    }
-    
-    const currentUrl = window.location.search + window.location.hash;
-    const nextUrl = url.search + url.hash;
-    if (currentUrl !== nextUrl) {
-      window.history.pushState({}, "", url.toString());
-    }
-  }, [
-    entityTab,
-    selectedRootId,
-    graphView,
-    contextChainMomentId,
-    selectedMomentId,
-    pendingHighlightMomentId,
-    prefixOverride,
-    selectedNamespace,
-  ]);
 
   useEffect(() => {
     async function fetchPrefix() {

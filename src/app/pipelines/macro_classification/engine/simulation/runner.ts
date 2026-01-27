@@ -114,9 +114,13 @@ export async function runPhaseMacroClassification(
   });
 
   if (result.failed > 0) {
-    // The adapter already persists errors in some ways, but let's ensure the run knows
-    // Actually, the adapter doesn't seem to persist "error rows" in macro_classified_outputs
-    // We should probably rely on the host runner to see errors if we want to pause.
+    // Record failures but continue so the run isn't stalled
+    const errorJson = JSON.stringify(result.failures);
+    await db.updateTable("simulation_run_documents")
+      .set({ error_json: errorJson as any, updated_at: now })
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", input.r2Key)
+      .execute();
   }
 
   // Mark doc as processed for this phase

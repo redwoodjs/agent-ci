@@ -1,5 +1,6 @@
 import { registerPipeline } from "../../engine/simulation/registry";
 import { runPhaseMacroSynthesis } from "./engine/simulation/runner";
+import { recoverMacroSynthesisZombies } from "./engine/simulation/sweeper";
 import { macroSynthesisRoutes } from "./web/routes/outputs";
 import { MacroOutputsCard } from "./web/ui/MacroOutputsCard";
 
@@ -13,5 +14,5 @@ registerPipeline({
       drilldown: MacroOutputsCard,
     },
   },
-  recoverZombies: async () => {},
+  recoverZombies: recoverMacroSynthesisZombies,
 });

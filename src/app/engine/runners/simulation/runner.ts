@@ -98,21 +98,6 @@ export async function advanceSimulationRunPhaseNoop(
       phaseIdx,
     });
 
-    // Check if runner updated status. If not, we set it back to running (or result status)
-    const afterRow = (await db
-      .selectFrom("simulation_runs")
-      .select(["status"])
-      .where("run_id", "=", runId)
-      .executeTakeFirst()) as { status: string } | undefined;
-
-    if (afterRow?.status === "busy_running") {
-      await db
-        .updateTable("simulation_runs")
-        .set({ status: result?.status ?? "running" })
-        .where("run_id", "=", runId)
-        .execute();
-    }
-
     let finalStatus = result?.status ?? "running";
     if (finalStatus === "busy_running") {
       finalStatus = "running";
@@ -149,10 +134,19 @@ export async function advanceSimulationRunPhaseNoop(
        });
     }
 
+    // Set the status explicitly (clearing busy_running)
+    await db
+      .updateTable("simulation_runs")
+      .set({ status: finalStatus, updated_at: new Date().toISOString() })
+      .where("run_id", "=", runId)
+      .execute();
+
     return { ...result, status: finalStatus, currentPhase: result?.currentPhase ?? phase };
   } catch (error: any) {
     const msg = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
+
+    console.error(`[runner] Crash in phase ${phase}: ${msg}`, stack);
 
     await addSimulationRunEvent(context, {
       runId,
@@ -200,6 +194,22 @@ export async function advanceSimulationRunPhaseNoop(
       .execute();
 
     return { status: "paused_on_error", currentPhase: phase };
+  } finally {
+    // Ultimate safety: if we are still 'busy_running' (e.g. catch block failed to update DB)
+    // we MUST reset to 'running' to let history continue.
+    const finalCheck = await db
+      .selectFrom("simulation_runs")
+      .select("status")
+      .where("run_id", "=", runId)
+      .executeTakeFirst();
+      
+    if (finalCheck?.status === "busy_running") {
+      await db
+        .updateTable("simulation_runs")
+        .set({ status: "running", updated_at: new Date().toISOString() })
+        .where("run_id", "=", runId)
+        .execute();
+    }
   }
 }
 

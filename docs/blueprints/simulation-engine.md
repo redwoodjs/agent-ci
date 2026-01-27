@@ -7,29 +7,39 @@
 
 The Simulation Engine allows us to run the entire Machinen pipeline on historical data in a **deterministic, restartable, and inspectable** way. It is the primary tool for "Backfilling" and "Validating" logic changes.
 
-## 2. Core Concepts
+## 3. Core Components
 
-### 2.1 The Runner State Machine
-A `SimulationRun` is a state machine that progresses through the 8 phases.
+### 3.1 The Pipeline Registry
+Every phase of the simulation is defined as a `PipelineRegistryEntry` and registered via `registerPipeline`. This allows for a modular design where each phase defines its own logic, routes, and UI.
 
-*   **State**: `runId`, `status` (`running`, `paused`, `completed`, `failed`), `currentPhase`.
-*   **Transitions**:
-    *   **Advance**: When all work for the current phase is done, the runner advances to the next phase.
-    *   **Dispatch**: If work is pending (e.g., documents need processing), the runner stays in `running` (or `awaiting_documents`) and dispatches jobs to the Queue.
+```typescript
+export type PipelineRegistryEntry = {
+  phase: SimulationPhase;
+  label: string;
+  runner: (context: SimulationDbContext, input: { runId: string; phaseIdx: number; ... }) => Promise<...>;
+  web?: {
+    routes?: any[];
+    ui?: { summary?: ...; drilldown?: ...; };
+  };
+  recoverZombies: (context: SimulationDbContext, input: { runId: string }) => Promise<void>;
+};
+```
 
-### 2.2 Queue-Based Execution (The "Async" Constraint)
-The simulation is **strictly asynchronous**.
+### 3.2 The Watchdog (Heartbeat)
+To ensure the simulation doesn't stall due to worker failures or dropped messages, a **Resiliency Heartbeat** runs periodically (via cron).
 
-1.  **Host Runner**: A lightweight orchestrator (likely a Durable Object or Cron). It *never* does heavy work. It scans for work, dispatches to `ENGINE_INDEXING_QUEUE`, and returns.
-2.  **Workers**: Stateless workers pick up jobs (`simulation-document`), execute the **Phase Adapter**, and write results to the DB.
-3.  **Completion Signal**: Workers signal back (via DB status update or event) that a unit of work is done.
+1.  **Heartbeat**: `processResiliencyHeartbeat` scans for active runs (`running`, `busy_running`, `awaiting_documents`).
+2.  **Poke**: It enqueues a `simulation-advance` job for each active run.
+3.  **Lock Breaking**: `advanceSimulationRunPhaseNoop` will break a `busy_running` lock if the `updated_at` is older than 5 minutes.
+4.  **Zombie Recovery**: Before running the phase logic, the host calls `recoverZombies`.
 
-### 2.3 Artifact Persistence
-Every phase MUST persist its outputs to `simulation_*` tables. This enables:
-*   **Restartability**: We can wipe Phase 7 and restart it without re-running Phase 1-6.
-*   **Inspectability**: We can query "Show me all candidate sets for Run X" to debug recall issues.
+### 3.3 Zombie Recovery
+Each phase MUST implement `recoverZombies`. Typically, this uses `recoverZombiesForPhase`, which:
+*   Scans `simulation_run_documents` for documents dispatched to the current phase but not yet processed.
+*   Resets the `dispatched_phases_json` if the document hasn't been updated in 5 minutes.
+*   Allows the next `runner` tick to re-dispatch the document.
 
-## 3. Data Model
+## 4. Data Model
 
 | Table | Purpose | Key Identity |
 | :--- | :--- | :--- |
@@ -39,9 +49,10 @@ Every phase MUST persist its outputs to `simulation_*` tables. This enables:
 | `simulation_run_materialized_moments` | Moment ID mapping (Sim -> Graph) | `run_id`, `moment_id` |
 | `simulation_run_link_decisions` | Why a link was made/rejected | `run_id`, `child_moment_id` |
 
-## 4. Invariants
+## 5. Invariants
 
 *   **No Synchronous Loops**: The Host Runner must never loop indefinitely. It must do a bounded scan and exit.
-*   **Zombie Recovery**: The engine must have a "Watchdog" to recover runs that stalled due to dropped queue messages.
+*   **Watchdog Guaranteed**: A simulation run must eventually progress or fail if the environment is healthy. `busy_running` is a temporary lock, not a permanent state.
+*   **Zombie Recovery**: The engine must recover runs that stalled due to dropped queue messages or worker crashes.
 *   **Isolation**: A simulation run operates in its own "Lane". It should not affect other runs.
 *   **Determinism**: Simulation runs, including sampled subsets, must be deterministic and reproducible. Sampling must support seeding.

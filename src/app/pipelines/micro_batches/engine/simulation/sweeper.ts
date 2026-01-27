@@ -1,11 +1,19 @@
 import { getSimulationDb } from "../../../../engine/simulation/db";
 import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
 import type { SimulationDbContext } from "../../../../engine/simulation/types";
+import { recoverZombiesForPhase } from "../../../../engine/simulation/resiliency";
 
 export async function recoverMicroBatchZombies(
   context: SimulationDbContext,
   input: { runId: string }
 ): Promise<void> {
+  // 1. Recover stuck documents (dispatched for micro_batches but not processed)
+  await recoverZombiesForPhase(context, {
+    runId: input.runId,
+    phase: "micro_batches",
+  });
+
+  // 2. Recover stuck batches (enqueued but not computed)
   const db = getSimulationDb(context);
   const now = new Date();
   

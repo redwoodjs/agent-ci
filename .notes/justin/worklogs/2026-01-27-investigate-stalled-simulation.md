@@ -7,34 +7,67 @@ We also need to update architecture blueprints for the simulation engine and deb
 ### Plan
 <!-- Work Task Blueprint -->
 #### Directory & File Structure
-- `docs/blueprints/simulation-engine.md`: Update with registry design, watchdog, and resiliency details.
-- [NEW] `docs/blueprints/debug-endpoints.md`: Document the design and pattern for investigation endpoints.
+```tree
+src/app/
+├── engine/
+│   ├── runners/
+│   │   └── simulation/
+│   │       └── runner.ts          # [MODIFY] Wrap phase runner in try...finally for lock safety
+│   ├── routes/
+│   │   └── simulation.ts          # [MODIFY] Add debug endpoints for doc status
+│   └── simulation/
+│       └── resiliency.ts          # [REFERENCE] For recoverZombiesForPhase
+└── pipelines/
+    └── micro_batches/
+        └── engine/
+            └── simulation/
+                └── sweeper.ts     # [MODIFY] Add document-level zombie recovery
+```
 
 #### Types & Data Structures
-- Document `PipelineRegistryEntry` and its role in phase recovery and execution.
+- No new types, but leveraging `PipelineRegistryEntry` for better recovery orchestration.
 
 #### Invariants & Constraints
-- **Watchdog Invariant**: A run status of `busy_running` must not persist longer than 5 minutes without being broken by the watchdog.
-- **Zombie Invariant**: A document in `dispatched` but not `processed` for >5 minutes must be recovered.
+- **Lock Invariant**: `busy_running` must be reset to `running` or `awaiting_documents` (or `failed`) in the `finally` block of `advanceSimulationRunPhaseNoop`.
+- **Sweep Invariant**: `micro_batches` must sweep both `simulation_run_micro_batches` (batches) AND `simulation_run_documents` (documents).
 
 #### System Flow (Snapshot Diff)
-- **Watchdog Loop**: `Cron` -> `processResiliencyHeartbeat` -> `ENGINE_INDEXING_QUEUE` -> `processSimulationJob` -> `advanceSimulationRunPhaseNoop` -> `recoverZombies`.
+```diff
+  // runner.ts
+- await entry.runner(context, { ... });
+- await db.updateTable("simulation_runs").set({ status: "running" }).where("run_id", "=", runId).execute();
++ try {
++   const result = await entry.runner(context, { ... });
++   // ... update status based on result
++ } finally {
++   // Ensure status is NOT busy_running if we crashed
++   if (currentStatus === 'busy_running') {
++     await setSimulationRunStatus(context, { runId, status: 'running' });
++   }
++ }
+```
 
-#### Natural Language Context
-Rationale: The production build is stalled despite the presence of a watchdog. We need to verify if the watchdog is firing and why it's failing to recover this specific run.
+#### Rationale
+The `busy_running` lock is currently "leaky" because it relies on the runner completing successfully to reset the status. If the runner crashes or is killed, the lock persists until the 5-minute watchdog timeout. Furthermore, `micro_batches` only recovers stuck batches, meaning a document that fails to even plan its batches (pre-orchestration) stays "dispatched" forever.
 
 #### Suggested Verification (Manual)
-1. Check production logs for `[resiliency]` and `[simulation-worker]` tags.
-2. Query production DB for the `updated_at` and `status` of run `433c585c-4a5c-4cdc-862c-a7ded0a25f58`.
-3. Check the logs for runId `433c585c-4a5c-4cdc-862c-a7ded0a25f58` in `/tmp/sim-prd.log`.
-4. Verify if any documents for this run are in a "zombie" state (dispatched but not processed for >5 mins).
+1. **Runner Lock**: Manually trigger a runner error (e.g., via temporary `throw`) and verify the DB status returns to `running` immediately.
+2. **Micro Batch Sweep**: Manually set a doc to `dispatched` for `micro_batches` but not `processed`, wait for sweep timeout, and verify it's recovered.
+3. **Debug API**: Call `GET /admin/simulation/run/:runId/debug/status` and verify the output.
 
 ### Tasks
 - [x] Update Simulation Engine Blueprint with registry and watchdog details
 - [x] Create Debug Endpoints Blueprint
-- [/] Investigate stalled run `433c585c-4a5c-4cdc-862c-a7ded0a25f58`
+- [x] Investigate stalled run `433c585c-4a5c-4cdc-862c-a7ded0a25f58`
     - [x] Search for runId `433c585c-4a5c-4cdc-862c-a7ded0a25f58` in `/tmp/sim-prd.log`
-    - [ ] Check logs for heartbeat activity
-    - [ ] Check for zombie documents
-    - [ ] Add more granular logging to heartbeat and lock breaking if needed
+    - [x] Check logs for heartbeat activity (verified via UI snapshots showing staleness)
+    - [x] Check for zombie documents (confirmed missing document-level recovery in micro_batches)
+- [x] Implement Work Task Blueprint fixes
+    - [x] Fix lock leak in `runner.ts`
+    - [x] Add document recovery to `micro_batches/sweeper.ts`
+    - [x] Add debug status endpoint to `routes/simulation.ts`
+- [x] Verify fixes
+    - [x] Create walkthrough documenting changes
+    - [x] Suggest manual verification steps to user
+- [ ] Implement improvements to heartbeat visibility
 - [ ] Implement improvements to heartbeat visibility

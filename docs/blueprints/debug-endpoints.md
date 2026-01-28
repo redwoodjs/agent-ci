@@ -25,6 +25,7 @@ The Machinen system provides a suite of administrative and debug endpoints to in
 ### 3.2 State & Events
 *   `GET /admin/simulation/run/:runId`: Returns the top-level state of a simulation run.
 *   `GET /admin/simulation/run/:runId/events`: Returns a stream of events (logs) for the run.
+*   `GET /admin/simulation/run/:runId/debug/status`: Returns diagnostic information identifying stalled documents and batches.
 
 ### 3.3 Phase-Specific Drill-down
 Pipelines register their own investigation routes in the `PipelineRegistryEntry`.

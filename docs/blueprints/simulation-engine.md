@@ -30,7 +30,7 @@ To ensure the simulation doesn't stall due to worker failures or dropped message
 
 1.  **Heartbeat**: `processResiliencyHeartbeat` scans for active runs (`running`, `busy_running`, `awaiting_documents`).
 2.  **Poke**: It enqueues a `simulation-advance` job for each active run.
-3.  **Lock Breaking**: `advanceSimulationRunPhaseNoop` will break a `busy_running` lock if the `updated_at` is older than 5 minutes.
+3.  **Lock Breaking**: `advanceSimulationRunPhaseNoop` will break a `busy_running` lock if the `updated_at` is older than 5 minutes. The host runner's guard check explicitly permits stale `busy_running` locks to bypass the early return.
 4.  **Zombie Recovery**: Before running the phase logic, the host calls `recoverZombies`.
 
 ### 3.3 Zombie Recovery

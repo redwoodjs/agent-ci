@@ -24,23 +24,29 @@ export async function advanceSimulationRunPhaseNoop(
 
   const row = (await db
     .selectFrom("simulation_runs")
-    .select(["status", "current_phase"])
+    .select(["status", "current_phase", "updated_at"])
     .where("run_id", "=", runId)
     .executeTakeFirst()) as unknown as
-    | { status: string; current_phase: string }
+    | { status: string; current_phase: string; updated_at: string }
     | undefined;
 
   if (!row) {
     return null;
   }
 
-  if (row.status !== "running" && row.status !== "awaiting_documents") {
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const isStaleLock = row.status === "busy_running" && row.updated_at < fiveMinutesAgo;
+
+  if (
+    row.status !== "running" &&
+    row.status !== "awaiting_documents" &&
+    !isStaleLock
+  ) {
     return { status: row.status, currentPhase: row.current_phase };
   }
 
   // Atomically set status to busy_running to prevent concurrent advancement
   // We allow breaking a "busy_running" lock if it hasn't been updated for more than 5 minutes
-  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const now = new Date().toISOString();
   
   await db
@@ -58,6 +64,16 @@ export async function advanceSimulationRunPhaseNoop(
       ])
     ]))
     .execute();
+
+  if (isStaleLock) {
+    console.warn(`[runner] Breaking stale busy_running lock for run ${runId} (last updated ${row.updated_at})`);
+    await addSimulationRunEvent(context, {
+      runId,
+      level: "warn",
+      kind: "host.lock_broken",
+      payload: { status: row.status, lastUpdatedAt: row.updated_at },
+    });
+  }
 
   // Verify we actually got the lock
   const refreshed = (await db

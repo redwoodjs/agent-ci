@@ -56,5 +56,85 @@ We have added minimal diagnostic logs to `src/app/pipelines/candidate_sets/engin
 
 ### Status
 - [x] Implement diagnostic logs (COMPLETED)
+- [ ] Fix simulation indexing in `materialize_moments` (PENDING)
 - [ ] Trigger focused simulation (PENDING)
 - [ ] Inspect logs for vector results and rejections (PENDING)
+
+---
+
+## 2026-01-27: Discovery of Missing Vector Indexing in Simulation
+
+While analyzing the simulation logs showing 0 vector matches, we investigated the `materialize_moments` phase. We discovered that `src/app/pipelines/materialize_moments/engine/simulation/adapter.ts` was manually inserting moments into the Durable Object SQLite database but **skipping vector indexing** in Vectorize. 
+
+This is the root cause: the simulation's "haystack" is never indexed into the vector store, so `candidate_sets` can never find them.
+
+### Updated Goal
+Fix simulation indexing and verify candidate generation.
+
+1.  **[ ] Fix Indexing in `materialize_moments`**
+    *   Update `adapter.ts` to use `addMoment` from `src/app/engine/databases/momentGraph`.
+    *   Validate that `addMoment` correctly handles the simulation namespace.
+2.  **[ ] Verify Vector Retrieval**
+    *   Re-run the simulation with the 4 needle documents.
+    *   Check `debug.vector_raw_results` in the logs to confirm we now get matches.
+3.  **[ ] Debug Timeline Fit (if still 0)**
+    *   If we have candidates but still 0 fit, use the diagnostic logs to understand why.
+
+## Pivot to 10-Step Workflow and Formalizing the Indexing Discovery
+
+We realized that our previous updates were not strictly following the 10-step workflow protocol. We are now correcting this by ensuring "we" voice and following the sequential steps. 
+
+### Investigation Findings (Step 2 & 3)
+We conducted a deep dive into the '0 candidates' issue by examining the logs and the simulation engine code. We confirmed that the  phase in simulation uses a manual Durable Object SQLite insertion path (`src/app/pipelines/materialize_moments/engine/simulation/adapter.ts`) that completely bypasses the `MOMENT_INDEX` (Vectorize). Specifically:
+- In production/live paths, `addMoment` is used, which handles both Durable Object SQLite and Vectorize.
+- In simulation, the adapter manually calls `momentDb.insertInto("moments")`.
+- Because simulation namespaces are isolated (e.g., `sim-XXXX:...`), the lack of indexing means `candidate_sets` finds nothing in that namespace, resulting in 0 matches.
+
+We have verified this by cross-referencing:
+1. `src/app/pipelines/materialize_moments/engine/simulation/adapter.ts:218` (Manual DO SQLite insert)
+2. `src/app/engine/databases/momentGraph/index.ts:251` (`MOMENT_INDEX.upsert` call in the standard path)
+
+We will now proceed to Step 4: Drafting the Work Task Blueprint.
+
+## Work Task Blueprint: Unify Indexing and Surface Rejections (Step 4)
+
+**Context**:
+We are investigating why "timeline fit" returns 0 candidates during simulations. We discovered that the `materialize_moments` phase in simulation is manually inserting moments into Durable Object SQLite but skipping Vectorize indexing. We need to unify the indexing logic using `addMoment` and upgrade the engine's internal logging to surface rejection reasons (like time-order or cycle-prevention) in simulation run events.
+
+**Directory & File Structure**:
+```text
+src/app/
+├── pipelines/
+│   ├── materialize_moments/
+│   │   └── engine/simulation/
+│   │       └── [MODIFY] adapter.ts
+│   └── candidate_sets/
+│       └── engine/simulation/
+│           └── [ALREADY DONE] runner.ts
+└── engine/
+    └── databases/
+        └── momentGraph/
+            └── [MODIFY] index.ts
+```
+
+**Types & Data Structures**:
+- **[NEW] `MomentGraphLogger`**: Interface for routing engine logs to simulation run events.
+- **[MODIFY] `MomentGraphContext`**: Add optional `log?: MomentGraphLogger`.
+
+**Invariants & Constraints**:
+- **Invariant**: All moments (live or simulation) MUST be indexed in Vectorize via the unified `addMoment` path.
+- **Constraint**: Engine internal rejections (time-order/cycles) must be visible in simulation logs, not just hidden in `console.log`.
+
+**System Flow (Snapshot Diff)**:
+- **Previous Flow**: `materialize_moments (Sim)` -> Manual SQLite Insert (No Vectorize) -> `candidate_sets` (Zero matches).
+- **New Flow**: `materialize_moments (Sim)` -> `addMoment` (SQLite + Vectorize + Logger Injection) -> `candidate_sets` (Matches + Visible rejection reasons if any).
+
+**Suggested Verification (Manual)**:
+1. Trigger a simulation run with the 4 "needle" documents.
+2. Monitor the `candidate_sets` logs for `debug.vector_raw_results`.
+3. Confirm `matchesCount > 0`.
+
+**Tasks**:
+- [ ] Upgrade `MomentGraphContext` and `addMoment` in `index.ts` to support optional logging.
+- [ ] Refactor `adapter.ts` to use `addMoment` and inject the simulation logger.
+- [ ] Re-run simulation and verify candidate acquisition and rejection visibility.

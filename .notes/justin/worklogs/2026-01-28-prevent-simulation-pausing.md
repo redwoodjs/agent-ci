@@ -9,7 +9,7 @@ We are investigating why the simulation pauses when encountering errors instead 
 The simulation engine currently stalls or skips work because it treats errors as permanent blocking states. We need to move to a model where:
 - **Runner Crashes** (Host-level) do not skip phases; they log an event and let the heartbeat retry the *polling* for the remaining work.
 - **Document Failures** are recorded as simulation events (history) and retried after a cooldown period.
-- **Polling** becomes the primary progress driver, using time-based cooldowns to manage retries rather than destructive state clearing.
+- **Polling** becomes the primary progress driver, using time-based cooldowns (10m in prod, 30s in dev via `VITE_IS_DEV_SERVER`) to manage retries rather than destructive state clearing.
 
 ## 2. Breakdown of Planned Changes
 
@@ -23,7 +23,8 @@ The simulation engine currently stalls or skips work because it treats errors as
 ### Granular Phase Runners (e.g., `micro_batches`, `macro_synthesis`)
 * [MODIFY] Polling Query:
   - Remove `where error_json is null`.
-  - Add a **Retry Cooldown**: Filter for documents where `updated_at < (now - 10 minutes)` OR `updated_at` is very old.
+  - Add a **Retry Cooldown**: Filter for documents where `updated_at < (now - cooldown)`.
+  - Cooldown logic: `process.env.VITE_IS_DEV_SERVER ? 30 * 1000 : 10 * 60 * 1000`.
   - This ensures documents that failed are eventually picked up again without spinning in an infinite loop.
 * [MODIFY] Error Handling:
   - When an entity (doc/chunk) fails, record the error via `addSimulationRunEvent`.
@@ -53,11 +54,12 @@ We utilize the existing `SimulationRunEvent` table for persistent error history 
 
 ## 6. System Flow (Snapshot Diff)
 **Previous Flow**: 1. Host crashes -> Phase skips. 2. Doc fails -> `error_json` blocks re-polling.
-**New Flow**: 1. Host crashes -> Log event -> Heartbeat retries same phase polling. 2. Doc fails -> Log event -> Runner re-polls doc after 10m cooldown.
+**New Flow**: 1. Host crashes -> Log event -> Heartbeat retries same phase polling. 2. Doc fails -> Log event -> Runner re-polls doc after cooldown (30s dev / 10m prod).
 
 ## 7. Suggested Verification (Manual)
-- **Host Crash**: Induce a crash in `advanceSimulationRunPhaseNoop`. Verify the run remains `running` at the same phase.
-- **Granular Retry**: Force a doc to fail. Verify it is re-attempted after 10 minutes (or manual time shift).
+- **Production Deployment**: Deploy to production and monitor the simulation. Verify that runs with some failed documents still attempt all other documents and eventually conclude the phase.
+- **Log Inspection**: Verify `phase.doc_error` events appear in `/admin/simulation/run/:id/events`.
+- **Local Retry Verification**: In dev, induce a transient failure, wait 30s, and verify the document is re-attempted.
 - **History Check**: Verify all failures are logged as events and not just overwritten in the doc row.
 
 ## 8. Tasks
@@ -90,3 +92,142 @@ We decided to:
 The strategy above prioritizes eventual consistency and progress over strict sequential success. By allowing the host to stay in `running` status and having the sweeper handle both "stuck" (zombie) and "failed" documents, we ensure that the simulation can grind through noisy datasets without human intervention.
 
 
+## Revised Architecture Blueprint
+Updated `docs/blueprints/simulation-engine.md` to include:
+- **Errors do not block** invariant.
+- **Granular Event-Based Retries** invariant.
+- **Host Resiliency** expectations.
+
+
+## Implemented Core Resiliency Changes
+- Modified `runner.ts` to return `running` status and current phase index on host crash if `continueOnError` is true.
+- Added `phase.host_crash` event logging.
+- Verified `resiliency.ts` updates `updated_at` on zombie recovery.
+
+
+## Implemented Phase Runner Retries (Micro-Batches & Macro-Synthesis)
+- Updated `micro_batches/runner.ts` and `macro_synthesis/runner.ts` with cooldown polling.
+- Added `phase.doc_error` event logging.
+- Fixed lint errors in `micro_batches/runner.ts`.
+
+
+## Completed Phase Runner Retries (All Phases)
+- Updated remaining phase runners: `macro_classification`, `materialize_moments`, `deterministic_linking`, `candidate_sets`, and `timeline_fit`.
+- All runners now support granular polling with a 30s (dev) / 10m (prod) cooldown.
+- All entity-level failures are logged as `phase.doc_error` simulation events.
+
+## Implementation Complete
+The system now adheres to the "Errors do not block" and "Granular Event-Based Retries" invariants.
+History is preserved in simulation events, while runners focus on making progress through the polling queue.
+
+## PR Description: Non-Blocking Error Handling and Granular Retries
+
+### Narrative
+This PR transforms the Simulation Engine's error handling from a "blocking" model to an "event-based retry" model. Previously, document failures or host-level crashes would stall the entire run or force premature phase skips. We now utilize simulation events for persistent error history and temporal cooldowns for automatic, granular retries.
+
+### Rationale
+- **Resiliency**: Host-level crashes in one phase no longer abandon that phase; the watchdog heartbeats will resume polling from the point of failure.
+- **Auditability**: Entity-level errors are now "stored for the sim" as audit events, ensuring history is preserved without polluting the control flow.
+- **Progress**: Simulations can now "grind through" noisy datasets where scattered document failures are expected, without requiring manual intervention.
+
+### Key Changes
+- **Core Engine**: Modified `runner.ts` to handle host crashes non-destructively and log `phase.host_crash` events.
+- **Phase Runners**: Updated all 7 phase runners with cooldown-based polling.
+- **Dev Overrides**: Implemented a 30s retry cooldown for `VITE_IS_DEV_SERVER` (vs 10m in prod).
+- **Blueprint**: Formalized the "Errors do not block" and "Granular Event-Based Retries" invariants in the Simulation Engine Blueprint.
+
+### Verification Results
+- Manual inspection of all phase runner polling queries.
+- Clean lint status in `micro_batches/runner.ts`.
+- Ready for production deployment and monitoring.
+
+## Refactor: Centralizing Document Polling and Dispatching
+The user pointed out that the polling and cooldown logic was being repeated across all phase runners. This is fragile and hard to maintain.
+
+**New Abstraction Strategy**:
+1. **Shared Orchestrator**: Create `src/app/engine/simulation/orchestration.ts` to house `runStandardPollingForPhase`.
+2. **Standard Polling**: This helper will handle the cooldown-based document selection, dispatch calculation, and queue messaging.
+3. **Runner Simplification**: Individual phase runners will call this helper for the polling/dispatching case, focusing their own code primarily on the granular execution logic (single `r2Key`).
+4. **Consistency**: This ensures that invariants like "Errors do not block" and dev-specific cooldowns are managed in ONE place.
+
+
+# Work Task Blueprint: Centralized Simulation Orchestration
+
+## 1. Context
+- **Problem**: Repetitive polling/cooldown logic across 7 phase runners. Current approach is too document-centric and lacks type-enforcement of resiliency invariants.
+- **Solution**: Refactor to split responsibilities between **Supervisor** (Orchestration) and **Handler** (Execution). Centralize common logic in `orchestration.ts` and enforce the split via `PipelineRegistryEntry` types.
+- **Design Decision**: A shared `onTick` factory ensures all phases inherit the non-blocking "Errors do not block" property with consistent 30s(dev)/10m(prod) cooldowns.
+
+## 2. Breakdown of Planned Changes
+
+### [MODIFY] `registry.ts` (Core Types)
+- Define `WorkUnit` union (Document, Batch, Custom).
+- Refactor `PipelineRegistryEntry`:
+  - `onTick`: Supervisor context (Heartbeat).
+  - `onExecute`: Handler context (Queue).
+
+### [NEW] `orchestration.ts` (Shared Polling)
+- `runStandardDocumentPolling`: A factory that returns a standard `onTick` implementation for document-based phases. Handles cooldown logic and queue dispatching.
+
+### [MODIFY] `runner.ts` (Supervisor Logic)
+- Update `advanceSimulationRunPhaseNoop` to call `onTick` for orchestration and route queue messages to `onExecute`.
+
+### [MODIFY] Phase Runners (7 Pipelines)
+- Refactor all simulation runners.
+- Simplify `onTick` by calling shared helpers. Implement granular unit logic in `onExecute`.
+
+## 3. Directory & File Structure
+```text
+src/app/
+├── engine/simulation/
+│   ├── [NEW] orchestration.ts
+│   ├── [MODIFY] registry.ts
+│   └── [MODIFY] runner.ts (Supervisor)
+└── pipelines/*/engine/simulation/
+    └── [MODIFY] runner.ts (Handler Implementation)
+```
+
+## 4. Types & Data Structures (Refined)
+```typescript
+export type WorkUnit = 
+  | { kind: "document", r2Key: string }
+  | { kind: "batch", r2Key: string, batchIndex: number }
+  | { kind: "custom", payload: any };
+
+export type PipelineRegistryEntry = {
+  phase: SimulationPhase;
+  label: string;
+  onTick: (context: SimulationDbContext, input: { runId: string; phaseIdx: number }) => Promise<{ status: string; currentPhase: string } | null>;
+  onExecute: (context: SimulationDbContext, input: { runId: string; workUnit: WorkUnit }) => Promise<void>;
+  recoverZombies: (context: SimulationDbContext, input: { runId: string }) => Promise<void>;
+};
+```
+
+## 5. Failure Handling (In-Sync)
+- **Supervisor-side (`onTick`)**: DB/System errors log `phase.host_crash`. Supervisor retries later; run stays in current phase.
+- **Handler-side (`onExecute`)**: Unit errors (LLM, parsing) log `phase.doc_error`. unit's `updated_at` is bumped to trigger cooldown-based retry.
+
+## 6. System Flow
+- **Heartbeat** -> `advanceSimulationRunPhaseNoop` -> `registry[phase].onTick()`.
+- **`onTick`** (via Orchestrator) -> Dispatches `WorkUnit` to Queue.
+- **Queue Worker** -> `registry[phase].onExecute(workUnit)`.
+
+## 7. Tasks
+- [ ] Refactor `registry.ts` Type Definitions
+- [ ] Implement `orchestration.ts` Helper
+- [ ] Update Supervisor `runner.ts`
+- [ ] Refactor Phase Runners (Micro-batches first)
+- [ ] Refactor remaining Phase Runners (x6)
+## Failure Handling Matrix
+
+| Layer | Type of Failure | Handling Logic | Outcome |
+| :--- | :--- | :--- | :--- |
+| **Supervisor (`onTick`)** | DB connection error, Logic bug in poller. | Log `phase.host_crash` event. | Run stays `running` in the current phase. Heartbeat retries the tick later. |
+| **Handler (`onExecute`)** | LLM error, Timeout, Parsing failure. | Log `phase.doc_error` (or `unit_error`). Update unit's `updated_at` and `error_json`. | Simulation continues. Unit is retried after its cooldown (10m/30s). |
+
+## Final Terminology Synchronization
+Synchronized all planning artifacts with the official terminology:
+- **Supervisor**: (Replaces Host/Orchestrator) High-level orchestration and state management.
+- **Handler**: (Replaces Worker/Executor) Granular execution of a single `WorkUnit`.
+- **Orchestration**: The process performed by the Supervisor via `onTick`.
+- **Execution**: The process performed by the Handler via `onExecute`.

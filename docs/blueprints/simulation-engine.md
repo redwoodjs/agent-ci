@@ -1,26 +1,56 @@
 # Simulation Engine Blueprint
 
-**Status**: Living Document
-**Last Updated**: 2026-01-26
-
 ## 1. Purpose
 
 The Simulation Engine allows us to run the entire Machinen pipeline on historical data in a **deterministic, restartable, and inspectable** way. It is the primary tool for "Backfilling" and "Validating" logic changes.
 
+## 2. Execution Roles
+
+The simulation engine distinguishes between two primary roles:
+
+### 2.1 The Supervisor (The "Manager")
+The **Supervisor** is responsible for high-level state transitions and job dispatching. 
+*   **System Actor**: Primarily invoked by the **Resiliency Heartbeat** (a scheduled cron job/watchdog).
+*   **Logic**: Resides in `engine/runners/simulation/runner.ts`.
+*   **Responsibilities**:
+    *   Scanning for active runs.
+    *   Determining the current phase.
+    *   Asking the phase what units need work (via `onTick`).
+    *   Dispatching jobs to the execution queue.
+    *   Handling host crashes to ensure the run never stalls.
+
+### 2.2 The Handler (The "Worker")
+The **Handler** is responsible for processing granular units of work.
+*   **System Actor**: Invoked by a **Cloudflare Queue worker** when it receives a job message.
+*   **Logic**: Resides in the specific phase runner's `onExecute` implementation.
+*   **Responsibilities**:
+    *   Stateless processing of a single **Work Unit** (e.g., `document`, `batch`).
+    *   Performing the actual processing (LLM calls, compute, indexing).
+    *   Logging granular failures (`phase.doc_error`).
+
 ## 3. Core Components
 
 ### 3.1 The Pipeline Registry
-Every phase of the simulation is defined as a `PipelineRegistryEntry` and registered via `registerPipeline`. This allows for a modular design where each phase defines its own logic, routes, and UI.
+Every phase of the simulation is defined as a `PipelineRegistryEntry`. Each entry defines a split responsibility between host orchestration and worker execution to ensure consistent retry behavior.
+
+#### Work Units
+We use a `WorkUnit` discriminated union to handle different granularities of work:
+*   `document`: A single R2 key.
+*   `batch`: A specific micro-batch index within a document.
+*   `custom`: Extensibility point for future chunk types.
+
+#### Registry Entry Structure
+
+The `PipelineRegistryEntry` is a **shared contract** that defines all behaviors for a phase. The system routes to specific callbacks based on the current execution context:
 
 ```typescript
 export type PipelineRegistryEntry = {
   phase: SimulationPhase;
   label: string;
-  runner: (context: SimulationDbContext, input: { runId: string; phaseIdx: number; ... }) => Promise<...>;
-  web?: {
-    routes?: any[];
-    ui?: { summary?: ...; drilldown?: ...; };
-  };
+  // SUPERVISOR context: Called by the heartbeat to poll/dispatch work
+  onTick: (context: SimulationDbContext, input: { runId: string; phaseIdx: number }) => Promise<{ status: string; currentPhase: string } | null>;
+  // HANDLER context: Called by the queue worker to process a specific WorkUnit
+  onExecute: (context: SimulationDbContext, input: { runId: string; workUnit: WorkUnit }) => Promise<void>;
   recoverZombies: (context: SimulationDbContext, input: { runId: string }) => Promise<void>;
 };
 ```

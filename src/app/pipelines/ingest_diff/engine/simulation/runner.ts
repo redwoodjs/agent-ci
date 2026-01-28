@@ -24,7 +24,7 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
       .executeTakeFirst();
       
     if (pendingBatch) {
-      const keys = (JSON.parse(pendingBatch.keys_json as string) as string[]) || [];
+      const keys = (pendingBatch.keys_json as unknown as string[]) || [];
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
 
       if (queue) {
@@ -63,7 +63,7 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
       
     let totalKeys = 0;
     for (const b of batches) {
-        const keys = (JSON.parse(b.keys_json as string) as string[]) || [];
+        const keys = (b.keys_json as unknown as string[]) || [];
         totalKeys += keys.length;
     }
     

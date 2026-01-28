@@ -26,6 +26,7 @@ import { getSimulationRunProgressSummary } from "@/app/engine/simulation/runProg
 import { getMoments } from "@/app/engine/databases/momentGraph";
 import { SimulationRunControls } from "./simulation-run-controls";
 import { CopyTextButton } from "./copy-text-button";
+import { SimulationLogsViewer } from "./simulation-logs-viewer";
 
 function safeStringify(value: unknown): string {
   try {
@@ -509,62 +510,13 @@ async function SimulationRunsContent({
 
       {viewDef ? <viewDef.component runId={runId} effectiveNamespace={effectiveNamespace} /> : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Log</CardTitle>
-          <CardDescription>
-            <span className="mr-3">
-              <a
-                className={
-                  logView === "events"
-                    ? "text-blue-700 font-semibold"
-                    : "text-blue-600 hover:underline"
-                }
-                href={logLink("events")}
-              >
-                Events
-              </a>
-            </span>
-            <span>
-              <a
-                className={
-                  logView === "run"
-                    ? "text-blue-700 font-semibold"
-                    : "text-blue-600 hover:underline"
-                }
-                href={logLink("run")}
-              >
-                Run snapshot
-              </a>
-            </span>
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {logView === "run" ? (
-            <>
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <CopyTextButton text={safeStringify(run)} label="Copy run" />
-              </div>
-              <textarea
-                className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh]"
-                readOnly
-                value={safeStringify(run)}
-              />
-            </>
-          ) : (
-            <>
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <CopyTextButton text={eventsText || ""} label="Copy events" />
-              </div>
-              <textarea
-                className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh]"
-                readOnly
-                value={eventsText || "(no events)"}
-              />
-            </>
-          )}
-        </CardContent>
-      </Card>
+      <SimulationLogsViewer
+        runId={runId}
+        initialEventsText={eventsText}
+        initialRunText={safeStringify(run)}
+        logView={logView}
+        view={view}
+      />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { registerPipeline, type PipelineRegistryEntry } from "../../../../engine/simulation/registry";
 import { getSimulationDb } from "../../../../engine/simulation/db";
 import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
-import { runIngestDiffForKey } from "./core";
+import { runIngestDiffForKey } from "../core/orchestrator";
 import { createSimulationRunLogger } from "../../../../engine/simulation/logger";
 import { ingestDiffRoutes } from "../../web/routes/documents";
 import { DocumentsCard } from "../../web/ui/DocumentsCard";
@@ -92,8 +92,30 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
 
     try {
       const result = await runIngestDiffForKey({
-        context,
-        runId: input.runId,
+        ports: {
+          headR2Key: async (k) => {
+            const bucket = (context.env as any).MACHINEN_BUCKET;
+            const head = await bucket.head(k);
+            if (!head) throw new Error("R2 object not found");
+            const etag = typeof head.etag === "string" ? head.etag : null;
+            if (!etag) throw new Error("Missing R2 etag");
+            return { etag };
+          },
+          loadPreviousEtag: async (k) => {
+            const row = await db.selectFrom("simulation_run_documents")
+              .select("etag")
+              .where("run_id", "=", input.runId)
+              .where("r2_key", "=", k)
+              .executeTakeFirst();
+            return row?.etag ?? null;
+          },
+          persistResult: async (res) => {
+              // We handle persistence below to include processing logic
+          },
+          persistError: async (err) => {
+              // We handle persistence below
+          }
+        },
         r2Key: workUnit.r2Key,
       });
 
@@ -105,10 +127,11 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
         .updateTable("simulation_run_documents")
         .set({
           changed: result.changed ? 1 : 0,
-          document_hash: result.hash,
+          document_hash: result.etag, // Storing etag as hash for now or fetch actual hash if needed
           processed_at: now,
           updated_at: now,
           processed_phases_json: nextPhases as any,
+          etag: result.etag,
         })
         .where("run_id", "=", input.runId)
         .where("r2_key", "=", workUnit.r2Key)

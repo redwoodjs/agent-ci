@@ -135,6 +135,24 @@ src/app/
 3. Confirm `matchesCount > 0`.
 
 **Tasks**:
-- [ ] Upgrade `MomentGraphContext` and `addMoment` in `index.ts` to support optional logging.
-- [ ] Refactor `adapter.ts` to use `addMoment` and inject the simulation logger.
-- [ ] Re-run simulation and verify candidate acquisition and rejection visibility.
+
+- [x] Upgrade `MomentGraphContext` and `addMoment` in `index.ts` to support optional logging. (COMPLETED)
+- [x] Refactor `adapter.ts` to use `addMoment` and inject the simulation logger. (COMPLETED)
+- [ ] Re-run simulation and verify candidate acquisition and rejection visibility. (PENDING - Deployment required)
+
+## Draft Pull Request: Unify Simulation Indexing and Surface Engine Rejections (Step 10)
+
+### Problem
+Simulation runs consistently returned 0 candidates for "timeline fit," even with known matching "needle" documents. Investigation revealed that the `materialize_moments` phase in simulations was bypassing the unified `addMoment` path, skipping Vectorize indexing entirely. Additionally, engine-level link rejections (time-order/cycles) were being lost in `console.log` rather than being surfaced in simulation events.
+
+### Solution
+- **Unified Indexing**: Refactored the simulation `materialize_moments` adapter to use the central `addMoment` function, ensuring moments are correctly indexed into Vectorize for the simulation namespace.
+- **In-Process Logging**: Introduced `MomentGraphLogger` and updated `addMoment` to route internal rejection reasons (time-order, cycle-prevention) to simulation run events.
+- **Blueprint Updates**: codified "Indexing Isolation" and "In-Process Logging" as system invariants in `docs/blueprints/simulation-engine.md`.
+
+### Rationale
+Unifying the indexing path ensures that simulation environments behave identically to production regarding retrieval. Surfacing rejections in the event stream eliminates "silent failures" and allows for rapid debugging of linking logic during simulations.
+
+### Verification Plan
+- **Manual**: Run a focused simulation with the 4 "needle" documents identified in this worklog.
+- **Evidence**: Verify `moment-linker.vector-upsert` and rejection events appear in the simulation event log.

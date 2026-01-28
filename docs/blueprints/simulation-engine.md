@@ -57,3 +57,5 @@ Each phase MUST implement `recoverZombies`. Typically, this uses `recoverZombies
 *   **Isolation**: A simulation run operates in its own "Lane". It should not affect other runs.
 *   **Determinism**: Simulation runs, including sampled subsets, must be deterministic and reproducible. Sampling must support seeding via `fictional`.
 *   **Mixed Sampling**: The engine supports combining explicitly defined R2 keys with a sampled set. When mixed, all explicit keys are included, and additional keys are sampled up to the requested size. The final combined list is deterministically shuffled to ensure representative ordering.
+*   **Indexing Isolation**: Simulation runs MUST index moments into the vector store via the unified `addMoment` path to ensure candidate acquisition works identically to live environments.
+*   **Observability (In-Process Logging)**: Engine-level rejections (e.g., time-order or cycle prevention) must be routed to simulation run events using the `MomentGraphLogger` interface to surface discarded link candidates.

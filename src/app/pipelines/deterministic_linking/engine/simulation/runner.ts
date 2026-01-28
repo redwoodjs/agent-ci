@@ -87,12 +87,16 @@ export const deterministic_linking_simulation: PipelineRegistryEntry = {
           r2_key: workUnit.r2Key,
           stream_id: root.stream_id,
           macro_index: root.macro_index as any,
-          decision: decision.proposedParentId ? "link" : "none",
+          phase: "deterministic_linking",
+          outcome: decision.proposedParentId ? "link" : "none",
+          parent_moment_id: decision.proposedParentId ?? null,
           evidence_json: JSON.stringify(decision.audit),
           created_at: now,
           updated_at: now,
         } as any).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({
-          decision: decision.proposedParentId ? "link" : "none",
+          phase: "deterministic_linking",
+          outcome: decision.proposedParentId ? "link" : "none",
+          parent_moment_id: decision.proposedParentId ?? null,
           evidence_json: JSON.stringify(decision.audit),
           updated_at: now,
         } as any)).execute();

@@ -81,14 +81,18 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
         totalKeys += keys.length;
     }
     
-    const countRow = (await db
+    const docs = await db
       .selectFrom("simulation_run_documents")
-      .select(({ fn }) => fn.count<number>("r2_key").as("count"))
+      .select(["processed_phases_json"])
       .where("run_id", "=", input.runId)
-      .executeTakeFirst()) as any;
+      .execute();
       
-    const count = typeof countRow?.count === "number" ? countRow.count : Number(countRow?.count ?? 0);
-    if (count < totalKeys) {
+    const allProcessed = docs.length >= totalKeys && docs.every(d => {
+        const processed = (d.processed_phases_json || []) as string[];
+        return processed.includes("ingest_diff");
+    });
+
+    if (!allProcessed) {
         return { status: "awaiting_documents", currentPhase: "ingest_diff" };
     }
     

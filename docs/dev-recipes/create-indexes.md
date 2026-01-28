@@ -28,7 +28,20 @@ npx wrangler vectorize create subject-index-v7 --dimensions=768 --metric=cosine
 npx wrangler vectorize create rag-index-v7 --dimensions=768 --metric=cosine
 ```
 
-### 3. Update Configuration
+### 3. Create Metadata Indexes
+If you use Moment Graph namespaces (filtering queries by `momentGraphNamespace`), create metadata indexes for the `moment` and `subject` indexes:
+
+```bash
+npx wrangler vectorize create-metadata-index moment-index-v7 \
+  --property-name='momentGraphNamespace' \
+  --type='string'
+
+npx wrangler vectorize create-metadata-index subject-index-v7 \
+  --property-name='momentGraphNamespace' \
+  --type='string'
+```
+
+### 4. Update Configuration
 Update `wrangler.jsonc` to point to the new index names:
 
 ```jsonc

@@ -6,6 +6,9 @@ import { callLLM } from "../../../../engine/utils/llm";
 import { fetchMomentsFromRun } from "../../../../engine/simulation/runArtifacts";
 import { computeTimelineFitDecision } from "../../../../engine/core/linking/timelineFitOrchestrator";
 import { runStandardDocumentPolling } from "../../../../engine/simulation/orchestration";
+import { timelineFitRoutes } from "../../web/routes/timeline-fit";
+import { TimelineFitDecisionsCard } from "../../web/ui/TimelineFitDecisionsCard";
+import { recoverZombiesForPhase } from "../../../../engine/simulation/resiliency";
 
 export const timeline_fit_simulation: PipelineRegistryEntry = {
   phase: "timeline_fit" as const,
@@ -14,6 +17,7 @@ export const timeline_fit_simulation: PipelineRegistryEntry = {
   onTick: runStandardDocumentPolling({ phase: "timeline_fit" }),
 
   async onExecute(context, input) {
+    // ... (rest of onExecute remains same as before)
     const db = getSimulationDb(context);
     const now = new Date().toISOString();
     const log = createSimulationRunLogger(context, { runId: input.runId });
@@ -108,9 +112,14 @@ export const timeline_fit_simulation: PipelineRegistryEntry = {
       .execute();
   },
 
-  async recoverZombies(context, input) {
-    // Standard recovery
-  }
+  web: {
+    routes: timelineFitRoutes,
+    ui: {
+      drilldown: TimelineFitDecisionsCard,
+    },
+  },
+
+  recoverZombies: (context, input) => recoverZombiesForPhase(context, { ...input, phase: "timeline_fit" }),
 };
 
 registerPipeline(timeline_fit_simulation);

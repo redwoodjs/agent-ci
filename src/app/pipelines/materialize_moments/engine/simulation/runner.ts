@@ -7,6 +7,9 @@ import { createSimulationRunLogger } from "../../../../engine/simulation/logger"
 import { runMaterializeMomentsAdapter } from "./adapter";
 import { applyMomentGraphNamespacePrefixValue } from "../../../../engine/momentGraphNamespace";
 import { runStandardDocumentPolling } from "../../../../engine/simulation/orchestration";
+import { materializeMomentsRoutes } from "../../web/routes/moments";
+import { MaterializedMomentsCard } from "../../web/ui/MaterializedMomentsCard";
+import { recoverZombiesForPhase } from "../../../../engine/simulation/resiliency";
 
 export const materialize_moments_simulation: PipelineRegistryEntry = {
   phase: "materialize_moments" as const,
@@ -15,6 +18,7 @@ export const materialize_moments_simulation: PipelineRegistryEntry = {
   onTick: runStandardDocumentPolling({ phase: "materialize_moments" }),
 
   async onExecute(context, input) {
+    // ... (rest of onExecute remains same as before)
     const db = getSimulationDb(context);
     const now = new Date().toISOString();
     const log = createSimulationRunLogger(context, { runId: input.runId });
@@ -74,9 +78,14 @@ export const materialize_moments_simulation: PipelineRegistryEntry = {
       .execute();
   },
 
-  async recoverZombies(context, input) {
-    // Standard recovery
-  }
+  web: {
+    routes: materializeMomentsRoutes,
+    ui: {
+      drilldown: MaterializedMomentsCard,
+    },
+  },
+
+  recoverZombies: (context, input) => recoverZombiesForPhase(context, { ...input, phase: "materialize_moments" }),
 };
 
 registerPipeline(materialize_moments_simulation);

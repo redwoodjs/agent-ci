@@ -1,12 +1,13 @@
-import type { SimulationDbContext } from "../../../../engine/simulation/types";
 import { getSimulationDb } from "../../../../engine/simulation/db";
-import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../../engine/simulation/logger";
 import { runMicroBatchesAdapter } from "./adapter";
 import { computeMicroMomentsForChunkBatch } from "../../../../engine/subjects/computeMicroMomentsForChunkBatch";
 import { getEmbedding, getEmbeddings } from "../../../../engine/utils/vector";
 import { upsertMicroMomentsBatch } from "../../../../engine/databases/momentGraph";
 import { registerPipeline, type PipelineRegistryEntry } from "../../../../engine/simulation/registry";
+import { microBatchesRoutes } from "../../web/routes/batches";
+import { MicroBatchesCard } from "../../web/ui/MicroBatchesCard";
+import { recoverMicroBatchZombies } from "./sweeper";
 
 export const micro_batches_simulation: PipelineRegistryEntry = {
   phase: "micro_batches" as const,
@@ -91,11 +92,11 @@ export const micro_batches_simulation: PipelineRegistryEntry = {
     const totalDocs = await db.selectFrom("simulation_run_documents").select(["processed_phases_json"]).where("run_id", "=", input.runId).where("changed", "=", 1).execute();
     const allDocsDone = totalDocs.every(d => ((d.processed_phases_json || []) as string[]).includes("micro_batches"));
     
-    // Also check if any batches are still enqueued or planned (none should be left if all docs are done)
+    // Also check if any batches are still enqueued or failed
     const pendingBatches = await db.selectFrom("simulation_run_micro_batches")
         .select(({ fn }) => fn.count<number>("r2_key").as("count"))
         .where("run_id", "=", input.runId)
-        .where("status", "in", ["enqueued", "failed"]) // Failed batches block progress unless retried
+        .where("status", "in", ["enqueued", "failed"]) 
         .executeTakeFirst();
 
     if (allDocsDone && Number(pendingBatches?.count ?? 0) === 0) {
@@ -114,9 +115,12 @@ export const micro_batches_simulation: PipelineRegistryEntry = {
     const runRow = await db.selectFrom("simulation_runs").select(["moment_graph_namespace", "moment_graph_namespace_prefix"]).where("run_id", "=", input.runId).executeTakeFirst();
     if (!runRow) return;
 
+    const r2Key = (workUnit as any).r2Key;
+    const batchIndex = (workUnit as any).batchIndex;
+
     const result = await runMicroBatchesAdapter(context, {
       runId: input.runId,
-      r2Keys: [workUnit.kind === "document" || workUnit.kind === "batch" ? (workUnit as any).r2Key : ""],
+      r2Keys: [r2Key],
       useLlm: true,
       ports: {
         computeMicroItemsForChunkBatch: async ({ chunks, promptContext, batchIndex }) => {
@@ -137,33 +141,37 @@ export const micro_batches_simulation: PipelineRegistryEntry = {
       log,
       momentGraphNamespace: runRow.moment_graph_namespace,
       momentGraphNamespacePrefix: runRow.moment_graph_namespace_prefix,
-      batchIndex: workUnit.kind === "batch" ? (workUnit as any).batchIndex : undefined,
+      batchIndex: batchIndex,
     });
 
     if (result.failed > 0 && workUnit.kind === "document") {
         await db.updateTable("simulation_run_documents")
           .set({ error_json: JSON.stringify(result.failures) as any, updated_at: now })
           .where("run_id", "=", input.runId)
-          .where("r2_key", "=", (workUnit as any).r2Key)
+          .where("r2_key", "=", r2Key)
           .execute();
     }
 
     if (workUnit.kind === "document") {
-      const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", (workUnit as any).r2Key).executeTakeFirst();
+      const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", r2Key).executeTakeFirst();
       const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
       const nextPhases = [...new Set([...currentPhases, "micro_batches"])];
       await db.updateTable("simulation_run_documents")
         .set({ processed_phases_json: nextPhases as any, updated_at: now })
         .where("run_id", "=", input.runId)
-        .where("r2_key", "=", (workUnit as any).r2Key)
+        .where("r2_key", "=", r2Key)
         .execute();
     }
   },
 
-  async recoverZombies(context, input) {
-    // Standard zombie recovery for micro_batches
-  }
+  web: {
+    routes: microBatchesRoutes,
+    ui: {
+      drilldown: MicroBatchesCard,
+    },
+  },
+
+  recoverZombies: recoverMicroBatchZombies,
 };
 
 registerPipeline(micro_batches_simulation);
-

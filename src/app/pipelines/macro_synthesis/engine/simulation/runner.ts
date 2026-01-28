@@ -1,10 +1,12 @@
-import type { SimulationDbContext } from "../../../../engine/simulation/types";
 import { getSimulationDb } from "../../../../engine/simulation/db";
 import { createSimulationRunLogger } from "../../../../engine/simulation/logger";
 import { runMacroSynthesisAdapter } from "./adapter";
 import { synthesizeMicroMomentsIntoStreams } from "../../../../engine/synthesis/synthesizeMicroMoments";
 import { runStandardDocumentPolling } from "../../../../engine/simulation/orchestration";
 import { registerPipeline, type PipelineRegistryEntry } from "../../../../engine/simulation/registry";
+import { macroSynthesisRoutes } from "../../web/routes/outputs";
+import { MacroOutputsCard } from "../../web/ui/MacroOutputsCard";
+import { recoverMacroSynthesisZombies } from "./sweeper";
 
 export const macro_synthesis_simulation: PipelineRegistryEntry = {
   phase: "macro_synthesis" as const,
@@ -47,9 +49,14 @@ export const macro_synthesis_simulation: PipelineRegistryEntry = {
       .execute();
   },
 
-  async recoverZombies(context, input) {
-    // Standard recovery
-  }
+  web: {
+    routes: macroSynthesisRoutes,
+    ui: {
+      drilldown: MacroOutputsCard,
+    },
+  },
+
+  recoverZombies: recoverMacroSynthesisZombies,
 };
 
 registerPipeline(macro_synthesis_simulation);

@@ -4,6 +4,9 @@ import { createSimulationRunLogger } from "../../../../engine/simulation/logger"
 import { runMacroClassificationAdapter } from "./adapter";
 import { callLLM } from "../../../../engine/utils/llm";
 import { runStandardDocumentPolling } from "../../../../engine/simulation/orchestration";
+import { macroClassificationRoutes } from "../../web/routes/classifications";
+import { MacroClassificationsCard } from "../../web/ui/MacroClassificationsCard";
+import { recoverZombiesForPhase } from "../../../../engine/simulation/resiliency";
 
 export const macro_classification_simulation: PipelineRegistryEntry = {
   phase: "macro_classification" as const,
@@ -49,9 +52,14 @@ export const macro_classification_simulation: PipelineRegistryEntry = {
       .execute();
   },
 
-  async recoverZombies(context, input) {
-    // Standard recovery
-  }
+  web: {
+    routes: macroClassificationRoutes,
+    ui: {
+      drilldown: MacroClassificationsCard,
+    },
+  },
+
+  recoverZombies: (context, input) => recoverZombiesForPhase(context, { ...input, phase: "macro_classification" }),
 };
 
 registerPipeline(macro_classification_simulation);

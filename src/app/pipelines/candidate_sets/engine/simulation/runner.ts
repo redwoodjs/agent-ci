@@ -5,6 +5,9 @@ import { getEmbedding } from "../../../../engine/utils/vector";
 import { fetchMomentsFromRun } from "../../../../engine/simulation/runArtifacts";
 import { computeCandidateSet } from "../../../../engine/core/linking/candidateSetsOrchestrator";
 import { runStandardDocumentPolling } from "../../../../engine/simulation/orchestration";
+import { candidateSetsRoutes } from "../../web/routes/candidate-sets";
+import { CandidateSetsCard } from "../../web/ui/CandidateSetsCard";
+import { recoverZombiesForPhase } from "../../../../engine/simulation/resiliency";
 
 export const candidate_sets_simulation: PipelineRegistryEntry = {
   phase: "candidate_sets" as const,
@@ -13,6 +16,7 @@ export const candidate_sets_simulation: PipelineRegistryEntry = {
   onTick: runStandardDocumentPolling({ phase: "candidate_sets" }),
 
   async onExecute(context, input) {
+    // ... (rest of onExecute remains same as before)
     const db = getSimulationDb(context);
     const now = new Date().toISOString();
     const log = createSimulationRunLogger(context, { runId: input.runId });
@@ -86,9 +90,14 @@ export const candidate_sets_simulation: PipelineRegistryEntry = {
       .execute();
   },
 
-  async recoverZombies(context, input) {
-    // Standard recovery
-  }
+  web: {
+    routes: candidateSetsRoutes,
+    ui: {
+      drilldown: CandidateSetsCard,
+    },
+  },
+
+  recoverZombies: (context, input) => recoverZombiesForPhase(context, { ...input, phase: "candidate_sets" }),
 };
 
 registerPipeline(candidate_sets_simulation);

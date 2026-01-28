@@ -1,11 +1,12 @@
 import { registerPipeline, type PipelineRegistryEntry } from "../../../../engine/simulation/registry";
 import { getSimulationDb } from "../../../../engine/simulation/db";
 import { createSimulationRunLogger } from "../../../../engine/simulation/logger";
-import { addMoment } from "../../../../engine/databases/momentGraph";
 import { fetchMomentsFromRun } from "../../../../engine/simulation/runArtifacts";
-import { resolveThreadHeadForDocumentAsOf } from "../../../../engine/core/linking/explicitRefThreadHead";
-import { computeDeterministicLinkingDecision } from "../../../../engine/core/linking/deterministicLinkingOrchestrator";
+import { computeLinkingDecision } from "../../../../engine/core/linking/linkingOrchestrator";
 import { runStandardDocumentPolling } from "../../../../engine/simulation/orchestration";
+import { deterministicLinkingRoutes } from "../../web/routes/link-decisions";
+import { LinkDecisionsCard } from "../../web/ui/LinkDecisionsCard";
+import { recoverZombiesForPhase } from "../../../../engine/simulation/resiliency";
 
 export const deterministic_linking_simulation: PipelineRegistryEntry = {
   phase: "deterministic_linking" as const,
@@ -22,99 +23,51 @@ export const deterministic_linking_simulation: PipelineRegistryEntry = {
     if (workUnit.kind !== "document") return;
 
     // Granular execution
-    const matRows = await db.selectFrom("simulation_run_materialized_moments")
-        .select(["moment_id", "stream_id", "macro_index"])
-        .where("run_id", "=", input.runId)
-        .where("r2_key", "=", workUnit.r2Key)
-        .execute();
+    const roots = await db.selectFrom("simulation_run_materialized_moments").select(["moment_id", "r2_key", "stream_id", "macro_index"]).where("run_id", "=", input.runId).where("r2_key", "=", workUnit.r2Key).execute();
+    const rootIds = roots.map(r => r.moment_id);
+    const moments = await fetchMomentsFromRun(context, input.runId, rootIds);
+    const rootById = new Map((moments as any[]).map(r => [r.id, r]));
 
-    const momentIds = matRows.map(r => r.moment_id);
-    const moments = await fetchMomentsFromRun(context, input.runId, momentIds);
-    const momentsById = new Map((moments as any[]).map(m => [m.id, m]));
-    
-    try {
-      for (const row of matRows) {
-        const childRaw = momentsById.get(row.moment_id);
-        if (!childRaw) continue;
+    for (const root of roots) {
+      const childRow = rootById.get(root.moment_id);
+      if (!childRow) continue;
 
-        const child = {
-            ...childRaw,
-            id: childRaw.id,
-            documentId: childRaw.document_id,
-            createdAt: childRaw.created_at,
-            sourceMetadata: childRaw.source_metadata
-        };
-
-        const momentGraphContext = { env: context.env, momentGraphNamespace: childRaw._namespace };
-        const childText = `${childRaw.title || ""} ${childRaw.summary || ""}`;
-
-        const proposal = await computeDeterministicLinkingDecision({
+      try {
+        const built = await computeLinkingDecision({
           ports: {
-            resolveThreadHeadForDocumentAsOf: async (args) => {
-              return await resolveThreadHeadForDocumentAsOf({
-                documentId: args.documentId,
-                asOfMs: args.asOfMs,
-                context: momentGraphContext
-              });
-            }
+            loadCandidateRowsById: async (ids) => {
+              const rows = ids.length > 0 ? await fetchMomentsFromRun(context, input.runId, ids) : [];
+              return new Map((rows as any[]).map(r => [r.id, r]));
+            },
           },
-          r2Key: workUnit.r2Key,
-          streamId: row.stream_id,
-          macroIndex: row.macro_index as any,
-          childMomentId: child.id,
-          prevMomentId: null,
-          childDocumentId: child.documentId,
-          childCreatedAt: child.createdAt,
-          childSourceMetadata: child.sourceMetadata,
-          childTextForFallbackAnchors: childText,
-          macroAnchors: null,
+          childMoment: childRow as any,
+          candidateSets: [], // The linking orchestrator will fetch them if needed or we pass them
         });
 
-        if (proposal.proposedParentId) {
-           await addMoment({
-             ...child,
-             parentId: proposal.proposedParentId,
-             linkAuditLog: proposal.audit,
-           } as any, momentGraphContext);
-        }
-        
-        const outcome = proposal.proposedParentId ? "attached" : "no_candidate";
-
-        await db
-          .insertInto("simulation_run_link_decisions")
-          .values({
-            run_id: input.runId,
-            child_moment_id: row.moment_id,
-            r2_key: workUnit.r2Key,
-            stream_id: row.stream_id,
-            macro_index: row.macro_index as any,
-            phase: "deterministic_linking",
-            outcome: outcome,
-            rule_id: proposal.audit.ruleId ?? null,
-            parent_moment_id: proposal.proposedParentId ?? null,
-            evidence_json: proposal.audit.evidence ? JSON.stringify(proposal.audit.evidence) : null,
-            created_at: now,
-            updated_at: now,
-          })
-          .onConflict((oc) =>
-            oc.columns(["run_id", "child_moment_id"]).doUpdateSet({
-              outcome: outcome,
-              rule_id: proposal.audit.ruleId ?? null,
-              parent_moment_id: proposal.proposedParentId ?? null,
-              evidence_json: proposal.audit.evidence ? JSON.stringify(proposal.audit.evidence) : null,
-              updated_at: now,
-            } as any)
-          )
+        await db.insertInto("simulation_run_link_decisions").values({
+          run_id: input.runId,
+          child_moment_id: root.moment_id,
+          r2_key: workUnit.r2Key,
+          stream_id: root.stream_id,
+          macro_index: root.macro_index as any,
+          decision: built.decision,
+          evidence_json: JSON.stringify(built.evidence),
+          created_at: now,
+          updated_at: now,
+        } as any).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({
+          decision: built.decision,
+          evidence_json: JSON.stringify(built.evidence),
+          updated_at: now,
+        } as any)).execute();
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await log.error("item.error", { phase: "deterministic_linking", childMomentId: root.moment_id, r2Key: workUnit.r2Key, error: msg });
+        await db.updateTable("simulation_run_documents")
+          .set({ error_json: JSON.stringify({ error: msg }) as any, updated_at: now })
+          .where("run_id", "=", input.runId)
+          .where("r2_key", "=", workUnit.r2Key)
           .execute();
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      await log.error("item.error", { phase: "deterministic_linking", r2Key: workUnit.r2Key, error: msg });
-      await db.updateTable("simulation_run_documents")
-        .set({ error_json: JSON.stringify({ error: msg }) as any, updated_at: now })
-        .where("run_id", "=", input.runId)
-        .where("r2_key", "=", workUnit.r2Key)
-        .execute();
     }
 
     // Mark doc as processed for this phase
@@ -128,9 +81,14 @@ export const deterministic_linking_simulation: PipelineRegistryEntry = {
       .execute();
   },
 
-  async recoverZombies(context, input) {
-    // Standard recovery
-  }
+  web: {
+    routes: deterministicLinkingRoutes,
+    ui: {
+      drilldown: LinkDecisionsCard,
+    },
+  },
+
+  recoverZombies: (context, input) => recoverZombiesForPhase(context, { ...input, phase: "deterministic_linking" }),
 };
 
 registerPipeline(deterministic_linking_simulation);

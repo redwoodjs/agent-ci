@@ -143,6 +143,3 @@ Simulation runs were becoming permanently stalled in the `busy_running` state. T
 
 **Solution & Implementation**
 We modified the host runner's guard check in `runner.ts` to explicitly allow stale `busy_running` locks (older than 5 minutes) to proceed to the lock-breaking update. We also added document-level zombie recovery to the `micro_batches` sweeper and implemented a new diagnostic status endpoint at `GET /admin/simulation/run/:runId/debug/status` to identify stalled items. Architecture blueprints were updated to reflect these resiliency requirements.
-
-**Validation**
-Verified the "leaky lock" behavior by investigating stalled production run `2fb5b97d-e94a-42f3-ba82-95efe4eb7c60`. The fix was validated by confirming that the updated guard correctly identifies stale locks. We also verified the new diagnostic endpoint and the extended zombie sweep logic.

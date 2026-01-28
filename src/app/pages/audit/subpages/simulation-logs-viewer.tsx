@@ -24,17 +24,44 @@ export function SimulationLogsViewer({
   initialEventsText,
   initialRunText,
   logView,
-  logLink,
+  view,
 }: {
   runId: string;
   initialEventsText: string;
   initialRunText: string;
   logView: "events" | "run";
-  logLink: (next: "events" | "run") => string;
+  view: string | null;
 }) {
   const [eventsText, setEventsText] = useState(initialEventsText);
   const [runText, setRunText] = useState(initialRunText);
   const [lastCheck, setLastCheck] = useState<string>("");
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const logLink = (next: "events" | "run") => {
+    const params = new URLSearchParams();
+    params.set("runId", runId);
+    if (view) {
+      params.set("view", view);
+    }
+    if (next !== "events") {
+      params.set("logView", next);
+    }
+    return `/audit/simulation?${params.toString()}`;
+  };
+
+  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
+    const el = e.currentTarget;
+    // If the user is within 50px of the bottom, enable auto-scroll
+    const isAtBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 50;
+    setShouldAutoScroll(isAtBottom);
+  };
+
+  useEffect(() => {
+    if (shouldAutoScroll && textareaRef.current) {
+      textareaRef.current.scrollTop = textareaRef.current.scrollHeight;
+    }
+  }, [eventsText, runText, shouldAutoScroll, logView]);
   
   // Polling logic
   useEffect(() => {
@@ -92,6 +119,15 @@ export function SimulationLogsViewer({
               updated: {lastCheck.split("T")[1]?.slice(0, 8)}
             </span>
           ) : null}
+          {shouldAutoScroll ? (
+            <span className="float-right text-[10px] uppercase tracking-wider font-bold text-green-600 mr-4 mt-0.5">
+              • sticking to bottom
+            </span>
+          ) : (
+            <span className="float-right text-[10px] uppercase tracking-wider font-bold text-gray-400 mr-4 mt-0.5">
+              manual scroll
+            </span>
+          )}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -101,7 +137,9 @@ export function SimulationLogsViewer({
               <CopyTextButton text={runText} label="Copy run" />
             </div>
             <textarea
-              className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh]"
+              ref={textareaRef}
+              onScroll={handleScroll}
+              className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh] scroll-smooth"
               readOnly
               value={runText}
             />
@@ -112,7 +150,9 @@ export function SimulationLogsViewer({
               <CopyTextButton text={eventsText || ""} label="Copy events" />
             </div>
             <textarea
-              className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh]"
+              ref={textareaRef}
+              onScroll={handleScroll}
+              className="w-full border rounded p-2 text-xs font-mono min-h-[60vh] max-h-[80vh] scroll-smooth"
               readOnly
               value={eventsText || "(no events)"}
             />

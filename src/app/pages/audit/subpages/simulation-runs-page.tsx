@@ -515,7 +515,7 @@ async function SimulationRunsContent({
         initialEventsText={eventsText}
         initialRunText={safeStringify(run)}
         logView={logView}
-        logLink={logLink}
+        view={view}
       />
     </div>
   );

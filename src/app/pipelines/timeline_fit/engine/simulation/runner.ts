@@ -34,19 +34,10 @@ export const timeline_fit_simulation: PipelineRegistryEntry = {
 
     try {
       for (const root of roots) {
-        const childRaw = rootById.get(root.moment_id);
-        if (!childRaw || childRaw.parent_id) continue;
+        const child = rootById.get(root.moment_id);
+        if (!child || child.parentId) continue;
         
-        const momentGraphContext = { env: context.env, momentGraphNamespace: childRaw._namespace };
-        
-        const child = {
-            ...childRaw,
-            sourceMetadata: childRaw.source_metadata,
-            createdAt: childRaw.created_at,
-            documentId: childRaw.document_id,
-            summary: childRaw.summary,
-            title: childRaw.title,
-        };
+        const momentGraphContext = { env: context.env, momentGraphNamespace: child._namespace };
 
         const candidatesRow = await db.selectFrom("simulation_run_candidate_sets").select("candidates_json").where("run_id", "=", input.runId).where("child_moment_id", "=", root.moment_id).executeTakeFirst();
         const candidates = (candidatesRow?.candidates_json as any) ?? [];

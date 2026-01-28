@@ -51,6 +51,7 @@ export type PipelineRegistryEntry = {
   onTick: (context: SimulationDbContext, input: { runId: string; phaseIdx: number }) => Promise<{ status: string; currentPhase: string } | null>;
   // HANDLER context: Called by the queue worker to process a specific WorkUnit
   onExecute: (context: SimulationDbContext, input: { runId: string; workUnit: WorkUnit }) => Promise<void>;
+  web?: { routes?: any[]; ui?: { summary?: any; drilldown?: any } };
   recoverZombies: (context: SimulationDbContext, input: { runId: string }) => Promise<void>;
 };
 ```
@@ -58,7 +59,7 @@ export type PipelineRegistryEntry = {
 ### 3.2 The Watchdog (Heartbeat)
 To ensure the simulation doesn't stall due to worker failures or dropped messages, a **Resiliency Heartbeat** runs periodically (via cron).
 
-1.  **Heartbeat**: `processResiliencyHeartbeat` scans for active runs (`running`, `busy_running`, `awaiting_documents`).
+1.  **Heartbeat**: `processResiliencyHeartbeat` scans for active runs (`running`, `busy_running`, `awaiting_documents`, `advance`).
 2.  **Poke**: It enqueues a `simulation-advance` job for each active run.
 3.  **Lock Breaking**: `tickSimulationRun` will break a `busy_running` lock if the `updated_at` is older than 5 minutes. The host runner's guard check explicitly permits stale `busy_running` locks to bypass the early return.
 4.  **Zombie Recovery**: Before running the phase logic, the host calls `recoverZombies`.

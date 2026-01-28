@@ -65,9 +65,9 @@ export const deterministic_linking_simulation: PipelineRegistryEntry = {
           macroIndex: root.macro_index as number,
           childMomentId: root.moment_id,
           prevMomentId: prevRow?.moment_id ?? null,
-          childDocumentId: childRow.document_id,
-          childCreatedAt: childRow.created_at,
-          childSourceMetadata: childRow.source_metadata,
+          childDocumentId: childRow.documentId,
+          childCreatedAt: childRow.createdAt,
+          childSourceMetadata: childRow.sourceMetadata,
           macroAnchors: childRow.anchors ?? [],
           childTextForFallbackAnchors: `${childRow.title || ''}\n${childRow.summary || ''}`, 
         });

@@ -110,7 +110,20 @@ export async function fetchMomentsFromRun(
           ])
           .where("id", "in", distinctIds as any)
           .execute();
-        return rows.map(r => ({ ...r, _namespace: ns }));
+        return rows.map(r => ({
+          id: r.id,
+          documentId: r.document_id,
+          parentId: r.parent_id ?? undefined,
+          title: r.title,
+          summary: r.summary,
+          sourceMetadata: (r as any).source_metadata,
+          author: r.author,
+          createdAt: r.created_at,
+          importance: r.importance,
+          isSubject: Number(r.is_subject) === 1,
+          momentKind: r.moment_kind,
+          _namespace: ns
+        }));
       } catch (e) {
         // Ignore errors from missing namespaces or DB failures
         return [];

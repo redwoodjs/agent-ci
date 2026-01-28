@@ -77,3 +77,15 @@ The user successfully created the new v7 indexes after troubleshooting authentic
 ### Next Steps (Recommended)
 - **Fix Discord Synthesis**: Update the `macro_synthesis` adapter to include specific prompt instructions for Discord content (e.g., "Summarize this thread", "Identify key participants").
 - **Add Debug Visibility**: Implement a specific audit endpoint (`/admin/simulation/run/:runId/timeline-fit/:r2Key`) to expose the full `TimelineFitDecision` object, including raw scores and rejection reasons, to avoid guessing.
+
+## PR Description Draft
+
+### Problem
+The simulation's `candidate_sets` phase was consistently returning zero matches from Vectorize, despite successful upsert logs. This halted the timeline fit process. Additionally, we identified visibility gaps in the `timeline_fit` decision logs (`score: null`) and discovered that Discord content was failing to materialize moments.
+
+### Solution
+We migrated the vector indexes to a new v7 schema (`moment-index-v7`, `subject-index-v7`, `rag-index-v7`) to resolve the stalled/corrupted state of the previous v6 indexes. This ensures reliable candidate acquisition for the simulation.
+
+### Validation
+- Verified that `candidate_sets` logs now show successful match retrieval (e.g., 6 matches versus 0 previously).
+- Confirmed that filtering logic (e.g., self-reference, same-document) is now the primary reason for reduced candidate sets, rather than empty search results.

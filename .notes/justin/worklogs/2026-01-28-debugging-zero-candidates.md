@@ -53,3 +53,27 @@ The user successfully created the new v7 indexes after troubleshooting authentic
 
 **Next Steps:**
 - Verification: User to re-run simulation and confirm candidate acquisition.
+
+## Analyzed Simulation Log
+- **Zero Candidates fixed**: Logs show `candidate_sets` typically finding matches (e.g., 6 matches), but often filtering them down (Self, SameDoc, TimeInversion).
+- **Discord Missing**: `materialize_moments` shows 0 moments upserted for Discord items (R2 keys starting with `discord/`). This needs investigation.
+- **Score/Rank**: The JSON output in the prompt shows `score: null`. Use `grep` to find where this decision object is constructed.
+
+## 2026-01-28 16:40 - Investigation Summary and Status
+
+### Current Status: What is Working
+- **Index Migration**: The migration to `vectorize-v7` (moment, subject, rag) was successful.
+- **Candidate Acquisition**: The `candidate_sets` pipeline is now successfully retrieving raw matches from the vector index (e.g., seeing 6 matches in logs).
+- **Filtering Logic**: The filtering mechanisms (removing 'self', 'sameDoc', and 'timeInversion') are functioning as intended, which explains why some sets result in 0 candidates after filtering.
+
+### Current Status: What is Broken / Suspicious
+- **Discord Materialization**: Discord items (e.g., `discord/...`) are failing to produce any moments. The `macro_synthesis` phase reports `streamsProduced: 0`.
+- **Decision Visibility**: The `timeline_fit` decision logs show `score: null` and lack ranking details, making it impossible to verify why specific parents are chosen or rejected without deeper debugging.
+
+### Investigation Findings
+- **Discord Failure Root Cause**: Analysis suggests the generic `macro_synthesis` prompt does not effectively parse or summarize the Discord thread structure, leading to zero extracted streams.
+- **Score Data Flow**: Code analysis of `timelineFitDeepCore.ts` confirms that scores *are* passed through the logic chain, implying the `null` value in logs might be an artifact of how the decision object is constructed for the final log helper, or the vector search itself returning null scores (less likely given they are used for ranking).
+
+### Next Steps (Recommended)
+- **Fix Discord Synthesis**: Update the `macro_synthesis` adapter to include specific prompt instructions for Discord content (e.g., "Summarize this thread", "Identify key participants").
+- **Add Debug Visibility**: Implement a specific audit endpoint (`/admin/simulation/run/:runId/timeline-fit/:r2Key`) to expose the full `TimelineFitDecision` object, including raw scores and rejection reasons, to avoid guessing.

@@ -41,9 +41,9 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
              .values({
                 run_id: input.runId,
                 r2_key: k,
-                created_at: now,
+                processed_at: now,
                 updated_at: now,
-                changed: 1, // Assume changed until proven otherwise (so default polling logic picks it up if we reused standard logic)
+                changed: 1, // Assume changed until proven otherwise
                 processed_phases_json: JSON.stringify([]),
                 dispatched_phases_json: JSON.stringify([]),
              } as any)

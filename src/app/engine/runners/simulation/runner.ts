@@ -109,7 +109,8 @@ export async function advanceSimulationRunPhaseNoop(
     // This expects all phases to implement recoverZombies (enforced by type)
     await entry.recoverZombies(context, { runId });
 
-    const result = await entry.runner(context, {
+    // Supervisor Tick: Poll/Dispatch or Advance
+    const result = await entry.onTick(context, {
       runId,
       phaseIdx,
     });

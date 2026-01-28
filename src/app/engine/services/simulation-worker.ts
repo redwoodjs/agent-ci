@@ -39,13 +39,11 @@ export async function processSimulationJob(
         return;
       }
 
-      const phaseIdx = (simulationPhasesOrdered as any).indexOf(message.phase);
       const entry = pipelineRegistry[message.phase];
       if (entry) {
-        await entry.runner(context, {
+        await entry.onExecute(context, {
           runId: message.runId,
-          phaseIdx,
-          r2Key: message.r2Key,
+          workUnit: { kind: "document", r2Key: message.r2Key },
         });
 
         // Trigger advance check
@@ -60,11 +58,9 @@ export async function processSimulationJob(
     case "simulation-batch": {
       const entry = pipelineRegistry["micro_batches"];
       if (entry) {
-        await entry.runner(context, {
+        await entry.onExecute(context, {
           runId: message.runId,
-          phaseIdx: (simulationPhasesOrdered as any).indexOf("micro_batches"),
-          r2Key: message.r2Key,
-          batchIndex: message.batchIndex,
+          workUnit: { kind: "batch", r2Key: message.r2Key, batchIndex: message.batchIndex },
         });
 
         // Trigger advance check

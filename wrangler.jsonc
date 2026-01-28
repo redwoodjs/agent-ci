@@ -28,17 +28,17 @@
   "vectorize": [
     {
       "binding": "VECTORIZE_INDEX",
-      "index_name": "rag-index-v6",
+      "index_name": "rag-index-v7",
       "remote": true
     },
     {
       "binding": "SUBJECT_INDEX",
-      "index_name": "subject-index-v6",
+      "index_name": "subject-index-v7",
       "remote": true
     },
     {
       "binding": "MOMENT_INDEX",
-      "index_name": "moment-index-v6",
+      "index_name": "moment-index-v7",
       "remote": true
     }
   ],

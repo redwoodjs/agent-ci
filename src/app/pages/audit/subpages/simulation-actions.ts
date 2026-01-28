@@ -9,6 +9,8 @@ import {
   resumeSimulationRun,
   restartSimulationRunFromPhase,
   simulationPhases,
+  getSimulationRunById,
+  getSimulationRunEvents,
 } from "@/app/engine/databases/simulationState";
 
 async function listR2KeysHelper(
@@ -419,4 +421,67 @@ export async function autoAdvanceSimulationRunAction(input: {
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+function normalizePayload(payload: unknown): unknown {
+  if (typeof payload === "string") {
+    try {
+      return JSON.parse(payload);
+    } catch {
+      return payload;
+    }
+  }
+  return payload;
+}
+
+function formatEventsAsText(
+  events: Array<{
+    createdAt: string;
+    level: string;
+    kind: string;
+    payload: any;
+  }>
+): string {
+  const chronological = [...events].reverse();
+  const lines: string[] = [];
+  for (const e of chronological) {
+    const payload = normalizePayload(e.payload);
+    const payloadOneLine = (() => {
+      try {
+        return JSON.stringify(payload);
+      } catch {
+        return String(payload);
+      }
+    })();
+    lines.push(`${e.createdAt} [${e.level}] ${e.kind} ${payloadOneLine}`);
+  }
+  return lines.join("\n");
+}
+
+export async function getSimulationRunLogStateAction(input: { runId: string }) {
+  const runId = typeof input.runId === "string" ? input.runId.trim() : "";
+  if (!runId) {
+    return { success: false, error: "Missing runId" };
+  }
+  const context = { env: env as Cloudflare.Env, momentGraphNamespace: null };
+
+  const [run, eventsRes] = await Promise.all([
+    getSimulationRunById(context, { runId }),
+    getSimulationRunEvents(context, { runId, limit: 2000 }),
+  ]);
+
+  if (!run) {
+    return { success: false, error: "Run not found" };
+  }
+
+  const eventsText = formatEventsAsText(eventsRes);
+  
+  return {
+    success: true,
+    data: {
+      checkTime: new Date().toISOString(),
+      run,
+      eventsText,
+    }
+  };
 }

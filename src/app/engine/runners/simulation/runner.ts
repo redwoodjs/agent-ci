@@ -154,7 +154,11 @@ export async function advanceSimulationRunPhaseNoop(
     // Set the status explicitly (clearing busy_running)
     await db
       .updateTable("simulation_runs")
-      .set({ status: finalStatus, updated_at: new Date().toISOString() })
+      .set({
+        status: finalStatus,
+        current_phase: result?.currentPhase ?? phase,
+        updated_at: new Date().toISOString(),
+      } as any)
       .where("run_id", "=", runId)
       .execute();
 

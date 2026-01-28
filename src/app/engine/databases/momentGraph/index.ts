@@ -37,9 +37,17 @@ type DocumentAuditRow = Override<
   }
 >;
 
+export type MomentGraphLogger = {
+  info: (kind: string, payload: any) => Promise<void> | void;
+  warn: (kind: string, payload: any) => Promise<void> | void;
+  error: (kind: string, payload: any) => Promise<void> | void;
+  debug: (kind: string, payload: any) => Promise<void> | void;
+};
+
 export type MomentGraphContext = {
   env: Cloudflare.Env;
   momentGraphNamespace: string | null;
+  log?: MomentGraphLogger;
 };
 
 const MIN_VECTOR_IMPORTANCE_FOR_VECTORIZE = 0.4;
@@ -146,26 +154,46 @@ export async function addMoment(
       parentStartMs !== null &&
       parentStartMs > childStartMs
     ) {
-      console.log("[moment-linker] time-order rejected attachment", {
-        momentId: moment.id,
-        documentId: moment.documentId,
-        attemptedParentId: parentIdToWrite,
-        momentGraphNamespace,
-        parentStartMs,
-        childStartMs,
-      });
+      if (context.log) {
+        await context.log.info("moment-linker.time-order-rejected", {
+          momentId: moment.id,
+          documentId: moment.documentId,
+          attemptedParentId: parentIdToWrite,
+          momentGraphNamespace,
+          parentStartMs,
+          childStartMs,
+        });
+      } else {
+        console.log("[moment-linker] time-order rejected attachment", {
+          momentId: moment.id,
+          documentId: moment.documentId,
+          attemptedParentId: parentIdToWrite,
+          momentGraphNamespace,
+          parentStartMs,
+          childStartMs,
+        });
+      }
       parentIdToWrite = null;
     }
 
     if (parentIdToWrite) {
       const cycle = await wouldCreateCycle(moment.id, parentIdToWrite);
       if (cycle) {
-        console.log("[moment-linker] cycle-prevention rejected attachment", {
-          momentId: moment.id,
-          documentId: moment.documentId,
-          attemptedParentId: parentIdToWrite,
-          momentGraphNamespace,
-        });
+        if (context.log) {
+          await context.log.info("moment-linker.cycle-prevention-rejected", {
+            momentId: moment.id,
+            documentId: moment.documentId,
+            attemptedParentId: parentIdToWrite,
+            momentGraphNamespace,
+          });
+        } else {
+          console.log("[moment-linker] cycle-prevention rejected attachment", {
+            momentId: moment.id,
+            documentId: moment.documentId,
+            attemptedParentId: parentIdToWrite,
+            momentGraphNamespace,
+          });
+        }
         parentIdToWrite = null;
       }
     }
@@ -242,12 +270,21 @@ export async function addMoment(
         } as unknown as ChunkMetadata,
       };
 
-      console.log("[moment-linker] vector upsert (moment)", {
-        id: moment.id,
-        momentGraphNamespace,
-        documentId: moment.documentId,
-        type: "moment",
-      });
+      if (context.log) {
+        await context.log.info("moment-linker.vector-upsert", {
+          id: moment.id,
+          momentGraphNamespace,
+          documentId: moment.documentId,
+          type: "moment",
+        });
+      } else {
+        console.log("[moment-linker] vector upsert (moment)", {
+          id: moment.id,
+          momentGraphNamespace,
+          documentId: moment.documentId,
+          type: "moment",
+        });
+      }
       await context.env.MOMENT_INDEX.upsert([momentVector]);
 
       if (isSubject) {

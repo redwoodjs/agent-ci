@@ -24,6 +24,7 @@ import {
   getMomentGraphNamespacePrefixFromEnv,
 } from "../../../../engine/momentGraphNamespace";
 import { getMomentGraphDb } from "../../../../engine/simulation/db";
+import { addMoment } from "../../../../engine/databases/momentGraph";
 
 export async function runMaterializeMomentsAdapter(
   context: SimulationDbContext,
@@ -207,90 +208,11 @@ export async function runMaterializeMomentsAdapter(
               return await computeMicroPathsHash({ microPaths, sha256Hex });
             },
             upsertMoment: async ({ moment }) => {
-              const microPathsJson = Array.isArray(moment.microPaths)
-                ? JSON.stringify(moment.microPaths)
-                : null;
-              const sourceMetadataJson =
-                typeof moment.sourceMetadata === "object" && moment.sourceMetadata
-                  ? JSON.stringify(moment.sourceMetadata)
-                  : null;
-
-              await momentDb
-                .insertInto("moments")
-                .values({
-                  id: moment.id,
-                  document_id: moment.documentId,
-                  summary: moment.summary,
-                  title: moment.title,
-                  parent_id: null as any,
-                  micro_paths_json: (microPathsJson ?? null) as any,
-                  micro_paths_hash: ((moment.microPathsHash ?? null) as any) as any,
-                  importance:
-                    typeof moment.importance === "number" &&
-                    Number.isFinite(moment.importance)
-                      ? (moment.importance as any)
-                      : (null as any),
-                  link_audit_log: null as any,
-                  is_subject: (moment.isSubject === true ? 1 : 0) as any,
-                  subject_kind:
-                    typeof moment.subjectKind === "string"
-                      ? (moment.subjectKind as any)
-                      : (null as any),
-                  subject_reason:
-                    typeof moment.subjectReason === "string"
-                      ? (moment.subjectReason as any)
-                      : (null as any),
-                  subject_evidence_json: Array.isArray(moment.subjectEvidence)
-                    ? (JSON.stringify(moment.subjectEvidence) as any)
-                    : (null as any),
-                  moment_kind:
-                    typeof moment.momentKind === "string"
-                      ? (moment.momentKind as any)
-                      : (null as any),
-                  moment_evidence_json: Array.isArray(moment.momentEvidence)
-                    ? (JSON.stringify(moment.momentEvidence) as any)
-                    : (null as any),
-                  created_at: moment.createdAt,
-                  author: moment.author,
-                  source_metadata: (sourceMetadataJson ?? null) as any,
-                } as any)
-                .onConflict((oc: any) =>
-                  oc.column("id").doUpdateSet({
-                    summary: moment.summary,
-                    title: moment.title,
-                    parent_id: null as any,
-                    micro_paths_json: (microPathsJson ?? null) as any,
-                    micro_paths_hash: ((moment.microPathsHash ?? null) as any) as any,
-                    importance:
-                      typeof moment.importance === "number" &&
-                      Number.isFinite(moment.importance)
-                        ? (moment.importance as any)
-                        : (null as any),
-                    is_subject: (moment.isSubject === true ? 1 : 0) as any,
-                    subject_kind:
-                      typeof moment.subjectKind === "string"
-                        ? (moment.subjectKind as any)
-                        : (null as any),
-                    subject_reason:
-                      typeof moment.subjectReason === "string"
-                        ? (moment.subjectReason as any)
-                        : (null as any),
-                    subject_evidence_json: Array.isArray(moment.subjectEvidence)
-                      ? (JSON.stringify(moment.subjectEvidence) as any)
-                      : (null as any),
-                    moment_kind:
-                      typeof moment.momentKind === "string"
-                        ? (moment.momentKind as any)
-                        : (null as any),
-                    moment_evidence_json: Array.isArray(moment.momentEvidence)
-                      ? (JSON.stringify(moment.momentEvidence) as any)
-                      : (null as any),
-                    created_at: moment.createdAt,
-                    author: moment.author,
-                    source_metadata: (sourceMetadataJson ?? null) as any,
-                  } as any)
-                )
-                .execute();
+              await addMoment(moment as any, {
+                env: context.env,
+                momentGraphNamespace: effectiveNamespace ?? null,
+                log: input.log,
+              });
             },
             persistMaterializedMoment: async ({
               r2Key,

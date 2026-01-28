@@ -139,11 +139,11 @@ export async function runPhaseCandidateSets(
             });
             const matches = (results?.matches ?? []).map((m: any) => ({ id: m.id, score: m.score }));
             
-            await log.info("debug.vector_results", {
+            await log.info("debug.vector_raw_results", {
                 childMomentId: root.moment_id,
                 filterNamespace: childRow._namespace,
                 matchesCount: matches.length,
-                topMatch: matches[0] ? { id: matches[0].id, score: matches[0].score } : null
+                matches: matches.slice(0, 5) // Log top 5 for inspection
             });
 
             return { matches };
@@ -166,8 +166,14 @@ export async function runPhaseCandidateSets(
         childCreatedAt: childRow.created_at,
         childSourceMetadata: childRow.source_metadata ?? undefined,
         childText: queryText,
-        maxCandidates: 10,
-        vectorTopK: 20,
+        maxCandidates: 20, // Increased for debugging
+        vectorTopK: 50,    // Increased for debugging
+      });
+
+      await log.info("debug.candidate_set_result", {
+          childMomentId: root.moment_id,
+          candidateCount: built.candidates.length,
+          stats: built.stats
       });
       await db.insertInto("simulation_run_candidate_sets").values({ run_id: input.runId, child_moment_id: root.moment_id, r2_key: input.r2Key, stream_id: root.stream_id, macro_index: root.macro_index as any, candidates_json: JSON.stringify(built.candidates), stats_json: JSON.stringify(built.stats), created_at: now, updated_at: now }).onConflict(oc => oc.columns(["run_id", "child_moment_id"]).doUpdateSet({ candidates_json: JSON.stringify(built.candidates), stats_json: JSON.stringify(built.stats), updated_at: now } as any)).execute();
     } catch (e) {

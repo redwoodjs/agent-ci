@@ -36,6 +36,20 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
         });
 
         for (const k of keys) {
+          // Initialize tracking row immediately so count(*) completion check works
+          await db.insertInto("simulation_run_documents")
+             .values({
+                run_id: input.runId,
+                r2_key: k,
+                created_at: now,
+                updated_at: now,
+                changed: 1, // Assume changed until proven otherwise (so default polling logic picks it up if we reused standard logic)
+                processed_phases_json: JSON.stringify([]),
+                dispatched_phases_json: JSON.stringify([]),
+             } as any)
+             .onConflict(oc => oc.doNothing())
+             .execute();
+
           await queue.send({
             jobType: "simulation-document",
             runId: input.runId,

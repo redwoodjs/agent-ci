@@ -9,7 +9,7 @@ import { pipelineRegistry } from "../../simulation/allPipelines";
 // No longer need hardcoded phaseRunners mapping here
 
 
-export async function advanceSimulationRunPhaseNoop(
+export async function tickSimulationRun(
   context: SimulationDbContext,
   input: { runId: string; continueOnError?: boolean }
 ): Promise<{ status: string; currentPhase: string } | null> {
@@ -261,7 +261,7 @@ export async function autoAdvanceSimulationRun(
   let lastResult: { status: string; currentPhase: string } | null = null;
 
   while (Date.now() - startedAt < maxMs) {
-    const res = await advanceSimulationRunPhaseNoop(context, {
+    const res = await tickSimulationRun(context, {
       runId: input.runId,
       continueOnError,
     });

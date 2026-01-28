@@ -1,5 +1,5 @@
 import type { SimulationQueueMessage } from "../simulation/types";
-import { advanceSimulationRunPhaseNoop } from "../runners/simulation/runner";
+import { tickSimulationRun } from "../runners/simulation/runner";
 import { pipelineRegistry, simulationPhasesOrdered } from "../simulation/registry";
 import { getSimulationDb } from "../simulation/db";
 
@@ -19,7 +19,7 @@ export async function processSimulationJob(
   switch (message.jobType) {
     case "simulation-advance": {
       // Advance to the next phase (it will then enqueue docs/batches if refactored)
-      await advanceSimulationRunPhaseNoop(context, {
+      await tickSimulationRun(context, {
         runId: message.runId,
         continueOnError: true,
       });

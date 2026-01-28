@@ -40,6 +40,7 @@ export async function advanceSimulationRunPhaseNoop(
   if (
     row.status !== "running" &&
     row.status !== "awaiting_documents" &&
+    row.status !== "advance" &&
     !isStaleLock
   ) {
     return { status: row.status, currentPhase: row.current_phase };
@@ -116,12 +117,27 @@ export async function advanceSimulationRunPhaseNoop(
     });
 
     let finalStatus = result?.status ?? "running";
+    let currentPhase = result?.currentPhase ?? phase;
+
+    // Move to next phase if we're advancing, other we're done
+    if (finalStatus === "advance") {
+      const nextIdx = phaseIdx + 1;
+      if (nextIdx < simulationPhases.length) {
+        currentPhase = simulationPhases[nextIdx];
+        finalStatus = "running";
+        console.log(`[runner] Advancing run ${runId} from ${phase} to ${currentPhase}`);
+      } else {
+        finalStatus = "completed";
+        console.log(`[runner] Run ${runId} completed all phases`);
+      }
+    }
+
     if (finalStatus === "busy_running") {
       finalStatus = "running";
     }
 
+    // ... existing paused_on_error check ...
     if (finalStatus === "paused_on_error" && input.continueOnError) {
-      // If phase runner reported error but we want to continue, force advance to next phase
       const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
       if (nextPhase) {
         if ((context.env as any).ENGINE_INDEXING_QUEUE) {
@@ -145,10 +161,10 @@ export async function advanceSimulationRunPhaseNoop(
     }
 
     if (finalStatus === "running" && (context.env as any).ENGINE_INDEXING_QUEUE) {
-       await (context.env as any).ENGINE_INDEXING_QUEUE.send({
-         jobType: "simulation-advance",
-         runId,
-       });
+      await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+        jobType: "simulation-advance",
+        runId,
+      });
     }
 
     // Set the status explicitly (clearing busy_running)
@@ -156,13 +172,13 @@ export async function advanceSimulationRunPhaseNoop(
       .updateTable("simulation_runs")
       .set({
         status: finalStatus,
-        current_phase: result?.currentPhase ?? phase,
+        current_phase: currentPhase,
         updated_at: new Date().toISOString(),
       } as any)
       .where("run_id", "=", runId)
       .execute();
 
-    return { ...result, status: finalStatus, currentPhase: result?.currentPhase ?? phase };
+    return { ...result, status: finalStatus, currentPhase };
   } catch (error: any) {
     const msg = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;

@@ -80,43 +80,22 @@ src/app/
 - [x] Task 4: Verify `onExecute` behavior in all phase runners.
 - [x] Task 5: Implement and verify deep cache disabling across all layers.
 
-# PR
+# PR: Global Simulation Cache Bypass and Artifact Completeness
 
-## Standardize Simulation Polling and Enhance Supervisor Observability
+## Problem
+Despite improvements to supervisor orchestration, simulation runs continued to show data inconsistencies, such as "Untitled" moments with missing summaries and stale processing indicators. These issues were caused by persistent caching at multiple layers—ETag checks in ingestion, micro-batch lookups in processing adapters, and Moment ID reuse in the core engine—which incorrectly skipped the re-computation of artifacts for fresh simulation runs.
 
-### Problem
-We identified that simulation runs were stalling or entering infinite loops because of how the supervisor tracked progress across different phases. The system was aggressively filtering for documents that had changed since the last ingestion. While this optimization works for live processing, it created a critical gap in simulations. Since simulations populate their own isolated artifact tables, skipping unchanged documents meant those tables remained incomplete. Downstream logic would then find missing data, causing either silent stalls or incorrect phase transitions. Furthermore, the supervisor's logging was insufficient to diagnose these states, as it didn't clearly distinguish between idle heartbeats and active progress.
+## Solution
+We have introduced a global mechanism to bypass caching across the entire simulation pipeline, ensuring that every run produces a complete and verified set of results.
 
-### Solution
-We have standardized the polling mechanism to ensure every document in a simulation run is processed, regardless of its change status. This guarantees that all required artifacts are generated for every run, maintaining data integrity throughout the pipeline.
+The solution consists of several key components:
 
-The solution has several main parts:
+1.  **Global Environment Variable**: Introduced `SIMULATION_DISABLE_CACHING` to govern the processing flow. When enabled, it forces a "clean slate" execution by bypassing all major caching layers.
+2.  **Forced Re-computation**: Updated the ingestion, micro-batching, and synthesis phases to ignore previous ETags and content hashes. This ensures that every document is re-evaluated and every LLM-driven artifact is regenerated.
+3.  **Moment ID Isolation**: Modified the core engine to prevent the reuse of existing Moment IDs based on content hashes. This ensures that new simulation runs generate fresh records, preventing the "ghosting" of incomplete titles or summaries from previous failed attempts.
+4.  **Complete Traceability**: By forcing a clean run, we guarantee that the simulation artifact tables are fully populated with fresh data, removing any possibility of "silent skips" due to legacy cache state.
 
-1.  **Uniform Polling Logic**: We consolidated the document selection and completion checks into a shared factory. This removes the incorrect filters and ensures consistent behavior across all document-driven phases.
-2.  **Auditability and Heartbeat**: We renamed the high-level supervisor events to better reflect their role as heartbeats and added dedicated logs for phase transitions.
-3.  **Work Dispatch Visibility**: The system now explicitly logs the count and samples of work units being dispatched. This provides clear proof of progress and allows for easier detection of processing loops.
-4.  **Resiliency**: We implemented lock timeouts and standard cooldowns to prevent a single failure from halting the entire supervisor indefinitely.
-
-This approach prioritizes the reliability of simulation results over the speed of localized re-runs, ensuring that every run produces a complete and auditable evidence stream.
-
-# PR
-
-## Introduce Global Simulation Caching Toggle
-
-### Problem
-Despite improvements to supervisor polling and document selection, we suspected that the underlying caching logic at individual processing stages was still contributing to simulation instability. Identifying exactly where stale data or incorrect cache hits were occurring was difficult, and there was no mechanism to force a completely clean simulation run without manually clearing database tables or changing environment prefixes.
-
-### Solution
-We have introduced a global environment toggle to completely disable caching throughout the simulation pipeline. This allows for a "clean slate" execution path whenever absolute data integrity and fresh re-computation are required.
-
-The solution has several main parts:
-
-1.  **Global Environment Variable**: Added `SIMULATION_DISABLE_CACHING` to our configuration. When set, it forces the system to bypass all major caching layers.
-2.  **Forced Ingestion Diff**: In the ingestion phase, the system now ignores existing checksums/ETags and marks every document as changed. This ensures that the simulation treats every item as a new unit of work.
-3.  **Bypassing Micro-Moment and Synthesis Caches**: Local caching of micro-batch results and macro-synthesis hashes is now conditionally bypassed. This forces the LLM-driven components and synthesis logic to re-evaluate all inputs.
-4.  **Complete Traceability**: By ensuring every stage re-computes its results, we guarantee that the simulation artifact tables are fully populated with fresh data, removing any possibility of "silent skips" due to legacy cache state.
-
-This toggle serves as a baseline for debugging simulation behavior and can be flipped back in production environments once the reliability of the optimized paths is confirmed.
+This toggle ensures that simulations produce reliable, traceable evidence for every document in a run, and can be adjusted as needed for performance or debugging.
 
 ## Summary of Changes
 
@@ -139,3 +118,20 @@ This toggle serves as a baseline for debugging simulation behavior and can be fl
 
 ### Supervisor Auditability
 - [MODIFY] `src/app/engine/runners/simulation/runner.ts`: Renamed supervisor events to `host.phase.tick` and added `host.phase.transition` for explicit state tracking.
+
+# PR: Global Simulation Cache Bypass and Artifact Completeness
+
+## Problem
+Despite improvements to supervisor orchestration, simulation runs continued to show data inconsistencies, such as "Untitled" moments with missing summaries and stale processing indicators. These issues were caused by persistent caching at multiple layers—ETag checks in ingestion, micro-batch lookups in processing adapters, and Moment ID reuse in the core engine—which incorrectly skipped the re-computation of artifacts for fresh simulation runs.
+
+## Solution
+We have introduced a global mechanism to bypass caching across the entire simulation pipeline, ensuring that every run produces a complete and verified set of results.
+
+The solution consists of several key components:
+
+1.  **Global Environment Variable**: Introduced `SIMULATION_DISABLE_CACHING` to govern the processing flow. When enabled, it forces a "clean slate" execution by bypassing all major caching layers.
+2.  **Forced Re-computation**: Updated the ingestion, micro-batching, and synthesis phases to ignore previous ETags and content hashes. This ensures that every document is re-evaluated and every LLM-driven artifact is regenerated.
+3.  **Moment ID Isolation**: Modified the core engine to prevent the reuse of existing Moment IDs based on content hashes. This ensures that new simulation runs generate fresh records, preventing the "ghosting" of incomplete titles or summaries from previous failed attempts.
+4.  **Complete Traceability**: By forcing a clean run, we guarantee that the simulation artifact tables are fully populated with fresh data, removing any possibility of "silent skips" due to legacy cache state.
+
+This toggle ensures that simulations produce reliable, traceable evidence for every document in a run, and can be adjusted as needed for performance or debugging.

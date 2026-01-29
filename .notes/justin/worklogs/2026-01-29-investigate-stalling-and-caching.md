@@ -74,7 +74,26 @@ src/app/
 - Verify that the simulation completes and `simulation_run_materialized_moments` is fully populated.
 
 ## 8. Tasks
-- [ ] Task 1: Update Polling Logic in `orchestration.ts`
-- [ ] Task 2: Enhance Supervisor Logging in `runner.ts`
-- [ ] Task 3: Add Dispatch Logging to `orchestration.ts`
-- [ ] Task 4: Verify `onExecute` behavior in all phase runners.
+- [x] Task 1: Update Polling Logic in `orchestration.ts`
+- [x] Task 2: Enhance Supervisor Logging in `runner.ts`
+- [x] Task 3: Add Dispatch Logging to `orchestration.ts`
+- [x] Task 4: Verify `onExecute` behavior in all phase runners.
+
+# PR
+
+## Standardize Simulation Polling and Enhance Supervisor Observability
+
+### Problem
+We identified that simulation runs were stalling or entering infinite loops because of how the supervisor tracked progress across different phases. The system was aggressively filtering for documents that had changed since the last ingestion. While this optimization works for live processing, it created a critical gap in simulations. Since simulations populate their own isolated artifact tables, skipping unchanged documents meant those tables remained incomplete. Downstream logic would then find missing data, causing either silent stalls or incorrect phase transitions. Furthermore, the supervisor's logging was insufficient to diagnose these states, as it didn't clearly distinguish between idle heartbeats and active progress.
+
+### Solution
+We have standardized the polling mechanism to ensure every document in a simulation run is processed, regardless of its change status. This guarantees that all required artifacts are generated for every run, maintaining data integrity throughout the pipeline.
+
+The solution has several main parts:
+
+1.  **Uniform Polling Logic**: We consolidated the document selection and completion checks into a shared factory. This removes the incorrect filters and ensures consistent behavior across all document-driven phases.
+2.  **Auditability and Heartbeat**: We renamed the high-level supervisor events to better reflect their role as heartbeats and added dedicated logs for phase transitions.
+3.  **Work Dispatch Visibility**: The system now explicitly logs the count and samples of work units being dispatched. This provides clear proof of progress and allows for easier detection of processing loops.
+4.  **Resiliency**: We implemented lock timeouts and standard cooldowns to prevent a single failure from halting the entire supervisor indefinitely.
+
+This approach prioritizes the reliability of simulation results over the speed of localized re-runs, ensuring that every run produces a complete and auditable evidence stream.

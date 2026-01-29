@@ -29,7 +29,7 @@ export async function runMacroClassificationAdapter(
       debug: (kind: string, payload: any) => Promise<void>;
     };
     ports: { callLLM: (prompt: string) => Promise<string> };
-  }
+  },
 ): Promise<{
   docsProcessed: number;
   streamsIn: number;
@@ -46,16 +46,16 @@ export async function runMacroClassificationAdapter(
     typeof macroMaxPerStreamRaw === "string"
       ? Number.parseInt(macroMaxPerStreamRaw, 10)
       : typeof macroMaxPerStreamRaw === "number"
-      ? macroMaxPerStreamRaw
-      : 12;
+        ? macroMaxPerStreamRaw
+        : 12;
 
   const macroMinImportanceRaw = env.MACRO_MOMENT_MIN_IMPORTANCE;
   const macroMinImportance =
     typeof macroMinImportanceRaw === "string"
       ? Number.parseFloat(macroMinImportanceRaw)
       : typeof macroMinImportanceRaw === "number"
-      ? macroMinImportanceRaw
-      : 0;
+        ? macroMinImportanceRaw
+        : 0;
 
   const noisePatternsFromEnvRaw = env.MACRO_MOMENT_NOISE_PATTERNS;
   const noisePatternStringsFromEnv =
@@ -187,7 +187,7 @@ export async function runMacroClassificationAdapter(
             gating_json: JSON.stringify(perStreamAudit),
             classification_json: JSON.stringify(perStreamClassifications),
             updated_at: input.now,
-          } as any)
+          } as any),
         )
         .execute();
     } catch (e) {
@@ -209,4 +209,3 @@ export async function runMacroClassificationAdapter(
     failures,
   };
 }
-

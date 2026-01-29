@@ -15,7 +15,7 @@ export function runStandardDocumentPolling(options: {
 }) {
   return async (
     context: SimulationDbContext,
-    input: { runId: string }
+    input: { runId: string },
   ): Promise<{ status: string; currentPhase: string } | null> => {
     const db = getSimulationDb(context);
     const isDev = !!process.env.VITE_IS_DEV_SERVER;
@@ -33,7 +33,7 @@ export function runStandardDocumentPolling(options: {
         eb.or([
           eb("error_json", "is", null),
           eb("updated_at", "<", cooldownDate),
-        ])
+        ]),
       )
       .execute();
 
@@ -41,7 +41,10 @@ export function runStandardDocumentPolling(options: {
     const undispatched = pollableDocs.filter((doc) => {
       const processed = (doc.processed_phases_json || []) as string[];
       const dispatched = (doc.dispatched_phases_json || []) as string[];
-      return !processed.includes(options.phase) && !dispatched.includes(options.phase);
+      return (
+        !processed.includes(options.phase) &&
+        !dispatched.includes(options.phase)
+      );
     });
 
     if (undispatched.length > 0) {
@@ -50,23 +53,26 @@ export function runStandardDocumentPolling(options: {
         runId: input.runId,
         level: "info",
         kind: "host.dispatch.work",
-        payload: { 
-          phase: options.phase, 
-          count: undispatched.length, 
-          sample: undispatched[0].r2_key 
+        payload: {
+          phase: options.phase,
+          count: undispatched.length,
+          sample: undispatched[0].r2_key,
         },
       });
 
       for (const doc of undispatched) {
         // Update dispatched_phases_json
-        const currentDispatched = (doc.dispatched_phases_json || []) as string[];
-        const nextDispatched = Array.from(new Set([...currentDispatched, options.phase]));
-        
+        const currentDispatched = (doc.dispatched_phases_json ||
+          []) as string[];
+        const nextDispatched = Array.from(
+          new Set([...currentDispatched, options.phase]),
+        );
+
         await db
           .updateTable("simulation_run_documents")
-          .set({ 
-            dispatched_phases_json: nextDispatched as any, 
-            updated_at: new Date().toISOString() 
+          .set({
+            dispatched_phases_json: nextDispatched as any,
+            updated_at: new Date().toISOString(),
           })
           .where("run_id", "=", input.runId)
           .where("r2_key", "=", doc.r2_key)
@@ -90,10 +96,10 @@ export function runStandardDocumentPolling(options: {
       .select(["processed_phases_json", "changed"])
       .where("run_id", "=", input.runId)
       .execute();
-      
+
     const allProcessed = totalDocs.every((doc) => {
-        const processed = (doc.processed_phases_json || []) as string[];
-        return processed.includes(options.phase);
+      const processed = (doc.processed_phases_json || []) as string[];
+      return processed.includes(options.phase);
     });
 
     if (allProcessed && totalDocs.length > 0) {
@@ -102,7 +108,7 @@ export function runStandardDocumentPolling(options: {
 
     // Special case: if no docs were found at all, advance
     if (totalDocs.length === 0) {
-        return { status: "advance", currentPhase: options.phase };
+      return { status: "advance", currentPhase: options.phase };
     }
 
     return { status: "awaiting_documents", currentPhase: options.phase };

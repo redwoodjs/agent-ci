@@ -10,7 +10,7 @@ export type MacroSynthesisOrchestratorPorts = {
     options?: {
       macroSynthesisPromptContext?: string | null;
       auditSink?: (event: any) => void;
-    }
+    },
   ) => Promise<Array<{ streamId: string; macroMoments: any[] }>>;
   extractAnchorsFromStreams: (input: { streams: any[] }) => string[];
 };
@@ -31,7 +31,8 @@ export async function computeMacroSynthesisForDocument(input: {
   auditEvents: any[];
 }> {
   const microStreamHash =
-    typeof input.microStreamHash === "string" && input.microStreamHash.length > 0
+    typeof input.microStreamHash === "string" &&
+    input.microStreamHash.length > 0
       ? input.microStreamHash
       : await input.ports.computeMicroStreamHash({
           batches: input.plannedBatches,
@@ -58,7 +59,7 @@ export async function computeMacroSynthesisForDocument(input: {
       auditSink: (event) => {
         auditEvents.push(event);
       },
-    }
+    },
   );
 
   const anchors = input.ports.extractAnchorsFromStreams({ streams });
@@ -161,18 +162,26 @@ export async function runMacroSynthesisForR2Key(input: {
     return { kind: "reused" };
   }
 
-  const inputs = await input.ports.getMacroSynthesisInputs({ r2Key: input.r2Key });
+  const inputs = await input.ports.getMacroSynthesisInputs({
+    r2Key: input.r2Key,
+  });
 
   const existingMicroMoments = await input.ports.loadMicroMomentsForDocument({
     documentId: input.r2Key,
     effectiveNamespace: input.effectiveNamespace,
   });
 
-  const microItems: Array<{ path: string; summary: string; createdAt: string }> = [];
+  const microItems: Array<{
+    path: string;
+    summary: string;
+    createdAt: string;
+  }> = [];
   for (const b of plannedBatches) {
     const prefixPath = `chunk-batch:${b.batchHash}:`;
     const fromMomentGraph = existingMicroMoments
-      .filter((m) => typeof m?.path === "string" && m.path.startsWith(prefixPath))
+      .filter(
+        (m) => typeof m?.path === "string" && m.path.startsWith(prefixPath),
+      )
       .map((m) => ({
         path: String(m.path),
         summary: String(m.summary ?? "").trim(),
@@ -259,4 +268,3 @@ export async function runMacroSynthesisForR2Key(input: {
     streams: normalizedStreams,
   };
 }
-

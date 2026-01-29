@@ -111,6 +111,9 @@ This toggle ensures that simulations produce reliable, traceable evidence for ev
 ### Core Engine (Moment Ghosting)
 - [MODIFY] `src/app/engine/engine.ts`: Bypassed `findMomentByMicroPathsHash` to prevent ID reuse and "Untitled" results.
 
+### Documentation & Ops
+- [CREATE] `docs/dev-recipes/purge-production-queues.md`: Added recipe for clearing clogged production queues.
+
 # PR: Finalize Simulation Cache Bypass (Missed Layers)
 
 ## Problem

@@ -78,6 +78,7 @@ src/app/
 - [x] Task 2: Enhance Supervisor Logging in `runner.ts`
 - [x] Task 3: Add Dispatch Logging to `orchestration.ts`
 - [x] Task 4: Verify `onExecute` behavior in all phase runners.
+- [x] Task 5: Implement and verify deep cache disabling across all layers.
 
 # PR
 
@@ -116,3 +117,25 @@ The solution has several main parts:
 4.  **Complete Traceability**: By ensuring every stage re-computes its results, we guarantee that the simulation artifact tables are fully populated with fresh data, removing any possibility of "silent skips" due to legacy cache state.
 
 This toggle serves as a baseline for debugging simulation behavior and can be flipped back in production environments once the reliability of the optimized paths is confirmed.
+
+## Summary of Changes
+
+### Configuration
+- [MODIFY] `wrangler.jsonc`: Added `SIMULATION_DISABLE_CACHING: "1"` to global vars.
+- [MODIFY] `worker-configuration.d.ts`: Added `SIMULATION_DISABLE_CACHING` to `Env` and `ProcessEnv` types.
+
+### Orchestration & Polling
+- [MODIFY] `src/app/engine/simulation/orchestration.ts`: Removed `changed = 1` filtering from polling and completion logic. Added `host.dispatch.work` event.
+
+### Phase Adapters & Runners
+- [MODIFY] `src/app/pipelines/ingest_diff/engine/simulation/runner.ts`: Bypasses ETag lookup when caching is disabled, forcing `changed: true`.
+- [MODIFY] `src/app/pipelines/micro_batches/engine/simulation/adapter.ts`: Explicitly bypasses `loadMicroBatchCache` when caching is disabled (fixes reported log issue).
+- [MODIFY] `src/app/pipelines/macro_synthesis/engine/simulation/adapter.ts`: Bypasses `loadPreviousMicroStreamHash` when caching is disabled.
+
+### Core Engine
+- [MODIFY] `src/app/engine/engine.ts`:
+  - Bypasses micro-moment cache lookup in `loadMicroBatchCache` port.
+  - Bypasses `findMomentByMicroPathsHash` lookup when re-materializing moments, ensuring fresh Moment IDs and re-computation of parents/importance.
+
+### Supervisor Auditability
+- [MODIFY] `src/app/engine/runners/simulation/runner.ts`: Renamed supervisor events to `host.phase.tick` and added `host.phase.transition` for explicit state tracking.

@@ -65,9 +65,9 @@ export const deterministic_linking_simulation: PipelineRegistryEntry = {
           macroIndex: root.macro_index as number,
           childMomentId: root.moment_id,
           prevMomentId: prevRow?.moment_id ?? null,
-          childDocumentId: childRow.documentId,
-          childCreatedAt: childRow.createdAt,
-          childSourceMetadata: childRow.sourceMetadata,
+          childDocumentId: childRow.document_id,
+          childCreatedAt: childRow.created_at,
+          childSourceMetadata: childRow.source_metadata,
           macroAnchors: childRow.anchors ?? [],
           childTextForFallbackAnchors: `${childRow.title || ''}\n${childRow.summary || ''}`, 
         });
@@ -75,8 +75,17 @@ export const deterministic_linking_simulation: PipelineRegistryEntry = {
         if (decision.proposedParentId) {
              const momentGraphContext = { env: context.env, momentGraphNamespace: effectiveNamespace ?? null };
              await addMoment({
-                 ...childRow,
+                 id: childRow.id,
+                 documentId: childRow.document_id,
                  parentId: decision.proposedParentId,
+                 title: childRow.title,
+                 summary: childRow.summary,
+                 author: childRow.author,
+                 createdAt: childRow.created_at,
+                 sourceMetadata: childRow.source_metadata,
+                 momentKind: childRow.moment_kind,
+                 importance: childRow.importance,
+                 isSubject: Number(childRow.is_subject) === 1,
                  linkAuditLog: decision.audit
              } as any, momentGraphContext);
         }

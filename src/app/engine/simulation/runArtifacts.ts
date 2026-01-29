@@ -110,20 +110,7 @@ export async function fetchMomentsFromRun(
           ])
           .where("id", "in", distinctIds as any)
           .execute();
-        return rows.map(r => ({
-          id: r.id,
-          documentId: r.document_id,
-          parentId: r.parent_id ?? undefined,
-          title: r.title,
-          summary: r.summary,
-          sourceMetadata: (r as any).source_metadata,
-          author: r.author,
-          createdAt: r.created_at,
-          importance: r.importance,
-          isSubject: Number(r.is_subject) === 1,
-          momentKind: r.moment_kind,
-          _namespace: ns
-        }));
+        return rows.map(r => ({ ...r, _namespace: ns }));
       } catch (e) {
         // Ignore errors from missing namespaces or DB failures
         return [];
@@ -644,9 +631,11 @@ export async function getSimulationRunCandidateSets(
       ? ((r as any).candidates_json as any[])
       : [];
     const candidates = rawCandidates.map((c) => {
-      const details = detailsById.get(c.momentId);
+      const id = c.id || c.momentId;
+      const details = detailsById.get(id);
       return {
         ...c,
+        momentId: id,
         title: details?.title ?? null,
         summary: details?.summary ?? null,
       };
@@ -727,7 +716,7 @@ export async function getSimulationRunTimelineFitDecisions(
     const decisions = (r as any).decisions_json;
     if (Array.isArray(decisions)) {
       for (const d of decisions) {
-        if (d.candidateMomentId) momentIds.add(d.candidateMomentId);
+        if (d.candidateId) momentIds.add(d.candidateId);
       }
     }
   }
@@ -748,7 +737,7 @@ export async function getSimulationRunTimelineFitDecisions(
       ? ((r as any).decisions_json as any[])
       : [];
     const decisions = rawDecisions.map((d) => {
-      const details = detailsById.get(d.candidateMomentId);
+      const details = detailsById.get(d.candidateId);
       return {
         ...d,
         candidateTitle: details?.title ?? null,

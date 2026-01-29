@@ -35,7 +35,7 @@ export const timeline_fit_simulation: PipelineRegistryEntry = {
     try {
       for (const root of roots) {
         const child = rootById.get(root.moment_id);
-        if (!child || child.parentId) continue;
+        if (!child || child.parent_id) continue;
         
         const momentGraphContext = { env: context.env, momentGraphNamespace: child._namespace };
 
@@ -44,12 +44,19 @@ export const timeline_fit_simulation: PipelineRegistryEntry = {
         const candidateIds = candidates.map((c: any) => c.id);
 
         const deepCandidatesList = candidateIds.length > 0 ? await fetchMomentsFromRun(context, input.runId, candidateIds) : [];
+        const candidatesForProposal = deepCandidatesList.map(r => ({
+           id: r.id,
+           score: candidates.find((c: any) => c.id === r.id)?.score ?? null,
+           documentId: r.document_id,
+           title: r.title,
+           summary: r.summary
+        }));
 
         const proposal = await computeTimelineFitDecision({
           ports: { callLLM: (p) => callLLM(p, "slow-reasoning", { temperature: 0 }) },
           childMomentId: root.moment_id,
           childText: `${child.title ?? ""}\n${child.summary ?? ""}`.trim(),
-          candidates: deepCandidatesList as any,
+          candidates: candidatesForProposal as any,
           useLlmVeto: true,
           maxAnchorTokens: 24,
           maxSharedAnchorTokens: 12,
@@ -72,8 +79,17 @@ export const timeline_fit_simulation: PipelineRegistryEntry = {
           } as any;
           await addMoment(
             {
-              ...child,
+              id: child.id,
+              documentId: child.document_id,
               parentId: proposal.chosenParentId,
+              title: child.title,
+              summary: child.summary,
+              author: child.author,
+              createdAt: child.created_at,
+              sourceMetadata: child.source_metadata,
+              momentKind: child.moment_kind,
+              importance: child.importance,
+              isSubject: Number(child.is_subject) === 1,
               linkAuditLog,
             } as any,
             momentGraphContext

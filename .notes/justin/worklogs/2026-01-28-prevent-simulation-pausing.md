@@ -166,6 +166,26 @@ The user pointed out that the polling and cooldown logic was being repeated acro
   - `onTick`: Supervisor context (Heartbeat).
   - `onExecute`: Handler context (Queue).
 
+
+## Discovered evidence for cycles and untitled candidates
+
+We performed a deep dive into the code and found concrete evidence for the reported issues:
+
+1. **Untitled Candidates (ID Mismatch)**:
+   - In `getSimulationRunCandidateSets` ([runArtifacts.ts:L629](file:///Users/justin/rw/worktrees/machinen_fix-improve-moment-graph/src/app/engine/simulation/runArtifacts.ts#L629)), the code looks for `c.momentId` in the `candidates_json` blob.
+   - However, the `candidate_sets` runner stores candidates using the `id` property from `buildCandidateSet` ([candidateSetsCore.ts:L123](file:///Users/justin/rw/worktrees/machinen_fix-improve-moment-graph/src/app/engine/lib/phaseCores/candidateSetsCore.ts#L123)).
+   - This prevents metadata lookup, resulting in `(Untitled Candidate)`.
+
+2. **Linking Cycles (Casing Mismatch)**:
+   - The cycle prevention logic in `buildCandidateSet` ([candidateSetsCore.ts:L112](file:///Users/justin/rw/worktrees/machinen_fix-improve-moment-graph/src/app/engine/lib/phaseCores/candidateSetsCore.ts#L112)) relies on `row.created_at` and `row.source_metadata`.
+   - Because we standardized `fetchMomentsFromRun` to return camelCase (`createdAt`, `sourceMetadata`), these properties are `undefined` when accessed via snake_case.
+   - This makes `parentStartMs` null, causing the time-inversion check ([L114](file:///Users/justin/rw/worktrees/machinen_fix-improve-moment-graph/src/app/engine/lib/phaseCores/candidateSetsCore.ts#L114)) to be bypassed. Newer moments can now be selected as parents, creating cycles.
+
+3. **Broken Parent Check in Runner**:
+   - In the `candidate_sets` simulation runner ([runner.ts:L35](file:///Users/justin/rw/worktrees/machinen_fix-improve-moment-graph/src/app/pipelines/candidate_sets/engine/simulation/runner.ts#L35)), we check `childRow.parent_id`. Since `fetchMomentsFromRun` returns `parentId`, this check always fails, potentially leading to redundant processing of already-linked moments.
+
+We verified that `rwsdk/db` handles JSON parsing, so the "missing JSON parsing" hypothesis was incorrect. The issue is purely property naming inconsistency.
+
 ### [NEW] `orchestration.ts` (Shared Polling)
 - `runStandardDocumentPolling`: A factory that returns a standard `onTick` implementation for document-based phases. Handles cooldown logic and queue dispatching.
 

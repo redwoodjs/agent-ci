@@ -68,7 +68,7 @@ src/app/engine/plugins/
 - [x] [MODIFY] `githubPlugin.splitDocumentIntoChunks` to return `null` on non-match.
 - [x] [MODIFY] `discordPlugin.splitDocumentIntoChunks` to return `null` on non-match.
 - [x] [MODIFY] `cursorPlugin.splitDocumentIntoChunks` to return `null` on non-match.
-- [ ] Verify fix in simulation run.
+- [x] Verify fix in simulation run.
 
 ## Received plan approval and noted skepticism regarding the "false match" theory
 We discussed the findings, and we decided to proceed with the plan to fix the `splitDocumentIntoChunks` return values. We noted some skepticism about whether this is the *only* issue, but we agreed it must be resolved to rule out the possibility of a bottleneck in the plugin orchestrator. We are now proceeding to Step 6 (Revise Architecture Blueprint) to codify this plugin contract.
@@ -78,3 +78,39 @@ We created `docs/blueprints/plugin-system.md` to explicitly define the `First-Ma
 
 ## Completed Step 7: Implementation
 We updated `src/app/engine/types.ts` to allow `null` for the `splitDocumentIntoChunks` plugin hook. We then modified `github.ts`, `discord.ts`, and `cursor.ts` to return `null` instead of `[]` when the document source does not match the plugin's intended type. We also fixed a minor typing issue in `CursorConversationLatestJson` that was causing unrelated lint errors in `cursor.ts`. We are now ready for verification.
+
+## Completed Step 8: Verification
+We ran a simulation run and confirmed that Discord documents are now producing non-empty moment streams. We also observed that micro-moment batches are being generated for Discord, which were previously missing. 
+
+### Verified Output Excerpt:
+```text
+discord/679514959968993311/1307974274145062912/2025-05-24.jsonl
+stream_hash=98c82b551d… use_llm=true
+Stream: stream-1
+[Discord Channel] Server Action Redirect Issue Identified
+In a Discord channel, @arimendelow raised a question about why a 30x response could not be returned...
+```
+
+The fix is confirmed. We are now proceeding to Final Review and PR drafting.
+
+## Completed Step 10: Draft PR Description
+We drafted the narrative PR description and recorded the successful verification. The fix addresses a critical logic error in the plugin system that was suppressing moment generation for non-GitHub sources.
+
+---
+
+### PR Title: Fix Plugin Orchestrator "False Match" Bug in Chunking Phase
+
+### Narrative
+This PR resolves an issue where non-GitHub documents (specifically Discord) were failing to produce moment streams in simulations. The investigation revealed that the `githubPlugin.splitDocumentIntoChunks` hook was incorrectly returning an empty array `[]` when processing documents from other sources. Because the engine's `runFirstMatchHook` orchestrator treats any non-null result as a successful match, it stopped searching for handlers and returned zero chunks for all Discord documents, effectively skipping them in the `micro_batches` phase.
+
+### Rationale
+Plugins in a "First-Match" hook must explicitly return `null` when they do not handle a document to allow the orchestrator to fall through to other plugins. Returning `[]` (which is truthy/non-null) incorrectly signals that the plugin "handled" the document but found no data.
+
+### Changes
+- **Core Types**: Updated `splitDocumentIntoChunks` in the `Plugin` interface to allow `null` returns.
+- **Plugins**: Modified `githubPlugin`, `discordPlugin`, and `cursorPlugin` to return `null` on source non-match in the chunking phase.
+- **Architecture**: Created `docs/blueprints/plugin-system.md` to codify this hook contract and prevent future regressions.
+- **Fix**: Resolved a minor generation event typing bug in `CursorConversationLatestJson`.
+
+### Verification Results
+A simulation run confirmed that Discord documents now proceed past chunking, generate micro-moment batches, and produce rich macro-moment streams. GitHub and Cursor processing remains unaffected.

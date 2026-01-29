@@ -8,10 +8,9 @@ import { pipelineRegistry } from "../../simulation/allPipelines";
 
 // No longer need hardcoded phaseRunners mapping here
 
-
 export async function tickSimulationRun(
   context: SimulationDbContext,
-  input: { runId: string; continueOnError?: boolean }
+  input: { runId: string; continueOnError?: boolean },
 ): Promise<{ status: string; currentPhase: string } | null> {
   const db = getSimulationDb(context);
   const runId =
@@ -35,7 +34,8 @@ export async function tickSimulationRun(
   }
 
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-  const isStaleLock = row.status === "busy_running" && row.updated_at < fiveMinutesAgo;
+  const isStaleLock =
+    row.status === "busy_running" && row.updated_at < fiveMinutesAgo;
 
   if (
     row.status !== "running" &&
@@ -49,7 +49,7 @@ export async function tickSimulationRun(
   // Atomically set status to busy_running to prevent concurrent advancement
   // We allow breaking a "busy_running" lock if it hasn't been updated for more than 5 minutes
   const now = new Date().toISOString();
-  
+
   await db
     .updateTable("simulation_runs")
     .set({
@@ -57,17 +57,21 @@ export async function tickSimulationRun(
       updated_at: now,
     } as any)
     .where("run_id", "=", runId)
-    .where((eb) => eb.or([
-      eb("status", "in", ["running", "awaiting_documents"]),
-      eb.and([
-        eb("status", "=", "busy_running"),
-        eb("updated_at", "<", fiveMinutesAgo)
-      ])
-    ]))
+    .where((eb) =>
+      eb.or([
+        eb("status", "in", ["running", "awaiting_documents"]),
+        eb.and([
+          eb("status", "=", "busy_running"),
+          eb("updated_at", "<", fiveMinutesAgo),
+        ]),
+      ]),
+    )
     .execute();
 
   if (isStaleLock) {
-    console.warn(`[runner] Breaking stale busy_running lock for run ${runId} (last updated ${row.updated_at})`);
+    console.warn(
+      `[runner] Breaking stale busy_running lock for run ${runId} (last updated ${row.updated_at})`,
+    );
     await addSimulationRunEvent(context, {
       runId,
       level: "warn",
@@ -96,8 +100,8 @@ export async function tickSimulationRun(
   await addSimulationRunEvent(context, {
     runId,
     level: "debug",
-    kind: "host.phase.dispatch",
-    payload: { phase, phaseIdx },
+    kind: "host.phase.tick",
+    payload: { runId, phase, phaseIdx },
   });
 
   try {
@@ -119,13 +123,29 @@ export async function tickSimulationRun(
     let finalStatus = result?.status ?? "running";
     let currentPhase = result?.currentPhase ?? phase;
 
-    // Move to next phase if we're advancing, other we're done
+    await addSimulationRunEvent(context, {
+      runId,
+      level: "debug",
+      kind: "host.phase.transition",
+      payload: {
+        phase,
+        status: finalStatus,
+        nextPhase:
+          finalStatus === "advance"
+            ? (simulationPhases[phaseIdx + 1] ?? "completed")
+            : currentPhase,
+      },
+    });
+
+    // Move to next phase if we're advancing, otherwise we're done
     if (finalStatus === "advance") {
       const nextIdx = phaseIdx + 1;
       if (nextIdx < simulationPhases.length) {
         currentPhase = simulationPhases[nextIdx];
         finalStatus = "running";
-        console.log(`[runner] Advancing run ${runId} from ${phase} to ${currentPhase}`);
+        console.log(
+          `[runner] Advancing run ${runId} from ${phase} to ${currentPhase}`,
+        );
       } else {
         finalStatus = "completed";
         console.log(`[runner] Run ${runId} completed all phases`);
@@ -160,7 +180,10 @@ export async function tickSimulationRun(
       }
     }
 
-    if (finalStatus === "running" && (context.env as any).ENGINE_INDEXING_QUEUE) {
+    if (
+      finalStatus === "running" &&
+      (context.env as any).ENGINE_INDEXING_QUEUE
+    ) {
       await (context.env as any).ENGINE_INDEXING_QUEUE.send({
         jobType: "simulation-advance",
         runId,
@@ -239,7 +262,7 @@ export async function tickSimulationRun(
       .select("status")
       .where("run_id", "=", runId)
       .executeTakeFirst();
-      
+
     if (finalCheck?.status === "busy_running") {
       await db
         .updateTable("simulation_runs")
@@ -252,7 +275,7 @@ export async function tickSimulationRun(
 
 export async function autoAdvanceSimulationRun(
   context: SimulationDbContext,
-  input: { runId: string; maxMs?: number; continueOnError?: boolean }
+  input: { runId: string; maxMs?: number; continueOnError?: boolean },
 ): Promise<{ status: string; currentPhase: string; steps: number }> {
   const startedAt = Date.now();
   const maxMs = input.maxMs ?? 25000; // Default 25s for Cloudflare worker limits (30s max)
@@ -282,7 +305,9 @@ export async function autoAdvanceSimulationRun(
       .selectFrom("simulation_runs")
       .select(["status", "current_phase"])
       .where("run_id", "=", input.runId)
-      .executeTakeFirst()) as { status: string; current_phase: string } | undefined;
+      .executeTakeFirst()) as
+      | { status: string; current_phase: string }
+      | undefined;
     return {
       status: row?.status ?? "unknown",
       currentPhase: row?.current_phase ?? "unknown",
@@ -292,4 +317,3 @@ export async function autoAdvanceSimulationRun(
 
   return { ...lastResult, steps };
 }
-

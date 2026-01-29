@@ -40,7 +40,7 @@ export async function runMaterializeMomentsAdapter(
       info: (kind: string, payload: any) => Promise<void>;
       debug: (kind: string, payload: any) => Promise<void>;
     };
-  }
+  },
 ): Promise<{
   docsProcessed: number;
   docsSkippedUnchanged: number;
@@ -69,17 +69,10 @@ export async function runMaterializeMomentsAdapter(
       | undefined;
 
     const hadError = Boolean((docState as any)?.error_json);
-    const changedFlag = Number((docState as any)?.changed ?? 1) !== 0;
-
 
     if (hadError) {
       failed++;
       failures.push({ r2Key, error: "ingest_diff error" });
-      continue;
-    }
-
-    if (!changedFlag) {
-      docsSkippedUnchanged++;
       continue;
     }
 
@@ -117,31 +110,31 @@ export async function runMaterializeMomentsAdapter(
     const streams = Array.isArray(streamsAny)
       ? (streamsAny as any[])
       : typeof streamsAny === "string"
-      ? (() => {
-          try {
-            return JSON.parse(streamsAny);
-          } catch {
-            return [];
-          }
-        })()
-      : [];
+        ? (() => {
+            try {
+              return JSON.parse(streamsAny);
+            } catch {
+              return [];
+            }
+          })()
+        : [];
 
     try {
       const { document, indexingContext } = await prepareDocumentForR2Key(
         r2Key,
         context.env,
-        plugins
+        plugins,
       );
 
       const baseDocNamespace = await computeMomentGraphNamespaceForIndexing(
         document,
         indexingContext,
-        plugins
+        plugins,
       );
 
       const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
         baseDocNamespace,
-        prefix
+        prefix,
       );
 
       await input.log.info("debug.resolved_namespace", {
@@ -164,11 +157,11 @@ export async function runMaterializeMomentsAdapter(
           const createdAt =
             typeof m?.createdAt === "string" && m.createdAt.trim().length > 0
               ? m.createdAt.trim()
-              : document.metadata?.createdAt ?? input.now;
+              : (document.metadata?.createdAt ?? input.now);
           const author =
             typeof m?.author === "string" && m.author.trim().length > 0
               ? m.author.trim()
-              : document.metadata?.author ?? "unknown";
+              : (document.metadata?.author ?? "unknown");
           const mergedSourceMetadata = mergeMomentSourceMetadata({
             existing: m?.sourceMetadata,
             parsedDocumentIdentity,
@@ -237,7 +230,7 @@ export async function runMaterializeMomentsAdapter(
                     .doUpdateSet({
                       moment_id: momentId,
                       updated_at: input.now,
-                    } as any)
+                    } as any),
                 )
                 .execute();
             },
@@ -267,8 +260,12 @@ export async function runMaterializeMomentsAdapter(
         phase: "materialize_moments",
         r2Key,
         momentsUpserted: streams.reduce(
-          (acc: number, s: any) => acc + (Array.isArray((s as any)?.macroMoments) ? (s as any).macroMoments.length : 0),
-          0
+          (acc: number, s: any) =>
+            acc +
+            (Array.isArray((s as any)?.macroMoments)
+              ? (s as any).macroMoments.length
+              : 0),
+          0,
         ),
       });
     } catch (e) {
@@ -290,7 +287,7 @@ export async function runMaterializeMomentsAdapter(
     // Since Kysely doesn't support ON CONFLICT DO NOTHING for arbitrary primary keys universally clearly in all dialects without specific syntax,
     // and we want to be safe, we'll just do individual inserts or a careful batch with ignore.
     // SQLite supports INSERT OR IGNORE.
-    
+
     // We can just loop and insert ignore. It's low volume (1-2 namespaces per batch usually).
     for (const ns of namespaces) {
       await db
@@ -313,4 +310,3 @@ export async function runMaterializeMomentsAdapter(
     failures,
   };
 }
-

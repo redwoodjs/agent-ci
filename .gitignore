@@ -82,3 +82,12 @@ src/app/ingestors/discord/openapi.json
 .agent/rules/user
 .agent/skills/user
 .agent/workflows/user
+
+# Antigravity User Config
+.github/skills/user
+.github/agents/user
+.github/instructions/user
+.github/prompts/user
+.agent/rules/user
+.agent/skills/user
+.agent/workflows/user

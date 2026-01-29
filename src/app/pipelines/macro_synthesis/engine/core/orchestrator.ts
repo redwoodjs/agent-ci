@@ -144,10 +144,6 @@ export async function runMacroSynthesisForR2Key(input: {
     return { kind: "skipped_error" };
   }
 
-  if (!state.changed) {
-    return { kind: "skipped_unchanged" };
-  }
-
   const plannedBatches = await input.ports.loadMicroBatches({
     runId: input.runId,
     r2Key: input.r2Key,

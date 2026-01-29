@@ -69,17 +69,10 @@ export async function runMaterializeMomentsAdapter(
       | undefined;
 
     const hadError = Boolean((docState as any)?.error_json);
-    const changedFlag = Number((docState as any)?.changed ?? 1) !== 0;
-
 
     if (hadError) {
       failed++;
       failures.push({ r2Key, error: "ingest_diff error" });
-      continue;
-    }
-
-    if (!changedFlag) {
-      docsSkippedUnchanged++;
       continue;
     }
 

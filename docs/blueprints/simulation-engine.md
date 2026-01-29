@@ -84,6 +84,7 @@ Each phase MUST implement `recoverZombies`. Typically, this uses `recoverZombies
 
 *   **No Synchronous Loops**: The Host Runner must never loop indefinitely. It must do a bounded scan and exit.
 *   **Watchdog Guaranteed**: A simulation run must eventually progress or fail if the environment is healthy. `busy_running` is a temporary lock, not a permanent state.
+*   **Completeness**: A simulation run phase is only considered complete when ALL documents in the run have been processed by that phase. We do NOT skip "unchanged" documents at the orchestration level; instead, phase handlers should utilize caching (e.g., `batch_hash`) to avoid redundant compute while ensuring the run's specific output tables are fully populated.
 *   **Zombie Recovery**: The engine must recover runs that stalled due to dropped queue messages or worker crashes.
 *   **Isolation**: A simulation run operates in its own "Lane". It should not affect other runs.
 *   **Determinism**: Simulation runs, including sampled subsets, must be deterministic and reproducible. Sampling must support seeding via `fictional`.

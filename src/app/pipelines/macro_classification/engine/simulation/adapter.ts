@@ -93,11 +93,7 @@ export async function runMacroClassificationAdapter(
       .executeTakeFirst()) as any;
 
     const hadError = Boolean(docState?.error_json);
-    const changedFlag = Number(docState?.changed ?? 1) !== 0;
     if (hadError) {
-      continue;
-    }
-    if (!changedFlag) {
       continue;
     }
 

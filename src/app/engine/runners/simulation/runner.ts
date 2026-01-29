@@ -96,8 +96,8 @@ export async function tickSimulationRun(
   await addSimulationRunEvent(context, {
     runId,
     level: "debug",
-    kind: "host.phase.dispatch",
-    payload: { phase, phaseIdx },
+    kind: "host.phase.tick",
+    payload: { runId, phase, phaseIdx },
   });
 
   try {
@@ -119,7 +119,18 @@ export async function tickSimulationRun(
     let finalStatus = result?.status ?? "running";
     let currentPhase = result?.currentPhase ?? phase;
 
-    // Move to next phase if we're advancing, other we're done
+    await addSimulationRunEvent(context, {
+      runId,
+      level: "debug",
+      kind: "host.phase.transition",
+      payload: { 
+        phase, 
+        status: finalStatus, 
+        nextPhase: finalStatus === "advance" ? (simulationPhases[phaseIdx + 1] ?? "completed") : currentPhase 
+      },
+    });
+
+    // Move to next phase if we're advancing, otherwise we're done
     if (finalStatus === "advance") {
       const nextIdx = phaseIdx + 1;
       if (nextIdx < simulationPhases.length) {

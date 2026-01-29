@@ -4,6 +4,7 @@ import { runMicroBatchesAdapter } from "./adapter";
 import { computeMicroMomentsForChunkBatch } from "../../../../engine/subjects/computeMicroMomentsForChunkBatch";
 import { getEmbedding, getEmbeddings } from "../../../../engine/utils/vector";
 import { upsertMicroMomentsBatch } from "../../../../engine/databases/momentGraph";
+import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
 import { registerPipeline, type PipelineRegistryEntry } from "../../../../engine/simulation/registry";
 import { microBatchesRoutes } from "../../web/routes/batches";
 import { MicroBatchesCard } from "../../web/ui/MicroBatchesCard";
@@ -20,24 +21,30 @@ export const micro_batches_simulation: PipelineRegistryEntry = {
     const cooldownMs = isDev ? 30 * 1000 : 10 * 60 * 1000;
     const cooldownDate = new Date(Date.now() - cooldownMs).toISOString();
 
-    // 1. Polling for undispatched Documents
-    const changedDocs = await db
+    // 1. Polling for undispatched Documents (Changed or Unchanged, we need to ensure they are processed for this run)
+    const docs = await db
       .selectFrom("simulation_run_documents")
       .select(["r2_key", "dispatched_phases_json", "processed_phases_json"])
       .where("run_id", "=", input.runId)
-      .where("changed", "=", 1)
       .where((eb: any) =>
         eb.or([eb("error_json", "is", null), eb("updated_at", "<", cooldownDate)])
       )
       .execute();
 
-    const undispatchedDocs = changedDocs.filter((doc) => {
+    const undispatchedDocs = docs.filter((doc) => {
       const processed = (doc.processed_phases_json || []) as string[];
       const dispatched = (doc.dispatched_phases_json || []) as string[];
       return !processed.includes("micro_batches") && !dispatched.includes("micro_batches");
     });
 
     if (undispatchedDocs.length > 0) {
+      await addSimulationRunEvent(context, {
+        runId: input.runId,
+        level: "info",
+        kind: "host.dispatch.work",
+        payload: { phase: "micro_batches", count: undispatchedDocs.length, sample: undispatchedDocs[0].r2_key },
+      });
+
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
       for (const doc of undispatchedDocs) {
         const dispatched = (doc.dispatched_phases_json || []) as string[];
@@ -89,7 +96,7 @@ export const micro_batches_simulation: PipelineRegistryEntry = {
     }
 
     // 3. Check if everything is processed
-    const totalDocs = await db.selectFrom("simulation_run_documents").select(["processed_phases_json"]).where("run_id", "=", input.runId).where("changed", "=", 1).execute();
+    const totalDocs = await db.selectFrom("simulation_run_documents").select(["processed_phases_json"]).where("run_id", "=", input.runId).execute();
     const allDocsDone = totalDocs.every(d => ((d.processed_phases_json || []) as string[]).includes("micro_batches"));
     
     // Also check if any batches are still enqueued or failed

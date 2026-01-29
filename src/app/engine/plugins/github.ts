@@ -209,9 +209,9 @@ export const githubPlugin: Plugin = {
   async splitDocumentIntoChunks(
     document: Document,
     context: IndexingHookContext
-  ): Promise<Chunk[]> {
+  ): Promise<Chunk[] | null> {
     if (document.source !== "github") {
-      return [];
+      return null;
     }
 
     const parsed = parseR2Key(context.r2Key);

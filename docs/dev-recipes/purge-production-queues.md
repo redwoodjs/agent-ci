@@ -7,17 +7,21 @@ Purging is **destructive** and cannot be undone. All pending messages currently 
 
 ## Instructions
 
-Use `wrangler` to purge the queues. Note that in non-interactive environments, you must append `--force`.
+Use `wrangler` to purge the queues. For safety, it is recommended to run this interactively.
+
+### Safety Checks
+1. **Unset `CI`**: Ensure the `CI` environment variable is unset in your terminal (e.g., `unset CI`), otherwise `wrangler` may bypass the interactive safety confirmation.
+2. **Confirmation**: `wrangler` will prompt you to type the name of the queue to confirm the purge. Double-check you are purging the correct queue before typing it in.
 
 ### 1. Indexing & Simulation Queues
 These queues handle the main document processing flow and simulation work units.
 
 ```bash
 # Purge the main indexing queue (orchestration and doc prep)
-npx wrangler queues consumer purge engine-indexing-queue-prod --force
+npx wrangler queues purge engine-indexing-queue-prod
 
 # Purge the chunk processing queue (Evidence Locker vector insertion)
-npx wrangler queues consumer purge chunk-processing-queue-prod --force
+npx wrangler queues purge chunk-processing-queue-prod
 ```
 
 ### 2. Ingestion & Event Queues
@@ -25,11 +29,11 @@ If the backlog is caused by too many R2 event notifications or ingestion tasks.
 
 ```bash
 # Purge the R2 event notification queue
-npx wrangler queues consumer purge r2-file-update-queue-prod --force
+npx wrangler queues purge r2-file-update-queue-prod
 
 # Purge GitHub ingestion queues (if applicable)
-npx wrangler queues consumer purge github-scheduler-queue-prod --force
-npx wrangler queues consumer purge github-processor-queue-prod --force
+npx wrangler queues purge github-scheduler-queue-prod
+npx wrangler queues purge github-processor-queue-prod
 ```
 
 ## When to use this recipe

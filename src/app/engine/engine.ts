@@ -1120,7 +1120,8 @@ export async function indexDocument(
                 : null;
             const microPathsHash = microPathsHashRaw ?? undefined;
             const existing =
-              microPathsHash !== undefined
+              microPathsHash !== undefined &&
+              context.env.SIMULATION_DISABLE_CACHING !== "1"
                 ? await findMomentByMicroPathsHash(
                     document.id,
                     microPathsHash,

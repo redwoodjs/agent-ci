@@ -259,9 +259,9 @@ export const cursorPlugin: Plugin = {
   async splitDocumentIntoChunks(
     document: Document,
     context: IndexingHookContext
-  ): Promise<Chunk[]> {
+  ): Promise<Chunk[] | null> {
     if (document.source !== "cursor") {
-      return [];
+      return null;
     }
 
     const bucket = context.env.MACHINEN_BUCKET;

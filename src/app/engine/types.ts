@@ -146,7 +146,7 @@ export interface Plugin {
   splitDocumentIntoChunks?: (
     document: Document,
     context: IndexingHookContext
-  ) => Promise<Chunk[]>;
+  ) => Promise<Chunk[] | null>;
   evidence?: {
     enrichChunk?: (
       chunk: Chunk,
@@ -244,6 +244,7 @@ export interface CursorConversationLatestJson {
   workspace_roots?: string[];
   generations: {
     id: string;
+    events: any[];
   }[];
 }
 

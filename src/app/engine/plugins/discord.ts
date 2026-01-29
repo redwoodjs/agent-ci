@@ -418,14 +418,14 @@ export const discordPlugin: Plugin = {
   async splitDocumentIntoChunks(
     document: Document,
     context: IndexingHookContext
-  ): Promise<Chunk[]> {
+  ): Promise<Chunk[] | null> {
     if (document.source !== "discord") {
-      return [];
+      return null;
     }
 
     const parsed = parseDiscordR2Key(context.r2Key);
     if (!parsed) {
-      return [];
+      return null;
     }
 
     const chunks: Chunk[] = [];

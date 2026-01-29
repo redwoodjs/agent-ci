@@ -45,7 +45,7 @@ export async function runMicroBatchesAdapter(
     momentGraphNamespace: string | null;
     momentGraphNamespacePrefix: string | null;
     batchIndex?: number;
-  }
+  },
 ): Promise<{
   docsProcessed: number;
   docsSkippedUnchanged: number;
@@ -66,20 +66,20 @@ export async function runMicroBatchesAdapter(
     typeof chunkBatchSizeRaw === "string"
       ? Number.parseInt(chunkBatchSizeRaw, 10)
       : typeof chunkBatchSizeRaw === "number"
-      ? chunkBatchSizeRaw
-      : 10;
+        ? chunkBatchSizeRaw
+        : 10;
   const chunkBatchMaxChars =
     typeof chunkBatchMaxCharsRaw === "string"
       ? Number.parseInt(chunkBatchMaxCharsRaw, 10)
       : typeof chunkBatchMaxCharsRaw === "number"
-      ? chunkBatchMaxCharsRaw
-      : 10_000;
+        ? chunkBatchMaxCharsRaw
+        : 10_000;
   const chunkMaxChars =
     typeof chunkMaxCharsRaw === "string"
       ? Number.parseInt(chunkMaxCharsRaw, 10)
       : typeof chunkMaxCharsRaw === "number"
-      ? chunkMaxCharsRaw
-      : 2_000;
+        ? chunkMaxCharsRaw
+        : 2_000;
 
   let docsProcessed = 0;
   let docsSkippedUnchanged = 0;
@@ -89,7 +89,7 @@ export async function runMicroBatchesAdapter(
   const failures: Array<{ r2Key: string; error: string }> = [];
 
   async function prepareSourceDocument(
-    indexingContext: IndexingHookContext
+    indexingContext: IndexingHookContext,
   ): Promise<Document> {
     for (const plugin of plugins) {
       const result = await plugin.prepareSourceDocument?.(indexingContext);
@@ -111,7 +111,9 @@ export async function runMicroBatchesAdapter(
       | undefined;
 
     const hadError = Boolean((docState as any)?.error_json);
-    const changedFlag = Number((docState as any)?.changed ?? 1) !== 0;
+    const disableCaching = context.env.SIMULATION_DISABLE_CACHING === "1";
+    const changedFlag =
+      disableCaching || Number((docState as any)?.changed ?? 1) !== 0;
 
     if (hadError) {
       failed++;
@@ -144,12 +146,12 @@ export async function runMicroBatchesAdapter(
             await computeMomentGraphNamespaceForIndexing(
               document,
               indexingContext,
-              plugins
+              plugins,
             ),
           getMomentGraphNamespacePrefixFromEnv,
           applyMomentGraphNamespacePrefixValue: (
             baseNamespace: string,
-            prefix: string | null
+            prefix: string | null,
           ) =>
             applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) ??
             baseNamespace,
@@ -166,7 +168,7 @@ export async function runMicroBatchesAdapter(
               return await splitDocumentIntoChunks(
                 document,
                 indexingContext,
-                plugins
+                plugins,
               );
             } catch (e) {
               const msg = String((e as any)?.message ?? "");
@@ -186,11 +188,11 @@ export async function runMicroBatchesAdapter(
         indexingMode: "replay",
         forceRecollect: true,
       });
-      
+
       await input.log.info("debug.resolved_namespace", {
-         phase: "micro_batches",
-         r2Key,
-         docNamespace: prepared.indexingContext.momentGraphNamespace || "null",
+        phase: "micro_batches",
+        r2Key,
+        docNamespace: prepared.indexingContext.momentGraphNamespace || "null",
       });
 
       if (prepared.chunks.length === 0) {
@@ -262,15 +264,18 @@ export async function runMicroBatchesAdapter(
                 oc.columns(["batch_hash", "prompt_context_hash"]).doUpdateSet({
                   micro_items_json: JSON.stringify(microItems),
                   updated_at: input.now,
-                } as any)
+                } as any),
               )
               .execute();
           },
           computeMicroItemsForChunkBatch: async (args) => {
-             // If we are granularly processing a batch, skip others
-             if (input.batchIndex !== undefined && args.batchIndex !== input.batchIndex) {
-                return [];
-             }
+            // If we are granularly processing a batch, skip others
+            if (
+              input.batchIndex !== undefined &&
+              args.batchIndex !== input.batchIndex
+            ) {
+              return [];
+            }
             await input.log.info("process.computing_batch_start", {
               phase: "micro_batches",
               r2Key,
@@ -311,46 +316,47 @@ export async function runMicroBatchesAdapter(
       const computed = result.batches;
 
       if (input.batchIndex === undefined) {
-         const queue = (env as any).ENGINE_INDEXING_QUEUE;
-         if (queue) {
-            for (const b of computed) {
-              await db
-                .insertInto("simulation_run_micro_batches")
-                .values({
-                  run_id: input.runId,
-                  r2_key: r2Key,
-                  batch_index: b.batchIndex as any,
+        const queue = (env as any).ENGINE_INDEXING_QUEUE;
+        if (queue) {
+          for (const b of computed) {
+            await db
+              .insertInto("simulation_run_micro_batches")
+              .values({
+                run_id: input.runId,
+                r2_key: r2Key,
+                batch_index: b.batchIndex as any,
+                batch_hash: b.batchHash,
+                prompt_context_hash: b.promptContextHash,
+                status: "enqueued",
+                error_json: null,
+                created_at: input.now,
+                updated_at: input.now,
+              } as any)
+              .onConflict((oc) =>
+                oc.columns(["run_id", "r2_key", "batch_index"]).doUpdateSet({
                   batch_hash: b.batchHash,
                   prompt_context_hash: b.promptContextHash,
                   status: "enqueued",
-                  error_json: null,
-                  created_at: input.now,
                   updated_at: input.now,
-                } as any)
-                .onConflict((oc) =>
-                  oc.columns(["run_id", "r2_key", "batch_index"]).doUpdateSet({
-                    batch_hash: b.batchHash,
-                    prompt_context_hash: b.promptContextHash,
-                    status: "enqueued",
-                    updated_at: input.now,
-                  } as any)
-                )
-                .execute();
-              await queue.send({
-                jobType: "simulation-batch",
-                runId: input.runId,
-                phase: "micro_batches",
-                r2Key,
-                batchIndex: b.batchIndex,
-              });
-            }
-            continue;
-         }
+                } as any),
+              )
+              .execute();
+            await queue.send({
+              jobType: "simulation-batch",
+              runId: input.runId,
+              phase: "micro_batches",
+              r2Key,
+              batchIndex: b.batchIndex,
+            });
+          }
+          continue;
+        }
       }
 
-      const activeBatches = input.batchIndex !== undefined 
-        ? computed.filter(b => b.batchIndex === input.batchIndex)
-        : computed;
+      const activeBatches =
+        input.batchIndex !== undefined
+          ? computed.filter((b) => b.batchIndex === input.batchIndex)
+          : computed;
 
       for (const b of activeBatches) {
         if (b.cached) {
@@ -387,7 +393,7 @@ export async function runMicroBatchesAdapter(
               status: b.cached ? "cached" : "computed_llm",
               error_json: null,
               updated_at: input.now,
-            } as any)
+            } as any),
           )
           .execute();
       }
@@ -401,7 +407,7 @@ export async function runMicroBatchesAdapter(
       failed++;
       const msg = e instanceof Error ? e.message : String(e);
       failures.push({ r2Key, error: msg });
-      
+
       await input.log.error("item.error", {
         phase: "micro_batches",
         r2Key,
@@ -410,16 +416,17 @@ export async function runMicroBatchesAdapter(
 
       // If specific batches were active, mark them as failed
       if (input.batchIndex !== undefined) {
-          await db.updateTable("simulation_run_micro_batches")
-             .set({ 
-                 status: "failed", 
-                 error_json: JSON.stringify({ message: msg }),
-                 updated_at: input.now 
-             })
-             .where("run_id", "=", input.runId)
-             .where("r2_key", "=", r2Key)
-             .where("batch_index", "=", input.batchIndex as any)
-             .execute();
+        await db
+          .updateTable("simulation_run_micro_batches")
+          .set({
+            status: "failed",
+            error_json: JSON.stringify({ message: msg }),
+            updated_at: input.now,
+          })
+          .where("run_id", "=", input.runId)
+          .where("r2_key", "=", r2Key)
+          .where("batch_index", "=", input.batchIndex as any)
+          .execute();
       }
     }
   }
@@ -433,4 +440,3 @@ export async function runMicroBatchesAdapter(
     failures,
   };
 }
-

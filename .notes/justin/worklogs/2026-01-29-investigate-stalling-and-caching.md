@@ -97,3 +97,22 @@ The solution has several main parts:
 4.  **Resiliency**: We implemented lock timeouts and standard cooldowns to prevent a single failure from halting the entire supervisor indefinitely.
 
 This approach prioritizes the reliability of simulation results over the speed of localized re-runs, ensuring that every run produces a complete and auditable evidence stream.
+
+# PR
+
+## Introduce Global Simulation Caching Toggle
+
+### Problem
+Despite improvements to supervisor polling and document selection, we suspected that the underlying caching logic at individual processing stages was still contributing to simulation instability. Identifying exactly where stale data or incorrect cache hits were occurring was difficult, and there was no mechanism to force a completely clean simulation run without manually clearing database tables or changing environment prefixes.
+
+### Solution
+We have introduced a global environment toggle to completely disable caching throughout the simulation pipeline. This allows for a "clean slate" execution path whenever absolute data integrity and fresh re-computation are required.
+
+The solution has several main parts:
+
+1.  **Global Environment Variable**: Added `SIMULATION_DISABLE_CACHING` to our configuration. When set, it forces the system to bypass all major caching layers.
+2.  **Forced Ingestion Diff**: In the ingestion phase, the system now ignores existing checksums/ETags and marks every document as changed. This ensures that the simulation treats every item as a new unit of work.
+3.  **Bypassing Micro-Moment and Synthesis Caches**: Local caching of micro-batch results and macro-synthesis hashes is now conditionally bypassed. This forces the LLM-driven components and synthesis logic to re-evaluate all inputs.
+4.  **Complete Traceability**: By ensuring every stage re-computes its results, we guarantee that the simulation artifact tables are fully populated with fresh data, removing any possibility of "silent skips" due to legacy cache state.
+
+This toggle serves as a baseline for debugging simulation behavior and can be flipped back in production environments once the reliability of the optimized paths is confirmed.

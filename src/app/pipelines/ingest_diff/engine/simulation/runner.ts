@@ -1,4 +1,7 @@
-import { registerPipeline, type PipelineRegistryEntry } from "../../../../engine/simulation/registry";
+import {
+  registerPipeline,
+  type PipelineRegistryEntry,
+} from "../../../../engine/simulation/registry";
 import { getSimulationDb } from "../../../../engine/simulation/db";
 import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
 import { runIngestDiffForKey } from "../core/orchestrator";
@@ -22,7 +25,7 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
       .where("processed", "=", 0)
       .limit(1)
       .executeTakeFirst();
-      
+
     if (pendingBatch) {
       const keys = (pendingBatch.keys_json as unknown as string[]) || [];
       const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
@@ -32,23 +35,28 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
           runId: input.runId,
           level: "info",
           kind: "phase.dispatch_batch",
-          payload: { phase: "ingest_diff", batchIndex: pendingBatch.batch_index, count: keys.length },
+          payload: {
+            phase: "ingest_diff",
+            batchIndex: pendingBatch.batch_index,
+            count: keys.length,
+          },
         });
 
         for (const k of keys) {
           // Initialize tracking row immediately so count(*) completion check works
-          await db.insertInto("simulation_run_documents")
-             .values({
-                run_id: input.runId,
-                r2_key: k,
-                processed_at: now,
-                updated_at: now,
-                changed: 1, // Assume changed until proven otherwise
-                processed_phases_json: JSON.stringify([]),
-                dispatched_phases_json: JSON.stringify([]),
-             } as any)
-             .onConflict(oc => oc.doNothing())
-             .execute();
+          await db
+            .insertInto("simulation_run_documents")
+            .values({
+              run_id: input.runId,
+              r2_key: k,
+              processed_at: now,
+              updated_at: now,
+              changed: 1, // Assume changed until proven otherwise
+              processed_phases_json: JSON.stringify([]),
+              dispatched_phases_json: JSON.stringify([]),
+            } as any)
+            .onConflict((oc) => oc.doNothing())
+            .execute();
 
           await queue.send({
             jobType: "simulation-document",
@@ -59,7 +67,8 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
         }
       }
 
-      await db.updateTable("simulation_run_r2_batches")
+      await db
+        .updateTable("simulation_run_r2_batches")
         .set({ processed: 1, updated_at: now })
         .where("run_id", "=", input.runId)
         .where("batch_index", "=", pendingBatch.batch_index)
@@ -74,28 +83,30 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
       .select("keys_json")
       .where("run_id", "=", input.runId)
       .execute();
-      
+
     let totalKeys = 0;
     for (const b of batches) {
-        const keys = (b.keys_json as unknown as string[]) || [];
-        totalKeys += keys.length;
+      const keys = (b.keys_json as unknown as string[]) || [];
+      totalKeys += keys.length;
     }
-    
+
     const docs = await db
       .selectFrom("simulation_run_documents")
       .select(["processed_phases_json"])
       .where("run_id", "=", input.runId)
       .execute();
-      
-    const allProcessed = docs.length >= totalKeys && docs.every(d => {
+
+    const allProcessed =
+      docs.length >= totalKeys &&
+      docs.every((d) => {
         const processed = (d.processed_phases_json || []) as string[];
         return processed.includes("ingest_diff");
-    });
+      });
 
     if (!allProcessed) {
-        return { status: "awaiting_documents", currentPhase: "ingest_diff" };
+      return { status: "awaiting_documents", currentPhase: "ingest_diff" };
     }
-    
+
     // Success! Advance phase.
     return { status: "running", currentPhase: "micro_batches" };
   },
@@ -120,7 +131,11 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
             return { etag };
           },
           loadPreviousEtag: async (k) => {
-            const row = await db.selectFrom("simulation_run_documents")
+            if (context.env.SIMULATION_DISABLE_CACHING === "1") {
+              return null;
+            }
+            const row = await db
+              .selectFrom("simulation_run_documents")
               .select("etag")
               .where("run_id", "=", input.runId)
               .where("r2_key", "=", k)
@@ -128,17 +143,23 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
             return row?.etag ?? null;
           },
           persistResult: async (res) => {
-              // We handle persistence below to include processing logic
+            // We handle persistence below to include processing logic
           },
           persistError: async (err) => {
-              // We handle persistence below
-          }
+            // We handle persistence below
+          },
         },
         r2Key: workUnit.r2Key,
       });
 
-      const docMetadata = await db.selectFrom("simulation_run_documents").select("processed_phases_json").where("run_id", "=", input.runId).where("r2_key", "=", workUnit.r2Key).executeTakeFirst();
-      const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
+      const docMetadata = await db
+        .selectFrom("simulation_run_documents")
+        .select("processed_phases_json")
+        .where("run_id", "=", input.runId)
+        .where("r2_key", "=", workUnit.r2Key)
+        .executeTakeFirst();
+      const currentPhases = (docMetadata?.processed_phases_json ||
+        []) as string[];
       const nextPhases = [...new Set([...currentPhases, "ingest_diff"])];
 
       await db
@@ -154,12 +175,20 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
         .where("run_id", "=", input.runId)
         .where("r2_key", "=", workUnit.r2Key)
         .execute();
-        
-      await log.info("item.success", { phase: "ingest_diff", r2Key: workUnit.r2Key, changed: result.changed });
+
+      await log.info("item.success", {
+        phase: "ingest_diff",
+        r2Key: workUnit.r2Key,
+        changed: result.changed,
+      });
     } catch (error: any) {
       const msg = error instanceof Error ? error.message : String(error);
-      await log.error("item.error", { phase: "ingest_diff", r2Key: workUnit.r2Key, error: msg });
-      
+      await log.error("item.error", {
+        phase: "ingest_diff",
+        r2Key: workUnit.r2Key,
+        error: msg,
+      });
+
       await db
         .updateTable("simulation_run_documents")
         .set({
@@ -181,7 +210,7 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
 
   async recoverZombies(context, input) {
     // Standard recovery
-  }
+  },
 };
 
 registerPipeline(ingest_diff_simulation);

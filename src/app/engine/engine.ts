@@ -95,7 +95,7 @@ function uuidFromSha256Hex(hashHex: string): string {
   const bytes = padded.slice(0, 32);
   return `${bytes.slice(0, 8)}-${bytes.slice(8, 12)}-${bytes.slice(
     12,
-    16
+    16,
   )}-${bytes.slice(16, 20)}-${bytes.slice(20, 32)}`;
 }
 
@@ -107,7 +107,7 @@ export async function indexDocument(
     momentGraphNamespacePrefix?: string | null;
     momentReplayRunId?: string | null;
     forceRecollect?: boolean | null;
-  }
+  },
 ): Promise<Chunk[]> {
   const indexingContext: IndexingHookContext = {
     r2Key,
@@ -145,20 +145,20 @@ export async function indexDocument(
     typeof chunkBatchSizeRaw === "string"
       ? Number.parseInt(chunkBatchSizeRaw, 10)
       : typeof chunkBatchSizeRaw === "number"
-      ? chunkBatchSizeRaw
-      : 10;
+        ? chunkBatchSizeRaw
+        : 10;
   const chunkBatchMaxChars =
     typeof chunkBatchMaxCharsRaw === "string"
       ? Number.parseInt(chunkBatchMaxCharsRaw, 10)
       : typeof chunkBatchMaxCharsRaw === "number"
-      ? chunkBatchMaxCharsRaw
-      : 10_000;
+        ? chunkBatchMaxCharsRaw
+        : 10_000;
   const chunkMaxChars =
     typeof chunkMaxCharsRaw === "string"
       ? Number.parseInt(chunkMaxCharsRaw, 10)
       : typeof chunkMaxCharsRaw === "number"
-      ? chunkMaxCharsRaw
-      : 2_000;
+        ? chunkMaxCharsRaw
+        : 2_000;
 
   const momentReplayRunId =
     typeof options?.momentReplayRunId === "string" &&
@@ -177,11 +177,11 @@ export async function indexDocument(
           const doc = await runFirstMatchHook(
             context.plugins,
             "prepareSourceDocument",
-            (plugin) => plugin.prepareSourceDocument?.(indexingContext)
+            (plugin) => plugin.prepareSourceDocument?.(indexingContext),
           );
           if (!doc) {
             throw new Error(
-              `No plugin could prepare document for R2 key: ${r2Key}`
+              `No plugin could prepare document for R2 key: ${r2Key}`,
             );
           }
           return doc;
@@ -195,7 +195,7 @@ export async function indexDocument(
             const nsRaw =
               await plugin.scoping?.computeMomentGraphNamespaceForIndexing?.(
                 document,
-                indexingContext
+                indexingContext,
               );
             const ns =
               typeof nsRaw === "string" && nsRaw.trim().length > 0
@@ -210,7 +210,7 @@ export async function indexDocument(
         getMomentGraphNamespacePrefixFromEnv,
         applyMomentGraphNamespacePrefixValue: (
           baseNamespace: string,
-          prefix: string | null
+          prefix: string | null,
         ) =>
           applyMomentGraphNamespacePrefixValue(baseNamespace, prefix) ??
           baseNamespace,
@@ -259,7 +259,7 @@ export async function indexDocument(
     // Root moments (moments with no parent) are indexed in SUBJECT_INDEX as Subjects.
     const existingMicroMoments = await getMicroMomentsForDocument(
       document.id,
-      momentGraphContext
+      momentGraphContext,
     );
 
     const chunkBatches = chunkChunksForMicroComputation(chunks, {
@@ -290,7 +290,7 @@ export async function indexDocument(
 
     function inferBatchTimeRange(
       chunks: Chunk[],
-      documentCreatedAt: string
+      documentCreatedAt: string,
     ): { start: string; end: string } {
       let minMs: number | null = null;
       let maxMs: number | null = null;
@@ -326,6 +326,9 @@ export async function indexDocument(
         getMicroPromptContext: async (doc, chunks, ctx, plugins) =>
           await getMicroPromptContext(doc, chunks, ctx, plugins),
         loadMicroBatchCache: async ({ batchHash }) => {
+          if (context.env.SIMULATION_DISABLE_CACHING === "1") {
+            return null;
+          }
           const prefix = `chunk-batch:${batchHash}:`;
           const existingBatchItems = existingMicroMoments
             .filter((m) => m.path.startsWith(prefix))
@@ -373,14 +376,14 @@ export async function indexDocument(
                 batchHash,
                 batchIndex,
               },
-              momentGraphContext
+              momentGraphContext,
             );
             embeddings = [];
           }
 
           const batchTimeRange = inferBatchTimeRange(
             chunks,
-            document.metadata.createdAt
+            document.metadata.createdAt,
           );
           const batchAuthorRaw = (chunks[0]?.metadata as any)?.author;
           const batchAuthor =
@@ -435,10 +438,14 @@ export async function indexDocument(
           await upsertMicroMomentsBatch(
             document.id,
             microMomentItems,
-            momentGraphContext
+            momentGraphContext,
           );
         },
-        computeMicroItemsForChunkBatch: async ({ chunks, promptContext, batchIndex }) => {
+        computeMicroItemsForChunkBatch: async ({
+          chunks,
+          promptContext,
+          batchIndex,
+        }) => {
           try {
             return (
               (await computeMicroMomentsForChunkBatch(chunks, {
@@ -453,7 +460,7 @@ export async function indexDocument(
                 message: error instanceof Error ? error.message : String(error),
                 chunkIds: chunks.map((c) => c.id),
               },
-              momentGraphContext
+              momentGraphContext,
             );
             return [];
           }
@@ -507,8 +514,8 @@ export async function indexDocument(
         (plugin) =>
           plugin.subjects?.getMacroSynthesisPromptContext?.(
             document,
-            indexingContext
-          )
+            indexingContext,
+          ),
       );
       if (macroSynthesisPromptContext) {
         console.log("[moment-linker] macro synthesis prompt context", {
@@ -561,7 +568,7 @@ export async function indexDocument(
             r2Key,
             momentGraphNamespace: momentGraphContext.momentGraphNamespace,
           },
-          momentGraphContext
+          momentGraphContext,
         );
       }
 
@@ -574,7 +581,7 @@ export async function indexDocument(
             documentId: document.id,
             r2Key,
           },
-          momentGraphContext
+          momentGraphContext,
         );
       }
 
@@ -589,7 +596,7 @@ export async function indexDocument(
             microStreamHash: macroSynthesis.microStreamHash,
             anchors: macroSynthesis.anchors,
           },
-          momentGraphContext
+          momentGraphContext,
         );
 
         console.log("[moment-linker] macro streams synthesized", {
@@ -617,10 +624,10 @@ export async function indexDocument(
                 .map((m) =>
                   typeof (m as any)?.importance === "number"
                     ? (m as any).importance
-                    : null
+                    : null,
                 ),
             },
-            momentGraphContext
+            momentGraphContext,
           );
 
           const macroMomentDescriptionsRaw =
@@ -635,8 +642,8 @@ export async function indexDocument(
             typeof macroMaxPerStreamRaw === "string"
               ? Number.parseInt(macroMaxPerStreamRaw, 10)
               : typeof macroMaxPerStreamRaw === "number"
-              ? macroMaxPerStreamRaw
-              : 12;
+                ? macroMaxPerStreamRaw
+                : 12;
 
           const macroMinImportanceRaw = (indexingContext.env as any)
             .MACRO_MOMENT_MIN_IMPORTANCE;
@@ -644,8 +651,8 @@ export async function indexDocument(
             typeof macroMinImportanceRaw === "string"
               ? Number.parseFloat(macroMinImportanceRaw)
               : typeof macroMinImportanceRaw === "number"
-              ? macroMinImportanceRaw
-              : 0;
+                ? macroMinImportanceRaw
+                : 0;
 
           const macroGateResult = (() => {
             const noisePatternsFromEnvRaw = (indexingContext.env as any)
@@ -727,7 +734,7 @@ export async function indexDocument(
               }
               if (
                 /\b(fix|fixed|bug|regression|implement|implemented|add|added|remove|removed|merge|merged)\b/i.test(
-                  text
+                  text,
                 )
               ) {
                 return true;
@@ -808,7 +815,7 @@ export async function indexDocument(
               if (combinedLower.includes("closed issue")) {
                 const hasTechnicalSignal =
                   /\b(fix|fixed|bug|error|investigat|regression|implement|implemented|add|added|remove|removed|merge|merged|release|released|ship|shipped|deploy|deployed|rollback)\b/i.test(
-                    `${title}\n${summary}`
+                    `${title}\n${summary}`,
                   );
                 if (!hasTechnicalSignal) {
                   return true;
@@ -864,7 +871,7 @@ export async function indexDocument(
                 : 0;
 
             const filtered = cappedSortedByIndex.filter(
-              (x) => x.importance >= minImportance
+              (x) => x.importance >= minImportance,
             );
 
             if (filtered.length > 0) {
@@ -912,7 +919,7 @@ export async function indexDocument(
                 .map((m) => (typeof m?.title === "string" ? m.title : null))
                 .filter((t) => typeof t === "string" && t.length > 0),
             },
-            momentGraphContext
+            momentGraphContext,
           );
 
           if (macroMomentDescriptions.length === 0) {
@@ -957,7 +964,7 @@ export async function indexDocument(
                 classifiedCount: classified.length,
                 classifications: classified,
               },
-              momentGraphContext
+              momentGraphContext,
             );
           } else {
             await addDocumentAuditLog(
@@ -968,7 +975,7 @@ export async function indexDocument(
                 message: "Failed to parse macro classification response.",
                 macroCount: macroMomentDescriptions.length,
               },
-              momentGraphContext
+              momentGraphContext,
             );
           }
 
@@ -1016,7 +1023,8 @@ export async function indexDocument(
                 : macroImportanceEntries
                     .slice()
                     .sort(
-                      (a, b) => b.importance - a.importance || a.index - b.index
+                      (a, b) =>
+                        b.importance - a.importance || a.index - b.index,
                     )
                     .slice(0, minImportantCount)
                     .sort((a, b) => a.index - b.index);
@@ -1078,7 +1086,7 @@ export async function indexDocument(
                     concatenated.length > 0 ? concatenated.slice(0, 800) : null,
                   concatenatedLength: concatenated.length,
                 },
-                momentGraphContext
+                momentGraphContext,
               );
             }
           }
@@ -1116,7 +1124,7 @@ export async function indexDocument(
                 ? await findMomentByMicroPathsHash(
                     document.id,
                     microPathsHash,
-                    momentGraphContext
+                    momentGraphContext,
                   )
                 : null;
 
@@ -1137,28 +1145,28 @@ export async function indexDocument(
               existing?.id ?? deterministicMomentId ?? crypto.randomUUID();
             const linkAuditLog =
               i === 0
-                ? linkAuditLogForFirst ?? undefined
+                ? (linkAuditLogForFirst ?? undefined)
                 : momentReplayRunId
-                ? undefined
-                : previousMomentId
-                ? (() => {
-                    const proposal = computeDeterministicLinkingProposal({
-                      r2Key,
-                      streamId: stream.streamId,
-                      macroIndex: i,
-                      childMomentId: momentId,
-                      prevMomentId: previousMomentId,
-                      candidateParentMomentId: null,
-                      candidateIssueRef: null,
-                      candidateParentR2Key: null,
-                    });
-                    return {
-                      kind: "live.deterministic_linking",
-                      ruleId: proposal.ruleId,
-                      evidence: proposal.evidence,
-                    };
-                  })()
-                : undefined;
+                  ? undefined
+                  : previousMomentId
+                    ? (() => {
+                        const proposal = computeDeterministicLinkingProposal({
+                          r2Key,
+                          streamId: stream.streamId,
+                          macroIndex: i,
+                          childMomentId: momentId,
+                          prevMomentId: previousMomentId,
+                          candidateParentMomentId: null,
+                          candidateIssueRef: null,
+                          candidateParentR2Key: null,
+                        });
+                        return {
+                          kind: "live.deterministic_linking",
+                          ruleId: proposal.ruleId,
+                          evidence: proposal.evidence,
+                        };
+                      })()
+                    : undefined;
             if (i === 0) {
               if (momentReplayRunId) {
                 resolvedParentIdForFirst = undefined;
@@ -1177,7 +1185,7 @@ export async function indexDocument(
                     parentId: resolvedParentIdForFirst,
                     momentId,
                     streamId: stream.streamId,
-                  }
+                  },
                 );
               } else {
                 const computed =
@@ -1209,8 +1217,8 @@ export async function indexDocument(
               momentId,
               parentId:
                 i === 0
-                  ? resolvedParentIdForFirst ?? null
-                  : previousMomentId ?? null,
+                  ? (resolvedParentIdForFirst ?? null)
+                  : (previousMomentId ?? null),
               streamId: stream.streamId,
             });
             const parsedDocumentIdentity =
@@ -1228,14 +1236,14 @@ export async function indexDocument(
               typeof description.createdAt === "string" &&
               description.createdAt.trim().length > 0
                 ? description.createdAt.trim()
-                : timeRangeFromMicro?.start ??
+                : (timeRangeFromMicro?.start ??
                   document.metadata?.createdAt ??
-                  new Date().toISOString();
+                  new Date().toISOString());
             const author =
               typeof description.author === "string" &&
               description.author.trim().length > 0
                 ? description.author.trim()
-                : document.metadata?.author ?? "unknown";
+                : (document.metadata?.author ?? "unknown");
             const moment: Moment = {
               id: momentId,
               documentId: document.id,
@@ -1266,7 +1274,7 @@ export async function indexDocument(
                   ? ((description as any).subjectReason as string)
                   : undefined,
               subjectEvidence: Array.isArray(
-                (description as any).subjectEvidence
+                (description as any).subjectEvidence,
               )
                 ? ((description as any).subjectEvidence as any)
                 : undefined,
@@ -1285,7 +1293,7 @@ export async function indexDocument(
                   ? Date.parse(startRaw)
                   : null;
               const orderMsFromCreatedAt = Number.isFinite(
-                Date.parse(moment.createdAt)
+                Date.parse(moment.createdAt),
               )
                 ? Date.parse(moment.createdAt)
                 : null;
@@ -1298,7 +1306,7 @@ export async function indexDocument(
                   document.id,
                   stream.streamId,
                   String(i),
-                ])
+                ]),
               );
               const stablePrevItemId =
                 i > 0
@@ -1308,7 +1316,7 @@ export async function indexDocument(
                         document.id,
                         stream.streamId,
                         String(i - 1),
-                      ])
+                      ]),
                     )
                   : null;
 
@@ -1365,7 +1373,7 @@ export async function indexDocument(
               {
                 runId: momentReplayRunId,
                 items: replayItems,
-              }
+              },
             );
           }
         }
@@ -1381,7 +1389,7 @@ export async function indexDocument(
         if (plugin.evidence?.enrichChunk) {
           const result = await plugin.evidence.enrichChunk(
             enrichedChunk,
-            indexingContext
+            indexingContext,
           );
           if (result) {
             enrichedChunk = result;
@@ -1411,7 +1419,7 @@ export async function indexDocument(
           r2Key,
           documentId: auditDocumentId,
         },
-        auditMomentGraphContext
+        auditMomentGraphContext,
       );
     } else {
       console.error("[moment-linker] indexDocument error", {
@@ -1434,7 +1442,7 @@ export async function query(
     clientContext?: Record<string, any>;
     momentGraphNamespace?: string | null;
     momentGraphNamespacePrefix?: string | null;
-  }
+  },
 ): Promise<string> {
   const responseMode = options?.responseMode ?? "answer";
 
@@ -1464,7 +1472,7 @@ export async function query(
       for (const plugin of context.plugins) {
         const nsRaw =
           await plugin.scoping?.computeMomentGraphNamespaceForQuery?.(
-            queryContext
+            queryContext,
           );
         const ns =
           typeof nsRaw === "string" && nsRaw.trim().length > 0
@@ -1483,7 +1491,7 @@ export async function query(
         ? applyMomentGraphNamespacePrefixValue(baseNamespace, overridePrefix)
         : applyMomentGraphNamespacePrefixValue(
             baseNamespace,
-            overridePrefix ?? envPrefix
+            overridePrefix ?? envPrefix,
           )
       : null;
 
@@ -1544,7 +1552,7 @@ export async function query(
         sourceMetadata?: Record<string, any>;
         importance?: number;
       },
-      idx: number
+      idx: number,
     ): string {
       const timeRange = (moment.sourceMetadata as any)?.timeRange as
         | { start?: unknown; end?: unknown }
@@ -1556,8 +1564,8 @@ export async function query(
         rangeStart.length > 0 && rangeEnd.length > 0 && rangeStart !== rangeEnd
           ? `${rangeStart}..${rangeEnd} `
           : iso.length > 0
-          ? `${iso} `
-          : "";
+            ? `${iso} `
+            : "";
 
       const rawImportance = moment.importance;
       const importance =
@@ -1588,27 +1596,27 @@ export async function query(
       const lines: string[] = [];
       lines.push(`Instructions`);
       lines.push(
-        `- Prefer a single tool call. Do not call the tool again unless the user asks for more context that is not present in this output.`
+        `- Prefer a single tool call. Do not call the tool again unless the user asks for more context that is not present in this output.`,
       );
       lines.push(
-        `- Use the Timeline lines as the only source of events. Do not invent events.`
+        `- Use the Timeline lines as the only source of events. Do not invent events.`,
       );
       lines.push(
-        `- Select only the timeline events that are needed to answer the user's question. Do not try to mention every event.`
+        `- Select only the timeline events that are needed to answer the user's question. Do not try to mention every event.`,
       );
       lines.push(
-        `- Timeline lines may include an importance=0..1 field. Prefer higher importance events when selecting which events to mention.`
+        `- Timeline lines may include an importance=0..1 field. Prefer higher importance events when selecting which events to mention.`,
       );
       lines.push(
-        `- When you mention an event, include its timestamp (or timestamp range) as shown on the line.`
+        `- When you mention an event, include its timestamp (or timestamp range) as shown on the line.`,
       );
       lines.push(
-        `- When you mention an event, include the data source label as shown in the line text.`
+        `- When you mention an event, include the data source label as shown in the line text.`,
       );
       lines.push(``);
       lines.push(`Subject`);
       lines.push(
-        `${input.subject.title ?? ""}: ${input.subject.summary ?? ""}`.trim()
+        `${input.subject.title ?? ""}: ${input.subject.summary ?? ""}`.trim(),
       );
       lines.push(``);
       lines.push(`Timeline`);
@@ -1617,7 +1625,7 @@ export async function query(
 
     function readEnvNumber(
       name: string,
-      fallback: number
+      fallback: number,
     ): { value: number; usedFallback: boolean } {
       const raw = (context.env as any)?.[name];
       if (typeof raw !== "string") {
@@ -1652,7 +1660,7 @@ export async function query(
     }
 
     function applyImportanceCutoff<
-      T extends { id?: string; importance?: number }
+      T extends { id?: string; importance?: number },
     >(input: {
       timeline: T[];
       requiredIds: string[];
@@ -1660,8 +1668,8 @@ export async function query(
     }): { timeline: T[]; removedCount: number } {
       const required = new Set(
         input.requiredIds.filter(
-          (id) => typeof id === "string" && id.trim().length > 0
-        )
+          (id) => typeof id === "string" && id.trim().length > 0,
+        ),
       );
       const cutoff = clamp01(input.cutoff);
 
@@ -1700,8 +1708,8 @@ export async function query(
 
       const required = new Set(
         input.requiredIds.filter(
-          (id) => typeof id === "string" && id.length > 0
-        )
+          (id) => typeof id === "string" && id.length > 0,
+        ),
       );
 
       const safeMax = Math.max(1, Math.floor(input.maxMoments));
@@ -1811,7 +1819,7 @@ export async function query(
       const similarMoments = await findSimilarMoments(
         queryEmbedding,
         20,
-        momentGraphContext
+        momentGraphContext,
       );
       console.log(`[query:narrative] similarMoments=${similarMoments.length}`);
       if (similarMoments.length > 0) {
@@ -1819,7 +1827,7 @@ export async function query(
           `[query:narrative] similarMomentSample=${similarMoments
             .slice(0, 5)
             .map((m) => `${m.id}:${m.documentId}`)
-            .join(",")}`
+            .join(",")}`,
         );
         const bestMatch = similarMoments[0];
         if (bestMatch) {
@@ -1830,7 +1838,7 @@ export async function query(
               return false;
             }
             return /^github\/redwoodjs\/sdk\/(issues|pull-requests)\/\d+\/latest\.json$/i.test(
-              value
+              value,
             );
           }
 
@@ -1841,16 +1849,16 @@ export async function query(
             // Threads: discord/<guild>/<channel>/threads/<thread>/latest.json
             // Channel day: discord/<guild>/<channel>/<YYYY-MM-DD>.jsonl
             return /^discord\/\d+\/\d+\/(threads\/\d+\/latest\.json|\d{4}-\d{2}-\d{2}\.jsonl)$/i.test(
-              value
+              value,
             );
           }
 
           const workItemCandidates = similarMoments.filter((m) =>
-            isGithubWorkItemDocumentId(m.documentId)
+            isGithubWorkItemDocumentId(m.documentId),
           );
 
           const discordCandidates = similarMoments.filter((m) =>
-            isDiscordDocumentId(m.documentId)
+            isDiscordDocumentId(m.documentId),
           );
 
           const anchorCandidates =
@@ -1867,46 +1875,46 @@ export async function query(
 
             const ancestors = await findAncestors(
               candidate.id,
-              momentGraphContext
+              momentGraphContext,
             );
             const subjectStartId = await findSubjectStartIdForMoment(
               candidate.id,
-              momentGraphContext
+              momentGraphContext,
             );
             const subjectStart =
               subjectStartId && subjectStartId !== candidate.id
                 ? await getMoment(subjectStartId, momentGraphContext)
                 : subjectStartId === candidate.id
-                ? candidate
-                : null;
+                  ? candidate
+                  : null;
             const root = subjectStart ?? ancestors[0] ?? candidate;
             const chosenMatchId = candidate.id;
 
             const timeline = await findDescendants(root.id, momentGraphContext);
             console.log(
-              `[query:narrative] rootTimelineLen=${timeline.length} (anchoredOn=${root.documentId} matchedOn=${candidate.documentId})`
+              `[query:narrative] rootTimelineLen=${timeline.length} (anchoredOn=${root.documentId} matchedOn=${candidate.documentId})`,
             );
 
             if (timeline.length > 0) {
               const maxMoments = readEnvNumber(
                 "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
-                200
+                200,
               ).value;
               const queryImportanceCutoff = readEnvNumber(
                 "MOMENT_GRAPH_QUERY_IMPORTANCE_CUTOFF",
-                0.4
+                0.4,
               ).value;
               const minImportance = readEnvNumber(
                 "MOMENT_GRAPH_MIN_IMPORTANCE",
-                0.8
+                0.8,
               ).value;
               const neighborWindow = readEnvNumber(
                 "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
-                1
+                1,
               ).value;
               const endBiasWeight = readEnvNumber(
                 "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
-                0.4
+                0.4,
               ).value;
 
               const requiredIdsList = [root.id, chosenMatchId];
@@ -1950,7 +1958,7 @@ export async function query(
                     removedCount: cutoffAfterPrune.removedCount,
                     beforeLen: prunedTimeline.length,
                     afterLen: cutoffAfterPrune.timeline.length,
-                  }
+                  },
                 );
               }
               prunedTimeline = cutoffAfterPrune.timeline;
@@ -1984,7 +1992,7 @@ export async function query(
               });
 
               const timelineLines = sortedTimeline.map((moment, idx) =>
-                formatTimelineLine(moment, idx)
+                formatTimelineLine(moment, idx),
               );
               const narrativeContext = timelineLines.join("\n\n");
 
@@ -2028,7 +2036,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
                 {
                   temperature: 0,
                   reasoning: { effort: "low" },
-                }
+                },
               );
               return narrativeAnswer;
             }
@@ -2036,19 +2044,19 @@ Write a clear narrative answer that explains the sequence and causal relationshi
 
           const minImportance = readEnvNumber(
             "MOMENT_GRAPH_MIN_IMPORTANCE",
-            0.8
+            0.8,
           ).value;
           const sampleLimit = readEnvNumber(
             "MOMENT_GRAPH_ROOT_SAMPLE_LIMIT",
-            2000
+            2000,
           ).value;
           const topRootsLimit = readEnvNumber(
             "MOMENT_GRAPH_ROOT_TOP_LIMIT",
-            50
+            50,
           ).value;
           const topKMatches = readEnvNumber(
             "MOMENT_GRAPH_ROOT_MATCH_TOPK",
-            10
+            10,
           ).value;
 
           const sampledRootStats = await getRootStatsByHighImportanceSample(
@@ -2057,7 +2065,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
               highImportanceCutoff: clamp01(minImportance),
               sampleLimit,
               limit: topRootsLimit,
-            }
+            },
           );
           const rootOrder = new Map<string, number>();
           const rootStats = new Map<
@@ -2082,7 +2090,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
           >();
           const matchesToConsider = similarMoments.slice(
             0,
-            Math.max(1, topKMatches)
+            Math.max(1, topKMatches),
           );
           for (let i = 0; i < matchesToConsider.length; i++) {
             const match = matchesToConsider[i];
@@ -2090,14 +2098,14 @@ Write a clear narrative answer that explains the sequence and causal relationshi
             const fallbackRoot = ancestors[0];
             const subjectStartId = await findSubjectStartIdForMoment(
               match.id,
-              momentGraphContext
+              momentGraphContext,
             );
             const subjectStart =
               subjectStartId && subjectStartId !== match.id
                 ? await getMoment(subjectStartId, momentGraphContext)
                 : subjectStartId === match.id
-                ? match
-                : null;
+                  ? match
+                  : null;
             const root = subjectStart ?? fallbackRoot;
             if (!root) {
               continue;
@@ -2117,7 +2125,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
 
           const fallbackAncestors = await findAncestors(
             bestMatch.id,
-            momentGraphContext
+            momentGraphContext,
           );
           const fallbackRoot = fallbackAncestors[0];
           if (fallbackRoot) {
@@ -2189,11 +2197,11 @@ Write a clear narrative answer that explains the sequence and causal relationshi
 
           const root =
             chosenRootId !== null
-              ? candidateRoots.get(chosenRootId)?.root ?? fallbackRoot ?? null
+              ? (candidateRoots.get(chosenRootId)?.root ?? fallbackRoot ?? null)
               : null;
           if (root) {
             console.log(
-              `[query:narrative] resolvedRootFromMatch root=${root.id} match=${chosenMatchId}`
+              `[query:narrative] resolvedRootFromMatch root=${root.id} match=${chosenMatchId}`,
             );
             const timeline = await findDescendants(root.id, momentGraphContext);
             console.log(`[query:narrative] rootTimelineLen=${timeline.length}`);
@@ -2201,19 +2209,19 @@ Write a clear narrative answer that explains the sequence and causal relationshi
             if (timeline.length > 0) {
               const maxMoments = readEnvNumber(
                 "MOMENT_GRAPH_MAX_TIMELINE_MOMENTS",
-                200
+                200,
               ).value;
               const queryImportanceCutoff = readEnvNumber(
                 "MOMENT_GRAPH_QUERY_IMPORTANCE_CUTOFF",
-                0.4
+                0.4,
               ).value;
               const neighborWindow = readEnvNumber(
                 "MOMENT_GRAPH_TIMELINE_NEIGHBOR_WINDOW",
-                1
+                1,
               ).value;
               const endBiasWeight = readEnvNumber(
                 "MOMENT_GRAPH_TIMELINE_END_BIAS_WEIGHT",
-                0.4
+                0.4,
               ).value;
 
               const requiredIds = [root.id, chosenMatchId];
@@ -2257,7 +2265,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
                     removedCount: cutoffAfterPrune.removedCount,
                     beforeLen: prunedTimeline.length,
                     afterLen: cutoffAfterPrune.timeline.length,
-                  }
+                  },
                 );
               }
               prunedTimeline = cutoffAfterPrune.timeline;
@@ -2291,7 +2299,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
               });
 
               const timelineLines = sortedTimeline.map((moment, idx) =>
-                formatTimelineLine(moment, idx)
+                formatTimelineLine(moment, idx),
               );
               const narrativeContext = timelineLines.join("\n\n");
 
@@ -2335,7 +2343,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
                 {
                   temperature: 0,
                   reasoning: { effort: "low" },
-                }
+                },
               );
               return narrativeAnswer;
             }
@@ -2345,7 +2353,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
     } catch (error) {
       console.error(
         `[query:narrative] ✗ Narrative query path failed, falling back to chunk-based RAG:`,
-        error
+        error,
       );
       // Fall through to the existing chunk-based RAG system
     }
@@ -2359,7 +2367,7 @@ Write a clear narrative answer that explains the sequence and causal relationshi
 
 export async function queryEvidenceLocker(
   userQuery: string,
-  context: EngineContext
+  context: EngineContext,
 ): Promise<string> {
   const queryContext: QueryHookContext = {
     query: userQuery,
@@ -2371,19 +2379,19 @@ export async function queryEvidenceLocker(
     "prepareSearchQuery",
     userQuery,
     (query, plugin) =>
-      plugin.evidence?.prepareSearchQuery?.(query, queryContext)
+      plugin.evidence?.prepareSearchQuery?.(query, queryContext),
   );
 
   const filterClauses = await runCollectorHook(
     context.plugins,
     "buildVectorSearchFilter",
-    (plugin) => plugin.evidence?.buildVectorSearchFilter?.(queryContext)
+    (plugin) => plugin.evidence?.buildVectorSearchFilter?.(queryContext),
   );
 
   const searchResults = await performVectorSearch(
     context.env,
     processedQuery,
-    filterClauses
+    filterClauses,
   );
 
   const rerankedResults = await runWaterfallHook(
@@ -2391,13 +2399,13 @@ export async function queryEvidenceLocker(
     "rerankSearchResults",
     searchResults,
     (results, plugin) =>
-      plugin.evidence?.rerankSearchResults?.(results, queryContext)
+      plugin.evidence?.rerankSearchResults?.(results, queryContext),
   );
 
   const reconstructedContexts = await reconstructContexts(
     rerankedResults,
     context.plugins,
-    queryContext
+    queryContext,
   );
 
   const optimizedContexts = await runWaterfallHook(
@@ -2405,7 +2413,11 @@ export async function queryEvidenceLocker(
     "optimizeContext",
     reconstructedContexts,
     (contexts, plugin) =>
-      plugin.evidence?.optimizeContext?.(contexts, processedQuery, queryContext)
+      plugin.evidence?.optimizeContext?.(
+        contexts,
+        processedQuery,
+        queryContext,
+      ),
   );
 
   const prompt = await runFirstMatchHook(
@@ -2415,8 +2427,8 @@ export async function queryEvidenceLocker(
       plugin.evidence?.composeLlmPrompt?.(
         optimizedContexts,
         processedQuery,
-        queryContext
-      )
+        queryContext,
+      ),
   );
 
   if (!prompt) {
@@ -2433,8 +2445,8 @@ export async function queryEvidenceLocker(
       plugin.evidence?.formatFinalResponse?.(
         response,
         rerankedResults,
-        queryContext
-      )
+        queryContext,
+      ),
   );
 
   return formattedResponse;
@@ -2443,7 +2455,7 @@ export async function queryEvidenceLocker(
 async function reconstructContexts(
   chunks: ChunkMetadata[],
   plugins: Plugin[],
-  queryContext: QueryHookContext
+  queryContext: QueryHookContext,
 ): Promise<ReconstructedContext[]> {
   const chunksByDocument = new Map<string, ChunkMetadata[]>();
 
@@ -2469,7 +2481,7 @@ async function reconstructContexts(
 
   async function fetchAndReadDocument(
     documentId: string,
-    documentChunks: ChunkMetadata[]
+    documentChunks: ChunkMetadata[],
   ): Promise<{
     documentId: string;
     documentChunks: ChunkMetadata[];
@@ -2528,8 +2540,8 @@ async function reconstructContexts(
         plugin.evidence?.reconstructContext?.(
           documentChunks,
           sourceDocument,
-          queryContext
-        )
+          queryContext,
+        ),
     );
 
     if (reconstructed) {
@@ -2543,7 +2555,7 @@ async function reconstructContexts(
 async function runFirstMatchHook<T>(
   plugins: Plugin[],
   hookName: string,
-  fn: (plugin: Plugin) => Promise<T | null | undefined> | undefined
+  fn: (plugin: Plugin) => Promise<T | null | undefined> | undefined,
 ): Promise<T | null> {
   for (const plugin of plugins) {
     const result = await fn(plugin);
@@ -2558,7 +2570,7 @@ async function runWaterfallHook<T>(
   plugins: Plugin[],
   hookName: string,
   initialValue: T,
-  fn: (value: T, plugin: Plugin) => Promise<T | undefined> | undefined
+  fn: (value: T, plugin: Plugin) => Promise<T | undefined> | undefined,
 ): Promise<T> {
   let value = initialValue;
   for (const plugin of plugins) {
@@ -2573,7 +2585,7 @@ async function runWaterfallHook<T>(
 async function runCollectorHook<T>(
   plugins: Plugin[],
   hookName: string,
-  fn: (plugin: Plugin) => Promise<T | null | undefined> | undefined
+  fn: (plugin: Plugin) => Promise<T | null | undefined> | undefined,
 ): Promise<T[]> {
   const results: T[] = [];
   for (const plugin of plugins) {
@@ -2588,12 +2600,12 @@ async function runCollectorHook<T>(
 async function performVectorSearch(
   env: Cloudflare.Env,
   query: string,
-  filterClauses: Record<string, unknown>[]
+  filterClauses: Record<string, unknown>[],
 ): Promise<ChunkMetadata[]> {
   const embedding = await generateEmbedding(env, query);
 
   const combinedFilter = combineFilterClauses(
-    filterClauses as Record<string, unknown>[]
+    filterClauses as Record<string, unknown>[],
   );
 
   const vectorizeResponse = await env.VECTORIZE_INDEX.query(embedding, {
@@ -2614,7 +2626,7 @@ async function performVectorSearch(
 }
 
 function combineFilterClauses(
-  clauses: Record<string, unknown>[]
+  clauses: Record<string, unknown>[],
 ): Record<string, unknown> | undefined {
   if (clauses.length === 0) {
     return undefined;
@@ -2631,7 +2643,7 @@ function combineFilterClauses(
 
 async function generateEmbedding(
   env: Cloudflare.Env,
-  text: string
+  text: string,
 ): Promise<number[]> {
   const response = (await env.AI.run("@cf/baai/bge-base-en-v1.5", {
     text: [text],

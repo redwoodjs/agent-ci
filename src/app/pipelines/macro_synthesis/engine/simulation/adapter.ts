@@ -38,10 +38,10 @@ export async function runMacroSynthesisAdapter(
     ports: {
       synthesizeMicroMomentsIntoStreams: (
         microMoments: MicroMoment[],
-        options?: any
+        options?: any,
       ) => Promise<Array<{ streamId: string; macroMoments: any[] }>>;
     };
-  }
+  },
 ): Promise<{
   docsProcessed: number;
   docsReused: number;
@@ -77,7 +77,10 @@ export async function runMacroSynthesisAdapter(
     typeof runRow?.moment_graph_namespace_prefix === "string"
       ? (runRow.moment_graph_namespace_prefix as string)
       : null;
-  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
+  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+    baseNamespace,
+    prefix,
+  );
 
   for (const r2Key of input.r2Keys) {
     await input.log.info("item.start", { phase: "macro_synthesis", r2Key });
@@ -85,18 +88,18 @@ export async function runMacroSynthesisAdapter(
       const { document, indexingContext } = await prepareDocumentForR2Key(
         r2Key,
         env,
-        plugins
+        plugins,
       );
 
       const baseDocNamespace = await computeMomentGraphNamespaceForIndexing(
         document,
         indexingContext,
-        plugins
+        plugins,
       );
 
       const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
         baseDocNamespace,
-        prefix
+        prefix,
       );
 
       await input.log.info("debug.resolved_namespace", {
@@ -118,7 +121,9 @@ export async function runMacroSynthesisAdapter(
               | undefined;
             return {
               hadError: Boolean((docState as any)?.error_json),
-              changed: Number((docState as any)?.changed ?? 1) !== 0,
+              changed:
+                context.env.SIMULATION_DISABLE_CACHING === "1" ||
+                Number((docState as any)?.changed ?? 1) !== 0,
             };
           },
           loadMicroBatches: async ({ runId, r2Key }) => {
@@ -143,6 +148,9 @@ export async function runMacroSynthesisAdapter(
             }));
           },
           loadPreviousMicroStreamHash: async ({ runId, r2Key }) => {
+            if (context.env.SIMULATION_DISABLE_CACHING === "1") {
+              return null;
+            }
             await input.log.info("process.loading_prev_hash", {
               phase: "macro_synthesis",
               r2Key,
@@ -175,7 +183,7 @@ export async function runMacroSynthesisAdapter(
               {
                 env,
                 momentGraphNamespace: effectiveNamespace,
-              }
+              },
             );
             return (existingMicroMoments ?? []).map((m: any) => ({
               path: String(m?.path ?? ""),
@@ -183,7 +191,10 @@ export async function runMacroSynthesisAdapter(
               createdAt: String(m?.createdAt ?? input.now),
             }));
           },
-          loadMicroBatchCacheItems: async ({ batchHash, promptContextHash }) => {
+          loadMicroBatchCacheItems: async ({
+            batchHash,
+            promptContextHash,
+          }) => {
             await input.log.info("process.loading_cache", {
               phase: "macro_synthesis",
               batchHash,
@@ -211,15 +222,16 @@ export async function runMacroSynthesisAdapter(
             const { document, indexingContext } = await prepareDocumentForR2Key(
               r2Key,
               env,
-              plugins
+              plugins,
             );
 
             const macroPromptContext = await (async () => {
               for (const plugin of plugins) {
-                const v = await plugin.subjects?.getMacroSynthesisPromptContext?.(
-                  document,
-                  indexingContext
-                );
+                const v =
+                  await plugin.subjects?.getMacroSynthesisPromptContext?.(
+                    document,
+                    indexingContext,
+                  );
                 if (v !== null && v !== undefined) {
                   return v;
                 }
@@ -241,7 +253,7 @@ export async function runMacroSynthesisAdapter(
                 "Treat comments as secondary discussion. Do NOT let references to other issues in the comments (e.g. 'related to #123') " +
                 "dominate the summary or confuse the identity of this item. " +
                 "If a comment mentions another issue, do NOT include that reference in the summary unless it is critical to the CORE definition of this issue.";
-              
+
               finalPromptContext = finalPromptContext
                 ? `${instructions}\n\n${finalPromptContext}`
                 : instructions;
@@ -305,7 +317,7 @@ export async function runMacroSynthesisAdapter(
                   gating_json: JSON.stringify(gating),
                   anchors_json: JSON.stringify(anchors),
                   updated_at: now,
-                } as any)
+                } as any),
               )
               .execute();
           },
@@ -352,7 +364,7 @@ export async function runMacroSynthesisAdapter(
                     })
                     .catch(() => {});
                 },
-              }
+              },
             );
             await input.log.info("process.synthesize_end", {
               phase: "macro_synthesis",
@@ -429,4 +441,3 @@ export async function runMacroSynthesisAdapter(
     failures,
   };
 }
-

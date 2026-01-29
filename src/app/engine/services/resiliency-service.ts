@@ -9,7 +9,7 @@ export async function processResiliencyHeartbeat(
   const activeRuns = await db
     .selectFrom("simulation_runs")
     .select("run_id")
-    .where("status", "in", ["running", "busy_running", "awaiting_documents"])
+    .where("status", "in", ["running", "busy_running", "awaiting_documents", "advance"])
     .execute();
 
   if (activeRuns.length === 0) {

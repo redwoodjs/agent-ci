@@ -9,7 +9,7 @@ import { pipelineRegistry } from "../../simulation/allPipelines";
 // No longer need hardcoded phaseRunners mapping here
 
 
-export async function advanceSimulationRunPhaseNoop(
+export async function tickSimulationRun(
   context: SimulationDbContext,
   input: { runId: string; continueOnError?: boolean }
 ): Promise<{ status: string; currentPhase: string } | null> {
@@ -40,6 +40,7 @@ export async function advanceSimulationRunPhaseNoop(
   if (
     row.status !== "running" &&
     row.status !== "awaiting_documents" &&
+    row.status !== "advance" &&
     !isStaleLock
   ) {
     return { status: row.status, currentPhase: row.current_phase };
@@ -109,18 +110,34 @@ export async function advanceSimulationRunPhaseNoop(
     // This expects all phases to implement recoverZombies (enforced by type)
     await entry.recoverZombies(context, { runId });
 
-    const result = await entry.runner(context, {
+    // Supervisor Tick: Poll/Dispatch or Advance
+    const result = await entry.onTick(context, {
       runId,
       phaseIdx,
     });
 
     let finalStatus = result?.status ?? "running";
+    let currentPhase = result?.currentPhase ?? phase;
+
+    // Move to next phase if we're advancing, other we're done
+    if (finalStatus === "advance") {
+      const nextIdx = phaseIdx + 1;
+      if (nextIdx < simulationPhases.length) {
+        currentPhase = simulationPhases[nextIdx];
+        finalStatus = "running";
+        console.log(`[runner] Advancing run ${runId} from ${phase} to ${currentPhase}`);
+      } else {
+        finalStatus = "completed";
+        console.log(`[runner] Run ${runId} completed all phases`);
+      }
+    }
+
     if (finalStatus === "busy_running") {
       finalStatus = "running";
     }
 
+    // ... existing paused_on_error check ...
     if (finalStatus === "paused_on_error" && input.continueOnError) {
-      // If phase runner reported error but we want to continue, force advance to next phase
       const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
       if (nextPhase) {
         if ((context.env as any).ENGINE_INDEXING_QUEUE) {
@@ -144,20 +161,24 @@ export async function advanceSimulationRunPhaseNoop(
     }
 
     if (finalStatus === "running" && (context.env as any).ENGINE_INDEXING_QUEUE) {
-       await (context.env as any).ENGINE_INDEXING_QUEUE.send({
-         jobType: "simulation-advance",
-         runId,
-       });
+      await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+        jobType: "simulation-advance",
+        runId,
+      });
     }
 
     // Set the status explicitly (clearing busy_running)
     await db
       .updateTable("simulation_runs")
-      .set({ status: finalStatus, updated_at: new Date().toISOString() })
+      .set({
+        status: finalStatus,
+        current_phase: currentPhase,
+        updated_at: new Date().toISOString(),
+      } as any)
       .where("run_id", "=", runId)
       .execute();
 
-    return { ...result, status: finalStatus, currentPhase: result?.currentPhase ?? phase };
+    return { ...result, status: finalStatus, currentPhase };
   } catch (error: any) {
     const msg = error instanceof Error ? error.message : String(error);
     const stack = error instanceof Error ? error.stack : undefined;
@@ -240,7 +261,7 @@ export async function autoAdvanceSimulationRun(
   let lastResult: { status: string; currentPhase: string } | null = null;
 
   while (Date.now() - startedAt < maxMs) {
-    const res = await advanceSimulationRunPhaseNoop(context, {
+    const res = await tickSimulationRun(context, {
       runId: input.runId,
       continueOnError,
     });

@@ -1,180 +1,91 @@
-import { applyMomentGraphNamespacePrefixValue } from "../../../../engine/momentGraphNamespace";
-import type { SimulationDbContext } from "../../../../engine/simulation/types";
+import { registerPipeline, type PipelineRegistryEntry } from "../../../../engine/simulation/registry";
 import {
   getMomentGraphDb,
   getSimulationDb,
 } from "../../../../engine/simulation/db";
-import { addSimulationRunEvent } from "../../../../engine/simulation/runEvents";
 import { createSimulationRunLogger } from "../../../../engine/simulation/logger";
-import { simulationPhases } from "../../../../engine/simulation/types";
 import { runMaterializeMomentsAdapter } from "./adapter";
+import { applyMomentGraphNamespacePrefixValue } from "../../../../engine/momentGraphNamespace";
+import { runStandardDocumentPolling } from "../../../../engine/simulation/orchestration";
+import { materializeMomentsRoutes } from "../../web/routes/moments";
+import { MaterializedMomentsCard } from "../../web/ui/MaterializedMomentsCard";
+import { recoverZombiesForPhase } from "../../../../engine/simulation/resiliency";
 
-export async function runPhaseMaterializeMoments(
-  context: SimulationDbContext,
-  input: { runId: string; phaseIdx: number; r2Key?: string }
-): Promise<{ status: string; currentPhase: string } | null> {
-  const db = getSimulationDb(context);
-  const now = new Date().toISOString();
-  const log = createSimulationRunLogger(context, { runId: input.runId });
+export const materialize_moments_simulation: PipelineRegistryEntry = {
+  phase: "materialize_moments" as const,
+  label: "Materialize Moments",
 
-  const runRow = (await db
-    .selectFrom("simulation_runs")
-    .select([
-      "status",
-      "config_json",
-      "moment_graph_namespace",
-      "moment_graph_namespace_prefix",
-    ])
-    .where("run_id", "=", input.runId)
-    .executeTakeFirst()) as unknown as
-    | {
-        status: string;
-        config_json: any;
-        moment_graph_namespace: string | null;
-        moment_graph_namespace_prefix: string | null;
-      }
-    | undefined;
+  onTick: runStandardDocumentPolling({ phase: "materialize_moments" }),
 
-  if (!runRow) {
-    return null;
-  }
+  async onExecute(context, input) {
+    // ... (rest of onExecute remains same as before)
+    const db = getSimulationDb(context);
+    const now = new Date().toISOString();
+    const log = createSimulationRunLogger(context, { runId: input.runId });
+    const { workUnit } = input;
 
-  const baseNamespace = runRow.moment_graph_namespace;
-  const prefix = runRow.moment_graph_namespace_prefix;
-  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
-  await log.info("debug.namespace", { phase: "materialize_moments", baseNamespace, prefix, effectiveNamespace });
+    if (workUnit.kind !== "document") return;
 
-  // 1. Get relevant documents (those that were changed in ingest_diff)
-  const changedDocs = await db
-    .selectFrom("simulation_run_documents")
-    .select("r2_key")
-    .where("run_id", "=", input.runId)
-    .where("changed", "=", 1)
-    .where("error_json", "is", null)
-    .execute();
-  
-  const relevantR2Keys = changedDocs.map(d => d.r2_key);
-
-  if (!input.r2Key) {
-    // Polling / Startup mode
-    if (relevantR2Keys.length === 0) {
-      return advance(db, input.runId, input.phaseIdx, now);
-    }
-
-    // A document is considered "done" if it has at least one entry in simulation_run_materialized_moments
-    // OR if it's been processed by the adapter. 
-    // Actually, let's use a distinct set of keys that have been processed.
-    const processedKeys = await db
-      .selectFrom("simulation_run_documents")
-      .select(["r2_key", "dispatched_phases_json", "processed_phases_json"])
+    const runRow = await db
+      .selectFrom("simulation_runs")
+      .select([
+        "moment_graph_namespace",
+        "moment_graph_namespace_prefix",
+      ])
       .where("run_id", "=", input.runId)
-      .execute();
-    
-    const finishedSet = new Set(processedKeys.filter(k => (((k as any).processed_phases_json || []) as string[]).includes("materialize_moments")).map(k => k.r2_key));
-    const processedSet = new Set(processedKeys.map(k => k.r2_key));
-    const dispatchMap = new Map(processedKeys.map(k => [k.r2_key, (k.dispatched_phases_json || []) as string[]]));
+      .executeTakeFirst();
 
-    const missingKeys = relevantR2Keys.filter(k => !finishedSet.has(k));
-    const undecpatchedKeys = relevantR2Keys.filter(k => {
-      const dispatched = dispatchMap.get(k) || [];
-      return !dispatched.includes("materialize_moments");
+    if (!runRow) return;
+
+    const baseNamespace = runRow.moment_graph_namespace;
+    const prefix = runRow.moment_graph_namespace_prefix;
+    const effectiveNamespace = applyMomentGraphNamespacePrefixValue(baseNamespace, prefix);
+
+    // Granular execution
+    const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
+
+    const result = await runMaterializeMomentsAdapter(context, {
+      runId: input.runId,
+      r2Keys: [workUnit.r2Key],
+      effectiveNamespace: effectiveNamespace ?? null,
+      momentDb,
+      now,
+      log,
     });
 
-    if (undecpatchedKeys.length > 0) {
-      const queue = (context.env as any).ENGINE_INDEXING_QUEUE;
-      if (queue) {
-        await addSimulationRunEvent(context, {
-          runId: input.runId,
-          level: "info",
-          kind: "phase.dispatch_docs",
-          payload: { phase: "materialize_moments", count: undecpatchedKeys.length },
-        });
+    const errorJson = result.failed > 0 ? JSON.stringify(result.failures) : null;
 
-        for (const k of undecpatchedKeys) {
-          const dispatched = (dispatchMap.get(k) || []) as string[];
-          const nextDispatched = [...new Set([...dispatched, "materialize_moments"])];
-          
-          await db
-            .insertInto("simulation_run_documents")
-            .values({
-              run_id: input.runId,
-              r2_key: k,
-              changed: 1, // Must be 1 if we're here
-              processed_at: "pending",
-              updated_at: now,
-              dispatched_phases_json: nextDispatched,
-              processed_phases_json: [],
-            } as any)
-            .onConflict(oc => oc.columns(["run_id", "r2_key"]).doUpdateSet({
-              dispatched_phases_json: nextDispatched,
-              updated_at: now,
-            } as any))
-            .execute();
+    // Mark doc as processed for this phase
+    const docMetadata = await db
+      .selectFrom("simulation_run_documents")
+      .select("processed_phases_json")
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", workUnit.r2Key)
+      .executeTakeFirst();
+    
+    const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
+    const nextPhases = [...new Set([...currentPhases, "materialize_moments"])];
+    
+    await db
+      .updateTable("simulation_run_documents")
+      .set({
+        processed_phases_json: nextPhases as any,
+        error_json: errorJson as any,
+        updated_at: now,
+      })
+      .where("run_id", "=", input.runId)
+      .where("r2_key", "=", workUnit.r2Key)
+      .execute();
+  },
 
-          await queue.send({
-            jobType: "simulation-document",
-            runId: input.runId,
-            phase: "materialize_moments",
-            r2Key: k,
-          });
-        }
-        return { status: "awaiting_documents", currentPhase: "materialize_moments" };
-      }
-      throw new Error("ENGINE_INDEXING_QUEUE is required");
-    }
+  web: {
+    routes: materializeMomentsRoutes,
+    ui: {
+      drilldown: MaterializedMomentsCard,
+    },
+  },
 
-    if (missingKeys.length > 0) {
-      return { status: "awaiting_documents", currentPhase: "materialize_moments" };
-    }
+  recoverZombies: (context, input) => recoverZombiesForPhase(context, { ...input, phase: "materialize_moments" }),
+};
 
-    return advance(db, input.runId, input.phaseIdx, now);
-  }
-
-  // Granular execution
-  const momentDb = getMomentGraphDb(context.env, effectiveNamespace ?? null);
-
-  const result = await runMaterializeMomentsAdapter(context, {
-    runId: input.runId,
-    r2Keys: [input.r2Key],
-    effectiveNamespace: effectiveNamespace ?? null,
-    momentDb,
-    now,
-    log,
-  });
-
-  const errorJson = result.failed > 0 ? JSON.stringify(result.failures) : null;
-
-  // Mark doc as processed for this phase
-  const docMetadata = await db
-    .selectFrom("simulation_run_documents")
-    .select("processed_phases_json")
-    .where("run_id", "=", input.runId)
-    .where("r2_key", "=", input.r2Key)
-    .executeTakeFirst();
-  
-  const currentPhases = (docMetadata?.processed_phases_json || []) as string[];
-  const nextPhases = [...new Set([...currentPhases, "materialize_moments"])];
-  
-  await db
-    .updateTable("simulation_run_documents")
-    .set({
-      processed_phases_json: nextPhases as any,
-      error_json: errorJson as any,
-      updated_at: now,
-    })
-    .where("run_id", "=", input.runId)
-    .where("r2_key", "=", input.r2Key)
-    .execute();
-
-  return { status: "running", currentPhase: "materialize_moments" };
-}
-
-async function advance(db: any, runId: string, phaseIdx: number, now: string) {
-  const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
-  if (!nextPhase) {
-    await db.updateTable("simulation_runs").set({ status: "completed", updated_at: now }).where("run_id", "=", runId).execute();
-    return { status: "completed", currentPhase: "materialize_moments" };
-  }
-  await db.updateTable("simulation_runs").set({ current_phase: nextPhase, updated_at: now }).where("run_id", "=", runId).execute();
-  return { status: "running", currentPhase: nextPhase };
-}
+registerPipeline(materialize_moments_simulation);

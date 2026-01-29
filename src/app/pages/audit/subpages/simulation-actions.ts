@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers";
 import { someOf } from "fictional";
 import {
   createSimulationRun,
-  advanceSimulationRunPhaseNoop,
+  tickSimulationRun,
   pauseSimulationRunManual,
   resumeSimulationRun,
   restartSimulationRunFromPhase,
@@ -334,7 +334,7 @@ export async function advanceSimulationRunAction(input: { runId: string }) {
   if (!runId) {
     return { success: false, error: "Missing runId" };
   }
-  const updated = await advanceSimulationRunPhaseNoop(
+  const updated = await tickSimulationRun(
     { env: env as Cloudflare.Env, momentGraphNamespace: null },
     { runId }
   );

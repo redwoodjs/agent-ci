@@ -3,7 +3,7 @@ import { type RequestInfo } from "rwsdk/worker";
 import { env } from "cloudflare:workers";
 import { requireQueryApiKey } from "../interruptors";
 import {
-  advanceSimulationRunPhaseNoop,
+  tickSimulationRun,
   createSimulationRun,
   getSimulationRunById,
   getSimulationRunEvents,
@@ -79,7 +79,7 @@ async function advanceSimulationRunHandler({ request }: RequestInfo) {
     return Response.json({ error: "Missing runId" }, { status: 400 });
   }
 
-  const updated = await advanceSimulationRunPhaseNoop(
+  const updated = await tickSimulationRun(
     { env: env as Cloudflare.Env, momentGraphNamespace: null },
     { runId }
   );

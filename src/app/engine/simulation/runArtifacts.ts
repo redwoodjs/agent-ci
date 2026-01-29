@@ -631,9 +631,11 @@ export async function getSimulationRunCandidateSets(
       ? ((r as any).candidates_json as any[])
       : [];
     const candidates = rawCandidates.map((c) => {
-      const details = detailsById.get(c.momentId);
+      const id = c.id || c.momentId;
+      const details = detailsById.get(id);
       return {
         ...c,
+        momentId: id,
         title: details?.title ?? null,
         summary: details?.summary ?? null,
       };
@@ -714,7 +716,7 @@ export async function getSimulationRunTimelineFitDecisions(
     const decisions = (r as any).decisions_json;
     if (Array.isArray(decisions)) {
       for (const d of decisions) {
-        if (d.candidateMomentId) momentIds.add(d.candidateMomentId);
+        if (d.candidateId) momentIds.add(d.candidateId);
       }
     }
   }
@@ -735,7 +737,7 @@ export async function getSimulationRunTimelineFitDecisions(
       ? ((r as any).decisions_json as any[])
       : [];
     const decisions = rawDecisions.map((d) => {
-      const details = detailsById.get(d.candidateMomentId);
+      const details = detailsById.get(d.candidateId);
       return {
         ...d,
         candidateTitle: details?.title ?? null,

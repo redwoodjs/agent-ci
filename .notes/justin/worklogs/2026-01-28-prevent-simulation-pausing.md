@@ -251,3 +251,16 @@ Synchronized all planning artifacts with the official terminology:
 - **Handler**: (Replaces Worker/Executor) Granular execution of a single `WorkUnit`.
 - **Orchestration**: The process performed by the Supervisor via `onTick`.
 - **Execution**: The process performed by the Handler via `onExecute`.
+
+## Final Pull Request Draft
+
+**Title**: Robust Simulation Orchestration and Entity-Level Retries
+
+**Problem**: 
+We identified that the simulation engine was prone to stalling due to a "blocking" error model. Host-level crashes forced premature phase skips, and granular document failures were never retried, leading to incomplete simulation runs that required manual intervention.
+
+**Solution**:
+We re-architected the simulation flow into a Supervisor/Handler pattern. A centralized orchestrator now manages non-blocking polling and temporal retries (30s dev / 10m prod) for failed entities. This ensures that failures in specific documents or transient host errors do not block the entire run, allowing the simulation to proceed through the full dataset while maintaining an audit trail of errors in the simulation events.
+
+**Validation**:
+Verified through manual execution of stalled runs; the supervisor now correctly "grinds through" failed documents without pausing. Verified that host-level crashes are logged as events and retried by the next heartbeat.

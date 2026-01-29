@@ -97,41 +97,32 @@ The solution consists of several key components:
 
 This toggle ensures that simulations produce reliable, traceable evidence for every document in a run, and can be adjusted as needed for performance or debugging.
 
-## Summary of Changes
+## Summary of Missed Caching Layers
 
 ### Configuration
-- [MODIFY] `wrangler.jsonc`: Added `SIMULATION_DISABLE_CACHING: "1"` to global vars.
-- [MODIFY] `worker-configuration.d.ts`: Added `SIMULATION_DISABLE_CACHING` to `Env` and `ProcessEnv` types.
-
-### Orchestration & Polling
-- [MODIFY] `src/app/engine/simulation/orchestration.ts`: Removed `changed = 1` filtering from polling and completion logic. Added `host.dispatch.work` event.
+- [MODIFY] `wrangler.jsonc`: Added `SIMULATION_DISABLE_CACHING: "1"`.
+- [MODIFY] `worker-configuration.d.ts`: Added `SIMULATION_DISABLE_CACHING` type definitions.
 
 ### Phase Adapters & Runners
-- [MODIFY] `src/app/pipelines/ingest_diff/engine/simulation/runner.ts`: Bypasses ETag lookup when caching is disabled, forcing `changed: true`.
-- [MODIFY] `src/app/pipelines/micro_batches/engine/simulation/adapter.ts`: Explicitly bypasses `loadMicroBatchCache` when caching is disabled (fixes reported log issue).
-- [MODIFY] `src/app/pipelines/macro_synthesis/engine/simulation/adapter.ts`: Bypasses `loadPreviousMicroStreamHash` when caching is disabled.
+- [MODIFY] `src/app/pipelines/ingest_diff/engine/simulation/runner.ts`: Forced `changed: true` by bypassing ETag checks.
+- [MODIFY] `src/app/pipelines/micro_batches/engine/simulation/adapter.ts`: Bypassed `loadMicroBatchCache`.
+- [MODIFY] `src/app/pipelines/macro_synthesis/engine/simulation/adapter.ts`: Bypassed `loadPreviousMicroStreamHash`.
 
-### Core Engine
-- [MODIFY] `src/app/engine/engine.ts`:
-  - Bypasses micro-moment cache lookup in `loadMicroBatchCache` port.
-  - Bypasses `findMomentByMicroPathsHash` lookup when re-materializing moments, ensuring fresh Moment IDs and re-computation of parents/importance.
+### Core Engine (Moment Ghosting)
+- [MODIFY] `src/app/engine/engine.ts`: Bypassed `findMomentByMicroPathsHash` to prevent ID reuse and "Untitled" results.
 
-### Supervisor Auditability
-- [MODIFY] `src/app/engine/runners/simulation/runner.ts`: Renamed supervisor events to `host.phase.tick` and added `host.phase.transition` for explicit state tracking.
-
-# PR: Global Simulation Cache Bypass and Artifact Completeness
+# PR: Finalize Simulation Cache Bypass (Missed Layers)
 
 ## Problem
-Despite improvements to supervisor orchestration, simulation runs continued to show data inconsistencies, such as "Untitled" moments with missing summaries and stale processing indicators. These issues were caused by persistent caching at multiple layers—ETag checks in ingestion, micro-batch lookups in processing adapters, and Moment ID reuse in the core engine—which incorrectly skipped the re-computation of artifacts for fresh simulation runs.
+While orchestration and polling logic were previously updated to improve resiliency, simulation runs still yielded stale results and "Untitled" moments. This was caused by several "missed" caching layers that persisted even when a clean run was intended:
+1.  **Ingest Diff Leakage**: Incremental ingestion still relied on ETags, marking documents as `unchanged` and causing them to be skipped by later synthesis phases.
+2.  **Moment ID Ghosting**: The core engine reused existing Moment IDs based on micro-path hashes. If a previous run resulted in an incomplete or "Untitled" moment, that stale ID and its lack of summary were inherited by the new run.
+3.  **Phase Hash Matching**: Micro-batch and macro-stream adapters were still performing hash-based lookups, bypassing fresh LLM execution.
 
 ## Solution
-We have introduced a global mechanism to bypass caching across the entire simulation pipeline, ensuring that every run produces a complete and verified set of results.
+This PR explicitly disables these remaining caching layers when `SIMULATION_DISABLE_CACHING` is active:
+-   **Forced Document Changes**: Ingest Diff now ignores ETags to ensure every document is treated as new.
+-   **Moment ID Isolation**: Bypassed content-hash-based ID lookups in the engine, forcing the creation of fresh Moment IDs and re-materialization of summaries.
+-   **Clean Batch Execution**: Disabled hash checks in processing adapters to guarantee end-to-end processing of all documents.
 
-The solution consists of several key components:
 
-1.  **Global Environment Variable**: Introduced `SIMULATION_DISABLE_CACHING` to govern the processing flow. When enabled, it forces a "clean slate" execution by bypassing all major caching layers.
-2.  **Forced Re-computation**: Updated the ingestion, micro-batching, and synthesis phases to ignore previous ETags and content hashes. This ensures that every document is re-evaluated and every LLM-driven artifact is regenerated.
-3.  **Moment ID Isolation**: Modified the core engine to prevent the reuse of existing Moment IDs based on content hashes. This ensures that new simulation runs generate fresh records, preventing the "ghosting" of incomplete titles or summaries from previous failed attempts.
-4.  **Complete Traceability**: By forcing a clean run, we guarantee that the simulation artifact tables are fully populated with fresh data, removing any possibility of "silent skips" due to legacy cache state.
-
-This toggle ensures that simulations produce reliable, traceable evidence for every document in a run, and can be adjusted as needed for performance or debugging.

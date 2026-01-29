@@ -211,6 +211,9 @@ export async function runMicroBatchesAdapter(
           sha256Hex,
           getMicroPromptContext,
           loadMicroBatchCache: async ({ batchHash, promptContextHash }) => {
+            if (context.env.SIMULATION_DISABLE_CACHING === "1") {
+              return null;
+            }
             await input.log.info("process.loading_cache", {
               phase: "micro_batches",
               batchHash,

@@ -218,24 +218,24 @@ export async function tickSimulationRun(
     const now = new Date().toISOString();
 
     if (input.continueOnError) {
-      const nextPhase = simulationPhases[phaseIdx + 1] ?? null;
-      if (nextPhase) {
-        await db
-          .updateTable("simulation_runs")
-          .set({
-            status: "running",
-            current_phase: nextPhase,
-            updated_at: now,
-            last_error_json: JSON.stringify({
-              message: `Crashed in ${phase}: ${msg}`,
-              phase,
-              recovered: true,
-            }),
-          } as any)
-          .where("run_id", "=", runId)
-          .execute();
-        return { status: "running", currentPhase: nextPhase };
-      }
+      const loggerPayload = {
+        message: `Crashed in ${phase}: ${msg}`,
+        phase,
+        recovered: true,
+      };
+
+      await db
+        .updateTable("simulation_runs")
+        .set({
+          status: "running",
+          updated_at: now,
+          last_error_json: JSON.stringify(loggerPayload),
+        } as any)
+        .where("run_id", "=", runId)
+        .execute();
+
+      // Rethrow to trigger Cloudflare Queue native retry/DLQ
+      throw new Error(`Simulation phase ${phase} failed: ${msg}`);
     }
 
     await db
@@ -293,6 +293,8 @@ export async function autoAdvanceSimulationRun(
     }
     lastResult = res;
     steps++;
+
+
 
     if (res.status !== "running") {
       break;

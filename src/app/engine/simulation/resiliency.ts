@@ -18,9 +18,23 @@ export async function recoverZombiesForPhase(
     .where("updated_at", "<", fiveMinutesAgo)
     .execute();
 
+  function safeJson<T>(input: string | any[] | null | undefined): T[] {
+    if (!input) return [];
+    if (Array.isArray(input)) return input;
+    if (typeof input === "string") {
+      try {
+        const parsed = JSON.parse(input);
+        if (Array.isArray(parsed)) return parsed;
+      } catch (e) {
+        // Fallback or ignore
+      }
+    }
+    return [];
+  }
+
   for (const zombie of zombies) {
-    const dispatched = (zombie.dispatched_phases_json || []) as string[];
-    const processed = (zombie.processed_phases_json || []) as string[];
+    const dispatched = safeJson<string>(zombie.dispatched_phases_json);
+    const processed = safeJson<string>(zombie.processed_phases_json);
 
     if (dispatched.includes(phase) && !processed.includes(phase)) {
       console.log(`[resiliency] Recovering zombie document ${zombie.r2_key} for phase ${phase}`);

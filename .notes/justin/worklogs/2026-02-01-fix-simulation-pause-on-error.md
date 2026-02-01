@@ -83,6 +83,20 @@ We found that `ingest_diff` was explicitly calling `JSON.stringify([])`. Mixed t
 - [x] Blueprints updated.
 
 ## Bedrock Step 10: Draft PR
-**Title**: Simulation Resiliency: Infra-Native Retries and JSON Consistency
-**Narrative**: This PR replaces a brittle manual retry mechanism with native Cloudflare Queue retries and DLQs. It also fixes a critical type error crash caused by inconsistent JSON serialization between different runners.
-**Rationale**: By leveraging infrastructure-native retries, we ensure simulations are robust against transient failures while respecting Cloudflare Worker execution limits. Standardizing JSON serialization prevents runtime crashes on state recovery.
+
+### Title
+Simulation Resiliency: Infra-Native Retries and JSON Consistency
+
+### Description
+## Problem
+Simulations were pausing prematurely instead of retrying transient failures. This was caused by two main factors:
+
+1.  **Phase Skipping**: The runner would attempt to skip phases when an error occurred, leading to incomplete execution and eventual pauses.
+2.  **Serialization Mismatch**: Inconsistent data encoding between different pipeline components caused the state recovery logic to crash when encountering unexpected formats.
+
+## Solution
+We align with our environment's native retry mechanisms to manage simulation failures. 
+
+The runner now propagates errors to the queue infrastructure, which manages retries using its built-in backoff logic. This approach preserves worker execution time and utilizes dead-letter queues to catch permanent failures.
+
+We also standardized how simulation state is encoded and introduced defensive parsing for existing data, resolving the runtime crashes during recovery.

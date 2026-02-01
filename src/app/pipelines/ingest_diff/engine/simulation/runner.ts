@@ -52,8 +52,8 @@ export const ingest_diff_simulation: PipelineRegistryEntry = {
               processed_at: now,
               updated_at: now,
               changed: 1, // Assume changed until proven otherwise
-              processed_phases_json: JSON.stringify([]),
-              dispatched_phases_json: JSON.stringify([]),
+              processed_phases_json: [] as any,
+              dispatched_phases_json: [] as any,
             } as any)
             .onConflict((oc) => oc.doNothing())
             .execute();

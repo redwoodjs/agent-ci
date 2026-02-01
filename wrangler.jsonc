@@ -191,6 +191,13 @@
         "queue": "engine-indexing-queue-prod",
         "max_batch_size": 10,
         "max_batch_timeout": 30,
+        "dead_letter_queue": "engine-indexing-queue-prod-dlq",
+        "max_retries": 3,
+      },
+      {
+        "queue": "engine-indexing-queue-prod-dlq",
+        "max_batch_size": 10,
+        "max_batch_timeout": 30,
       },
       {
         "queue": "r2-file-update-queue-prod",
@@ -423,6 +430,13 @@
             "queue": "engine-indexing-queue-rag-experiment-1",
             "max_batch_size": 10,
             "max_batch_timeout": 30,
+            "dead_letter_queue": "engine-indexing-queue-rag-experiment-1-dlq",
+            "max_retries": 3,
+          },
+          {
+            "queue": "engine-indexing-queue-rag-experiment-1-dlq",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30,
           },
           {
             "queue": "r2-file-update-queue-rag-experiment-1",
@@ -624,6 +638,13 @@
           },
           {
             "queue": "engine-indexing-queue-dev-justin",
+            "max_batch_size": 10,
+            "max_batch_timeout": 30,
+            "dead_letter_queue": "engine-indexing-queue-dev-justin-dlq",
+            "max_retries": 3,
+          },
+          {
+            "queue": "engine-indexing-queue-dev-justin-dlq",
             "max_batch_size": 10,
             "max_batch_timeout": 30,
           },

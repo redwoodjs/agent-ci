@@ -236,6 +236,20 @@ We will implement the **Unified Runtime Orchestrator** defined in `docs/blueprin
 ### 3. Legacy Cleanup ([DELETE])
 *   **[DELETE] `src/app/pipelines/**/web/routes/*.ts`**: All specific debug routes that query legacy tables.
 *   **[MODIFY] `src/app/engine/routes/simulation.ts`**: Remove `getSimulationRunDebugStatusHandler`.
+*   **[DELETE] Per-Phase Runners and Adapters**:
+    *   `src/app/pipelines/candidate_sets/engine/simulation/runner.ts`
+    *   `src/app/pipelines/deterministic_linking/engine/simulation/runner.ts`
+    *   `src/app/pipelines/ingest_diff/engine/simulation/runner.ts`
+    *   `src/app/pipelines/macro_classification/engine/simulation/runner.ts`
+    *   `src/app/pipelines/macro_classification/engine/simulation/adapter.ts`
+    *   `src/app/pipelines/macro_synthesis/engine/simulation/runner.ts`
+    *   `src/app/pipelines/macro_synthesis/engine/simulation/adapter.ts`
+    *   `src/app/pipelines/materialize_moments/engine/simulation/runner.ts`
+    *   `src/app/pipelines/materialize_moments/engine/simulation/adapter.ts`
+    *   `src/app/pipelines/micro_batches/engine/simulation/runner.ts`
+    *   `src/app/pipelines/micro_batches/engine/simulation/adapter.ts`
+    *   `src/app/pipelines/r2_listing/engine/simulation/runner.ts`
+    *   `src/app/pipelines/timeline_fit/engine/simulation/runner.ts`
 
 ## Execution Order
 1.  **Scaffold**: Create `src/app/engine/runtime` (Types, Orchestrator, Strategies).

@@ -36,3 +36,40 @@ We will document each phase with explicit IO definitions:
 *   **Micro-Batch**: A set of Chunks + Embeddings (Vector-ready).
 *   **Materialize**: The  into the primary graph tables.
 
+
+## Identified Legacy Files
+We searched the codebase to identify the legacy components that need to be changed or removed as part of the Unified Pipeline migration.
+
+### Files to Remove (Legacy Rot)
+These files represent the "Distributed Runner" pattern and "Legacy Phase Adapters" that are being replaced by the Unified Orchestrator.
+
+1.  **Per-Phase Runners** (`src/app/pipelines/*/engine/simulation/runner.ts`):
+    *   `micro_batches/engine/simulation/runner.ts`
+    *   `ingest_diff/engine/simulation/runner.ts`
+    *   `macro_synthesis/engine/simulation/runner.ts`
+    *   `macro_classification/engine/simulation/runner.ts`
+    *   `materialize_moments/engine/simulation/runner.ts`
+    *   `deterministic_linking/engine/simulation/runner.ts`
+    *   `candidate_sets/engine/simulation/runner.ts`
+    *   `timeline_fit/engine/simulation/runner.ts`
+    *   `r2_listing/engine/simulation/runner.ts`
+
+2.  **Legacy Adapters** (`src/app/pipelines/*/engine/simulation/adapter.ts`):
+    *   `micro_batches/engine/simulation/adapter.ts`
+    *   `macro_classification/engine/simulation/adapter.ts`
+    *   `materialize_moments/engine/simulation/adapter.ts`
+    *   (And others if they exist in variations, e.g. `macro_synthesis` has `live/adapter.ts` and `simulation/adapter.ts`)
+
+3.  **Pipeline-Specific Routes** (`src/app/pipelines/*/web/routes/*.ts`):
+    *   Confirmed in `src/app/pipelines/micro_batches/web/routes/`
+    *   These expose endpoints that query legacy tables and should be removed in favor of the generic admin API.
+
+### Files to Change/Refactor
+1.  **Central Runner** (`src/app/engine/runners/simulation/runner.ts`):
+    *   This is the current entry point. It needs to be updated to use the new `UnifiedRun Orchestrator` or be replaced by it.
+2.  **Simulation Routes** (`src/app/engine/routes/simulation.ts`):
+    *   Remove `getSimulationRunDebugStatusHandler`.
+    *   Update other handlers to respect the new schema if needed.
+3.  **Core Orchestrators** (`src/app/pipelines/*/engine/core/orchestrator.ts`):
+    *   These contain the valid business logic but use the "Ports" pattern.
+    *   Action: Refactor to usage `PipelineContext` directly and remove Ports.

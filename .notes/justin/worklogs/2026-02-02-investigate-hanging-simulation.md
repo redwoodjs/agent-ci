@@ -232,3 +232,148 @@ Based on our discussion, we are stripping back the simulation LLM options to red
 
 The logic in `llm.ts` will now strictly check for Heuristic mode before proceeding to real LLM calls.
 
+
+## Finalized Heuristic Engine and Simplified LLM Modes
+We completed the native-speed approximation engine and streamlined the simulation LLM options.
+
+1.  **Implemented Heuristic Logic**: In `heuristicLlm.ts`, we added regex-based sentence extraction and keyword-based classification. This allows simulations to run with semi-realistic data at native speeds by bypassing AI network calls.
+2.  **Simplified Override Hierarchy**: Removed the dedicated "Mock" and "Fast LLM" modes to reduce configuration surface area. The system now defaults to real LLM calls but allows an immediate override via `SIMULATION_HEURISTIC_MODE`.
+3.  **Verification**: The user has enabled `SIMULATION_HEURISTIC_MODE: "1"` in `wrangler.jsonc`, and initial logs confirm the worker is processing jobs using the new logic.
+
+
+## Drafted Blueprint for Heartbeat Audit Endpoint
+We've drafted a plan to expose real-time worker heartbeats via a new JSON endpoint. This will allow us to verify the liveness of simulation processing by checking the `updated_at` timestamps of individual documents and batches.
+
+### Plan
+1.  **New Endpoint**: `/audit/simulation/heartbeats.json?runId=...`
+2.  **Implementation**: Query `simulation_run_documents` and `simulation_run_micro_batches` sorted by `updated_at`.
+3.  **UI Integration**: Add a link to the existing simulation runs page.
+
+
+## Drafted Work Task Blueprint for Heartbeat Audit Endpoint
+
+### Context
+Simulation workers can sometimes stall or crash. While we've implemented heartbeats that touch the database, we currently lack visibility into these updates in the UI. 
+
+We need a dedicated way to monitor the liveness of simulation processing in real-time by exposing the `updated_at` timestamps of individual documents and batches.
+
+#### Solution
+Add a JSON endpoint `/audit/simulation/heartbeats.json` that returns a summary of all active and recently updated work items for a given simulation run.
+
+#### Design Decisions
+- **JSON Endpoint**: A raw JSON endpoint is preferred for initial verification via `curl` and allows for easier programmatic monitoring or future UI dashboards.
+- **Sorted Output**: Sort by `updatedAt` descending to show the most recently active workers at the top.
+
+### Breakdown of Planned Changes
+
+#### [NEW] [simulation-heartbeats.ts](src/app/pages/audit/subpages/simulation-heartbeats.ts)
+Implementation of the request handler.
+- Extract `runId` from query params.
+- Fetch documents via `getSimulationRunDocuments`.
+- Fetch batches via `getSimulationRunMicroBatches`.
+- Aggregate and return as a JSON array.
+
+#### [MODIFY] [routes.tsx](src/app/pages/audit/routes.tsx)
+Register the new route.
+
+#### [MODIFY] [simulation-runs-page.tsx](src/app/pages/audit/subpages/simulation-runs-page.tsx)
+Add a link to the new endpoint in the run details view.
+
+### Directory & File Structure
+```text
+src/app/pages/audit/
+├── [MODIFY] routes.tsx
+└── subpages/
+    ├── [NEW] simulation-heartbeats.ts
+    └── [MODIFY] simulation-runs-page.tsx
+```
+
+### Types & Data Structures
+```typescript
+interface HeartbeatResponse {
+  runId: string;
+  checkTime: string;
+  items: Array<{
+    r2Key: string;
+    type: 'document' | 'batch';
+    status: string;
+    updatedAt: string;
+  }>;
+}
+```
+
+### Invariants & Constraints
+- **Invariant**: The `updated_at` field in the database is the authoritative source for liveness.
+- **Constraint**: The endpoint must respect the `requireBasicAuth` middleware used by other audit routes.
+
+### System Flow (Snapshot Diff)
+**Previous Flow**:
+- UI displays overall `simulation_runs.updated_at`.
+- No visibility into individual worker progress.
+
+**New Flow**:
+- Audit UI -> Link -> `/audit/simulation/heartbeats.json`.
+- Handler queries `simulation_run_documents` and `simulation_run_micro_batches`.
+- Returns real-time liveness data per work unit.
+
+### Suggested Verification (Manual)
+1.  Start a simulation run.
+2.  Open `http://localhost:5174/audit/simulation/heartbeats.json?runId=<RUN_ID>`.
+3.  Refresh the page every few seconds and verify that `updatedAt` timestamps are advancing for active items.
+
+### Tasks
+- [ ] Create `simulation-heartbeats.ts` with JSON handler logic.
+- [ ] Update `routes.tsx` to register the endpoint.
+- [ ] Add "View Heartbeats" link to `simulation-runs-page.tsx`.
+
+## Refined Blueprint: Heartbeat Pulse Endpoint
+We've compared the proposed endpoint with existing status and JSON handlers.
+
+### Context
+While an admin status endpoint (`/admin/.../debug/status`) exists, it provides a "pass/fail" summary based on a 5-minute threshold. We need a "pulse" view that shows exact timestamps for all active work units.
+
+#### Comparison vs Existing Endpoints
+- **Existing Status**: Summarized health, 5-minute staleness threshold, Admin Auth.
+- **Proposed Pulse**: Granular timestamps (all units), Real-time verification of heartbeats, Audit Auth.
+
+### Work Task Blueprint
+
+#### Summary of Planned Changes
+- **New Handler**: `simulation-heartbeats.ts` to aggregate document and batch pulse data.
+- **New Route**: `/audit/simulation/heartbeats.json`.
+- **UI Enhancement**: Link to the "Pulse" view from the simulation run details.
+
+#### Directory & File Structure
+```text
+src/app/pages/audit/
+├── [MODIFY] routes.tsx
+└── subpages/
+    ├── [NEW] simulation-heartbeats.ts
+    └── [MODIFY] simulation-runs-page.tsx
+```
+
+#### Types & Data Structures
+```typescript
+interface HeartbeatResponse {
+  runId: string;
+  checkTime: string;
+  items: Array<{
+    id: string; 
+    type: 'document' | 'batch';
+    status: string;
+    updatedAt: string;
+  }>;
+}
+```
+
+#### Invariants & Constraints
+- Authoritative source: `updated_at` column.
+- Security: Inherits Basic Auth from the Audit layout.
+
+#### Suggested Verification
+- Refresh the JSON endpoint and verify that timestamps increment for active items.
+
+### Tasks
+- [ ] Create `simulation-heartbeats.ts` with JSON handler logic.
+- [ ] Update `routes.tsx` to register the endpoint.
+- [ ] Add "View Pulse" link to `simulation-runs-page.tsx`.

@@ -6,6 +6,7 @@ export async function executePhase<TInput, TOutput>(
   strategies: RuntimeStrategies,
   context: PipelineContext
 ): Promise<void> {
+  context.storage = strategies.storage;
   const cached = await strategies.storage.load<TOutput>(phase, input);
   if (cached) {
     if (phase.next) {

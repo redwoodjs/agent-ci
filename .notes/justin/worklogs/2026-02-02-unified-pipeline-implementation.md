@@ -427,3 +427,51 @@ We have completed the migration of **Phase 6: Deterministic Linking**.
 - [x] Phase 6: Deterministic Linking
 - [ ] Phase 7: Candidate Sets
 - [ ] Phase 8: Timeline Fit
+
+## Completion of Phase 7: Candidate Sets [2026-02-02]
+We have completed the migration of **Phase 7: Candidate Sets**.
+
+**Accomplishments**:
+- **Core Logic**: Created  in . It integrates with  for similarity search and the  for metadata retrieval.
+- **Phase Adapter**: Created  in . It loads output from both  and  to identify moments that still need candidates.
+- **Dependency Management**: We updated the  and  orchestrator to include the  strategy, enabling phases to load data from any preceding phase in the pipeline.
+
+**Backlog Update**:
+- [x] Phase 1: Ingest Diff
+- [x] Phase 2: Micro-Batches
+- [x] Phase 3: Macro Synthesis
+- [x] Phase 4: Macro Classification
+- [x] Phase 5: Materialize Moments
+- [x] Phase 6: Deterministic Linking
+- [x] Phase 7: Candidate Sets
+- [ ] Phase 8: Timeline Fit
+
+## Architectural Alignment: Storage in Context [2026-02-02]
+During the implementation of Phase 7, we realized that the generic  signature (only accepting  and ) was insufficient for phases that need to "pull" data from previous steps in the pipeline (e.g., Phase 7 needing both Phase 5 and Phase 6 results).
+
+**Decisions**:
+- **Updated **: Added  to the context.
+- **Updated Orchestrator**: Injected the current runtime storage strategy into the context before execution.
+- **Updated Architecture Blueprint**: Reflected this change in  to ensure it's a first-class citizen of the Unified Runtime.
+
+## Completion of Phase 8: Timeline Fit [2026-02-02]
+We have completed the migration of **Phase 8: Timeline Fit**, the final step in the unified pipeline.
+
+**Accomplishments**:
+- **Core Logic**: Created  in . It utilizes the  LLM to veto and select the best parent match from a candidate set.
+- **Phase Adapter**: Created  in . It consumes the output of Phase 5 and Phase 7.
+- **Milestone**: The entire Machinen Engine core logic (8 phases) is now migrated to the **Unified Runtime**.
+
+**Backlog Update**:
+- [x] Phase 1: Ingest Diff
+- [x] Phase 2: Micro-Batches
+- [x] Phase 3: Macro Synthesis
+- [x] Phase 4: Macro Classification
+- [x] Phase 5: Materialize Moments
+- [x] Phase 6: Deterministic Linking
+- [x] Phase 7: Candidate Sets
+- [x] Phase 8: Timeline Fit
+
+**Next Steps**:
+- Verify the entire pipeline with an end-to-end simulation.
+- Remove the legacy  and runner shims.

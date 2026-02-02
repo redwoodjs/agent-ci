@@ -21,14 +21,17 @@ async function executePhase(
   strategies: { storage: StorageStrategy, transition: TransitionStrategy },
   context: PipelineContext
 ) {
+  // Inject storage into context so phases can pull from history
+  context.storage = strategies.storage;
+
   // 1. Execute Logic (Identical)
   const output = await phase.execute(input, context);
   
   // 2. Persist State (Varies by Strategy)
-  await strategies.storage.saveArtifact(phase, input, output);
+  await strategies.storage.save(phase, input, output);
   
   // 3. Trigger Next (Varies by Strategy)
-  await strategies.transition.dispatchNext(getStep(phase).next, output);
+  await strategies.transition.dispatchNext(phase.next, output, input);
 }
 ```
 
@@ -49,6 +52,7 @@ interface PipelineContext extends IndexingHookContext {
   vector: VectorIndex; // Read/Write Embeddings
   env: Env;           // Config & Keys
   llm: LLMProvider;   // Reasoning
+  storage: StorageStrategy; // Load/Save artifacts from any phase
 }
 ```
 

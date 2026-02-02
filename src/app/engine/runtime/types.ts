@@ -31,6 +31,7 @@ export interface PipelineContext extends IndexingHookContext {
   env: Cloudflare.Env;
   cache: MicroBatchCache;
   plugins: Plugin[];
+  storage: StorageStrategy;
 }
 
 export interface Phase<TInput = any, TOutput = any> {

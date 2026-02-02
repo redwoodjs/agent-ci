@@ -329,3 +329,24 @@ We have completed the migration of the first two phases: **Ingest Diff** and **M
 - [ ] Phase 6: Deterministic Linking
 - [ ] Phase 7: Candidate Sets
 - [ ] Phase 8: Timeline Fit
+
+## Completion of Phase 3: Macro Synthesis [2026-02-02]
+We have completed the migration of **Phase 3: Macro Synthesis**.
+
+**Accomplishments**:
+- **Core Logic**: Refactored  to use . It now pulls document metadata and planned batches directly.
+- **Phase Adapter**: Created  in . It correctly fetches the output of  using , ensuring seamless data flow in both Live and Simulation.
+- **Cleanup**: Deleted legacy .
+
+**Approach Note**:
+- **Data Dependencies**: We successfully demonstrated the pattern of one phase loading the output of a previous phase via . This is the glue for high-throughput pipelines.
+
+**Backlog Update**:
+- [x] Phase 1: Ingest Diff
+- [x] Phase 2: Micro-Batches
+- [x] Phase 3: Macro Synthesis
+- [ ] Phase 4: Macro Classification
+- [ ] Phase 5: Materialize Moments
+- [ ] Phase 6: Deterministic Linking
+- [ ] Phase 7: Candidate Sets
+- [ ] Phase 8: Timeline Fit

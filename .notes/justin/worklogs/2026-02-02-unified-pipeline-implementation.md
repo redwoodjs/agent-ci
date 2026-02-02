@@ -350,3 +350,21 @@ We have completed the migration of **Phase 3: Macro Synthesis**.
 - [ ] Phase 6: Deterministic Linking
 - [ ] Phase 7: Candidate Sets
 - [ ] Phase 8: Timeline Fit
+
+## Completion of Phase 4: Macro Classification [2026-02-02]
+We have completed the migration of **Phase 4: Macro Classification**.
+
+**Accomplishments**:
+- **Core Logic**: Refactored  to use . It handles gating and classification for each stream of thoughts.
+- **Phase Adapter**: Created  in . It fetches the output of  to consume the streams and produce classifications.
+- **Normalization**: Ensured that gating and classification logic are consistently applied across Live and Simulation.
+
+**Backlog Update**:
+- [x] Phase 1: Ingest Diff
+- [x] Phase 2: Micro-Batches
+- [x] Phase 3: Macro Synthesis
+- [x] Phase 4: Macro Classification
+- [ ] Phase 5: Materialize Moments
+- [ ] Phase 6: Deterministic Linking
+- [ ] Phase 7: Candidate Sets
+- [ ] Phase 8: Timeline Fit

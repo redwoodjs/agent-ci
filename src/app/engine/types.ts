@@ -204,6 +204,13 @@ export interface Plugin {
       macroMomentIndex: number,
       context: IndexingHookContext
     ) => Promise<MacroMomentParentProposal | null>;
+    synthesizeMicroMomentsIntoStreams?: (
+      microMoments: import("./databases/momentGraph").MicroMoment[],
+      options: {
+        macroSynthesisPromptContext: string | null;
+        auditSink: (event: any) => void;
+      }
+    ) => Promise<Array<{ streamId: string; macroMoments: any[] }>>;
   };
 }
 

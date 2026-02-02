@@ -435,12 +435,9 @@ ${momentsText}
 
 type MacroStream = { streamId: string; macroMoments: MacroMomentDescription[] };
 
-export async function runMacroClassificationForDocument(input: {
-  ports: MacroClassificationPorts;
-  documentId: string;
-  streams: MacroStream[];
-  gating: MacroGatingConfig;
-}): Promise<{
+import { PipelineContext } from "../../../../engine/runtime/types";
+
+export type MacroClassificationOutput = {
   streams: MacroStream[];
   gatingAuditByStream: any[];
   classificationsByStream: any[];
@@ -450,7 +447,16 @@ export async function runMacroClassificationForDocument(input: {
     macroIn: number;
     macroOut: number;
   };
-}> {
+};
+
+export async function runMacroClassificationForDocument(input: {
+  context: PipelineContext;
+  documentId: string;
+  streams: MacroStream[];
+  gating: MacroGatingConfig;
+}): Promise<MacroClassificationOutput> {
+  const { context, streams } = input;
+  
   const outStreams: MacroStream[] = [];
   const gatingAuditByStream: any[] = [];
   const classificationsByStream: any[] = [];
@@ -460,8 +466,17 @@ export async function runMacroClassificationForDocument(input: {
   let macroIn = 0;
   let macroOut = 0;
 
-  streamsIn += input.streams.length;
-  for (const s of input.streams) {
+  streamsIn += streams.length;
+  
+  // Helper to use LLM from context
+  const callLLM = async (prompt: string) => {
+      // Use the generic LLM provider from context
+      return context.llm.call(prompt, "quick-cheap");
+  };
+
+  const ports = { callLLM };
+
+  for (const s of streams) {
     const streamId =
       typeof (s as any)?.streamId === "string" ? (s as any).streamId : "stream";
     const macroMoments: MacroMomentDescription[] = Array.isArray(
@@ -477,7 +492,7 @@ export async function runMacroClassificationForDocument(input: {
     let classifications: any[] | null = null;
     if (macroMomentDescriptions.length > 0) {
       const res = await classifyMacroMomentsLikeLiveEngine({
-        ports: input.ports,
+        ports,
         documentId: input.documentId,
         macroMoments: macroMomentDescriptions as any,
       });

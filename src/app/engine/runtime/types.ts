@@ -24,6 +24,15 @@ export interface MicroBatchCache {
   ): Promise<void>;
 }
 
+
+export interface SimulationContext {
+    runId: string;
+    // We cannot import SimulationDatabase easily due to circle?
+    // Let's use `any` or minimal interface for now or specific method.
+    // Better: `getArtifact(phaseName: string, r2Key: string): Promise<any>`
+    getArtifact(phase: string, key: string): Promise<any | null>;
+}
+
 export interface PipelineContext extends IndexingHookContext {
   db: MomentDatabase;
   vector: VectorizeIndex;
@@ -31,6 +40,7 @@ export interface PipelineContext extends IndexingHookContext {
   env: Cloudflare.Env;
   cache: MicroBatchCache;
   plugins: Plugin[];
+  simulation?: SimulationContext;
 }
 
 export interface Phase<TInput = any, TOutput = any> {

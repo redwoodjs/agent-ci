@@ -40,89 +40,98 @@ All logic is organized by **Domain** in `src/app/pipelines/<phase>/`.
 
 **CRITICAL CONSTRAINT**: There are **NO PER-PHASE RUNNERS**. The generic `executePhase` function handles everything.
 
-### 2.3 Stateless Phase Execution
-Phases use **Stateless Execution with Context**.
+### 2.3 Stateless Phase Execution via Context
+Memory is our scarcest resource. We cannot pass huge objects between functions in a serverless environment.
+Instead, we use **Stateless Execution with Context**.
+
 ```typescript
 type PhaseExecution<TInput, TOutput> = (
   input: TInput,
-  context: PipelineContext // Provides DB Access, LLM, Env
+  context: PipelineContext // The Side-Effect Handle
 ) => Promise<TOutput>;
+
+interface PipelineContext extends IndexingHookContext {
+  // 1. Database Access (Read Metadata, Write Findings)
+  db: Database;
+  
+  // 2. Vector Search (Candidate Generation)
+  vector: VectorizeIndex;
+  
+  // 3. Environment (Config, API Keys)
+  env: Env;
+  
+  // 4. LLM Access (Reasoning)
+  llm: LLMProvider;
+}
 ```
 
-## 3. Execution Strategies
+**The Rule**: Logic functions are pure-ish. They accept an ID (`input`) and a capability bag (`context`). They must fetch what they need from the DB using the ID, and write their results back via the Context.
+
+## 3. Plugin Architecture: Domain Injection
+
+The Pipeline itself is generic. All domain-specific knowledge (how to parse GitHub, how to chunk Discord) is injected via **Plugins**.
+Plugins live in `src/app/engine/plugins/`.
+
+### 3.1 The Plugin Interface
+Plugins provide hooks for specific phases:
+
+```typescript
+interface Plugin {
+  name: string;
+  
+  // Phase 1: Ingest (Raw -> Document)
+  prepareSourceDocument(context: IndexingHookContext): Promise<Document | null>;
+  
+  // Phase 2: Micro-Batching (Document -> MicroMoment[])
+  splitDocumentIntoChunks(doc: Document): Promise<Chunk[]>;
+  
+  // Phase 3: Macro-Synthesis (Context Injection)
+  subjects?: {
+    getMicroMomentBatchPromptContext(...): Promise<string>;
+  };
+}
+```
+
+### 3.2 Strategy
+*   **Waterfall**: Try plugins one by one until a match is found (e.g., Ingestion).
+*   **Collector**: Run all matching plugins and aggregate results (e.g., Evidence Gathering).
+
+## 4. Execution Strategies
 
 We inject behavior to handle the different constraints of Live vs Simulation.
 
-### 3.1 Live Strategy (Minimizing Latency)
+### 4.1 Live Strategy (Minimizing Latency)
 *   **Goal**: Process a webhook as fast as possible.
-*   **Storage**: `NoOpStorage` (or `LogStorage`). We don't save intermediate state to DB to save milliseconds.
-*   **Transition**: `DirectTransition`. We call the next function immediately in-memory (recursive chain).
-*   **Context**: `LiveContext`. Connects to real-time environment.
+*   **Storage**: `NoOpStorage`. No intermediate DB writes.
+*   **Transition**: `DirectTransition`. In-memory recursion.
+*   **Context**: `LiveContext`. Real-time environment.
 
-### 3.2 Simulation Strategy (Maximizing Throughput & Inspectability)
-*   **Goal**: Process 10,000+ items without crashing.
-*   **Storage**: `ArtifactStorage`. We persist input/output to `simulation_run_artifacts` for checkpointing and UI debugging.
-*   **Transition**: `QueueTransition`. We enqueue a job for the next phase. This breaks the stack, respects the 30s timeout, and allows the Supervisor to pace the work (Backpressure).
-*   **Context**: `SimulationContext`. Can mock time or external APIs.
+### 4.2 Simulation Strategy (Maximizing Throughput & Inspectability)
+*   **Goal**: Process 10,000+ items safely.
+*   **Storage**: `ArtifactStorage`. Persist to `simulation_run_artifacts` table.
+*   **Transition**: `QueueTransition`. Enqueue next job (Backpressure).
+*   **Context**: `SimulationContext`. Mocked time/APIs.
 
-## 4. Work Unit Orchestration
+## 5. The 8-Phase Lifecycle
 
-### 4.1 Live (Push-Based)
-*   **Trigger**: Webhook.
-*   **Flow**: Webhook -> `executePhase(Ingest, LiveStrategies)`.
-*   **Result**: The chain runs to completion (or failure) in seconds.
+| Phase | Input | Context | Output | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Ingest** | `r2_key` | Plugin | `Document` | Fetch raw JSON, normalize to standard Document. |
+| **2. Micro Batches** | `Document` | Plugin | `MicroMoment[]` | Split into Chunks, Embed them. These are "Micro-Moments". |
+| **3. Macro Synthesis** | `MicroMoment[]` | LLM | `MacroStream[]` | Interpret the stream of micro-moments into a narrative. |
+| **4. Classification** | `MacroStream` | LLM | `ClassifiedStream` | Filter noise, tag as Opportunity/Problem. |
+| **5. Materialize** | `ClassifiedStream` | DB Write | `Moment[]` | **COMMIT POINT**. Assign stable IDs and write to Graph DB. |
+| **6. Linking** | `moment_id` | DB Read | `ParentLink` | Deterministic linking (e.g. "Fixes #123"). |
+| **7. Candidates** | `moment_id` | Vector | `Candidate[]` | Fuzzy search for related past moments. |
+| **8. Timeline Fit** | `moment_id` | LLM | `FinalDecision` | Judge best parent from candidates. |
 
-### 4.2 Simulation (Pull-Based)
-*   **Trigger**: The Supervisor (Pacer).
-*   **Flow**: Supervisor polls `simulation_run_artifacts` -> Dispatches Queue Job.
-*   **Worker**: Calls `executePhase(Ingest, SimStrategies)`.
-*   **Result**: State saved to DB. Next job enqueued. Worker exits.
-
-## 5. Storage: The Artifacts Table (Sim Only)
-
-The `simulation_run_artifacts` table is the "Tape" for the simulation machine.
-
-| Column | Type | Description |
-| :--- | :--- | :--- |
-| `run_id` | PK | The simulation run ID. |
-| `phase` | PK | The phase name (e.g., `micro_batches`). |
-| `entity_id` | PK | The unit of work (e.g., `r2_key`, `moment_id`). |
-| `input_json` | JSON | The arguments passed to the phase logic. |
-| `output_json` | JSON | The result returned by the phase logic. |
-| `status` | Enum | `pending`, `running`, `complete`, `failed`. |
-| `retry_count` | Int | Application-level retry counter. |
-| `error_json` | JSON | Last error details if failed. |
-
-## 6. The 8-Phase Lifecycle
-
-| Phase | Input (Artifact.entity_id) | Context needed | Output |
-| :--- | :--- | :--- | :--- |
-| **1. Ingest** | `r2_key` | R2 | `Chunks[]` |
-| **2. Micro Batches** | `r2_key` | - | `MicroMoment[]` |
-| **3. Macro Synthesis** | `r2_key` | LLM | `MacroStream[]` |
-| **4. Classification** | `r2_key` | LLM | `ClassifiedStream[]` |
-| **5. Materialize** | `r2_key` | DB Write | `Moment[]` (Graph IDs) |
-| **6. Linking** | `moment_id` | DB Read (Index) | `ParentLink` |
-| **7. Candidates** | `moment_id` | Vector DB | `Candidate[]` |
-| **8. Timeline Fit** | `moment_id` | LLM, DB Read | `FinalDecision` |
-
-## 7. System Constraints
-
-1.  **UNIFIED ORCHESTRATOR**: There is only ONE execution code path: `executePhase`.
-2.  **STRATEGY INJECTION**: Differences between Live/Sim are solely handled by `StorageStrategy` and `TransitionStrategy`.
-3.  **QUEUE BOUNDARY (Sim)**: In Sim mode, `TransitionStrategy` MUST be async (Queue) to respect the 30s limit and concurrency controls.
-4.  **No Per-Phase Runners**: All orchestration usage must go through the generic pipeline.
-5.  **Statelessness**: Workers are ephemeral.
-
----
-
-## 8. End-to-End Walkthrough: "The Prefetching Story"
+## 6. End-to-End Walkthrough: "The Prefetching Story"
 
 **Scenario**: A feature lifecycle involving 5 distinct documents spanning 3 days.
 
 **The Timeline**:
 1.  **Day 1 10:00 (Doc A)**: GitHub Issue #22 "Support Prefetching".
-2.  **Day 1 14:00 (Doc B)**: Discord User: "Can I prefetch links?" Team: "See #22".
+2.  **Day 1 14:00 (Doc B)**: Discord User: "Can I prefetch links?" Team at-mention: "See #22".
 3.  **Day 2 09:00 (Doc C)**: Discord Agent Chat: "How would I implement prefetching?" (Dev planning).
 4.  **Day 3 10:00 (Doc D)**: GitHub PR #25 "Feat: Client-side prefetching. Solves #22".
 5.  **Day 3 12:00 (Doc E)**: Discord Announcement: "Prefetching is out! See PR #25".
@@ -130,10 +139,10 @@ The `simulation_run_artifacts` table is the "Tape" for the simulation machine.
 ### Process Flow (Unified Pipeline)
 
 #### Step 1: Materialization (Phases 1-5)
-The system ingests all 5 documents.
-*   **Live**: Happens sequentially as Webhooks arrive.
-*   **Sim**: Happens in parallel/batched chunks managed by Supervisor.
-*   **Result**: 5 `Moment` rows in the IDB. Initially unlinked.
+The system ingests all 5 documents. Plugins (GitHub/Discord) handle normalization.
+*   **Micro-Batching**: Doc C (Chat) is split into chunks.
+*   **Macro-Synthesis**: LLM recognizes Doc C as "Implementation Planning".
+*   **Materialize**: All 5 docs become `Moment` rows in the DB.
 
 #### Step 2: Deterministic Linking (Phase 6)
 *   **Doc B (Discord)**: Logic detects "See #22".
@@ -148,7 +157,7 @@ The system ingests all 5 documents.
 
 #### Step 3: Candidate Generation (Phase 7)
 *   **Doc C (Agent Planning)**: "How would I implement prefetching?"
-    *   No explicit link.
+    *   No explicit link found in text.
     *   `context.vector.query("implement prefetching")`.
     *   **Result**: Returns Moment A (Issue #22 "Support Prefetching") + noise.
     *   **Candidates**: `[Moment A, Moment Z, Moment Y]`.

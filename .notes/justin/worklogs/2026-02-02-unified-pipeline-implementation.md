@@ -25,7 +25,58 @@ We found that the "Runner" logic is NOT in a central silo, but **duplicated** in
 
 **Code Smell Identified**:
 *   `runner.ts` contains raw Polling Logic (`db.selectFrom...`).
-*   `adapter.ts` contains the specific implementation of the phase but *also* mixes in Infrastructure concerns (Retry loops, Logging).
+*   `adapter.ts` contains the specific implementation of the phase but
+## Investigated Simulation UI Failure [2026-02-02]
+We investigated the "No registry entry found" error reporting by the user in `src/app/engine/runners/simulation/runner.ts`.
+
+### Finding: The Registration Sinkhole
+*   **The Problem**: The Simulation Host (Supervisor) depends on `src/app/engine/simulation/registry.ts` to find phase handlers.
+*   **Legacy Pattern**: Registration was handled as a side-effect in `runner.ts` of each phase.
+*   **Refactor regression**: We deleted the `runner.ts` files for Phases 1-8 during the Unified Runtime migration, but we did not replace the registration logic.
+*   **Result**: The `pipelineRegistry` is empty for all migrated phases. Only `r2_listing` (which hasn't been migrated yet) is still registered.
+
+### Evidence
+*   `grep` for `registerPipeline` shows only `r2_listing` and the definition.
+*   Migrated phases like `micro_batches/index.ts` only export a `Phase` object and lack any call to `registerPipeline`.
+*   The `tickSimulationRun` function fails at line 109 when attempting to look up the registry entry.
+
+## Work Task Blueprint: Bridging Unified Phases to Simulation Host
+
+### Goal Description
+We will implement a unified adapter to bridge the new `Phase` objects to the legacy `PipelineRegistryEntry` interface required by the Simulation Host and UI. This will restore the simulation's ability to orchestrate the migrated phases.
+
+### Proposed Changes
+
+#### 1. Simulation Infrastructure ([MODIFY] `src/app/engine/simulation/orchestration.ts`)
+*   **[NEW] `createUnifiedPhaseRegistryEntry(phase, label)`**: 
+    *   Returns a `PipelineRegistryEntry`.
+    *   `onTick`: Uses `runStandardDocumentPolling`.
+    *   `onExecute`: Calls `executePhase(phase, ...)` using the `SimulationStrategy`.
+    *   `recoverZombies`: Calls the phase's sweeper (if any) or a generic one.
+
+#### 2. Phase Registration (For each migrated Phase)
+*   **[MODIFY] `src/app/pipelines/**/index.ts`**:
+    *   Call `registerPipeline(createUnifiedPhaseRegistryEntry(Phase, Label))`.
+    *   This ensures that importing the phase (as done in `allPipelines.ts`) triggers registration.
+
+#### 3. Cleanup
+*   Remove the leftover `r2_listing` runner once it is migrated to this new pattern.
+
+### Verification Plan
+1.  **Registry Check**: Verify `pipelineRegistry` is populated for all phases in dev console or via a debug script.
+2.  **Tick Test**: Trigger a simulation run and verify `tickSimulationRun` no longer throws "No registry entry found".
+3.  **UI Test**: Verify the simulation UI shows progress and details for the migrated phases.
+
+- [ ] Implement `createUnifiedPhaseRegistryEntry` in `orchestration.ts`.
+- [ ] Register `IngestDiffPhase`.
+- [ ] Register `MicroBatchesPhase`.
+- [ ] Register `MacroSynthesisPhase`.
+- [ ] Register `MacroClassificationPhase`.
+- [ ] Register `MaterializeMomentsPhase`.
+- [ ] Register `DeterministicLinkingPhase`.
+- [ ] Register `CandidateSetsPhase`.
+- [ ] Register `TimelineFitPhase`.
+but *also* mixes in Infrastructure concerns (Retry loops, Logging).
 *   **Verdict**: This confirms the "Wrapper Trap" mentioned in the blueprint. We need to DELETE these per-phase runners and replace them with the single `UnifiedOrchestrator`.
 
 **Confidence Meter Update**:
@@ -475,3 +526,120 @@ We have completed the migration of **Phase 8: Timeline Fit**, the final step in 
 **Next Steps**:
 - Verify the entire pipeline with an end-to-end simulation.
 - Remove the legacy  and runner shims.
+
+## Investigated Simulation UI Failure [2026-02-02]
+We investigated the "No registry entry found" error reporting by the user in `src/app/engine/runners/simulation/runner.ts`.
+
+### Finding: The Registration Sinkhole
+*   **The Problem**: The Simulation Host (Supervisor) depends on `src/app/engine/simulation/registry.ts` to find phase handlers.
+*   **Legacy Pattern**: Registration was handled as a side-effect in `runner.ts` of each phase.
+*   **Refactor regression**: We deleted the `runner.ts` files for Phases 1-8 during the Unified Runtime migration, but we did not replace the registration logic.
+*   **Result**: The `pipelineRegistry` is empty for all migrated phases. Only `r2_listing` (which hasn't been migrated yet) is still registered.
+
+### Evidence
+*   `grep` for `registerPipeline` shows only `r2_listing` and the definition.
+*   Migrated phases like `micro_batches/index.ts` only export a `Phase` object and lack any call to `registerPipeline`.
+*   The `tickSimulationRun` function fails at line 109 when attempting to look up the registry entry.
+
+## Work Task Blueprint: Bridging Unified Phases to Simulation Host
+
+### Goal Description
+We will implement a unified adapter to bridge the new `Phase` objects to the legacy `PipelineRegistryEntry` interface required by the Simulation Host and UI. This will restore the simulation's ability to orchestrate the migrated phases.
+
+### Proposed Changes
+
+#### 1. Simulation Infrastructure ([MODIFY] `src/app/engine/simulation/orchestration.ts`)
+*   **[NEW] `createUnifiedPhaseRegistryEntry(phase, label)`**: 
+    *   Returns a `PipelineRegistryEntry`.
+    *   `onTick`: Uses `runStandardDocumentPolling`.
+    *   `onExecute`: Calls `executePhase(phase, ...)` using the `SimulationStrategy`.
+    *   `recoverZombies`: Calls the phase's sweeper (if any) or a generic one.
+
+#### 2. Phase Registration (For each migrated Phase)
+*   **[MODIFY] `src/app/pipelines/**/index.ts`**:
+    *   Call `registerPipeline(createUnifiedPhaseRegistryEntry(Phase, Label))`.
+    *   This ensures that importing the phase (as done in `allPipelines.ts`) triggers registration.
+
+#### 3. Cleanup
+*   Remove the leftover `r2_listing` runner once it is migrated to this new pattern.
+
+### Verification Plan
+1.  **Registry Check**: Verify `pipelineRegistry` is populated for all phases in dev console or via a debug script.
+2.  **Tick Test**: Trigger a simulation run and verify `tickSimulationRun` no longer throws "No registry entry found".
+3.  **UI Test**: Verify the simulation UI shows progress and details for the migrated phases.
+
+- [ ] Implement `createUnifiedPhaseRegistryEntry` in `orchestration.ts`.
+- [ ] Register `IngestDiffPhase`.
+- [ ] Register `MicroBatchesPhase`.
+- [ ] Register `MacroSynthesisPhase`.
+- [ ] Register `MacroClassificationPhase`.
+- [ ] Register `MaterializeMomentsPhase`.
+- [ ] Register `DeterministicLinkingPhase`.
+- [ ] Register `CandidateSetsPhase`.
+- [ ] Register `TimelineFitPhase`.
+
+## Refactoring Simulation Architecture (Runner-Direct R2 Listing) [2026-02-02]
+The user suggested that the simulation runner should handle the `r2_listing` directly, as the live side doesn't need it. This further simplifies the `Phase` architecture by removing simulation-specific "Pre-flight" logic from the core runtime.
+
+### New Architecture: Special Case Runner
+*   **Built-in Logic**: The Simulation Runner will treat `r2_listing` as a built-in pre-processing step.
+*   **Generic Pipeline**: All other phases (`ingest_diff` through `timeline_fit`) will be handled via a generic "Standard Document Polling" mode in the runner, looking up definitions in the new runtime registry.
+*   **Cleaner Types**: The `Phase` interface remains pure business logic, without needing simulation-specific `onTick` or `recoverZombies` hooks.
+
+## Work Task Blueprint: Simulation Registry Removal & Direct Phase Integration
+
+### Goal Description
+We will delete the legacy `pipelineRegistry` and tie the Simulation Host and UI directly to the new `Phase` architecture. `r2_listing` will be moved directly into the Simulation Runner logic.
+
+### Proposed Changes
+
+#### 1. Runtime Foundation
+*   **[NEW] `src/app/engine/runtime/registry.ts`**: Aggregate all phases into a single export.
+*   **[MODIFY] `src/app/engine/runtime/types.ts`**: (No change needed to `Phase`, keeping it pure).
+
+#### 2. Pipeline Refactors
+*   **[DELETE] `src/app/pipelines/r2_listing`**: The entire pipeline directory will be removed as its logic moves to the runner.
+
+#### 3. Simulation Host & Worker
+*   **[MODIFY] `src/app/engine/runners/simulation/runner.ts`**: 
+    *   Implement `tickR2Listing` helper directly.
+    *   Replace registry lookup with `getPhaseByName`. 
+    *   Implement generic document polling for all business phases.
+*   **[MODIFY] `src/app/engine/services/simulation-worker.ts`**: Replace registry lookup with `getPhaseByName` and call `executePhase` directly.
+
+#### 4. UI Migration
+*   **[MODIFY] `src/app/pages/audit/subpages/simulation-runs-page.tsx`**: Remove `pipelineRegistry` dependency. Map components directly to phase names.
+
+#### 5. Deletions
+*   **[DELETE] `src/app/engine/simulation/registry.ts`**
+*   **[DELETE] `src/app/engine/simulation/allPipelines.ts`**
+*   **[DELETE] `src/app/engine/simulation/orchestration.ts`**
+
+### Verification Plan
+1.  **Boot Test**: Ensure the app starts without registry side-effects.
+2.  **Tick Test**: Trigger a simulation run and verify the runner handles R2 listing and then advances to generic document polling.
+3.  **UI Test**: Verify the simulation UI shows all phases and drilldowns correctly.
+
+- [ ] Create `src/app/engine/runtime/registry.ts`.
+- [ ] Move R2 Listing logic into `src/app/engine/runners/simulation/runner.ts`.
+- [ ] Delete `src/app/pipelines/r2_listing`.
+- [ ] Refactor `tickSimulationRun` to use new registry and generic polling.
+- [ ] Refactor Simulation Worker to use new registry.
+- [ ] Update Simulation UI to use direct mapping.
+- [x] Delete legacy registry files.
+
+## Centralizing Phase UI Mapping (Higher Level) [2026-02-02]
+The user suggested moving the registry to `src/app/pipelines/registry.ts` as it's a better location for aggregating phase-specific logic (engine + UI).
+
+### Proposed Changes
+*   **[MODIFY] `src/app/pipelines/registry.ts`**: Move `simulationPhasesOrdered` and a new `PHASE_METADATA` map (containing labels and UI component identifiers) here.
+*   **[MODIFY] `src/app/pages/audit/subpages/simulation-runs-page.tsx`**: Import ordering and metadata from the registry.
+*   **[DELETE] `src/app/engine/runtime/registry.ts`**: (The one we just created).
+
+- [ ] Create `src/app/pipelines/registry.ts`.
+- [ ] Update `tickSimulationRun` to use `src/app/pipelines/registry.ts`.
+- [ ] Update Simulation Worker to use `src/app/pipelines/registry.ts`.
+- [ ] Update Simulation UI to use centralized registry.
+- [ ] Delete `src/app/engine/runtime/registry.ts`.
+
+

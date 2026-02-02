@@ -21,7 +21,10 @@ import {
   getSimulationRunTimelineFitDecisions,
   getSimulationRunMaterializedMoments,
 } from "@/app/engine/databases/simulationState";
-import { pipelineRegistry, simulationPhasesOrdered } from "@/app/engine/simulation/allPipelines";
+import {
+  simulationPhasesOrdered,
+  simulationRunViews,
+} from "@/app/pipelines/registry";
 import { getSimulationRunProgressSummary } from "@/app/engine/simulation/runProgress";
 import { getMoments } from "@/app/engine/databases/momentGraph";
 import { SimulationRunControls } from "./simulation-run-controls";
@@ -114,21 +117,6 @@ function formatEventsAsText(
   }
   return lines.join("\n");
 }
-
-export const simulationRunViews = simulationPhasesOrdered
-  .map((p) => {
-    const entry = pipelineRegistry[p];
-    const drilldown = entry?.web?.ui?.drilldown;
-    if (!drilldown) {
-      return null;
-    }
-    return {
-      id: entry.phase as string,
-      label: entry.label,
-      component: drilldown,
-    };
-  })
-  .filter((v): v is { id: string; label: string; component: React.ComponentType<any> } => v !== null);
 
 export function isSimulationRunViewId(id: string | null | undefined): id is string {
   if (!id) {

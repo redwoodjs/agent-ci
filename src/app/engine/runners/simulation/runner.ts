@@ -1,10 +1,10 @@
-import type { SimulationDbContext } from "../../simulation/types";
-import type { SimulationPhase } from "../../simulation/types";
-import { simulationPhases } from "../../simulation/types";
-import { normalizePhase } from "../../simulation/runs";
 import { getSimulationDb } from "../../simulation/db";
 import { addSimulationRunEvent } from "../../simulation/runEvents";
-import { pipelineRegistry } from "../../simulation/allPipelines";
+import { getPhaseByName } from "../../../pipelines/registry";
+import { sql } from "rwsdk/db";
+import { SimulationDbContext } from "../../simulation/types";
+import { simulationPhases } from "../../simulation/types";
+import { normalizePhase } from "../../simulation/runs";
 
 // No longer need hardcoded phaseRunners mapping here
 
@@ -105,20 +105,22 @@ export async function tickSimulationRun(
   });
 
   try {
-    const entry = pipelineRegistry[phase];
-    if (!entry) {
-      throw new Error(`No registry entry found for phase: ${phase}`);
+    let result: { status: string; currentPhase: string } | null = null;
+
+    if (phase === "r2_listing") {
+      result = await tickR2Listing(context, { runId });
+    } else {
+      const phaseDef = getPhaseByName(phase);
+      if (!phaseDef) {
+        throw new Error(`No definition found for phase: ${phase}`);
+      }
+      
+      // Supervisor Check: Sweep for zombies
+      await recoverPhaseZombies(context, { runId, phase });
+
+      // Supervisor Tick: Generic Document Polling
+      result = await tickGenericDocumentPolling(context, { runId, phase });
     }
-
-    // Supervisor Check: Sweep for zombies
-    // This expects all phases to implement recoverZombies (enforced by type)
-    await entry.recoverZombies(context, { runId });
-
-    // Supervisor Tick: Poll/Dispatch or Advance
-    const result = await entry.onTick(context, {
-      runId,
-      phaseIdx,
-    });
 
     let finalStatus = result?.status ?? "running";
     let currentPhase = result?.currentPhase ?? phase;
@@ -319,3 +321,417 @@ export async function autoAdvanceSimulationRun(
 
   return { ...lastResult, steps };
 }
+
+async function tickR2Listing(
+  context: SimulationDbContext,
+  input: { runId: string }
+): Promise<{ status: string; currentPhase: string } | null> {
+  const db = getSimulationDb(context);
+  const now = new Date().toISOString();
+
+  const runRow = await db
+    .selectFrom("simulation_runs")
+    .select(["config_json"])
+    .where("run_id", "=", input.runId)
+    .executeTakeFirst();
+
+  if (!runRow) return null;
+
+  const config = (runRow.config_json as any) || {};
+  const r2ListConfig = config.r2List;
+
+  // Upfront keys support
+  if (Array.isArray(config.r2Keys) && config.r2Keys.length > 0) {
+    const keys = config.r2Keys as string[];
+    const chunkSize = 1000;
+    for (let i = 0; i < keys.length; i += chunkSize) {
+      const chunk = keys.slice(i, i + chunkSize);
+      const batchIndex = Math.floor(i / chunkSize);
+      await db
+        .insertInto("simulation_run_r2_batches")
+        .values({
+          run_id: input.runId,
+          batch_index: batchIndex,
+          keys_json: JSON.stringify(chunk),
+          processed: 0,
+          created_at: now,
+          updated_at: now,
+        })
+        .onConflict((oc) =>
+          oc.columns(["run_id", "batch_index"]).doUpdateSet({
+            keys_json: JSON.stringify(chunk),
+            updated_at: now,
+          })
+        )
+        .execute();
+    }
+
+    await addSimulationRunEvent(context, {
+      runId: input.runId,
+      level: "info",
+      kind: "phase.r2_keys_prepopulated",
+      payload: { count: keys.length },
+    });
+
+    return { status: "advance", currentPhase: "r2_listing" };
+  }
+
+  if (!r2ListConfig) {
+    return { status: "advance", currentPhase: "r2_listing" };
+  }
+
+  const bucket = (context.env as any).MACHINEN_BUCKET as R2Bucket;
+  if (!bucket) throw new Error("MACHINEN_BUCKET not found in env");
+
+  if (typeof r2ListConfig.currentPrefixIdx !== "number") {
+    r2ListConfig.currentPrefixIdx = 0;
+    r2ListConfig.pagesProcessed = 0;
+    r2ListConfig.prefixPagesProcessed = 0;
+  }
+
+  const prefixes = Array.isArray(r2ListConfig.targetPrefixes)
+    ? r2ListConfig.targetPrefixes
+    : [];
+  const limit = r2ListConfig.limitPerPage || 1000;
+  const maxPages = r2ListConfig.maxPages || 1000;
+
+  if (
+    r2ListConfig.currentPrefixIdx >= prefixes.length ||
+    r2ListConfig.pagesProcessed >= maxPages
+  ) {
+    return { status: "advance", currentPhase: "r2_listing" };
+  }
+
+  const currentPrefix = prefixes[r2ListConfig.currentPrefixIdx];
+  const cursor = r2ListConfig.cursor;
+
+  await addSimulationRunEvent(context, {
+    runId: input.runId,
+    level: "info",
+    kind: "phase.r2_list_page",
+    payload: { prefix: currentPrefix, cursor },
+  });
+
+  const listOpts: R2ListOptions = {
+    prefix: currentPrefix,
+    limit,
+    cursor,
+  };
+
+  const result = await bucket.list(listOpts);
+  const keys = result.objects.map((o) => o.key).filter((k) => !!k);
+
+  // Filtering logic
+  const isGithubIssue = (k: string) =>
+    k.startsWith("github/") &&
+    k.includes("/issues/") &&
+    k.endsWith("/latest.json");
+  const isGithubPr = (k: string) =>
+    k.startsWith("github/") &&
+    k.includes("/pull-requests/") &&
+    k.endsWith("/latest.json");
+  const isDiscord = (k: string) => k.startsWith("discord/");
+  const isCursor = (k: string) => k.startsWith("cursor/conversations/");
+  const filterSupported = (k: string) =>
+    isGithubIssue(k) || isGithubPr(k) || isDiscord(k) || isCursor(k);
+
+  const validKeys = keys.filter(filterSupported);
+
+  if (validKeys.length > 0) {
+    const batchIndex = r2ListConfig.pagesProcessed;
+    await db
+      .insertInto("simulation_run_r2_batches")
+      .values({
+        run_id: input.runId,
+        batch_index: batchIndex,
+        keys_json: JSON.stringify(validKeys),
+        processed: 0,
+        created_at: now,
+        updated_at: now,
+      })
+      .onConflict((oc) =>
+        oc.columns(["run_id", "batch_index"]).doUpdateSet({
+          keys_json: JSON.stringify(validKeys),
+          updated_at: now,
+        })
+      )
+      .execute();
+  }
+
+  let nextCursor: string | undefined = undefined;
+  let nextPrefixIdx = r2ListConfig.currentPrefixIdx;
+  let nextPrefixPagesProcessed = (r2ListConfig.prefixPagesProcessed || 0) + 1;
+
+  const maxPagesPerPrefix =
+    prefixes.length > 1 ? Math.ceil(maxPages / prefixes.length) : maxPages;
+
+  if (nextPrefixPagesProcessed >= maxPagesPerPrefix || !result.truncated) {
+    nextPrefixIdx++;
+    nextCursor = undefined;
+    nextPrefixPagesProcessed = 0;
+  } else {
+    nextCursor = result.cursor;
+  }
+
+  const nextConfig = {
+    ...config,
+    r2List: {
+      ...r2ListConfig,
+      currentPrefixIdx: nextPrefixIdx,
+      cursor: nextCursor,
+      pagesProcessed: r2ListConfig.pagesProcessed + 1,
+      prefixPagesProcessed: nextPrefixPagesProcessed,
+    },
+  };
+
+  await db
+    .updateTable("simulation_runs")
+    .set({
+      config_json: JSON.stringify(nextConfig),
+      updated_at: now,
+      last_progress_at: now,
+    } as any)
+    .where("run_id", "=", input.runId)
+    .execute();
+
+  if (nextPrefixIdx < prefixes.length || result.truncated) {
+    return { status: "running", currentPhase: "r2_listing" };
+  } else {
+    return { status: "advance", currentPhase: "r2_listing" };
+  }
+}
+
+async function recoverPhaseZombies(
+  context: SimulationDbContext,
+  input: { runId: string; phase: string }
+): Promise<void> {
+  const db = getSimulationDb(context);
+  const phase = input.phase;
+  const zombieThreshold = new Date(Date.now() - 30000).toISOString(); // 30s timeout
+
+  if (phase === "micro_batches") {
+    const zombies = await db
+      .selectFrom("simulation_run_micro_batches")
+      .select(["r2_key", "batch_index"])
+      .where("run_id", "=", input.runId)
+      .where("status", "=", "running")
+      .where("updated_at", "<", zombieThreshold)
+      .execute();
+
+    if (zombies.length > 0) {
+      console.log(`[runner] Recovering ${zombies.length} zombies for micro_batches`);
+      for (const z of zombies) {
+        await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+          jobType: "simulation-batch",
+          runId: input.runId,
+          phase: "micro_batches",
+          r2Key: z.r2_key,
+          batchIndex: z.batch_index,
+        });
+      }
+    }
+  } else {
+    const zombies = await db
+      .selectFrom("simulation_run_documents")
+      .select(["r2_key"])
+      .where("run_id", "=", input.runId)
+      .where(sql`json_extract(dispatched_phases_json, '$')`, "like", `%${phase}%`)
+      .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${phase}%`)
+      .where("updated_at", "<", zombieThreshold)
+      .execute();
+
+    if (zombies.length > 0) {
+      console.log(`[runner] Recovering ${zombies.length} zombies for ${phase}`);
+      for (const z of zombies) {
+        await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+          jobType: "simulation-document",
+          runId: input.runId,
+          phase,
+          r2Key: z.r2_key,
+        });
+      }
+    }
+  }
+}
+
+async function tickGenericDocumentPolling(
+  context: SimulationDbContext,
+  input: { runId: string; phase: string }
+): Promise<{ status: string; currentPhase: string } | null> {
+  const db = getSimulationDb(context);
+  const phase = input.phase;
+  const now = new Date().toISOString();
+
+  if (phase === "ingest_diff") {
+    // Special case: ingest_diff polls r2_batches
+    const batch = await db
+      .selectFrom("simulation_run_r2_batches")
+      .select(["batch_index", "keys_json"])
+      .where("run_id", "=", input.runId)
+      .where("processed", "=", 0)
+      .executeTakeFirst();
+
+    if (batch) {
+      const keys = JSON.parse(batch.keys_json as string) as string[];
+      for (const r2Key of keys) {
+        await db
+          .insertInto("simulation_run_documents")
+          .values({
+            run_id: input.runId,
+            r2_key: r2Key,
+            dispatched_phases_json: JSON.stringify([phase]),
+            processed_phases_json: JSON.stringify([]),
+            processed_at: now,
+            updated_at: now,
+          } as any)
+          .onConflict((oc) =>
+            oc.columns(["run_id", "r2_key"]).doUpdateSet({
+              dispatched_phases_json: sql`json_insert(dispatched_phases_json, '$[#]', ${phase})`,
+              updated_at: now,
+            })
+          )
+          .execute();
+
+        await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+          jobType: "simulation-document",
+          runId: input.runId,
+          phase,
+          r2Key,
+        });
+      }
+
+      await db
+        .updateTable("simulation_run_r2_batches")
+        .set({ processed: 1, updated_at: now })
+        .where("run_id", "=", input.runId)
+        .where("batch_index", "=", batch.batch_index)
+        .execute();
+
+      return { status: "running", currentPhase: phase };
+    }
+  } else if (phase === "micro_batches") {
+      // Special case: micro_batches polls simulation_run_documents that have completed ingest_diff
+      const docs = await db
+        .selectFrom("simulation_run_documents")
+        .select(["r2_key"])
+        .where("run_id", "=", input.runId)
+        .where(sql`json_extract(processed_phases_json, '$')`, "like", `%ingest_diff%`)
+        .where(sql`json_extract(dispatched_phases_json, '$')`, "not like", `%${phase}%`)
+        .limit(10)
+        .execute();
+      
+      if (docs.length > 0) {
+          for (const doc of docs) {
+              await db.updateTable("simulation_run_documents")
+                .set({
+                    dispatched_phases_json: sql`json_insert(dispatched_phases_json, '$[#]', ${phase})`,
+                    updated_at: now
+                })
+                .where("run_id", "=", input.runId)
+                .where("r2_key", "=", doc.r2_key)
+                .execute();
+              
+              await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+                  jobType: "simulation-document",
+                  runId: input.runId,
+                  phase,
+                  r2Key: doc.r2_key
+              });
+          }
+          return { status: "running", currentPhase: phase };
+      }
+  } else {
+    // Generic case: Poll simulation_run_documents that have completed the PREVIOUS phase
+    const allPhases = [
+      "ingest_diff",
+      "micro_batches",
+      "macro_synthesis",
+      "macro_classification",
+      "materialize_moments",
+      "deterministic_linking",
+      "candidate_sets",
+      "timeline_fit",
+    ];
+    const currentIdx = allPhases.indexOf(phase);
+    const prevPhase = allPhases[currentIdx - 1];
+
+    if (prevPhase) {
+      const docs = await db
+        .selectFrom("simulation_run_documents")
+        .select(["r2_key"])
+        .where("run_id", "=", input.runId)
+        .where(sql`json_extract(processed_phases_json, '$')`, "like", `%${prevPhase}%`)
+        .where(sql`json_extract(dispatched_phases_json, '$')`, "not like", `%${phase}%`)
+        .limit(50)
+        .execute();
+
+      if (docs.length > 0) {
+        for (const doc of docs) {
+          await db
+            .updateTable("simulation_run_documents")
+            .set({
+              dispatched_phases_json: sql`json_insert(dispatched_phases_json, '$[#]', ${phase})`,
+              updated_at: now,
+            })
+            .where("run_id", "=", input.runId)
+            .where("r2_key", "=", doc.r2_key)
+            .execute();
+
+          await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+            jobType: "simulation-document",
+            runId: input.runId,
+            phase,
+            r2Key: doc.r2_key,
+          });
+        }
+        return { status: "running", currentPhase: phase };
+      }
+    }
+  }
+
+  // If no work dispatched, check if all documents are processed for this phase
+  const pending = await db
+    .selectFrom("simulation_run_documents")
+    .select([sql<number>`count(*)`.as("count")])
+    .where("run_id", "=", input.runId)
+    .where(sql`json_extract(dispatched_phases_json, '$')`, "like", `%${phase}%`)
+    .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${phase}%`)
+    .executeTakeFirst();
+
+  if (toNumber(pending?.count) > 0) {
+    return { status: "awaiting_documents", currentPhase: phase };
+  }
+
+  // Check r2_batches for ingest_diff
+  if (phase === "ingest_diff") {
+     const batchPending = await db.selectFrom("simulation_run_r2_batches")
+        .select([sql<number>`count(*)`.as("count")])
+        .where("run_id", "=", input.runId)
+        .where("processed", "=", 0)
+        .executeTakeFirst();
+     if (toNumber(batchPending?.count) > 0) {
+         return { status: "running", currentPhase: phase };
+     }
+  }
+
+  // Special check for micro_batches zombies/pending batches
+  if (phase === "micro_batches") {
+     const batchesPending = await db.selectFrom("simulation_run_micro_batches")
+        .select([sql<number>`count(*)`.as("count")])
+        .where("run_id", "=", input.runId)
+        .where("status", "in", ["running", "pending"])
+        .executeTakeFirst();
+     if (toNumber(batchesPending?.count) > 0) {
+         return { status: "awaiting_documents", currentPhase: phase };
+     }
+  }
+
+  return { status: "advance", currentPhase: phase };
+}
+
+function toNumber(value: any): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") return parseInt(value, 10);
+  return 0;
+}
+

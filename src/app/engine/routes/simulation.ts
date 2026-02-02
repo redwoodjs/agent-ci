@@ -2,6 +2,8 @@ import { route } from "rwsdk/router";
 import { type RequestInfo } from "rwsdk/worker";
 import { env } from "cloudflare:workers";
 import { requireQueryApiKey } from "../interruptors";
+import { getSimulationDb } from "../simulation/db";
+import { simulationPipelineRoutes } from "../../pipelines/registry";
 import {
   tickSimulationRun,
   createSimulationRun,
@@ -12,8 +14,6 @@ import {
   resumeSimulationRun,
   simulationPhases,
 } from "../databases/simulationState";
-import { pipelineRegistry } from "../simulation/allPipelines";
-import { getSimulationDb } from "../simulation/db";
 
 
 async function startSimulationRunHandler({ request }: RequestInfo) {
@@ -257,6 +257,5 @@ export const simulationAdminRoutes = [
   route("/admin/simulation/run/:runId", {
     get: [requireQueryApiKey, getSimulationRunHandler],
   }),
-  ...Object.values(pipelineRegistry).flatMap((entry) => entry.web?.routes || []),
+  ...simulationPipelineRoutes,
 ];
-

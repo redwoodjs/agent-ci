@@ -67,6 +67,11 @@ export class QueueTransition implements TransitionStrategy {
     output: any,
     input: any
   ): Promise<void> {
+    if (output === null) {
+      console.log(`[runtime] Phase output is null, stopping transition to ${nextPhase}`);
+      return;
+    }
+
     // Propagate the input (usually a pointer like r2Key) to the next phase
     await this.queue.send({
       jobType: "simulation-document",

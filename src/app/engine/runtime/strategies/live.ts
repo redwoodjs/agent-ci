@@ -13,6 +13,13 @@ export class QueueTransition implements TransitionStrategy {
   constructor(private queue: { send(msg: any): Promise<void> }) {}
 
   async dispatchNext(nextPhase: string, output: any, input: any): Promise<void> {
+    if (output === null) {
+      console.log(
+        `[runtime] Phase output is null, stopping transition to ${nextPhase}`
+      );
+      return;
+    }
+
     await this.queue.send({
       jobType: "unified_phase",
       phase: nextPhase,

@@ -1,54 +1,100 @@
-import { registerPipeline } from "../../engine/simulation/registry";
-import { executePhase } from "../../engine/runtime/orchestrator";
-import { ArtifactStorage, QueueTransition } from "../../engine/runtime/strategies/simulation";
-import { MicroBatchesPhase } from "./phase";
-import { getSimulationDb } from "../../engine/simulation/db";
-import { createDb } from "rwsdk/db";
-import { qualifyName } from "../../engine/momentGraphNamespace";
-import { PipelineContext } from "../../engine/runtime/types";
-import { callLLM } from "../../engine/utils/llm";
-import * as plugins from "../../engine/plugins/index";
+import { Phase, PipelineContext } from "../../engine/runtime/types";
+import { runMicroBatchesForDocument } from "./engine/core/orchestrator";
+import {
+  runFirstMatchHook,
+  splitDocumentIntoChunks,
+} from "../../engine/indexing/pluginPipeline";
+import { chunkChunksForMicroComputation } from "../../engine/utils/chunkBatching";
+import { getProcessedChunkHashes } from "../../engine/databases/indexingState";
+import {
+  applyMomentGraphNamespacePrefixValue,
+  getMomentGraphNamespacePrefixFromEnv,
+} from "../../engine/momentGraphNamespace";
 
-const allPlugins = Object.values(plugins).filter((p: any) => typeof p === "object" && typeof p.name === "string");
+export const MicroBatchesPhase: Phase<string, any> = {
+  name: "micro_batches",
+  next: "macro_synthesis",
+  execute: async (r2Key: string, context: PipelineContext) => {
+    // 1. Prepare Document (Fetch & Namespace)
+    const document = await runFirstMatchHook(
+      context.plugins,
+      "prepareSourceDocument",
+      (plugin) => plugin.prepareSourceDocument?.(context)
+    );
 
-registerPipeline({
-  phase: "micro_batches",
-  label: "Micro Batches (Unified)",
-  onTick: async (ctx, { runId }) => {
-    // For legacy compat, we might need polling here if Phase 1 does not queue.
-    // Assuming we test by manual queuing for now.
-    return { status: "running", currentPhase: "micro_batches" };
-  },
-  onExecute: async (ctx, { runId, workUnit }) => {
-    if (workUnit.kind === "document") {
-      const simDb = getSimulationDb(ctx);
-      const db = createDb(ctx.env.MOMENT_GRAPH_DO as any, qualifyName("moment-graph-v2", ctx.momentGraphNamespace)) as any;
-      
-      const pipelineContext: PipelineContext = {
-        env: ctx.env,
-        r2Key: workUnit.r2Key,
-        momentGraphNamespace: ctx.momentGraphNamespace,
-        indexingMode: "indexing",
-        db,
-        vector: ctx.env.MOMENT_INDEX as unknown as any,
-        llm: { call: callLLM },
-        cache: {
-            get: async () => null,
-            set: async () => {} 
-        },
-        plugins: allPlugins as any[]
-      };
-
-      await executePhase(
-        MicroBatchesPhase,
-        workUnit.r2Key,
-        {
-          storage: new ArtifactStorage(runId, simDb as any),
-          transition: new QueueTransition((ctx.env as any).SIMULATION_QUEUE, runId),
-        },
-        pipelineContext
-      );
+    if (!document) {
+      throw new Error(`No plugin could prepare document for R2 key: ${r2Key}`);
     }
+
+    // Namespace Logic
+    let baseNamespace: string | null = null;
+    for (const plugin of context.plugins) {
+      const ns = await plugin.scoping?.computeMomentGraphNamespaceForIndexing?.(
+        document,
+        context
+      );
+      if (ns) {
+        baseNamespace = ns;
+        break;
+      }
+    }
+
+    const envPrefix = getMomentGraphNamespacePrefixFromEnv(context.env);
+    const effectiveNamespace =
+      applyMomentGraphNamespacePrefixValue(baseNamespace ?? "", envPrefix) ??
+      baseNamespace;
+
+    const effectiveContext = {
+      ...context,
+      momentGraphNamespace: effectiveNamespace,
+    };
+
+    // 2. Split & Deduplicate
+    const chunks = await splitDocumentIntoChunks(
+      document,
+      effectiveContext,
+      context.plugins
+    );
+
+    // Load existing hashes to skip unchanged chunks
+    const oldChunkHashes = await getProcessedChunkHashes(r2Key, {
+      env: context.env,
+      momentGraphNamespace: effectiveNamespace,
+    });
+    const oldSet = new Set(oldChunkHashes);
+
+    const forceRecollect = (context.env as any).FORCE_RECOLLECT === "1";
+
+    const newChunks = forceRecollect
+      ? chunks
+      : chunks.filter((c) => !oldSet.has(c.contentHash ?? ""));
+
+    if (newChunks.length === 0) {
+      return { batches: [], microMoments: [] };
+    }
+
+    // 3. Batch
+    const chunkBatchSizeRaw = (context.env as any).MICRO_MOMENT_CHUNK_BATCH_SIZE;
+    const chunkBatchMaxCharsRaw = (context.env as any)
+      .MICRO_MOMENT_CHUNK_BATCH_MAX_CHARS;
+    const chunkMaxCharsRaw = (context.env as any).MICRO_MOMENT_CHUNK_MAX_CHARS;
+
+    const chunkBatchSize = Number(chunkBatchSizeRaw) || 10;
+    const chunkBatchMaxChars = Number(chunkBatchMaxCharsRaw) || 10000;
+    const chunkMaxChars = Number(chunkMaxCharsRaw) || 2000;
+
+    const chunkBatches = chunkChunksForMicroComputation(newChunks, {
+      maxBatchItems: chunkBatchSize,
+      maxBatchChars: chunkBatchMaxChars,
+      maxChunkChars: chunkMaxChars,
+    });
+
+    // 4. Run Core
+    return await runMicroBatchesForDocument({
+      document,
+      context: effectiveContext,
+      chunkBatches,
+      now: new Date().toISOString(),
+    });
   },
-  recoverZombies: async () => {},
-});
+};

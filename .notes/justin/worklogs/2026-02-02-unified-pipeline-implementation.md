@@ -305,3 +305,27 @@ We have reviewed the implementation of the  directory and  phase against .
 
 **Contextual Shift**:
 The user has removed  and  from the  interface, which further simplifies the plugins and aligns with the "Stateless Context" rule. We will ensure future phase migrations respect these interface changes.
+
+## Completion of Phases 1 & 2 [2026-02-02]
+We have completed the migration of the first two phases: **Ingest Diff** and **Micro-Batches**.
+
+**Accomplishments**:
+- **Ingest Diff**: Refactored to use , handles ETag comparison and  updates internally.
+- **Micro-Batches**: Refactored to handle document processing, chunking (via plugins), and LLM-driven micro-moment generation.
+- **Stop Signal**: Implemented  return from phases as a "Stop Execution" signal in the Orchestrator (used when docs haven't changed).
+
+**Architectural Lessons (Standard for Future Phases)**:
+1.  **Pure Strategies**:  (Live) must remain a . Do not leak phase-specific persistence logic into the strategy layer.
+2.  **Phase Ownership**: Each  is responsible for its own side effects (e.g., updating DB status, committing results) using the .
+3.  **Consolidated Adapters**: Use the pipeline's  as the single entry point for the  object. Avoid split  files to reduce clutter.
+4.  **Stateless Core**: The business logic in  remains stateless, and the  adapter in  bridges the generic context to that logic.
+
+**Backlog Update**:
+- [x] Phase 1: Ingest Diff
+- [x] Phase 2: Micro-Batches
+- [ ] Phase 3: Macro Synthesis
+- [ ] Phase 4: Macro Classification
+- [ ] Phase 5: Materialize Moments
+- [ ] Phase 6: Deterministic Linking
+- [ ] Phase 7: Candidate Sets
+- [ ] Phase 8: Timeline Fit

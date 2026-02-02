@@ -32,17 +32,11 @@ async function executePhase(
 }
 ```
 
-### 2.2 Co-located Domain Logic
-All logic is organized by **Domain** in `src/app/pipelines/<phase>/`.
-*   **Core**: Shared Business Logic + Phase Definitions.
-*   **Web**: UI Components.
-*   **Live/Sim**: Strategy Definitions (if needed).
-
-**CRITICAL CONSTRAINT**: There are **NO PER-PHASE RUNNERS**. The generic `executePhase` function handles everything.
-
-### 2.3 Stateless Phase Execution via Context
-Memory is our scarcest resource. We cannot pass huge objects between functions in a serverless environment.
+### 2.2 Stateless Phase Execution via Context
+Memory is our scarcest resource (128MB limit). We cannot pass huge objects between functions or hold the graph in memory.
 Instead, we use **Stateless Execution with Context**.
+
+**The Rule**: Logic functions are pure-ish. They accept an ID (`input`) and a capability bag (`context`). They MUST fetch what they need from the DB using the ID, and write their results back via the Context.
 
 ```typescript
 type PhaseExecution<TInput, TOutput> = (
@@ -51,81 +45,110 @@ type PhaseExecution<TInput, TOutput> = (
 ) => Promise<TOutput>;
 
 interface PipelineContext extends IndexingHookContext {
-  // 1. Database Access (Read Metadata, Write Findings)
-  db: Database;
-  
-  // 2. Vector Search (Candidate Generation)
-  vector: VectorizeIndex;
-  
-  // 3. Environment (Config, API Keys)
-  env: Env;
-  
-  // 4. LLM Access (Reasoning)
-  llm: LLMProvider;
+  db: Database;       // Read/Write Graph Data
+  vector: VectorIndex; // Read/Write Embeddings
+  env: Env;           // Config & Keys
+  llm: LLMProvider;   // Reasoning
 }
 ```
-
-**The Rule**: Logic functions are pure-ish. They accept an ID (`input`) and a capability bag (`context`). They must fetch what they need from the DB using the ID, and write their results back via the Context.
 
 ## 3. Plugin Architecture: Domain Injection
 
 The Pipeline itself is generic. All domain-specific knowledge (how to parse GitHub, how to chunk Discord) is injected via **Plugins**.
-Plugins live in `src/app/engine/plugins/`.
 
-### 3.1 The Plugin Interface
-Plugins provide hooks for specific phases:
+Plugins live in `src/app/engine/plugins/`. They provide hooks for:
+1.  **Ingestion/Diffing**: Converting raw JSON `{"issue_url": ...}` into a standardized `Document` object.
+2.  **Chunking**: Breaking a `Document` into `Chunk[]` based on domain rules (e.g. separating PR body from comments).
+3.  **Prompting**: Providing the context string ("This is a PR, assume text supports...") for the LLM.
 
-```typescript
-interface Plugin {
-  name: string;
-  
-  // Phase 1: Ingest (Raw -> Document)
-  prepareSourceDocument(context: IndexingHookContext): Promise<Document | null>;
-  
-  // Phase 2: Micro-Batching (Document -> MicroMoment[])
-  splitDocumentIntoChunks(doc: Document): Promise<Chunk[]>;
-  
-  // Phase 3: Macro-Synthesis (Context Injection)
-  subjects?: {
-    getMicroMomentBatchPromptContext(...): Promise<string>;
-  };
-}
-```
+## 4. The 8-Phase Lifecycle (Detailed Flow)
 
-### 3.2 Strategy
-*   **Waterfall**: Try plugins one by one until a match is found (e.g., Ingestion).
-*   **Collector**: Run all matching plugins and aggregate results (e.g., Evidence Gathering).
+This data flow describes exactly what happens to a document as it moves through the system.
 
-## 4. Execution Strategies
+### Phase 1: Ingest & Diff
+*   **Goal**: Fetch raw state and decide if it changed.
+*   **Input**: `r2_key` (Pointer to raw JSON in object storage).
+*   **Context Read**: 
+    *   Fetches the JSON from R2.
+    *   Checks `db.document_checksums` to see if we've processed this before.
+*   **Validation**: Plugin parses R2 key -> validates structure -> normalizes to `Document`.
+*   **Context Write**: Updates `db.document_checksums` if changed.
+*   **Output**: `Document` object (in-memory) or `null` (if skipped).
 
-We inject behavior to handle the different constraints of Live vs Simulation.
+### Phase 2: Micro-Batches (Chunk & Embed)
+*   **Goal**: Prepare atomic units for Vector Search.
+*   **Input**: `Document`.
+*   **Context Read**: None (Pure transformation).
+*   **Logic**: 
+    1.  Plugin splits `Document` -> `Chunk[]`.
+    2.  Model generates `Embedding` (Vector) for each Chunk.
+*   **Context Write**: 
+    *   Writes `embeddings` to Vector DB.
+    *   Stores `MicroMoment` items in temporary artifact storage (not main DB yet).
+*   **Output**: `MicroMoment[]` (List of chunks + vectors).
 
-### 4.1 Live Strategy (Minimizing Latency)
-*   **Goal**: Process a webhook as fast as possible.
-*   **Storage**: `NoOpStorage`. No intermediate DB writes.
-*   **Transition**: `DirectTransition`. In-memory recursion.
-*   **Context**: `LiveContext`. Real-time environment.
+### Phase 3: Macro Synthesis (Interpretation)
+*   **Goal**: Understand the "Stream of Consciousness".
+*   **Input**: `MicroMoment[]`.
+*   **Context Read**: None.
+*   **Logic**: LLM reads the stream of text chunks and synthesizes a narrative summary ("User X proposed Y", "PR Z implemented Y").
+*   **Context Write**: None.
+*   **Output**: `MacroStream[]` (Draft moments).
 
-### 4.2 Simulation Strategy (Maximizing Throughput & Inspectability)
-*   **Goal**: Process 10,000+ items safely.
-*   **Storage**: `ArtifactStorage`. Persist to `simulation_run_artifacts` table.
-*   **Transition**: `QueueTransition`. Enqueue next job (Backpressure).
-*   **Context**: `SimulationContext`. Mocked time/APIs.
+### Phase 4: Classification
+*   **Goal**: Filter noise and Tag.
+*   **Input**: `MacroStream[]`.
+*   **Logic**: LLM decides: Is this a "Bg Fix"? A "Feature Request"? Just "Chore"?
+*   **Output**: `ClassifiedStream[]`.
 
-## 5. The 8-Phase Lifecycle
+### Phase 5: Materialize (The Commit)
+*   **Goal**: Make it Real.
+*   **Input**: `ClassifiedStream[]`.
+*   **Context Read**: None.
+*   **Context Write**: 
+    *   **INSERT** into `moments` table. 
+    *   Assigns permanent **UUIDs**.
+*   **Output**: `Moment[]` (The graph nodes).
 
-| Phase | Input | Context | Output | Description |
-| :--- | :--- | :--- | :--- | :--- |
-| **1. Ingest** | `r2_key` | Plugin | `Document` | Fetch raw JSON, normalize to standard Document. |
-| **2. Micro Batches** | `Document` | Plugin | `MicroMoment[]` | Split into Chunks, Embed them. These are "Micro-Moments". |
-| **3. Macro Synthesis** | `MicroMoment[]` | LLM | `MacroStream[]` | Interpret the stream of micro-moments into a narrative. |
-| **4. Classification** | `MacroStream` | LLM | `ClassifiedStream` | Filter noise, tag as Opportunity/Problem. |
-| **5. Materialize** | `ClassifiedStream` | DB Write | `Moment[]` | **COMMIT POINT**. Assign stable IDs and write to Graph DB. |
-| **6. Linking** | `moment_id` | DB Read | `ParentLink` | Deterministic linking (e.g. "Fixes #123"). |
-| **7. Candidates** | `moment_id` | Vector | `Candidate[]` | Fuzzy search for related past moments. |
-| **8. Timeline Fit** | `moment_id` | LLM | `FinalDecision` | Judge best parent from candidates. |
+> **Sync Barrier**: Once this phase completes, the data is visible to the rest of the system.
 
-## 6. End-to-End Walkthrough: "The Prefetching Story"
+### Phase 6: Deterministic Linking
+*   **Goal**: Link what we know for sure (Zero Hallucination).
+*   **Input**: `moment_id`.
+*   **Context Read**: 
+    *   Reads `moment` body. 
+    *   Regex scan for identifiers (e.g., `Fixes #123`).
+    *   `db.find('source_ref:github/123')`.
+*   **Context Write**: 
+    *   **INSERT** into `links` table (e.g. `PR -> Issue`).
+*   **Output**: `ParentLink` structure (for logging).
+
+### Phase 7: Candidate Generation (Search)
+*   **Goal**: Find what *might* be related.
+*   **Input**: `moment_id`.
+*   **Context Utility**: `context.vector.query(embedding)`.
+*   **Context Read**: 
+    *   Vector Index returns top K matches (IDs + Scores).
+    *   Fetches metadata for those IDs from `db`.
+*   **Logic**: Filters out candidates created *after* the current moment (Basic causality check).
+*   **Output**: `Candidate[]`.
+
+> **Note**: This phase can only find candidates that have already been **Materialized** (Phase 5).
+
+### Phase 8: Timeline Fit (The Judgment)
+*   **Goal**: Finalize the Graph.
+*   **Input**: `moment_id`, `Candidate[]`.
+*   **Context Read**: None (uses input candidates).
+*   **Logic**: 
+    *   LLM reviews the pair (`Moment`, `Candidate`).
+    *   **Veto Check**: Does the timeline make sense? (e.g. Can a PR fix an issue that doesn't exist yet?)
+    *   **Semantic Check**: Is the link strong enough?
+*   **Context Write**: 
+    *   **INSERT** into `links` table if accepted.
+    *   Log decision rationale (Why yes? Why no?).
+*   **Output**: `FinalDecision`.
+
+## 5. End-to-End Walkthrough: "The Prefetching Story"
 
 **Scenario**: A feature lifecycle involving 5 distinct documents spanning 3 days.
 
@@ -136,38 +159,44 @@ We inject behavior to handle the different constraints of Live vs Simulation.
 4.  **Day 3 10:00 (Doc D)**: GitHub PR #25 "Feat: Client-side prefetching. Solves #22".
 5.  **Day 3 12:00 (Doc E)**: Discord Announcement: "Prefetching is out! See PR #25".
 
-### Process Flow (Unified Pipeline)
+### Process Flow Execution
 
-#### Step 1: Materialization (Phases 1-5)
-The system ingests all 5 documents. Plugins (GitHub/Discord) handle normalization.
-*   **Micro-Batching**: Doc C (Chat) is split into chunks.
-*   **Macro-Synthesis**: LLM recognizes Doc C as "Implementation Planning".
-*   **Materialize**: All 5 docs become `Moment` rows in the DB.
+#### Step 1: Processing Doc A (Issue #22)
+*   **Ingest**: Plugin validates Github Issue.
+*   **Materialize**: Comes out as `Moment A (UUID: 111)`.
+*   **Linking/Fit**: No candidates found (it's the first doc).
 
-#### Step 2: Deterministic Linking (Phase 6)
-*   **Doc B (Discord)**: Logic detects "See #22".
-    *   `context.db.find('gh:22')` -> Returns Moment A.
-    *   **Link**: B -> A (Explicit).
-*   **Doc D (PR)**: Logic detects "Solves #22".
-    *   `context.db.find('gh:22')` -> Returns Moment A.
-    *   **Link**: D -> A (Explicit).
-*   **Doc E (Announce)**: Logic detects "See PR #25".
-    *   `context.db.find('gh:25')` -> Returns Moment D.
-    *   **Link**: E -> D (Explicit).
+#### Step 2: Processing Doc B (Discord "See #22")
+*   **Materialize**: Becomes `Moment B (UUID: 222)`.
+*   **Deterministic Linking**:
+    *   Regex finds "#22".
+    *   `db.find('gh_issue:22')` -> Returns `Moment A`.
+    *   **Write**: Link `B -> A (Explicit)`.
 
-#### Step 3: Candidate Generation (Phase 7)
-*   **Doc C (Agent Planning)**: "How would I implement prefetching?"
-    *   No explicit link found in text.
-    *   `context.vector.query("implement prefetching")`.
-    *   **Result**: Returns Moment A (Issue #22 "Support Prefetching") + noise.
-    *   **Candidates**: `[Moment A, Moment Z, Moment Y]`.
+#### Step 3: Processing Doc C (Agent Chat)
+*   **Micro-Batching**: Chunked into "Micro-Moment: How to implement...".
+*   **Materialize**: Becomes `Moment C (UUID: 333)`.
+*   **Candidate Generation**:
+    *   `vector.query("implement prefetching")`.
+    *   Results: `[Moment A (Issue), Moment Z (Noise)]`.
+*   **Timeline Fit**:
+    *   LLM Input: "Moment C matches Moment A. Valid?".
+    *   Check: Day 2 (Chat) is after Day 1 (Issue). **PASS**.
+    *   **Write**: Link `C -> A (Semantic)`.
 
-#### Step 4: Timeline Fit (Phase 8)
-*   **Doc C (Agent Planning) -> Candidate A (Issue #22)**
-    *   **LLM Judge**:
-        *   Context: "User is planning implementation for valid request."
-        *   Timeline Check: Day 2 is AFTER Day 1 (Issue) and BEFORE Day 3 (PR).
-    *   **Decision**: Link C -> A (High Confidence).
+#### Step 4: Processing Doc D (PR #25)
+*   **Materialize**: Becomes `Moment D (UUID: 444)`.
+*   **Deterministic Linking**:
+    *   Regex finds "Solves #22".
+    *   `db.find('gh_issue:22')` -> Returns `Moment A`.
+    *   **Write**: Link `D -> A (Explicit)`.
+
+#### Step 5: Processing Doc E (Announcement)
+*   **Materialize**: Becomes `Moment E (UUID: 555)`.
+*   **Deterministic Linking**:
+    *   Regex finds "PR #25".
+    *   `db.find('gh_pr:25')` -> Returns `Moment D`.
+    *   **Write**: Link `E -> D (Explicit)`.
 
 ### The Final Graph
 ```mermaid

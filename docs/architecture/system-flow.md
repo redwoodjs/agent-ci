@@ -8,52 +8,78 @@ Today, the system operates in two modes that share the same brain: a **Simulatio
 
 We built the Simulation Pipeline to solve a specific problem: "How do we safely improve our logic when the data is constantly changing?" 
 
-The simulation engine treats data processing not as a stream, but as a series of resumable, inspectable **Phases**. By persisting the state after each distinct operation, we can pause, debug, and even restart execution from the middle of the pipeline. This allows us to iterate on our "smart" logic (like linking or synthesis) without re-running expensive ingestion steps.
+The simulation engine treats data processing not as a stream, but as a series of resumable, inspectable **Phases**. By persisting the state after each distinct operation, we can pause, debug, and even restart execution from the middle of the pipeline.
 
 The data flows through eight distinct phases, moving from raw external state to a fully linked graph.
 
 ### 1. Ingestion & Diffing
-The process begins by looking at the outside world. In the `ingest_diff` phase, various **Plugins** (GitHub, Discord, etc.) fetch the current state of source documents and compare them against our last known state. We do this first so that we can immediately discard anything that hasn't changed, saving downstream compute.
+The process begins by looking at the outside world.
+*   **Input**: `r2_key` pointing to a raw JSON file in our bucket.
+*   **Action**: A **Plugin** (e.g., GitHub, Discord) parses the JSON and normalizes it into a standard `Document` object.
+*   **Database Read**: We check `db.document_checksums` to see if we have processed this exact content before.
+*   **Database Write**: If new, we update the checksum table.
+*   **Output**: A normalized `Document` object (in-memory).
 
-### 2. Micro-Batching
-Once we have a set of changed documents, we need to prepare them for the LLM. The `micro_batches` phase splits large documents into manageable chunks and generates **Embeddings** for them. These distinct, vector-ready units are called "Micro-Moments". We isolate this as a separate step because chunking logic rarely changes, but the downstream synthesis prompts change often.
+### 2. Micro-Batching (Chunk & Embed)
+Once we have a Document, we need to prepare it for search.
+*   **Input**: `Document`.
+*   **Action**: 
+    1.  The Plugin splits the document into logical `Chunks` (e.g., separating a PR body from its comments).
+    2.  We generate **Vector Embeddings** for each chunk. These are "Micro-Moments".
+*   **Database Write**: We store the embeddings in our Vector Index (for future candidate generation).
+*   **Output**: A list of `MicroMoment` items (Chunks + Vectors).
 
 ### 3. Macro Synthesis
-This is where the raw text is transformed into meaning. In `macro_synthesis`, we feed the stream of Micro-Moments into an LLM to generate "Macro-Moments"—high-level summaries of what happened. This phase focuses purely on understanding the *content* and *narrative* of a single document, without worrying about how it connects to the rest of the world.
+This is where raw text becomes meaning.
+*   **Input**: Stream of `MicroMoment` items.
+*   **Action**: An LLM reads the stream and synthesizes a high-level narrative (e.g., "User X reported a bug", "PR Y fixed it"). This works purely on the *content* of the document.
+*   **Output**: `MacroStream` (Draft moments).
 
 ### 4. Classification
-Not every moment is equal. The `macro_classification` phase acts as a filter, allowing us to label moments (e.g., distinguishing a "Bug Fix" from a "Chore") and gate which ones are important enough to enter the permanent graph.
+Not every synthesized moment matters.
+*   **Input**: `MacroStream`.
+*   **Action**: An LLM acts as a filter, tagging items as "Feature", "Bug", or "Noise".
+*   **Output**: `ClassifiedStream` (Filtered items).
 
-### 5. Materialization
-Up to this point, our data has been transient. The `materialize_moments` phase acts as the **Commit Point**. It writes the synthesized moments into the database with **Stable IDs**. Once materialized, a moment "exists" in our system and can be linked to.
+### 5. Materialize (The Commit Point)
+Up to this point, data has been transient (passing through the pipeline). Now we make it real.
+*   **Input**: `ClassifiedStream`.
+*   **Database Write**: We **INSERT** the classified items into the primary `moments` table. They are assigned stable **UUIDs**.
+*   **Significance**: Once materialized, a moment "exists" in the graph and can be linked to by subsequent documents.
 
 ### 6. Deterministic Linking
-Now we begin to stitch the graph together. We start with what we know for sure. The `deterministic_linking` phase looks for explicit signals—like a "Fixes #123" string in a PR body—to create high-confidence links between moments. We run this before fuzzy vector search because it is fast, cheap, and precise.
+We stitch the graph together, starting with explicit signals.
+*   **Input**: `moment_id`.
+*   **Database Read**: We fetch the moment body and scan for identifiers (e.g., "Fixes #123"). We then query `db.find('gh:123')` to find the target.
+*   **Database Write**: If found, we **INSERT** a row into the `links` table.
+*   **Output**: Link metadata.
 
 ### 7. Candidate Generation
-For connections that aren't explicitly stated, we need to search. The `candidate_sets` phase uses vector embeddings to find moments that *might* be related. We separate this "search" step from the final "decision" step so that we can inspect the recall of our retrieval (i.e., "Did we find the right candidate?") independently of the LLM's judgment.
+For implicit connections, we use search.
+*   **Input**: `moment_id`.
+*   **Database Read (Vector)**: We query the Vector Index with the moment's embedding.
+*   **Database Read (Graph)**: We fetch metadata for the top K matching IDs.
+*   **Action**: We filter out candidates that are historically impossible (e.g., created *after* the current moment).
+*   **Output**: A list of `Candidate` objects.
 
 ### 8. Timeline Fit
- Finally, we make the call. The `timeline_fit` phase evaluates the candidates and decides which parent is the best fit for the current moment, enforcing logical constraints (like time causality). This completes the graph, turning a loose collection of events into a connected narrative.
+Finally, the LLM acts as the Judge.
+*   **Input**: `moment_id` + `Candidate[]`.
+*   **Action**: The LLM reviews the pair and decides if they are causally related. It performs a "Veto Check" to ensure the timeline makes sense.
+*   **Database Write**: If the LLM approves, we **INSERT** a row into the `links` table.
 
 ## Pipeline Resiliency
 
-In a distributed system, jobs can fail silently (e.g., Worker OOM, Time Limit Exceeded), leaving the simulation in an indeterminate state. To ensure robustness, we implemented a **Supervisor Pattern**:
-
-1.  **Watchdog Heartbeat**: A CRON job (`processResiliencyHeartbeat`) runs every minute to "poke" all active simulation runs. This ensures the runner wakes up periodically, even if the queue is empty.
-2.  **Supervisor Check**: Before processing new work, the Phase Runner invokes a mandatory `recoverZombies` routine.
-3.  **Zombie Sweeper**: Each phase defines logic to identify and fail "Zombie Tasks"—items that have been `enqueued` for too long (e.g., >15 minutes) without an update.
-
- This ensures the simulation always converges to a terminal state (Completed or Failed) and never stalls indefinitely due to transient infrastructure failures.
+In a distributed system, jobs can fail silently. To ensure robustness, we implemented a **Supervisor Pattern**:
+1.  **Watchdog Heartbeat**: A CRON job "pokes" active runs every minute.
+2.  **Zombie Sweeper**: We automatically fail tasks that have been "running" for too long without an update.
 
 ## Unified "Orchestrator" Architecture
 
-Running two parallel pipelines (Live vs. Simulation) introduces a risk: the logic might drift. If the Live pipeline calculates a checksum one way, and the Simulation pipeline does it another, our replays become useless as predictors of live behavior.
+Running two parallel pipelines (Live vs. Simulation) risks logic drift. We solve this with the **Unified Orchestrator**.
 
-To solve this, we use a **Unified Orchestrator** pattern. 
-
-There is only one code path for execution: `executePhase`. We inject **Strategies** to handle the environmental differences:
+There is only one code path: `executePhase`. We inject **Strategies** to handle the environment:
 *   **Live Strategy**: Uses `NoOpStorage` (speed) and `DirectTransition` (latency).
-*   **Simulation Strategy**: Uses `ArtifactStorage` (inspectability) and `QueueTransition` (throughput/backpressure).
+*   **Simulation Strategy**: Uses `ArtifactStorage` (inspectability) and `QueueTransition` (throughput).
 
-This ensures that while the *runtime mechanics* differ to suit the use case, the *decisions* and *logic* are identical because they are the exact same code running in the exact same `PipelineContext`.
+This ensures that while the *mechanics* differ, the *logic* (decisions, linking, classification) is identical.

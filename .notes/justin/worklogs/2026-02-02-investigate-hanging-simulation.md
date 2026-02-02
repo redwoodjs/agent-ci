@@ -146,3 +146,89 @@ export type SimulationDbContext = {
 - [ ] Update `wrangler.jsonc` for LLM mocking
 - [ ] (Optional) Cleanup implicit heartbeats in `runEvents.ts`
 
+
+## Designing the "Fast LLM" switch
+Based on our discussion, we want a way to prioritize throughput over quality during simulations. We are introducing a `SIMULATION_USE_FAST_LLM` environment variable.
+
+1.  **Fast LLM Switch**: When `SIMULATION_USE_FAST_LLM` is set to `"1"`, the `callLLM` utility will override all aliases (including `slow-reasoning`) to use the fastest available model in the Cloudflare Workers AI catalog (currently targeting `@cf/meta/llama-3.1-8b-instruct` or `@cf/google/gemma-2b-it`).
+2.  **Addressing GBT-OSS**: While `gpt-oss-20b` is optimized for certain throughput patterns on Cloudflare, smaller instruction-tuned models like Llama-3 (8B) or Gemma (2B) generally offer lower latency per token for simple simulation tasks (summarization, analysis).
+
+This switch will complement the existing `SIMULATION_LLM_MOCK` by providing a middle ground: real LLM processing but at maximum speed and minimum cost.
+
+
+## Designed Heuristic Approximation Engine for extreme throughput
+To address the need for maximum speed while maintaining "semi-realistic" results, we are introducing a heuristic mode.
+
+1.  **Heuristic Mode**: Controlled by `SIMULATION_HEURISTIC_MODE`.
+2.  **Implementation**: A new utility `heuristicLlm.ts` will handle the two primary simulation LLM tasks:
+    - **Summarization**: Regex-based extraction of "important" sentences from chunks based on action keywords and author patterns.
+    - **Classification**: Keyword-based classification of macro moments into kinds (problem, decision, solution).
+3.  **Speed**: Since this runs in-process without network calls or LLM weights, it will be orders of magnitude faster than even Cerebras, enabling thousands of simulation steps per second.
+
+This provides the "approximation in memory" we discussed, ensuring that even if and when Cerebras is "too slow" or "too expensive", we have a native-speed fallback that isn't just a static mock.
+
+
+### Work Task Blueprint: Heuristic Approximation Engine & Fast LLM Switch
+
+#### 1. Context
+- **Problem**: Simulation throughput is limited by LLM latency. Even "fast" models can be a bottleneck for large-scale backfills or rapid validation cycles.
+- **Approach**: Introduce two levels of optimization:
+    1.  **Fast LLM Mode**: Use the fastest available models (e.g., Llama-3-8B).
+    2.  **Heuristic Mode**: Use an in-process rule-based engine to extract "semi-realistic" summaries and classifications, bypassing network calls entirely.
+- **Design Decisions**: 
+    - Heuristics will use regex-based sentence extraction for micro-moments.
+    - Classification will use keyword-based sentiment/intent analysis for macro-moments.
+    - Standard `callLLM` remains the entry point to preserve API compatibility.
+
+#### 2. Breakdown of Planned Changes
+- **Implement `heuristicLlm.ts`**: Create the logic for summarization (extracting sentences with "suggest", "fix", etc.) and classification.
+- **Modify `llm.ts`**: 
+    - Check for overrides in order: Mock -> Heuristic -> Fast LLM.
+    - Inject `SIMULATION_USE_FAST_LLM` and `SIMULATION_HEURISTIC_MODE` checks.
+- **Modify `wrangler.jsonc`**: Add new environment variables.
+- **Modify `worker-configuration.d.ts`**: Update types.
+
+#### 3. Directory & File Structure
+```text
+src/app/
+├── [NEW] engine/utils/heuristicLlm.ts
+└── [MODIFY] engine/utils/llm.ts
+wrangler.jsonc
+worker-configuration.d.ts
+```
+
+#### 4. Types & Data Structures
+No new shared types, but `LLMAlias` mappings will be overridden at runtime.
+
+#### 5. Invariants & Constraints
+- **Hierarchy of Overrides**:
+    1. `SIMULATION_LLM_MOCK` (Literal fakes)
+    2. `SIMULATION_HEURISTIC_MODE` (Dynamic heuristics)
+    3. `SIMULATION_USE_FAST_LLM` (Real LLM, faster model)
+- **Extractive Only**: Heuristics must only return content found in the prompt (or standardized Kind strings) to maintain "semi-realism".
+
+#### 6. System Flow (Snapshot Diff)
+- **Previous Flow**: `callLLM` -> `env.AI.run` -> Wait for network.
+- **Heuristic Flow**: `callLLM` -> `getHeuristicResponse` -> Immediate return from local logic.
+
+#### 7. Suggested Verification (Manual)
+- Enable `SIMULATION_HEURISTIC_MODE` and run a simulation; verify summary text contains actually relevant snippets from the chunks.
+- Enable `SIMULATION_USE_FAST_LLM` and verify logs show Llama-3-8B being used for "slow-reasoning" tasks.
+
+#### 8. Tasks
+- [ ] Create `heuristicLlm.ts`
+- [ ] Implement summarization and classification heuristics
+- [ ] Update `callLLM` logic and imports
+- [ ] Update `wrangler.jsonc` and types
+
+
+## Simplifying Simulation LLM Modes
+Based on our discussion, we are stripping back the simulation LLM options to reduce complexity. We are removing the dedicated "Mock" and "Fast LLM" modes.
+
+1.  **Removed `SIMULATION_LLM_MOCK`**: This was providing static, hardcoded responses.
+2.  **Removed `SIMULATION_USE_FAST_LLM`**: This was forcing Llama-3-8B for all calls.
+3.  **Retained `SIMULATION_HEURISTIC_MODE`**: This provides the "semi-realistic" native-speed approximation by extracting content directly from the input.
+4.  **Retained Normal Mode**: Standard LLM calls to models specified in the registry.
+
+The logic in `llm.ts` will now strictly check for Heuristic mode before proceeding to real LLM calls.
+

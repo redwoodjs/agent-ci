@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { getHeuristicResponse } from "./heuristicLlm";
 
 export type LLMAlias = "slow-reasoning" | "quick-cheap";
 
@@ -32,16 +33,16 @@ export async function callLLM(
   alias: LLMAlias = "slow-reasoning",
   options?: LLMOptions
 ): Promise<string> {
-  const modelId = MODEL_MAP[alias];
-
-  // Check for simulation mock override
+  // 1. Check for simulation heuristic override (dynamic response)
   if (
-    typeof env.SIMULATION_LLM_MOCK === "string" &&
-    (env.SIMULATION_LLM_MOCK === "1" || env.SIMULATION_LLM_MOCK === "true")
+    typeof env.SIMULATION_HEURISTIC_MODE === "string" &&
+    (env.SIMULATION_HEURISTIC_MODE === "1" || env.SIMULATION_HEURISTIC_MODE === "true")
   ) {
-    console.log(`[llm] Mocking LLM call for alias=${alias}`);
-    return getMockResponse(prompt, alias);
+    console.log(`[llm] Using HEURISTIC approximation for alias=${alias}`);
+    return getHeuristicResponse(prompt, alias);
   }
+
+  const modelId = MODEL_MAP[alias];
 
   const start = Date.now();
   const promptLength = prompt.length;
@@ -191,27 +192,4 @@ export async function callLLM(
   }
 
   throw new Error("Unexpected end of LLM call loop");
-}
-
-function getMockResponse(prompt: string, alias: LLMAlias): Promise<string> {
-  // Detect phase based on prompt content
-  if (prompt.includes("Summarize each sentence/item")) {
-    // Micro-batch mocking
-    // Prompt asks for: "S1|First summary\nS2|Second summary"
-    return Promise.resolve(
-      "S1|This is a mock summary for item 1.\nS2|This is a mock summary for item 2.\nS3|This is a mock summary for item 3."
-    );
-  }
-
-  if (prompt.includes("Analyze the following summaries")) {
-    // Macro-synthesis mocking
-    return Promise.resolve(
-      "Title: Mock Macro Update\n" +
-        "Summary: This is a high-level mock summary of the activity.\n" +
-        "Key Themes:\n- Mocking\n- Testing\n- Efficiency\n"
-    );
-  }
-
-  // Default fallback
-  return Promise.resolve("This is a generic mock LLM response.");
 }

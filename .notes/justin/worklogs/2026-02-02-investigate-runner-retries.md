@@ -130,3 +130,45 @@ Supervisor -> Check Phase.inputs ->
 - [ ] Implement central `pollDocuments` and `pollBatches` in `orchestration.ts` with "Give Up" logic.
 - [ ] Update Supervisor `runner.ts` to use declarative inputs.
 - [ ] Refactor all phase runners to remove `onTick`.
+# Work Task Blueprint: Unified Pipeline & Artifact Storage
+
+## 1. Context
+**Problem**:
+1.  **Logic Divergence**: `engine.ts` (Live) is a monolith. Simulation Phase Runners (`adapter.ts`) manually re-implement parts of that monolith, leading to code duplication and "messiness".
+2.  **Storage Complexity**: We have ~10 separate tables (`_micro_batches`, `_link_decisions`, etc.) to store phase outputs, adding maintenance burden.
+3.  **Resilience**: We lack a centralized "Retry Count" mechanism, causing infinite loops.
+
+**Solution**:
+1.  **Unified Core (Refactor)**: Break `engine.ts` into composable, pure functions in `src/app/engine/phases/`. Both Live and Simulation will call these functions.
+2.  **Artifact-Based Storage**: Consolidate specific phase tables into a single `simulation_run_artifacts` table (Postgres-style "JSON Blob per Entity per Phase").
+3.  **Artifact-Driven Orchestration**: The Simulation Runner polls this single table. If `status='pending'`, it executes the generic phase logic.
+
+## 2. Breakdown of Planned Changes
+
+### Phase 1: Core Extraction (The "Refactor")
+*   [NEW] `src/app/engine/phases/ingest.ts`: Extracts `prepareSourceDocument`, `splitDocumentIntoChunks`.
+*   [NEW] `src/app/engine/phases/micro_moments.ts`: Extracts `computeMicroBatchesForDocument`.
+*   [NEW] `src/app/engine/phases/macro_synthesis.ts`: Extracts `computeMacroSynthesisForDocument`.
+*   [MODIFY] `src/app/engine/engine.ts`: Update `indexDocument` to composed calls: `ingest() -> micro() -> macro()`.
+
+### Phase 2: Simplified Storage (The "JSON Blobs")
+*   [MODIFY] `src/app/engine/simulation/migrations.ts`:
+    *   Create `simulation_run_artifacts` table:
+        *   `run_id` (PK)
+        *   `phase` (PK) (e.g. 'micro_batches')
+        *   `entity_id` (PK) (e.g. r2Key)
+        *   `input_json` (The input args for the phase)
+        *   `output_json` (The result: items, decisions, evidence)
+        *   `status` (pending, complete, failed)
+        *   `retry_count` (Integer)
+        *   `error_json`
+*   [MODIFY] `src/app/engine/simulation/runArtifacts.ts`: Helpers to read/write these typed blobs.
+
+### Phase 3: Generic Orchestration
+*   [MODIFY] `src/app/engine/runners/simulation/runner.ts`:
+    *   **Loop**: Poll `simulation_run_artifacts` wherever `status='pending'`.
+    *   **Execute**: Switch based on `phase`. Call the shared `src/app/engine/phases/*` function.
+    *   **Retry Logic**: Checks `retry_count` on the artifact row. Increments on error. Marks 'failed' if > 3.
+
+### Phase 4: UI Adaptation
+*   [MODIFY] `src/app/pipelines/**/web/ui/*.tsx`: Update the Cards (`MicroBatchesCard`, etc.) to read from `simulation_run_artifacts` instead of specific tables. The JSON shape remains compatible.

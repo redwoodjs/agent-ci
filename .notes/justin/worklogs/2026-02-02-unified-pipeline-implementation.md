@@ -368,3 +368,21 @@ We have completed the migration of **Phase 4: Macro Classification**.
 - [ ] Phase 6: Deterministic Linking
 - [ ] Phase 7: Candidate Sets
 - [ ] Phase 8: Timeline Fit
+
+## Completion of Phase 5: Materialize Moments [2026-02-02]
+We have completed the migration of **Phase 5: Materialize Moments**.
+
+**Accomplishments**:
+- **Core Logic**: Refactored  to use . It computes deterministic moment IDs and micro-path hashes.
+- **Phase Adapter**: Created  in . It fetches the output of  and iterates through the generated moments to perform the database commit via .
+- **Commit Guard**: This phase represents the first actual write to the primary graph database in the pipeline. In Simulation, it writes to the simulation's isolated namespace.
+
+**Backlog Update**:
+- [x] Phase 1: Ingest Diff
+- [x] Phase 2: Micro-Batches
+- [x] Phase 3: Macro Synthesis
+- [x] Phase 4: Macro Classification
+- [x] Phase 5: Materialize Moments
+- [ ] Phase 6: Deterministic Linking
+- [ ] Phase 7: Candidate Sets
+- [ ] Phase 8: Timeline Fit

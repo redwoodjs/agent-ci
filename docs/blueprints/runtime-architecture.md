@@ -52,7 +52,7 @@ interface PipelineContext extends IndexingHookContext {
 }
 ```
 
-## 3. Plugin Architecture: Domain Injection
+## 3. Plugin Architecture: Domain Logic Injection
 
 The Pipeline itself is generic. All domain-specific knowledge (how to parse GitHub, how to chunk Discord) is injected via **Plugins**.
 
@@ -60,6 +60,36 @@ Plugins live in `src/app/engine/plugins/`. They provide hooks for:
 1.  **Ingestion/Diffing**: Converting raw JSON `{"issue_url": ...}` into a standardized `Document` object.
 2.  **Chunking**: Breaking a `Document` into `Chunk[]` based on domain rules (e.g. separating PR body from comments).
 3.  **Prompting**: Providing the context string ("This is a PR, assume text supports...") for the LLM.
+
+### 3.1 Composition Strategies
+The engine orchestrates plugins using three strategies (implemented in `src/app/engine/indexing/pluginPipeline.ts`):
+*   **First-Match**: Invokes plugins in order; first non-null wins. (Used for: `prepareSourceDocument`, `splitDocumentIntoChunks`).
+*   **Waterfall**: Output of Plugin A -> Input of Plugin B. (Used for: `enrichChunk`).
+*   **Collector**: All plugins run, results aggregated. (Used for: `buildVectorSearchFilter`).
+
+## 4. Execution Strategies
+
+We inject behavior to handle the different constraints of Live vs Simulation.
+
+### 3.1 Live Strategy (Minimizing Latency)
+*   **Goal**: Process a webhook as fast as possible.
+*   **Storage**: `NoOpStorage` (or `LogStorage`). We don't save intermediate state to DB to save milliseconds.
+*   **Transition**: `QueueTransition`. We enqueue a job for the next phase to ensure reliability and respect the 30s CPU limit (avoiding deep recursion).
+*   **Context**: `LiveContext`. Connects to real-time environment.
+
+### 3.2 Simulation Strategy (Maximizing Throughput & Inspectability)
+*   **Goal**: Process 10,000+ items without crashing.
+*   **Storage**: `ArtifactStorage`. We persist input/output to `simulation_run_artifacts` for checkpointing and UI debugging.
+*   **Transition**: `QueueTransition`. We enqueue a job for the next phase. This breaks the stack, respects the 30s timeout, and allows the Supervisor to pace the work (Backpressure).
+*   **Context**: `SimulationContext`. Can mock time or external APIs.
+
+## 4. System Constraints
+
+1.  **UNIFIED ORCHESTRATOR**: There is only ONE execution code path: `executePhase`.
+2.  **STRATEGY INJECTION**: Differences between Live/Sim are solely handled by `StorageStrategy` and `TransitionStrategy`.
+3.  **QUEUE BOUNDARY**: Both strategies use `QueueTransition` for reliability. Recursion is avoided to prevent CPU Timeouts (30s limit).
+4.  **No Per-Phase Runners**: All orchestration usage must go through the generic pipeline.
+5.  **Statelessness**: Workers are ephemeral.
 
 ## 4. The 8-Phase Lifecycle (Detailed Flow)
 

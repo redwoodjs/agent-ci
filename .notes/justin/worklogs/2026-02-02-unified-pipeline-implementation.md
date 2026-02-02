@@ -178,3 +178,68 @@ We will implement the **Unified Orchestrator** to replace the legacy "Live/Sim" 
 ## Restoring Constraints
 *   We will ensure the `Unified Pipeline` blueprints explicitly list the Environment Constraints (128MB RAM, 30s CPU).
 
+
+## Blueprint Cleanup Strategy
+1.  **Rename**: `docs/blueprints/unified-pipeline.md` -> `docs/blueprints/runtime-architecture.md`.
+    *   Rationale: This describes the *Runtime*, not just the pipeline.
+2.  **Consolidate/Delete**:
+    *   `system-overview.md`: Likely redundant with `system-flow.md`. Check and archive.
+    *   `plugin-system.md`: Merged into Runtime Arch. Archive.
+    *   `debug-endpoints.md`: Keep if relevant, but maybe move to `docs/dev-guides/`.
+
+
+## Correction: Plugins are Essential
+*   **User Feedback**: "plugin system - surely though there was a point there?"
+*   **Investigation**: Yes, `pluginPipeline.ts` implements FirstMatch/Waterfall.
+*   **Action**: Restored the Plugin Architecture section to the Blueprint.
+*   **Code Impact**: The new Orchestrator MUST use `pluginPipeline.ts` helper functions to delegate logic to plugins.
+
+
+## Revision: Legacy Endpoint Cleanup
+*   **Finding**: All per-pipeline routes (e.g. `pipelines/micro_batches/web/routes/batches.ts`) query legacy tables (`simulation_run_micro_batches`).
+*   **Action**: DELETE all pipeline-specific `web/routes/` files.
+*   **Action**: CLEANUP `src/app/engine/routes/simulation.ts` (Remove `getSimulationRunDebugStatusHandler`).
+*   **Replacement**: The new Supervisor will expose a generic `GET /admin/simulation/run/:runId/artifacts?phase=...` endpoint.
+
+## Added Tasks
+*   [DELETE] `src/app/pipelines/**/web/routes/*.ts`
+*   [MODIFY] `src/app/engine/routes/simulation.ts`
+
+
+# Actual Work Task Blueprint: Unified Runtime Implementation
+
+## Goal Description
+We will implement the **Unified Runtime Orchestrator** defined in `docs/blueprints/runtime-architecture.md`. This replaces the fragmented "Live vs Sim" runners with a single stateless `executePhase` loop that handles I/O via `PipelineContext` and persistence via `Strategies`.
+
+## Critical Architecture Decisions
+1.  **Single Runtime**: All logic runs via `src/app/engine/runtime`.
+2.  **Values over Objects**: We are removing the "Ports" pattern. Core logic functions accept `PipelineContext` and return data.
+3.  **Queue Boundary**: Both Live and Simulation strategies use `QueueTransition` to respect the 30s CPU limit.
+4.  **Plugin Delegation**: The Orchestrator uses `pluginPipeline.ts` helper functions to inject domain logic.
+
+## Breakdown of Changes
+
+### 1. The Runtime Harness ([NEW] `src/app/engine/runtime/`)
+*   **`types.ts`**: Definitions for `Phase`, `PhaseExecution` (input -> output), `PipelineContext`, `Strategies`.
+*   **`strategies/live.ts`**: Implement `NoOpStorage` (fire and forget) + `QueueTransition` (async reliability).
+*   **`strategies/simulation.ts`**: Implement `ArtifactStorage` (save to `simulation_run_artifacts`) + `QueueTransition` (next job).
+*   **`orchestrator.ts`**: The `executePhase` loop.
+
+### 2. Phase Refactor (Iterative, starting with Micro-Batches)
+*   **[MODIFY] `src/app/pipelines/micro_batches/engine/core/orchestrator.ts`**:
+    *   Remove `MicroBatchesOrchestratorPorts`.
+    *   Use `PipelineContext` generic interface.
+    *   Return `{ batches, microMoments }` (do not save inside core).
+*   **[NEW] `src/app/pipelines/micro_batches/index.ts`**: Export the `Phase` object compliant with the new Runtime.
+*   **[DELETE] `src/app/pipelines/micro_batches/engine/simulation/{runner,adapter}.ts`**: Remove legacy polling/logging.
+
+### 3. Legacy Cleanup ([DELETE])
+*   **[DELETE] `src/app/pipelines/**/web/routes/*.ts`**: All specific debug routes that query legacy tables.
+*   **[MODIFY] `src/app/engine/routes/simulation.ts`**: Remove `getSimulationRunDebugStatusHandler`.
+
+## Execution Order
+1.  **Scaffold**: Create `src/app/engine/runtime` (Types, Orchestrator, Strategies).
+2.  **Refactor Micro-Batches**: Convert Core Logic, create Phase definition.
+3.  **Delete Legacy**: Remove old runners and debug routes for Micro-Batches.
+4.  **Verify**: Trigger a generic Simulation Run (via code or new endpoint) and verify `simulation_run_artifacts` are populated.
+

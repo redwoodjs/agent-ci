@@ -14,15 +14,14 @@ To prevent logic drift, the Simulation Engine and the Live Pipeline share the ex
 
 ### 2.1 Co-located Domain Logic
 All logic is organized by **Domain**, not by Runtime. We strictly adhere to the `src/app/pipelines/<phase>/` directory structure.
-*   **Web**: UI Components (`web/ui/`)
 *   **Core**: The Shared Business Logic (`engine/core/`) - **THIS IS THE SOURCE OF TRUTH.**
 *   **Live**: Adapters for Live execution (`engine/live/`)
 *   **Simulation**: Adapters for Simulation execution (`engine/simulation/`)
 
 **CRITICAL CONSTRAINT**: There are **NO PER-PHASE RUNNERS**. The Simulation Runner is a single, generic system that dispatches work to the Core logic.
 
-### 2.2 Stateless Phase Execution (The Memory Solution)
-We cannot be "Pure" (World In -> World Out) because we cannot load the entire Graph into 128MB of memory.
+### 2.2 Stateless Phase Execution
+We cannot be "Pure" (World In -> World Out) because we cannot load the entire Graph into memory.
 Instead, we use **Stateless Execution with Context**.
 
 ```typescript
@@ -31,9 +30,6 @@ type PhaseExecution<TInput, TOutput> = (
   context: SimulationDbContext // Provides DB Access, LLM, Env
 ) => Promise<TOutput>;
 ```
-*   **Input**: The specific Artifact Input (e.g., `r2_key`, `moment_id`).
-*   **Context**: Allows the phase to *query* the DB for exactly what it needs (e.g., "Find top 10 candidates").
-*   **Output**: The result to be stored as the Output Artifact.
 
 ## 3. Storage Strategy: The "Artifacts" Table
 
@@ -53,27 +49,39 @@ Stores the inputs and outputs of every phase for every entity.
 | `retry_count` | Int | Application-level retry counter. |
 | `error_json` | JSON | Last error details if failed. |
 
-### 3.2 Value
-1.  **Generic Polling**: The Runner simply queries: `SELECT * FROM artifacts WHERE status = 'pending'`.
-2.  **UI Inspectability**: The UI renders `output_json` for any phase without custom DB queries.
-3.  **Checkpointing**: If a run crashes, resumption occurs exactly where it left off.
+## 4. Execution Models (Live vs. Simulation)
 
-## 4. Work Unit Orchestration
+While logic is shared, the **Execution Model** differs to serve the different needs of Live (Latency) vs Simulation (Throughput/Inspectability).
+
+### 4.1 Live Execution (Push / Event-Driven)
+*   **Trigger**: Real-time events (Webhooks, Cron).
+*   **Flow**: Optimistic Chain. `Adapter A` calls `Core A`, then immediately calls `Adapter B` (or enqueues to a Live Queue).
+*   **State**: Ephemeral. Data moves fast; persistent traces are optional (logs only).
+
+### 4.2 Simulation Execution (Pull / Batch-Driven)
+*   **Trigger**: The Supervisor (Pacer).
+*   **Flow**: Checkpointed Step. `Worker` runs `Core A`, saves result to `Artifacts` as `complete`, and inserts `Artifact B` as `pending`. It **stops** there.
+*   **Role of Supervisor**:
+    *   **Why do we need it?** We are processing 10,000+ items (Backfill). We cannot just "let it rip" or we will flood the queues.
+    *   **The Pacer**: The Supervisor polls `pending` artifacts and dispatches them at a controlled rate (Backpressure).
+    *   **Time Simulation**: By controlling the dispatch tick, we can simulate the passage of time (e.g., processing chunks in timestamp order).
+
+## 5. Work Unit Orchestration (Simulation Only)
 
 The Simulation Runner is a **Generic Artifact Processor**.
 
-### 4.1 The Loop (Generic Supervisor)
-1.  **Poll**: Queries `simulation_run_artifacts` for `pending` items.
-2.  **Dispatch**: Sends a `simulation-job` message to the Queue for each pending item.
+### 5.1 The Loop (Supervisor)
+1.  **Poll**: Queries `simulation_run_artifacts` for `pending` items (limited by concurrency cap).
+2.  **Dispatch**: Sends a `simulation-job` message to the Queue for each item.
 
-### 4.2 The Worker (Generic Handler)
+### 5.2 The Worker (Handler)
 1.  **Read**: Reads the Artifact from DB.
 2.  **Route**: Switches on `artifact.phase` to import the correct **Core Logic** from `src/app/pipelines/<phase>/engine/core/`.
 3.  **Execute**: Calls the Core Logic with `(input_json, db_context)`.
 4.  **Persist**: Updates Artifact: `status='complete'`, `output_json=result`.
 5.  **Chain**: Inserts `pending` artifacts for the *next* phase.
 
-## 5. The 8-Phase Lifecycle
+## 6. The 8-Phase Lifecycle
 
 | Phase | Input (Artifact.entity_id) | Core Logic Location | Output Artifact |
 | :--- | :--- | :--- | :--- |
@@ -86,22 +94,11 @@ The Simulation Runner is a **Generic Artifact Processor**.
 | **7. Candidates** | `moment_id` | `pipelines/candidate_sets/engine/core/` | `Candidate[]` |
 | **8. Timeline Fit** | `moment_id` | `pipelines/timeline_fit/engine/core/` | `FinalDecision` |
 
-## 6. Resilience & Retries
+## 7. System Constraints
 
-### 6.1 Application-Level Retries
-The orchestrator tracks a `retry_count` on the Artifact row.
-*   **Logic Failure**: (e.g., LLM Refusal). Catch error -> Increment `retry_count` -> Update DB -> Ack Message.
-*   **Give Up**: If `retry_count > 3`, set `status='failed'`. We stop processing this unit.
-
-### 6.2 Infra-Level Retries (DLQ)
-*   **Crash/Timeout**: If the Worker OOMs or Times Out, the Cloudflare Queue mechanism catches it.
-*   **Policy**: `max_retries: 3`. If fails 3 times, moves to Dead Letter Queue (DLQ).
-*   **Recovery**: The System Heartbeat occasionally scans for "stuck" `running` artifacts (older than 5 mins) and resets them to `pending` (Zombie Recovery).
-
-## 7. Invariants
-
-1.  **NO PER-PHASE RUNNERS**: Orchestration logic appears ONLY in the generic Supervisor. Phase directories contain ONLY domain logic.
-2.  **30-Second Bound**: No phase logic may ever block for > 30s. Long tasks must be broken into sub-artifacts (e.g., batching chunks).
-3.  **Statelessness**: Workers are ephemeral. All state must be persisted to `simulation_run_artifacts` before the worker exits.
-4.  **No Custom Tables**: Phases MUST NOT create their own run-state tables. They must use the generic storage.
-5.  **UI Visibility**: The `output_json` must contain sufficient data to render the "Audit Card" for that phase.
+1.  **QUEUE-BASED EXECUTION**: All phase transitions MUST occur via Queue Dispatch (in Sim) or Function Chain (in Live). No long-running sync loops.
+2.  **NO PER-PHASE RUNNERS**: Orchestration logic appears ONLY in the generic Supervisor. Phase directories contain ONLY domain logic.
+3.  **30-Second Bound**: No phase logic may ever block for > 30s. Long tasks must be broken into sub-artifacts (e.g., batching chunks).
+4.  **Statelessness**: Workers are ephemeral. All state must be persisted to `simulation_run_artifacts` before the worker exits.
+5.  **No Custom Tables**: Phases MUST NOT create their own run-state tables. They must use the generic storage.
+6.  **UI Visibility**: The `output_json` must contain sufficient data to render the "Audit Card" for that phase.

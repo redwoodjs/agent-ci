@@ -386,3 +386,44 @@ We have completed the migration of **Phase 5: Materialize Moments**.
 - [ ] Phase 6: Deterministic Linking
 - [ ] Phase 7: Candidate Sets
 - [ ] Phase 8: Timeline Fit
+
+## Planning Phase 6: Deterministic Linking [2026-02-02]
+We are ready to migrate **Phase 6: Deterministic Linking**.
+
+**Goal**: Link the newly materialized moments to their parents based on deterministic rules:
+1.  **Stream Continuity**: If , link to the previous moment in the same stream.
+2.  **Explicit Reference**: If , look for  style issue/PR references and link to the resolved thread head.
+
+**Proposed Changes**:
+- **[NEW]** :
+    - Wraps .
+    - Iterates over moments from Phase 5.
+    - Resolves thread heads using .
+    - Returns a list of linking decisions.
+- **[MODIFY]** :
+    - Implements .
+    - Loads Phase 5 output.
+    - Performs the  side effects to update  and .
+- **[DELETE]** .
+
+**Verification**:
+- Check  table (legacy UI dependency) or  for Phase 6 output.
+- Verify  updates in the  table.
+
+## Completion of Phase 6: Deterministic Linking [2026-02-02]
+We have completed the migration of **Phase 6: Deterministic Linking**.
+
+**Accomplishments**:
+- **Core Logic**: Created  in . It wraps the logic for linking stream moments and resolving issue/PR references.
+- **Phase Adapter**: Created  in . It correctly fetches materialized moments from Phase 5 and performs the  upserts with parent linkage.
+- **Cleanup**: Removed the legacy simulation runner.
+
+**Backlog Update**:
+- [x] Phase 1: Ingest Diff
+- [x] Phase 2: Micro-Batches
+- [x] Phase 3: Macro Synthesis
+- [x] Phase 4: Macro Classification
+- [x] Phase 5: Materialize Moments
+- [x] Phase 6: Deterministic Linking
+- [ ] Phase 7: Candidate Sets
+- [ ] Phase 8: Timeline Fit

@@ -5,7 +5,7 @@ import type {
   Plugin,
 } from "../types";
 
-async function runFirstMatchHook<T>(
+export async function runFirstMatchHook<T>(
   plugins: Plugin[],
   fn: (plugin: Plugin) => Promise<T | null | undefined> | undefined
 ): Promise<T | null> {

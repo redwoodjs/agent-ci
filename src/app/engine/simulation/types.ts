@@ -29,6 +29,15 @@ export type SimulationDatabase = Override<
         created_at: string;
         updated_at: string;
     };
+    simulation_run_artifacts: {
+        run_id: string;
+        phase: string;
+        artifact_key: string;
+        input_json: string | null;
+        output_json: string | null;
+        created_at: string;
+        updated_at: string | null;
+    };
   }
 >;
 

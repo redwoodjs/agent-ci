@@ -257,3 +257,38 @@ We will implement the **Unified Runtime Orchestrator** defined in `docs/blueprin
 3.  **Delete Legacy**: Remove old runners and debug routes for Micro-Batches.
 4.  **Verify**: Trigger a generic Simulation Run (via code or new endpoint) and verify `simulation_run_artifacts` are populated.
 
+
+# [Update] Progress Checkpoint: Micro-Batches Done, 7 Phases Remain
+
+## Status Overview
+We have successfully established the foundational **Unified Runtime** and migrated the first key phase: . However, several other phases and legacy services remain on the old architecture.
+
+### Done
+- [x] **Runtime Engine**: , , , .
+- [x] **Persistence**: Generic  table.
+- [x] **Micro-Batches Phase**: Refactored to be stateless and use the Unified Runtime.
+- [x] **Cleanup**: Deleted  legacy runner/adapter.
+
+### Remaining Work (The Migration Backlog)
+The following phases still use the legacy  /  pattern and need to be migrated to  (Unified Phase Adapter).
+
+1.  ****: Needs to be refactored to use .
+2.  ****: Legacy runner/adapter.
+3.  ****: Legacy runner/adapter.
+4.  ****: Legacy runner/adapter.
+5.  ****: Legacy runner.
+6.  ****: Legacy runner.
+7.  ****: Legacy runner.
+
+### Legacy Services Cleanup Plan
+Once all phases are migrated, we must delete:
+-  ( The legacy shim we just patched).
+-  (Legacy Supervisor).
+-  (Legacy Live Scheduler).
+-  (Complex legacy logic, might need breakdown).
+
+## Next Steps
+We will proceed phase-by-phase, verifying each migration.
+1.  Migrate .
+2.  Migrate .
+3.  ... and so on.

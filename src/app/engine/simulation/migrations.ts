@@ -411,5 +411,31 @@ export const simulationStateMigrations = {
       await db.schema.dropTable("simulation_run_r2_batches").execute();
     },
   },
+  "014_add_simulation_run_artifacts": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_artifacts")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade")
+          )
+          .addColumn("phase", "text", (col) => col.notNull())
+          .addColumn("artifact_key", "text", (col) => col.notNull())
+          .addColumn("input_json", "text")
+          .addColumn("output_json", "text")
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text")
+          .addPrimaryKeyConstraint("simulation_run_artifacts_pk", [
+            "run_id",
+            "phase",
+            "artifact_key",
+          ])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("simulation_run_artifacts").execute();
+    },
+  },
 } satisfies Migrations;
 

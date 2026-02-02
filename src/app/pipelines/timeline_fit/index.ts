@@ -1,4 +1,4 @@
-import { Phase, PipelineContext } from "../../engine/runtime/types";
+import { Phase, PipelineContext, Moment } from "../../engine/runtime/types";
 import { runTimelineFitForDocument } from "./engine/core/orchestrator";
 import { MaterializeMomentsPhase } from "../materialize_moments";
 import { CandidateSetsPhase } from "../candidate_sets";
@@ -12,18 +12,18 @@ export const TimelineFitPhase: Phase<string, any> = {
     if (!materializationOutput) {
       throw new Error(`No materialize_moments output found for ${r2Key}. Timeline fit cannot proceed.`);
     }
-    const moments = materializationOutput.moments || [];
+    const moments = (materializationOutput.moments as Moment[]) || [];
 
     // 2. Load candidate sets from Phase 7
     const candidateSetsOutput = await context.storage.load<any>(CandidateSetsPhase, r2Key);
-    const candidateSets = candidateSetsOutput?.candidateSets || {};
+    const candidateSets = (candidateSetsOutput?.candidateSets || {}) as Record<string, any>;
 
     // 3. Run Core Logic for each moment that needs a fit
     const results: Record<string, any> = {};
-    const momentById = new Map(moments.map(m => [m.id, m]));
+    const momentById = new Map(moments.map((m: Moment) => [m.id, m]));
 
     for (const moment of moments) {
-      const candidates = (candidateSets as Record<string, any>)[moment.id]?.candidates || [];
+      const candidates = candidateSets[moment.id]?.candidates || [];
       if (candidates.length === 0) {
         continue;
       }
@@ -49,7 +49,7 @@ export const TimelineFitPhase: Phase<string, any> = {
             } as any,
             {
               env: context.env,
-              momentGraphNamespace: context.momentGraphNamespace || null,
+              momentGraphNamespace: (context as any).momentGraphNamespace || null,
             }
           );
         }

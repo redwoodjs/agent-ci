@@ -1,4 +1,4 @@
-import { Phase, PipelineContext } from "../../engine/runtime/types";
+import { Phase, PipelineContext, Plugin, Document } from "../../engine/runtime/types";
 import { runMacroClassification } from "./engine/core/orchestrator";
 import { MacroSynthesisPhase } from "../macro_synthesis";
 import { runFirstMatchHook } from "../../engine/indexing/pluginPipeline";
@@ -13,11 +13,10 @@ export const MacroClassificationPhase: Phase<string, any> = {
       throw new Error(`No macro_synthesis output found for ${r2Key}. Classification cannot proceed.`);
     }
 
-    // 2. Prepare Document (to get metadata)
-    const document = await runFirstMatchHook(
+    // 2. Prepare Document
+    const document = await runFirstMatchHook<Document>(
       context.plugins,
-      "prepareSourceDocument",
-      (plugin) => plugin.prepareSourceDocument?.(context)
+      (plugin: Plugin) => plugin.prepareSourceDocument?.(context)
     );
 
     if (!document) {

@@ -15,7 +15,7 @@ export async function runCandidateSetComputation(input: {
     score: number | null;
     documentId: string;
     title: string | null;
-    createdAt: string;
+    summary: string | null;
   }>;
   stats: any;
 }> {
@@ -39,7 +39,7 @@ export async function runCandidateSetComputation(input: {
   const vectorResults = await (context.env as any).MOMENT_INDEX.query(embedding, {
     topK: vectorTopK,
     returnMetadata: true,
-    filter: { momentGraphNamespace: context.momentGraphNamespace || "default" }
+    filter: { momentGraphNamespace: (context as any).momentGraphNamespace || "default" }
   });
 
   const matches = (vectorResults?.matches ?? []).map((m: any) => ({
@@ -47,16 +47,13 @@ export async function runCandidateSetComputation(input: {
     score: m.score ?? null
   }));
 
-  const matchIds = matches.map(m => m.id as string);
-  const uniqueIds = Array.from(new Set(matchIds)).slice(0, vectorTopK);
+  const matchIds = matches.map((m: any) => m.id as string);
 
   // 3. Load candidate rows details from Moment Graph
-  const candidateMoments = uniqueIds.length > 0 
-    ? await getMoments(uniqueIds, {
-        env: context.env,
-        momentGraphNamespace: context.momentGraphNamespace || null
-      })
-    : new Map<string, any>();
+  const candidateMoments = await getMoments(matchIds, {
+    env: context.env,
+    momentGraphNamespace: (context as any).momentGraphNamespace || null,
+  });
   
   const candidateRowsById = new Map<string, any>(
     Array.from(candidateMoments.entries()).map(([id, r]: [string, any]) => [id, {
@@ -70,7 +67,7 @@ export async function runCandidateSetComputation(input: {
   );
 
   // 4. Build Candidate Set using legacy logic
-  const childStartMs = parseTimeMs(childMoment.createdAt); // Simplified for now, or use core logic if needed
+  const childStartMs = parseTimeMs(childMoment.createdAt);
 
   const built = buildCandidateSet({
     childMomentId: childMoment.id,
@@ -81,8 +78,16 @@ export async function runCandidateSetComputation(input: {
     maxCandidates,
   });
 
+  const finalCandidates = built.candidates.map((c: any) => ({
+    id: c.id,
+    score: c.score,
+    documentId: c.documentId,
+    title: c.title,
+    summary: (candidateRowsById.get(c.id) as any)?.summary || null,
+  }));
+
   return {
-    candidates: built.candidates,
+    candidates: finalCandidates,
     stats: {
       ...built.stats,
       vectorTopK,

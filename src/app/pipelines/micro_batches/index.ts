@@ -1,4 +1,4 @@
-import { Phase, PipelineContext } from "../../engine/runtime/types";
+import { Phase, PipelineContext, Plugin, Document } from "../../engine/runtime/types";
 import { runMicroBatchesForDocument } from "./engine/core/orchestrator";
 import {
   runFirstMatchHook,
@@ -15,11 +15,10 @@ export const MicroBatchesPhase: Phase<string, any> = {
   name: "micro_batches",
   next: "macro_synthesis",
   execute: async (r2Key: string, context: PipelineContext) => {
-    // 1. Prepare Document (Fetch & Namespace)
-    const document = await runFirstMatchHook(
+    // 1. Prepare Document
+    const document = await runFirstMatchHook<Document>(
       context.plugins,
-      "prepareSourceDocument",
-      (plugin) => plugin.prepareSourceDocument?.(context)
+      (plugin: Plugin) => plugin.prepareSourceDocument?.(context)
     );
 
     if (!document) {

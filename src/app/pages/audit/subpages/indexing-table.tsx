@@ -82,7 +82,7 @@ export function IndexingTable({ files }: { files: File[] }) {
     try {
       const result = await enqueueFile(r2Key);
       if (result.success) {
-        setMessage({ type: "success", text: result.message });
+        setMessage({ type: "success", text: result.message || "" });
       } else {
         setMessage({
           type: "error",
@@ -114,7 +114,7 @@ export function IndexingTable({ files }: { files: File[] }) {
     try {
       const result = await deleteFile(r2Key);
       if (result.success) {
-        setMessage({ type: "success", text: result.message });
+        setMessage({ type: "success", text: result.message || "" });
         // Reload the page to refresh the list
         setTimeout(() => window.location.reload(), 1000);
       } else {

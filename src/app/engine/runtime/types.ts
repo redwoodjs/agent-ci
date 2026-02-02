@@ -1,6 +1,7 @@
 import { type Database } from "rwsdk/db";
 import type { momentMigrations } from "../databases/momentGraph/migrations";
-import type { IndexingHookContext, VectorizeIndex, Chunk, Document, Plugin } from "../types";
+import type { IndexingHookContext, VectorizeIndex, Chunk, Document, Plugin, Moment, MacroMomentDescription } from "../types";
+export type { IndexingHookContext, VectorizeIndex, Chunk, Document, Plugin, Moment, MacroMomentDescription };
 import type { LLMAlias, LLMOptions } from "../utils/llm";
 
 export type MomentDatabase = Database<typeof momentMigrations>;

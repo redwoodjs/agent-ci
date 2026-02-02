@@ -37,7 +37,7 @@ export class ArtifactStorage implements StorageStrategy {
         output_json: outputJson,
         created_at: now,
       })
-      .onConflict((oc) =>
+      .onConflict((oc: any) =>
         oc.columns(["run_id", "phase", "artifact_key"]).doUpdateSet({
           output_json: outputJson,
           updated_at: now,

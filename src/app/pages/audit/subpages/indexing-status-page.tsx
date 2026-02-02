@@ -5,6 +5,7 @@ import {
   CardHeader,
   CardTitle,
   CardContent,
+  CardDescription,
 } from "@/app/components/ui/card";
 import { getIndexingStatesBatch } from "@/app/engine/databases/indexingState";
 import { IndexingTable } from "./indexing-table";

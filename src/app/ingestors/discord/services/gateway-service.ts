@@ -84,5 +84,5 @@ export async function getGatewayAudit(
   }
 
   const json = await response.json();
-  return (json.entries as GatewayAuditEntry[]) ?? [];
+  return ((json as any).entries as GatewayAuditEntry[]) ?? [];
 }

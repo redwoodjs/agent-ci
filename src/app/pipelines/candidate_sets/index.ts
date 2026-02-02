@@ -1,4 +1,4 @@
-import { Phase, PipelineContext } from "../../engine/runtime/types";
+import { Phase, PipelineContext, Moment } from "../../engine/runtime/types";
 import { runCandidateSetComputation } from "./engine/core/orchestrator";
 import { MaterializeMomentsPhase } from "../materialize_moments";
 import { DeterministicLinkingPhase } from "../deterministic_linking";
@@ -12,38 +12,32 @@ export const CandidateSetsPhase: Phase<string, any> = {
     if (!materializationOutput) {
       throw new Error(`No materialize_moments output found for ${r2Key}. Candidate sets cannot proceed.`);
     }
-    const moments = materializationOutput.moments || [];
+    const moments = (materializationOutput.moments as Moment[]) || [];
 
-    // 2. Load decisions from Phase 6
-    const linkingOutput = await context.storage.load<{ decisions: any[] }>(DeterministicLinkingPhase, r2Key);
+    // 2. Load linking decisions from Phase 6
+    const linkingOutput = await context.storage.load<any>(DeterministicLinkingPhase, r2Key);
     const linkingDecisions = new Map<string, any>(
       (linkingOutput?.decisions || []).map((d: any) => [d.childMomentId, d])
     );
 
-    // 3. Identify moments needing candidates
+    // 3. Run Core Logic for each moment that needs candidates
     const results: Record<string, any> = {};
+
     for (const moment of moments) {
-      const decision = linkingDecisions.get(moment.id);
-      
-      // If it already has a deterministic parent, we skip candidate set generation
-      if (decision?.proposedParentId) {
+      const linked = linkingDecisions.get(moment.id);
+      if (linked && linked.proposedParentId) {
         continue;
       }
 
-      // 4. Run Core Logic for this moment
       const candidateSet = await runCandidateSetComputation({
         context,
         childMoment: moment,
-        maxCandidates: 20,
-        vectorTopK: 50
+        maxCandidates: 10,
       });
 
       results[moment.id] = candidateSet;
     }
 
-    return { 
-      candidateSetsCount: Object.keys(results).length,
-      candidateSets: results 
-    };
+    return { candidateSets: results };
   },
 };

@@ -3805,10 +3805,11 @@ export async function generateCodeTldr(options: {
   file: string;
   line: number;
   namespace?: string | null;
+  timelineResult?: any;
 }) {
   try {
     // Fetch timeline data first
-    const timelineResult = await fetchCodeTimeline({
+    const timelineResult = options.timelineResult ?? await fetchCodeTimeline({
       repo: options.repo,
       commit: options.commit,
       namespace: options.namespace,

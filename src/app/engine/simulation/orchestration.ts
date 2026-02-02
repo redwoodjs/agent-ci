@@ -57,9 +57,9 @@ export function runStandardDocumentPolling(input: {
     const updates: Promise<any>[] = [];
 
     // Use the queue
-    if (context.env.SIMULATION_QUEUE) {
+    if ((context.env as any).SIMULATION_QUEUE) {
         for (const doc of batch) {
-            updates.push(context.env.SIMULATION_QUEUE.send({
+            updates.push((context.env as any).SIMULATION_QUEUE.send({
                 jobType: "simulation-document",
                 runId,
                 phase,

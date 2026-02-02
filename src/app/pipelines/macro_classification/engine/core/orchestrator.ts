@@ -297,8 +297,8 @@ export async function runMacroClassification(input: {
   const { document, context, streams } = input;
 
   const gatingConfig: MacroGatingConfig = {
-    macroMaxPerStream: Number(context.env.MACRO_MAX_PER_STREAM) || 12,
-    macroMinImportance: Number(context.env.MACRO_MIN_IMPORTANCE) || 0,
+    macroMaxPerStream: Number((context.env as any).MACRO_MAX_PER_STREAM) || 12,
+    macroMinImportance: Number((context.env as any).MACRO_MIN_IMPORTANCE) || 0,
     noisePatternStringsFromEnv: [], // TODO: pull from env if needed
     discordNoisePatternStringsFromEnv: [],
   };

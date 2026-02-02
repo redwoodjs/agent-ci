@@ -34,6 +34,15 @@ export async function callLLM(
 ): Promise<string> {
   const modelId = MODEL_MAP[alias];
 
+  // Check for simulation mock override
+  if (
+    typeof env.SIMULATION_LLM_MOCK === "string" &&
+    (env.SIMULATION_LLM_MOCK === "1" || env.SIMULATION_LLM_MOCK === "true")
+  ) {
+    console.log(`[llm] Mocking LLM call for alias=${alias}`);
+    return getMockResponse(prompt, alias);
+  }
+
   const start = Date.now();
   const promptLength = prompt.length;
   const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
@@ -182,4 +191,27 @@ export async function callLLM(
   }
 
   throw new Error("Unexpected end of LLM call loop");
+}
+
+function getMockResponse(prompt: string, alias: LLMAlias): Promise<string> {
+  // Detect phase based on prompt content
+  if (prompt.includes("Summarize each sentence/item")) {
+    // Micro-batch mocking
+    // Prompt asks for: "S1|First summary\nS2|Second summary"
+    return Promise.resolve(
+      "S1|This is a mock summary for item 1.\nS2|This is a mock summary for item 2.\nS3|This is a mock summary for item 3."
+    );
+  }
+
+  if (prompt.includes("Analyze the following summaries")) {
+    // Macro-synthesis mocking
+    return Promise.resolve(
+      "Title: Mock Macro Update\n" +
+        "Summary: This is a high-level mock summary of the activity.\n" +
+        "Key Themes:\n- Mocking\n- Testing\n- Efficiency\n"
+    );
+  }
+
+  // Default fallback
+  return Promise.resolve("This is a generic mock LLM response.");
 }

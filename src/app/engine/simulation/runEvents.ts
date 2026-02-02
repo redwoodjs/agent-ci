@@ -12,6 +12,7 @@ export async function addSimulationRunEvent(
     level: SimulationRunEventLevel;
     kind: string;
     payload: Record<string, any>;
+    r2Key?: string;
   }
 ): Promise<void> {
   const db = getSimulationDb(context);
@@ -44,6 +45,7 @@ export async function addSimulationRunEvent(
       created_at: now,
     } as any)
     .execute();
+
 }
 
 export async function getSimulationRunEvents(

@@ -59,6 +59,7 @@ export type SimulationRunEventLevel = "debug" | "info" | "warn" | "error";
 export type SimulationDbContext = {
   env: Cloudflare.Env;
   momentGraphNamespace: string | null;
+  heartbeat?: () => Promise<void>;
 };
 
 type SimulationRunInput = SimulationDatabase["simulation_runs"];

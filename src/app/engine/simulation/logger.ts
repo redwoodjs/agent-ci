@@ -3,7 +3,7 @@ import { addSimulationRunEvent } from "./runEvents";
 
 export function createSimulationRunLogger(
   context: SimulationDbContext,
-  input: { runId: string; persistInfo?: boolean }
+  input: { runId: string; persistInfo?: boolean; r2Key?: string }
 ): {
   error: (kind: string, payload: Record<string, any>) => Promise<void>;
   warn: (kind: string, payload: Record<string, any>) => Promise<void>;
@@ -34,6 +34,7 @@ export function createSimulationRunLogger(
         level: "error",
         kind,
         payload,
+        r2Key: input.r2Key,
       });
     },
     async warn(kind, payload) {
@@ -43,6 +44,7 @@ export function createSimulationRunLogger(
         level: "warn",
         kind,
         payload,
+        r2Key: input.r2Key,
       });
     },
     async info(kind, payload) {
@@ -52,6 +54,7 @@ export function createSimulationRunLogger(
           level: "info",
           kind,
           payload,
+          r2Key: input.r2Key,
         });
       }
     },
@@ -62,6 +65,7 @@ export function createSimulationRunLogger(
           level: "debug",
           kind,
           payload,
+          r2Key: input.r2Key,
         });
       }
     },

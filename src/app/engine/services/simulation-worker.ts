@@ -1,4 +1,4 @@
-import type { SimulationQueueMessage } from "../simulation/types";
+import type { SimulationDbContext, SimulationQueueMessage } from "../simulation/types";
 import { tickSimulationRun } from "../runners/simulation/runner";
 import { pipelineRegistry, simulationPhasesOrdered } from "../simulation/registry";
 import { getSimulationDb } from "../simulation/db";
@@ -7,7 +7,7 @@ export async function processSimulationJob(
   message: SimulationQueueMessage,
   env: Cloudflare.Env
 ): Promise<void> {
-  const context = {
+  const context: SimulationDbContext = {
     env,
     momentGraphNamespace: null, // Runners will resolve from config if needed
   };
@@ -41,6 +41,15 @@ export async function processSimulationJob(
 
       const entry = pipelineRegistry[message.phase];
       if (entry) {
+        context.heartbeat = async () => {
+          await db
+            .updateTable("simulation_run_documents")
+            .set({ updated_at: new Date().toISOString() })
+            .where("run_id", "=", message.runId)
+            .where("r2_key", "=", message.r2Key)
+            .execute();
+        };
+
         await entry.onExecute(context, {
           runId: message.runId,
           workUnit: { kind: "document", r2Key: message.r2Key },
@@ -58,6 +67,17 @@ export async function processSimulationJob(
     case "simulation-batch": {
       const entry = pipelineRegistry["micro_batches"];
       if (entry) {
+        const db = getSimulationDb(context);
+        context.heartbeat = async () => {
+          await db
+            .updateTable("simulation_run_micro_batches")
+            .set({ updated_at: new Date().toISOString() })
+            .where("run_id", "=", message.runId)
+            .where("r2_key", "=", message.r2Key)
+            .where("batch_index", "=", message.batchIndex as any)
+            .execute();
+        };
+
         await entry.onExecute(context, {
           runId: message.runId,
           workUnit: { kind: "batch", r2Key: message.r2Key, batchIndex: message.batchIndex },

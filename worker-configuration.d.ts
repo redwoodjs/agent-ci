@@ -22,6 +22,7 @@ declare namespace Cloudflare {
     MOMENT_GRAPH_NAMESPACE: "redwood:rwsdk" | "dev-justin-3";
     MOMENT_REPLAY_SKIP_LINKING: "1";
     SIMULATION_DISABLE_CACHING: string;
+    SIMULATION_LLM_MOCK: string;
     WEBAUTHN_RP_ID: string;
     AUTH_SECRET_KEY: string;
     API_KEY: string;

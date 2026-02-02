@@ -139,8 +139,9 @@ export const micro_batches_simulation: PipelineRegistryEntry = {
   async onExecute(context, input) {
     const db = getSimulationDb(context);
     const now = new Date().toISOString();
-    const log = createSimulationRunLogger(context, { runId: input.runId });
     const { workUnit } = input;
+    const r2Key = (workUnit as any).r2Key;
+    const log = createSimulationRunLogger(context, { runId: input.runId, r2Key });
 
     const runRow = await db
       .selectFrom("simulation_runs")
@@ -149,7 +150,6 @@ export const micro_batches_simulation: PipelineRegistryEntry = {
       .executeTakeFirst();
     if (!runRow) return;
 
-    const r2Key = (workUnit as any).r2Key;
     const batchIndex = (workUnit as any).batchIndex;
 
     const result = await runMicroBatchesAdapter(context, {
@@ -162,21 +162,23 @@ export const micro_batches_simulation: PipelineRegistryEntry = {
           promptContext,
           batchIndex,
         }) => {
-          return (
-            (await computeMicroMomentsForChunkBatch(chunks, {
-              promptContext,
-              logger: (msg, data) => {
-                log
-                  .info("process.llm_retry", {
-                    phase: "micro_batches",
-                    msg,
-                    batchIndex,
-                    ...data,
-                  })
-                  .catch(() => {});
-              },
-            })) ?? []
-          );
+          await context.heartbeat?.();
+          const items = await computeMicroMomentsForChunkBatch(chunks, {
+            promptContext,
+            logger: (msg, data) => {
+              context.heartbeat?.().catch(() => {});
+              log
+                .info("process.llm_retry", {
+                  phase: "micro_batches",
+                  msg,
+                  batchIndex,
+                  ...data,
+                })
+                .catch(() => {});
+            },
+          });
+          await context.heartbeat?.();
+          return items ?? [];
         },
         getEmbeddings: async (texts) => await getEmbeddings(texts),
         getEmbedding: async (text) => await getEmbedding(text),

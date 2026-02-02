@@ -136,9 +136,9 @@ We will implement the **Unified Orchestrator** to replace the legacy "Live/Sim" 
 
 ### Breakdown of Changes
 
-#### 1. The Unified Harness ([NEW] `src/app/engine/unified/`)
+#### 1. The Runtime Harness ([NEW] `src/app/engine/runtime/`)
 *   **`types.ts`**: Definitions for `Phase`, `PhaseExecution` (input -> output), `PipelineContext`.
-*   **`strategies/live.ts`**: `NoOpStorage` (fire and forget).
+*   **`strategies/live.ts`**: `NoOpStorage` (fire and forget) + `QueueTransition` (async reliability).
 *   **`strategies/simulation.ts`**: `ArtifactStorage` (save to DB) + `QueueTransition` (next job).
 *   **`orchestrator.ts`**: The `executePhase` loop:
     1.  `await context.strategies.storage.load(input)`
@@ -159,4 +159,22 @@ We will implement the **Unified Orchestrator** to replace the legacy "Live/Sim" 
 2.  **Refactor**: Convert `micro_batches` core logic to be Port-less and Context-driven.
 3.  **Delete**: Remove the legacy runner code.
 4.  **Verify**: Trigger a Simulation Run for Micro-Batches and verify artifacts appear in the DB.
+
+
+## Work Task Blueprint Revision: Directory Naming
+*   **User Feedback**: "unified - do we really need that name to be explicit"
+*   **Decision**: We will use `src/app/engine/runtime`.
+    *   It is clean, standard, and describes *what it is* (The Execution Runtime).
+    *   It avoids the "Unified" prefix which is a project goal, not a component name.
+    *   It helps distinguish from the legacy `simulation` and `live` folders (which will be deleted/archived).
+
+
+## Correction: Live Mode cannot be Sync Recursion
+*   **Constraint**: Cloudflare Workers have a 30s CPU time limit (and strict wall clock limits on Free/Standard plans).
+*   **Implication**: If we chain Ingest -> Embed -> Synth -> Link -> fit in one call stack, we will likely TIMEOUT.
+*   **Pivot**: Live Mode MUST also use Queues (or at least asynchronous hand-off) for heavy phases.
+    *   *Micro-Opt*: Maybe some lightweight phases can be chained, but generally, `QueueTransition` is safer for both.
+
+## Restoring Constraints
+*   We will ensure the `Unified Pipeline` blueprints explicitly list the Environment Constraints (128MB RAM, 30s CPU).
 

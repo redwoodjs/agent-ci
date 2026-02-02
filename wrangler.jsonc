@@ -245,7 +245,7 @@
     "MOMENT_GRAPH_NAMESPACE": "redwood:rwsdk",
     "MOMENT_REPLAY_SKIP_LINKING": "1",
     "SIMULATION_DISABLE_CACHING": "1",
-    "SIMULATION_HEURISTIC_MODE": "0"
+    "SIMULATION_HEURISTIC_MODE": "1"
   },
   "env": {
     "test": {

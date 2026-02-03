@@ -56,7 +56,7 @@ import { processProcessorJob as processDiscordProcessorJob } from "@/app/ingesto
 import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app/ingestors/discord/services/dlq-handler";
 import { handleWebhookEvent } from "@/app/ingestors/discord/services/webhook-handler";
 import { processIndexingJob } from "@/app/engine/services/indexing-scheduler-worker";
-import { processMomentReplayReplayJob } from "@/app/engine/services/moment-replay-worker";
+
 import { processChunkJob, processChunkBatch } from "@/app/engine/services/chunk-processor-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
 import { processSimulationJob } from "@/app/engine/services/simulation-worker";

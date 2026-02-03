@@ -221,6 +221,12 @@ export async function queryRag(queryText: string) {
       env: env as Cloudflare.Env,
     };
 
+    return {
+      success: true,
+      response: "The unified query engine is currently undergoing maintenance and these results are unavailable.",
+      references: [],
+    };
+/*
     console.log(`[query-action] Starting query: "${queryText}"`);
     const response = await query(queryText, context);
     console.log(`[query-action] Query completed successfully`);
@@ -256,6 +262,7 @@ export async function queryRag(queryText: string) {
       response: response,
       references: references,
     };
+*/
   } catch (error) {
     console.error("[actions] Error querying RAG:", error);
     return {

@@ -161,6 +161,8 @@ export const githubPlugin: Plugin = {
     if ("repo" in parsed) {
       const prIssueData = data as GitHubLatestJson;
       const url = prIssueData.url || buildGitHubUrl(parsed);
+      const typeLabel = parsed.type === "pull-requests" ? "PR" : "Issue";
+      const typeRef = parsed.type === "pull-requests" ? "pr" : "issue";
 
       return {
         id: context.r2Key,
@@ -173,6 +175,11 @@ export const githubPlugin: Plugin = {
           createdAt: prIssueData.created_at,
           author: normalizeGitHubHandle(prIssueData.author),
           _rawJson: prIssueData,
+          macroSynthesisPromptContext: `
+- title_label: Github ${typeLabel} #${parsed.number}:
+- summary_descriptor: Github ${typeLabel} #${parsed.number}
+- document_ref: mchn://gh/${typeRef}/${parsed.owner}/${parsed.repo}/${parsed.number}
+`,
           sourceMetadata: {
             type: "github-pr-issue",
             owner: parsed.owner,
@@ -196,6 +203,11 @@ export const githubPlugin: Plugin = {
           createdAt: projectData.created_at,
           author: normalizeGitHubHandle(projectData.owner),
           _rawJson: projectData,
+          macroSynthesisPromptContext: `
+- title_label: Github Project #${parsed.number}:
+- summary_descriptor: Github Project #${parsed.number}
+- document_ref: mchn://gh/project/${parsed.owner}/${parsed.number}
+`,
           sourceMetadata: {
             type: "github-project",
             owner: parsed.owner,

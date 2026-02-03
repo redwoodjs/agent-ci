@@ -702,3 +702,18 @@ src/app/engine/services/
 - [ ] Implement `withSimulationErrorTracking` in `simulation-worker.ts`.
 - [ ] Fix `pipelineContext` initialization in `processSimulationJob`.
 - [ ] Verify that errors are correctly surfaced in the `simulation_run_documents` table.
+
+## Completed implementation of simulation resilience
+We implemented the central error tracking wrapper `withSimulationErrorTracking` in `simulation-worker.ts`. This wrapper:
+1. Catches any error during job processing.
+2. Records the error to `simulation_run_documents.error_json` or `simulation_runs.last_error_json`.
+3. Adds a `simulation_run_events` record for the error.
+4. Re-throws the error to ensure Cloudflare's retry logic and DLQs work as intended.
+
+We also fixed the `pipelineContext` initialization to include `r2Key` and resolve real indexing plugins. This should resolve the "No plugin could prepare document" stall.
+
+### Verification Plan (Manual)
+1. Ask the user to resume the simulation.
+2. Verify that jobs move past `micro_batches`.
+3. If an error occurs, verify it appears in the `DocumentsCard` in the UI (linked to `error_json`).
+

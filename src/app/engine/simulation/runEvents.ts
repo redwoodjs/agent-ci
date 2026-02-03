@@ -43,7 +43,7 @@ export async function addSimulationRunEvent(
       kind,
       payload_json: JSON.stringify(input.payload ?? {}),
       created_at: now,
-    } as any)
+    })
     .execute();
 
 }
@@ -87,7 +87,7 @@ export async function getSimulationRunEvents(
     level: r.level,
     kind: r.kind,
     createdAt: r.created_at,
-    payload: (r as any).payload_json ?? {},
+    payload: r.payload_json ?? {},
   }));
 }
 

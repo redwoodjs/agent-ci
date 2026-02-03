@@ -643,3 +643,18 @@ The user suggested moving the registry to `src/app/pipelines/registry.ts` as it'
 - [ ] Delete `src/app/engine/runtime/registry.ts`.
 
 
+
+## Refactored Database Types for Simulation
+We have refactored the database type definitions for the simulation engine to follow the project's strict protocols.
+
+### Achievements:
+- **Concrete JSON Types:** Defined explicit interfaces for all JSON blobs (e.g., `SimulationRunConfig`, `SimulationRunEventPayload`).
+- **Clean Database Inference:** Separated the "Raw" database types (serialization side, using strings) from the "Row" override types (deserialization side, using objects).
+- **Resolved Static Inference Issues:** Manually defined raw table interfaces for columns added via `alterTable` (like `dispatched_phases_json`) that Kysely's static inference was missing.
+- **Type-Safe Interaction:** Updated Simulation Runner, Worker, and Services to use the new `Row` types, eliminating `any` casts and manual `JSON.parse` calls while maintaining explicit `JSON.stringify` on writes.
+- **Improved Status Enum:** Updated `SimulationRunStatus` to include missing values like `"advance"`.
+
+### Protocols Followed:
+- NO GUESSES (Verified exact column names via migrations).
+- Override types instead of casting.
+- Record findings to the worklog.

@@ -82,7 +82,7 @@ export async function createSimulationRun(
       moment_graph_namespace_prefix: momentGraphNamespacePrefix,
       config_json: JSON.stringify(input.config ?? {}),
       last_error_json: null,
-    } as any)
+    })
     .execute();
 }
 
@@ -129,8 +129,8 @@ export async function getSimulationRunById(
     lastProgressAt: row.last_progress_at ?? null,
     momentGraphNamespace: row.moment_graph_namespace ?? null,
     momentGraphNamespacePrefix: row.moment_graph_namespace_prefix ?? null,
-    config: (row as any).config_json ?? {},
-    lastError: (row as any).last_error_json ?? null,
+    config: row.config_json ?? {},
+    lastError: row.last_error_json ?? null,
   };
 }
 
@@ -174,8 +174,8 @@ export async function getRecentSimulationRuns(
     lastProgressAt: row.last_progress_at ?? null,
     momentGraphNamespace: row.moment_graph_namespace ?? null,
     momentGraphNamespacePrefix: row.moment_graph_namespace_prefix ?? null,
-    config: (row as any).config_json ?? {},
-    lastError: (row as any).last_error_json ?? null,
+    config: row.config_json ?? {},
+    lastError: row.last_error_json ?? null,
   }));
 }
 

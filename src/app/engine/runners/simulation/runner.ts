@@ -2,8 +2,13 @@ import { getSimulationDb } from "../../simulation/db";
 import { addSimulationRunEvent } from "../../simulation/runEvents";
 import { getPhaseByName } from "../../../pipelines/registry";
 import { sql } from "rwsdk/db";
-import { SimulationDbContext } from "../../simulation/types";
-import { simulationPhases } from "../../simulation/types";
+import {
+  SimulationDbContext,
+  simulationPhases,
+  SimulationRunRow,
+  SimulationRunR2BatchRow,
+  SimulationRunDocumentRow,
+} from "../../simulation/types";
 import { normalizePhase } from "../../simulation/runs";
 
 // No longer need hardcoded phaseRunners mapping here
@@ -26,7 +31,7 @@ export async function tickSimulationRun(
     .select(["status", "current_phase", "updated_at"])
     .where("run_id", "=", runId)
     .executeTakeFirst()) as unknown as
-    | { status: string; current_phase: string; updated_at: string }
+    | SimulationRunRow
     | undefined;
 
   if (!row) {
@@ -85,7 +90,7 @@ export async function tickSimulationRun(
     .selectFrom("simulation_runs")
     .select(["status"])
     .where("run_id", "=", runId)
-    .executeTakeFirst()) as { status: string } | undefined;
+    .executeTakeFirst()) as SimulationRunRow | undefined;
 
   if (refreshed?.status !== "busy_running") {
     return {
@@ -572,7 +577,8 @@ async function tickGenericDocumentPolling(
       .executeTakeFirst();
 
     if (batch) {
-      const keys = JSON.parse(batch.keys_json as string) as string[];
+      const row = batch as unknown as SimulationRunR2BatchRow;
+      const keys = row.keys_json;
       for (const r2Key of keys) {
         await db
           .insertInto("simulation_run_documents")
@@ -581,9 +587,10 @@ async function tickGenericDocumentPolling(
             r2_key: r2Key,
             dispatched_phases_json: JSON.stringify([phase]),
             processed_phases_json: JSON.stringify([]),
+            changed: 0,
             processed_at: now,
             updated_at: now,
-          } as any)
+          })
           .onConflict((oc) =>
             oc.columns(["run_id", "r2_key"]).doUpdateSet({
               dispatched_phases_json: sql`json_insert(dispatched_phases_json, '$[#]', ${phase})`,

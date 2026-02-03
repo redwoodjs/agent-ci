@@ -1,4 +1,4 @@
-import type { SimulationDbContext, SimulationQueueMessage } from "../simulation/types";
+import type { SimulationDbContext, SimulationQueueMessage, SimulationRunRow } from "../simulation/types";
 import { tickSimulationRun } from "../runners/simulation/runner";
 import { getSimulationDb } from "../simulation/db";
 import { sql } from "rwsdk/db";
@@ -36,7 +36,7 @@ export async function processSimulationJob(
         .selectFrom("simulation_runs")
         .select(["current_phase", "moment_graph_namespace"])
         .where("run_id", "=", message.runId)
-        .executeTakeFirst();
+        .executeTakeFirst() as SimulationRunRow | undefined;
       
       if (!runRow) {
         console.warn(`[simulation-worker] Run ${message.runId} not found`);
@@ -56,7 +56,7 @@ export async function processSimulationJob(
         const strategies = {
           storage: new SimulationStrategies.ArtifactStorage(message.runId, db),
           transition: new SimulationStrategies.QueueTransition(
-            (env as any).ENGINE_INDEXING_QUEUE,
+            (env as any).ENGINE_INDEXING_QUEUE as Queue<any>,
             message.runId
           ),
         };
@@ -73,10 +73,11 @@ export async function processSimulationJob(
           const query = db.updateTable(table as any)
             .set({ updated_at: new Date().toISOString() })
             .where("run_id", "=", message.runId)
+            // @ts-ignore - r2_key exists on both tables
             .where("r2_key", "=", message.r2Key);
           
-          if (message.jobType === "simulation-batch" && (message as any).batchIndex !== undefined) {
-             await (query as any).where("batch_index", "=", (message as any).batchIndex).execute();
+          if (message.jobType === "simulation-batch" && "batchIndex" in message) {
+             await (query as any).where("batch_index", "=", message.batchIndex).execute();
           } else {
              await query.execute();
           }
@@ -89,7 +90,7 @@ export async function processSimulationJob(
           .set({
              processed_phases_json: sql`json_insert(processed_phases_json, '$[#]', ${phaseName})`,
              updated_at: new Date().toISOString()
-          } as any)
+          })
           .where("run_id", "=", message.runId)
           .where("r2_key", "=", message.r2Key)
           .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${phaseName}%`)

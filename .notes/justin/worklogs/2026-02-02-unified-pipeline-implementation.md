@@ -814,3 +814,76 @@ We have successfully removed all caching and skip-logic found after the R2 stora
 
 This ensures that the pipeline is fully deterministic based on R2 content and immune to cache-related stalls.
 
+
+## Investigating Incorrect JSON.parse() Usage [2026-02-03]
+We are auditing the codebase for incorrect `JSON.parse()` calls on database columns, following the principle that the DB layer (`rwsdk/db`) automatically parses JSON columns. This is part of ensuring simulation consistency and adhering to the project's golden rules.
+
+### Areas of Focus:
+- `src/app/engine/runtime/`
+- `src/app/engine/simulation/`
+- `src/app/engine/runners/simulation/`
+- `src/app/pipelines/`
+- `src/app/engine/services/simulation-worker.ts`
+
+
+## Recorded Audit Findings: Incorrect JSON.parse() Usage
+We have identified several locations where `JSON.parse()` is being used on database columns that are already auto-parsed by the DB layer.
+
+### Confirmed Non-Compliant Files:
+1. **[resiliency.ts](file:///Users/justin/rw/worktrees/machinen_simplify-phase-arch/src/app/engine/simulation/resiliency.ts)**: `dispatched_phases_json` and `processed_phases_json` are explicitly parsed in `safeJson`.
+2. **[runArtifacts.ts](file:///Users/justin/rw/worktrees/machinen_simplify-phase-arch/src/app/engine/simulation/runArtifacts.ts)**: `micro_items_json` is check-and-parsed in `getSimulationRunMicroBatches`.
+3. **[redwoodSdkPrIssueReconcile.ts](file:///Users/justin/rw/worktrees/machinen_simplify-phase-arch/src/app/engine/services/redwoodSdkPrIssueReconcile.ts)**: `payload_json` from `moment_replay_items` is explicitly parsed.
+
+### Verified Compliant (LLM Output Parsing):
+- `src/app/pipelines/macro_classification/engine/core/orchestrator.ts`: Parsing LLM classification results.
+- `src/app/engine/subjects/classifyMacroMoments.ts`: Parsing LLM classification results.
+
+
+## Work Task Blueprint: Global JSON Handling Fixes
+We are fixing incorrect `JSON.parse()` calls on database columns that are already automatically parsed by the DB layer.
+
+### Proposed Changes
+
+* **Fix Simulation Resiliency Zombie Recovery**:
+    - Modify `src/app/engine/simulation/resiliency.ts`: Update `safeJson` to assume input is already parsed if it's from a JSON column (`dispatched_phases_json`, `processed_phases_json`).
+
+* **Fix Simulation Run Artifact Fetching**:
+    - Modify `src/app/engine/simulation/runArtifacts.ts`: Remove redundant `JSON.parse` on `micro_items_json`.
+
+* **Fix PR/Issue Reconciliation**:
+    - Modify `src/app/engine/services/redwoodSdkPrIssueReconcile.ts`: Remove `JSON.parse` on `payload_json`.
+
+### Tasks
+- [ ] Fix `JSON.parse` in `resiliency.ts`
+- [ ] Fix `JSON.parse` in `runArtifacts.ts`
+- [ ] Fix `JSON.parse` in `redwoodSdkPrIssueReconcile.ts`
+
+
+## Feedback: Code Cleanup and Progress Visibility [2026-02-03]
+Received feedback on three specific areas of the codebase and one UI issue:
+
+1. **resiliency.ts**: Questioning if this is still used or has a purpose in the new architecture.
+2. **runArtifacts.ts**: Questioning if this is still used.
+3. **redwoodSdkPrIssueReconcile.ts**: Suspected to be a legacy "shim" for a bug that should no longer exist.
+4. **Simulation UI Progress**: The UI logs (e.g., "awaiting_documents") are unhelpful compared to terminal logs. We need to improve progress visibility in the UI.
+
+We will investigate these areas before proceeding with more code changes.
+
+
+## Finalized Cleanup and Visibility Plan [2026-02-03]
+We have finished auditing the three files and the progress visibility issue.
+
+### Investigation Results:
+- **resiliency.ts**: Confirmed as dead code. The simulation runner implements its own recovery logic.
+- **runArtifacts.ts**: Confirmed as essential infrastructure for the UI. Must be kept.
+- **redwoodSdkPrIssueReconcile.ts**: Confirmed as a legacy administrative shim. No frontend usage.
+- **Progress Visibility**: Confirmed that the "awaiting_documents" status lacking detail is the cause of unhelpful logs.
+
+### Planned Changes:
+1. **Remove Dead/Legacy Code**:
+    - Delete `src/app/engine/simulation/resiliency.ts`.
+    - Delete `src/app/engine/services/redwoodSdkPrIssueReconcile.ts`.
+    - Remove reconciliation route from `src/app/engine/routes.ts`.
+2. **Improve Simulation Progress Visibility**:
+    - Update `src/app/engine/runners/simulation/runner.ts` to include pending document/batch counts in the "awaiting_documents" status and event payloads.
+

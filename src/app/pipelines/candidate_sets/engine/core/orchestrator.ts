@@ -167,7 +167,13 @@ export async function runCandidateSetComputation(input: {
   stats: any;
 }> {
   const { context, childMoment } = input;
-  const queryText = (childMoment.summary?.trim() || childMoment.title?.trim() || "");
+  const parts = [
+    childMoment.summary,
+    childMoment.title,
+    ...(childMoment.anchors || [])
+  ].filter(s => typeof s === "string" && s.trim().length > 0);
+  
+  const queryText = parts.join("\n").trim();
   
   if (!queryText) {
     return { 

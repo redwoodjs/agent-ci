@@ -136,6 +136,7 @@ export async function materializeMomentsForDocument(input: {
             macroIndex: i,
           },
         },
+        anchors: m.anchors,
       };
 
       moments.push(moment);

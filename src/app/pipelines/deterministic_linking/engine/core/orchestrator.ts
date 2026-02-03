@@ -254,7 +254,7 @@ export async function runDeterministicLinkingForDocument(input: {
       childDocumentId: childMoment.documentId,
       childCreatedAt: childMoment.createdAt,
       childSourceMetadata: childMoment.sourceMetadata || {},
-      macroAnchors: (childMoment as any).anchors || [], // anchors might have been added in classification
+      macroAnchors: childMoment.anchors || [], // anchors might have been added in classification
       childTextForFallbackAnchors: `${childMoment.title || ""}\n${
         childMoment.summary || ""
       }`,

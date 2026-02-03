@@ -85,6 +85,7 @@ export interface Moment {
   createdAt: string;
   author: string;
   sourceMetadata?: Record<string, any>;
+  anchors?: string[];
 }
 
 export interface MomentDescription {
@@ -93,6 +94,7 @@ export interface MomentDescription {
   author: string;
   createdAt: string;
   sourceMetadata?: Record<string, any>;
+  anchors?: string[];
 }
 
 export interface MacroMomentDescription extends MomentDescription {

@@ -28,15 +28,22 @@ export function extractAnchorsFromStreams(input: {
       : [];
     for (const m of moments) {
       const text = `${m.title ?? ""}\n${m.summary ?? ""}`.trim();
+      const momentAnchors: string[] = [];
       for (const tok of input.extractAnchorTokens(text, input.maxTokensPerMoment)) {
-        anchors.push(tok);
-        if (anchors.length >= input.maxAnchors) {
-          return anchors;
-        }
+        momentAnchors.push(tok);
+        anchors.push(tok); // Collect global anchors
+      }
+      
+      // Attach anchors to the moment for downstream phases (Linking)
+      m.anchors = momentAnchors;
+
+      if (anchors.length >= input.maxAnchors) {
+        // Stop collecting global anchors once we hit the limit,
+        // but continue attaching local anchors to remaining moments.
       }
     }
   }
-  return anchors;
+  return anchors.slice(0, input.maxAnchors);
 }
 
 async function sha256Hex(value: string): Promise<string> {

@@ -32,7 +32,7 @@ import {
   getMomentGraphNamespacePrefixFromEnv,
   applyMomentGraphNamespacePrefixValue,
 } from "./momentGraphNamespace";
-import { reconcileRedwoodSdkPrsAndIssues } from "./services/redwoodSdkPrIssueReconcile";
+
 import { simulationAdminRoutes } from "./routes/simulation";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
@@ -1224,93 +1224,7 @@ async function documentAuditRecentHandler({ request }: RequestInfo) {
   });
 }
 
-async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
-  if (request.method !== "POST") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 });
-  }
 
-  let body: Record<string, any> | undefined;
-  try {
-    body = (await request.json()) as any;
-  } catch {
-    body = undefined;
-  }
-
-  const dryRunRaw = body?.dryRun;
-  const dryRun = dryRunRaw === false ? false : true;
-
-  const namespaceRaw =
-    body?.momentGraphNamespace ??
-    body?.namespace ??
-    (body as any)?.baseNamespace;
-  const baseNamespace =
-    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
-      ? namespaceRaw.trim()
-      : null;
-
-  const namespacePrefixRaw =
-    body?.momentGraphNamespacePrefix ?? body?.namespacePrefix;
-  const momentGraphNamespacePrefix =
-    typeof namespacePrefixRaw === "string" &&
-    namespacePrefixRaw.trim().length > 0
-      ? namespacePrefixRaw.trim()
-      : null;
-
-  const envCloudflare = env as Cloudflare.Env;
-  const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
-  const envBaseNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
-  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
-    baseNamespace ?? envBaseNamespace,
-    momentGraphNamespacePrefix ?? envPrefix
-  );
-
-  const maxNumbersRaw = body?.maxNumbers;
-  const maxNumbers =
-    typeof maxNumbersRaw === "number" && Number.isFinite(maxNumbersRaw)
-      ? Math.floor(maxNumbersRaw)
-      : typeof maxNumbersRaw === "string" &&
-        Number.isFinite(Number(maxNumbersRaw))
-      ? Math.floor(Number(maxNumbersRaw))
-      : null;
-
-  const batchSizeRaw =
-    body?.batchSize ?? body?.limit ?? (body as any)?.maxMismatches;
-  const batchSize =
-    typeof batchSizeRaw === "number" && Number.isFinite(batchSizeRaw)
-      ? Math.floor(batchSizeRaw)
-      : typeof batchSizeRaw === "string" &&
-        Number.isFinite(Number(batchSizeRaw))
-      ? Math.floor(Number(batchSizeRaw))
-      : null;
-
-  const scopeRaw = body?.scope;
-  const scope = scopeRaw === "moments" ? "moments" : "all";
-
-  console.log("[admin:reconcile-redwoodjs-sdk] start", {
-    dryRun,
-    momentGraphNamespace: effectiveNamespace ?? null,
-    momentGraphNamespacePrefix,
-    maxNumbers,
-    batchSize,
-    scope,
-  });
-
-  const result = await reconcileRedwoodSdkPrsAndIssues({
-    dryRun,
-    momentGraphNamespace: effectiveNamespace ?? null,
-    momentGraphNamespacePrefix,
-    maxNumbers,
-    batchSize,
-    scope,
-  });
-
-  console.log("[admin:reconcile-redwoodjs-sdk] done", {
-    dryRun,
-    mismatches: (result as any)?.mismatches ?? null,
-  });
-
-  return Response.json(result);
-}
 
 async function clearDefaultNamespaceMomentLinksHandler({
   request,
@@ -1432,9 +1346,7 @@ export const routes = [
   route("/admin/document-audit-recent", {
     post: [requireQueryApiKey, documentAuditRecentHandler],
   }),
-  route("/admin/reconcile-redwoodjs-sdk-pr-issues", {
-    post: [requireQueryApiKey, reconcileRedwoodSdkPrIssuesHandler],
-  }),
+
   route("/admin/clear-default-namespace-moment-links", {
     post: [requireQueryApiKey, clearDefaultNamespaceMomentLinksHandler],
   }),

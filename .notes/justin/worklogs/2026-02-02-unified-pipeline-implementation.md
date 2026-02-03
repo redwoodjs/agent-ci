@@ -887,3 +887,22 @@ We have finished auditing the three files and the progress visibility issue.
 2. **Improve Simulation Progress Visibility**:
     - Update `src/app/engine/runners/simulation/runner.ts` to include pending document/batch counts in the "awaiting_documents" status and event payloads.
 
+
+## Audited Simulation Code and Visibility [2026-02-03]
+We have completed a thorough audit of the simulation infrastructure and investigated the lack of visibility in the simulation UI.
+
+### 1. File Audit: Dead Code and Legacy Shims
+We examined three specific files to determine their relevance in the current architecture:
+- **`resiliency.ts`**: We found this to be truly redundant. It provides zombie recovery logic that has been superseded by the robust `recoverPhaseZombies` implementation within the main simulation runner (`src/app/engine/runners/simulation/runner.ts`). We will remove it.
+- **`redwoodSdkPrIssueReconcile.ts`**: This is a legacy administrative tool used to reconcile PR and issue numbers for the Redwood SDK. It is only called by an admin endpoint and serves as a "shim" for a data issue that should no longer persist. We will remove this and its associated route.
+- **`runArtifacts.ts`**: In contrast, this file is essential. It serves as the primary data fetcher for the Audit UI (`DocumentsCard`, `MacroOutputsCard`, `MicroBatchesCard`). We will retain it.
+
+### 2. Visibility: Improving the "Awaiting Documents" Status
+We analyzed the simulation runner and identified why the UI progress logs feel unuseful. When a phase is busy processing documents, the runner returns a status of `awaiting_documents`. This status is too opaque because it lacks any counts or specifics about the pending work.
+- We found the logic in `tickGenericDocumentPolling` within `runner.ts`.
+- It performs a count of pending documents but does not include this count in the return value or the event logs.
+
+### 3. JSON Handling Audit
+We also performed a grep-based audit for incorrect `JSON.parse()` usage. 
+- While many `JSON.parse()` calls correctly handle LLM outputs or manual R2 payloads, we identified legacy patterns in `resiliency.ts` (which we are deleting anyway) and `runArtifacts.ts` that we will address to ensure strict compliance with the `rwsdk/db` auto-parsing standard.
+

@@ -706,31 +706,107 @@ async function tickGenericDocumentPolling(
     .executeTakeFirst();
 
   if (toNumber(pending?.count) > 0) {
-    return { status: "awaiting_documents", currentPhase: phase };
+    const total = (await db
+      .selectFrom("simulation_run_documents")
+      .select([sql<number>`count(*)`.as("count")])
+      .where("run_id", "=", input.runId)
+      .executeTakeFirst()) as any;
+
+    const processed = (await db
+      .selectFrom("simulation_run_documents")
+      .select([sql<number>`count(*)`.as("count")])
+      .where("run_id", "=", input.runId)
+      .where(
+        sql`json_extract(processed_phases_json, '$')`,
+        "like",
+        `%${phase}%`
+      )
+      .executeTakeFirst()) as any;
+
+    const totalCount = toNumber(total?.count);
+    const processedCount = toNumber(processed?.count);
+    const pendingCount = toNumber(pending?.count);
+
+    await addSimulationRunEvent(context, {
+      runId: input.runId,
+      level: "info",
+      kind: "phase.progress",
+      payload: {
+        phase,
+        processed: processedCount,
+        total: totalCount,
+        pending: pendingCount,
+      },
+    });
+
+    console.log(
+      `[runner] Run ${input.runId} phase ${phase} in progress: ${processedCount}/${totalCount} docs processed (${pendingCount} pending)`
+    );
+
+    return {
+      status: "awaiting_documents",
+      currentPhase: phase,
+    };
   }
 
   // Check r2_batches for ingest_diff
   if (phase === "ingest_diff") {
-     const batchPending = await db.selectFrom("simulation_run_r2_batches")
-        .select([sql<number>`count(*)`.as("count")])
-        .where("run_id", "=", input.runId)
-        .where("processed", "=", 0)
-        .executeTakeFirst();
-     if (toNumber(batchPending?.count) > 0) {
-         return { status: "running", currentPhase: phase };
-     }
+    const batchPending = await db
+      .selectFrom("simulation_run_r2_batches")
+      .select([sql<number>`count(*)`.as("count")])
+      .where("run_id", "=", input.runId)
+      .where("processed", "=", 0)
+      .executeTakeFirst();
+    if (toNumber(batchPending?.count) > 0) {
+      return { status: "running", currentPhase: phase };
+    }
   }
 
   // Special check for micro_batches zombies/pending batches
   if (phase === "micro_batches") {
-     const batchesPending = await db.selectFrom("simulation_run_micro_batches")
+    const batchesPending = await db
+      .selectFrom("simulation_run_micro_batches")
+      .select([sql<number>`count(*)`.as("count")])
+      .where("run_id", "=", input.runId)
+      .where("status", "in", ["running", "pending"])
+      .executeTakeFirst();
+    if (toNumber(batchesPending?.count) > 0) {
+      const totalBatches = (await db
+        .selectFrom("simulation_run_micro_batches")
         .select([sql<number>`count(*)`.as("count")])
         .where("run_id", "=", input.runId)
-        .where("status", "in", ["running", "pending"])
-        .executeTakeFirst();
-     if (toNumber(batchesPending?.count) > 0) {
-         return { status: "awaiting_documents", currentPhase: phase };
-     }
+        .executeTakeFirst()) as any;
+
+      const processedBatches = (await db
+        .selectFrom("simulation_run_micro_batches")
+        .select([sql<number>`count(*)`.as("count")])
+        .where("run_id", "=", input.runId)
+        .where("status", "in", ["completed", "cached", "computed_llm", "computed_fallback"])
+        .executeTakeFirst()) as any;
+
+      const totalBCount = toNumber(totalBatches?.count);
+      const processedBCount = toNumber(processedBatches?.count);
+      const pendingBCount = toNumber(batchesPending?.count);
+
+      await addSimulationRunEvent(context, {
+        runId: input.runId,
+        level: "info",
+        kind: "phase.progress",
+        payload: {
+          phase,
+          type: "micro_batches",
+          processed: processedBCount,
+          total: totalBCount,
+          pending: pendingBCount,
+        },
+      });
+
+      console.log(
+        `[runner] Run ${input.runId} phase ${phase} in progress: ${processedBCount}/${totalBCount} batches processed (${pendingBCount} pending)`
+      );
+
+      return { status: "awaiting_documents", currentPhase: phase };
+    }
   }
 
   return { status: "advance", currentPhase: phase };

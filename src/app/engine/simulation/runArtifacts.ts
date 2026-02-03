@@ -268,12 +268,7 @@ export async function getSimulationRunMicroBatches(
     .execute();
 
   return rows.map((r) => {
-    const itemsRaw = (r as any).micro_items_json;
-    const items = Array.isArray(itemsRaw)
-      ? (itemsRaw as string[])
-      : typeof itemsRaw === "string"
-      ? (JSON.parse(itemsRaw) as string[])
-      : [];
+    const items = (r as any).micro_items_json ?? [];
 
     return {
       r2Key: r.r2_key,

@@ -1009,3 +1009,15 @@ src/app/engine/
 - [ ] Purge legacy simulation table definitions and migrations.
 - [ ] Delete legacy `subjects` database and bindings.
 
+
+## Investigated Database Cleanup and Visibility [2026-02-03]
+We have completed the investigation into cleaning up legacy database components and improving simulation visibility.
+
+### Empirical Evidence:
+1. **Logging Gaps**: We confirmed that both `IndexingHookContext` and `QueryHookContext` in `src/app/engine/types.ts` are missing a logger interface. Existing core logic in `llm.ts` and `indexingState` relies on direct `console.log` calls, making it impossible to capture per-run logs in the UI without redirection.
+2. **Runner Specialized Logic**: The simulation runner (`src/app/engine/runners/simulation/runner.ts`) contains hardcoded logic for the `micro_batches` phase that queries the legacy `simulation_run_micro_batches` table, causing premature advancement and making it incompatible with the unified artifact store.
+3. **Artifact Retrieval Fragment**: `runArtifacts.ts` and `runProgress.ts` query multiple specialized legacy tables (e.g., `simulation_run_macro_outputs`, `simulation_run_materialized_moments`). These components are the cause of the "vacant" UI state for runs using the unified pipeline.
+4. **Legacy Deletions**: We confirmed `src/app/engine/databases/subjects/` is no longer used by the unified pipeline. The `subjects` table functionality is fully handled within the `momentGraph` and the transition to the 8-phase lifecycle.
+
+### Decision:
+We will proceed with the "Database Cleanup & Visibility" plan to unify all simulation data into the `simulation_run_artifacts` table and instrumentalize the engine with an injected logger for better UI visibility.

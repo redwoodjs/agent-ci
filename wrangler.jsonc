@@ -32,11 +32,6 @@
       "remote": true,
     },
     {
-      "binding": "SUBJECT_INDEX",
-      "index_name": "subject-index-v7",
-      "remote": true,
-    },
-    {
       "binding": "MOMENT_INDEX",
       "index_name": "moment-index-v7",
       "remote": true,
@@ -119,10 +114,6 @@
       {
         "name": "DISCORD_BACKFILL_STATE",
         "class_name": "DiscordBackfillStateDO",
-      },
-      {
-        "name": "SUBJECT_GRAPH_DO",
-        "class_name": "SubjectDO",
       },
       {
         "name": "MOMENT_GRAPH_DO",
@@ -562,10 +553,6 @@
             "class_name": "DiscordBackfillStateDO",
           },
           {
-            "name": "SUBJECT_GRAPH_DO",
-            "class_name": "SubjectDO",
-          },
-          {
             "name": "MOMENT_GRAPH_DO",
             "class_name": "MomentGraphDO",
           },
@@ -575,11 +562,6 @@
         {
           "binding": "VECTORIZE_INDEX",
           "index_name": "rag-index-dev-justin",
-          "remote": true,
-        },
-        {
-          "binding": "SUBJECT_INDEX",
-          "index_name": "subject-index-dev-justin-v2",
           "remote": true,
         },
         {

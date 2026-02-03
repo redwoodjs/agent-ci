@@ -20,9 +20,12 @@ declare module "rwsdk/worker" {
   }
 }
 
+import { Logger } from "../../types";
+
 type IndexingStateContext = {
   env: Cloudflare.Env;
   momentGraphNamespace: string | null;
+  logger?: Logger;
 };
 
 function getIndexingStateDb(context: IndexingStateContext) {
@@ -42,7 +45,7 @@ export async function getIndexingState(
   indexed_at: string;
   chunk_ids: string[] | null;
 } | null> {
-  console.log(`[db] getIndexingState called for: ${r2Key}`);
+  context.logger?.info(`getIndexingState called for: ${r2Key}`);
   const db = getIndexingStateDb(context);
 
   const state = (await db
@@ -52,12 +55,12 @@ export async function getIndexingState(
     .executeTakeFirst()) as IndexingStateRow | undefined;
 
   if (!state) {
-    console.log(`[db] getIndexingState: no state found for ${r2Key}`);
+    context.logger?.info(`getIndexingState: no state found for ${r2Key}`);
     return null;
   }
 
-  console.log(
-    `[db] getIndexingState: found state for ${r2Key}, etag=${
+  context.logger?.info(
+    `getIndexingState: found state for ${r2Key}, etag=${
       state.etag
     }, chunk_ids=${state.chunk_ids ? state.chunk_ids.length : 0} items`
   );
@@ -88,7 +91,7 @@ export async function getIndexingStatesBatch(
     return new Map();
   }
 
-  console.log(`[db] getIndexingStatesBatch called for ${r2Keys.length} keys`);
+  context.logger?.info(`getIndexingStatesBatch called for ${r2Keys.length} keys`);
 
   const db = getIndexingStateDb(context);
 
@@ -128,8 +131,8 @@ export async function getIndexingStatesBatch(
     }
   }
 
-  console.log(
-    `[db] getIndexingStatesBatch: found ${result.size} states out of ${r2Keys.length} requested`
+  context.logger?.info(
+    `getIndexingStatesBatch: found ${result.size} states out of ${r2Keys.length} requested`
   );
 
   return result;
@@ -141,8 +144,8 @@ export async function updateIndexingState(
   chunkIds: string[],
   context: IndexingStateContext
 ): Promise<void> {
-  console.log(
-    `[db] updateIndexingState called for ${r2Key}: etag=${etag}, chunkIds=${chunkIds.length} items`
+  context.logger?.info(
+    `updateIndexingState called for ${r2Key}: etag=${etag}, chunkIds=${chunkIds.length} items`
   );
 
   const db = getIndexingStateDb(context);
@@ -157,8 +160,8 @@ export async function updateIndexingState(
     .executeTakeFirst();
 
   if (existing) {
-    console.log(
-      `[db] updateIndexingState: updating existing record for ${r2Key}`
+    context.logger?.info(
+      `updateIndexingState: updating existing record for ${r2Key}`
     );
     await db
       .updateTable("indexing_state")
@@ -169,9 +172,9 @@ export async function updateIndexingState(
       })
       .where("r2_key", "=", r2Key)
       .execute();
-    console.log(`[db] updateIndexingState: update complete for ${r2Key}`);
+    context.logger?.info(`updateIndexingState: update complete for ${r2Key}`);
   } else {
-    console.log(`[db] updateIndexingState: inserting new record for ${r2Key}`);
+    context.logger?.info(`updateIndexingState: inserting new record for ${r2Key}`);
     await db
       .insertInto("indexing_state")
       .values({
@@ -182,7 +185,7 @@ export async function updateIndexingState(
         processed_chunk_hashes_json: "[]",
       })
       .execute();
-    console.log(`[db] updateIndexingState: insert complete for ${r2Key}`);
+    context.logger?.info(`updateIndexingState: insert complete for ${r2Key}`);
   }
 }
 

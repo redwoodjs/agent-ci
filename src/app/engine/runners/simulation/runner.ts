@@ -514,47 +514,24 @@ async function recoverPhaseZombies(
   const phase = input.phase;
   const zombieThreshold = new Date(Date.now() - 30000).toISOString(); // 30s timeout
 
-  if (phase === "micro_batches") {
-    const zombies = await db
-      .selectFrom("simulation_run_micro_batches")
-      .select(["r2_key", "batch_index"])
-      .where("run_id", "=", input.runId)
-      .where("status", "=", "running")
-      .where("updated_at", "<", zombieThreshold)
-      .execute();
+  const zombies = await db
+    .selectFrom("simulation_run_documents")
+    .select(["r2_key"])
+    .where("run_id", "=", input.runId)
+    .where(sql`json_extract(dispatched_phases_json, '$')`, "like", `%${phase}%`)
+    .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${phase}%`)
+    .where("updated_at", "<", zombieThreshold)
+    .execute();
 
-    if (zombies.length > 0) {
-      console.log(`[runner] Recovering ${zombies.length} zombies for micro_batches`);
-      for (const z of zombies) {
-        await (context.env as any).ENGINE_INDEXING_QUEUE.send({
-          jobType: "simulation-batch",
-          runId: input.runId,
-          phase: "micro_batches",
-          r2Key: z.r2_key,
-          batchIndex: z.batch_index,
-        });
-      }
-    }
-  } else {
-    const zombies = await db
-      .selectFrom("simulation_run_documents")
-      .select(["r2_key"])
-      .where("run_id", "=", input.runId)
-      .where(sql`json_extract(dispatched_phases_json, '$')`, "like", `%${phase}%`)
-      .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${phase}%`)
-      .where("updated_at", "<", zombieThreshold)
-      .execute();
-
-    if (zombies.length > 0) {
-      console.log(`[runner] Recovering ${zombies.length} zombies for ${phase}`);
-      for (const z of zombies) {
-        await (context.env as any).ENGINE_INDEXING_QUEUE.send({
-          jobType: "simulation-document",
-          runId: input.runId,
-          phase,
-          r2Key: z.r2_key,
-        });
-      }
+  if (zombies.length > 0) {
+    console.log(`[runner] Recovering ${zombies.length} zombies for ${phase}`);
+    for (const z of zombies) {
+      await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+        jobType: "simulation-document",
+        runId: input.runId,
+        phase,
+        r2Key: z.r2_key,
+      });
     }
   }
 }
@@ -762,51 +739,16 @@ async function tickGenericDocumentPolling(
     }
   }
 
-  // Special check for micro_batches zombies/pending batches
-  if (phase === "micro_batches") {
-    const batchesPending = await db
-      .selectFrom("simulation_run_micro_batches")
-      .select([sql<number>`count(*)`.as("count")])
-      .where("run_id", "=", input.runId)
-      .where("status", "in", ["running", "pending"])
-      .executeTakeFirst();
-    if (toNumber(batchesPending?.count) > 0) {
-      const totalBatches = (await db
-        .selectFrom("simulation_run_micro_batches")
-        .select([sql<number>`count(*)`.as("count")])
-        .where("run_id", "=", input.runId)
-        .executeTakeFirst()) as any;
+  // Completion check
+  const anyPendingInRun = await db
+    .selectFrom("simulation_run_documents")
+    .select([sql<number>`count(*)`.as("count")])
+    .where("run_id", "=", input.runId)
+    .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${phase}%`)
+    .executeTakeFirst();
 
-      const processedBatches = (await db
-        .selectFrom("simulation_run_micro_batches")
-        .select([sql<number>`count(*)`.as("count")])
-        .where("run_id", "=", input.runId)
-        .where("status", "in", ["completed", "cached", "computed_llm", "computed_fallback"])
-        .executeTakeFirst()) as any;
-
-      const totalBCount = toNumber(totalBatches?.count);
-      const processedBCount = toNumber(processedBatches?.count);
-      const pendingBCount = toNumber(batchesPending?.count);
-
-      await addSimulationRunEvent(context, {
-        runId: input.runId,
-        level: "info",
-        kind: "phase.progress",
-        payload: {
-          phase,
-          type: "micro_batches",
-          processed: processedBCount,
-          total: totalBCount,
-          pending: pendingBCount,
-        },
-      });
-
-      console.log(
-        `[runner] Run ${input.runId} phase ${phase} in progress: ${processedBCount}/${totalBCount} batches processed (${pendingBCount} pending)`
-      );
-
-      return { status: "awaiting_documents", currentPhase: phase };
-    }
+  if (toNumber(anyPendingInRun?.count) > 0) {
+    return { status: "awaiting_documents", currentPhase: phase };
   }
 
   return { status: "advance", currentPhase: phase };

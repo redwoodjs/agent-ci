@@ -103,54 +103,6 @@ function inferCursorUserHandle(
 export const cursorPlugin: Plugin = {
   name: "cursor",
 
-  subjects: {
-    async getMicroMomentBatchPromptContext(
-      document: Document,
-      chunks: Chunk[],
-      context: IndexingHookContext
-    ): Promise<string | null> {
-      if (document.source !== "cursor") {
-        return null;
-      }
-      if (!chunks.every((c) => c.source === "cursor")) {
-        return null;
-      }
-
-      return (
-        `Context: These chunks are from a Cursor AI coding assistant conversation. Each chunk may include User and Assistant turns.\n` +
-        `Attribute statements to the chunk author (author=...) when possible.\n` +
-        `Focus on technical details, decisions, errors, file paths, commands, and outcomes.\n` +
-        `Avoid claiming a change landed unless the text explicitly indicates it.\n`
-      );
-    },
-    async getMacroSynthesisPromptContext(
-      document: Document,
-      context: IndexingHookContext
-    ): Promise<string | null> {
-      if (document.source !== "cursor") {
-        return null;
-      }
-
-      const lines: string[] = [];
-      lines.push("Formatting:");
-      lines.push(`- title_label: [Cursor Conversation]`);
-      lines.push(`- summary_descriptor: In a Cursor conversation,`);
-      lines.push(
-        `- canonical_token_note: omit canonical tokens for cursor in titles and summaries`
-      );
-      lines.push("");
-      lines.push("Reference context:");
-      lines.push(`- entity_hints:`);
-      lines.push(`  - This document is a Cursor conversation.`);
-
-      lines.push("");
-      lines.push("Narrative context:");
-      lines.push(
-        `- This is a Cursor coding conversation. Prefer concrete technical phrasing and avoid claiming a change landed unless the text explicitly indicates it.`
-      );
-      return lines.join("\n");
-    },
-  },
 
   async prepareSourceDocument(
     context: IndexingHookContext

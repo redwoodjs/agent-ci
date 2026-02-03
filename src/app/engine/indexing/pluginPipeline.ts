@@ -70,13 +70,7 @@ export async function getMicroPromptContext(
   indexingContext: IndexingHookContext,
   plugins: Plugin[]
 ): Promise<string> {
-  const microPromptContext = await runFirstMatchHook(plugins, (plugin) =>
-    plugin.subjects?.getMicroMomentBatchPromptContext?.(
-      document,
-      chunks,
-      indexingContext
-    )
-  );
+  const microPromptContext = null;
 
   return (
     microPromptContext ??

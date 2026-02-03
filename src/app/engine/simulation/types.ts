@@ -108,23 +108,6 @@ export interface SimulationRunEventPayload {
   [key: string]: any;
 }
 
-export interface SimulationMicroMoment {
-  id: string;
-  parentId: string | null;
-  momentId: string;
-  title: string | null;
-  summary: string | null;
-  sourceMetadata: any | null;
-  author: string | null;
-  createdAt: string | null;
-}
-
-export interface SimulationMacroStream {
-  id: string;
-  title: string;
-  moments: string[];
-}
-
 // Row types for Selects (Auto-parsed by rwsdk/db)
 type Db = SimulationDatabase;
 export type SimulationRunRow = Override<
@@ -150,57 +133,6 @@ export type SimulationRunDocumentRow = Override<
     error_json: { message: string; stack?: string } | null;
     dispatched_phases_json: string[] | null;
     processed_phases_json: string[] | null;
-  }
->;
-
-export type SimulationRunMicroBatchRow = Override<
-  Db["simulation_run_micro_batches"],
-  {
-    error_json: { message: string; stack?: string } | null;
-  }
->;
-
-export type SimulationRunMacroOutputRow = Override<
-  Db["simulation_run_macro_outputs"],
-  {
-    streams_json: SimulationMacroStream[];
-    audit_json: any;
-    gating_json: any;
-    anchors_json: any;
-  }
->;
-
-export type SimulationRunMacroClassifiedOutputRow = Override<
-  Db["simulation_run_macro_classified_outputs"],
-  {
-    streams_json: SimulationMacroStream[];
-    gating_json: any;
-    classification_json: any;
-  }
->;
-
-export type SimulationRunMaterializedMomentRow = Db["simulation_run_materialized_moments"];
-
-export type SimulationRunLinkDecisionRow = Override<
-  Db["simulation_run_link_decisions"],
-  {
-    evidence_json: any;
-  }
->;
-
-export type SimulationRunCandidateSetRow = Override<
-  Db["simulation_run_candidate_sets"],
-  {
-    candidates_json: Array<{ momentId: string; title?: string; summary?: string }>;
-    stats_json: any;
-  }
->;
-
-export type SimulationRunTimelineFitDecisionRow = Override<
-  Db["simulation_run_timeline_fit_decisions"],
-  {
-    decisions_json: any[];
-    stats_json: any;
   }
 >;
 

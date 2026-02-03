@@ -7,6 +7,13 @@ export type Source =
 
 export type SubjectKind = "problem" | "challenge" | "opportunity" | "initiative";
 
+export interface Logger {
+  info: (message: string, data?: any) => void;
+  warn: (message: string, data?: any) => void;
+  error: (message: string, data?: any) => void;
+  debug: (message: string, data?: any) => void;
+}
+
 export type MomentKind =
   | "problem"
   | "challenge"
@@ -113,6 +120,7 @@ export interface IndexingHookContext {
   env: Cloudflare.Env;
   momentGraphNamespace?: string | null;
   indexingMode?: "indexing" | "replay";
+  logger?: Logger;
 }
 
 export interface QueryHookContext {
@@ -120,6 +128,7 @@ export interface QueryHookContext {
   env: Cloudflare.Env;
   clientContext?: Record<string, any>;
   momentGraphNamespace?: string | null;
+  logger?: Logger;
 }
 
 export interface MacroMomentParentProposal {
@@ -183,27 +192,6 @@ export interface Plugin {
       chunks: ChunkMetadata[],
       context: QueryHookContext
     ) => Promise<string>;
-  };
-  subjects?: {
-    computeMicroMomentsForChunkBatch?: (
-      chunks: Chunk[],
-      context: IndexingHookContext
-    ) => Promise<string[] | null>;
-    getMicroMomentBatchPromptContext?: (
-      document: Document,
-      chunks: Chunk[],
-      context: IndexingHookContext
-    ) => Promise<string | null>;
-    getMacroSynthesisPromptContext?: (
-      document: Document,
-      context: IndexingHookContext
-    ) => Promise<string | null>;
-    proposeMacroMomentParent?: (
-      document: Document,
-      macroMoment: MacroMomentDescription,
-      macroMomentIndex: number,
-      context: IndexingHookContext
-    ) => Promise<MacroMomentParentProposal | null>;
   };
 }
 

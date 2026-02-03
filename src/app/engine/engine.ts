@@ -329,6 +329,10 @@ export async function indexDocument(
           chunks,
           promptContext,
           batchIndex,
+        }: {
+          chunks: Chunk[];
+          promptContext: string;
+          batchIndex: number;
         }) => {
           try {
             return (
@@ -349,7 +353,7 @@ export async function indexDocument(
             return [];
           }
         },
-        fallbackMicroItemsForChunkBatch: ({ chunks }) =>
+        fallbackMicroItemsForChunkBatch: ({ chunks }: { chunks: Chunk[] }) =>
           computeMicroItemsWithoutLlm(chunks),
         getEmbeddings: async (texts: string[]) => await getEmbeddings(texts),
         getEmbedding: async (text: string) => await getEmbedding(text),
@@ -357,6 +361,10 @@ export async function indexDocument(
           documentId,
           momentGraphNamespace,
           microMoments,
+        }: {
+          documentId: string;
+          momentGraphNamespace: string | null;
+          microMoments: MicroMoment[];
         }) => {
           await upsertMicroMomentsBatch(documentId, microMoments, {
             env: context.env,
@@ -370,7 +378,7 @@ export async function indexDocument(
       chunkBatches,
     });
 
-    const plannedBatches = microBatchResults.map((b) => ({
+    const plannedBatches = microBatchResults.map((b: any) => ({
       batchIndex: b.batchIndex,
       batchHash: b.batchHash,
       promptContext: b.promptContext,
@@ -392,15 +400,7 @@ export async function indexDocument(
         count: microMomentsForSynthesis.length,
       });
 
-      const macroSynthesisPromptContext = await runFirstMatchHook(
-        context.plugins,
-        "getMacroSynthesisPromptContext",
-        (plugin) =>
-          plugin.subjects?.getMacroSynthesisPromptContext?.(
-            document,
-            indexingContext,
-          ),
-      );
+      const macroSynthesisPromptContext = null;
       if (macroSynthesisPromptContext) {
         console.log("[moment-linker] macro synthesis prompt context", {
           documentId: document.id,
@@ -410,12 +410,20 @@ export async function indexDocument(
 
       const macroSynthesis = await (computeMacroSynthesisForDocument as any)({
         ports: {
-          computeMicroStreamHash: async ({ batches }: any) => {
-            return await computeMicroStreamHash(batches);
+          computeMicroStreamHash: async (input: {
+            batches: any[];
+            sha256Hex: (value: string) => Promise<string>;
+          }) => {
+            return await computeMicroStreamHash(input);
           },
           synthesizeMicroMomentsIntoStreams,
-          extractAnchorsFromStreams: ({ streams }: any) => {
-            return extractAnchorsFromStreams(streams);
+          extractAnchorsFromStreams: (input: {
+            streams: any[];
+            extractAnchorTokens: (text: string, maxTokens: number) => string[];
+            maxTokensPerMoment: number;
+            maxAnchors: number;
+          }) => {
+            return extractAnchorsFromStreams(input);
           },
           callLLM: async (prompt: string, alias: any, options: any) => {
             return await callLLM(prompt, alias, {
@@ -426,7 +434,7 @@ export async function indexDocument(
             });
           },
         },
-        plannedBatches: plannedBatches.map((b) => ({
+        plannedBatches: plannedBatches.map((b: any) => ({
           batchHash: b.batchHash,
           promptContextHash: b.promptContextHash,
         })),
@@ -486,7 +494,7 @@ export async function indexDocument(
 
         console.log("[moment-linker] macro streams synthesized", {
           documentId: document.id,
-          streams: streams.map((s) => ({
+          streams: streams.map((s: any) => ({
             streamId: s.streamId,
             macroCount: s.macroMoments.length,
             firstTitle: s.macroMoments[0]?.title ?? null,
@@ -502,11 +510,11 @@ export async function indexDocument(
               macroCount: stream.macroMoments.length,
               macroTitles: stream.macroMoments
                 .slice(0, 20)
-                .map((m) => (typeof m?.title === "string" ? m.title : null))
-                .filter((t) => typeof t === "string" && t.length > 0),
+                .map((m: any) => (typeof m?.title === "string" ? m.title : null))
+                .filter((t: any) => typeof t === "string" && t.length > 0),
               macroImportances: stream.macroMoments
                 .slice(0, 20)
-                .map((m) =>
+                .map((m: any) =>
                   typeof (m as any)?.importance === "number"
                     ? (m as any).importance
                     : null,

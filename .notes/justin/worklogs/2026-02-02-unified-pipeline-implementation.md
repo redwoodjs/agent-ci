@@ -733,3 +733,84 @@ We analyzed the stack trace provided by the user and discovered the following:
 - **Stack Trace**: `TypeError: Cannot read properties of undefined (reading 'get') at computeMicroBatchesForDocument (orchestrator.ts:69:40)`
 - **Context Definition**: `src/app/engine/runtime/types.ts:33` explicitly requires `cache: MicroBatchCache`.
 
+
+## Revised Strategy: Removing MicroBatchCache
+We decided to remove the `MicroBatchCache` from `PipelineContext` entirely. It was identified as a blocker that is better handled outside the core phase execution context for now. This will involve:
+1. Removing the `cache` property from `PipelineContext` in `src/app/engine/runtime/types.ts`.
+2. Updating `computeMicroBatchesForDocument` in `src/app/pipelines/micro_batches/engine/core/orchestrator.ts` to remove cache lookups/stores.
+3. Cleaning up any other references to `MicroBatchCache` in the codebase.
+
+
+## Drafted Work Task Blueprint for MicroBatchCache Removal
+We are removing the `MicroBatchCache` from the platform to simplify the `PipelineContext` and avoid brittle dependencies during simulation.
+
+### Proposed Changes
+* **Remove MicroBatchCache from PipelineContext**:
+    - Modify `src/app/engine/runtime/types.ts` to delete `MicroBatchCache` interface and its property in `PipelineContext`.
+* **Update micro_batches Phase**:
+    - Modify `src/app/pipelines/micro_batches/engine/core/orchestrator.ts` to remove caching logic.
+* **Cleanup Legacy Engine**:
+    - Modify `src/app/engine/engine.ts` to remove cache-related ports and logic in `indexDocument`.
+* **Simulation DB Cleanup**:
+    - Modify `src/app/engine/simulation/runArtifacts.ts` to remove `getMicroBatchCacheEntry`.
+    - Modify `src/app/engine/simulation/types.ts` to remove `SimulationMicroBatchCacheRow`.
+
+### Tasks
+- [ ] Remove `MicroBatchCache` from `src/app/engine/runtime/types.ts`
+- [ ] Remove cache logic from `src/app/pipelines/micro_batches/engine/core/orchestrator.ts`
+- [ ] Remove cache logic from `src/app/engine/engine.ts`
+- [ ] Remove cache logic from `src/app/engine/simulation/runArtifacts.ts`
+- [ ] Remove cache logic from `src/app/engine/simulation/types.ts`
+
+
+## Identified Post-R2 Caches for Removal [2026-02-03]
+Per the revised directive, we are removing all caching mechanisms that operate after data is stored in R2. This ensures that the simulation (and live pipeline) re-evaluates all document logic without skipping based on previous state.
+
+1. **MicroBatchCache**: The LLM-level cache for micro-batches (`orchestrator.ts:69`).
+2. **Phase Artifact Cache**: The skip-logic in `executePhase` (`orchestrator.ts:10-16`) that avoids re-running a phase if an artifact exist in `simulation_run_artifacts`.
+3. **ETag Change Tracking**: The skip-logic in `ingest_diff` (`orchestrator.ts:24-27`) that returns `changed: false` if the R2 ETag matches the last indexed ETag.
+4. **Chunk Hash Deduplication**: The skip-logic in `micro_batches` (`index.ts:59-69`) that filters out chunks whose hashes match records in the indexing state.
+
+Removing these will make the pipeline execution fully deterministic based solely on the current R2 content, at the cost of higher compute/LLM usage.
+
+
+## Revised Work Task Blueprint: Global Cache Removal (Post-R2)
+We are stripping all caching and skip-logic from the post-R2 pipeline to simplify execution and ensure full consistency during simulation.
+
+### Proposed Changes
+
+* **Remove Phase Skip-Logic**:
+    - Modify `src/app/engine/runtime/orchestrator.ts`: Remove `storage.load` check inside `executePhase`. Every phase execution result will still be saved, but none will be re-used to skip a phase.
+
+* **Disable ETag Check in ingest_diff**:
+    - Modify `src/app/pipelines/ingest_diff/engine/core/orchestrator.ts`: Force `changed: true` and bypass ETag comparison.
+
+* **Disable Chunk Deduplication in micro_batches**:
+    - Modify `src/app/pipelines/micro_batches/index.ts`: Remove dependency on `oldChunkHashes` and process all chunks.
+
+* **Remove MicroBatchCache Interface and Logic**:
+    - Modify `src/app/engine/runtime/types.ts`: Delete `MicroBatchCache` and its property in `PipelineContext`.
+    - Modify `src/app/pipelines/micro_batches/engine/core/orchestrator.ts`: Remove `context.cache.get/set`.
+
+* **Cleanup Abandoned Types and DB Tables**:
+    - Modify `src/app/engine/simulation/runArtifacts.ts`: Delete `getMicroBatchCacheEntry`.
+    - Modify `src/app/engine/simulation/types.ts`: Delete `SimulationMicroBatchCacheRow`.
+
+### Tasks
+- [ ] Remove phase skip-logic in `orchestrator.ts`
+- [ ] Disable ETag comparison in `ingest_diff` orchestrator
+- [ ] Disable chunk deduplication in `micro_batches` index
+- [ ] Remove `MicroBatchCache` from platform types
+- [ ] Remove cache logic from `micro_batches` orchestrator
+- [ ] Cleanup legacy references in engine and simulation types
+
+
+## Completed Global Cache Removal (Post-R2) [2026-02-03]
+We have successfully removed all caching and skip-logic found after the R2 storage layer.
+1. **Orchestrator**: Removed phase-level skip logic in `orchestrator.ts`. Every phase now executes regardless of existing artifacts.
+2. **ingest_diff**: Forced `changed: true` and removed ETag comparison logic.
+3. **micro_batches**: Removed chunk deduplication logic and LLM-level `MicroBatchCache`. All chunks are now processed in every pass.
+4. **Cleanup**: Deleted `MicroBatchCache` interface, associated row types, and legacy engine ports.
+
+This ensures that the pipeline is fully deterministic based on R2 content and immune to cache-related stalls.
+

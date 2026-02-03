@@ -5,7 +5,6 @@ import {
   splitDocumentIntoChunks,
 } from "../../engine/indexing/pluginPipeline";
 import { chunkChunksForMicroComputation } from "../../engine/utils/chunkBatching";
-import { getProcessedChunkHashes } from "../../engine/databases/indexingState";
 import {
   applyMomentGraphNamespacePrefixValue,
   getMomentGraphNamespacePrefixFromEnv,
@@ -48,27 +47,14 @@ export const MicroBatchesPhase: Phase<string, any> = {
       momentGraphNamespace: effectiveNamespace,
     };
 
-    // 2. Split & Deduplicate
+    // 2. Split & Process All Chunks
     const chunks = await splitDocumentIntoChunks(
       document,
       effectiveContext,
       context.plugins
     );
 
-    // Load existing hashes to skip unchanged chunks
-    const oldChunkHashes = await getProcessedChunkHashes(r2Key, {
-      env: context.env,
-      momentGraphNamespace: effectiveNamespace,
-    });
-    const oldSet = new Set(oldChunkHashes);
-
-    const forceRecollect = (context.env as any).FORCE_RECOLLECT === "1";
-
-    const newChunks = forceRecollect
-      ? chunks
-      : chunks.filter((c) => !oldSet.has(c.contentHash ?? ""));
-
-    if (newChunks.length === 0) {
+    if (chunks.length === 0) {
       return { batches: [], microMoments: [] };
     }
 
@@ -82,7 +68,7 @@ export const MicroBatchesPhase: Phase<string, any> = {
     const chunkBatchMaxChars = Number(chunkBatchMaxCharsRaw) || 10000;
     const chunkMaxChars = Number(chunkMaxCharsRaw) || 2000;
 
-    const chunkBatches = chunkChunksForMicroComputation(newChunks, {
+    const chunkBatches = chunkChunksForMicroComputation(chunks, {
       maxBatchItems: chunkBatchSize,
       maxBatchChars: chunkBatchMaxChars,
       maxChunkChars: chunkMaxChars,

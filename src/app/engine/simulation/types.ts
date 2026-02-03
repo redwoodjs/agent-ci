@@ -160,13 +160,6 @@ export type SimulationRunMicroBatchRow = Override<
   }
 >;
 
-export type SimulationMicroBatchCacheRow = Override<
-  Db["simulation_micro_batch_cache"],
-  {
-    micro_items_json: string[];
-  }
->;
-
 export type SimulationRunMacroOutputRow = Override<
   Db["simulation_run_macro_outputs"],
   {

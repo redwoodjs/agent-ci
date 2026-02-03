@@ -9,7 +9,6 @@ import type {
   SimulationRunLinkDecisionRow,
   SimulationRunCandidateSetRow,
   SimulationRunTimelineFitDecisionRow,
-  SimulationMicroBatchCacheRow,
 } from "./types";
 import { getSimulationDb, getMomentGraphDb } from "./db";
 
@@ -764,17 +763,4 @@ export async function getSimulationRunTimelineFitDecisions(
   });
 }
 
-export async function getMicroBatchCacheEntry(
-  context: SimulationDbContext,
-  input: { batchHash: string; promptContextHash: string }
-): Promise<SimulationMicroBatchCacheRow | null> {
-  const db = getSimulationDb(context);
-  const row = (await db
-    .selectFrom("simulation_micro_batch_cache")
-    .select(["micro_items_json"])
-    .where("batch_hash", "=", input.batchHash)
-    .where("prompt_context_hash", "=", input.promptContextHash)
-    .executeTakeFirst()) as unknown as SimulationMicroBatchCacheRow | undefined;
-  return row ?? null;
-}
 

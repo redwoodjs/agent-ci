@@ -10,27 +10,11 @@ export interface LLMProvider {
   call(prompt: string, alias?: LLMAlias, options?: LLMOptions): Promise<string>;
 }
 
-export interface MicroBatchCache {
-  get(
-    batchHash: string,
-    promptContextHash: string
-  ): Promise<{ microItems: string[] } | null>;
-  set(
-    batchHash: string,
-    promptContextHash: string,
-    microItems: string[],
-    chunks: Chunk[],
-    batchIndex: number,
-    promptContext: string
-  ): Promise<void>;
-}
-
 export interface PipelineContext extends IndexingHookContext {
   db: MomentDatabase;
   vector: VectorizeIndex;
   llm: LLMProvider;
   env: Cloudflare.Env;
-  cache: MicroBatchCache;
   plugins: Plugin[];
   storage: StorageStrategy;
 }

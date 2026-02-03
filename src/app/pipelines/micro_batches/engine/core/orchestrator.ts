@@ -66,21 +66,6 @@ export async function computeMicroBatchesForDocument(input: {
       continue;
     }
 
-    const cached = await context.cache.get(p.batchHash, p.promptContextHash);
-
-    if (cached) {
-      out.push({
-        batchIndex: p.batchIndex,
-        batchHash: p.batchHash,
-        promptContext: p.promptContext,
-        promptContextHash: p.promptContextHash,
-        chunks: p.chunks,
-        cached: true,
-        microItems: cached.microItems,
-      });
-      continue;
-    }
-
     let microItems: string[] = [];
     try {
       const computed = await computeMicroMomentsForChunkBatch(p.chunks, {
@@ -94,15 +79,6 @@ export async function computeMicroBatchesForDocument(input: {
     if (!Array.isArray(microItems) || microItems.length === 0) {
       microItems = computeMicroItemsWithoutLlm(p.chunks);
     }
-
-    await context.cache.set(
-      p.batchHash,
-      p.promptContextHash,
-      microItems,
-      p.chunks,
-      p.batchIndex,
-      p.promptContext
-    );
 
     out.push({
       batchIndex: p.batchIndex,

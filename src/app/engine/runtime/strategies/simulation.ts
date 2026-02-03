@@ -16,7 +16,7 @@ export class ArtifactStorage implements StorageStrategy {
       .executeTakeFirst();
 
     if (row && row.output_json) {
-      return JSON.parse(row.output_json) as T;
+      return row.output_json as T;
     }
     return null;
   }

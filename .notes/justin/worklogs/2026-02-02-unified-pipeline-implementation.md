@@ -658,3 +658,47 @@ We have refactored the database type definitions for the simulation engine to fo
 - NO GUESSES (Verified exact column names via migrations).
 - Override types instead of casting.
 - Record findings to the worklog.
+
+# Investigating micro_batches stall and UI status discrepancies [2026-02-03]
+
+## Initial observation of the stall
+We observed that the simulation run is stuck in `micro_batches` state with `awaiting_documents` status. Despite `ingest_diff` showing 5/5 documents processed (all unchanged), `micro_batches` shows 0/0 progress. The user reports DLQs are happening and logs are sparse. This suggests a failure in either the dispatch logic or the background worker processing the jobs.
+
+
+## Investigated the micro_batches stall
+We are restarting the investigation into the `micro_batches` stall, following the Bedrock Protocol strictly. We already noted that the run is stuck in `awaiting_documents`. Our next step is to build a body of evidence for why the dispatch is failing or why the worker isn't picking up the jobs.
+
+## Recorded findings from investigation
+We analyzed the `simulation-worker.ts` and `MicroBatchesPhase` implementation. We discovered the following empirical evidence:
+1. **Empty Plugins Array**: The `pipelineContext` in `simulation-worker.ts` is initialized with `plugins: []`. Since `MicroBatchesPhase` relies on `runFirstMatchHook(context.plugins, ...)` to prepare the document, it fails to find any document to process.
+2. **Missing r2Key in Context**: The `pipelineContext` (which should satisfy `PipelineContext` extending `IndexingHookContext`) is missing the `r2Key` property. Indexing plugins like `githubPlugin` explicitly access `context.r2Key` to fetch objects from R2.
+3. **Opaque Failures**: While failures are being logged in the terminal (e.g., `No plugin could prepare document`), they are not being persisted back to the `simulation_run_documents` table or recorded in `simulation_run_events`. Because the worker doesn't catch these errors to update the run state, the supervisor (Runner) only sees that documents are dispatched but not yet processed, leading to the permanent `awaiting_documents` state in the UI.
+
+## Drafted Work Task Blueprint: Simulation Resilience and Context Fix
+
+### Context
+Simulation runs are stalling in `micro_batches` because the worker context is missing required metadata (`r2Key`) and logic (`plugins`). Furthermore, failures in these background jobs are opaque to the simulation state, leaving the UI stuck in "Awaiting Documents" even when the worker has crashed.
+
+### Proposed Changes
+
+**Simulation Worker** (`src/app/engine/services/simulation-worker.ts`)
+- [NEW] Central `withSimulationErrorTracking` wrapper.
+- [MODIFY] `processSimulationJob`:
+    - Fix `pipelineContext` initialization to include `r2Key` and properly resolved `plugins`.
+    - Wrap the job execution logic with `withSimulationErrorTracking`.
+    - `withSimulationErrorTracking` will catch any `Error`, record it to the appropriate database table (`simulation_run_documents` for per-key jobs, `simulation_runs` for advance jobs), and then re-throw to allow infra-level retries.
+
+### Directory & File Structure
+```text
+src/app/engine/services/
+└── [MODIFY] simulation-worker.ts
+```
+
+### Invariants & Constraints
+- **State Reliability**: Every job failure MUST result in a database update before the job is returned to the queue or DLQ.
+- **Native Retries**: We MUST re-throw errors after recording them to leverage Cloudflare's queue reliability.
+
+### Tasks
+- [ ] Implement `withSimulationErrorTracking` in `simulation-worker.ts`.
+- [ ] Fix `pipelineContext` initialization in `processSimulationJob`.
+- [ ] Verify that errors are correctly surfaced in the `simulation_run_documents` table.

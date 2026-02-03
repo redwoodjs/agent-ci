@@ -198,19 +198,7 @@ export default {
             momentReplayRunId,
           });
 
-          if (jobType === "moment-replay-replay") {
-            await processMomentReplayReplayJob(
-              {
-                jobType,
-                momentReplayRunId,
-                momentGraphNamespace,
-                momentGraphNamespacePrefix,
-              },
-              env as Cloudflare.Env
-            );
-            message.ack();
-            continue;
-          }
+
 
           if (
             jobType === "simulation-advance" ||

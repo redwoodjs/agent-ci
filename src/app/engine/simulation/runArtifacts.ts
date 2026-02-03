@@ -428,10 +428,10 @@ export async function getSimulationRunMaterializedMoments(
     if (Array.isArray(o.moments)) {
         for (const m of o.moments) {
             moments.push({
-                r2Key: r.artifact_key.split("/")[0],
-                streamId: r.artifact_key.split("/")[1] || "default",
-                macroIndex: Number(r.artifact_key.split("/")[2] || 0),
-                momentId: m.momentId,
+                r2Key: r.artifact_key,
+                streamId: m.sourceMetadata?.simulation?.streamId || "default",
+                macroIndex: Number(m.sourceMetadata?.simulation?.macroIndex ?? 0),
+                momentId: m.id,
                 parentId: m.parentId ?? null,
                 title: m.title ?? null,
                 summary: m.summary ?? null,
@@ -500,42 +500,70 @@ export async function getSimulationRunLinkDecisions(
   const momentIds = new Set<string>();
   for (const r of rows) {
     const o = r.output_json ?? {};
-    if (o.childMomentId && !o.childMomentId.startsWith("noop-")) {
-        momentIds.add(o.childMomentId);
+    const decisions = Array.isArray(o.decisions) ? o.decisions : [];
+    for (const d of decisions) {
+      if (d.childMomentId && !d.childMomentId.startsWith("noop-")) {
+        momentIds.add(d.childMomentId);
+      }
+      const pId = d.proposedParentId || d.parentMomentId;
+      if (pId) momentIds.add(pId);
     }
-    if (o.parentMomentId) momentIds.add(o.parentMomentId);
   }
+
   const detailsById = await fetchMomentDetails(
     context,
     runId,
     Array.from(momentIds)
   );
 
-  return rows.map((r) => {
+  const flatResults: any[] = [];
+  for (const r of rows) {
     const o = r.output_json ?? {};
-    const isNoop = o.childMomentId?.startsWith("noop-");
-    const child = detailsById.get(o.childMomentId);
-    const parent = o.parentMomentId
-      ? detailsById.get(o.parentMomentId)
-      : null;
-    return {
-      r2Key: o.r2Key || r.artifact_key.split("/")[0],
-      streamId: o.streamId || r.artifact_key.split("/")[1] || "default",
-      macroIndex: Number(o.macroIndex ?? (r.artifact_key.split("/")[2] || 0)),
-      childMomentId: o.childMomentId,
-      childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
-      childSummary: isNoop ? "No moments were found in this document." : (child?.summary ?? null),
-      parentMomentId: o.parentMomentId ?? null,
-      parentTitle: parent?.title ?? null,
-      parentSummary: parent?.summary ?? null,
-      phase: o.phase || r.phase,
-      outcome: o.outcome,
-      ruleId: typeof o.ruleId === "string" ? o.ruleId : null,
-      evidence: o.evidence ?? null,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at || r.created_at,
-    };
-  });
+    const decisions = Array.isArray(o.decisions) ? o.decisions : [];
+    
+    for (const d of decisions) {
+      const child = detailsById.get(d.childMomentId);
+      const parentId = d.proposedParentId || d.parentMomentId;
+      const parent = parentId ? detailsById.get(parentId) : null;
+      
+      flatResults.push({
+        r2Key: r.artifact_key,
+        streamId: d.streamId || "default",
+        macroIndex: Number(d.macroIndex ?? 0),
+        childMomentId: d.childMomentId,
+        childTitle: child?.title ?? null,
+        childSummary: child?.summary ?? null,
+        parentMomentId: parentId ?? null,
+        parentTitle: parent?.title ?? null,
+        parentSummary: parent?.summary ?? null,
+        phase: r.phase,
+        outcome: d.outcome,
+        ruleId: d.ruleId ?? null,
+        evidence: d.evidence ?? d.audit ?? null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at || r.created_at,
+      });
+    }
+
+    if (decisions.length === 0 && o.childMomentId?.startsWith("noop-")) {
+      flatResults.push({
+        r2Key: r.artifact_key,
+        streamId: "default",
+        macroIndex: 0,
+        childMomentId: o.childMomentId,
+        childTitle: "No Materialized Moments",
+        childSummary: "No moments were found in this document.",
+        parentMomentId: null,
+        parentTitle: null,
+        parentSummary: null,
+        phase: r.phase,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at || r.created_at,
+      });
+    }
+  }
+
+  return flatResults;
 }
 
 export async function getSimulationRunCandidateSets(
@@ -591,13 +619,17 @@ export async function getSimulationRunCandidateSets(
   const momentIds = new Set<string>();
   for (const r of rows) {
     const o = r.output_json ?? {};
-    if (o.childMomentId && !o.childMomentId.startsWith("noop-")) {
-        momentIds.add(o.childMomentId);
-    }
-    const candidates = o.candidates;
-    if (Array.isArray(candidates)) {
+    const candidateSets = o.candidateSets || {};
+    
+    for (const momentId of Object.keys(candidateSets)) {
+      if (!momentId.startsWith("noop-")) {
+        momentIds.add(momentId);
+      }
+      const set = candidateSets[momentId];
+      const candidates = Array.isArray(set?.candidates) ? set.candidates : [];
       for (const c of candidates) {
-        if (c.momentId) momentIds.add(c.momentId);
+        const id = c.id || c.momentId;
+        if (id) momentIds.add(id);
       }
     }
   }
@@ -608,37 +640,44 @@ export async function getSimulationRunCandidateSets(
     Array.from(momentIds)
   );
 
-  return rows.map((r) => {
+  const flatResults: any[] = [];
+  for (const r of rows) {
     const o = r.output_json ?? {};
-    const isNoop = o.childMomentId?.startsWith("noop-");
-    const child = detailsById.get(o.childMomentId);
-    const rawCandidates = Array.isArray(o.candidates)
-      ? (o.candidates as any[])
-      : [];
-    const candidates = rawCandidates.map((c) => {
-      const id = c.id || c.momentId;
-      const details = detailsById.get(id);
-      return {
-        ...c,
-        momentId: id,
-        title: details?.title ?? null,
-        summary: details?.summary ?? null,
-      };
-    });
+    const candidateSets = o.candidateSets || {};
+    
+    for (const momentId of Object.keys(candidateSets)) {
+      const set = candidateSets[momentId];
+      const isNoop = momentId.startsWith("noop-");
+      const child = detailsById.get(momentId);
+      const rawCandidates = Array.isArray(set?.candidates) ? set.candidates : [];
+      
+      const candidates = rawCandidates.map((c: any) => {
+        const id = c.id || c.momentId;
+        const details = detailsById.get(id);
+        return {
+          ...c,
+          momentId: id,
+          title: details?.title ?? null,
+          summary: details?.summary ?? null,
+        };
+      });
 
-    return {
-      r2Key: o.r2Key || r.artifact_key.split("/")[0],
-      streamId: o.streamId || r.artifact_key.split("/")[1] || "default",
-      macroIndex: Number(o.macroIndex ?? (r.artifact_key.split("/")[2] || 0)),
-      childMomentId: o.childMomentId,
-      childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
-      childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (child?.summary ?? null),
-      candidates,
-      stats: o.stats ?? null,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at || r.created_at,
-    };
-  });
+      flatResults.push({
+        r2Key: r.artifact_key,
+        streamId: set?.streamId || "default",
+        macroIndex: Number(set?.macroIndex ?? 0),
+        childMomentId: momentId,
+        childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
+        childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (child?.summary ?? null),
+        candidates,
+        stats: set?.stats || o.stats || null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at || r.created_at,
+      });
+    }
+  }
+
+  return flatResults;
 }
 
 export async function getSimulationRunTimelineFitDecisions(
@@ -693,15 +732,17 @@ export async function getSimulationRunTimelineFitDecisions(
   const momentIds = new Set<string>();
   for (const r of rows) {
     const o = r.output_json ?? {};
-    if (o.childMomentId && !o.childMomentId.startsWith("noop-")) {
-        momentIds.add(o.childMomentId);
-    }
-    if (o.chosenParentMomentId)
-      momentIds.add(o.chosenParentMomentId);
-    const decisions = o.decisions;
-    if (Array.isArray(decisions)) {
-      for (const d of decisions) {
-        if (d.candidateId) momentIds.add(d.candidateId);
+    const decisionsMap = o.decisions || {};
+    
+    for (const momentId of Object.keys(decisionsMap)) {
+      if (!momentId.startsWith("noop-")) {
+        momentIds.add(momentId);
+      }
+      const decision = decisionsMap[momentId];
+      if (decision.chosenParentId) momentIds.add(decision.chosenParentId);
+      const candidates = Array.isArray(decision.candidates) ? decision.candidates : [];
+      for (const c of candidates) {
+        if (c.momentId) momentIds.add(c.momentId);
       }
     }
   }
@@ -712,42 +753,51 @@ export async function getSimulationRunTimelineFitDecisions(
     Array.from(momentIds)
   );
 
-  return rows.map((r) => {
+  const flatResults: any[] = [];
+  for (const r of rows) {
     const o = r.output_json ?? {};
-    const isNoop = o.childMomentId?.startsWith("noop-");
-    const child = detailsById.get(o.childMomentId);
-    const chosenParent = o.chosenParentMomentId
-      ? detailsById.get(o.chosenParentMomentId)
-      : null;
-    const rawDecisions = Array.isArray(o.decisions)
-      ? (o.decisions as any[])
-      : [];
-    const decisions = rawDecisions.map((d) => {
-      const details = detailsById.get(d.candidateId);
-      return {
-        ...d,
-        candidateTitle: details?.title ?? null,
-        candidateSummary: details?.summary ?? null,
-      };
-    });
+    const decisionsMap = o.decisions || {};
+    
+    for (const momentId of Object.keys(decisionsMap)) {
+      const decision = decisionsMap[momentId];
+      const isNoop = momentId.startsWith("noop-");
+      const child = detailsById.get(momentId);
+      const chosenParent = decision.chosenParentId
+        ? detailsById.get(decision.chosenParentId)
+        : null;
+        
+      const rawDecisions = Array.isArray(decision.candidates)
+        ? (decision.candidates as any[])
+        : [];
+      const detailedDecisions = rawDecisions.map((d) => {
+        const details = detailsById.get(d.momentId);
+        return {
+          ...d,
+          candidateTitle: details?.title ?? null,
+          candidateSummary: details?.summary ?? null,
+        };
+      });
 
-    return {
-      r2Key: o.r2Key || r.artifact_key.split("/")[0],
-      streamId: o.streamId || r.artifact_key.split("/")[1] || "default",
-      macroIndex: Number(o.macroIndex ?? (r.artifact_key.split("/")[2] || 0)),
-      childMomentId: o.childMomentId,
-      childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
-      childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (child?.summary ?? null),
-      outcome: o.outcome,
-      chosenParentMomentId: o.chosenParentMomentId ?? null,
-      chosenParentTitle: chosenParent?.title ?? null,
-      chosenParentSummary: chosenParent?.summary ?? null,
-      decisions,
-      stats: o.stats ?? null,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at || r.created_at,
-    };
-  });
+      flatResults.push({
+        r2Key: r.artifact_key,
+        streamId: decision.streamId || "default",
+        macroIndex: Number(decision.macroIndex ?? 0),
+        childMomentId: momentId,
+        childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
+        childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (child?.summary ?? null),
+        outcome: decision.outcome || "unknown",
+        chosenParentMomentId: decision.chosenParentId ?? null,
+        chosenParentTitle: chosenParent?.title ?? null,
+        chosenParentSummary: chosenParent?.summary ?? null,
+        decisions: detailedDecisions,
+        stats: decision.stats ?? null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at || r.created_at,
+      });
+    }
+  }
+
+  return flatResults;
 }
 
 

@@ -21,7 +21,7 @@ export class QueueTransition implements TransitionStrategy {
     }
 
     await this.queue.send({
-      jobType: "unified_phase",
+      jobType: "execute_phase",
       phase: nextPhase,
       input: output,
     });

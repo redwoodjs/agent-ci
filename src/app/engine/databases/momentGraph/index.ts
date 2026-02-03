@@ -286,42 +286,6 @@ export async function addMoment(
         });
       }
       await context.env.MOMENT_INDEX.upsert([momentVector]);
-
-      if (isSubject) {
-        console.log("[moment-linker] vector upsert (subject)", {
-          id: moment.id,
-          momentGraphNamespace,
-          documentId: moment.documentId,
-          type: "subject",
-          isSubject: true,
-        });
-        await context.env.SUBJECT_INDEX.upsert([
-          {
-            id: moment.id,
-            values: embedding,
-            metadata: {
-              momentGraphNamespace,
-              title: moment.title,
-              summary: moment.summary,
-              documentId: moment.documentId,
-              type: "subject",
-              isSubject: true,
-              ...(typeof moment.subjectKind === "string"
-                ? { subjectKind: moment.subjectKind }
-                : null),
-            },
-          },
-        ]);
-      } else {
-        try {
-          const subjectIndexAny = context.env.SUBJECT_INDEX as any;
-          if (typeof subjectIndexAny?.deleteByIds === "function") {
-            await subjectIndexAny.deleteByIds([moment.id]);
-          }
-        } catch {
-          // ignore
-        }
-      }
     } else {
       console.log("[moment-linker] vector upsert skipped (low importance)", {
         id: moment.id,
@@ -334,10 +298,6 @@ export async function addMoment(
         const momentIndexAny = context.env.MOMENT_INDEX as any;
         if (typeof momentIndexAny?.deleteByIds === "function") {
           await momentIndexAny.deleteByIds([moment.id]);
-        }
-        const subjectIndexAny = context.env.SUBJECT_INDEX as any;
-        if (typeof subjectIndexAny?.deleteByIds === "function") {
-          await subjectIndexAny.deleteByIds([moment.id]);
         }
       } catch (error) {
         console.error("[moment-linker] vector delete failed (low importance)", {
@@ -461,10 +421,6 @@ export async function deleteMomentsByIds(
       const momentIndexAny = context.env.MOMENT_INDEX as any;
       if (typeof momentIndexAny?.deleteByIds === "function") {
         await momentIndexAny.deleteByIds(batch);
-      }
-      const subjectIndexAny = context.env.SUBJECT_INDEX as any;
-      if (typeof subjectIndexAny?.deleteByIds === "function") {
-        await subjectIndexAny.deleteByIds(batch);
       }
     } catch (error) {
       console.error("[momentDb] vector delete failed", {
@@ -1646,87 +1602,6 @@ export async function getRecentDocumentAuditEvents(
   return out;
 }
 
-export async function findSimilarSubjects(
-  vector: number[],
-  limit: number = 5,
-  context: MomentGraphContext
-): Promise<Moment[]> {
-  const momentGraphNamespace = context.momentGraphNamespace ?? "default";
-  const queryOptions: Record<string, unknown> = {
-    topK: limit,
-    returnMetadata: true,
-  };
-  if (momentGraphNamespace !== "default") {
-    queryOptions.filter = { momentGraphNamespace };
-  }
-  const searchResults = await context.env.SUBJECT_INDEX.query(
-    vector,
-    queryOptions as any
-  );
-
-  const matchIdsAll = Array.from(
-    new Set(
-      searchResults.matches
-        .map((m: any) => m?.id)
-        .filter((id: unknown): id is string => typeof id === "string")
-    )
-  );
-
-  const subjectIds: string[] = [];
-  for (let i = 0; i < searchResults.matches.length; i++) {
-    const match = searchResults.matches[i];
-    const matchNamespace =
-      (match.metadata as any)?.momentGraphNamespace ?? null;
-    const normalizedMatchNamespace = matchNamespace ?? "default";
-    if (normalizedMatchNamespace !== momentGraphNamespace) {
-      continue;
-    }
-    subjectIds.push(match.id);
-  }
-
-  const momentsMapAll =
-    matchIdsAll.length > 0 ? await getMoments(matchIdsAll, context) : null;
-  const candidates = searchResults.matches.map((match: any) => {
-    const id = typeof match?.id === "string" ? match.id : null;
-    const matchNamespace =
-      (match?.metadata as any)?.momentGraphNamespace ?? null;
-    const normalizedMatchNamespace = matchNamespace ?? "default";
-    const moment = id && momentsMapAll ? momentsMapAll.get(id) : undefined;
-    return {
-      id,
-      score: typeof match?.score === "number" ? match.score : null,
-      matchNamespace: normalizedMatchNamespace,
-      inNamespace: normalizedMatchNamespace === momentGraphNamespace,
-      inDb: Boolean(moment),
-      isRoot: moment ? !moment.parentId : null,
-      parentId: moment?.parentId ?? null,
-      documentId: moment?.documentId ?? null,
-    };
-  });
-  console.log("[momentDb:findSimilarSubjects] candidates", {
-    momentGraphNamespace,
-    candidates,
-  });
-
-  if (subjectIds.length === 0) {
-    return [];
-  }
-
-  const momentsMap = momentsMapAll ?? (await getMoments(subjectIds, context));
-  const subjects: Moment[] = [];
-  for (const id of subjectIds) {
-    const moment = momentsMap.get(id);
-    if (moment && !moment.parentId) {
-      subjects.push(moment);
-    } else if (!moment) {
-      console.warn(
-        `[momentDb:findSimilarSubjects] Subject moment ${id} not found in database`
-      );
-    }
-  }
-
-  return subjects;
-}
 
 export async function findLastMomentForDocument(
   documentId: string,

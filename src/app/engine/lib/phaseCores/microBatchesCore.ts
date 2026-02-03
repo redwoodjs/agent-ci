@@ -1,4 +1,4 @@
-import type { Chunk, Document, IndexingHookContext, Plugin } from "../../index";
+import type { Chunk, Document, IndexingHookContext, Plugin } from "../../types";
 
 export type MicroBatchPlanItem = {
   batchIndex: number;

@@ -128,6 +128,8 @@ export default {
             namespacePrefix?: unknown;
             momentReplayRunId?: unknown;
             jobType?: unknown;
+            phase?: unknown;
+            input?: unknown;
             body?: {
               r2Key?: unknown;
               r2Keys?: unknown;
@@ -137,6 +139,8 @@ export default {
               namespacePrefix?: unknown;
               momentReplayRunId?: unknown;
               jobType?: unknown;
+              phase?: unknown;
+              input?: unknown;
             };
           };
 
@@ -244,6 +248,8 @@ export default {
                     : null),
                   ...(momentReplayRunId ? { momentReplayRunId } : null),
                   ...(jobType ? { jobType } : null),
+                  phase: (indexingMessage.phase ?? indexingMessage.body?.phase) as string,
+                  input: (indexingMessage.input ?? indexingMessage.body?.input) as any,
                 },
                 env as Cloudflare.Env
               );

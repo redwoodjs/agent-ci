@@ -1,4 +1,4 @@
-export { indexDocument, query } from "./runners/live";
+
 export type {
   Source,
   Document,
@@ -6,7 +6,6 @@ export type {
   ChunkMetadata,
   Plugin,
   EngineContext,
-  IndexingHookContext,
   QueryHookContext,
 } from "./types";
 import type { EngineContext } from "./types";

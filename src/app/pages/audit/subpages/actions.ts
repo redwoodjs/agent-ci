@@ -2,7 +2,7 @@
 
 import { env } from "cloudflare:workers";
 import { enqueueUnprocessedFiles } from "@/app/engine/services/scanner-service";
-import { query } from "@/app/engine/engine";
+
 import {
   githubPlugin,
   discordPlugin,

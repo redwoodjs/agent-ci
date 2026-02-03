@@ -1,4 +1,5 @@
 import type { SimulationDbContext, SimulationQueueMessage, SimulationRunRow } from "../simulation/types";
+import { simulationPhases } from "../simulation/types";
 import { tickSimulationRun } from "../runners/simulation/runner";
 import { getSimulationDb } from "../simulation/db";
 import { sql } from "rwsdk/db";
@@ -110,8 +111,16 @@ export async function processSimulationJob(
 
           const currentPhaseName = message.jobType === "simulation-batch" ? "micro_batches" : message.phase;
           
-          if (runRow.current_phase !== currentPhaseName) {
-            console.warn(`[simulation-worker] Run ${message.runId} is in phase ${runRow.current_phase}, but got job for ${currentPhaseName}. Skipping.`);
+          const currentIdx = simulationPhases.indexOf(runRow.current_phase as any);
+          const jobIdx = simulationPhases.indexOf(currentPhaseName as any);
+          
+          if (jobIdx < currentIdx) {
+            console.warn(`[simulation-worker] Run ${message.runId} is in phase ${runRow.current_phase}, but got stale job for past phase ${currentPhaseName}. Skipping.`);
+            return;
+          }
+
+          if (jobIdx > currentIdx + 1) {
+            console.warn(`[simulation-worker] Run ${message.runId} is in phase ${runRow.current_phase}, but got job for far-future phase ${currentPhaseName}. Skipping.`);
             return;
           }
 
@@ -150,14 +159,20 @@ export async function processSimulationJob(
               }
             };
 
-            await executePhase(phaseDef, message.r2Key, strategies, pipelineContext);
+            const output = await executePhase(phaseDef, message.r2Key, strategies, pipelineContext);
 
             // Record completion for the document/phase
+            const updateCols: any = {
+              processed_phases_json: sql`json_insert(processed_phases_json, '$[#]', ${currentPhaseName})`,
+              updated_at: new Date().toISOString()
+            };
+
+            if (currentPhaseName === "ingest_diff" && output && typeof (output as any).changed === "boolean") {
+              updateCols.changed = (output as any).changed ? 1 : 0;
+            }
+
             await db.updateTable("simulation_run_documents")
-              .set({
-                processed_phases_json: sql`json_insert(processed_phases_json, '$[#]', ${currentPhaseName})`,
-                updated_at: new Date().toISOString()
-              })
+              .set(updateCols)
               .where("run_id", "=", message.runId)
               .where("r2_key", "=", message.r2Key)
               .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${currentPhaseName}%`)

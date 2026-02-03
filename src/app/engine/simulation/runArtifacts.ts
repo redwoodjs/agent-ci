@@ -2,13 +2,7 @@ import { applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
 import type {
   SimulationDbContext,
   SimulationRunDocumentRow,
-  SimulationRunMicroBatchRow,
-  SimulationRunMacroOutputRow,
-  SimulationRunMacroClassifiedOutputRow,
-  SimulationRunMaterializedMomentRow,
-  SimulationRunLinkDecisionRow,
-  SimulationRunCandidateSetRow,
-  SimulationRunTimelineFitDecisionRow,
+  SimulationRunR2BatchRow,
   SimulationRunArtifactRow,
 } from "./types";
 import { getSimulationDb, getMomentGraphDb } from "./db";
@@ -421,7 +415,7 @@ export async function getSimulationRunMaterializedMoments(
     .selectAll();
 
   if (r2Key) {
-    q = q.where("artifact_key", "like", `${r2Key}/%`);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
@@ -435,7 +429,7 @@ export async function getSimulationRunMaterializedMoments(
         for (const m of o.moments) {
             moments.push({
                 r2Key: r.artifact_key.split("/")[0],
-                streamId: r.artifact_key.split("/")[1],
+                streamId: r.artifact_key.split("/")[1] || "default",
                 macroIndex: Number(r.artifact_key.split("/")[2] || 0),
                 momentId: m.momentId,
                 parentId: m.parentId ?? null,
@@ -496,7 +490,7 @@ export async function getSimulationRunLinkDecisions(
     .selectAll();
 
   if (r2Key) {
-    q = q.where("artifact_key", "like", `${r2Key}/%`);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
@@ -526,7 +520,7 @@ export async function getSimulationRunLinkDecisions(
       : null;
     return {
       r2Key: o.r2Key || r.artifact_key.split("/")[0],
-      streamId: o.streamId || r.artifact_key.split("/")[1],
+      streamId: o.streamId || r.artifact_key.split("/")[1] || "default",
       macroIndex: Number(o.macroIndex ?? (r.artifact_key.split("/")[2] || 0)),
       childMomentId: o.childMomentId,
       childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
@@ -587,7 +581,7 @@ export async function getSimulationRunCandidateSets(
     .selectAll();
 
   if (r2Key) {
-    q = q.where("artifact_key", "like", `${r2Key}/%`);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
@@ -634,7 +628,7 @@ export async function getSimulationRunCandidateSets(
 
     return {
       r2Key: o.r2Key || r.artifact_key.split("/")[0],
-      streamId: o.streamId || r.artifact_key.split("/")[1],
+      streamId: o.streamId || r.artifact_key.split("/")[1] || "default",
       macroIndex: Number(o.macroIndex ?? (r.artifact_key.split("/")[2] || 0)),
       childMomentId: o.childMomentId,
       childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
@@ -689,7 +683,7 @@ export async function getSimulationRunTimelineFitDecisions(
     .selectAll();
 
   if (r2Key) {
-    q = q.where("artifact_key", "like", `${r2Key}/%`);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
@@ -739,7 +733,7 @@ export async function getSimulationRunTimelineFitDecisions(
 
     return {
       r2Key: o.r2Key || r.artifact_key.split("/")[0],
-      streamId: o.streamId || r.artifact_key.split("/")[1],
+      streamId: o.streamId || r.artifact_key.split("/")[1] || "default",
       macroIndex: Number(o.macroIndex ?? (r.artifact_key.split("/")[2] || 0)),
       childMomentId: o.childMomentId,
       childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),

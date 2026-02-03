@@ -6,6 +6,9 @@ function toNumber(value: unknown): number {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
+  if (typeof value === "bigint") {
+    return Number(value);
+  }
   if (typeof value === "string") {
     const n = Number(value);
     if (Number.isFinite(n)) {
@@ -71,10 +74,10 @@ export async function getSimulationRunProgressSummary(
   const ingest = (await db
     .selectFrom("simulation_run_documents")
     .select([
-      sql<number>`count(*)`.as("docs"),
-      sql<number>`sum(case when changed != 0 then 1 else 0 end)`.as("changed"),
-      sql<number>`sum(case when changed = 0 then 1 else 0 end)`.as("unchanged"),
-      sql<number>`sum(case when error_json is not null then 1 else 0 end)`.as(
+      sql<number>`count(case when json_extract(processed_phases_json, '$') like '%ingest_diff%' then 1 else null end)`.as("docs"),
+      sql<number>`sum(case when json_extract(processed_phases_json, '$') like '%ingest_diff%' and changed != 0 then 1 else 0 end)`.as("changed"),
+      sql<number>`sum(case when json_extract(processed_phases_json, '$') like '%ingest_diff%' and changed = 0 then 1 else 0 end)`.as("unchanged"),
+      sql<number>`count(case when error_json is not null then 1 else null end)`.as(
         "errors"
       ),
     ])
@@ -111,7 +114,7 @@ export async function getSimulationRunProgressSummary(
     .selectFrom("simulation_run_artifacts")
     .select([
       sql<number>`count(*)`.as("segments"),
-      sql<number>`count(distinct substr(artifact_key, 1, instr(artifact_key, '/') - 1))`.as("docs"),
+      sql<number>`count(distinct case when instr(artifact_key, '/') > 0 then substr(artifact_key, 1, instr(artifact_key, '/') - 1) else artifact_key end)`.as("docs"),
     ])
     .where("run_id", "=", runId)
     .where("phase", "=", "materialize_moments")
@@ -121,7 +124,7 @@ export async function getSimulationRunProgressSummary(
     .selectFrom("simulation_run_artifacts")
     .select([
       sql<number>`count(*)`.as("decisions"),
-      sql<number>`count(distinct substr(artifact_key, 1, instr(artifact_key, '/') - 1))`.as("docs"),
+      sql<number>`count(distinct case when instr(artifact_key, '/') > 0 then substr(artifact_key, 1, instr(artifact_key, '/') - 1) else artifact_key end)`.as("docs"),
     ])
     .where("run_id", "=", runId)
     .where("phase", "=", "deterministic_linking")
@@ -131,7 +134,7 @@ export async function getSimulationRunProgressSummary(
     .selectFrom("simulation_run_artifacts")
     .select([
       sql<number>`count(*)`.as("sets"),
-      sql<number>`count(distinct substr(artifact_key, 1, instr(artifact_key, '/') - 1))`.as("docs"),
+      sql<number>`count(distinct case when instr(artifact_key, '/') > 0 then substr(artifact_key, 1, instr(artifact_key, '/') - 1) else artifact_key end)`.as("docs"),
     ])
     .where("run_id", "=", runId)
     .where("phase", "=", "candidate_sets")
@@ -141,7 +144,7 @@ export async function getSimulationRunProgressSummary(
     .selectFrom("simulation_run_artifacts")
     .select([
       sql<number>`count(*)`.as("decisions"),
-      sql<number>`count(distinct substr(artifact_key, 1, instr(artifact_key, '/') - 1))`.as("docs"),
+      sql<number>`count(distinct case when instr(artifact_key, '/') > 0 then substr(artifact_key, 1, instr(artifact_key, '/') - 1) else artifact_key end)`.as("docs"),
     ])
     .where("run_id", "=", runId)
     .where("phase", "=", "timeline_fit")

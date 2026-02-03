@@ -5,7 +5,7 @@ export async function executePhase<TInput, TOutput>(
   input: TInput,
   strategies: RuntimeStrategies,
   context: PipelineContext
-): Promise<void> {
+): Promise<TOutput> {
   context.storage = strategies.storage;
   
   const output = await phase.execute(input, context);
@@ -15,4 +15,6 @@ export async function executePhase<TInput, TOutput>(
   if (phase.next) {
     await strategies.transition.dispatchNext(phase.next, output, input);
   }
+
+  return output;
 }

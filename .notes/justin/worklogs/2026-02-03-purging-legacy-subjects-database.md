@@ -15,5 +15,5 @@ We discovered that `src/app/engine/subjects` contained necessary logic for gener
 ## Fixed codebase syntax and lint errors
 We addressed several syntax errors in the `github` plugin and fixed multiple "implicit any" lint errors in `engine.ts` that were surfacing due to our changes in the orchestrator port objects.
 
-## Final verification
-We conducted a final sweep of the codebase and confirmed that all legacy `subjects` database references and simulation tables have been successfully removed.
+## Fixed simulation progress UI and race conditions
+We identified that the simulation progress was showing zeros because the `changed` column in `simulation_run_documents` was not being updated by the new unified worker. We fixed this and also relaxed the `current_phase` check in the worker to allow `dispatchNext` to successfully trigger the next phase even if the run-level phase transition hasn't completed yet. Additionally, we fixed `runArtifacts.ts` to use exact artifact keys for per-document results.

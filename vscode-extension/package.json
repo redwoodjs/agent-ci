@@ -67,7 +67,7 @@
     "menus": {
       "editor/context": [
         {
-          command: "machinen.processMachineCallback",
+          "command": "machinen.processMachineCallback",
           "group": "navigation",
           "when": "editorHasSelection"
         },

@@ -1,7 +1,7 @@
 import type { Chunk, Document, IndexingHookContext, Plugin } from "../types";
 
 export type IndexingDocumentPreparationPorts = {
-  prepareSourceDocument: (input: { indexingContext: IndexingHookContext }) => Promise<Document>;
+  prepareSourceDocument: (input: { indexingContext: IndexingHookContext }) => Promise<Document | null>;
   computeMomentGraphNamespaceForIndexing: (input: {
     document: Document;
     indexingContext: IndexingHookContext;
@@ -39,7 +39,7 @@ export async function runIndexingDocumentPreparation(input: {
   chunks: Chunk[];
   newChunks: Chunk[];
   oldChunkHashes: string[];
-}> {
+} | null> {
   const indexingContext: IndexingHookContext = {
     r2Key: input.r2Key,
     env: input.env,
@@ -48,6 +48,9 @@ export async function runIndexingDocumentPreparation(input: {
   };
 
   const document = await input.ports.prepareSourceDocument({ indexingContext });
+  if (!document) {
+    return null;
+  }
 
   const baseNamespace =
     typeof input.overrideNamespace === "string" && input.overrideNamespace.trim().length > 0

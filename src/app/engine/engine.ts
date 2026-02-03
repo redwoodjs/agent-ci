@@ -179,12 +179,7 @@ export async function indexDocument(
             "prepareSourceDocument",
             (plugin) => plugin.prepareSourceDocument?.(indexingContext),
           );
-          if (!doc) {
-            throw new Error(
-              `No plugin could prepare document for R2 key: ${r2Key}`,
-            );
-          }
-          return doc;
+          return doc ?? null;
         },
         computeMomentGraphNamespaceForIndexing: async ({
           document,
@@ -233,6 +228,11 @@ export async function indexDocument(
       indexingMode: momentReplayRunId ? "replay" : "indexing",
       forceRecollect,
     });
+
+    if (!prepared) {
+      console.log("[moment-linker] skipping: no plugin could prepare document", { r2Key });
+      return [];
+    }
 
     const document = prepared.document;
     const effectiveNamespace = prepared.effectiveNamespace;

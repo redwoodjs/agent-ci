@@ -96,6 +96,7 @@ export async function uploadAntigravityData(
 
   const userHandle = process.env.USER || "agent";
   const stateKeyPrefix = `antigravity.lastUploadMtime.${projectId}`;
+  let syncFailures = 0;
 
   // 1. Artifacts
   const artifacts = ["implementation_plan.md", "task.md", "walkthrough.md"];
@@ -128,6 +129,7 @@ export async function uploadAntigravityData(
           await context.globalState.update(`${stateKeyPrefix}.${fileName}`, stat.mtime);
         } else {
           logger.appendLine(`[Antigravity] Artifact ${fileName} upload failed: ${response.error}`);
+          syncFailures++;
         }
       } else {
         logger.appendLine(`[Antigravity] Artifact ${fileName} is up to date.`);
@@ -171,6 +173,7 @@ export async function uploadAntigravityData(
           await context.globalState.update(`${stateKeyPrefix}.conversation.pb`, stat.mtime);
         } else {
           logger.appendLine(`[Antigravity] Conversation ${projectId}.pb upload failed: ${response.error}`);
+          syncFailures++;
         }
       } else {
         logger.appendLine(`[Antigravity] Conversation ${projectId}.pb is up to date.`);
@@ -182,7 +185,11 @@ export async function uploadAntigravityData(
     logger.appendLine(`[Antigravity] Error in conversation upload: ${error}`);
   }
 
-  vscode.window.showInformationMessage(`Antigravity data sync for project ${projectId} completed.`);
+  if (syncFailures > 0) {
+    vscode.window.showErrorMessage(`Antigravity data sync for project ${projectId} completed with ${syncFailures} failure(s). Check output for details.`);
+  } else {
+    vscode.window.showInformationMessage(`Antigravity data sync for project ${projectId} completed successfully.`);
+  }
 }
 
 async function postAgentIngest(payload: any, apiUrl: string, apiKey: string): Promise<{ success: boolean; error?: string }> {

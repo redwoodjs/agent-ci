@@ -106,7 +106,7 @@ function getMomentDb(context: MomentGraphContext) {
 
 function parseSourceFromDocumentId(
   documentId: string
-): "github" | "discord" | "cursor" | "unknown" {
+): "github" | "discord" | "cursor" | "agents" | "unknown" {
   if (typeof documentId !== "string" || documentId.length === 0) {
     return "unknown";
   }
@@ -118,6 +118,9 @@ function parseSourceFromDocumentId(
   }
   if (documentId.startsWith("cursor/")) {
     return "cursor";
+  }
+  if (documentId.startsWith("agents/")) {
+    return "agents";
   }
   return "unknown";
 }
@@ -1824,7 +1827,7 @@ export async function getNamespaceSourceStatsAction(options?: {
 }
 
 export async function getMomentsBySourceAction(options: {
-  source: "github" | "discord" | "cursor" | "unknown";
+  source: "github" | "discord" | "cursor" | "agents" | "unknown";
   limit?: number;
   offset?: number;
   momentGraphNamespace?: string | null;
@@ -1878,7 +1881,7 @@ export async function getMomentsBySourceAction(options: {
 
 export async function searchMomentsByTextAction(options: {
   query: string;
-  source?: "github" | "discord" | "cursor" | "unknown" | null;
+  source?: "github" | "discord" | "cursor" | "agents" | "unknown" | null;
   limit?: number;
   offset?: number;
   momentGraphNamespace?: string | null;
@@ -2706,7 +2709,7 @@ async function findMomentsByTextSearchLocal(
   searchText: string,
   context: MomentGraphContext,
   options?: {
-    source?: "github" | "discord" | "cursor" | "unknown" | null;
+    source?: "github" | "discord" | "cursor" | "agents" | "unknown" | null;
     limit?: number;
     offset?: number;
   }
@@ -2880,7 +2883,7 @@ async function getNamespaceSourceStatsLocal(
   context: MomentGraphContext
 ): Promise<
   Array<{
-    source: "github" | "discord" | "cursor" | "unknown";
+    source: "github" | "discord" | "cursor" | "agents" | "unknown";
     totalMoments: number;
     unparentedMoments: number;
     linkedMoments: number;
@@ -2900,7 +2903,7 @@ async function getNamespaceSourceStatsLocal(
   }>;
 
   const statsBySource = new Map<
-    "github" | "discord" | "cursor" | "unknown",
+    "github" | "discord" | "cursor" | "agents" | "unknown",
     {
       totalMoments: number;
       unparentedMoments: number;
@@ -2911,7 +2914,7 @@ async function getNamespaceSourceStatsLocal(
     }
   >();
 
-  for (const source of ["github", "discord", "cursor", "unknown"] as const) {
+  for (const source of ["github", "discord", "cursor", "agents", "unknown"] as const) {
     statsBySource.set(source, {
       totalMoments: 0,
       unparentedMoments: 0,
@@ -2963,7 +2966,7 @@ async function getNamespaceSourceStatsLocal(
 }
 
 async function getMomentsBySourceLocal(
-  source: "github" | "discord" | "cursor" | "unknown",
+  source: "github" | "discord" | "cursor" | "agents" | "unknown",
   context: MomentGraphContext,
   options?: {
     limit?: number;

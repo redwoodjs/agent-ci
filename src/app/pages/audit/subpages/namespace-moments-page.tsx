@@ -35,13 +35,13 @@ export function NamespaceMomentsPage({ request }: { request: Request }) {
   const pageParam = url.searchParams.get("page") || "1";
   const page = Math.max(1, Number.parseInt(pageParam, 10) || 1);
 
-  const validSource =
-    source === "github" ||
+  const validSource = (source === "github" ||
     source === "discord" ||
     source === "cursor" ||
+    source === "agents" ||
     source === "unknown"
-      ? source
-      : null;
+    ? source
+    : null) as "github" | "discord" | "cursor" | "agents" | "unknown" | null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -84,7 +84,7 @@ async function NamespaceMomentsContent({
   query,
   page,
 }: {
-  source: "github" | "discord" | "cursor" | "unknown" | null;
+  source: "github" | "discord" | "cursor" | "agents" | "unknown" | null;
   namespace: string | null;
   prefix: string | null;
   query: string;
@@ -116,7 +116,10 @@ async function NamespaceMomentsContent({
 
   const moments =
     searchResult.success && searchResult.moments ? searchResult.moments : [];
-  const totalCount = searchResult.success ? searchResult.totalCount : 0;
+  const totalCount =
+    searchResult.success && typeof searchResult.totalCount === "number"
+      ? searchResult.totalCount
+      : 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   return (
@@ -222,7 +225,7 @@ function SearchSection({
   prefix,
   query,
 }: {
-  source: "github" | "discord" | "cursor" | "unknown" | null;
+  source: "github" | "discord" | "cursor" | "agents" | "unknown" | null;
   namespace: string | null;
   prefix: string | null;
   query: string;
@@ -261,7 +264,7 @@ function MomentsList({
   totalCount: number;
   page: number;
   totalPages: number;
-  source: "github" | "discord" | "cursor" | "unknown" | null;
+  source: "github" | "discord" | "cursor" | "agents" | "unknown" | null;
   namespace: string | null;
   prefix: string | null;
   query: string;
@@ -285,6 +288,8 @@ function MomentsList({
         return "Discord";
       case "cursor":
         return "Cursor";
+      case "agents":
+        return "Agents";
       case "unknown":
         return "Unknown";
       default:

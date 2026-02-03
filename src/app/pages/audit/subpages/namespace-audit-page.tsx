@@ -23,7 +23,7 @@ import {
 } from "./actions";
 
 type SourceStats = {
-  source: "github" | "discord" | "cursor" | "unknown";
+  source: "github" | "discord" | "cursor" | "agents" | "unknown";
   totalMoments: number;
   unparentedMoments: number;
   linkedMoments: number;
@@ -97,7 +97,7 @@ export function NamespaceAuditPage() {
     fetchStats();
   }, [selectedNamespace, prefixOverride]);
 
-  const buildMomentsUrl = (source: "github" | "discord" | "cursor" | "unknown") => {
+  const buildMomentsUrl = (source: "github" | "discord" | "cursor" | "agents" | "unknown") => {
     const params = new URLSearchParams();
     params.set("source", source);
     if (selectedNamespace) {
@@ -127,6 +127,8 @@ export function NamespaceAuditPage() {
         return "Discord";
       case "cursor":
         return "Cursor";
+      case "agents":
+        return "Agents";
       case "unknown":
         return "Unknown";
       default:

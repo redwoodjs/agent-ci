@@ -10,7 +10,7 @@ export function SearchInput({
   prefix,
   initialQuery,
 }: {
-  source: "github" | "discord" | "cursor" | "unknown" | null;
+  source: "github" | "discord" | "cursor" | "agents" | "unknown" | null;
   namespace: string | null;
   prefix: string | null;
   initialQuery: string;

@@ -240,7 +240,10 @@ export async function runTimelineFitForDocument(input: {
 
   const proposal = await computeTimelineFitDecision({
     ports: { 
-      callLLM: (prompt) => context.llm.call(prompt, "slow-reasoning", { temperature: 0 }) 
+      callLLM: (prompt) => context.llm.call(prompt, "slow-reasoning", { 
+        temperature: 0,
+        logger: context.logger?.info,
+      }) 
     },
     childMomentId: childMoment.id,
     childText,

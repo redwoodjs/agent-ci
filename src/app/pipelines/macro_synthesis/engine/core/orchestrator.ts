@@ -95,6 +95,7 @@ export async function computeMacroSynthesisForDocument(input: {
     {
       macroSynthesisPromptContext,
       auditSink: (event) => auditEvents.push(event),
+      logger: context.logger?.info,
     }
   );
 

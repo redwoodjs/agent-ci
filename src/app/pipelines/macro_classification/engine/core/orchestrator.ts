@@ -243,7 +243,9 @@ Macro moments:
 ${momentsText}
 `;
 
-  const raw = await callLLM(prompt, "slow-reasoning");
+  const raw = await callLLM(prompt, "slow-reasoning", {
+    logger: input.context.logger?.info,
+  });
 
   let parsed: any[];
   try {

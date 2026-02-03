@@ -63,7 +63,8 @@ async function withSimulationErrorTracking<T>(
 
 export async function processSimulationJob(
   message: SimulationQueueMessage,
-  env: Cloudflare.Env
+  env: Cloudflare.Env,
+  ctx: ExecutionContext
 ): Promise<void> {
   const context: SimulationDbContext = {
     env,
@@ -135,6 +136,40 @@ export async function processSimulationJob(
               ),
             };
 
+            const logger: any = {
+              info: (msg: string, data?: any) => {
+                console.log(`[sim-worker:${currentPhaseName}] ${msg}`, data);
+                ctx.waitUntil(addSimulationRunEvent(context, {
+                  runId: message.runId,
+                  level: "info",
+                  kind: `${currentPhaseName}.log`,
+                  payload: { message: msg, data, r2Key: message.r2Key, phase: currentPhaseName }
+                }));
+              },
+              warn: (msg: string, data?: any) => {
+                console.warn(`[sim-worker:${currentPhaseName}] ${msg}`, data);
+                ctx.waitUntil(addSimulationRunEvent(context, {
+                  runId: message.runId,
+                  level: "warn",
+                  kind: `${currentPhaseName}.log`,
+                  payload: { message: msg, data, r2Key: message.r2Key, phase: currentPhaseName }
+                }));
+              },
+              error: (msg: string, data?: any) => {
+                console.error(`[sim-worker:${currentPhaseName}] ${msg}`, data);
+                ctx.waitUntil(addSimulationRunEvent(context, {
+                  runId: message.runId,
+                  level: "error",
+                  kind: `${currentPhaseName}.log`,
+                  payload: { message: msg, data, r2Key: message.r2Key, phase: currentPhaseName }
+                }));
+              },
+              debug: (msg: string, data?: any) => {
+                // Debug logs only to console to save DB space, unless verified otherwise
+                console.debug(`[sim-worker:${currentPhaseName}] ${msg}`, data);
+              }
+            };
+
             const pipelineContext: any = {
               ...context,
               r2Key: message.r2Key,
@@ -142,6 +177,7 @@ export async function processSimulationJob(
               storage: strategies.storage,
               // Use real plugins instead of empty array
               plugins: createEngineContext(env, "indexing").plugins,
+              logger,
             };
 
             pipelineContext.heartbeat = async () => {

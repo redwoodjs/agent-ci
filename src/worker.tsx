@@ -68,7 +68,7 @@ import { Chunk, SimulationQueueMessage } from "./app/engine/types";
 
 export default {
   fetch: app.fetch,
-  async queue(batch, env) {
+  async queue(batch, env, ctx) {
     const queueName = batch.queue;
     console.log(
       `[queue] Processing batch from queue: ${queueName}, batch size: ${batch.messages.length}`
@@ -208,7 +208,8 @@ export default {
           ) {
             await processSimulationJob(
               indexingMessage as unknown as SimulationQueueMessage,
-              env as Cloudflare.Env
+              env as Cloudflare.Env,
+              ctx
             );
             message.ack();
             continue;

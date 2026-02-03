@@ -3,6 +3,7 @@ import * as child_process from "child_process";
 import * as path from "path";
 import * as https from "https";
 import * as http from "http";
+import { identifyAntigravityContext, uploadAntigravityData } from "./agentIngestion";
 
 const logger = vscode.window.createOutputChannel("Machinen");
 
@@ -1031,9 +1032,69 @@ export function activate(context: vscode.ExtensionContext) {
 
   context.subscriptions.push(processMachineCallbackCommand);
 
+  // Register command to upload Antigravity data
+  const uploadAntigravityCommand = vscode.commands.registerCommand(
+    "machinen.uploadAntigravityData",
+    async () => {
+      const antigravityContext = await identifyAntigravityContext(logger);
+      if (antigravityContext) {
+        await uploadAntigravityData(
+          context,
+          antigravityContext.projectId,
+          antigravityContext.projectPath,
+          logger,
+          getApiUrl
+        );
+      } else {
+        vscode.window.showWarningMessage("Could not identify an active Antigravity project for this workspace.");
+      }
+    }
+  );
+
+  context.subscriptions.push(uploadAntigravityCommand);
+
+  // DEBUG COMMAND: Inspect Antigravity Extension
+  context.subscriptions.push(
+    vscode.commands.registerCommand("machinen.debugAntigravity", async () => {
+      const ext = vscode.extensions.getExtension("google.antigravity");
+      if (!ext) {
+        logger.appendLine("Antigravity extension not found.");
+        return;
+      }
+      logger.appendLine(`Antigravity Extension ID: ${ext.id}`);
+      logger.appendLine(`Antigravity Extension Active: ${ext.isActive}`);
+      if (!ext.isActive) {
+        await ext.activate();
+        logger.appendLine("Antigravity activated.");
+      }
+      
+      logger.appendLine("Cannot inspect exports directly as they are unknown.");
+      // In a real scenario, we might try to inspect ext.exports if we knew the structure.
+      // But logging 'ext.exports' might just show [Object object].
+      // Let's try to list keys if it's an object.
+      try {
+        const exports = ext.exports;
+        if (typeof exports === 'object') {
+             logger.appendLine(`Exports keys: ${JSON.stringify(Object.keys(exports))}`);
+        } else {
+             logger.appendLine(`Exports type: ${typeof exports}`);
+        }
+      } catch (e) {
+        logger.appendLine(`Error inspecting exports: ${e}`);
+      }
+      
+      // Also try to find all commands starting with antigravity
+      const allCommands = await vscode.commands.getCommands(true);
+      const antigravityCommands = allCommands.filter(c => c.startsWith("antigravity."));
+      logger.appendLine(`Found ${antigravityCommands.length} Antigravity commands:`);
+      antigravityCommands.forEach(c => logger.appendLine(`- ${c}`));
+    })
+  );
+
   logger.appendLine("Document change listener registered successfully");
   logger.appendLine("PR origin command registered successfully");
   logger.appendLine("Process machine callback command registered successfully");
+  logger.appendLine("Upload Antigravity Data command registered successfully");
 }
 
 /**

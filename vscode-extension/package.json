@@ -49,6 +49,11 @@
         "command": "machinen.processMachineCallback",
         "title": "Machinen TLDR",
         "category": "Machinen"
+      },
+      {
+        "command": "machinen.uploadAntigravityData",
+        "title": "Upload Antigravity Artifacts to Machinen",
+        "category": "Machinen"
       }
     ],
     "keybindings": [
@@ -62,9 +67,13 @@
     "menus": {
       "editor/context": [
         {
-          "command": "machinen.processMachineCallback",
+          command: "machinen.processMachineCallback",
           "group": "navigation",
           "when": "editorHasSelection"
+        },
+        {
+          "command": "machinen.uploadAntigravityData",
+          "group": "navigation"
         }
       ]
     }

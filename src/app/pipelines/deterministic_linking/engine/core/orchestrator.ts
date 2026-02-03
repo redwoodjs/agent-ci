@@ -115,6 +115,7 @@ export type DeterministicLinkingPorts = {
   resolveThreadHeadForDocumentAsOf: (input: {
     documentId: string;
     asOfMs: number | null;
+    excludeMomentId?: string | null;
   }) => Promise<{ headMomentId: string | null; anchorMomentId: string | null }>;
 };
 
@@ -163,6 +164,7 @@ export async function computeDeterministicLinkingDecision(input: {
         const resolved = await input.ports.resolveThreadHeadForDocumentAsOf({
           documentId: docId,
           asOfMs: childStartMs,
+          excludeMomentId: input.childMomentId,
         });
         if (resolved.headMomentId) {
           candidateParentMomentId = resolved.headMomentId;
@@ -238,7 +240,9 @@ export async function runDeterministicLinkingForDocument(input: {
       ports: {
         resolveThreadHeadForDocumentAsOf: async (args) => {
           return resolveThreadHeadForDocumentAsOf({
-            ...args,
+            documentId: args.documentId,
+            asOfMs: args.asOfMs,
+            excludeMomentId: args.excludeMomentId ?? null,
             context: {
               env: context.env,
               momentGraphNamespace: context.momentGraphNamespace || null,

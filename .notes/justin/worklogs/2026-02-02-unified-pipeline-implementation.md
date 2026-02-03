@@ -717,3 +717,19 @@ We also fixed the `pipelineContext` initialization to include `r2Key` and resolv
 2. Verify that jobs move past `micro_batches`.
 3. If an error occurs, verify it appears in the `DocumentsCard` in the UI (linked to `error_json`).
 
+
+# Investigating micro_batches Cache Regression [2026-02-03]
+
+## Initial observation of the regression
+The simulation worker is now logging a `TypeError: Cannot read properties of undefined (reading 'get')` in the `micro_batches` phase at `computeMicroBatchesForDocument`. This strongly suggests that `context.cache` is missing from the `pipelineContext` injected by the simulation worker. Our previous fix for resilience successfully surfaces this error, but also revealed a missing dependency in the context initialization.
+
+## Investigated micro_batches Cache Regression [2026-02-03]
+We analyzed the stack trace provided by the user and discovered the following:
+1. **Missing Cache in Context**: The `PipelineContext` used in the simulation worker is missing the `cache` property. The `micro_batches` phase logic at `orchestrator.ts:69` explicitly calls `context.cache.get`, which results in a `TypeError` because `cache` is undefined.
+2. **Incomplete PipelineContext**: Beyond `cache`, other required members of `PipelineContext` (`db`, `vector`, `llm`) were also not properly initialized in the simulation worker.
+3. **Simulation Database Support**: We found that the simulation database already has a `simulation_micro_batch_cache` table, but a `MicroBatchCache` implementation for it is missing.
+
+### Empirical Evidence
+- **Stack Trace**: `TypeError: Cannot read properties of undefined (reading 'get') at computeMicroBatchesForDocument (orchestrator.ts:69:40)`
+- **Context Definition**: `src/app/engine/runtime/types.ts:33` explicitly requires `cache: MicroBatchCache`.
+

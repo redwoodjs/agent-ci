@@ -237,7 +237,7 @@
     "MOMENT_REPLAY_SKIP_LINKING": "1",
     "SIMULATION_DISABLE_CACHING": "1",
     "SIMULATION_HEURISTIC_MODE": "0",
-    "LLM_REASONING_EFFORT": ""
+    "LLM_REASONING_EFFORT": "none"
   },
   "env": {
     "test": {

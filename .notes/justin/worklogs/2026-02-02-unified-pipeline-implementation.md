@@ -906,3 +906,106 @@ We analyzed the simulation runner and identified why the UI progress logs feel u
 We also performed a grep-based audit for incorrect `JSON.parse()` usage. 
 - While many `JSON.parse()` calls correctly handle LLM outputs or manual R2 payloads, we identified legacy patterns in `resiliency.ts` (which we are deleting anyway) and `runArtifacts.ts` that we will address to ensure strict compliance with the `rwsdk/db` auto-parsing standard.
 
+
+## Work Task Blueprint: Simulation Artifacts & Money Logs [2026-02-03]
+
+### Context
+- **The Problem**: The Simulation UI is currently "vacant" after runs complete because it queries old, specialized tables (`simulation_run_macro_outputs`, etc.), whereas the new unified pipeline runner saves every artifact to a generic `simulation_run_artifacts` table.
+- **The Solution**: We will update `runArtifacts.ts` to be "dual-homed"—fetching from both the specialized tables (for legacy runs) and the unified artifact store (for new runs).
+- **Log Visibility**: We will redirect terminal logs (`[llm]`, `[db]`, `[scope-router]`) into Simulation Run Events by injecting a `Logger` interface into the pipeline context.
+- **UI Progress Status**: We will fix the "vacant" status lines (0/0) by updating `runProgress.ts` to query the unified `simulation_run_artifacts` table.
+- **Runner Logic**: We will remove the legacy `micro_batches` specialized check in `runner.ts` that causes premature phase advancement.
+
+### Proposed Changes
+
+#### 1. Common Logging Infrastructure
+- **[MODIFY] `src/app/engine/types.ts`**: Define `Logger` interface (`info`, `warn`, `error`, `debug`). Add `logger?: Logger` to `IndexingHookContext` and `QueryHookContext`.
+- **[NEW] `src/app/engine/utils/logger.ts`**: Implement `createProductionLogger()` mapping to console.
+- **[MODIFY] `src/app/engine/utils/llm.ts`**: Use context logger for all execution traces.
+- **[MODIFY] `src/app/engine/databases/indexingState/index.ts`**: Use context logger.
+
+#### 2. Unified Artifact & Progress Retrieval
+- **[MODIFY] `src/app/engine/simulation/runArtifacts.ts`**: Update fetchers (`getSimulationRunMacroOutputs`, etc.) to support the unified artifact table.
+- **[MODIFY] `src/app/engine/simulation/runProgress.ts`**: Update `getSimulationRunProgressSummary` to query `simulation_run_artifacts` for document counts across all phases.
+
+#### 3. Simulation runner & worker integration
+- **[MODIFY] `src/app/engine/runners/simulation/runner.ts`**: Remove the specialized `micro_batches` check in `tickGenericDocumentPolling` that incorrectly relies on the legacy `simulation_run_micro_batches` table.
+- **[MODIFY] `src/app/engine/services/simulation-worker.ts`**: Initialize `SimulationRunLogger` and inject into `PipelineContext`.
+
+### Directory & File Structure
+```text
+src/app/engine/
+├── [MODIFY] types.ts
+├── [MODIFY] services/simulation-worker.ts
+├── simulation/
+│   └── [MODIFY] runArtifacts.ts
+└── utils/
+    ├── [NEW] logger.ts
+    └── [MODIFY] llm.ts
+```
+
+### System Flow
+- **Previous**: Runner -> Specialized Tables -> UI (Fragmented)
+- **New**: Runner -> Generic Artifacts Table -> UI (Unified)
+- **Logs**: `console.log` -> Injected `Logger` -> Simulation Event Store -> UI
+
+### Tasks
+- [ ] Define `Logger` interface and production implementation.
+- [ ] Inject `logger` into indexing and query contexts.
+- [ ] Refactor `llm.ts` and `indexingState` to use the logger.
+- [ ] Update `runArtifacts.ts` to support the unified artifact table.
+- [ ] Inject `SimulationRunLogger` in `simulation-worker.ts`.
+
+
+## Work Task Blueprint: Database Cleanup & Visibility [2026-02-03]
+
+### Context
+- **Database Bloat**: The system has accumulated many specialized simulation tables that are now superseded by the unified `simulation_run_artifacts` table.
+- **Legacy Components**: The `subjects` database is legacy as its functionality has been merged into `momentGraph`.
+- **The Plan**: Remove legacy tables and databases to simplify the architecture, while ensuring UI visibility is maintained by redirecting all fetchers to the unified artifact store.
+
+### Proposed Changes
+
+#### 1. Common Logging Infrastructure
+- **[MODIFY] `src/app/engine/types.ts`**: Define `Logger`. Add `logger?: Logger` to hook contexts.
+- **[NEW] `src/app/engine/utils/logger.ts`**: Implement console-based `ProductionLogger`.
+- **[MODIFY] Instrumentalize**: Update `llm.ts` and `indexingState/index.ts` to use the injected logger.
+
+#### 2. Unified Artifact & Progress Retrieval
+- **[MODIFY] `src/app/engine/simulation/runArtifacts.ts`**: Refactor fetchers (`getSimulationRunMacroOutputs`, etc.) to query the unified `simulation_run_artifacts` table.
+- **[MODIFY] `src/app/engine/simulation/runProgress.ts`**: Update summary to query `simulation_run_artifacts` for accurate phase counts.
+
+#### 3. Simulation Runner Fixes
+- **[MODIFY] `src/app/engine/runners/simulation/runner.ts`**:
+    - Remove specialized `micro_batches` check in `tickGenericDocumentPolling`.
+    - Refactor `recoverPhaseZombies` to remove specialized `micro_batches` logic.
+
+#### 4. Legacy Database Removal [NEW]
+- **[DELETE] `src/app/engine/databases/subjects/`**: Remove legacy subjects database.
+- **[MODIFY] `src/worker.tsx`**: Remove `SubjectDO` and legacy bindings.
+- **[MODIFY] `src/app/engine/simulation/migrations.ts`**: Remove legacy tables from types and potentially the `down` migrations (or just leave them since we are cleaning up code).
+- **[MODIFY] `src/app/engine/simulation/types.ts`**: Purge legacy table definitions from the `Db` interface.
+
+### Directory & File Structure
+```text
+src/app/engine/
+├── [DELETE] databases/subjects/
+├── [MODIFY] runners/simulation/runner.ts
+├── [MODIFY] services/simulation-worker.ts
+├── simulation/
+│   ├── [MODIFY] migrations.ts
+│   ├── [MODIFY] runArtifacts.ts
+│   ├── [MODIFY] runProgress.ts
+│   └── [MODIFY] types.ts
+└── utils/
+    ├── [NEW] logger.ts
+    └── [MODIFY] llm.ts
+```
+
+### Tasks
+- [ ] Implement common logger and redirect traces.
+- [ ] Update `runArtifacts.ts` and `runProgress.ts` to use unified storage.
+- [ ] Fix runner premature advancement bug (remove legacy table dependency).
+- [ ] Purge legacy simulation table definitions and migrations.
+- [ ] Delete legacy `subjects` database and bindings.
+

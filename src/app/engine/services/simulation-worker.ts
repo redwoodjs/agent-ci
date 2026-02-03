@@ -8,6 +8,7 @@ import { executePhase } from "../runtime/orchestrator";
 import { SimulationStrategies } from "../runtime";
 import { createEngineContext } from "../index";
 import { addSimulationRunEvent } from "../simulation/runEvents";
+import { applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
 
 /**
  * Centrally tracks simulation job failures in the database for UI transparency,
@@ -101,7 +102,7 @@ export async function processSimulationJob(
         case "simulation-batch": {
           const runRow = await db
             .selectFrom("simulation_runs")
-            .select(["current_phase", "moment_graph_namespace"])
+            .select(["current_phase", "moment_graph_namespace", "moment_graph_namespace_prefix"])
             .where("run_id", "=", message.runId)
             .executeTakeFirst() as SimulationRunRow | undefined;
           
@@ -170,10 +171,15 @@ export async function processSimulationJob(
               }
             };
 
+            const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
+                runRow.moment_graph_namespace ?? null,
+                runRow.moment_graph_namespace_prefix ?? null
+            );
+
             const pipelineContext: any = {
               ...context,
               r2Key: message.r2Key,
-              momentGraphNamespace: runRow.moment_graph_namespace,
+              momentGraphNamespace: effectiveNamespace,
               storage: strategies.storage,
               // Use real plugins instead of empty array
               plugins: createEngineContext(env, "indexing").plugins,

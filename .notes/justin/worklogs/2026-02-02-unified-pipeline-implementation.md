@@ -1021,3 +1021,30 @@ We have completed the investigation into cleaning up legacy database components 
 
 ### Decision:
 We will proceed with the "Database Cleanup & Visibility" plan to unify all simulation data into the `simulation_run_artifacts` table and instrumentalize the engine with an injected logger for better UI visibility.
+
+## Ruthless Cleanup and Phase Core Migration [2026-02-03]
+We have executed a "Ruthless Cleanup" of the legacy code that was identified as "Legacy Rot" in the initial investigation. We also consolidated the distributed "Phase Core" logic into the unified pipeline orchestrators.
+
+### Actions Taken
+1.  **Deleted Legacy Code**:
+    *   `sweeper.ts`: Removed the legacy zombie recovery logic that depended on missing files.
+    *   `src/app/engine/lib/phaseCores/`: Deleted the entire directory. All logic (`microBatchesCore`, `candidateSetsCore`, etc.) was inlined into the respective `src/app/pipelines/<phase>/engine/core/orchestrator.ts`.
+    *   `src/app/engine/core/linking/`: Deleted intermediate orchestrators (`deterministicLinkingOrchestrator.ts`, etc.) and `rootMacroMomentLinking.ts`.
+    *   `src/app/engine/live/linking.ts`: Deleted unused live linking logic.
+
+2.  **Consolidated Logic**:
+    *   Moved `computeMaterializedMomentIdentity` to `materialize_moments` orchestrator.
+    *   Moved `computeDeterministicLinkingDecision` to `deterministic_linking` orchestrator.
+    *   Moved `computeTimelineFitProposalDeep` to `timeline_fit` orchestrator.
+
+3.  **Fixes**:
+    *   **Worker**: Removed `moment-replay` legacy code from `worker.tsx` that caused broken imports.
+    *   **UI**: Fixed `runAllSimulationRunAction` in `simulation-actions.ts` to correctly handle errors, resolving a client-side crash loop.
+
+4.  **Configuration**:
+    *   **LLM Reasoning Override**: Added `LLM_REASONING_EFFORT` to `wrangler.jsonc` and `llm.ts`. This allows globally forcing logic to "none", "low", "medium", or "high" effort, overriding per-call options.
+
+### Verification
+*   Ran `npx tsc --noEmit` and confirmed the `src/app` build is clean (remaining errors are in debug scripts/extensions).
+*   The system is now leaner, with no "Phase Core" middleman layer. Pipeline Orchestrators are the single source of truth for phase logic.
+

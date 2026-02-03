@@ -61,6 +61,27 @@ export async function callLLM(
     logInfo(`Options: ${JSON.stringify(options)}`);
   }
 
+  // Check for global reasoning effort override
+  const reasoningEffortOverride = typeof env.LLM_REASONING_EFFORT === "string" ? env.LLM_REASONING_EFFORT.trim() : "";
+  
+  if (reasoningEffortOverride) {
+    if (reasoningEffortOverride === "none") {
+      logInfo(`[llm] Overriding reasoning effort to 'none' (removing reasoning options)`);
+      if (options && options.reasoning) {
+        delete options.reasoning;
+      }
+    } else if (["low", "medium", "high"].includes(reasoningEffortOverride)) {
+      logInfo(`[llm] Overriding reasoning effort to '${reasoningEffortOverride}' (from env.LLM_REASONING_EFFORT)`);
+      if (!options) {
+        options = {};
+      }
+      if (!options.reasoning) {
+        options.reasoning = {};
+      }
+      options.reasoning.effort = reasoningEffortOverride as "low" | "medium" | "high";
+    }
+  }
+
   let response: any;
     const isGptOss = modelId.includes("gpt-oss");
     const payload = isGptOss

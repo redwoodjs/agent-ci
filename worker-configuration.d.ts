@@ -12,6 +12,7 @@ declare namespace Cloudflare {
 		MOMENT_REPLAY_SKIP_LINKING: "1";
 		SIMULATION_DISABLE_CACHING: "1";
 		SIMULATION_HEURISTIC_MODE: "1";
+		LLM_REASONING_EFFORT: string;
 		WEBAUTHN_RP_ID: string;
 		AUTH_SECRET_KEY: string;
 		API_KEY: string;

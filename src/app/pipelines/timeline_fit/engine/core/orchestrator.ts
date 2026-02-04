@@ -11,6 +11,8 @@ export type TimelineFitDecision = {
   rejectReason?: string;
   rank?: number;
   details?: Record<string, any>;
+  title?: string | null;
+  summary?: string | null;
 };
 
 export type TimelineFitDeepCandidate = {
@@ -117,6 +119,8 @@ export async function computeTimelineFitProposalDeep(input: {
       details: {
         sharedAnchorTokens: entry.shared,
       },
+      title: entry.c.title ?? null,
+      summary: entry.c.summary ?? null,
     });
   }
 
@@ -269,6 +273,8 @@ export async function runTimelineFitForDocument(input: {
   }>;
 }): Promise<{
   chosenParentId: string | null;
+  chosenParentTitle: string | null;
+  chosenParentSummary: string | null;
   outcome: string;
   decisions: any[];
   audit: any;
@@ -293,6 +299,10 @@ export async function runTimelineFitForDocument(input: {
     logger: context.logger,
   });
 
+  const chosenParent = proposal.chosenParentId 
+    ? candidates.find(c => c.id === proposal.chosenParentId) 
+    : null;
+
   const audit = {
     kind: "timeline_fit",
     ruleId: "anchor_token_fit",
@@ -306,6 +316,8 @@ export async function runTimelineFitForDocument(input: {
 
   return {
     chosenParentId: proposal.chosenParentId,
+    chosenParentTitle: chosenParent?.title ?? null,
+    chosenParentSummary: chosenParent?.summary ?? null,
     outcome: proposal.chosenParentId ? "fit" : "no-fit",
     decisions: proposal.decisions,
     audit,

@@ -2,6 +2,7 @@ import { extractAnchorTokens } from "../../../../engine/utils/anchorTokens";
 import { resolveThreadHeadForDocumentAsOf } from "../../../../engine/core/linking/explicitRefThreadHead";
 import { PipelineContext } from "../../../../engine/runtime/types";
 import { Moment } from "../../../../engine/types";
+import { getMoments } from "../../../../engine/databases/momentGraph";
 // -- types and helpers from core --
 
 export type DeterministicLinkingProposal = {
@@ -289,11 +290,14 @@ export async function runDeterministicLinkingForDocument(input: {
   moments: Moment[];
 }): Promise<{
   decisions: Array<{
-    childMomentId: string;
     proposedParentId: string | null;
     audit: any;
     streamId: string;
     macroIndex: number;
+    childTitle: string | null;
+    childSummary: string | null;
+    parentTitle: string | null;
+    parentSummary: string | null;
   }>;
 }> {
   const { r2Key, context, moments } = input;
@@ -373,7 +377,36 @@ export async function runDeterministicLinkingForDocument(input: {
       audit: decision.audit,
       streamId,
       macroIndex,
+      childTitle: childMoment.title ?? null,
+      childSummary: childMoment.summary ?? null,
+      parentTitle: null, // To be filled below
+      parentSummary: null, // To be filled below
     });
+  }
+
+  // 4. Batch fetch parent details for enrichment
+  const parentIds = new Set<string>();
+  for (const d of decisions) {
+    if (d.proposedParentId) {
+      parentIds.add(d.proposedParentId);
+    }
+  }
+
+  if (parentIds.size > 0) {
+    const parentDetails = await getMoments(Array.from(parentIds), {
+      env: context.env,
+      momentGraphNamespace: context.momentGraphNamespace || null,
+    });
+
+    for (const d of decisions) {
+      if (d.proposedParentId) {
+        const parent = parentDetails.get(d.proposedParentId);
+        if (parent) {
+          d.parentTitle = parent.title ?? null;
+          d.parentSummary = parent.summary ?? null;
+        }
+      }
+    }
   }
 
   return { decisions };

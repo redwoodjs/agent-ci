@@ -273,12 +273,15 @@ Each of the 8 phases is encapsulated in its own directory. This co-location ensu
 
 ```text
 src/app/pipelines/
-├── [phase_name]/          # e.g., timeline_fit
-│   ├── index.ts           # Phase definition & Registry entry
-│   ├── engine/            # Engine-side logic
-│   │   └── core/          # Business logic (e.g., orchestrator.ts)
-│   └── web/               # UI components & Phase-specific pages
-└── registry.ts            # Central registry for all phases
+├── [phase_name]/          # Specialized logic for one of the 8 phases
+│   ├── index.ts           # Phase definition (Type constraints, next phase)
+│   ├── engine/
+│   │   └── core/
+│   │       └── orchestrator.ts # The phase-specific business logic 
+│   └── web/               # UI components for simulator & debugging
+│       ├── ui/            # React components (e.g., DetailCards)
+│       └── routes/        # Next.js page definitions for the phase
+└── registry.ts            # Central registry allowing lookups by phase name
 ```
 
 ### 6.2 The Engine Core (`src/app/engine/`)
@@ -287,14 +290,20 @@ The core engine provides the runtime and plugin infrastructure that powers all p
 
 ```text
 src/app/engine/
-├── runtime/               # The "Inner Loop"
-│   ├── orchestrator.ts    # Defines executePhase()
-│   └── strategies/        # Live vs. Simulation implementations
-├── indexing/              # Plugin composition and pipeline logic
-├── plugins/               # Domain logic (Github, Discord, etc.)
-└── services/              # Implementation runners
-    ├── indexing-scheduler-worker.ts # Live production runner
-    └── simulation-worker.ts         # High-throughput simulation runner
+├── runtime/               # Core execution loop
+│   ├── orchestrator.ts    # Defines executePhase() - the "Inner Loop"
+│   └── strategies/        # Storage/Transition bridge for Live vs. Simulation
+│       ├── live.ts        # NoOpStorage, QueueTransition (Live entry)
+│       └── simulation.ts  # ArtifactStorage, QueueTransition (Sim entry)
+├── indexing/
+│   └── pluginPipeline.ts  # Generic engine for Waterfall/Collector plugin composition
+├── databases/
+│   └── momentGraph/       # The core Knowledge Graph schema (Nodes & Edges)
+├── simulation/
+│   └── runArtifacts.ts    # Cross-phase state persistence and inspectability
+├── runners/
+│   └── simulation/runner.ts # The "Tick" driver for simulation progression
+└── services/              # Infrastructure-to-Engine entry points (Workers)
 ```
 
 ### 6.3 Infrastructure Entry Point (`src/worker.tsx`)

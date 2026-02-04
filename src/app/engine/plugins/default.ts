@@ -10,6 +10,36 @@ import { callLLM } from "../utils/llm";
 export const defaultPlugin: Plugin = {
   name: "default",
 
+  async prepareSourceDocument(
+    context: IndexingHookContext
+  ): Promise<Document | null> {
+    const bucket = context.env.MACHINEN_BUCKET;
+    const object = await bucket.get(context.r2Key);
+
+    if (!object) {
+      throw new Error(`R2 object not found: ${context.r2Key}`);
+    }
+
+    const content = await object.text();
+
+    return {
+      id: context.r2Key,
+      source: "unknown",
+      type: "generic",
+      content: content || "",
+      metadata: {
+        title: `Generic Document - ${context.r2Key.split("/").pop()}`,
+        url: `file://${context.r2Key}`,
+        createdAt: new Date().toISOString(),
+        author: "unknown",
+        sourceMetadata: {
+          type: "generic",
+          r2Key: context.r2Key,
+        },
+      },
+    };
+  },
+
   async splitDocumentIntoChunks(
     document: Document,
     context: IndexingHookContext
@@ -57,7 +87,7 @@ export const defaultPlugin: Plugin = {
       currentChunkContent.push(line);
     }
 
-    if (currentChunkContent.length > 0) {
+    if (currentChunkContent.length > 0 || chunks.length === 0) {
       const chunkId = `${document.id}-${chunks.length}`;
       const content = currentChunkContent.join("\n");
       chunks.push({

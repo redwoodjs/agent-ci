@@ -144,7 +144,26 @@ export const discordPlugin: Plugin = {
       );
 
       if (messages.length === 0) {
-        return null;
+        console.warn(`[discordPlugin] Empty .jsonl for ${context.r2Key}, preparing as empty document`);
+        return {
+          id: context.r2Key,
+          source: "discord",
+          type: "channel-messages",
+          content: "",
+          metadata: {
+            title: `Discord Channel Messages (Empty) - ${parsed.date}`,
+            url: `discord://channel/${parsed.guildID}/${parsed.channelID}`,
+            createdAt: new Date().toISOString(),
+            author: "system",
+            _rawJson: { messages: [], parsed },
+            sourceMetadata: {
+              type: "discord-channel",
+              guildID: parsed.guildID,
+              channelID: parsed.channelID,
+              date: parsed.date,
+            },
+          },
+        };
       }
 
       // Create a combined content from all messages

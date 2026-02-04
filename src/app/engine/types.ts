@@ -3,7 +3,8 @@ export type Source =
   | "cursor"
   | "slack"
   | "meeting-notes"
-  | "discord";
+  | "discord"
+  | "unknown";
 
 export type SubjectKind = "problem" | "challenge" | "opportunity" | "initiative";
 

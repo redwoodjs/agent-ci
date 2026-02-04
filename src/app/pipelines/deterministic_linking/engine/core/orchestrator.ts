@@ -138,12 +138,28 @@ export async function computeDeterministicLinkingDecision(input: {
   proposedParentId: string | null;
   audit: { kind: string; ruleId: string | null; evidence: Record<string, any> };
 }> {
-  let candidateIssueRef: string | null = parseIssueRefFromAnchors(
-    input.macroAnchors
-  );
+  const selfIssueNumber = parseIssueNumberFromDocumentId(input.childDocumentId);
+  const selfRef = selfIssueNumber ? `#${selfIssueNumber}` : null;
+
+  let candidateIssueRef: string | null = null;
+  
+  // 1. Try macro anchors (filtered)
+  const anchorRef = parseIssueRefFromAnchors(input.macroAnchors);
+  if (anchorRef && anchorRef !== selfRef) {
+    candidateIssueRef = anchorRef;
+  } else if (anchorRef === selfRef && input.logger) {
+    input.logger.info("deterministic-linking:diagnostic:skip-self", { childMomentId: input.childMomentId, type: "macro-anchor", issueRef: selfRef });
+  }
+
+  // 2. Try fallback text extraction (filtered)
   if (!candidateIssueRef && input.childTextForFallbackAnchors) {
     const tokens = extractAnchorTokens(input.childTextForFallbackAnchors, 24);
-    candidateIssueRef = tokens.find((t) => /^#\d{1,10}$/.test(t)) ?? null;
+    const found = tokens.find((t) => /^#\d{1,10}$/.test(t)) ?? null;
+    if (found && found !== selfRef) {
+      candidateIssueRef = found;
+    } else if (found === selfRef && input.logger) {
+      input.logger.info("deterministic-linking:diagnostic:skip-self", { childMomentId: input.childMomentId, type: "fallback-text", issueRef: selfRef });
+    }
   }
 
   // Diagnostic: Log what we are working with
@@ -158,9 +174,6 @@ export async function computeDeterministicLinkingDecision(input: {
 
   // Fallback: Scan raw document content if provided
   if (!candidateIssueRef && input.rawDocumentContent) {
-    const selfIssueNumber = parseIssueNumberFromDocumentId(input.childDocumentId);
-    const selfRef = selfIssueNumber ? `#${selfIssueNumber}` : null;
-
     // Use global scan to find all potential candidates
     const matches = Array.from(input.rawDocumentContent.matchAll(/#(\d{1,10})/g));
     
@@ -176,7 +189,7 @@ export async function computeDeterministicLinkingDecision(input: {
     for (const match of matches) {
       const issueRef = match[0];
       if (selfRef && issueRef === selfRef) {
-        if (input.logger) input.logger.info("deterministic-linking:diagnostic:skip-self", { childMomentId: input.childMomentId, issueRef });
+        if (input.logger) input.logger.info("deterministic-linking:diagnostic:skip-self", { childMomentId: input.childMomentId, type: "raw-scan", issueRef });
         continue;
       }
       

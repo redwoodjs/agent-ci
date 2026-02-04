@@ -124,6 +124,18 @@ export async function computeTimelineFitProposalDeep(input: {
     null;
   const chosenParentId = firstOk ? firstOk.c.id : null;
 
+  console.log(`[timeline-fit:diagnostic] ${input.childMomentId} candidate count: ${candidateCount}, chosenParentId: ${chosenParentId}`);
+  if (chosenParentId && firstOk) {
+    console.log(`[timeline-fit:diagnostic] ${input.childMomentId} matched ${chosenParentId} via ${firstOk.shared.length} shared anchors:`, firstOk.shared);
+  } else {
+    const topCandidates = ranked.slice(0, 3).map(r => ({
+      id: r.c.id,
+      sharedCount: r.shared.length,
+      vetoed: vetoed.has(r.c.id)
+    }));
+    console.log(`[timeline-fit:diagnostic] ${input.childMomentId} no parent selected. Top candidates:`, topCandidates);
+  }
+
   return { candidateCount, chosenParentId, decisions, veto };
 }
 

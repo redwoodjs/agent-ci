@@ -393,6 +393,25 @@ export async function addMoment(
       })
       .execute();
   }
+
+  // 3. Persist Anchors
+  if (Array.isArray(moment.anchors) && moment.anchors.length > 0) {
+    // Delete existing anchors for this moment first (idempotency)
+    await db.deleteFrom("moment_anchors").where("moment_id", "=", moment.id).execute();
+    
+    // Insert new anchors
+    const anchorValues = moment.anchors.map(a => ({
+      moment_id: moment.id,
+      anchor: a
+    }));
+    
+    // Insert in batches if many
+    const batchSize = 50;
+    for (let i = 0; i < anchorValues.length; i += batchSize) {
+      const batch = anchorValues.slice(i, i + batchSize);
+      await db.insertInto("moment_anchors").values(batch as any).execute();
+    }
+  }
 }
 
 export async function deleteMomentsByIds(
@@ -798,6 +817,67 @@ export async function findAncestors(
   }
 
   return ancestors;
+}
+
+export async function findMomentsByAnchors(
+  anchors: string[],
+  context: MomentGraphContext
+): Promise<Moment[]> {
+  if (!Array.isArray(anchors) || anchors.length === 0) {
+    return [];
+  }
+
+  const db = getMomentDb(context);
+  const rows = (await db
+    .selectFrom("moment_anchors")
+    .innerJoin("moments", "moments.id", "moment_anchors.moment_id")
+    .selectAll("moments")
+    .where("moment_anchors.anchor", "in", anchors)
+    .execute()) as unknown as MomentRow[];
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  // De-duplicate by moment ID
+  const seen = new Set<string>();
+  const uniqueRows: MomentRow[] = [];
+  for (const row of rows) {
+    if (!seen.has(row.id)) {
+      seen.add(row.id);
+      uniqueRows.push(row);
+    }
+  }
+
+  return uniqueRows.map(row => ({
+    id: row.id,
+    documentId: row.document_id,
+    summary: row.summary,
+    title: row.title,
+    parentId: row.parent_id || undefined,
+    microPaths: row.micro_paths_json || undefined,
+    microPathsHash: row.micro_paths_hash || undefined,
+    importance: typeof row.importance === "number" ? row.importance : undefined,
+    linkAuditLog: row.link_audit_log || undefined,
+    momentKind:
+      typeof (row as any).moment_kind === "string"
+        ? (row as any).moment_kind
+        : undefined,
+    momentEvidence: (row as any).moment_evidence_json || undefined,
+    isSubject: (row as any).is_subject === 1,
+    subjectKind:
+      typeof (row as any).subject_kind === "string"
+        ? (row as any).subject_kind
+        : undefined,
+    subjectReason:
+      typeof (row as any).subject_reason === "string"
+        ? (row as any).subject_reason
+        : undefined,
+    subjectEvidence: (row as any).subject_evidence_json || undefined,
+    createdAt: row.created_at,
+    author: row.author,
+    sourceMetadata: row.source_metadata || undefined,
+  }));
 }
 
 export async function findDescendants(

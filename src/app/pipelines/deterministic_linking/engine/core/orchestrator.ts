@@ -21,10 +21,8 @@ export function computeDeterministicLinkingProposal(input: {
   candidateParentR2Key: string | null;
 }): DeterministicLinkingProposal {
   const proposedParent =
-    input.macroIndex > 0
-      ? input.prevMomentId
-      : input.candidateParentMomentId &&
-        input.candidateParentMomentId !== input.childMomentId
+    input.candidateParentMomentId &&
+    input.candidateParentMomentId !== input.childMomentId
       ? input.candidateParentMomentId
       : null;
 
@@ -37,9 +35,7 @@ export function computeDeterministicLinkingProposal(input: {
   };
 
   let ruleId: string | null = null;
-  if (input.macroIndex > 0) {
-    ruleId = "within_stream_chain";
-  } else if (proposedParent) {
+  if (proposedParent) {
     ruleId = input.candidateIssueRef
       ? "explicit_issue_ref_thread_head"
       : "explicit_parent_hint";
@@ -142,11 +138,19 @@ export async function computeDeterministicLinkingDecision(input: {
     candidateIssueRef = tokens.find((t) => /^#\d{1,10}$/.test(t)) ?? null;
   }
 
+  // Diagnostic log for anchor extraction
+  if (input.macroAnchors && input.macroAnchors.length > 0) {
+    console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} found anchors:`, input.macroAnchors);
+    if (candidateIssueRef) {
+      console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} extracted issueRef: ${candidateIssueRef}`);
+    }
+  }
+
   let candidateParentMomentId: string | null = null;
   let candidateParentDocumentId: string | null = null;
   let matchedAnchorMomentId: string | null = null;
 
-  if (input.macroIndex === 0 && candidateIssueRef) {
+  if (candidateIssueRef) {
     const repo = parseGithubRepoFromDocumentId(input.childDocumentId);
     const issueNumber = candidateIssueRef.slice(1);
     if (repo && issueNumber) {
@@ -168,9 +172,14 @@ export async function computeDeterministicLinkingDecision(input: {
           candidateParentMomentId = resolved.headMomentId;
           candidateParentDocumentId = docId;
           matchedAnchorMomentId = resolved.anchorMomentId;
+          console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} successfully resolved ${candidateIssueRef} to ${candidateParentMomentId} (doc: ${docId})`);
           break;
+        } else {
+          console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} failed to resolve ${candidateIssueRef} via doc: ${docId}`);
         }
       }
+    } else {
+      console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} could not parse repo from ${input.childDocumentId} for ${candidateIssueRef}`);
     }
   }
 

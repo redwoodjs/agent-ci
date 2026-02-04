@@ -2,7 +2,7 @@
 import { getEmbedding } from "../../../../engine/utils/vector";
 import { PipelineContext } from "../../../../engine/runtime/types";
 import { Moment } from "../../../../engine/types";
-import { getMoments } from "../../../../engine/databases/momentGraph";
+import { getMoments, findMomentsByAnchors } from "../../../../engine/databases/momentGraph";
 
 
 export type CandidateSetInput = {
@@ -108,10 +108,7 @@ export function buildCandidateSet(input: CandidateSetInput): {
       filtered.missingRow++;
       continue;
     }
-    if (row.document_id === input.childDocumentId) {
-      filtered.sameDoc++;
-      continue;
-    }
+    // ALLOW same-document moments (for stream chaining in timeline_fit)
 
     const parentStartMs =
       computeMomentStartMs({
@@ -202,14 +199,36 @@ export async function runCandidateSetComputation(input: {
 
   const matchIds = matches.map((m: any) => m.id as string);
 
+  // 2.5 Anchor Query (SQLite)
+  const anchorMoments = await findMomentsByAnchors(childMoment.anchors ?? [], {
+    env: context.env,
+    momentGraphNamespace: (context as any).momentGraphNamespace || null,
+  });
+
+  const anchorMatchIds = anchorMoments.map((m: Moment) => m.id);
+  const anchorMatchSet = new Set(anchorMatchIds);
+
+  // Merge anchor IDs into matchIds, prioritizing them in the list
+  const mergedMatchIds = Array.from(new Set([...anchorMatchIds, ...matchIds]));
+
+  // Rebuild matches list to include anchor matches (giving them high synthetic scores)
+  const mergedMatches = mergedMatchIds.map(id => {
+    const vectorMatch = matches.find((m: { id: string, score: number | null }) => m.id === id);
+    if (vectorMatch) {
+      return vectorMatch;
+    }
+    // Synthetic match for anchor match not found in vector
+    return { id, score: 0.95 }; // High score for explicit anchor match
+  });
+
   // 3. Load candidate rows details from Moment Graph
-  const candidateMoments = await getMoments(matchIds, {
+  const candidateMoments = await getMoments(mergedMatchIds, {
     env: context.env,
     momentGraphNamespace: (context as any).momentGraphNamespace || null,
   });
   
   const candidateRowsById = new Map<string, any>(
-    Array.from(candidateMoments.entries()).map(([id, r]: [string, any]) => [id, {
+    Array.from(candidateMoments.entries()).map(([id, r]: [string, Moment]) => [id, {
       id: r.id,
       document_id: r.documentId,
       created_at: r.createdAt,
@@ -226,10 +245,21 @@ export async function runCandidateSetComputation(input: {
     childMomentId: childMoment.id,
     childDocumentId: childMoment.documentId,
     childStartMs,
-    matches,
+    matches: mergedMatches,
     candidateRowsById: candidateRowsById as any,
     maxCandidates,
   });
+
+  if (context.logger) {
+    await context.logger.info("candidate-sets.hybrid-retrieval", {
+      momentId: childMoment.id,
+      anchors: childMoment.anchors,
+      anchorMatches: anchorMatchIds.length,
+      vectorMatches: matches.length,
+      mergedMatches: mergedMatches.length,
+      finalCandidates: built.candidates.length
+    });
+  }
 
   const finalCandidates = built.candidates.map((c: any) => ({
     id: c.id,

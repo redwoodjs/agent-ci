@@ -13,6 +13,9 @@ To prevent "Live/Sim Schism", we enforce a single code path for execution.
 ### 2.1 The Single Loop
 There is only one Orchestrator function: `executePhase`.
 
+**Rationale: Avoiding Live/Sim Schism**
+Maintaining separate code paths for real-time (Live) and batch (Simulation) execution inevitably leads to behavioral drift. By enforcing a single orchestrator, we ensure that fixes and improvements apply to both modes simultaneously. Differences in behavior are strictly isolated to **Storage** and **Transition** strategies.
+
 ```typescript
 // THE SINGLE SHARED CODE PATH
 async function executePhase(
@@ -38,6 +41,9 @@ async function executePhase(
 ### 2.2 Stateless Phase Execution via Context
 Memory is our scarcest resource (128MB limit). We cannot pass huge objects between functions or hold the graph in memory.
 Instead, we use **Stateless Execution with Context**.
+
+**Rationale: Infrastructure Constraints**
+Cloudflare Workers impose strict CPU and memory limits. A monolithic memory-resident graph would crash under load. Statelessness allows our workers to remain ephemeral and scales horizontally by fetching only the necessary sub-graph (by ID) for each specific phase execution.
 
 **The Rule**: Logic functions are pure-ish. They accept an ID (`input`) and a capability bag (`context`). They MUST fetch what they need from the DB using the ID, and write their results back via the Context.
 
@@ -125,9 +131,12 @@ This data flow describes exactly what happens to a document as it moves through 
 *   **Goal**: Understand the "Stream of Consciousness".
 *   **Input**: `MicroMoment[]`.
 *   **Context Read**: None.
-*   **Logic**: LLM reads the stream of text chunks and synthesizes a narrative summary ("User X proposed Y", "PR Z implemented Y").
-*   **Context Write**: None.
-*   **Output**: `MacroStream[]` (Draft moments).
+*   **Logic**: 
+    1.  LLM reads the stream of text chunks.
+    2.  **Context Injection**: Utilizes `macroSynthesisPromptContext` (passed from document metadata) to provide domain-specific guidance (e.g., "Summarize this as a technical investigation").
+    3.  Synthesizes a narrative summary ("User X proposed Y", "PR Z implemented Y").
+*   **Context Write**: Extracts **Anchor Tokens** (Issue refs, code identifiers) and attaches them to the macro-moments.
+*   **Output**: `MacroStream[]` (Draft moments with anchors).
 
 ### Phase 4: Classification
 *   **Goal**: Filter noise and Tag.
@@ -150,21 +159,30 @@ This data flow describes exactly what happens to a document as it moves through 
 *   **Goal**: Link what we know for sure (Zero Hallucination).
 *   **Input**: `moment_id`.
 *   **Context Read**: 
-    *   Reads `moment` body. 
-    *   Regex scan for identifiers (e.g., `Fixes #123`).
-    *   `db.find('source_ref:github/123')`.
+    *   Reads `moment` body and `anchors`. 
+    *   Resolves explicit cross-links (e.g., `Fixes #123`) using `resolveThreadHeadForDocumentAsOf`.
 *   **Context Write**: 
     *   **INSERT** into `links` table (e.g. `PR -> Issue`).
+
+**Rationale: Decoupling Continuity from Cross-Linking**
+This phase is restricted to explicit, unambiguous cross-links (e.g. Git refs). It specifically avoids "stream chaining" (sequential document moments) to prevent forcing linear timelines. Moving continuity evaluation to Phase 8 allows the system to prioritize cross-document links if they present a stronger signal than the default sequential link.
+
 *   **Output**: `ParentLink` structure (for logging).
 
-### Phase 7: Candidate Generation (Search)
+### Phase 7: Candidate Generation (Hybrid Retrieval)
 *   **Goal**: Find what *might* be related.
 *   **Input**: `moment_id`.
-*   **Context Utility**: `context.vector.query(embedding)`.
+*   **Logic**:
+    1.  **Semantic Search**: `context.vector.query(embedding)` finds conceptually similar moments.
+    2.  **Explicit Search**: Queries SQLite `moment_anchors` for moments sharing exact tokens (Issue refs, PRs, code).
+    3.  **Merged Candidates**: Combines both sets. Same-document moments are NO LONGER filtered out, allowing stream-chaining to be evaluated.
+
+**Rationale: Semantic Generator vs. Continuity Evidence**
+Vector similarity is excellent at finding "same subject area" content but poor at distinguishing "same work item timeline". High semantic similarity can cause false-positive links between unrelated tasks. We use SQLite for anchor matching because strict token equality is a more reliable indicator of work continuity than vector distance, and relational queries are significantly faster than metadata filtering in high-cardinality vector indexes.
 *   **Context Read**: 
     *   Vector Index returns top K matches (IDs + Scores).
-    *   Fetches metadata for those IDs from `db`.
-*   **Logic**: Filters out candidates created *after* the current moment (Basic causality check).
+    *   SQLite returns exact anchor matches.
+    *   Fetches metadata for all IDs from `db`.
 *   **Output**: `Candidate[]`.
 
 > **Note**: This phase can only find candidates that have already been **Materialized** (Phase 5).
@@ -172,14 +190,13 @@ This data flow describes exactly what happens to a document as it moves through 
 ### Phase 8: Timeline Fit (The Judgment)
 *   **Goal**: Finalize the Graph.
 *   **Input**: `moment_id`, `Candidate[]`.
-*   **Context Read**: None (uses input candidates).
 *   **Logic**: 
-    *   LLM reviews the pair (`Moment`, `Candidate`).
-    *   **Veto Check**: Does the timeline make sense? (e.g. Can a PR fix an issue that doesn't exist yet?)
-    *   **Semantic Check**: Is the link strong enough?
+    *   **Shared Anchor weighting**: Prioritizes candidates that share explicit anchors.
+    *   **Stream Chaining**: Evaluates whether the previous moment in a document is the best fit, or if a cross-document link is more appropriate.
+    *   **LLM Veto**: Reviews the pair (`Moment`, `Candidate`) for chronological and thematic sanity.
 *   **Context Write**: 
     *   **INSERT** into `links` table if accepted.
-    *   Log decision rationale (Why yes? Why no?).
+    *   Log decision rationale (Including shared anchor details).
 *   **Output**: `FinalDecision`.
 
 ## 5. End-to-End Walkthrough: "The Prefetching Story"

@@ -64,7 +64,6 @@ export async function resolveThreadHeadForDocumentAsOf(input: {
   documentId: string;
   asOfMs: number | null;
   context: MomentGraphContext;
-  excludeMomentId?: string | null;
 }): Promise<{ anchorMomentId: string | null; headMomentId: string | null }> {
   const first = await getMomentsForDocument(input.documentId, input.context, {
     limit: 1,
@@ -76,12 +75,8 @@ export async function resolveThreadHeadForDocumentAsOf(input: {
   }
 
   const descendants = await findDescendants(anchor.id, input.context);
-  const excludeId = input.excludeMomentId ?? null;
-  const filteredDescendants = excludeId
-    ? descendants.filter((m) => m.id !== excludeId)
-    : descendants;
   const head = pickThreadHeadAsOf({
-    moments: filteredDescendants,
+    moments: descendants,
     asOfMs: input.asOfMs,
   });
 

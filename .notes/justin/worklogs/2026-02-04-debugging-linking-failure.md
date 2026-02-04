@@ -399,3 +399,51 @@ export interface IngestDiffOutput {
 - [ ] Update `simulation-worker.ts` to propagate namespace from artifacts
 - [ ] Verify fix with needle simulation
 
+
+## Drafted PR Description [2026-02-04]
+
+# Unified Runtime: Merging Live & Simulation Engines
+
+## Problem
+Machinen was suffering from a "Two Engine" problem. To optimize for different constraints—latency for Live, throughput for Simulation—we architected two completely separate execution paths.
+
+This schism created a distinct architectural smell: **Permissiveness**.
+
+1.  **The Constraint Failure**: The previous architecture made it *too easy* to implement logic in the wrong place. We found multiple phases where complex business logic existed *only* in the `Simulation Runner`, completely bypassing the shared core.
+2.  **The Broken Live Path**: Because logic leaked into the Simulation runners, the "Live" adapters were often empty shells. We discovered that for many phases, the Live implementation *did not actually exist*, meaning the system was incapable of running in production despite passing simulation backtests.
+3.  **Logic Drift**: Even where code was shared, the "Runner" layers (error handling, polling, retries) diverged significantly. A successful simulation run was no guarantee of live correctness because the underlying orchestration was fundamentally different.
+4.  **Zombie Tasks**: The legacy simulation engine lacked a coherent supervisor. Jobs would fail, retry indefinitely without counting, and thrash the queue—a "distributed infinite loop" that drained resources.
+
+We realized that by allowing the Simulation to be a separate product, we had built a system that was excellent at simulating *itself*, but poor at verifying the production runtime.
+
+## Solution
+This change deletes the concept of separate engines. We have introduced a **Unified Runtime** (`src/app/engine/runtime`) that enforces a single code path for all execution.
+
+### 1. The Single Orchestrator
+There is now only one entry point: `executePhase`.
+It handles the universal lifecycle of every unit of work: `Load -> Execute -> Persist -> Transition`.
+
+We handle environment differences not by forking the code, but by injecting **Strategies**:
+*   **Live Mode**: Uses `NoOpStorage` (ephemeral) and `QueueTransition`.
+*   **Simulation Mode**: Uses `ArtifactStorage` (persists inputs/outputs to DB) and `QueueTransition` (throttled).
+
+### 2. Stateless Context (Death to "Ports")
+We removed the "Ports and Adapters" pattern, which proved to be an abstraction too far. Core business logic now accepts a `PipelineContext`. This context provides a standard set of stateless capabilities (`db`, `vector`, `llm`, `logger`). The logic remains pure-ish (it controls *what* to do), while the Runtime handles the side-effects of *when* to retry or save.
+
+### 3. Infrastructure Isolation
+Simulations are no longer "second-class citizens" operating in a shared dump. We enforced strict Infrastructure Isolation:
+*   **Scoped Namespaces**: Simulation runs now resolve the project scope (e.g., `redwood:rwsdk`) during Ingestion and strictly enforce this scope for all subsequent writes.
+*   **Deterministic Execution**: We purged post-R2 caching layers. If the source code changes, the simulation *must* re-execute the logic, ensuring that we never validate against stale "cached" success.
+
+### 4. The Great Deletion
+By unifying the runners, we deleted:
+*   **Per-Phase Runners:** 8+ copies of polling loops and error handlers.
+*   **The Pipeline Registry:** A redundant map of phase definitions.
+*   **Legacy Databases:** The `subjects` database and disjointed `simulation_run_*` tables were replaced by a single `simulation_run_artifacts` store.
+*   **R2 Listing Pipeline:** Collapsed entirely into the Simulation Runner as a built-in pre-flight step.
+
+## Verification
+This re-architecture was verified by:
+1.  **Needle Simulations:** Running end-to-end simulations on specific PRs (`#933`, `#522`) to prove that correct linking, synthesis, and fitting occur under the new runtime.
+2.  **Infrastructure Checks:** Verifying that no "zombie" tasks remained in Cloudflare Queues after run failures.
+3.  **UI Verification:** Confirming that the Knowledge Graph reflects project-isolated data correctly.

@@ -76,3 +76,37 @@ We have updated `simulation-worker.ts` to use `createEngineContext(env, "indexin
 We have added explicit logging to confirm these fixes are active in the runtime environment:
 1. **Service Initialization**: `simulation-worker.ts` now logs `engine.context-initialized` upon successful setup of LLM/Vector services.
 2. **JSON-Blob-First**: `runArtifacts.ts` now logs `[run-artifacts] Using enriched data for X decisions (JSON-Blob-First)` when it successfully bypasses the relational DB bottleneck.
+
+## Finalized PR and Logging
+We have completed the implementation and verification of the artifact enrichment strategy and the background worker service initialization fix. Log evidence confirms the successful transition from 'llm-veto-fail' errors to active reasoning services.
+
+### PR Summary
+**Title**: Adopt Artifact Enrichment for Large Scale Simulations
+
+**Problem**: 
+Large-scale simulations were failing with 'llm-veto-fail' due to uninitialized services in workers, and 'Untitled' entries in the UI caused by SQL parameter limits during relational fetching.
+
+**Solution**:
+1. **Worker Initialization**: Updated  to use , ensuring workers have access to LLM and Vector services.
+2. **Artifact Enrichment**: Updated orchestrators for Phases 7, 8, and 9 to embed titles and summaries directly into decision artifacts.
+3. **UI Pivot**: Updated  to prioritize these enriched fields, bypassing the relational DB join bottleneck.
+
+**Verification**:
+Confirmed 140+  events in the logs and verified the presence of enriched metadata in processed artifacts.
+
+## Finalized PR and Logging
+We have completed the implementation and verification of the artifact enrichment strategy and the background worker service initialization fix. Log evidence confirms the successful transition from 'llm-veto-fail' errors to active reasoning services.
+
+### PR Summary
+**Title**: Adopt Artifact Enrichment for Large Scale Simulations
+
+**Problem**: 
+Large-scale simulations were failing with 'llm-veto-fail' due to uninitialized services in workers, and 'Untitled' entries in the UI caused by SQL parameter limits during relational fetching.
+
+**Solution**:
+1. **Worker Initialization**: Updated `simulation-worker.ts` to use `createEngineContext`, ensuring workers have access to LLM and Vector services.
+2. **Artifact Enrichment**: Updated orchestrators for Phases 7, 8, and 9 to embed titles and summaries directly into decision artifacts.
+3. **UI Pivot**: Updated `runArtifacts.ts` to prioritize these enriched fields, bypassing the relational DB join bottleneck.
+
+**Verification**:
+Confirmed 140+ `engine.context-initialized` events in the logs and verified the presence of enriched metadata in processed artifacts.

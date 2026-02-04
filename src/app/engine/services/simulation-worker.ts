@@ -9,6 +9,7 @@ import { SimulationStrategies } from "../runtime";
 import { createEngineContext } from "../index";
 import { addSimulationRunEvent } from "../simulation/runEvents";
 import { applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
+import { registerParticipatingNamespace } from "../simulation/runNamespaces";
 
 /**
  * Centrally tracks simulation job failures in the database for UI transparency,
@@ -171,10 +172,34 @@ export async function processSimulationJob(
               }
             };
 
+            // Resolve Namespace/Scope
+            // We attempt to load the resolved baseNamespace from the ingest_diff artifact.
+            // If it's not found (e.g. during ingest_diff itself), we fallback to the run's default.
+            const ingestDiffDef = getPhaseByName("ingest_diff");
+            let baseNamespace = runRow.moment_graph_namespace ?? null;
+            
+            if (currentPhaseName !== "ingest_diff" && ingestDiffDef) {
+              const ingestDiffArtifact = await strategies.storage.load<{ baseNamespace: string | null }>(
+                  ingestDiffDef, 
+                  message.r2Key
+              );
+              if (ingestDiffArtifact) {
+                baseNamespace = ingestDiffArtifact.baseNamespace;
+              }
+            }
+
             const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
-                runRow.moment_graph_namespace ?? null,
+                baseNamespace,
                 runRow.moment_graph_namespace_prefix ?? null
             );
+
+            // Register participation if we have a resolved namespace
+            if (effectiveNamespace) {
+               await registerParticipatingNamespace(context, { 
+                 runId: message.runId, 
+                 namespace: effectiveNamespace 
+               });
+            }
 
             const pipelineContext: any = {
               ...context,

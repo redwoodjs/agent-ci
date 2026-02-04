@@ -100,6 +100,7 @@ We inject behavior to handle the different constraints of Live vs Simulation.
 3.  **QUEUE BOUNDARY**: Both strategies use `QueueTransition` for reliability. Recursion is avoided to prevent CPU Timeouts (30s limit).
 4.  **No Per-Phase Runners**: All orchestration usage must go through the generic pipeline.
 5.  **Statelessness**: Workers are ephemeral.
+6.  **Infrastructure Isolation**: Data is strictly partitioned by `momentGraphNamespace`. In simulations, this namespace is prefixed (e.g., `local-date:redwood:rwsdk`) to ensure simulation runs do not contaminate live data while maintaining project-level isolation.
 
 ## 4. The 8-Phase Lifecycle (Detailed Flow)
 
@@ -111,9 +112,12 @@ This data flow describes exactly what happens to a document as it moves through 
 *   **Context Read**: 
     *   Fetches the JSON from R2.
     *   Checks `db.document_checksums` to see if we've processed this before.
+    *   **Namespace Resolution**: Resolves the document's project scope (`baseNamespace`) using domain-specific plugins.
 *   **Validation**: Plugin parses R2 key -> validates structure -> normalizes to `Document`.
-*   **Context Write**: Updates `db.document_checksums` if changed.
-*   **Output**: `Document` object (in-memory) or `null` (if skipped).
+*   **Context Write**: 
+    1. Updates `db.document_checksums` if changed.
+    2. Persists `baseNamespace` in the phase artifact for use in subsequent phases.
+*   **Output**: `Document` object + `baseNamespace` or `null` (if skipped).
 
 ### Phase 2: Micro-Batches (Chunk & Embed)
 *   **Goal**: Prepare atomic units for Vector Search.

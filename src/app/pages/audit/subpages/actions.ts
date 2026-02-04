@@ -415,6 +415,8 @@ export async function getKnowledgeGraph(options?: {
       effectivePrefix
     );
 
+    console.log(`[audit:actions:getKnowledgeGraph] baseNamespace: ${baseNamespace}, prefix: ${effectivePrefix} -> effectiveNamespace: ${effectiveNamespace}`);
+
     const context = {
       env: envCloudflare,
       momentGraphNamespace: effectiveNamespace,
@@ -460,6 +462,8 @@ export async function getKnowledgeGraphStatsAction(options?: {
       baseNamespace,
       effectivePrefix
     );
+
+    console.log(`[audit:actions:getKnowledgeGraphStatsAction] baseNamespace: ${baseNamespace}, prefix: ${effectivePrefix} -> effectiveNamespace: ${effectiveNamespace}`);
 
     const context = {
       env: envCloudflare,

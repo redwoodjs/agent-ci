@@ -10,7 +10,7 @@ import { runIngestDiffForKey } from "./engine/core/orchestrator";
  *   - { etag: string, changed: true } -> Proceed to next phase
  *   - null -> Stop (Document has not changed)
  */
-export const IngestDiffPhase: Phase<string, { etag: string; changed: boolean } | null> = {
+export const IngestDiffPhase: Phase<string, { etag: string; changed: boolean; baseNamespace: string | null } | null> = {
   name: "ingest_diff",
   next: "micro_batches",
   execute: async (r2Key: string, context: PipelineContext) => {

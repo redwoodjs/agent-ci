@@ -435,13 +435,8 @@ async function SimulationRunsContent({
                 const params = new URLSearchParams();
                 const baseNs = run.momentGraphNamespace;
                 const prefix = run.momentGraphNamespacePrefix ?? null;
-                const effectiveNs = applyMomentGraphNamespacePrefixValue(
-                  baseNs,
-                  prefix
-                );
-                if (effectiveNs) {
-                  params.set("namespace", effectiveNs);
-                } else if (baseNs) {
+                
+                if (baseNs) {
                   params.set("namespace", baseNs);
                 }
                 if (prefix) {

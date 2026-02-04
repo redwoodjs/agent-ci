@@ -190,3 +190,63 @@ No changes to public interface of `Moment` type, but we will utilize the existin
 - [ ] Add observability to `timeline_fit`
 - [ ] Update `runtime-architecture.md` blueprint
 - [ ] Verify fix with simulation (Requires User to run index creation recipe first)
+
+## Work Task Blueprint: Resolve Linking Failure, Retrieval Stall, and UI Discrepancy
+
+### Context
+We are resolving three interrelated issues discovered during needle simulation runs:
+1. **Retrieval Stall**: Vectorize v7 indexes appear stagnant. We rotated to **v8**.
+2. **Deterministic Linking Failure**: The reference from #933 to #522 is missed because it resides in the raw document body but wasn't synthesized into the moment's summary.
+3. **Timeline Fit UI Bug**: The UI displays "Rejected / No Fit" even when a parent is successfully chosen, because the `outcome` field is missing from the orchestrator's output.
+
+### Breakdown of Planned Changes
+
+#### Core Engine (Vectorize v8 & Metadata Indexes)
+*   **Rotation**: Updated `wrangler.jsonc` to point to `moment-index-v8`, `subject-index-v8`, and `rag-index-v8`.
+*   **Binding**: Added missing `SUBJECT_INDEX` binding.
+
+#### Deterministic Linking (Full Doc Scan Fallback)
+*   **Modify `src/app/pipelines/deterministic_linking/engine/core/orchestrator.ts`**:
+    *   If moment anchors fail to find a reference, fetch the raw source document from R2 (via `r2Key`).
+    *   Scan the raw text for explicit references like `#522` using regex.
+    *   [NEW] Logging for R2 fetch and extraction.
+
+#### Timeline Fit (UI & Logic Alignment)
+*   **Modify `src/app/pipelines/timeline_fit/engine/core/orchestrator.ts`**:
+    *   [NEW] Add `outcome` property to the return object: "fit" if `chosenParentId` is set, otherwise "no-fit".
+    *   [NEW] Ensure diagnostic logs reflect the chosen outcome.
+
+### Directory & File Structure
+```text
+src/app/
+├── pipelines/
+│   ├── deterministic_linking/
+│   │   └── engine/core/
+│   │       └── [MODIFY] orchestrator.ts
+│   └── timeline_fit/
+│       └── engine/core/
+│           └── [MODIFY] orchestrator.ts
+└── [MODIFY] wrangler.jsonc
+```
+
+### Types & Data Structures
+No breaking changes to public types.
+
+### Invariants & Constraints
+*   **Source Truth**: Deterministic linking should prioritize explicit references in the raw document over synthesized summaries.
+*   **UI Consistency**: The `outcome` field must accurately reflect the `chosenParentId` state.
+
+### System Flow (Snapshot Diff)
+*   **Previous Flow**: 
+    1. Deterministic linking only scans moment title/summary.
+    2. Timeline fit returns `chosenParentId` but omits `outcome`.
+*   **New Flow**:
+    1. Deterministic linking fallbacks to raw R2 content scan.
+    2. Timeline fit explicitly sets `outcome: "fit"` on success.
+
+### Tasks
+- [x] Rotate to Vectorize v8 indexes
+- [ ] Implement raw doc scan fallback in `deterministic_linking`
+- [ ] Fix missing `outcome` in `timeline_fit`
+- [ ] Verify fix with needle simulation
+

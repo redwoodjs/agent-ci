@@ -243,6 +243,7 @@ export async function runTimelineFitForDocument(input: {
   }>;
 }): Promise<{
   chosenParentId: string | null;
+  outcome: string;
   decisions: any[];
   audit: any;
 }> {
@@ -278,6 +279,7 @@ export async function runTimelineFitForDocument(input: {
 
   return {
     chosenParentId: proposal.chosenParentId,
+    outcome: proposal.chosenParentId ? "fit" : "no-fit",
     decisions: proposal.decisions,
     audit,
   };

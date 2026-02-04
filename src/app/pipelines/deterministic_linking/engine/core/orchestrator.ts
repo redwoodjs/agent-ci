@@ -126,6 +126,7 @@ export async function computeDeterministicLinkingDecision(input: {
   childSourceMetadata?: Record<string, any>;
   macroAnchors?: string[] | null;
   childTextForFallbackAnchors?: string | null;
+  rawDocumentContent?: string | null;
 }): Promise<{
   proposedParentId: string | null;
   audit: { kind: string; ruleId: string | null; evidence: Record<string, any> };
@@ -136,6 +137,15 @@ export async function computeDeterministicLinkingDecision(input: {
   if (!candidateIssueRef && input.childTextForFallbackAnchors) {
     const tokens = extractAnchorTokens(input.childTextForFallbackAnchors, 24);
     candidateIssueRef = tokens.find((t) => /^#\d{1,10}$/.test(t)) ?? null;
+  }
+
+  // Fallback: Scan raw document content if provided
+  if (!candidateIssueRef && input.rawDocumentContent) {
+    const rawMatch = input.rawDocumentContent.match(/#(\d{1,10})/);
+    if (rawMatch?.[0]) {
+      candidateIssueRef = rawMatch[0];
+      console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} found fallback issueRef in raw document: ${candidateIssueRef}`);
+    }
   }
 
   // Diagnostic log for anchor extraction
@@ -233,6 +243,22 @@ export async function runDeterministicLinkingForDocument(input: {
     momentByStreamAndIndex.set(`${streamId}:${macroIndex}`, m);
   }
 
+  // Optional: Fetch raw document content from R2 for fallback scanning
+  let rawDocumentContent: string | null = null;
+  try {
+    const bucket = (context.env as any).MACHINEN_BUCKET;
+    if (bucket) {
+      const obj = await bucket.get(r2Key);
+      if (obj) {
+        const text = await obj.text();
+        rawDocumentContent = text;
+        console.log(`[deterministic-linking:diagnostic] Fetched raw document from R2 for ${r2Key} (length: ${text.length})`);
+      }
+    }
+  } catch (err) {
+    console.warn(`[deterministic-linking:diagnostic] Failed to fetch raw document from R2 for ${r2Key}:`, err);
+  }
+
   for (const childMoment of moments) {
     const meta = childMoment.sourceMetadata as any;
     const streamId = meta?.simulation?.streamId || "stream";
@@ -267,6 +293,7 @@ export async function runDeterministicLinkingForDocument(input: {
       childTextForFallbackAnchors: `${childMoment.title || ""}\n${
         childMoment.summary || ""
       }`,
+      rawDocumentContent,
     });
 
     decisions.push({

@@ -3,6 +3,7 @@ import * as path from "path";
 import * as https from "https";
 import * as http from "http";
 import * as child_process from "child_process";
+import { convertPbToMarkdown } from "./protobugConverter";
 
 /**
  * Interface for Antigravity Context
@@ -153,11 +154,11 @@ export async function uploadAntigravityData(
       if (stat.mtime > lastUploadedMtime) {
         logger.appendLine(`[Antigravity] Conversation history ${projectId}.pb has changed. Uploading...`);
         const content = await vscode.workspace.fs.readFile(conversationFilePath);
-        const base64Content = Buffer.from(content).toString("base64");
+        const markdownContent = convertPbToMarkdown(Buffer.from(content));
 
         const payload = {
-          r2Key: `agent/projects/${projectId}/conversation.pb`,
-          content: base64Content,
+          r2Key: `agent/projects/${projectId}/conversation.md`,
+          content: markdownContent,
           metadata: {
             title: "Conversation History",
             author: userHandle,

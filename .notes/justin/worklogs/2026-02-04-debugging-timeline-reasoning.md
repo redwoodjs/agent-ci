@@ -32,10 +32,5 @@ src/app/pipelines/timeline_fit/
     └── [MODIFY] orchestrator.ts
 ```
 
-### Verification Plan
-
-#### Automated Tests
-*   **Rerun Needle Simulation (`needle-sim-1`)**:
-    *   Focus on any PR or Issue (e.g., #933).
-    *   Verify `timeline-fit:diagnostic` logs appear in the event stream.
-    *   Confirm `candidateCount`, `chosenParentId`, and `decisions` are visible.
+## Implemented logging fixes
+We replaced console.log with logger.info in the timeline_fit orchestrator to ensure decision logic is visible in the simulation UI.

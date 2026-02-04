@@ -47,6 +47,9 @@ export { EngineSimulationStateDO } from "@/app/engine/databases/simulationState/
 export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
 export { MomentGraphDO } from "@/app/engine/databases/momentGraph/durableObject";
 export { DiscordWebhookBatcherDO } from "@/app/ingestors/discord/db/webhook-batcher-durableObject";
+export { SubjectDO } from "@/app/engine/databases/subjects/durableObject";
+// Temporary export for migration - will be removed after v8 migration completes
+export { SubjectDO as SubjectGraphDO } from "@/app/engine/databases/subjects/durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";

@@ -740,9 +740,9 @@ export async function getSimulationRunTimelineFitDecisions(
       }
       const decision = decisionsMap[momentId];
       if (decision.chosenParentId) momentIds.add(decision.chosenParentId);
-      const candidates = Array.isArray(decision.candidates) ? decision.candidates : [];
+      const candidates = Array.isArray(decision.decisions) ? decision.decisions : [];
       for (const c of candidates) {
-        if (c.momentId) momentIds.add(c.momentId);
+        if (c.candidateId) momentIds.add(c.candidateId);
       }
     }
   }
@@ -766,11 +766,11 @@ export async function getSimulationRunTimelineFitDecisions(
         ? detailsById.get(decision.chosenParentId)
         : null;
         
-      const rawDecisions = Array.isArray(decision.candidates)
-        ? (decision.candidates as any[])
+      const rawDecisions = Array.isArray(decision.decisions)
+        ? (decision.decisions as any[])
         : [];
       const detailedDecisions = rawDecisions.map((d) => {
-        const details = detailsById.get(d.momentId);
+        const details = detailsById.get(d.candidateId);
         return {
           ...d,
           candidateTitle: details?.title ?? null,

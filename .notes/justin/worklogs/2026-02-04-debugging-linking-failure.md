@@ -447,3 +447,4 @@ This re-architecture was verified by:
 1.  **Needle Simulations:** Running end-to-end simulations on specific PRs (`#933`, `#522`) to prove that correct linking, synthesis, and fitting occur under the new runtime.
 2.  **Infrastructure Checks:** Verifying that no "zombie" tasks remained in Cloudflare Queues after run failures.
 3.  **UI Verification:** Confirming that the Knowledge Graph reflects project-isolated data correctly.
+

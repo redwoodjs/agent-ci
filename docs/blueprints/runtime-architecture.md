@@ -262,3 +262,62 @@ graph TD
     D[Moment D: PR #25] -->|Explicit| A
     E[Moment E: Announce] -->|Explicit| D
 ```
+
+## 6. Code Structure & Directory Mapping
+
+The codebase reflects the Unified Pipeline architecture by co-locating domain logic with its infrastructure counterparts.
+
+### 6.1 The Feature Pipeline (`src/app/pipelines/`)
+
+Each of the 8 phases is encapsulated in its own directory. This co-location ensures that for any given phase, we can find both the engine logic and the supporting UI.
+
+```text
+src/app/pipelines/
+├── [phase_name]/          # Specialized logic for one of the 8 phases
+│   ├── index.ts           # Phase definition (Type constraints, next phase)
+│   ├── engine/
+│   │   └── core/
+│   │       └── orchestrator.ts # The phase-specific business logic 
+│   └── web/               # UI components for simulator & debugging
+│       ├── ui/            # React components (e.g., DetailCards)
+│       └── routes/        # Next.js page definitions for the phase
+└── registry.ts            # Central registry allowing lookups by phase name
+```
+
+### 6.2 The Engine Core (`src/app/engine/`)
+
+The core engine provides the runtime and plugin infrastructure that powers all phases.
+
+```text
+src/app/engine/
+├── runtime/               # Core execution loop
+│   ├── orchestrator.ts    # Defines executePhase() - the "Inner Loop"
+│   └── strategies/        # Storage/Transition bridge for Live vs. Simulation
+│       ├── live.ts        # NoOpStorage, QueueTransition (Live entry)
+│       └── simulation.ts  # ArtifactStorage, QueueTransition (Sim entry)
+├── indexing/
+│   └── pluginPipeline.ts  # Generic engine for Waterfall/Collector plugin composition
+├── databases/
+│   └── momentGraph/       # The core Knowledge Graph schema (Nodes & Edges)
+├── simulation/
+│   └── runArtifacts.ts    # Cross-phase state persistence and inspectability
+├── runners/
+│   └── simulation/runner.ts # The "Tick" driver for simulation progression
+└── services/              # Infrastructure-to-Engine entry points (Workers)
+```
+
+### 6.3 Infrastructure Entry Point (`src/worker.tsx`)
+
+The system plugs into the Cloudflare environment via the top-level `src/worker.tsx`. This is where high-level routing occurs for both `fetch` and `queue` events.
+
+#### Queue Routing
+Incoming jobs from Cloudflare Queues are routed based on `queueName` and `jobType`:
+- **Indexing Jobs**: Jobs from `ENGINE_INDEXING_QUEUE` are routed to `processIndexingJob` (Live) or `processSimulationJob` (Simulation) based on whether the `jobType` is simulation-specific (e.g., `simulation-advance`).
+- **Chunk Processing**: Chunks are processed in batches via `processChunkBatch`.
+- **R2 Events**: Automatic indexing is triggered by R2 object creation events (e.g., `PutObject` for `latest.json`).
+
+### 6.4 Strategic Co-location Rationale
+
+1.  **Phase Autonomy**: Each phase in `src/app/pipelines` is "whole". It defines what it does, how it renders in the simulator, and its core engine logic. (Historical simulation-specific helpers have been consolidated into core logic or simulation strategies).
+2.  **Strategy Isolation**: The logic for *how* to save state or *how* to transition is entirely decoupled from the phase logic itself, living in `src/app/engine/runtime/strategies/`.
+3.  **Plugin Decoupling**: Ingestion and domain-specific normalization are handled by `src/app/engine/plugins/`, allowing the engine to remain agnostic to the source material (e.g., GitHub issue vs. Discord message).

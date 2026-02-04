@@ -33,6 +33,7 @@ export async function computeTimelineFitProposalDeep(input: {
     childText: string;
     candidates: Array<{ id: string; title: string | null; summary: string | null }>;
   }) => Promise<{ vetoedIds: string[]; note?: string | null }>;
+  logger?: any;
 }): Promise<{
   candidateCount: number;
   chosenParentId: string | null;
@@ -124,16 +125,30 @@ export async function computeTimelineFitProposalDeep(input: {
     null;
   const chosenParentId = firstOk ? firstOk.c.id : null;
 
-  console.log(`[timeline-fit:diagnostic] ${input.childMomentId} candidate count: ${candidateCount}, chosenParentId: ${chosenParentId}`);
-  if (chosenParentId && firstOk) {
-    console.log(`[timeline-fit:diagnostic] ${input.childMomentId} matched ${chosenParentId} via ${firstOk.shared.length} shared anchors:`, firstOk.shared);
+  if (input.logger) {
+    input.logger.info(`timeline-fit:diagnostic:candidate-count`, { childMomentId: input.childMomentId, candidateCount, chosenParentId });
+    if (chosenParentId && firstOk) {
+      input.logger.info(`timeline-fit:diagnostic:matched`, { childMomentId: input.childMomentId, chosenParentId, sharedAnchorTokens: firstOk.shared });
+    } else {
+      const topCandidates = ranked.slice(0, 3).map(r => ({
+        id: r.c.id,
+        sharedCount: r.shared.length,
+        vetoed: vetoed.has(r.c.id)
+      }));
+      input.logger.info(`timeline-fit:diagnostic:no-match`, { childMomentId: input.childMomentId, topCandidates });
+    }
   } else {
-    const topCandidates = ranked.slice(0, 3).map(r => ({
-      id: r.c.id,
-      sharedCount: r.shared.length,
-      vetoed: vetoed.has(r.c.id)
-    }));
-    console.log(`[timeline-fit:diagnostic] ${input.childMomentId} no parent selected. Top candidates:`, topCandidates);
+      console.log(`[timeline-fit:diagnostic] ${input.childMomentId} candidate count: ${candidateCount}, chosenParentId: ${chosenParentId}`);
+      if (chosenParentId && firstOk) {
+        console.log(`[timeline-fit:diagnostic] ${input.childMomentId} matched ${chosenParentId} via ${firstOk.shared.length} shared anchors:`, firstOk.shared);
+      } else {
+        const topCandidates = ranked.slice(0, 3).map(r => ({
+          id: r.c.id,
+          sharedCount: r.shared.length,
+          vetoed: vetoed.has(r.c.id)
+        }));
+        console.log(`[timeline-fit:diagnostic] ${input.childMomentId} no parent selected. Top candidates:`, topCandidates);
+      }
   }
 
   return { candidateCount, chosenParentId, decisions, veto };
@@ -157,6 +172,7 @@ export async function computeTimelineFitDecision(input: {
   useLlmVeto: boolean;
   maxAnchorTokens: number;
   maxSharedAnchorTokens: number;
+  logger?: any;
 }): Promise<{
   chosenParentId: string | null;
   decisions: any[];
@@ -197,14 +213,23 @@ export async function computeTimelineFitDecision(input: {
               )
               .join("\n\n");
           try {
+            if (input.logger) {
+              input.logger.info("timeline-fit:diagnostic:llm-veto-start", { childMomentId: input.childMomentId, candidateIds: llmInput.candidates.map(c => c.id) });
+            }
             const raw = await input.ports.callLLM!(prompt);
             const parsed = JSON.parse(raw);
             const vetoedIds = Array.isArray(parsed?.vetoedIds)
               ? parsed.vetoedIds.filter((x: any) => typeof x === "string")
               : [];
             const note = typeof parsed?.note === "string" ? parsed.note : null;
+            if (input.logger) {
+              input.logger.info("timeline-fit:diagnostic:llm-veto-result", { childMomentId: input.childMomentId, vetoedIds, note });
+            }
             return { vetoedIds, note };
-          } catch {
+          } catch (err) {
+            if (input.logger) {
+              input.logger.warn("timeline-fit:diagnostic:llm-veto-fail", { childMomentId: input.childMomentId, error: err instanceof Error ? err.message : String(err) });
+            }
             return { vetoedIds: [], note: null };
           }
         }
@@ -219,6 +244,7 @@ export async function computeTimelineFitDecision(input: {
     maxSharedAnchorTokens,
     useLlmVeto: input.useLlmVeto,
     llmVeto,
+    logger: input.logger,
   });
 
   return {
@@ -264,6 +290,7 @@ export async function runTimelineFitForDocument(input: {
     useLlmVeto: true,
     maxAnchorTokens: 24,
     maxSharedAnchorTokens: 12,
+    logger: context.logger,
   });
 
   const audit = {

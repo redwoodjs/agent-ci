@@ -25,3 +25,23 @@ We have updated both `discordPlugin` and `defaultPlugin` to handle empty files a
 4. Added `"unknown"` to the `Source` type union in `src/app/engine/types.ts`.
 
 These changes prevent the "No plugin could prepare document" and "No plugin could split document into chunks" errors that were stalling simulations in production.
+
+## PR Description [2026-02-04]
+
+### Title
+Robust Ingestion: Handle Empty and Unrecognized Documents
+
+### Problem and Context
+In our current architecture, the `ingest_diff` phase relies on plugins to "prepare" R2 objects into normalized documents. Previously, if no plugin's `prepareSourceDocument` hook matched an R2 key, the system would throw a critical error. 
+
+We encountered a surge of these failures in production specifically for Discord `.jsonl` files. These files were being correctly identified by the Discord plugin, but because they contained zero messages, the plugin returned `null`. This lack of a document caused the orchestrator to fail, stalling the simulation.
+
+### Solution
+This change increases the resilience of the ingestion pipeline by ensuring that every R2 key is accounted for, even if it has no content or no specific plugin handler.
+
+1. **Enhanced Discord Handling**: The `discordPlugin` now explicitly claims empty `.jsonl` files by returning an empty `Document` instead of `null`.
+2. **Global Fallback**: The `defaultPlugin` now implements a catch-all `prepareSourceDocument` hook that prepares any otherwise unmatched R2 key as a generic document.
+3. **Chunking Invariants**: Updated the default chunker to ensure at least one chunk is always produced, even for empty content, preventing downstream "No chunks produced" failures.
+4. **Type Safety**: Expanded the `Source` type union to include `"unknown"` for generic fallback documents.
+
+These adjustments ensure that "trash" files or empty logs in the bucket do not disrupt the overall simulation flow.

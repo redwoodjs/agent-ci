@@ -58,7 +58,7 @@ export async function splitDocumentIntoChunks(
   const chunks = await runFirstMatchHook(plugins, (plugin) =>
     plugin.splitDocumentIntoChunks?.(document, indexingContext)
   );
-  if (!chunks || chunks.length === 0) {
+  if (chunks === null) {
     throw new Error("No plugin could split document into chunks");
   }
   return chunks;

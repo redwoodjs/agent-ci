@@ -131,7 +131,7 @@ export async function processSimulationJob(
           if (phaseDef) {
             // Setup context for simulation
             const strategies = {
-              storage: new SimulationStrategies.ArtifactStorage(message.runId, db),
+              storage: new SimulationStrategies.ArtifactStorage(message.runId, db, env),
               transition: new SimulationStrategies.QueueTransition(
                 (env as any).ENGINE_INDEXING_QUEUE as Queue<any>,
                 message.runId

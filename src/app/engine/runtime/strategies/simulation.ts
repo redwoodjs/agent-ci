@@ -3,7 +3,11 @@ import { SimulationDatabase } from "../../simulation/types";
 
 export class ArtifactStorage implements StorageStrategy {
   // Using any because Kysely type is not directly accessible
-  constructor(private runId: string, private simDb: any) {}
+  constructor(
+    private runId: string,
+    private simDb: any,
+    private env: Cloudflare.Env
+  ) {}
 
   async load<T>(phase: Phase, input: any): Promise<T | null> {
     const key = this.getKey(input);
@@ -16,16 +20,45 @@ export class ArtifactStorage implements StorageStrategy {
       .executeTakeFirst();
 
     if (row && row.output_json) {
-      return row.output_json as T;
+      const output = row.output_json as any;
+      if (
+        output &&
+        typeof output === "object" &&
+        output.__offloaded_at__ === "R2"
+      ) {
+        const bucket = this.env.MACHINEN_BUCKET;
+        const object = await bucket.get(output.key);
+        if (!object) {
+          throw new Error(`Offloaded artifact not found in R2: ${output.key}`);
+        }
+        const text = await object.text();
+        return JSON.parse(text) as T;
+      }
+      return output as T;
     }
     return null;
   }
 
   async save(phase: Phase, input: any, output: any): Promise<void> {
     const key = this.getKey(input);
-    const inputJson = JSON.stringify(input);
-    const outputJson = JSON.stringify(output);
+    let outputJson = JSON.stringify(output);
     const now = new Date().toISOString();
+
+    // SQLITE_TOOBIG check / D1 1MB limit check.
+    // We use a 512KB threshold for safety.
+    if (outputJson.length > 512 * 1024) {
+      const r2Key = `artifacts/${this.runId}/${phase.name}/${key}.json`;
+      const bucket = this.env.MACHINEN_BUCKET;
+      await bucket.put(r2Key, outputJson, {
+        httpMetadata: { contentType: "application/json" },
+      });
+      outputJson = JSON.stringify({
+        __offloaded_at__: "R2",
+        key: r2Key,
+      });
+    }
+
+    const inputJson = JSON.stringify(input);
 
     await this.simDb
       .insertInto("simulation_run_artifacts")

@@ -145,6 +145,13 @@ export async function computeDeterministicLinkingDecision(input: {
     candidateIssueRef = tokens.find((t) => /^#\d{1,10}$/.test(t)) ?? null;
   }
 
+  // Diagnostic: Log what we are working with
+  if (input.rawDocumentContent) {
+    console.log(`[deterministic-linking:internal] ${input.childMomentId} | r2Key: ${input.r2Key}`);
+    console.log(`[deterministic-linking:internal] ${input.childMomentId} | Corpus Length: ${input.rawDocumentContent.length}`);
+    console.log(`[deterministic-linking:internal] ${input.childMomentId} | Corpus Snippet (first 200 chars): ${input.rawDocumentContent.slice(0, 200)}...`);
+  }
+
   // Fallback: Scan raw document content if provided
   if (!candidateIssueRef && input.rawDocumentContent) {
     const selfIssueNumber = parseIssueNumberFromDocumentId(input.childDocumentId);
@@ -153,6 +160,9 @@ export async function computeDeterministicLinkingDecision(input: {
     // Use global scan to find all potential candidates
     const matches = Array.from(input.rawDocumentContent.matchAll(/#(\d{1,10})/g));
     
+    console.log(`[deterministic-linking:internal] ${input.childMomentId} | SelfRef: ${selfRef} | Total Matches: ${matches.length}`);
+    console.log(`[deterministic-linking:internal] ${input.childMomentId} | All Matches: ${JSON.stringify(matches.map(m => m[0]))}`);
+
     for (const match of matches) {
       const issueRef = match[0];
       if (selfRef && issueRef === selfRef) {

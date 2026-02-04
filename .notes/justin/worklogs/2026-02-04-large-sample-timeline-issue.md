@@ -46,3 +46,33 @@ Simulation UIs for Linking and Timeline Fit currently resolved moment details (t
 
 ### Technical Detail
 Enrichment happens during simulation execution (one document at a time), which is memory-efficient. The UI worker now saves memory by skipping the secondary relational join.
+
+## PR Description
+
+### Title
+Adopt Artifact Enrichment for Large Scale Simulations
+
+### Description
+#### Problem
+Large-scale simulations (e.g., 1000+ moments) were frequently encountering "Untitled" entries in the UI for Linking and Timeline Fit phases. This was caused by a relational database bottleneck: the UI data layer used SQL `IN` clauses to resolve moment IDs to metadata across namespaces. These lists eventually exceeded SQLite parameter limits, leading to empty results and UI fallbacks. Additionally, Phase 3 synthesis was frequently truncating macro-moment descriptions due to a 2000-token limit.
+
+#### Solution
+We have adopted an **Artifact Enrichment** strategy that prioritizes self-contained JSON artifacts over render-time relational lookups. 
+
+1. **Phase Enrichment**: Orchestrators for Linking, Candidate Sets, and Timeline Fit now fetch and bake titles and summaries directly into their output JSON artifacts during execution.
+2. **UI Data Layer Pivot**: The simulation data fetchers in `runArtifacts.ts` now prefer these enriched fields, bypassing relational DB lookups and their associated parameter limits.
+3. **Synthesis Optimization**: Increased the LLM response limit for Phase 3 to 4000 tokens to ensure complete macro-moment generation for dense documents.
+
+This approach results in a more robust and memory-efficient UI worker, as it no longer needs to perform large in-memory joins during page serving.
+
+## Fixed llm-veto-fail Errors
+
+### Resolution
+The `llm-veto-fail` errors (crashes when calling `context.llm.call`) were caused by incomplete service initialization in the background workers. While we were passing the environment to the workers, we weren't using the full engine context factory to initialize the `llm`, `vector`, and `db` services on the `PipelineContext`.
+
+We have updated `simulation-worker.ts` to use `createEngineContext(env, "indexing")` when building the `PipelineContext`. This ensures that all simulation phases (like Timeline Fit) have access to the necessary reasoning services during background execution.
+
+## Diagnostic Evidence
+We have added explicit logging to confirm these fixes are active in the runtime environment:
+1. **Service Initialization**: `simulation-worker.ts` now logs `engine.context-initialized` upon successful setup of LLM/Vector services.
+2. **JSON-Blob-First**: `runArtifacts.ts` now logs `[run-artifacts] Using enriched data for X decisions (JSON-Blob-First)` when it successfully bypasses the relational DB bottleneck.

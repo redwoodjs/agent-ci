@@ -201,15 +201,19 @@ export async function processSimulationJob(
                });
             }
 
+            const engineContext = createEngineContext(env, "indexing");
             const pipelineContext: any = {
-              ...context,
+              ...engineContext,
               r2Key: message.r2Key,
               momentGraphNamespace: effectiveNamespace,
               storage: strategies.storage,
-              // Use real plugins instead of empty array
-              plugins: createEngineContext(env, "indexing").plugins,
               logger,
             };
+
+            logger.info("engine.context-initialized", { 
+              runId: message.runId, 
+              services: ["llm", "vector", "db", "plugins"] 
+            });
 
             pipelineContext.heartbeat = async () => {
               const table = currentPhaseName === "micro_batches" ? "simulation_run_micro_batches" : "simulation_run_documents";

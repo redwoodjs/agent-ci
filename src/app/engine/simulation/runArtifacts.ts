@@ -513,6 +513,10 @@ export async function getSimulationRunLinkDecisions(
     }
   }
 
+  if (momentIds.size === 0 && rows.length > 0) {
+    console.log(`[run-artifacts] Using enriched data for ${rows.length} decisions (JSON-Blob-First)`);
+  }
+
   const detailsById = momentIds.size > 0 
     ? await fetchMomentDetails(context, runId, Array.from(momentIds))
     : new Map<string, any>();

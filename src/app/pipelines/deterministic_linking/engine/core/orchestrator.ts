@@ -133,6 +133,7 @@ export async function computeDeterministicLinkingDecision(input: {
   macroAnchors?: string[] | null;
   childTextForFallbackAnchors?: string | null;
   rawDocumentContent?: string | null;
+  logger?: any;
 }): Promise<{
   proposedParentId: string | null;
   audit: { kind: string; ruleId: string | null; evidence: Record<string, any> };
@@ -146,10 +147,13 @@ export async function computeDeterministicLinkingDecision(input: {
   }
 
   // Diagnostic: Log what we are working with
-  if (input.rawDocumentContent) {
-    console.log(`[deterministic-linking:internal] ${input.childMomentId} | r2Key: ${input.r2Key}`);
-    console.log(`[deterministic-linking:internal] ${input.childMomentId} | Corpus Length: ${input.rawDocumentContent.length}`);
-    console.log(`[deterministic-linking:internal] ${input.childMomentId} | Corpus Snippet (first 200 chars): ${input.rawDocumentContent.slice(0, 200)}...`);
+  if (input.rawDocumentContent && input.logger) {
+    input.logger.info("deterministic-linking:internal", {
+      childMomentId: input.childMomentId,
+      r2Key: input.r2Key,
+      corpusLength: input.rawDocumentContent.length,
+      snippet: input.rawDocumentContent.slice(0, 200) + "..."
+    });
   }
 
   // Fallback: Scan raw document content if provided
@@ -160,27 +164,33 @@ export async function computeDeterministicLinkingDecision(input: {
     // Use global scan to find all potential candidates
     const matches = Array.from(input.rawDocumentContent.matchAll(/#(\d{1,10})/g));
     
-    console.log(`[deterministic-linking:internal] ${input.childMomentId} | SelfRef: ${selfRef} | Total Matches: ${matches.length}`);
-    console.log(`[deterministic-linking:internal] ${input.childMomentId} | All Matches: ${JSON.stringify(matches.map(m => m[0]))}`);
+    if (input.logger) {
+      input.logger.info("deterministic-linking:internal:scan", {
+        childMomentId: input.childMomentId,
+        selfRef,
+        totalMatches: matches.length,
+        allMatches: matches.map(m => m[0])
+      });
+    }
 
     for (const match of matches) {
       const issueRef = match[0];
       if (selfRef && issueRef === selfRef) {
-        console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} skipping self-reference match: ${issueRef}`);
+        if (input.logger) input.logger.info("deterministic-linking:diagnostic:skip-self", { childMomentId: input.childMomentId, issueRef });
         continue;
       }
       
       candidateIssueRef = issueRef;
-      console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} found fallback issueRef in raw document: ${candidateIssueRef}`);
+      if (input.logger) input.logger.info("deterministic-linking:diagnostic:fallback-found", { childMomentId: input.childMomentId, candidateIssueRef });
       break; 
     }
   }
 
   // Diagnostic log for anchor extraction
-  if (input.macroAnchors && input.macroAnchors.length > 0) {
-    console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} found anchors:`, input.macroAnchors);
+  if (input.macroAnchors && input.macroAnchors.length > 0 && input.logger) {
+    input.logger.info("deterministic-linking:diagnostic:anchors", { childMomentId: input.childMomentId, anchors: input.macroAnchors });
     if (candidateIssueRef) {
-      console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} extracted issueRef: ${candidateIssueRef}`);
+      input.logger.info("deterministic-linking:diagnostic:extracted", { childMomentId: input.childMomentId, candidateIssueRef });
     }
   }
 
@@ -210,14 +220,29 @@ export async function computeDeterministicLinkingDecision(input: {
           candidateParentMomentId = resolved.headMomentId;
           candidateParentDocumentId = docId;
           matchedAnchorMomentId = resolved.anchorMomentId;
-          console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} successfully resolved ${candidateIssueRef} to ${candidateParentMomentId} (doc: ${docId})`);
+          if (input.logger) {
+            input.logger.info("deterministic-linking:diagnostic:resolved", {
+                 childMomentId: input.childMomentId,
+                 candidateIssueRef,
+                 candidateParentMomentId,
+                 docId
+            });
+          }
           break;
         } else {
-          console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} failed to resolve ${candidateIssueRef} via doc: ${docId}`);
+          if (input.logger) {
+             input.logger.info("deterministic-linking:diagnostic:failed-resolve", {
+                 childMomentId: input.childMomentId,
+                 candidateIssueRef,
+                 docId
+             });
+          }
         }
       }
     } else {
-      console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} could not parse repo from ${input.childDocumentId} for ${candidateIssueRef}`);
+      if (input.logger) {
+         input.logger.info("deterministic-linking:diagnostic:parse-fail", { childMomentId: input.childMomentId, childDocumentId: input.childDocumentId, candidateIssueRef });
+      }
     }
   }
 
@@ -280,11 +305,15 @@ export async function runDeterministicLinkingForDocument(input: {
       if (obj) {
         const text = await obj.text();
         rawDocumentContent = text;
-        console.log(`[deterministic-linking:diagnostic] Fetched raw document from R2 for ${r2Key} (length: ${text.length})`);
+        if (context.logger) {
+          context.logger.info("deterministic-linking:diagnostic:r2-fetch", { r2Key, length: text.length });
+        }
       }
     }
   } catch (err) {
-    console.warn(`[deterministic-linking:diagnostic] Failed to fetch raw document from R2 for ${r2Key}:`, err);
+    if (context.logger) {
+      context.logger.warn("deterministic-linking:diagnostic:r2-fetch-fail", { r2Key, error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
   for (const childMoment of moments) {
@@ -309,6 +338,7 @@ export async function runDeterministicLinkingForDocument(input: {
           });
         },
       },
+      logger: context.logger,
       r2Key,
       streamId,
       macroIndex,

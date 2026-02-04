@@ -238,4 +238,30 @@ export const momentMigrations = {
       await db.schema.alterTable("moments").dropColumn("is_subject").execute();
     },
   },
+  "010_add_moment_anchors": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("moment_anchors")
+          .addColumn("moment_id", "text", (col) =>
+            col.references("moments.id").onDelete("cascade")
+          )
+          .addColumn("anchor", "text", (col) => col.notNull())
+          .execute(),
+        await db.schema
+          .createIndex("moment_anchors_anchor_moment_idx")
+          .on("moment_anchors")
+          .columns(["anchor", "moment_id"])
+          .execute(),
+        await db.schema
+          .createIndex("moment_anchors_moment_id_idx")
+          .on("moment_anchors")
+          .column("moment_id")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("moment_anchors").execute();
+    },
+  },
 } satisfies Migrations;

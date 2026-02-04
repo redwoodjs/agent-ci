@@ -2,7 +2,7 @@
 
 import { env } from "cloudflare:workers";
 import { enqueueUnprocessedFiles } from "@/app/engine/services/scanner-service";
-import { query } from "@/app/engine/engine";
+
 import {
   githubPlugin,
   discordPlugin,
@@ -221,6 +221,12 @@ export async function queryRag(queryText: string) {
       env: env as Cloudflare.Env,
     };
 
+    return {
+      success: true,
+      response: "The unified query engine is currently undergoing maintenance and these results are unavailable.",
+      references: [],
+    };
+/*
     console.log(`[query-action] Starting query: "${queryText}"`);
     const response = await query(queryText, context);
     console.log(`[query-action] Query completed successfully`);
@@ -256,6 +262,7 @@ export async function queryRag(queryText: string) {
       response: response,
       references: references,
     };
+*/
   } catch (error) {
     console.error("[actions] Error querying RAG:", error);
     return {
@@ -408,6 +415,8 @@ export async function getKnowledgeGraph(options?: {
       effectivePrefix
     );
 
+    console.log(`[audit:actions:getKnowledgeGraph] baseNamespace: ${baseNamespace}, prefix: ${effectivePrefix} -> effectiveNamespace: ${effectiveNamespace}`);
+
     const context = {
       env: envCloudflare,
       momentGraphNamespace: effectiveNamespace,
@@ -453,6 +462,8 @@ export async function getKnowledgeGraphStatsAction(options?: {
       baseNamespace,
       effectivePrefix
     );
+
+    console.log(`[audit:actions:getKnowledgeGraphStatsAction] baseNamespace: ${baseNamespace}, prefix: ${effectivePrefix} -> effectiveNamespace: ${effectiveNamespace}`);
 
     const context = {
       env: envCloudflare,
@@ -3805,10 +3816,11 @@ export async function generateCodeTldr(options: {
   file: string;
   line: number;
   namespace?: string | null;
+  timelineResult?: any;
 }) {
   try {
     // Fetch timeline data first
-    const timelineResult = await fetchCodeTimeline({
+    const timelineResult = options.timelineResult ?? await fetchCodeTimeline({
       repo: options.repo,
       commit: options.commit,
       namespace: options.namespace,

@@ -117,7 +117,14 @@ async function NamespaceMomentsContent({
   const moments =
     searchResult.success && searchResult.moments ? searchResult.moments : [];
   const totalCount = searchResult.success ? searchResult.totalCount : 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const totalPages = Math.max(1, Math.ceil((totalCount || 0) / pageSize));
+
+  const pagination = {
+    moments,
+    totalCount: totalCount || 0,
+    page,
+    totalPages,
+  };
 
   return (
     <>
@@ -135,7 +142,7 @@ async function NamespaceMomentsContent({
       />
       <MomentsList
         moments={moments}
-        totalCount={totalCount}
+        totalCount={totalCount || 0}
         page={page}
         totalPages={totalPages}
         source={source}

@@ -64,6 +64,7 @@ function StartControls() {
         if (typeof prefs.sampleSize === "string") setSampleSize(prefs.sampleSize);
         if (typeof prefs.seed === "string") setSeed(prefs.seed);
         if (typeof prefs.autoRun === "boolean") setAutoRun(prefs.autoRun);
+        if (typeof prefs.r2KeysText === "string") setR2KeysText(prefs.r2KeysText);
       } catch (e) {
         console.error("Failed to load simulation start prefs", e);
       }
@@ -80,9 +81,10 @@ function StartControls() {
       sampleSize,
       seed,
       autoRun,
+      r2KeysText,
     };
     localStorage.setItem("machinen_simulation_start_prefs", JSON.stringify(prefs));
-  }, [namespace, prefix, r2Prefix, githubRepo, maxPages, sampleSize, seed, autoRun]);
+  }, [namespace, prefix, r2Prefix, githubRepo, maxPages, sampleSize, seed, autoRun, r2KeysText]);
 
   const start = async () => {
     setLoading(true);

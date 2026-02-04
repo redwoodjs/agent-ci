@@ -101,66 +101,70 @@ export async function runAllSimulationRunAction(input: {
   momentGraphNamespace: string | null;
   momentGraphNamespacePrefix: string | null;
 }) {
-  const envCloudflare = env as Cloudflare.Env;
-  // We don't need bucket here anymore as we don't list
-  
-  const inputPrefix =
-    typeof input.r2Prefix === "string" ? input.r2Prefix.trim() : "";
-  const limitPerPageRaw = input.limitPerPage;
-  const limitPerPage =
-    typeof limitPerPageRaw === "number" && Number.isFinite(limitPerPageRaw)
-      ? Math.max(1, Math.min(1000, Math.floor(limitPerPageRaw)))
-      : 200;
-  const maxPagesRaw = input.maxPages;
-  const maxPages =
-    typeof maxPagesRaw === "number" && Number.isFinite(maxPagesRaw)
-      ? Math.max(1, Math.min(10000, Math.floor(maxPagesRaw)))
-      : 100;
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    // We don't need bucket here anymore as we don't list
+    
+    const inputPrefix =
+      typeof input.r2Prefix === "string" ? input.r2Prefix.trim() : "";
+    const limitPerPageRaw = input.limitPerPage;
+    const limitPerPage =
+      typeof limitPerPageRaw === "number" && Number.isFinite(limitPerPageRaw)
+        ? Math.max(1, Math.min(1000, Math.floor(limitPerPageRaw)))
+        : 200;
+    const maxPagesRaw = input.maxPages;
+    const maxPages =
+      typeof maxPagesRaw === "number" && Number.isFinite(maxPagesRaw)
+        ? Math.max(1, Math.min(10000, Math.floor(maxPagesRaw)))
+        : 100;
 
-  // Reconstruct target prefixes logic
-  const targetPrefixes = inputPrefix
-    ? [inputPrefix]
-    : [
-        input.githubRepo ? `github/${input.githubRepo}/` : "github/",
-        "discord/",
-        "cursor/conversations/",
-      ];
+    // Reconstruct target prefixes logic
+    const targetPrefixes = inputPrefix
+      ? [inputPrefix]
+      : [
+          input.githubRepo ? `github/${input.githubRepo}/` : "github/",
+          "discord/",
+          "cursor/conversations/",
+        ];
 
-  const runId = crypto.randomUUID();
-  const effectiveMomentGraphNamespace =
-    input.momentGraphNamespace ?? null;
+    const runId = crypto.randomUUID();
+    const effectiveMomentGraphNamespace =
+      input.momentGraphNamespace ?? null;
 
-  await createSimulationRun(
-    { env: envCloudflare, momentGraphNamespace: null },
-    {
-      runId,
-      momentGraphNamespace: effectiveMomentGraphNamespace,
-      momentGraphNamespacePrefix: input.momentGraphNamespacePrefix,
-      config: {
-        r2Keys: [], // Empty, will be populated by r2_listing phase into DB
-        createdFrom: "audit.ui.run_all.v2_async_listing",
-        r2List: {
-          prefix: inputPrefix || "(multi)",
-          targetPrefixes,
-          limitPerPage,
-          maxPages,
-          // Initial state
-          currentPrefixIdx: 0,
-          pagesProcessed: 0,
+    await createSimulationRun(
+      { env: envCloudflare, momentGraphNamespace: null },
+      {
+        runId,
+        momentGraphNamespace: effectiveMomentGraphNamespace,
+        momentGraphNamespacePrefix: input.momentGraphNamespacePrefix,
+        config: {
+          r2Keys: [], // Empty, will be populated by r2_listing phase into DB
+          createdFrom: "audit.ui.run_all.v2_async_listing",
+          r2List: {
+            prefix: inputPrefix || "(multi)",
+            targetPrefixes,
+            limitPerPage,
+            maxPages,
+            // Initial state
+            currentPrefixIdx: 0,
+            pagesProcessed: 0,
+          },
         },
-      },
-    }
-  );
+      }
+    );
 
-  return {
-    success: true,
-    runId,
-    keysCount: 0, // Unknown yet
-    pages: 0,
-    truncated: false, 
-    skippedCount: 0,
-    message: "Simulation started with async R2 listing",
-  };
+    return {
+      success: true,
+      runId,
+      keysCount: 0, // Unknown yet
+      pages: 0,
+      truncated: false, 
+      skippedCount: 0,
+      message: "Simulation started with async R2 listing",
+    };
+  } catch (e) {
+    return { success: false, error: e instanceof Error ? e.message : String(e) };
+  }
 }
 
 export async function runSampleSimulationRunAction(input: {

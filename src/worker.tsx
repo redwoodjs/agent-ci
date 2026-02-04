@@ -45,9 +45,6 @@ export { GitHubBackfillStateDO } from "@/app/ingestors/github/db/backfill-durabl
 export { EngineIndexingStateDO } from "@/app/engine/databases/indexingState/durableObject";
 export { EngineSimulationStateDO } from "@/app/engine/databases/simulationState/durableObject";
 export { DiscordBackfillStateDO } from "@/app/ingestors/discord/db/backfill-durableObject";
-export { SubjectDO } from "@/app/engine/databases/subjects/durableObject";
-// Temporary export for migration - will be removed after v8 migration completes
-export { SubjectDO as SubjectGraphDO } from "@/app/engine/databases/subjects/durableObject";
 export { MomentGraphDO } from "@/app/engine/databases/momentGraph/durableObject";
 export { DiscordWebhookBatcherDO } from "@/app/ingestors/discord/db/webhook-batcher-durableObject";
 
@@ -59,7 +56,7 @@ import { processProcessorJob as processDiscordProcessorJob } from "@/app/ingesto
 import { handleDeadLetterMessage as handleDiscordDeadLetterMessage } from "@/app/ingestors/discord/services/dlq-handler";
 import { handleWebhookEvent } from "@/app/ingestors/discord/services/webhook-handler";
 import { processIndexingJob } from "@/app/engine/services/indexing-scheduler-worker";
-import { processMomentReplayReplayJob } from "@/app/engine/services/moment-replay-worker";
+
 import { processChunkJob, processChunkBatch } from "@/app/engine/services/chunk-processor-worker";
 import { processScannerJob } from "@/app/engine/services/scanner-service";
 import { processSimulationJob } from "@/app/engine/services/simulation-worker";
@@ -71,7 +68,7 @@ import { Chunk, SimulationQueueMessage } from "./app/engine/types";
 
 export default {
   fetch: app.fetch,
-  async queue(batch, env) {
+  async queue(batch, env, ctx) {
     const queueName = batch.queue;
     console.log(
       `[queue] Processing batch from queue: ${queueName}, batch size: ${batch.messages.length}`
@@ -131,6 +128,8 @@ export default {
             namespacePrefix?: unknown;
             momentReplayRunId?: unknown;
             jobType?: unknown;
+            phase?: unknown;
+            input?: unknown;
             body?: {
               r2Key?: unknown;
               r2Keys?: unknown;
@@ -140,6 +139,8 @@ export default {
               namespacePrefix?: unknown;
               momentReplayRunId?: unknown;
               jobType?: unknown;
+              phase?: unknown;
+              input?: unknown;
             };
           };
 
@@ -197,19 +198,7 @@ export default {
             momentReplayRunId,
           });
 
-          if (jobType === "moment-replay-replay") {
-            await processMomentReplayReplayJob(
-              {
-                jobType,
-                momentReplayRunId,
-                momentGraphNamespace,
-                momentGraphNamespacePrefix,
-              },
-              env as Cloudflare.Env
-            );
-            message.ack();
-            continue;
-          }
+
 
           if (
             jobType === "simulation-advance" ||
@@ -219,7 +208,8 @@ export default {
           ) {
             await processSimulationJob(
               indexingMessage as unknown as SimulationQueueMessage,
-              env as Cloudflare.Env
+              env as Cloudflare.Env,
+              ctx
             );
             message.ack();
             continue;
@@ -247,6 +237,8 @@ export default {
                     : null),
                   ...(momentReplayRunId ? { momentReplayRunId } : null),
                   ...(jobType ? { jobType } : null),
+                  phase: (indexingMessage.phase ?? indexingMessage.body?.phase) as string,
+                  input: (indexingMessage.input ?? indexingMessage.body?.input) as any,
                 },
                 env as Cloudflare.Env
               );

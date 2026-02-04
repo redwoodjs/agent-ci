@@ -1,8 +1,6 @@
-import type { MacroMomentDescription } from "../../../../engine/types";
-
-export type MacroClassificationPorts = {
-  callLLM: (prompt: string) => Promise<string>;
-};
+import type { MacroMomentDescription, Document } from "../../../../engine/types";
+import { PipelineContext } from "../../../../engine/runtime/types";
+import { callLLM } from "../../../../engine/utils/llm";
 
 export type MacroGatingConfig = {
   macroMaxPerStream: number;
@@ -11,7 +9,7 @@ export type MacroGatingConfig = {
   discordNoisePatternStringsFromEnv: string[];
 };
 
-export function gateMacroMomentsLikeLiveEngine(
+export function gateMacroMoments(
   macroMomentDescriptionsRaw: MacroMomentDescription[],
   config: MacroGatingConfig
 ): {
@@ -68,18 +66,10 @@ export function gateMacroMomentsLikeLiveEngine(
     .filter(Boolean) as RegExp[];
 
   function hasTechnicalAnchors(text: string): boolean {
-    if (!text) {
-      return false;
-    }
-    if (text.includes("mchn://gh/")) {
-      return true;
-    }
-    if (text.includes("```")) {
-      return true;
-    }
-    if (/\b(error|exception|stack trace|traceback)\b/i.test(text)) {
-      return true;
-    }
+    if (!text) return false;
+    if (text.includes("mchn://gh/")) return true;
+    if (text.includes("```")) return true;
+    if (/\b(error|exception|stack trace|traceback)\b/i.test(text)) return true;
     if (
       /\b(fix|fixed|bug|regression|implement|implemented|add|added|remove|removed|merge|merged)\b/i.test(
         text
@@ -91,16 +81,9 @@ export function gateMacroMomentsLikeLiveEngine(
   }
 
   function isNoiseMacroMoment(m: MacroMomentDescription): boolean {
-    const title =
-      typeof (m as any)?.title === "string" ? ((m as any).title as string) : "";
-    const summary =
-      typeof (m as any)?.summary === "string"
-        ? ((m as any).summary as string)
-        : "";
-    const author =
-      typeof (m as any)?.author === "string"
-        ? ((m as any).author as string)
-        : "";
+    const title = typeof (m as any)?.title === "string" ? (m as any).title : "";
+    const summary = typeof (m as any)?.summary === "string" ? (m as any).summary : "";
+    const author = typeof (m as any)?.author === "string" ? (m as any).author : "";
 
     if (
       title.trim() === "Summarized micro-moments" &&
@@ -117,20 +100,14 @@ export function gateMacroMomentsLikeLiveEngine(
 
     if (isDiscord) {
       const combined = `${title}\n${summary}`;
-      if (hasTechnicalAnchors(combined)) {
-        return false;
-      }
+      if (hasTechnicalAnchors(combined)) return false;
       for (const re of discordNoiseRegexes) {
-        if (re.test(title) || re.test(summary)) {
-          return true;
-        }
+        if (re.test(title) || re.test(summary)) return true;
       }
       return false;
     }
 
-    if (!isGitHub) {
-      return false;
-    }
+    if (!isGitHub) return false;
 
     const authorLower = author.toLowerCase();
     if (
@@ -158,9 +135,7 @@ export function gateMacroMomentsLikeLiveEngine(
     }
 
     for (const re of noiseRegexes) {
-      if (re.test(title) || re.test(summary)) {
-        return true;
-      }
+      if (re.test(title) || re.test(summary)) return true;
     }
 
     if (combinedLower.includes("closed issue")) {
@@ -168,9 +143,7 @@ export function gateMacroMomentsLikeLiveEngine(
         /\b(fix|fixed|bug|error|investigat|regression|implement|implemented|add|added|remove|removed|merge|merged|release|released|ship|shipped|deploy|deployed|rollback)\b/i.test(
           `${title}\n${summary}`
         );
-      if (!hasTechnicalSignal) {
-        return true;
-      }
+      if (!hasTechnicalSignal) return true;
     }
 
     return false;
@@ -180,50 +153,31 @@ export function gateMacroMomentsLikeLiveEngine(
     .map((m, idx) => ({
       idx,
       m,
-      importance:
-        m && typeof (m as any).importance === "number"
-          ? ((m as any).importance as number)
-          : 0,
+      importance: typeof (m as any).importance === "number" ? (m as any).importance : 0,
     }))
     .filter((x) => !isNoiseMacroMoment(x.m));
 
   if (withIndex.length === 0) {
     return {
-      macroMomentDescriptions: [] as MacroMomentDescription[],
+      macroMomentDescriptions: [],
       gatingAudit: {
         inputMacroCount: macroMomentDescriptionsRaw.length,
         outputMacroCount: 0,
         noiseDroppedCount: macroMomentDescriptionsRaw.length,
         noiseDroppedTitlesSample: macroMomentDescriptionsRaw
           .slice(0, 20)
-          .map((m) =>
-            typeof (m as any)?.title === "string"
-              ? ((m as any).title as string)
-              : null
-          )
-          .filter((t): t is string => typeof t === "string" && t.length > 0),
+          .map((m) => (typeof (m as any)?.title === "string" ? (m as any).title : null))
+          .filter((t): t is string => !!t),
       },
     };
   }
 
-  const sortedByImportance = withIndex
-    .slice()
-    .sort((a, b) => b.importance - a.importance || a.idx - b.idx);
-
-  const max =
-    Number.isFinite(config.macroMaxPerStream) && config.macroMaxPerStream > 0
-      ? Math.floor(config.macroMaxPerStream)
-      : 12;
-
+  const sortedByImportance = [...withIndex].sort((a, b) => b.importance - a.importance || a.idx - b.idx);
+  const max = config.macroMaxPerStream || 12;
   const capped = sortedByImportance.slice(0, max);
-  const cappedSortedByIndex = capped.slice().sort((a, b) => a.idx - b.idx);
+  const cappedSortedByIndex = [...capped].sort((a, b) => a.idx - b.idx);
 
-  const minImportance =
-    Number.isFinite(config.macroMinImportance) && config.macroMinImportance >= 0
-      ? config.macroMinImportance
-      : 0;
-
-  const filtered = cappedSortedByIndex.filter((x) => x.importance >= minImportance);
+  const filtered = cappedSortedByIndex.filter((x) => x.importance >= (config.macroMinImportance || 0));
 
   if (filtered.length > 0) {
     return {
@@ -247,10 +201,10 @@ export function gateMacroMomentsLikeLiveEngine(
   };
 }
 
-export async function classifyMacroMomentsLikeLiveEngine(input: {
-  ports: MacroClassificationPorts;
+export async function classifyMacroMoments(input: {
   documentId: string;
   macroMoments: MacroMomentDescription[];
+  context: PipelineContext;
 }): Promise<{
   macroMoments: MacroMomentDescription[];
   classifications: any[] | null;
@@ -259,74 +213,8 @@ export async function classifyMacroMomentsLikeLiveEngine(input: {
     return { macroMoments: [], classifications: [] };
   }
 
-  function safeArrayOfStrings(value: unknown): string[] {
-    if (!Array.isArray(value)) {
-      return [];
-    }
-    const out: string[] = [];
-    for (const item of value) {
-      if (typeof item === "string") {
-        const trimmed = item.trim();
-        if (trimmed.length > 0) {
-          out.push(trimmed);
-        }
-      }
-    }
-    return out;
-  }
-
-  function safeMomentKind(value: unknown): string | null {
-    if (typeof value !== "string") {
-      return null;
-    }
-    const v = value.trim().toLowerCase();
-    if (
-      v === "problem" ||
-      v === "challenge" ||
-      v === "opportunity" ||
-      v === "initiative" ||
-      v === "attempt" ||
-      v === "decision" ||
-      v === "solution"
-    ) {
-      return v;
-    }
-    return null;
-  }
-
-  function safeSubjectKind(value: unknown): string | null {
-    if (typeof value !== "string") {
-      return null;
-    }
-    const v = value.trim().toLowerCase();
-    if (
-      v === "problem" ||
-      v === "challenge" ||
-      v === "opportunity" ||
-      v === "initiative"
-    ) {
-      return v;
-    }
-    return null;
-  }
-
-  function safeConfidence(value: unknown): "high" | "medium" | "low" {
-    if (typeof value !== "string") {
-      return "low";
-    }
-    const v = value.trim().toLowerCase();
-    if (v === "high" || v === "medium" || v === "low") {
-      return v;
-    }
-    return "low";
-  }
-
   const momentsText = input.macroMoments
-    .map((m, idx) => {
-      const title = typeof m.title === "string" ? m.title : "";
-      const summary = typeof m.summary === "string" ? m.summary : "";
-      return `Index: ${idx + 1}\nTitle: ${title}\nSummary: ${summary}\n`;
-    })
+    .map((m, idx) => `Index: ${idx + 1}\nTitle: ${m.title || ""}\nSummary: ${m.summary || ""}\n`)
     .join("\n---\n\n");
 
   const prompt = `You are classifying macro moments in a timeline.
@@ -355,148 +243,93 @@ Macro moments:
 ${momentsText}
 `;
 
-  const raw = await input.ports.callLLM(prompt);
+  const raw = await callLLM(prompt, "slow-reasoning", {
+    logger: input.context.logger?.info,
+  });
 
-  let parsed: unknown;
+  let parsed: any[];
   try {
-    parsed = JSON.parse(raw);
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    parsed = JSON.parse(jsonMatch ? jsonMatch[0] : raw);
   } catch {
     return { macroMoments: input.macroMoments, classifications: null };
   }
 
-  if (!Array.isArray(parsed)) {
-    return { macroMoments: input.macroMoments, classifications: null };
-  }
-
-  const classified = parsed as any[];
-
   const byIndex = new Map<number, any>();
-  for (const item of classified) {
-    const indexRaw = (item as any)?.index;
-    const index =
-      typeof indexRaw === "number" && Number.isFinite(indexRaw)
-        ? Math.floor(indexRaw)
-        : typeof indexRaw === "string"
-        ? Number.parseInt(indexRaw, 10)
-        : NaN;
-    if (
-      !Number.isFinite(index) ||
-      index < 1 ||
-      index > input.macroMoments.length
-    ) {
-      continue;
+  for (const item of parsed) {
+    const index = parseInt(item?.index, 10);
+    if (!isNaN(index) && index >= 1 && index <= input.macroMoments.length) {
+      byIndex.set(index, item);
     }
-    byIndex.set(index, item);
   }
+
+  const safeMomentKind = (v: any) => 
+    ["problem", "challenge", "opportunity", "initiative", "attempt", "decision", "solution"].includes(v?.toLowerCase()) ? v.toLowerCase() : null;
+  const safeConfidence = (v: any) => ["high", "medium", "low"].includes(v?.toLowerCase()) ? v.toLowerCase() : "low";
 
   for (let i = 0; i < input.macroMoments.length; i++) {
     const item = byIndex.get(i + 1);
-    if (!item) {
-      continue;
-    }
+    if (!item) continue;
 
-    const momentKind = safeMomentKind((item as any)?.momentKind);
-    if (!momentKind) {
-      continue;
-    }
+    const momentKind = safeMomentKind(item.momentKind);
+    if (!momentKind) continue;
 
-    const isSubject = Boolean((item as any)?.isSubject);
-    const subjectKind = safeSubjectKind((item as any)?.subjectKind);
-    const subjectReasonRaw = (item as any)?.subjectReason;
-    const subjectReason =
-      typeof subjectReasonRaw === "string" && subjectReasonRaw.trim().length > 0
-        ? subjectReasonRaw.trim()
-        : null;
-
-    const subjectEvidence = safeArrayOfStrings((item as any)?.subjectEvidence);
-    const momentEvidence = safeArrayOfStrings((item as any)?.momentEvidence);
-    const confidence = safeConfidence((item as any)?.confidence);
-
+    const isSubject = Boolean(item.isSubject);
     (input.macroMoments[i] as any).momentKind = momentKind;
-    (input.macroMoments[i] as any).momentEvidence = momentEvidence;
+    (input.macroMoments[i] as any).momentEvidence = Array.isArray(item.momentEvidence) ? item.momentEvidence : [];
     (input.macroMoments[i] as any).isSubject = isSubject;
-    (input.macroMoments[i] as any).subjectKind = isSubject
-      ? subjectKind ?? momentKind
-      : null;
-    (input.macroMoments[i] as any).subjectReason = isSubject
-      ? subjectReason
-      : null;
-    (input.macroMoments[i] as any).subjectEvidence = isSubject
-      ? subjectEvidence
-      : [];
-    (input.macroMoments[i] as any).classificationConfidence = confidence;
+    (input.macroMoments[i] as any).subjectKind = isSubject ? (safeMomentKind(item.subjectKind) ?? momentKind) : null;
+    (input.macroMoments[i] as any).subjectReason = isSubject ? (item.subjectReason || null) : null;
+    (input.macroMoments[i] as any).subjectEvidence = isSubject ? (Array.isArray(item.subjectEvidence) ? item.subjectEvidence : []) : [];
+    (input.macroMoments[i] as any).classificationConfidence = safeConfidence(item.confidence);
   }
 
-  return {
-    macroMoments: input.macroMoments,
-    classifications: classified,
-  };
+  return { macroMoments: input.macroMoments, classifications: parsed };
 }
 
-type MacroStream = { streamId: string; macroMoments: MacroMomentDescription[] };
-
-export async function runMacroClassificationForDocument(input: {
-  ports: MacroClassificationPorts;
-  documentId: string;
-  streams: MacroStream[];
-  gating: MacroGatingConfig;
+export async function runMacroClassification(input: {
+  document: Document;
+  context: PipelineContext;
+  streams: Array<{ streamId: string; macroMoments: MacroMomentDescription[] }>;
 }): Promise<{
-  streams: MacroStream[];
+  streams: Array<{ streamId: string; macroMoments: MacroMomentDescription[] }>;
   gatingAuditByStream: any[];
   classificationsByStream: any[];
-  counts: {
-    streamsIn: number;
-    streamsOut: number;
-    macroIn: number;
-    macroOut: number;
-  };
 }> {
-  const outStreams: MacroStream[] = [];
+  const { document, context, streams } = input;
+
+  const gatingConfig: MacroGatingConfig = {
+    macroMaxPerStream: Number((context.env as any).MACRO_MAX_PER_STREAM) || 12,
+    macroMinImportance: Number((context.env as any).MACRO_MIN_IMPORTANCE) || 0,
+    noisePatternStringsFromEnv: [], // TODO: pull from env if needed
+    discordNoisePatternStringsFromEnv: [],
+  };
+
+  const outStreams: any[] = [];
   const gatingAuditByStream: any[] = [];
   const classificationsByStream: any[] = [];
 
-  let streamsIn = 0;
-  let streamsOut = 0;
-  let macroIn = 0;
-  let macroOut = 0;
-
-  streamsIn += input.streams.length;
-  for (const s of input.streams) {
-    const streamId =
-      typeof (s as any)?.streamId === "string" ? (s as any).streamId : "stream";
-    const macroMoments: MacroMomentDescription[] = Array.isArray(
-      (s as any)?.macroMoments
-    )
-      ? ((s as any).macroMoments as any[])
-      : [];
-    macroIn += macroMoments.length;
-
-    const gated = gateMacroMomentsLikeLiveEngine(macroMoments, input.gating);
-    const macroMomentDescriptions = gated.macroMomentDescriptions;
-
+  for (const s of streams) {
+    const gated = gateMacroMoments(s.macroMoments, gatingConfig);
+    
     let classifications: any[] | null = null;
-    if (macroMomentDescriptions.length > 0) {
-      const res = await classifyMacroMomentsLikeLiveEngine({
-        ports: input.ports,
-        documentId: input.documentId,
-        macroMoments: macroMomentDescriptions as any,
+    if (gated.macroMomentDescriptions.length > 0) {
+      const res = await classifyMacroMoments({
+        documentId: document.id,
+        macroMoments: gated.macroMomentDescriptions,
+        context,
       });
-      classifications = res.classifications ?? null;
+      classifications = res.classifications;
     }
 
-    gatingAuditByStream.push({ streamId, gating: gated.gatingAudit });
-    classificationsByStream.push({ streamId, classifications });
-
-    outStreams.push({ streamId, macroMoments: macroMomentDescriptions });
-    streamsOut += 1;
-    macroOut += macroMomentDescriptions.length;
+    gatingAuditByStream.push({ streamId: s.streamId, gating: gated.gatingAudit });
+    classificationsByStream.push({ streamId: s.streamId, classifications });
+    outStreams.push({ streamId: s.streamId, macroMoments: gated.macroMomentDescriptions });
   }
 
   return {
     streams: outStreams,
     gatingAuditByStream,
     classificationsByStream,
-    counts: { streamsIn, streamsOut, macroIn, macroOut },
   };
 }
-

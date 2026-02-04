@@ -286,42 +286,6 @@ export async function addMoment(
         });
       }
       await context.env.MOMENT_INDEX.upsert([momentVector]);
-
-      if (isSubject) {
-        console.log("[moment-linker] vector upsert (subject)", {
-          id: moment.id,
-          momentGraphNamespace,
-          documentId: moment.documentId,
-          type: "subject",
-          isSubject: true,
-        });
-        await context.env.SUBJECT_INDEX.upsert([
-          {
-            id: moment.id,
-            values: embedding,
-            metadata: {
-              momentGraphNamespace,
-              title: moment.title,
-              summary: moment.summary,
-              documentId: moment.documentId,
-              type: "subject",
-              isSubject: true,
-              ...(typeof moment.subjectKind === "string"
-                ? { subjectKind: moment.subjectKind }
-                : null),
-            },
-          },
-        ]);
-      } else {
-        try {
-          const subjectIndexAny = context.env.SUBJECT_INDEX as any;
-          if (typeof subjectIndexAny?.deleteByIds === "function") {
-            await subjectIndexAny.deleteByIds([moment.id]);
-          }
-        } catch {
-          // ignore
-        }
-      }
     } else {
       console.log("[moment-linker] vector upsert skipped (low importance)", {
         id: moment.id,
@@ -334,10 +298,6 @@ export async function addMoment(
         const momentIndexAny = context.env.MOMENT_INDEX as any;
         if (typeof momentIndexAny?.deleteByIds === "function") {
           await momentIndexAny.deleteByIds([moment.id]);
-        }
-        const subjectIndexAny = context.env.SUBJECT_INDEX as any;
-        if (typeof subjectIndexAny?.deleteByIds === "function") {
-          await subjectIndexAny.deleteByIds([moment.id]);
         }
       } catch (error) {
         console.error("[moment-linker] vector delete failed (low importance)", {
@@ -433,6 +393,25 @@ export async function addMoment(
       })
       .execute();
   }
+
+  // 3. Persist Anchors
+  if (Array.isArray(moment.anchors) && moment.anchors.length > 0) {
+    // Delete existing anchors for this moment first (idempotency)
+    await db.deleteFrom("moment_anchors").where("moment_id", "=", moment.id).execute();
+    
+    // Insert new anchors
+    const anchorValues = moment.anchors.map(a => ({
+      moment_id: moment.id,
+      anchor: a
+    }));
+    
+    // Insert in batches if many
+    const batchSize = 50;
+    for (let i = 0; i < anchorValues.length; i += batchSize) {
+      const batch = anchorValues.slice(i, i + batchSize);
+      await db.insertInto("moment_anchors").values(batch as any).execute();
+    }
+  }
 }
 
 export async function deleteMomentsByIds(
@@ -461,10 +440,6 @@ export async function deleteMomentsByIds(
       const momentIndexAny = context.env.MOMENT_INDEX as any;
       if (typeof momentIndexAny?.deleteByIds === "function") {
         await momentIndexAny.deleteByIds(batch);
-      }
-      const subjectIndexAny = context.env.SUBJECT_INDEX as any;
-      if (typeof subjectIndexAny?.deleteByIds === "function") {
-        await subjectIndexAny.deleteByIds(batch);
       }
     } catch (error) {
       console.error("[momentDb] vector delete failed", {
@@ -842,6 +817,67 @@ export async function findAncestors(
   }
 
   return ancestors;
+}
+
+export async function findMomentsByAnchors(
+  anchors: string[],
+  context: MomentGraphContext
+): Promise<Moment[]> {
+  if (!Array.isArray(anchors) || anchors.length === 0) {
+    return [];
+  }
+
+  const db = getMomentDb(context);
+  const rows = (await db
+    .selectFrom("moment_anchors")
+    .innerJoin("moments", "moments.id", "moment_anchors.moment_id")
+    .selectAll("moments")
+    .where("moment_anchors.anchor", "in", anchors)
+    .execute()) as unknown as MomentRow[];
+
+  if (rows.length === 0) {
+    return [];
+  }
+
+  // De-duplicate by moment ID
+  const seen = new Set<string>();
+  const uniqueRows: MomentRow[] = [];
+  for (const row of rows) {
+    if (!seen.has(row.id)) {
+      seen.add(row.id);
+      uniqueRows.push(row);
+    }
+  }
+
+  return uniqueRows.map(row => ({
+    id: row.id,
+    documentId: row.document_id,
+    summary: row.summary,
+    title: row.title,
+    parentId: row.parent_id || undefined,
+    microPaths: row.micro_paths_json || undefined,
+    microPathsHash: row.micro_paths_hash || undefined,
+    importance: typeof row.importance === "number" ? row.importance : undefined,
+    linkAuditLog: row.link_audit_log || undefined,
+    momentKind:
+      typeof (row as any).moment_kind === "string"
+        ? (row as any).moment_kind
+        : undefined,
+    momentEvidence: (row as any).moment_evidence_json || undefined,
+    isSubject: (row as any).is_subject === 1,
+    subjectKind:
+      typeof (row as any).subject_kind === "string"
+        ? (row as any).subject_kind
+        : undefined,
+    subjectReason:
+      typeof (row as any).subject_reason === "string"
+        ? (row as any).subject_reason
+        : undefined,
+    subjectEvidence: (row as any).subject_evidence_json || undefined,
+    createdAt: row.created_at,
+    author: row.author,
+    sourceMetadata: row.source_metadata || undefined,
+  }));
 }
 
 export async function findDescendants(
@@ -1646,87 +1682,6 @@ export async function getRecentDocumentAuditEvents(
   return out;
 }
 
-export async function findSimilarSubjects(
-  vector: number[],
-  limit: number = 5,
-  context: MomentGraphContext
-): Promise<Moment[]> {
-  const momentGraphNamespace = context.momentGraphNamespace ?? "default";
-  const queryOptions: Record<string, unknown> = {
-    topK: limit,
-    returnMetadata: true,
-  };
-  if (momentGraphNamespace !== "default") {
-    queryOptions.filter = { momentGraphNamespace };
-  }
-  const searchResults = await context.env.SUBJECT_INDEX.query(
-    vector,
-    queryOptions as any
-  );
-
-  const matchIdsAll = Array.from(
-    new Set(
-      searchResults.matches
-        .map((m: any) => m?.id)
-        .filter((id: unknown): id is string => typeof id === "string")
-    )
-  );
-
-  const subjectIds: string[] = [];
-  for (let i = 0; i < searchResults.matches.length; i++) {
-    const match = searchResults.matches[i];
-    const matchNamespace =
-      (match.metadata as any)?.momentGraphNamespace ?? null;
-    const normalizedMatchNamespace = matchNamespace ?? "default";
-    if (normalizedMatchNamespace !== momentGraphNamespace) {
-      continue;
-    }
-    subjectIds.push(match.id);
-  }
-
-  const momentsMapAll =
-    matchIdsAll.length > 0 ? await getMoments(matchIdsAll, context) : null;
-  const candidates = searchResults.matches.map((match: any) => {
-    const id = typeof match?.id === "string" ? match.id : null;
-    const matchNamespace =
-      (match?.metadata as any)?.momentGraphNamespace ?? null;
-    const normalizedMatchNamespace = matchNamespace ?? "default";
-    const moment = id && momentsMapAll ? momentsMapAll.get(id) : undefined;
-    return {
-      id,
-      score: typeof match?.score === "number" ? match.score : null,
-      matchNamespace: normalizedMatchNamespace,
-      inNamespace: normalizedMatchNamespace === momentGraphNamespace,
-      inDb: Boolean(moment),
-      isRoot: moment ? !moment.parentId : null,
-      parentId: moment?.parentId ?? null,
-      documentId: moment?.documentId ?? null,
-    };
-  });
-  console.log("[momentDb:findSimilarSubjects] candidates", {
-    momentGraphNamespace,
-    candidates,
-  });
-
-  if (subjectIds.length === 0) {
-    return [];
-  }
-
-  const momentsMap = momentsMapAll ?? (await getMoments(subjectIds, context));
-  const subjects: Moment[] = [];
-  for (const id of subjectIds) {
-    const moment = momentsMap.get(id);
-    if (moment && !moment.parentId) {
-      subjects.push(moment);
-    } else if (!moment) {
-      console.warn(
-        `[momentDb:findSimilarSubjects] Subject moment ${id} not found in database`
-      );
-    }
-  }
-
-  return subjects;
-}
 
 export async function findLastMomentForDocument(
   documentId: string,

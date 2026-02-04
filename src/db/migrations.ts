@@ -86,16 +86,17 @@ export const migrations = {
             col.notNull().defaultTo("default")
           )
           .addColumn("createdAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
+            col
+              .defaultTo(sql`CURRENT_TIMESTAMP`)
+              .notNull()
           )
-          .addColumn("updatedAt", "text", (col) =>
-            col.notNull().defaultTo(
-              // @ts-expect-error - Kysely doesn't export DefaultValueExpression type
-              sql`current_timestamp`
-            )
+          .addColumn(
+            "updatedAt",
+            "text",
+            (col) =>
+              col
+                .defaultTo(sql`CURRENT_TIMESTAMP`)
+                .notNull()
           )
           .execute(),
       ];

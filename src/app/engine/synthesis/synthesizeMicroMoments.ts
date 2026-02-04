@@ -493,9 +493,6 @@ ${formattedMoments}
     const response = await callLLM(synthesisPrompt, "slow-reasoning", {
       temperature: 0,
       max_tokens: 2000,
-      reasoning: {
-        effort: "low",
-      },
       logger: options?.logger,
     });
 

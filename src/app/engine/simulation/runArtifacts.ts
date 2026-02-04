@@ -656,8 +656,8 @@ export async function getSimulationRunCandidateSets(
         return {
           ...c,
           momentId: id,
-          title: details?.title ?? null,
-          summary: details?.summary ?? null,
+          title: c.title || details?.title || null,
+          summary: c.summary || details?.summary || null,
         };
       });
 
@@ -773,8 +773,8 @@ export async function getSimulationRunTimelineFitDecisions(
         const details = detailsById.get(d.candidateId);
         return {
           ...d,
-          candidateTitle: details?.title ?? null,
-          candidateSummary: details?.summary ?? null,
+          candidateTitle: d.title || details?.title || null,
+          candidateSummary: d.summary || details?.summary || null,
         };
       });
 

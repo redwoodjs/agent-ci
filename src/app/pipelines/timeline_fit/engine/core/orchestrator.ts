@@ -213,14 +213,23 @@ export async function computeTimelineFitDecision(input: {
               )
               .join("\n\n");
           try {
+            if (input.logger) {
+              input.logger.info("timeline-fit:diagnostic:llm-veto-start", { childMomentId: input.childMomentId, candidateIds: llmInput.candidates.map(c => c.id) });
+            }
             const raw = await input.ports.callLLM!(prompt);
             const parsed = JSON.parse(raw);
             const vetoedIds = Array.isArray(parsed?.vetoedIds)
               ? parsed.vetoedIds.filter((x: any) => typeof x === "string")
               : [];
             const note = typeof parsed?.note === "string" ? parsed.note : null;
+            if (input.logger) {
+              input.logger.info("timeline-fit:diagnostic:llm-veto-result", { childMomentId: input.childMomentId, vetoedIds, note });
+            }
             return { vetoedIds, note };
-          } catch {
+          } catch (err) {
+            if (input.logger) {
+              input.logger.warn("timeline-fit:diagnostic:llm-veto-fail", { childMomentId: input.childMomentId, error: err instanceof Error ? err.message : String(err) });
+            }
             return { vetoedIds: [], note: null };
           }
         }

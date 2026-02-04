@@ -34,3 +34,34 @@ src/app/pipelines/timeline_fit/
 
 ## Implemented logging fixes
 We replaced console.log with logger.info in the timeline_fit orchestrator to ensure decision logic is visible in the simulation UI.
+
+## Work Task Blueprint: Fix Timeline Fit Reasoning and UI Visibility
+
+### Context
+**The Problem**: Even with Phase 8 running and logging to the backend, the Simulation UI shows "nothing there" and "decisions: (none)" for Timeline Fit.
+- **Root Cause 1 (Data Retrieval)**:  in `runArtifacts.ts` was looking for the key `candidates` and the field `momentId`, while the orchestrator returns `decisions` and `candidateId`.
+- **Root Cause 2 (Observability)**: LLM veto decisions are not explicitly logged, making it opaque whether the LLM is actually vetoing candidates or even being called.
+
+**The Solution**: Align the data retrieval layer with the core orchestrator and add explicit heartbeat logs for LLM operations.
+
+**Approach**:
+1.  Update `getSimulationRunTimelineFitDecisions` to handle the schema returned by the orchestrator.
+2.  Add diagnostic logs to the `llmVeto` wrapper for Start, Result, and Fail states.
+
+### Breakdown of Planned Changes
+
+#### Data Retrieval Layer
+- **[MODIFY] `src/app/engine/simulation/runArtifacts.ts`**:
+    - Update `getSimulationRunTimelineFitDecisions` to map `decisions` -> `detailedDecisions`.
+    - Map `candidateId` to the moment details lookup.
+
+#### Timeline Fit Orchestrator
+- **[MODIFY] `src/app/pipelines/timeline_fit/engine/core/orchestrator.ts`**:
+    - Add `timeline-fit:diagnostic:llm-veto-start`
+    - Add `timeline-fit:diagnostic:llm-veto-result`
+    - Add `timeline-fit:diagnostic:llm-veto-fail`
+
+### Suggested Verification (Manual)
+1.  Rerun a simulation (e.g. `needle-sim-1`).
+2.  Inspect the "Timeline Fit" card in the Simulation UI.
+3.  Expand "Model Reasoning & Stats" to confirm `decisions` array is populated and contains candidate details.

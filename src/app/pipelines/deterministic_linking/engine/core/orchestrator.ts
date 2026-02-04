@@ -107,6 +107,12 @@ function parseGithubRepoFromDocumentId(
   return { owner, repo };
 }
 
+function parseIssueNumberFromDocumentId(documentId: string): string | null {
+  // Matches e.g. github/owner/repo/issues/123/latest.json or pull-requests/123/latest.json
+  const m = documentId.match(/\/(?:issues|pull-requests)\/(\d+)\//);
+  return m?.[1] ?? null;
+}
+
 export type DeterministicLinkingPorts = {
   resolveThreadHeadForDocumentAsOf: (input: {
     documentId: string;
@@ -141,10 +147,22 @@ export async function computeDeterministicLinkingDecision(input: {
 
   // Fallback: Scan raw document content if provided
   if (!candidateIssueRef && input.rawDocumentContent) {
-    const rawMatch = input.rawDocumentContent.match(/#(\d{1,10})/);
-    if (rawMatch?.[0]) {
-      candidateIssueRef = rawMatch[0];
+    const selfIssueNumber = parseIssueNumberFromDocumentId(input.childDocumentId);
+    const selfRef = selfIssueNumber ? `#${selfIssueNumber}` : null;
+
+    // Use global scan to find all potential candidates
+    const matches = Array.from(input.rawDocumentContent.matchAll(/#(\d{1,10})/g));
+    
+    for (const match of matches) {
+      const issueRef = match[0];
+      if (selfRef && issueRef === selfRef) {
+        console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} skipping self-reference match: ${issueRef}`);
+        continue;
+      }
+      
+      candidateIssueRef = issueRef;
       console.log(`[deterministic-linking:diagnostic] ${input.childMomentId} found fallback issueRef in raw document: ${candidateIssueRef}`);
+      break; 
     }
   }
 

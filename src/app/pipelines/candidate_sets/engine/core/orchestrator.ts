@@ -161,6 +161,8 @@ export async function runCandidateSetComputation(input: {
     title: string | null;
     summary: string | null;
   }>;
+  childTitle: string | null;
+  childSummary: string | null;
   stats: any;
 }> {
   const { context, childMoment } = input;
@@ -175,6 +177,8 @@ export async function runCandidateSetComputation(input: {
   if (!queryText) {
     return { 
       candidates: [], 
+      childTitle: childMoment.title ?? null,
+      childSummary: childMoment.summary ?? null,
       stats: { reason: "empty-query" } 
     };
   }
@@ -271,6 +275,8 @@ export async function runCandidateSetComputation(input: {
 
   return {
     candidates: finalCandidates,
+    childTitle: childMoment.title ?? null,
+    childSummary: childMoment.summary ?? null,
     stats: {
       ...built.stats,
       vectorTopK,

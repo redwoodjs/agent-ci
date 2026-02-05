@@ -202,14 +202,6 @@ export async function processSimulationJob(
             }
 
             const engineContext = createEngineContext(env, "indexing");
-            
-            // -- REPRO: Prove service absence in actual worker --
-            if (!(engineContext as any).llm || !(engineContext as any).vector) {
-                const missing = [];
-                if (!(engineContext as any).llm) missing.push("llm");
-                if (!(engineContext as any).vector) missing.push("vector");
-                throw new Error(`REPRO_SERVICE_ABSENCE: The following services are missing from EngineContext: ${missing.join(", ")}`);
-            }
 
             const pipelineContext: any = {
               ...engineContext,

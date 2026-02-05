@@ -28,10 +28,6 @@ export async function fetchMomentsFromRun(
     return [];
   }
 
-  // -- REPRO: Force SQL variable limit failure --
-  if (distinctIds.length > 2) {
-    throw new Error(`REPRO_SQLITE_LIMIT: Simulating SQLITE_ERROR: too many SQL variables (${distinctIds.length} > 2)`);
-  }
 
   // 1. Get run info for legacy fallback
   const runRow = (await db

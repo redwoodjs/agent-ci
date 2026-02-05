@@ -275,6 +275,8 @@ export async function runTimelineFitForDocument(input: {
   chosenParentId: string | null;
   chosenParentTitle: string | null;
   chosenParentSummary: string | null;
+  childTitle: string | null;
+  childSummary: string | null;
   outcome: string;
   decisions: any[];
   audit: any;
@@ -318,6 +320,8 @@ export async function runTimelineFitForDocument(input: {
     chosenParentId: proposal.chosenParentId,
     chosenParentTitle: chosenParent?.title ?? null,
     chosenParentSummary: chosenParent?.summary ?? null,
+    childTitle: childMoment.title ?? null,
+    childSummary: childMoment.summary ?? null,
     outcome: proposal.chosenParentId ? "fit" : "no-fit",
     decisions: proposal.decisions,
     audit,

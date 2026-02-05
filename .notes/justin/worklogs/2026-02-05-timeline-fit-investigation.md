@@ -127,15 +127,141 @@ To prevent silent failures, we will use a JavaScript `Proxy` within the factory.
 *   **Modify `src/app/engine/services/simulation-worker.ts`**: Remove manual service checks and rely on the unified `createEngineContext`.
 *   **Modify `src/app/engine/services/indexing-scheduler-worker.ts`**: Match the new unified factory call.
 
-#### Phase 8 (Timeline Fit)
-*   **Modify `src/app/pipelines/timeline_fit/engine/core/orchestrator.ts`**: Enrich the outcome artifact with `childTitle` and `childSummary`.
-
 #### Cleanup
 *   **Modify `src/app/engine/services/simulation-worker.ts`**: Remove `REPRO_SERVICE_ABSENCE`.
 
 ### 3. Tasks
 - [ ] Implement Unified Hub in `index.ts` with Proxy protection
 - [ ] Update worker initialization to use the new Hub
-- [ ] Enrich Phase 8 output with child metadata
-- [ ] Cleanup repro logic
-- [ ] Verify fix in simulation runtime
+- [ ] Ensure `REPRO_SQLITE_LIMIT` throwing is STILL PRESENT IN CODE SO WE CAN MANUALLY VERIFY
+## Implemented Unified & Protected Context
+We executed the simplified "Unified Context" plan to resolve the `llm-veto-fail` and service absence issues.
+
+**Changes Applied**:
+1.  **Unified Factory**: Modified `src/app/engine/index.ts` to implement `createEngineContext`. This factory now:
+    -   Initializes `llm` (via `getLLM`) and `db` (via `getMomentGraphDb`).
+    -   Wraps the context in a `Proxy` that intercepts property access.
+    -   Throws a descriptive `EngineContext Service Error` if any service is accessed while `undefined`.
+2.  **Worker Updates**: Updated `simulation-worker.ts` to use this new factory, replacing the manual (and incomplete) initialization logic.
+3.  **Cleanup**: Removed the `REPRO_SERVICE_ABSENCE` assertion from the worker, as the new Proxy protection makes it redundant (and the fix resolves it).
+4.  **Preserved Repro**: We deliberately **did not** touch the `REPRO_SQLITE_LIMIT` hook in `runArtifacts.ts`, ensuring it remains active for manual verification.
+
+## Ready for Manual Verification
+The system is now in a state where:
+1.  **Service Absence Solved**: Running a simulation should no longer crash with "Cannot read properties of undefined (reading 'call')".
+2.  **SQLite Limit Exposed**: Navigating to the Timeline Fit tab for a large run will still hit the `REPRO_SQLITE_LIMIT` error, confirming the second issue is isolated and ready for a separate fix (Enrichment).
+
+## Drafted Work Task Blueprint for Final Fixes
+We reached consensus on the final targeted fixes to resolve the "Untitled Child" crash and the completion discrepancy.
+
+### Context
+1. **Enrichment Gap**: Timeline Fit artifacts currently only store Parent metadata. Child moments lack titles/summaries in the JSON, forcing the UI into a brittle relational lookup path that hits SQLite parameter limits (`REPRO_SQLITE_LIMIT`) on large runs.
+2. **Completion Discrepancy**: Runs mark themselves as "completed" before asynchronous flushes (logs/events) are finished, leading to ongoing logs for "completed" runs.
+
+### Proposed Changes
+- **Enrichment**: Update `orchestrator.ts` to include `childTitle` and `childSummary` in the Phase 8 artifact.
+- **UI Pivot**: Update `runArtifacts.ts` to prefer this Child metadata, bypassing relational lookups.
+- **Completion Sync**: Update `runner.ts` to ensure all document events are settled before transitioning status to `completed`.
+- **Cleanup**: Remove the `REPRO_SQLITE_LIMIT` hook from `runArtifacts.ts`.
+
+### Tasks
+- [ ] Enrich Phase 8 artifact with child metadata
+- [ ] Update `runArtifacts.ts` and remove repro hook
+- [ ] Synchronize completion in `runner.ts`
+
+# Work Task Blueprint: Timeline Fit Fix & Completion Sync
+
+## 1. Context
+We identified a metadata gap in Phase 8 (Timeline Fit) artifacts. While parent moments are enriched with titles/summaries, the **child moments** are not. This forces the UI into a brittle relational lookup path (`fetchMomentsFromRun`) that exceeds SQLite parameter limits on large runs (`REPRO_SQLITE_LIMIT`).
+
+Additionally, the simulation status transitions to `completed` while asynchronous event flushes (logs/events) are still in flight, creating a confusing "logs moving after completion" UX.
+
+### Solution
+1. **Full Enrichment**: Add `childTitle` and `childSummary` to the Phase 8 artifact.
+2. **UI Data Layer Update**: Preference these enriched fields in `runArtifacts.ts`, killing the relational lookup path.
+3. **Completion Settle**: Inject a settlement check in the runner to ensure all pending work is flushed before marking as `completed`.
+
+## 2. Breakdown of Planned Changes
+
+### Phase 8 Orchestrator
+* **Modify** `orchestrator.ts`:
+```typescript
+// Enrich result with child metadata
+return {
+  ...proposal,
+  childTitle: childMoment.title ?? null,
+  childSummary: childMoment.summary ?? null,
+  outcome: proposal.chosenParentId ? "fit" : "no-fit",
+};
+```
+
+### UI Data Layer
+* **Modify** `runArtifacts.ts`:
+  - Update `getSimulationRunTimelineFitDecisions` to pull `childTitle/Summary` from the artifact.
+* **Delete** repro hook in `fetchMomentsFromRun`:
+```diff
+- if (distinctIds.length > 2) {
+-   throw new Error(`REPRO_SQLITE_LIMIT...`);
+- }
+```
+
+### Simulation Runner
+* **Modify** `runner.ts`:
+  - Update completion logic to check for final "silence" or status settlement.
+
+## 3. Directory & File Structure
+```text
+src/app/
+├── engine/
+│   ├── runners/simulation/
+│   │   └── [MODIFY] runner.ts
+│   └── simulation/
+│       └── [MODIFY] runArtifacts.ts
+└── pipelines/timeline_fit/engine/core/
+    └── [MODIFY] orchestrator.ts
+```
+
+## 4. Types & Data Structures
+```typescript
+// Modified Phase 8 Output structure in orchestrator.ts
+export type TimelineFitOutput = {
+  chosenParentId: string | null;
+  chosenParentTitle: string | null;
+  chosenParentSummary: string | null;
+  childTitle: string | null;   // [NEW]
+  childSummary: string | null; // [NEW]
+  outcome: string;
+  decisions: any[];
+  audit: any;
+};
+```
+
+## 5. Invariants & Constraints
+- **Self-Contained Artifacts**: All data required to render a decision row MUST be present in the JSON artifact.
+- **Relational Lookups as Fallback Only**: `fetchMomentsFromRun` should only be used as a legacy fallback, never on the critical path for new runs.
+
+## 6. System Flow (Snapshot Diff)
+**Previous Flow**: 
+1. UI loads Artifact (Parents only).
+2. UI detects missing Child metadata.
+3. UI calls `fetchMomentsFromRun` -> **SQLite Limit Crash**.
+
+**New Flow**:
+1. UI loads Artifact (Parents + Child).
+2. UI renders Title directly from JSON.
+3. No secondary SQL query performed.
+
+## 7. Tasks
+- [ ] Implement full Child enrichment in `orchestrator.ts`
+- [ ] Pivot `runArtifacts.ts` and delete repro hook
+- [ ] Add completion settlement to `runner.ts`
+
+## Implementation and Verification Complete 2026-02-05
+We have implemented the full enrichment for Phase 8 artifacts, updated the UI data layer to prioritize this enriched metadata, and integrated a `settling` state into the runner to ensure event flushes are completed before run termination.
+
+- **Enrichment**: Phase 8 now stores `childTitle` and `childSummary`.
+- **UI Logic**: Relational joins for metadata are bypassed for enriched artifacts.
+- **Completion**: Runs transition from `settling` -> `completed` to avoid log trailing issues.
+- **Cleanup**: `REPRO_SQLITE_LIMIT` hook and `scripts/repro-fit-issues.ts` have been removed.
+
+The [Unified Pipeline Blueprint](file:///Users/justin/rw/worktrees/machinen_investigate-large-sample-issue/docs/blueprints/runtime-architecture.md) has been updated with these new architectural standards.

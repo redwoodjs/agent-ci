@@ -58,6 +58,7 @@ export type SimulationRunStatus =
   | "paused_on_error"
   | "paused_manual"
   | "completed"
+  | "settling"
   | "advance";
 
 export const simulationPhases = [

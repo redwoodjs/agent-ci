@@ -3,18 +3,13 @@ import { getHeuristicResponse } from "./heuristicLlm";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
 
-export type LLMAlias = "slow-reasoning" | "quick-cheap" | "gemini-3-flash";
+const MODELS = {
+  "slow-reasoning": { provider: "cloudflare", id: "@cf/openai/gpt-oss-20b" },
+  "quick-cheap": { provider: "cloudflare", id: "@cf/meta/llama-3.1-8b-instruct" },
+  "gemini-3-flash": { provider: "google", id: "gemini-3-flash-preview" },
+} as const;
 
-// Map aliases to specific models for Cloudflare AI
-const CF_MODEL_MAP: Record<string, string> = {
-  "slow-reasoning": "@cf/openai/gpt-oss-20b",
-  "quick-cheap": "@cf/meta/llama-3.1-8b-instruct",
-};
-
-// Map aliases to specific models for AI-SDK (Google)
-const GOOGLE_MODEL_MAP: Record<string, string> = {
-  "gemini-3-flash": "gemini-3-flash-preview",
-};
+export type LLMAlias = keyof typeof MODELS;
 
 interface GPTOSSResponse {
   output: Array<{
@@ -58,10 +53,12 @@ export async function callLLM(
     }
   };
 
-  // 2. Check if it's a Google model (handled by AI-SDK)
-  const googleModelId = GOOGLE_MODEL_MAP[alias];
-  if (googleModelId) {
-    logInfo(`Calling AI-SDK Google model '${alias}' (${googleModelId})`);
+  // 2. Resolve model configuration
+  const modelConfig = MODELS[alias];
+  const modelId = modelConfig.id;
+
+  if (modelConfig.provider === "google") {
+    logInfo(`Calling AI-SDK Google model '${alias}' (${modelId})`);
 
     const apiKey = SECRETS.GOOGLE_AI_KEY;
     if (!apiKey) {
@@ -74,7 +71,7 @@ export async function callLLM(
       });
 
       const { text } = await generateText({
-        model: google(googleModelId),
+        model: google(modelId),
         prompt: prompt,
         temperature: options?.temperature,
         maxTokens: options?.max_tokens,
@@ -90,10 +87,7 @@ export async function callLLM(
   }
 
   // 3. Handle Cloudflare AI models (legacy env.AI)
-  const cfModelId = CF_MODEL_MAP[alias];
-  if (!cfModelId) {
-    throw new Error(`Unknown model alias: ${alias}`);
-  }
+  const cfModelId = modelId;
 
   const start = Date.now();
   const promptLength = prompt.length;

@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { getHeuristicResponse } from "./heuristicLlm";
 
 export type LLMAlias = "slow-reasoning" | "quick-cheap";
 
@@ -32,16 +33,53 @@ export async function callLLM(
   alias: LLMAlias = "slow-reasoning",
   options?: LLMOptions
 ): Promise<string> {
+  // 1. Check for simulation heuristic override (dynamic response)
+  if (
+    typeof env.SIMULATION_HEURISTIC_MODE === "string" &&
+    (env.SIMULATION_HEURISTIC_MODE === "1" || env.SIMULATION_HEURISTIC_MODE === "true")
+  ) {
+    console.log(`[llm] Using HEURISTIC approximation for alias=${alias}`);
+    return getHeuristicResponse(prompt, alias);
+  }
+
   const modelId = MODEL_MAP[alias];
 
   const start = Date.now();
   const promptLength = prompt.length;
   const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
-  console.log(
-    `[llm] Calling alias '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`
-  );
+
+  const logInfo = (msg: string, data?: any) => {
+    if (options?.logger) {
+      options.logger(msg, data);
+    } else {
+      console.log(`[llm] ${msg}`, data ? JSON.stringify(data) : "");
+    }
+  };
+
+  logInfo(`Calling alias '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
   if (options) {
-    console.log(`[llm] Options: ${JSON.stringify(options)}`);
+    logInfo(`Options: ${JSON.stringify(options)}`);
+  }
+
+  // Check for global reasoning effort override
+  const reasoningEffortOverride = typeof env.LLM_REASONING_EFFORT === "string" ? env.LLM_REASONING_EFFORT.trim() : "";
+  
+  if (reasoningEffortOverride) {
+    if (reasoningEffortOverride === "none") {
+      logInfo(`[llm] Overriding reasoning effort to 'none' (removing reasoning options)`);
+      if (options && options.reasoning) {
+        delete options.reasoning;
+      }
+    } else if (["low", "medium", "high"].includes(reasoningEffortOverride)) {
+      logInfo(`[llm] Overriding reasoning effort to '${reasoningEffortOverride}' (from env.LLM_REASONING_EFFORT)`);
+      if (!options) {
+        options = {};
+      }
+      if (!options.reasoning) {
+        options.reasoning = {};
+      }
+      options.reasoning.effort = reasoningEffortOverride as "low" | "medium" | "high";
+    }
   }
 
   let response: any;
@@ -87,14 +125,13 @@ export async function callLLM(
         const waitMs = backoffBase + jitter;
         
         const msg = `Retry attempt ${attempt + 1}/${maxAttempts}. Waiting ${waitMs}ms`;
-        console.log(`[llm] ${msg}`);
-        options?.logger?.(msg, { attempt: attempt + 1, maxAttempts, waitMs });
+        logInfo(msg, { attempt: attempt + 1, maxAttempts, waitMs });
         
         await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
 
-      console.log(
-        `[llm] Calling alias '${alias}' (${modelId}) attempt ${
+      logInfo(
+        `Calling alias '${alias}' (${modelId}) attempt ${
           attempt + 1
         }/${maxAttempts}`
       );
@@ -108,7 +145,7 @@ export async function callLLM(
 
       response = await Promise.race([runPromise, timeoutPromise]);
       const duration = Date.now() - start;
-      console.log(`[llm] AI.run(${alias}) took ${duration}ms`);
+      logInfo(`AI.run(${alias}) took ${duration}ms`);
       
       // Success - break loop
       // Success - break loop and parse
@@ -130,25 +167,29 @@ export async function callLLM(
             typeof messagePart.content[0].text === "string"
           ) {
             const text = messagePart.content[0].text;
-            console.log(
-              `[llm] Successfully extracted text from gpt-oss message part. Length: ${text.length} chars`
+            logInfo(
+              `Successfully extracted text from gpt-oss message part. Length: ${text.length} chars`
             );
             return text;
           }
         }
-        console.error(
-          `[llm] Invalid gpt-oss response structure:`,
-          JSON.stringify(response, null, 2)
-        );
+        if (options?.logger) {
+          options.logger(`Invalid gpt-oss response structure: ${JSON.stringify(response, null, 2)}`, { level: "error" });
+        } else {
+          console.error(
+            `[llm] Invalid gpt-oss response structure:`,
+            JSON.stringify(response, null, 2)
+          );
+        }
         throw new Error("Failed to parse LLM response from gpt-oss");
       } else {
         // Llama and other models often use this structure
-        console.log(
-          `[llm] Parsing non-gpt-oss response. Has response field: ${!!response?.response}, response type: ${typeof response?.response}`
+        logInfo(
+          `Parsing non-gpt-oss response. Has response field: ${!!response?.response}, response type: ${typeof response?.response}`
         );
         if (response && typeof response.response === "string") {
-          console.log(
-            `[llm] Successfully extracted text from response. Length: ${response.response.length} chars`
+          logInfo(
+            `Successfully extracted text from response. Length: ${response.response.length} chars`
           );
           return response.response;
         }
@@ -163,19 +204,21 @@ export async function callLLM(
     } catch (error) {
       lastError = error;
       const msg = error instanceof Error ? error.message : String(error);
-      console.error(
-        `[llm] Attempt ${attempt + 1}/${maxAttempts} failed:`,
-        msg
-      );
-      
-      options?.logger?.(`Attempt ${attempt + 1}/${maxAttempts} failed: ${msg}`, { 
-        attempt: attempt + 1, 
-        maxAttempts, 
-        error: msg 
-      });
+      if (options?.logger) {
+        options.logger(`Attempt ${attempt + 1}/${maxAttempts} failed: ${msg}`, { level: "error", error: msg });
+      } else {
+        console.error(
+          `[llm] Attempt ${attempt + 1}/${maxAttempts} failed:`,
+          msg
+        );
+      }
       
       if (attempt + 1 >= maxAttempts) {
-        console.error(`[llm] All ${maxAttempts} attempts failed.`);
+        if (options?.logger) {
+           options.logger(`All ${maxAttempts} attempts failed.`, { level: "error" });
+        } else {
+           console.error(`[llm] All ${maxAttempts} attempts failed.`);
+        }
         throw lastError;
       }
     }

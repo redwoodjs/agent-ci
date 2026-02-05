@@ -2,33 +2,52 @@ import type { Database } from "rwsdk/db";
 import type { simulationStateMigrations } from "./migrations";
 import { Override } from "@/app/shared/kyselyTypeOverrides";
 
-// We use Override to manually patch the type because Kysely's inference
-// might miss columns added in try/catch blocks in migrations 010/011.
-type SimulationRunDocumentsTable = {
+// Inferred Database (Base)
+type InferredDb = Database<typeof simulationStateMigrations>;
+
+// Static versions of tables to ensure all columns (even those from alterTable) are present.
+// JSON columns use string/null to support manual JSON.stringify on write.
+export interface SimulationRunsTable {
+  run_id: string;
+  status: string;
+  current_phase: string;
+  started_at: string;
+  updated_at: string;
+  last_progress_at: string | null;
+  moment_graph_namespace: string | null;
+  moment_graph_namespace_prefix: string | null;
+  config_json: string | null;
+  last_error_json: string | null;
+}
+
+export interface SimulationRunDocumentsTable {
   run_id: string;
   r2_key: string;
   etag: string | null;
   document_hash: string | null;
   changed: number;
-  error_json: any;
+  error_json: string | null;
   processed_at: string;
   updated_at: string;
-  dispatched_phases_json: string[] | null;
-  processed_phases_json: string[] | null;
-};
+  dispatched_phases_json: string | null;
+  processed_phases_json: string | null;
+}
+
+export interface SimulationRunEventsTable {
+  id: string;
+  run_id: string;
+  level: string;
+  kind: string;
+  payload_json: string;
+  created_at: string;
+}
 
 export type SimulationDatabase = Override<
-  Database<typeof simulationStateMigrations>,
+  InferredDb,
   {
+    simulation_runs: SimulationRunsTable;
     simulation_run_documents: SimulationRunDocumentsTable;
-    simulation_run_r2_batches: {
-        run_id: string;
-        batch_index: number;
-        keys_json: string;
-        processed: number;
-        created_at: string;
-        updated_at: string;
-    };
+    simulation_run_events: SimulationRunEventsTable;
   }
 >;
 
@@ -38,7 +57,8 @@ export type SimulationRunStatus =
   | "busy_running"
   | "paused_on_error"
   | "paused_manual"
-  | "completed";
+  | "completed"
+  | "advance";
 
 export const simulationPhases = [
   "r2_listing",
@@ -59,116 +79,75 @@ export type SimulationRunEventLevel = "debug" | "info" | "warn" | "error";
 export type SimulationDbContext = {
   env: Cloudflare.Env;
   momentGraphNamespace: string | null;
+  heartbeat?: () => Promise<void>;
 };
 
-type SimulationRunInput = SimulationDatabase["simulation_runs"];
+// Concrete JSON structures
+export interface SimulationRunConfig {
+  r2List?: {
+    targetPrefixes?: string[];
+    limitPerPage?: number;
+    maxPages?: number;
+    currentPrefixIdx?: number;
+    pagesProcessed?: number;
+    prefixPagesProcessed?: number;
+    cursor?: string;
+  };
+  r2Keys?: string[];
+}
+
+export interface SimulationRunEventPayload {
+  runId?: string;
+  phase?: string;
+  phaseIdx?: number;
+  status?: string;
+  nextPhase?: string;
+  prefix?: string;
+  cursor?: string;
+  error?: any;
+  [key: string]: any;
+}
+
+// Row types for Selects (Auto-parsed by rwsdk/db)
+type Db = SimulationDatabase;
 export type SimulationRunRow = Override<
-  SimulationRunInput,
+  Db["simulation_runs"],
   {
-    config_json: any;
-    last_error_json: any;
+    status: SimulationRunStatus;
+    config_json: SimulationRunConfig;
+    last_error_json: { message: string; stack?: string } | null;
   }
 >;
 
-type SimulationRunEventInput = SimulationDatabase["simulation_run_events"];
 export type SimulationRunEventRow = Override<
-  SimulationRunEventInput,
+  Db["simulation_run_events"],
   {
-    payload_json: any;
+    level: SimulationRunEventLevel;
+    payload_json: SimulationRunEventPayload;
   }
 >;
 
-type SimulationRunDocumentInput = SimulationDatabase["simulation_run_documents"];
 export type SimulationRunDocumentRow = Override<
-  SimulationRunDocumentInput,
+  Db["simulation_run_documents"],
   {
-    error_json: any;
+    error_json: { message: string; stack?: string } | null;
     dispatched_phases_json: string[] | null;
     processed_phases_json: string[] | null;
   }
 >;
 
-type SimulationRunMicroBatchInput =
-  SimulationDatabase["simulation_run_micro_batches"];
-export type SimulationRunMicroBatchRow = Override<
-  SimulationRunMicroBatchInput,
-  {
-    error_json: any;
-  }
->;
-
-type SimulationMicroBatchCacheInput =
-  SimulationDatabase["simulation_micro_batch_cache"];
-export type SimulationMicroBatchCacheRow = Override<
-  SimulationMicroBatchCacheInput,
-  {
-    micro_items_json: any;
-  }
->;
-
-type SimulationRunMacroOutputInput =
-  SimulationDatabase["simulation_run_macro_outputs"];
-export type SimulationRunMacroOutputRow = Override<
-  SimulationRunMacroOutputInput,
-  {
-    streams_json: any;
-    audit_json: any;
-    gating_json: any;
-    anchors_json: any;
-  }
->;
-
-type SimulationRunMacroClassifiedOutputInput =
-  SimulationDatabase["simulation_run_macro_classified_outputs"];
-export type SimulationRunMacroClassifiedOutputRow = Override<
-  SimulationRunMacroClassifiedOutputInput,
-  {
-    streams_json: any;
-    gating_json: any;
-    classification_json: any;
-  }
->;
-
-type SimulationRunMaterializedMomentInput =
-  SimulationDatabase["simulation_run_materialized_moments"];
-export type SimulationRunMaterializedMomentRow = Override<
-  SimulationRunMaterializedMomentInput,
-  {}
->;
-
-type SimulationRunLinkDecisionInput =
-  SimulationDatabase["simulation_run_link_decisions"];
-export type SimulationRunLinkDecisionRow = Override<
-  SimulationRunLinkDecisionInput,
-  {
-    evidence_json: any;
-  }
->;
-
-type SimulationRunCandidateSetInput =
-  SimulationDatabase["simulation_run_candidate_sets"];
-export type SimulationRunCandidateSetRow = Override<
-  SimulationRunCandidateSetInput,
-  {
-    candidates_json: any;
-    stats_json: any;
-  }
->;
-
-type SimulationRunTimelineFitDecisionInput =
-  SimulationDatabase["simulation_run_timeline_fit_decisions"];
-export type SimulationRunTimelineFitDecisionRow = Override<
-  SimulationRunTimelineFitDecisionInput,
-  {
-    decisions_json: any;
-    stats_json: any;
-  }
->;
-type SimulationRunR2BatchInput = SimulationDatabase["simulation_run_r2_batches"];
 export type SimulationRunR2BatchRow = Override<
-  SimulationRunR2BatchInput,
+  Db["simulation_run_r2_batches"],
   {
     keys_json: string[];
+  }
+>;
+
+export type SimulationRunArtifactRow = Override<
+  Db["simulation_run_artifacts"],
+  {
+    input_json: any;
+    output_json: any;
   }
 >;
 export type SimulationQueueMessage =

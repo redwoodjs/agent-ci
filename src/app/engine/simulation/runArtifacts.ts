@@ -2,14 +2,8 @@ import { applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
 import type {
   SimulationDbContext,
   SimulationRunDocumentRow,
-  SimulationRunMicroBatchRow,
-  SimulationRunMacroOutputRow,
-  SimulationRunMacroClassifiedOutputRow,
-  SimulationRunMaterializedMomentRow,
-  SimulationRunLinkDecisionRow,
-  SimulationRunCandidateSetRow,
-  SimulationRunTimelineFitDecisionRow,
-  SimulationMicroBatchCacheRow,
+  SimulationRunR2BatchRow,
+  SimulationRunArtifactRow,
 } from "./types";
 import { getSimulationDb, getMomentGraphDb } from "./db";
 
@@ -232,62 +226,40 @@ export async function getSimulationRunMicroBatches(
       : null;
 
   let q = db
-    .selectFrom("simulation_run_micro_batches")
-    .leftJoin("simulation_micro_batch_cache", (join) =>
-      join
-        .onRef(
-          "simulation_run_micro_batches.batch_hash",
-          "=",
-          "simulation_micro_batch_cache.batch_hash"
-        )
-        .onRef(
-          "simulation_run_micro_batches.prompt_context_hash",
-          "=",
-          "simulation_micro_batch_cache.prompt_context_hash"
-        )
-    )
-    .select([
-      "simulation_run_micro_batches.r2_key",
-      "simulation_run_micro_batches.batch_index",
-      "simulation_run_micro_batches.batch_hash",
-      "simulation_run_micro_batches.prompt_context_hash",
-      "simulation_run_micro_batches.status",
-      "simulation_run_micro_batches.error_json",
-      "simulation_run_micro_batches.created_at",
-      "simulation_run_micro_batches.updated_at",
-      "simulation_micro_batch_cache.micro_items_json",
-    ])
-    .where("run_id", "=", runId);
+    .selectFrom("simulation_run_artifacts")
+    .where("run_id", "=", runId)
+    .where("phase", "=", "micro_batches")
+    .selectAll();
 
   if (r2Key) {
-    q = q.where("r2_key", "=", r2Key);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
-  const rows = await q
-    .orderBy("r2_key", "asc")
-    .orderBy("batch_index", "asc")
-    .execute();
+  const rows = (await q
+    .orderBy("artifact_key", "asc")
+    .execute()) as unknown as SimulationRunArtifactRow[];
 
-  return rows.map((r) => {
-    const itemsRaw = (r as any).micro_items_json;
-    const items = Array.isArray(itemsRaw)
-      ? (itemsRaw as string[])
-      : typeof itemsRaw === "string"
-      ? (JSON.parse(itemsRaw) as string[])
-      : [];
+  const out: any[] = [];
+  for (const r of rows) {
+    const output = r.output_json;
+    if (output && Array.isArray(output.batches)) {
+      for (const b of output.batches) {
+        out.push({
+          r2Key: r.artifact_key,
+          batchIndex: b.batchIndex,
+          batchHash: b.batchHash,
+          promptContextHash: b.promptContextHash,
+          status: b.cached ? "cached" : "computed",
+          items: b.microItems || [],
+          error: null, // Unified artifacts don't store per-batch error yet
+          createdAt: r.created_at,
+          updatedAt: r.updated_at || r.created_at,
+        });
+      }
+    }
+  }
 
-    return {
-      r2Key: r.r2_key,
-      batchIndex: Number((r as any).batch_index ?? 0),
-      batchHash: r.batch_hash,
-      promptContextHash: r.prompt_context_hash,
-      status: r.status,
-      items,
-      error: (r as any).error_json ?? null,
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-    };
-  });
+  return out;
 }
 
 export async function getSimulationRunMacroOutputs(
@@ -321,29 +293,33 @@ export async function getSimulationRunMacroOutputs(
       : null;
 
   let q = db
-    .selectFrom("simulation_run_macro_outputs")
-    .selectAll()
-    .where("run_id", "=", runId);
+    .selectFrom("simulation_run_artifacts")
+    .where("run_id", "=", runId)
+    .where("phase", "=", "macro_synthesis")
+    .selectAll();
 
   if (r2Key) {
-    q = q.where("r2_key", "=", r2Key);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
-    .orderBy("r2_key", "asc")
-    .execute()) as unknown as SimulationRunMacroOutputRow[];
+    .orderBy("artifact_key", "asc")
+    .execute()) as unknown as SimulationRunArtifactRow[];
 
-  return rows.map((r) => ({
-    r2Key: r.r2_key,
-    microStreamHash: (r as any).micro_stream_hash ?? "",
-    useLlm: Number((r as any).use_llm ?? 0) !== 0,
-    streams: (r as any).streams_json ?? [],
-    audit: (r as any).audit_json ?? null,
-    gating: (r as any).gating_json ?? null,
-    anchors: (r as any).anchors_json ?? null,
-    createdAt: r.created_at,
-    updatedAt: r.updated_at,
-  }));
+  return rows.map((r) => {
+    const o = r.output_json ?? {};
+    return {
+      r2Key: r.artifact_key,
+      microStreamHash: o.microStreamHash ?? "",
+      useLlm: !!o.useLlm,
+      streams: o.streams ?? [],
+      audit: o.audit ?? null,
+      gating: o.gating ?? null,
+      anchors: o.anchors ?? null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at || r.created_at,
+    };
+  });
 }
 
 export async function getSimulationRunMacroClassifiedOutputs(
@@ -374,26 +350,30 @@ export async function getSimulationRunMacroClassifiedOutputs(
       : null;
 
   let q = db
-    .selectFrom("simulation_run_macro_classified_outputs")
-    .selectAll()
-    .where("run_id", "=", runId);
+    .selectFrom("simulation_run_artifacts")
+    .where("run_id", "=", runId)
+    .where("phase", "=", "macro_classification")
+    .selectAll();
 
   if (r2Key) {
-    q = q.where("r2_key", "=", r2Key);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
-    .orderBy("r2_key", "asc")
-    .execute()) as unknown as SimulationRunMacroClassifiedOutputRow[];
+    .orderBy("artifact_key", "asc")
+    .execute()) as unknown as SimulationRunArtifactRow[];
 
-  return rows.map((r) => ({
-    r2Key: (r as any).r2_key,
-    streams: (r as any).streams_json ?? [],
-    gating: (r as any).gating_json ?? null,
-    classifications: (r as any).classification_json ?? null,
-    createdAt: (r as any).created_at,
-    updatedAt: (r as any).updated_at,
-  }));
+  return rows.map((r) => {
+    const o = r.output_json ?? {};
+    return {
+      r2Key: r.artifact_key,
+      streams: o.streams ?? [],
+      gating: o.gating ?? null,
+      classifications: o.classifications ?? null,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at || r.created_at,
+    };
+  });
 }
 
 export async function getSimulationRunMaterializedMoments(
@@ -429,39 +409,42 @@ export async function getSimulationRunMaterializedMoments(
       : null;
 
   let q = db
-    .selectFrom("simulation_run_materialized_moments")
-    .selectAll()
-    .where("run_id", "=", runId);
+    .selectFrom("simulation_run_artifacts")
+    .where("run_id", "=", runId)
+    .where("phase", "=", "materialize_moments")
+    .selectAll();
 
   if (r2Key) {
-    q = q.where("r2_key", "=", r2Key);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
-    .orderBy("r2_key", "asc")
-    .orderBy("stream_id", "asc")
-    .orderBy("macro_index", "asc")
-    .execute()) as unknown as SimulationRunMaterializedMomentRow[];
+    .orderBy("artifact_key", "asc")
+    .execute()) as unknown as SimulationRunArtifactRow[];
 
-  const ids = rows.map((r) => (r as any).moment_id).filter(Boolean);
-  const momentDetailsMap = await fetchMomentDetails(context, runId, ids);
+  const moments: any[] = [];
+  for (const r of rows) {
+    const o = r.output_json ?? {};
+    if (Array.isArray(o.moments)) {
+        for (const m of o.moments) {
+            moments.push({
+                r2Key: r.artifact_key,
+                streamId: m.sourceMetadata?.simulation?.streamId || "default",
+                macroIndex: Number(m.sourceMetadata?.simulation?.macroIndex ?? 0),
+                momentId: m.id,
+                parentId: m.parentId ?? null,
+                title: m.title ?? null,
+                summary: m.summary ?? null,
+                sourceMetadata: m.sourceMetadata ?? null,
+                author: m.author ?? null,
+                createdAt: r.created_at,
+                updatedAt: r.updated_at || r.created_at,
+            });
+        }
+    }
+  }
 
-  return rows.map((r) => {
-    const details = momentDetailsMap.get((r as any).moment_id);
-    return {
-      r2Key: (r as any).r2_key,
-      streamId: (r as any).stream_id,
-      macroIndex: Number((r as any).macro_index ?? 0),
-      momentId: (r as any).moment_id,
-      parentId: details?.parentId ?? null,
-      title: details?.title ?? null,
-      summary: details?.summary ?? null,
-      sourceMetadata: details?.sourceMetadata ?? null,
-      author: details?.author ?? null,
-      createdAt: (r as any).created_at,
-      updatedAt: (r as any).updated_at,
-    };
-  });
+  return moments;
 }
 
 export async function getSimulationRunLinkDecisions(
@@ -501,57 +484,91 @@ export async function getSimulationRunLinkDecisions(
       : null;
 
   let q = db
-    .selectFrom("simulation_run_link_decisions")
-    .selectAll()
-    .where("run_id", "=", runId);
+    .selectFrom("simulation_run_artifacts")
+    .where("run_id", "=", runId)
+    .where("phase", "=", "deterministic_linking")
+    .selectAll();
 
   if (r2Key) {
-    q = q.where("r2_key", "=", r2Key);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
-    .orderBy("r2_key", "asc")
-    .orderBy("stream_id", "asc")
-    .orderBy("macro_index", "asc")
-    .execute()) as unknown as SimulationRunLinkDecisionRow[];
+    .orderBy("artifact_key", "asc")
+    .execute()) as unknown as SimulationRunArtifactRow[];
 
   const momentIds = new Set<string>();
   for (const r of rows) {
-    if ((r as any).child_moment_id && !(r as any).child_moment_id.startsWith("noop-")) {
-        momentIds.add((r as any).child_moment_id);
+    const o = r.output_json ?? {};
+    const decisions = Array.isArray(o.decisions) ? o.decisions : [];
+    for (const d of decisions) {
+      // Prioritize checking if metadata is already present in the decision artifact
+      if (d.childMomentId && !d.childMomentId.startsWith("noop-") && !d.childTitle) {
+        momentIds.add(d.childMomentId);
+      }
+      const pId = d.proposedParentId || d.parentMomentId;
+      if (pId && !d.parentTitle) {
+        momentIds.add(pId);
+      }
     }
-    if ((r as any).parent_moment_id) momentIds.add((r as any).parent_moment_id);
   }
-  const detailsById = await fetchMomentDetails(
-    context,
-    runId,
-    Array.from(momentIds)
-  );
 
-  return rows.map((r) => {
-    const isNoop = (r as any).child_moment_id.startsWith("noop-");
-    const child = detailsById.get((r as any).child_moment_id);
-    const parent = (r as any).parent_moment_id
-      ? detailsById.get((r as any).parent_moment_id)
-      : null;
-    return {
-      r2Key: (r as any).r2_key,
-      streamId: (r as any).stream_id,
-      macroIndex: Number((r as any).macro_index ?? 0),
-      childMomentId: (r as any).child_moment_id,
-      childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
-      childSummary: isNoop ? "No moments were found in this document." : (child?.summary ?? null),
-      parentMomentId: (r as any).parent_moment_id ?? null,
-      parentTitle: parent?.title ?? null,
-      parentSummary: parent?.summary ?? null,
-      phase: (r as any).phase,
-      outcome: (r as any).outcome,
-      ruleId: typeof (r as any).rule_id === "string" ? (r as any).rule_id : null,
-      evidence: (r as any).evidence_json ?? null,
-      createdAt: (r as any).created_at,
-      updatedAt: (r as any).updated_at,
-    };
-  });
+  if (momentIds.size === 0 && rows.length > 0) {
+    console.log(`[run-artifacts] Using enriched data for ${rows.length} decisions (JSON-Blob-First)`);
+  }
+
+  const detailsById = momentIds.size > 0 
+    ? await fetchMomentDetails(context, runId, Array.from(momentIds))
+    : new Map<string, any>();
+
+  const flatResults: any[] = [];
+  for (const r of rows) {
+    const o = r.output_json ?? {};
+    const decisions = Array.isArray(o.decisions) ? o.decisions : [];
+    
+    for (const d of decisions) {
+      const child = detailsById.get(d.childMomentId);
+      const parentId = d.proposedParentId || d.parentMomentId;
+      const parent = parentId ? detailsById.get(parentId) : null;
+      
+      flatResults.push({
+        r2Key: r.artifact_key,
+        streamId: d.streamId || "default",
+        macroIndex: Number(d.macroIndex ?? 0),
+        childMomentId: d.childMomentId,
+        childTitle: d.childTitle || child?.title || null,
+        childSummary: d.childSummary || child?.summary || null,
+        parentMomentId: parentId ?? null,
+        parentTitle: d.parentTitle || parent?.title || null,
+        parentSummary: d.parentSummary || parent?.summary || null,
+        phase: r.phase,
+        outcome: d.outcome,
+        ruleId: d.ruleId ?? null,
+        evidence: d.evidence ?? d.audit ?? null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at || r.created_at,
+      });
+    }
+
+    if (decisions.length === 0 && o.childMomentId?.startsWith("noop-")) {
+      flatResults.push({
+        r2Key: r.artifact_key,
+        streamId: "default",
+        macroIndex: 0,
+        childMomentId: o.childMomentId,
+        childTitle: "No Materialized Moments",
+        childSummary: "No moments were found in this document.",
+        parentMomentId: null,
+        parentTitle: null,
+        parentSummary: null,
+        phase: r.phase,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at || r.created_at,
+      });
+    }
+  }
+
+  return flatResults;
 }
 
 export async function getSimulationRunCandidateSets(
@@ -591,69 +608,79 @@ export async function getSimulationRunCandidateSets(
       : null;
 
   let q = db
-    .selectFrom("simulation_run_candidate_sets")
-    .selectAll()
-    .where("run_id", "=", runId);
+    .selectFrom("simulation_run_artifacts")
+    .where("run_id", "=", runId)
+    .where("phase", "=", "candidate_sets")
+    .selectAll();
 
   if (r2Key) {
-    q = q.where("r2_key", "=", r2Key);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
-    .orderBy("r2_key", "asc")
-    .orderBy("stream_id", "asc")
-    .orderBy("macro_index", "asc")
-    .execute()) as unknown as SimulationRunCandidateSetRow[];
+    .orderBy("artifact_key", "asc")
+    .execute()) as unknown as SimulationRunArtifactRow[];
 
   const momentIds = new Set<string>();
   for (const r of rows) {
-    if ((r as any).child_moment_id && !(r as any).child_moment_id.startsWith("noop-")) {
-        momentIds.add((r as any).child_moment_id);
-    }
-    const candidates = (r as any).candidates_json;
-    if (Array.isArray(candidates)) {
+    const o = r.output_json ?? {};
+    const candidateSets = o.candidateSets || {};
+    
+    for (const momentId of Object.keys(candidateSets)) {
+      const set = candidateSets[momentId];
+      if (!momentId.startsWith("noop-") && !set?.childTitle) {
+        momentIds.add(momentId);
+      }
+      const candidates = Array.isArray(set?.candidates) ? set.candidates : [];
       for (const c of candidates) {
-        if (c.momentId) momentIds.add(c.momentId);
+        const id = c.id || c.momentId;
+        if (id && !c.title) momentIds.add(id);
       }
     }
   }
 
-  const detailsById = await fetchMomentDetails(
-    context,
-    runId,
-    Array.from(momentIds)
-  );
+  const detailsById = momentIds.size > 0
+    ? await fetchMomentDetails(context, runId, Array.from(momentIds))
+    : new Map<string, any>();
 
-  return rows.map((r) => {
-    const isNoop = (r as any).child_moment_id.startsWith("noop-");
-    const child = detailsById.get((r as any).child_moment_id);
-    const rawCandidates = Array.isArray((r as any).candidates_json)
-      ? ((r as any).candidates_json as any[])
-      : [];
-    const candidates = rawCandidates.map((c) => {
-      const id = c.id || c.momentId;
-      const details = detailsById.get(id);
-      return {
-        ...c,
-        momentId: id,
-        title: details?.title ?? null,
-        summary: details?.summary ?? null,
-      };
-    });
+  const flatResults: any[] = [];
+  for (const r of rows) {
+    const o = r.output_json ?? {};
+    const candidateSets = o.candidateSets || {};
+    
+    for (const momentId of Object.keys(candidateSets)) {
+      const set = candidateSets[momentId];
+      const isNoop = momentId.startsWith("noop-");
+      const child = detailsById.get(momentId);
+      const rawCandidates = Array.isArray(set?.candidates) ? set.candidates : [];
+      
+      const candidates = rawCandidates.map((c: any) => {
+        const id = c.id || c.momentId;
+        const details = detailsById.get(id);
+        return {
+          ...c,
+          momentId: id,
+          title: c.title || details?.title || null,
+          summary: c.summary || details?.summary || null,
+        };
+      });
 
-    return {
-      r2Key: (r as any).r2_key,
-      streamId: (r as any).stream_id,
-      macroIndex: Number((r as any).macro_index ?? 0),
-      childMomentId: (r as any).child_moment_id,
-      childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
-      childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (child?.summary ?? null),
-      candidates,
-      stats: (r as any).stats_json ?? null,
-      createdAt: (r as any).created_at,
-      updatedAt: (r as any).updated_at,
-    };
-  });
+      flatResults.push({
+        r2Key: r.artifact_key,
+        streamId: set?.streamId || "default",
+        macroIndex: Number(set?.macroIndex ?? 0),
+        childMomentId: momentId,
+        childTitle: isNoop ? "No Materialized Moments" : (set?.childTitle || child?.title || null),
+        childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (set?.childSummary || child?.summary || null),
+        candidates,
+        stats: set?.stats || o.stats || null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at || r.created_at,
+      });
+    }
+  }
+
+  return flatResults;
 }
 
 export async function getSimulationRunTimelineFitDecisions(
@@ -692,89 +719,89 @@ export async function getSimulationRunTimelineFitDecisions(
       : null;
 
   let q = db
-    .selectFrom("simulation_run_timeline_fit_decisions")
-    .selectAll()
-    .where("run_id", "=", runId);
+    .selectFrom("simulation_run_artifacts")
+    .where("run_id", "=", runId)
+    .where("phase", "=", "timeline_fit")
+    .selectAll();
 
   if (r2Key) {
-    q = q.where("r2_key", "=", r2Key);
+    q = q.where("artifact_key", "=", r2Key);
   }
 
   const rows = (await q
-    .orderBy("r2_key", "asc")
-    .orderBy("stream_id", "asc")
-    .orderBy("macro_index", "asc")
-    .execute()) as unknown as SimulationRunTimelineFitDecisionRow[];
+    .orderBy("artifact_key", "asc")
+    .execute()) as unknown as SimulationRunArtifactRow[];
 
   const momentIds = new Set<string>();
   for (const r of rows) {
-    if ((r as any).child_moment_id && !(r as any).child_moment_id.startsWith("noop-")) {
-        momentIds.add((r as any).child_moment_id);
-    }
-    if ((r as any).chosen_parent_moment_id)
-      momentIds.add((r as any).chosen_parent_moment_id);
-    const decisions = (r as any).decisions_json;
-    if (Array.isArray(decisions)) {
-      for (const d of decisions) {
-        if (d.candidateId) momentIds.add(d.candidateId);
+    const o = r.output_json ?? {};
+    const decisionsMap = o.decisions || {};
+    
+    for (const momentId of Object.keys(decisionsMap)) {
+      const decision = decisionsMap[momentId];
+      if (!momentId.startsWith("noop-") && !decision.childTitle) {
+        momentIds.add(momentId);
+      }
+      const pId = decision.chosenParentId;
+      if (pId && !decision.chosenParentTitle) {
+        momentIds.add(pId);
+      }
+      const candidates = Array.isArray(decision.decisions) ? decision.decisions : [];
+      for (const c of candidates) {
+        if (c.candidateId && !c.title) momentIds.add(c.candidateId);
       }
     }
   }
 
-  const detailsById = await fetchMomentDetails(
-    context,
-    runId,
-    Array.from(momentIds)
-  );
+  const detailsById = momentIds.size > 0
+    ? await fetchMomentDetails(context, runId, Array.from(momentIds))
+    : new Map<string, any>();
 
-  return rows.map((r) => {
-    const isNoop = (r as any).child_moment_id.startsWith("noop-");
-    const child = detailsById.get((r as any).child_moment_id);
-    const chosenParent = (r as any).chosen_parent_moment_id
-      ? detailsById.get((r as any).chosen_parent_moment_id)
-      : null;
-    const rawDecisions = Array.isArray((r as any).decisions_json)
-      ? ((r as any).decisions_json as any[])
-      : [];
-    const decisions = rawDecisions.map((d) => {
-      const details = detailsById.get(d.candidateId);
-      return {
-        ...d,
-        candidateTitle: details?.title ?? null,
-        candidateSummary: details?.summary ?? null,
-      };
-    });
+  const flatResults: any[] = [];
+  for (const r of rows) {
+    const o = r.output_json ?? {};
+    const decisionsMap = o.decisions || {};
+    
+    for (const momentId of Object.keys(decisionsMap)) {
+      const decision = decisionsMap[momentId];
+      const isNoop = momentId.startsWith("noop-");
+      const child = detailsById.get(momentId);
+      const chosenParent = decision.chosenParentId
+        ? detailsById.get(decision.chosenParentId)
+        : null;
+        
+      const rawDecisions = Array.isArray(decision.decisions)
+        ? (decision.decisions as any[])
+        : [];
+      const detailedDecisions = rawDecisions.map((d) => {
+        const details = detailsById.get(d.candidateId);
+        return {
+          ...d,
+          candidateTitle: d.title || details?.title || null,
+          candidateSummary: d.summary || details?.summary || null,
+        };
+      });
 
-    return {
-      r2Key: (r as any).r2_key,
-      streamId: (r as any).stream_id,
-      macroIndex: Number((r as any).macro_index ?? 0),
-      childMomentId: (r as any).child_moment_id,
-      childTitle: isNoop ? "No Materialized Moments" : (child?.title ?? null),
-      childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (child?.summary ?? null),
-      outcome: (r as any).outcome,
-      chosenParentMomentId: (r as any).chosen_parent_moment_id ?? null,
-      chosenParentTitle: chosenParent?.title ?? null,
-      chosenParentSummary: chosenParent?.summary ?? null,
-      decisions,
-      stats: (r as any).stats_json ?? null,
-      createdAt: (r as any).created_at,
-      updatedAt: (r as any).updated_at,
-    };
-  });
+      flatResults.push({
+        r2Key: r.artifact_key,
+        streamId: decision.streamId || "default",
+        macroIndex: Number(decision.macroIndex ?? 0),
+        childMomentId: momentId,
+        childTitle: isNoop ? "No Materialized Moments" : (decision.childTitle || child?.title || null),
+        childSummary: isNoop ? "No moments were found in this document to fit onto the timeline." : (decision.childSummary || child?.summary || null),
+        outcome: decision.outcome || "unknown",
+        chosenParentMomentId: decision.chosenParentId ?? null,
+        chosenParentTitle: decision.chosenParentTitle || chosenParent?.title || null,
+        chosenParentSummary: decision.chosenParentSummary || chosenParent?.summary || null,
+        decisions: detailedDecisions,
+        stats: decision.stats ?? null,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at || r.created_at,
+      });
+    }
+  }
+
+  return flatResults;
 }
 
-export async function getMicroBatchCacheEntry(
-  context: SimulationDbContext,
-  input: { batchHash: string; promptContextHash: string }
-): Promise<SimulationMicroBatchCacheRow | null> {
-  const db = getSimulationDb(context);
-  const row = (await db
-    .selectFrom("simulation_micro_batch_cache")
-    .select(["micro_items_json"])
-    .where("batch_hash", "=", input.batchHash)
-    .where("prompt_context_hash", "=", input.promptContextHash)
-    .executeTakeFirst()) as unknown as SimulationMicroBatchCacheRow | undefined;
-  return row ?? null;
-}
 

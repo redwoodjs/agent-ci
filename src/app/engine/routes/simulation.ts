@@ -2,6 +2,8 @@ import { route } from "rwsdk/router";
 import { type RequestInfo } from "rwsdk/worker";
 import { env } from "cloudflare:workers";
 import { requireQueryApiKey } from "../interruptors";
+import { getSimulationDb } from "../simulation/db";
+import { simulationPipelineRoutes } from "../../pipelines/registry";
 import {
   tickSimulationRun,
   createSimulationRun,
@@ -12,8 +14,6 @@ import {
   resumeSimulationRun,
   simulationPhases,
 } from "../databases/simulationState";
-import { pipelineRegistry } from "../simulation/allPipelines";
-import { getSimulationDb } from "../simulation/db";
 
 
 async function startSimulationRunHandler({ request }: RequestInfo) {
@@ -232,44 +232,7 @@ async function restartSimulationRunHandler({ request }: RequestInfo) {
   return Response.json({ success: true, phase });
 }
 
-async function getSimulationRunDebugStatusHandler({ params }: RequestInfo) {
-  const runIdRaw = (params as any)?.runId;
-  const runId = typeof runIdRaw === "string" ? runIdRaw.trim() : "";
-  if (!runId) {
-    return Response.json({ error: "Missing runId" }, { status: 400 });
-  }
 
-  const db = getSimulationDb({ env: env as Cloudflare.Env, momentGraphNamespace: null });
-  
-  const docs = await db.selectFrom("simulation_run_documents")
-    .select(["r2_key", "changed", "processed_phases_json", "error_json", "updated_at"])
-    .where("run_id", "=", runId)
-    .execute();
-
-  const batches = await db.selectFrom("simulation_run_micro_batches")
-    .select(["r2_key", "batch_index", "status", "updated_at", "error_json"])
-    .where("run_id", "=", runId)
-    .execute();
-
-  return Response.json({
-    runId,
-    documentCount: docs.length,
-    processedCount: docs.filter((d: any) => ((d.processed_phases_json as any) || []).includes("micro_batches")).length,
-    errorCount: docs.filter((d: any) => d.error_json).length,
-    batchCount: batches.length,
-    enqueuedBatches: batches.filter((b: any) => b.status === "enqueued").length,
-    stalledDocuments: docs.filter((d: any) => {
-       const processed = (d.processed_phases_json as any) || [];
-       const isMicroBatches = processed.includes("micro_batches");
-       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-       return !isMicroBatches && d.updated_at < fiveMinutesAgo;
-    }).map((d: any) => d.r2_key),
-    stalledBatches: batches.filter((b: any) => {
-       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-       return b.status === "enqueued" && b.updated_at < fiveMinutesAgo;
-    }).map((b: any) => `${b.r2_key}[${b.batch_index}]`),
-  });
-}
 
 export const simulationAdminRoutes = [
   route("/admin/simulation/run/start", {
@@ -290,12 +253,9 @@ export const simulationAdminRoutes = [
   route("/admin/simulation/run/:runId/events", {
     get: [requireQueryApiKey, getSimulationRunEventsHandler],
   }),
-  route("/admin/simulation/run/:runId/debug/status", {
-    get: [requireQueryApiKey, getSimulationRunDebugStatusHandler],
-  }),
+
   route("/admin/simulation/run/:runId", {
     get: [requireQueryApiKey, getSimulationRunHandler],
   }),
-  ...Object.values(pipelineRegistry).flatMap((entry) => entry.web?.routes || []),
+  ...simulationPipelineRoutes,
 ];
-

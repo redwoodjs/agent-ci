@@ -1,2 +1,2 @@
-export { indexDocument, query } from "../../engine";
+// export { indexDocument, query } from "../../engine";
 

@@ -10,6 +10,36 @@ import { callLLM } from "../utils/llm";
 export const defaultPlugin: Plugin = {
   name: "default",
 
+  async prepareSourceDocument(
+    context: IndexingHookContext
+  ): Promise<Document | null> {
+    const bucket = context.env.MACHINEN_BUCKET;
+    const object = await bucket.get(context.r2Key);
+
+    if (!object) {
+      throw new Error(`R2 object not found: ${context.r2Key}`);
+    }
+
+    const content = await object.text();
+
+    return {
+      id: context.r2Key,
+      source: "unknown",
+      type: "generic",
+      content: content || "",
+      metadata: {
+        title: `Generic Document - ${context.r2Key.split("/").pop()}`,
+        url: `file://${context.r2Key}`,
+        createdAt: new Date().toISOString(),
+        author: "unknown",
+        sourceMetadata: {
+          type: "generic",
+          r2Key: context.r2Key,
+        },
+      },
+    };
+  },
+
   async splitDocumentIntoChunks(
     document: Document,
     context: IndexingHookContext
@@ -57,7 +87,7 @@ export const defaultPlugin: Plugin = {
       currentChunkContent.push(line);
     }
 
-    if (currentChunkContent.length > 0) {
+    if (currentChunkContent.length > 0 || chunks.length === 0) {
       const chunkId = `${document.id}-${chunks.length}`;
       const content = currentChunkContent.join("\n");
       chunks.push({
@@ -82,46 +112,7 @@ export const defaultPlugin: Plugin = {
     return chunks;
   },
 
-  subjects: {
-    async getMicroMomentBatchPromptContext(
-      document: Document,
-      chunks: Chunk[],
-      context: IndexingHookContext
-    ): Promise<string | null> {
-      return (
-        `Context: These chunks are from a single document.\n` +
-        `Focus on concrete details and avoid generic summaries.\n`
-      );
-    },
-    async getMacroSynthesisPromptContext(
-      document: Document,
-      context: IndexingHookContext
-    ): Promise<string | null> {
-      const source = String(document.source ?? "unknown");
 
-      const label =
-        source === "github"
-          ? "[GitHub]"
-          : source === "discord"
-          ? "[Discord]"
-          : source === "cursor"
-          ? "[Cursor Conversation]"
-          : `[${source}]`;
-
-      const lines: string[] = [];
-      lines.push("Formatting:");
-      lines.push(`- title_label: ${label}`);
-      lines.push(`- summary_descriptor: In ${source},`);
-      lines.push(
-        `- canonical_token_note: include canonical tokens only if they are provided in this context`
-      );
-      lines.push("");
-      lines.push("Reference context:");
-      lines.push(`- entity_hints:`);
-      lines.push(`  - This document source is ${source}.`);
-      return lines.join("\n");
-    },
-  },
 
   evidence: {
     async optimizeContext(

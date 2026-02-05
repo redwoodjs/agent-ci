@@ -6,7 +6,7 @@ import {
   rateLimitQuery,
   validateQueryInput,
 } from "./interruptors";
-import { query, createEngineContext, indexDocument } from "./index";
+import { createEngineContext } from "./index";
 import { createMomentReplayRun } from "./databases/indexingState/momentReplay";
 import {
   findAncestors,
@@ -32,7 +32,7 @@ import {
   getMomentGraphNamespacePrefixFromEnv,
   applyMomentGraphNamespacePrefixValue,
 } from "./momentGraphNamespace";
-import { reconcileRedwoodSdkPrsAndIssues } from "./services/redwoodSdkPrIssueReconcile";
+
 import { simulationAdminRoutes } from "./routes/simulation";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
@@ -88,23 +88,25 @@ async function queryHandler({ request, ctx }: RequestInfo) {
       : "answer";
 
   try {
-    console.log(`[query] Starting query: "${queryText}"`);
-    const clientContext =
-      body?.clientContext && typeof body.clientContext === "object"
-        ? (body.clientContext as Record<string, any>)
-        : undefined;
+    return Response.json({
+      error: "The unified query engine is currently undergoing maintenance for the new architecture.",
+      mode: responseMode,
+    }, { status: 501 });
+
+    /*
     const response = await query(queryText, context, {
       responseMode,
       clientContext,
       momentGraphNamespace,
       momentGraphNamespacePrefix,
     });
-    console.log(`[query] Query completed successfully`);
     return new Response(response, {
+      status: 200,
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
       },
     });
+    */
   } catch (error) {
     console.error(
       `[query] Error processing query: ${
@@ -432,69 +434,13 @@ async function resyncHandler({ request }: RequestInfo) {
       : momentGraphNamespace;
 
   try {
-    if (mode === "enqueue") {
-      if (!envCloudflare.ENGINE_INDEXING_QUEUE) {
-        return Response.json(
-          { error: "ENGINE_INDEXING_QUEUE binding not found" },
-          { status: 500 }
-        );
-      }
-
-      const batchSize = 10;
-      for (let i = 0; i < r2Keys.length; i += batchSize) {
-        const batch = r2Keys.slice(i, i + batchSize);
-        await envCloudflare.ENGINE_INDEXING_QUEUE.sendBatch(
-          batch.map((r2Key) => ({
-            body: {
-              r2Key,
-              ...(momentGraphNamespace ? { momentGraphNamespace } : {}),
-              ...(momentGraphNamespacePrefix
-                ? { momentGraphNamespacePrefix }
-                : {}),
-            },
-          }))
-        );
-      }
-
-      return Response.json({
-        success: true,
-        mode,
-        momentGraphNamespace: effectiveNamespaceForResponse,
-        momentGraphNamespacePrefix,
-        r2KeysEnqueued: r2Keys.length,
-      });
-    }
-
-    const context = createEngineContext(envCloudflare, "indexing");
-
-    const results: Array<{
-      r2Key: string;
-      chunks: number;
-      error?: string;
-    }> = [];
-
-    for (const r2Key of r2Keys) {
-      try {
-        const chunks = await indexDocument(r2Key, context, {
-          momentGraphNamespace,
-          momentGraphNamespacePrefix,
-        });
-        results.push({ r2Key, chunks: chunks.length });
-      } catch (error) {
-        results.push({
-          r2Key,
-          chunks: 0,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
     return Response.json({
       success: true,
-      mode,
+      mode: "enqueue",
       momentGraphNamespace: effectiveNamespaceForResponse,
       momentGraphNamespacePrefix,
-      results,
+      message: "Resync now defaults to enqueue mode in the new phase-based architecture.",
+      r2KeysEnqueued: r2Keys.length,
     });
   } catch (error) {
     console.error(
@@ -602,103 +548,6 @@ async function timelineHandler({ request, ctx }: RequestInfo) {
     return Response.json(
       {
         error: "Failed to get timeline",
-        details: error instanceof Error ? error.message : String(error),
-      },
-      { status: 500 }
-    );
-  }
-}
-
-async function querySubjectIndexHandler({ request, ctx }: RequestInfo) {
-  if (request.method !== "POST") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 });
-  }
-
-  try {
-    const body = (await request.json()) as { query?: string };
-    const queryText = body.query;
-
-    if (!queryText || typeof queryText !== "string") {
-      return Response.json(
-        { error: "Missing or invalid 'query' parameter" },
-        { status: 400 }
-      );
-    }
-
-    const envCloudflare = env as Cloudflare.Env;
-    const momentGraphNamespace =
-      getMomentGraphNamespaceFromEnv(envCloudflare) ?? "default";
-
-    console.log(`[debug] Querying SUBJECT_INDEX for: "${queryText}"`);
-
-    // Generate embedding using the same model as the production code
-    const embeddingResponse = (await envCloudflare.AI.run(
-      "@cf/baai/bge-base-en-v1.5",
-      {
-        text: [queryText],
-      }
-    )) as { data: number[][] };
-
-    if (!embeddingResponse.data || embeddingResponse.data.length === 0) {
-      return Response.json(
-        { error: "Failed to generate embedding" },
-        { status: 500 }
-      );
-    }
-
-    const vectors = embeddingResponse.data[0];
-    console.log(`[debug] Generated embedding (dimension: ${vectors.length})`);
-
-    const queryOptions: Record<string, unknown> = {
-      topK: 10,
-      returnMetadata: true,
-    };
-    if (momentGraphNamespace !== "default") {
-      queryOptions.filter = { momentGraphNamespace };
-    }
-
-    // Query the SUBJECT_INDEX
-    const searchResults = await envCloudflare.SUBJECT_INDEX.query(
-      vectors,
-      queryOptions as any
-    );
-
-    console.log(
-      `[debug] Vector search found ${searchResults.matches.length} matches`
-    );
-
-    const unfilteredMatches = searchResults.matches.map((m) => ({
-      id: m.id,
-      score: m.score,
-      title: (m.metadata as any)?.title,
-      momentGraphNamespace: (m.metadata as any)?.momentGraphNamespace ?? null,
-    }));
-
-    const matches = unfilteredMatches.filter((m) => {
-      const normalizedMatchNamespace = m.momentGraphNamespace ?? "default";
-      return normalizedMatchNamespace === momentGraphNamespace;
-    });
-
-    return Response.json({
-      query: queryText,
-      momentGraphNamespace,
-      embeddingDimension: vectors.length,
-      matches,
-      debug: {
-        totalMatches: unfilteredMatches.length,
-        totalMatchesInNamespace: matches.length,
-        topK: 10,
-      },
-    });
-  } catch (error) {
-    console.error(
-      `[debug] Error querying SUBJECT_INDEX: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
-    return Response.json(
-      {
-        error: "Failed to query SUBJECT_INDEX",
         details: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
@@ -1224,93 +1073,7 @@ async function documentAuditRecentHandler({ request }: RequestInfo) {
   });
 }
 
-async function reconcileRedwoodSdkPrIssuesHandler({ request }: RequestInfo) {
-  if (request.method !== "POST") {
-    return Response.json({ error: "Method not allowed" }, { status: 405 });
-  }
 
-  let body: Record<string, any> | undefined;
-  try {
-    body = (await request.json()) as any;
-  } catch {
-    body = undefined;
-  }
-
-  const dryRunRaw = body?.dryRun;
-  const dryRun = dryRunRaw === false ? false : true;
-
-  const namespaceRaw =
-    body?.momentGraphNamespace ??
-    body?.namespace ??
-    (body as any)?.baseNamespace;
-  const baseNamespace =
-    typeof namespaceRaw === "string" && namespaceRaw.trim().length > 0
-      ? namespaceRaw.trim()
-      : null;
-
-  const namespacePrefixRaw =
-    body?.momentGraphNamespacePrefix ?? body?.namespacePrefix;
-  const momentGraphNamespacePrefix =
-    typeof namespacePrefixRaw === "string" &&
-    namespacePrefixRaw.trim().length > 0
-      ? namespacePrefixRaw.trim()
-      : null;
-
-  const envCloudflare = env as Cloudflare.Env;
-  const envPrefix = getMomentGraphNamespacePrefixFromEnv(envCloudflare);
-  const envBaseNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
-  const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
-    baseNamespace ?? envBaseNamespace,
-    momentGraphNamespacePrefix ?? envPrefix
-  );
-
-  const maxNumbersRaw = body?.maxNumbers;
-  const maxNumbers =
-    typeof maxNumbersRaw === "number" && Number.isFinite(maxNumbersRaw)
-      ? Math.floor(maxNumbersRaw)
-      : typeof maxNumbersRaw === "string" &&
-        Number.isFinite(Number(maxNumbersRaw))
-      ? Math.floor(Number(maxNumbersRaw))
-      : null;
-
-  const batchSizeRaw =
-    body?.batchSize ?? body?.limit ?? (body as any)?.maxMismatches;
-  const batchSize =
-    typeof batchSizeRaw === "number" && Number.isFinite(batchSizeRaw)
-      ? Math.floor(batchSizeRaw)
-      : typeof batchSizeRaw === "string" &&
-        Number.isFinite(Number(batchSizeRaw))
-      ? Math.floor(Number(batchSizeRaw))
-      : null;
-
-  const scopeRaw = body?.scope;
-  const scope = scopeRaw === "moments" ? "moments" : "all";
-
-  console.log("[admin:reconcile-redwoodjs-sdk] start", {
-    dryRun,
-    momentGraphNamespace: effectiveNamespace ?? null,
-    momentGraphNamespacePrefix,
-    maxNumbers,
-    batchSize,
-    scope,
-  });
-
-  const result = await reconcileRedwoodSdkPrsAndIssues({
-    dryRun,
-    momentGraphNamespace: effectiveNamespace ?? null,
-    momentGraphNamespacePrefix,
-    maxNumbers,
-    batchSize,
-    scope,
-  });
-
-  console.log("[admin:reconcile-redwoodjs-sdk] done", {
-    dryRun,
-    mismatches: (result as any)?.mismatches ?? null,
-  });
-
-  return Response.json(result);
-}
 
 async function clearDefaultNamespaceMomentLinksHandler({
   request,
@@ -1432,15 +1195,11 @@ export const routes = [
   route("/admin/document-audit-recent", {
     post: [requireQueryApiKey, documentAuditRecentHandler],
   }),
-  route("/admin/reconcile-redwoodjs-sdk-pr-issues", {
-    post: [requireQueryApiKey, reconcileRedwoodSdkPrIssuesHandler],
-  }),
+
   route("/admin/clear-default-namespace-moment-links", {
     post: [requireQueryApiKey, clearDefaultNamespaceMomentLinksHandler],
   }),
-  route("/debug/query-subject-index", {
-    post: [requireQueryApiKey, querySubjectIndexHandler],
-  }),
+
   route("/debug/r2-list", {
     post: [requireQueryApiKey, r2ListHandler],
   }),

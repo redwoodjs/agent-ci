@@ -1,6 +1,7 @@
-import { indexDocument, createEngineContext } from "../index";
-import { updateIndexingState } from "../databases/indexingState";
-import { Chunk } from "../types";
+import { createEngineContext } from "../index";
+import { IngestDiffPhase } from "../../pipelines/ingest_diff";
+import { executePhase } from "../runtime/orchestrator";
+import { NoOpStorage, QueueTransition } from "../runtime/strategies/live";
 import {
   recordReplayDocumentResult,
   setReplayEnqueued,
@@ -13,7 +14,11 @@ interface IndexingMessage {
   momentReplayRunId?: string;
   jobType?: string;
   forceRecollect?: boolean;
+  phase?: string;
+  input?: any;
 }
+
+import { getPhaseByName } from "../../pipelines/registry";
 
 export async function processIndexingJob(
   message: IndexingMessage,
@@ -49,35 +54,54 @@ export async function processIndexingJob(
   }
 
   try {
-    const context = createEngineContext(env, "indexing");
-    const newChunks = await indexDocument(r2Key, context, {
-      momentGraphNamespace: momentGraphNamespace ?? null,
-      momentGraphNamespacePrefix: momentGraphNamespacePrefix ?? null,
-      momentReplayRunId: isReplayCollect ? momentReplayRunId! : null,
-      forceRecollect: Boolean(message.forceRecollect),
-    });
-
-    if (newChunks.length === 0) {
-      if (isReplayCollect) {
-        const runState = await recordReplayDocumentResult(
-          { env, momentGraphNamespace: null },
-          { runId: momentReplayRunId!, r2Key, status: "succeeded" }
-        );
-        if (runState) {
-          await maybeEnqueueReplay(momentReplayRunId!, runState);
-        }
+    if (jobType === "execute_phase") {
+      const phaseName = message.phase;
+      const phaseInput = message.input;
+      if (!phaseName) {
+        throw new Error("Missing phase name for execute_phase job");
       }
+
+      console.log(`[indexing-scheduler] Executing phase: ${phaseName} for ${r2Key}`);
+      const phaseDef = getPhaseByName(phaseName);
+      if (!phaseDef) {
+        throw new Error(`Unknown phase: ${phaseName}`);
+      }
+
+      const strategies = {
+        storage: new NoOpStorage(),
+        transition: new QueueTransition((env as any).ENGINE_INDEXING_QUEUE),
+      };
+
+      const pipelineContext: any = {
+        ...createEngineContext(env, "indexing"),
+        r2Key,
+        momentGraphNamespace: momentGraphNamespace ?? null,
+      };
+
+      await executePhase(phaseDef, phaseInput, strategies, pipelineContext);
       return;
     }
 
-    const messages = newChunks.map((chunk) => ({ body: chunk }));
-    const batchSize = 100;
-    for (let i = 0; i < messages.length; i += batchSize) {
-      const batch = messages.slice(i, i + batchSize);
-      await env.CHUNK_PROCESSING_QUEUE.sendBatch(batch);
-    }
+    const strategies = {
+      storage: new NoOpStorage(),
+      transition: new QueueTransition((env as any).ENGINE_INDEXING_QUEUE),
+    };
+
+    const pipelineContext: any = {
+      ...createEngineContext(env, "indexing"),
+      r2Key,
+      momentGraphNamespace: momentGraphNamespace ?? null,
+    };
+
+    const output = await executePhase(
+      IngestDiffPhase,
+      r2Key,
+      strategies,
+      pipelineContext
+    );
+
     console.log(
-      `[indexing-scheduler] Enqueued ${newChunks.length} chunks for ${r2Key}`
+      `[indexing-scheduler] Completed ingest_diff for ${r2Key}. Changed: ${output?.changed}`
     );
 
     if (isReplayCollect) {
@@ -108,6 +132,9 @@ export async function processIndexingJob(
           runId: momentReplayRunId,
           r2Key,
           status: "failed",
+          ...(jobType ? { jobType } : {}),
+          ...(message.phase ? { phase: message.phase } : {}),
+          ...(message.input ? { input: message.input } : {}),
           errorPayload: {
             message: error instanceof Error ? error.message : String(error),
           },

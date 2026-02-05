@@ -5,7 +5,7 @@ import type {
   Plugin,
 } from "../types";
 
-async function runFirstMatchHook<T>(
+export async function runFirstMatchHook<T>(
   plugins: Plugin[],
   fn: (plugin: Plugin) => Promise<T | null | undefined> | undefined
 ): Promise<T | null> {
@@ -58,7 +58,7 @@ export async function splitDocumentIntoChunks(
   const chunks = await runFirstMatchHook(plugins, (plugin) =>
     plugin.splitDocumentIntoChunks?.(document, indexingContext)
   );
-  if (!chunks || chunks.length === 0) {
+  if (chunks === null) {
     throw new Error("No plugin could split document into chunks");
   }
   return chunks;
@@ -70,13 +70,7 @@ export async function getMicroPromptContext(
   indexingContext: IndexingHookContext,
   plugins: Plugin[]
 ): Promise<string> {
-  const microPromptContext = await runFirstMatchHook(plugins, (plugin) =>
-    plugin.subjects?.getMicroMomentBatchPromptContext?.(
-      document,
-      chunks,
-      indexingContext
-    )
-  );
+  const microPromptContext = null;
 
   return (
     microPromptContext ??

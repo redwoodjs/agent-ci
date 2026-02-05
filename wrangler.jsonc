@@ -28,17 +28,17 @@
   "vectorize": [
     {
       "binding": "VECTORIZE_INDEX",
-      "index_name": "rag-index-v7",
-      "remote": true,
-    },
-    {
-      "binding": "SUBJECT_INDEX",
-      "index_name": "subject-index-v7",
+      "index_name": "rag-index-v8",
       "remote": true,
     },
     {
       "binding": "MOMENT_INDEX",
-      "index_name": "moment-index-v7",
+      "index_name": "moment-index-v8",
+      "remote": true,
+    },
+    {
+      "binding": "SUBJECT_INDEX",
+      "index_name": "subject-index-v8",
       "remote": true,
     },
   ],
@@ -119,10 +119,6 @@
       {
         "name": "DISCORD_BACKFILL_STATE",
         "class_name": "DiscordBackfillStateDO",
-      },
-      {
-        "name": "SUBJECT_GRAPH_DO",
-        "class_name": "SubjectDO",
       },
       {
         "name": "MOMENT_GRAPH_DO",
@@ -243,8 +239,6 @@
   "vars": {
     "MOMENT_GRAPH_NAMESPACE_PREFIX": "prod-2025-01-10-12-51",
     "MOMENT_GRAPH_NAMESPACE": "redwood:rwsdk",
-    "MOMENT_REPLAY_SKIP_LINKING": "1",
-    "SIMULATION_DISABLE_CACHING": "1",
   },
   "env": {
     "test": {
@@ -561,10 +555,6 @@
             "class_name": "DiscordBackfillStateDO",
           },
           {
-            "name": "SUBJECT_GRAPH_DO",
-            "class_name": "SubjectDO",
-          },
-          {
             "name": "MOMENT_GRAPH_DO",
             "class_name": "MomentGraphDO",
           },
@@ -574,11 +564,6 @@
         {
           "binding": "VECTORIZE_INDEX",
           "index_name": "rag-index-dev-justin",
-          "remote": true,
-        },
-        {
-          "binding": "SUBJECT_INDEX",
-          "index_name": "subject-index-dev-justin-v2",
           "remote": true,
         },
         {

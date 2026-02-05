@@ -1,4 +1,4 @@
-import { env } from "cloudflare:workers";
+import { SECRETS } from "@/secrets";
 import { getHeuristicResponse } from "./heuristicLlm";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { generateText } from "ai";
@@ -41,7 +41,7 @@ export async function callLLM(
   options?: LLMOptions
 ): Promise<string> {
   // 1. Check for simulation heuristic override (dynamic response)
-  const simulationMode = env.SIMULATION_HEURISTIC_MODE;
+  const simulationMode = SECRETS.SIMULATION_HEURISTIC_MODE;
   if (
     typeof simulationMode === "string" &&
     (simulationMode === "1" || simulationMode === "true")
@@ -63,7 +63,7 @@ export async function callLLM(
   if (googleModelId) {
     logInfo(`Calling AI-SDK Google model '${alias}' (${googleModelId})`);
 
-    const apiKey = env.GOOGLE_AI_KEY;
+    const apiKey = SECRETS.GOOGLE_AI_KEY;
     if (!apiKey) {
       throw new Error(`Missing GOOGLE_AI_KEY for alias '${alias}'`);
     }
@@ -105,7 +105,7 @@ export async function callLLM(
   }
 
   // Check for global reasoning effort override
-  const reasoningEffortOverride = typeof env.LLM_REASONING_EFFORT === "string" ? env.LLM_REASONING_EFFORT.trim() : "";
+  const reasoningEffortOverride = typeof SECRETS.LLM_REASONING_EFFORT === "string" ? SECRETS.LLM_REASONING_EFFORT.trim() : "";
   
   if (reasoningEffortOverride) {
     if (reasoningEffortOverride === "none") {
@@ -179,7 +179,7 @@ export async function callLLM(
         }/${maxAttempts}`
       );
 
-      const runPromise = (env.AI as any).run(cfModelId, payload);
+      const runPromise = (SECRETS.AI as any).run(cfModelId, payload);
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
           reject(new Error("LLM Timeout: call took longer than 300s"));

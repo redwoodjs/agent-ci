@@ -12,6 +12,8 @@ import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
 import { routes as engineRoutes } from "./app/engine/routes";
 import { ghRoutes } from "./app/gh/routes";
 import { HomePage } from "./app/pages/HomePage";
+import { SECRETS } from "@/secrets";
+
 
 export type AppContext = {
   user: any;
@@ -152,11 +154,11 @@ export default {
           const r2KeyRaw = indexingMessage.r2Key ?? indexingMessage.body?.r2Key;
           const r2Keys =
             Array.isArray(r2KeysRaw) &&
-            r2KeysRaw.every((k) => typeof k === "string")
+              r2KeysRaw.every((k) => typeof k === "string")
               ? (r2KeysRaw as string[])
               : typeof r2KeyRaw === "string"
-              ? [r2KeyRaw]
-              : null;
+                ? [r2KeyRaw]
+                : null;
 
           const namespaceRaw = (indexingMessage.momentGraphNamespace ??
             indexingMessage.namespace ??
@@ -174,7 +176,7 @@ export default {
               indexingMessage.body?.namespacePrefix) as unknown;
           const momentGraphNamespacePrefix =
             typeof namespacePrefixRaw === "string" &&
-            namespacePrefixRaw.trim().length > 0
+              namespacePrefixRaw.trim().length > 0
               ? namespacePrefixRaw.trim()
               : null;
 
@@ -189,7 +191,7 @@ export default {
             indexingMessage.body?.momentReplayRunId;
           const momentReplayRunId =
             typeof momentReplayRunIdRaw === "string" &&
-            momentReplayRunIdRaw.trim().length > 0
+              momentReplayRunIdRaw.trim().length > 0
               ? momentReplayRunIdRaw.trim()
               : null;
 

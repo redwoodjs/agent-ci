@@ -30,6 +30,7 @@ export function IngestionListPage({ request }: { request: Request }) {
   if (source === "discord") prefix = "discord/";
   else if (source === "github") prefix = "github/";
   else if (source === "cursor") prefix = "cursor/";
+  else if (source === "antigravity") prefix = "antigravity/";
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -38,52 +39,54 @@ export function IngestionListPage({ request }: { request: Request }) {
 
         <div className="flex gap-2">
           <a
-            href={`/audit/ingestion?source=all${
-              namespace ? `&namespace=${namespace}` : ""
-            }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
-            className={`px-4 py-2 rounded ${
-              source === "all"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-            }`}
+            href={`/audit/ingestion?source=all${namespace ? `&namespace=${namespace}` : ""
+              }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
+            className={`px-4 py-2 rounded ${source === "all"
+              ? "bg-blue-600 text-white"
+              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
           >
             All
           </a>
           <a
-            href={`/audit/ingestion?source=discord${
-              namespace ? `&namespace=${namespace}` : ""
-            }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
-            className={`px-4 py-2 rounded ${
-              source === "discord"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-            }`}
+            href={`/audit/ingestion?source=discord${namespace ? `&namespace=${namespace}` : ""
+              }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
+            className={`px-4 py-2 rounded ${source === "discord"
+              ? "bg-blue-600 text-white"
+              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
           >
             Discord
           </a>
           <a
-            href={`/audit/ingestion?source=github${
-              namespace ? `&namespace=${namespace}` : ""
-            }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
-            className={`px-4 py-2 rounded ${
-              source === "github"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-            }`}
+            href={`/audit/ingestion?source=github${namespace ? `&namespace=${namespace}` : ""
+              }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
+            className={`px-4 py-2 rounded ${source === "github"
+              ? "bg-blue-600 text-white"
+              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
           >
             GitHub
           </a>
           <a
-            href={`/audit/ingestion?source=cursor${
-              namespace ? `&namespace=${namespace}` : ""
-            }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
-            className={`px-4 py-2 rounded ${
-              source === "cursor"
-                ? "bg-blue-600 text-white"
-                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-            }`}
+            href={`/audit/ingestion?source=cursor${namespace ? `&namespace=${namespace}` : ""
+              }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
+            className={`px-4 py-2 rounded ${source === "cursor"
+              ? "bg-blue-600 text-white"
+              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
           >
             Cursor
+          </a>
+          <a
+            href={`/audit/ingestion?source=antigravity${namespace ? `&namespace=${namespace}` : ""
+              }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
+            className={`px-4 py-2 rounded ${source === "antigravity"
+              ? "bg-blue-600 text-white"
+              : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+              }`}
+          >
+            Antigravity
           </a>
         </div>
       </div>
@@ -222,8 +225,8 @@ async function FilesTable({
 
   const filteredObjects = q
     ? sortedObjects.filter((obj) =>
-        obj.key.toLowerCase().includes(q.toLowerCase())
-      )
+      obj.key.toLowerCase().includes(q.toLowerCase())
+    )
     : sortedObjects;
 
   // Serialize objects for client component, ensuring we only pass plain data.
@@ -236,8 +239,8 @@ async function FilesTable({
       obj.uploaded instanceof Date
         ? obj.uploaded.toISOString()
         : typeof obj.uploaded === "string"
-        ? obj.uploaded
-        : new Date(obj.uploaded as any).toISOString(),
+          ? obj.uploaded
+          : new Date(obj.uploaded as any).toISOString(),
   }));
 
   const totalItems = serializedObjects.length;
@@ -276,11 +279,9 @@ async function FilesTable({
           <div className="flex gap-2">
             {currentPage > 1 && (
               <a
-                href={`/audit/ingestion?source=${source}&page=${
-                  currentPage - 1
-                }${q ? `&q=${q}` : ""}${
-                  namespace ? `&namespace=${namespace}` : ""
-                }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
+                href={`/audit/ingestion?source=${source}&page=${currentPage - 1
+                  }${q ? `&q=${q}` : ""}${namespace ? `&namespace=${namespace}` : ""
+                  }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
                 className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
               >
                 Previous
@@ -288,11 +289,9 @@ async function FilesTable({
             )}
             {currentPage < totalPages && (
               <a
-                href={`/audit/ingestion?source=${source}&page=${
-                  currentPage + 1
-                }${q ? `&q=${q}` : ""}${
-                  namespace ? `&namespace=${namespace}` : ""
-                }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
+                href={`/audit/ingestion?source=${source}&page=${currentPage + 1
+                  }${q ? `&q=${q}` : ""}${namespace ? `&namespace=${namespace}` : ""
+                  }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >
                 Next

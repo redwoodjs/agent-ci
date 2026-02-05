@@ -432,20 +432,24 @@ async function tickR2Listing(
   const keys = result.objects.map((o) => o.key).filter((k) => !!k);
 
   // Filtering logic
-  const isGithubIssue = (k: string) =>
-    k.startsWith("github/") &&
-    k.includes("/issues/") &&
-    k.endsWith("/latest.json");
-  const isGithubPr = (k: string) =>
-    k.startsWith("github/") &&
-    k.includes("/pull-requests/") &&
-    k.endsWith("/latest.json");
-  const isDiscord = (k: string) => k.startsWith("discord/");
-  const isCursor = (k: string) => k.startsWith("cursor/conversations/");
-  const filterSupported = (k: string) =>
-    isGithubIssue(k) || isGithubPr(k) || isDiscord(k) || isCursor(k);
+  const validKeys = keys.filter((k) => {
+    const isGithubIssue =
+      k.startsWith("github/") &&
+      (!r2ListConfig.githubRepo ||
+        k.startsWith(`github/${r2ListConfig.githubRepo}/`)) &&
+      k.includes("/issues/") &&
+      k.endsWith("/latest.json");
+    const isGithubPr =
+      k.startsWith("github/") &&
+      (!r2ListConfig.githubRepo ||
+        k.startsWith(`github/${r2ListConfig.githubRepo}/`)) &&
+      k.includes("/pull-requests/") &&
+      k.endsWith("/latest.json");
+    const isDiscord = k.startsWith("discord/");
+    const isCursor = k.startsWith("cursor/conversations/");
 
-  const validKeys = keys.filter(filterSupported);
+    return isGithubIssue || isGithubPr || isDiscord || isCursor;
+  });
 
   if (validKeys.length > 0) {
     const batchIndex = r2ListConfig.pagesProcessed;

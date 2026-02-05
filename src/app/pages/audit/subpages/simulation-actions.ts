@@ -145,6 +145,7 @@ export async function runAllSimulationRunAction(input: {
             targetPrefixes,
             limitPerPage,
             maxPages,
+            githubRepo: input.githubRepo,
             // Initial state
             currentPrefixIdx: 0,
             pagesProcessed: 0,
@@ -214,10 +215,12 @@ export async function runSampleSimulationRunAction(input: {
 
   const isGithubIssue = (k: string) =>
     k.startsWith("github/") &&
+    (!input.githubRepo || k.startsWith(`github/${input.githubRepo}/`)) &&
     k.includes("/issues/") &&
     k.endsWith("/latest.json");
   const isGithubPr = (k: string) =>
     k.startsWith("github/") &&
+    (!input.githubRepo || k.startsWith(`github/${input.githubRepo}/`)) &&
     k.includes("/pull-requests/") &&
     k.endsWith("/latest.json");
   const isDiscord = (k: string) => k.startsWith("discord/");

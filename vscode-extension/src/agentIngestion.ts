@@ -86,14 +86,18 @@ export async function uploadAntigravityData(
   
   let repo = "unknown";
   let branch = "unknown";
-  try {
-    const rootPath = workspaceFolders?.[0].uri.fsPath;
-    if (rootPath) {
-      repo = childProcess.execSync("git remote get-url origin", { cwd: rootPath, encoding: "utf8" }).trim();
-      branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd: rootPath, encoding: "utf8" }).trim();
+  const rootPath = workspaceFolders?.[0].uri.fsPath;
+  if (rootPath) {
+    try {
+      repo = childProcess.execSync("git remote get-url origin", { cwd: rootPath, encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] }).trim();
+    } catch (e) {
+      // origin might not exist, that's fine
     }
-  } catch (e) {
-    logger.appendLine(`[Antigravity] Git info retrieval error: ${e}`);
+    try {
+      branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd: rootPath, encoding: "utf8", stdio: ["pipe", "pipe", "ignore"] }).trim();
+    } catch (e) {
+      // not a git repo or no branch
+    }
   }
 
   const userHandle = process.env.USER || "agent";
@@ -143,35 +147,46 @@ export async function uploadAntigravityData(
     }
   }
 
+  const activeWorkspacePath = workspaceFolders?.[0].uri.fsPath || "";
+  
   // 2. Conversation (Try Language Server first)
   let trajectoryDecrypted = false;
   try {
-    const lsInfo = await discoverLanguageServer(logger);
+    const lsInfo = await discoverLanguageServer(activeWorkspacePath, logger);
     if (lsInfo) {
-      logger.appendLine(`[Antigravity] Identified active Language Server on port ${lsInfo.port}.`);
+      logger.appendLine(`[Antigravity] Identified active Language Server for ${activeWorkspacePath} on port ${lsInfo.port}.`);
       const trajectoriesMap = await getAllCascadeTrajectories(lsInfo.port, lsInfo.csrfToken, logger);
       
       if (trajectoriesMap) {
-        const trajectoryIds = Object.keys(trajectoriesMap);
+        // The response usually contains a 'trajectorySummaries' field which is the actual map
+        const actualSummaries = trajectoriesMap.trajectorySummaries || trajectoriesMap;
+        const trajectoryIds = Object.keys(actualSummaries);
         logger.appendLine(`[Antigravity] Found ${trajectoryIds.length} total trajectories via LS.`);
         
+        const rootPath = workspaceFolders?.[0].uri.fsPath;
+        const workspaceUri = rootPath ? vscode.Uri.file(rootPath).toString() : null;
+
         for (const id of trajectoryIds) {
-          const summary = trajectoriesMap[id];
+          const summary = actualSummaries[id];
+          logger.appendLine(`[Antigravity] Checking trajectory ${id}: "${summary.summary || 'no summary'}"`);
+          
           // Filter by workspace
-          const isRelevant = summary.workspaces?.some((w: any) => 
-            w.workspaceFolderAbsoluteUri === vscode.Uri.file(projectPath).toString() ||
-            w.workspaceFolderAbsoluteUri === vscode.Uri.file(projectPath).toString() + "/"
-          );
+          const isRelevant = summary.workspaces?.some((w: any) => {
+            const wUri = w.workspaceFolderAbsoluteUri;
+            const match = workspaceUri && (wUri === workspaceUri || wUri === workspaceUri + "/");
+            logger.appendLine(`[Antigravity]   Comparing workspace URI: ${wUri} vs ${workspaceUri} -> Match: ${match}`);
+            return match;
+          });
 
           if (isRelevant || id === projectId) {
             logger.appendLine(`[Antigravity] Fetching trajectory ${id}...`);
             const trajectory = await getCascadeTrajectory(lsInfo.port, lsInfo.csrfToken, id, logger);
             if (trajectory) {
               const payload = {
-                r2Key: `agent/projects/${id}/trajectory.json`,
+                r2Key: `agent/projects/${projectId}/conversations/${id}/trajectory.json`,
                 content: JSON.stringify(trajectory, null, 2),
                 metadata: {
-                  title: summary.summary || "Conversation History (Decrypted)",
+                  title: summary.summary || `Conversation ${id}`,
                   author: userHandle,
                   source: "antigravity",
                   type: "trajectory_decrypted",
@@ -184,7 +199,7 @@ export async function uploadAntigravityData(
               const response = await postAgentIngest(payload, apiUrl, apiKey);
               if (response.success) {
                 logger.appendLine(`[Antigravity] Trajectory ${id} uploaded successfully.`);
-                if (id === projectId) trajectoryDecrypted = true;
+                trajectoryDecrypted = true;
               }
             }
           }
@@ -243,7 +258,7 @@ async function postAgentIngest(payload: any, apiUrl: string, apiKey: string): Pr
     if (response.statusCode >= 200 && response.statusCode < 300) {
       return { success: true };
     } else {
-      return { success: false, error: `API Error ${response.statusCode}: ${response.body}` };
+      return { success: false, error: `API Error ${response.statusCode}: ${response.body || "(empty response)"}` };
     }
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
@@ -251,9 +266,16 @@ async function postAgentIngest(payload: any, apiUrl: string, apiKey: string): Pr
 }
 
 /**
- * Discover the Antigravity Language Server port and CSRF token
+ * Discover the Antigravity Language Server port and CSRF token for a specific workspace
  */
-async function discoverLanguageServer(logger: vscode.OutputChannel): Promise<{ port: number, csrfToken: string } | null> {
+async function discoverLanguageServer(workspacePath: string, logger: vscode.OutputChannel): Promise<{ port: number, csrfToken: string } | null> {
+  // Antigravity encodes workspace IDs as file_path_with_underscores
+  // Example: /Users/peterp/gh/redwoodjs/oa-1 -> file_Users_peterp_gh_redwoodjs_oa_1
+  // It seems to replace all non-alphanumeric characters (including hyphens) with underscores.
+  const normalizedPath = workspacePath.replace(/^[\/\\]/, "").replace(/[^a-zA-Z0-9]/g, "_");
+  const expectedWorkspaceId = `file_${normalizedPath}`;
+  logger.appendLine(`[Antigravity] Searching for Language Server matching workspace_id: ${expectedWorkspaceId}`);
+
   return new Promise((resolve) => {
     // We execute ps aux and search for the language server process
     childProcess.exec('ps aux | grep language_server_macos_arm | grep -v grep', (err, stdout) => {
@@ -262,9 +284,20 @@ async function discoverLanguageServer(logger: vscode.OutputChannel): Promise<{ p
         return resolve(null);
       }
 
-      const lines = stdout.split('\n');
+      const lines = stdout.split('\n').filter(l => l.includes('language_server_macos_arm'));
+      logger.appendLine(`[Antigravity] Found ${lines.length} candidate Language Server processes.`);
+
       for (const line of lines) {
         if (line.includes('--extension_server_port') && line.includes('--csrf_token')) {
+          const workspaceIdMatch = line.match(/--workspace_id\s+([^\s]+)/);
+          const workspaceId = workspaceIdMatch ? workspaceIdMatch[1] : "unknown";
+          
+          if (workspaceId !== expectedWorkspaceId) {
+            logger.appendLine(`[Antigravity]   Skipping process with workspace_id: ${workspaceId} (doesn't match ${expectedWorkspaceId})`);
+            continue;
+          }
+
+          logger.appendLine(`[Antigravity]   Matched Language Server process with workspace_id: ${workspaceId}`);
           const portMatch = line.match(/--extension_server_port\s+(\d+)/);
           const csrfMatch = line.match(/--csrf_token\s+([a-fA-F0-9-]+)/);
 

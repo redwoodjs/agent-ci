@@ -265,3 +265,25 @@ We have implemented the full enrichment for Phase 8 artifacts, updated the UI da
 - **Cleanup**: `REPRO_SQLITE_LIMIT` hook and `scripts/repro-fit-issues.ts` have been removed.
 
 The [Unified Pipeline Blueprint](file:///Users/justin/rw/worktrees/machinen_investigate-large-sample-issue/docs/blueprints/runtime-architecture.md) has been updated with these new architectural standards.
+
+## Final PR Description
+Integrated into the worklog for narrative completeness.
+
+### Title
+Enrich Timeline Fit artifacts and synchronize simulation completion
+
+### Description
+## Problem and Context
+We identified two critical issues in the simulation engine:
+1. **Metadata Gap**: Timeline Fit artifacts lacked child moment metadata (Titles/Summaries). This forced the UI into a brittle relational lookup path (`fetchMomentsFromRun`) that exceeded SQLite parameter limits on large runs (`REPRO_SQLITE_LIMIT`), causing UI crashes and "Untitled Child" entries.
+2. **Completion Discrepancy**: Runs marked themselves as `completed` while asynchronous flushes of logs and events were still in flight, leading to a confusing UX where logs continued to stream for "done" runs.
+
+## Solution
+This change introduces a more robust, self-contained data model for simulation artifacts and a synchronized completion handshake.
+
+1. **Artifact Enrichment**: Updated `orchestrator.ts` to include `childTitle` and `childSummary` in the Phase 8 artifact. This allows the UI to render results directly from the JSON blob without secondary SQL queries.
+2. **UI Data Layer Pivot**: Updated `runArtifacts.ts` to prioritize this enriched metadata, completely bypassing the problematic database joins.
+3. **Completion Settlement**: Introduced a `settling` status in the simulation runner. The run now transitions to `settling` after the final phase, ensuring a final advance job flushes all pending event tails before the status toggles to `completed`.
+4. **Resilient Context**: Corrected hallucinated imports and implemented a Proxy-protected `createEngineContext` factory to prevent silent service absences in workers.
+
+This stabilizes the Timeline Fit UI for large datasets and ensures a clean, synchronized end-of-run experience.

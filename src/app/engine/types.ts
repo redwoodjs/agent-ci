@@ -1,3 +1,5 @@
+import type { LLMProvider, MomentDatabase } from "./runtime/types";
+
 export type Source =
   | "github"
   | "cursor"
@@ -207,6 +209,9 @@ export interface ReconstructedContext {
 export interface EngineContext {
   plugins: Plugin[];
   env: Cloudflare.Env;
+  llm?: LLMProvider;
+  vector?: VectorizeIndex;
+  db?: MomentDatabase; 
 }
 
 export interface VectorizeIndex {

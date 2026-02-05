@@ -46,6 +46,7 @@ export async function tickSimulationRun(
     row.status !== "running" &&
     row.status !== "awaiting_documents" &&
     row.status !== "advance" &&
+    row.status !== "settling" &&
     !isStaleLock
   ) {
     return { status: row.status, currentPhase: row.current_phase };
@@ -111,8 +112,12 @@ export async function tickSimulationRun(
 
   try {
     let result: { status: string; currentPhase: string } | null = null;
+    let finalStatus: string = "running";
+    let currentPhase: string = phase;
 
-    if (phase === "r2_listing") {
+    if (row.status === "settling") {
+      finalStatus = "completed";
+    } else if (phase === "r2_listing") {
       result = await tickR2Listing(context, { runId });
     } else {
       const phaseDef = getPhaseByName(phase);
@@ -127,8 +132,8 @@ export async function tickSimulationRun(
       result = await tickGenericDocumentPolling(context, { runId, phase });
     }
 
-    let finalStatus = result?.status ?? "running";
-    let currentPhase = result?.currentPhase ?? phase;
+    finalStatus = result?.status ?? finalStatus;
+    currentPhase = result?.currentPhase ?? currentPhase;
 
     await addSimulationRunEvent(context, {
       runId,
@@ -154,8 +159,8 @@ export async function tickSimulationRun(
           `[runner] Advancing run ${runId} from ${phase} to ${currentPhase}`,
         );
       } else {
-        finalStatus = "completed";
-        console.log(`[runner] Run ${runId} completed all phases`);
+        finalStatus = "settling";
+        console.log(`[runner] Run ${runId} completed all phases, settling events...`);
       }
     }
 
@@ -188,7 +193,7 @@ export async function tickSimulationRun(
     }
 
     if (
-      finalStatus === "running" &&
+      (finalStatus === "running" || finalStatus === "settling") &&
       (context.env as any).ENGINE_INDEXING_QUEUE
     ) {
       await (context.env as any).ENGINE_INDEXING_QUEUE.send({

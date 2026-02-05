@@ -31,6 +31,7 @@
     "build:mcp-server": "tsx scripts/build-mcp-server.ts"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.21",
     "@modelcontextprotocol/sdk": "^1.22.0",
     "@radix-ui/react-dialog": "^1.1.14",
     "@radix-ui/react-select": "^2.2.6",
@@ -38,6 +39,7 @@
     "@radix-ui/react-slot": "^1.2.3",
     "@radix-ui/react-tooltip": "^1.2.7",
     "@tailwindcss/vite": "^4.1.11",
+    "ai": "^6.0.71",
     "better-auth": "^1.3.9",
     "browser-util-inspect": "^0.2.0",
     "class-variance-authority": "^0.7.1",

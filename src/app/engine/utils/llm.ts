@@ -1,12 +1,19 @@
 import { env } from "cloudflare:workers";
 import { getHeuristicResponse } from "./heuristicLlm";
+import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { generateText } from "ai";
 
-export type LLMAlias = "slow-reasoning" | "quick-cheap";
+export type LLMAlias = "slow-reasoning" | "quick-cheap" | "gemini-3-flash";
 
-// Map aliases to specific models
-const MODEL_MAP: Record<LLMAlias, string> = {
+// Map aliases to specific models for Cloudflare AI
+const CF_MODEL_MAP: Record<string, string> = {
   "slow-reasoning": "@cf/openai/gpt-oss-20b",
   "quick-cheap": "@cf/meta/llama-3.1-8b-instruct",
+};
+
+// Map aliases to specific models for AI-SDK (Google)
+const GOOGLE_MODEL_MAP: Record<string, string> = {
+  "gemini-3-flash": "gemini-3-flash-preview",
 };
 
 interface GPTOSSResponse {
@@ -34,19 +41,14 @@ export async function callLLM(
   options?: LLMOptions
 ): Promise<string> {
   // 1. Check for simulation heuristic override (dynamic response)
+  const simulationMode = env.SIMULATION_HEURISTIC_MODE;
   if (
-    typeof env.SIMULATION_HEURISTIC_MODE === "string" &&
-    (env.SIMULATION_HEURISTIC_MODE === "1" || env.SIMULATION_HEURISTIC_MODE === "true")
+    typeof simulationMode === "string" &&
+    (simulationMode === "1" || simulationMode === "true")
   ) {
     console.log(`[llm] Using HEURISTIC approximation for alias=${alias}`);
     return getHeuristicResponse(prompt, alias);
   }
-
-  const modelId = MODEL_MAP[alias];
-
-  const start = Date.now();
-  const promptLength = prompt.length;
-  const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
 
   const logInfo = (msg: string, data?: any) => {
     if (options?.logger) {
@@ -56,7 +58,48 @@ export async function callLLM(
     }
   };
 
-  logInfo(`Calling alias '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
+  // 2. Check if it's a Google model (handled by AI-SDK)
+  const googleModelId = GOOGLE_MODEL_MAP[alias];
+  if (googleModelId) {
+    logInfo(`Calling AI-SDK Google model '${alias}' (${googleModelId})`);
+
+    const apiKey = env.GOOGLE_AI_KEY;
+    if (!apiKey) {
+      throw new Error(`Missing GOOGLE_AI_KEY for alias '${alias}'`);
+    }
+
+    try {
+      const google = createGoogleGenerativeAI({
+        apiKey,
+      });
+
+      const { text } = await generateText({
+        model: google(googleModelId),
+        prompt: prompt,
+        temperature: options?.temperature,
+        maxTokens: options?.max_tokens,
+      } as Parameters<typeof generateText>[0]);
+
+      logInfo(`Successfully received response from Google. Length: ${text.length} chars`);
+      return text;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logInfo(`AI-SDK Google call failed: ${msg}`, { error: msg });
+      throw error;
+    }
+  }
+
+  // 3. Handle Cloudflare AI models (legacy env.AI)
+  const cfModelId = CF_MODEL_MAP[alias];
+  if (!cfModelId) {
+    throw new Error(`Unknown model alias: ${alias}`);
+  }
+
+  const start = Date.now();
+  const promptLength = prompt.length;
+  const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
+
+  logInfo(`Calling Cloudflare alias '${alias}' (${cfModelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
   if (options) {
     logInfo(`Options: ${JSON.stringify(options)}`);
   }
@@ -68,7 +111,7 @@ export async function callLLM(
     if (reasoningEffortOverride === "none") {
       logInfo(`[llm] Overriding reasoning effort to 'none' (removing reasoning options)`);
       if (options && options.reasoning) {
-        delete options.reasoning;
+        options.reasoning = undefined;
       }
     } else if (["low", "medium", "high"].includes(reasoningEffortOverride)) {
       logInfo(`[llm] Overriding reasoning effort to '${reasoningEffortOverride}' (from env.LLM_REASONING_EFFORT)`);
@@ -83,7 +126,7 @@ export async function callLLM(
   }
 
   let response: any;
-    const isGptOss = modelId.includes("gpt-oss");
+    const isGptOss = cfModelId.includes("gpt-oss");
     const payload = isGptOss
       ? {
           input: prompt,
@@ -111,8 +154,8 @@ export async function callLLM(
   let lastError: unknown;
   const timeoutMs = options?.timeoutMs ?? 60_000; // Default to 60s
 
-  options?.logger?.(`Starting LLM call to '${alias}' (${modelId})`, {
-    modelId,
+  options?.logger?.(`Starting LLM call to '${alias}' (${cfModelId})`, {
+    cfModelId,
     alias,
     timeoutMs,
   });
@@ -131,12 +174,12 @@ export async function callLLM(
       }
 
       logInfo(
-        `Calling alias '${alias}' (${modelId}) attempt ${
+        `Calling Cloudflare alias '${alias}' (${cfModelId}) attempt ${
           attempt + 1
         }/${maxAttempts}`
       );
 
-      const runPromise = (env.AI.run as any)(modelId, payload);
+      const runPromise = (env.AI as any).run(cfModelId, payload);
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => {
           reject(new Error("LLM Timeout: call took longer than 300s"));
@@ -147,9 +190,8 @@ export async function callLLM(
       const duration = Date.now() - start;
       logInfo(`AI.run(${alias}) took ${duration}ms`);
       
-      // Success - break loop
       // Success - break loop and parse
-      if (modelId.includes("gpt-oss")) {
+      if (cfModelId.includes("gpt-oss")) {
         // gpt-oss-20b returns a structured output with reasoning and message parts
         if (
           response?.output &&
@@ -205,7 +247,7 @@ export async function callLLM(
       lastError = error;
       const msg = error instanceof Error ? error.message : String(error);
       if (options?.logger) {
-        options.logger(`Attempt ${attempt + 1}/${maxAttempts} failed: ${msg}`, { level: "error", error: msg });
+        options.logger(`Attempt ${attempt + 1}/${cfModelId} failed: ${msg}`, { level: "error", error: msg });
       } else {
         console.error(
           `[llm] Attempt ${attempt + 1}/${maxAttempts} failed:`,

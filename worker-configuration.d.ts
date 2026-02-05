@@ -9,13 +9,14 @@ declare namespace Cloudflare {
 	interface Env {
 		MOMENT_GRAPH_NAMESPACE_PREFIX: "prod-2025-01-10-12-51";
 		MOMENT_GRAPH_NAMESPACE: "redwood:rwsdk" | "dev-justin-3";
-		SIMULATION_HEURISTIC_MODE: "0";
+		SIMULATION_HEURISTIC_MODE: string;
 		LLM_REASONING_EFFORT: "low";
 		WEBAUTHN_RP_ID: string;
 		AUTH_SECRET_KEY: string;
 		API_KEY: string;
 		INGEST_API_KEY: string;
 		DISCORD_BOT_TOKEN: string;
+		GOOGLE_AI_KEY: string;
 		REALTIME: DurableObjectNamespace<import("./src/worker").RealtimeDurableObject>;
 		DB: DurableObjectNamespace<import("./src/worker").Database>;
 		CURSOR_EVENTS: DurableObjectNamespace<import("./src/worker").CursorEventsDurableObject>;

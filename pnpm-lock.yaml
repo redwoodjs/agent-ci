@@ -80,6 +80,9 @@ importers:
       tw-animate-css:
         specifier: ^1.3.6
         version: 1.4.0
+      workers-ai-provider:
+        specifier: ^3.0.4
+        version: 3.0.4(@ai-sdk/provider-utils@4.0.13(zod@4.3.5))(@ai-sdk/provider@3.0.7)(ai@6.0.71(zod@4.3.5))(zod@4.3.5)
       zod:
         specifier: ^4.1.11
         version: 4.3.5
@@ -4484,6 +4487,14 @@ packages:
     resolution: {integrity: sha512-4ylAQJDdJZdMAUl2SbJgTa77YHpa88l6qmhiuCLNactP933+rifs7I0w1DslhUIFgydArUX5dNLAZnZhT7Bh7g==}
     engines: {node: '>=16'}
     hasBin: true
+
+  workers-ai-provider@3.0.4:
+    resolution: {integrity: sha512-ieDdAyGwg4AF3jKS1aP8fhhEZv7rh8fuWPCcEz0DjOYkvgCtcklx1BLofdmbmi7eLDPjjul38tlnN8/45EFwNg==}
+    peerDependencies:
+      '@ai-sdk/provider': ^3.0.0
+      '@ai-sdk/provider-utils': ^4.0.0
+      ai: ^6.0.0
+      zod: ^3.25.0 || ^4.0.0
 
   wrangler@4.58.0:
     resolution: {integrity: sha512-Jm6EYtlt8iUcznOCPSMYC54DYkwrMNESzbH0Vh3GFHv/7XVw5gBC13YJAB+nWMRGJ+6B2dMzy/NVQS4ONL51Pw==}
@@ -9432,6 +9443,13 @@ snapshots:
       '@cloudflare/workerd-linux-64': 1.20260107.1
       '@cloudflare/workerd-linux-arm64': 1.20260107.1
       '@cloudflare/workerd-windows-64': 1.20260107.1
+
+  workers-ai-provider@3.0.4(@ai-sdk/provider-utils@4.0.13(zod@4.3.5))(@ai-sdk/provider@3.0.7)(ai@6.0.71(zod@4.3.5))(zod@4.3.5):
+    dependencies:
+      '@ai-sdk/provider': 3.0.7
+      '@ai-sdk/provider-utils': 4.0.13(zod@4.3.5)
+      ai: 6.0.71(zod@4.3.5)
+      zod: 4.3.5
 
   wrangler@4.58.0(@cloudflare/workers-types@4.20260109.0):
     dependencies:

@@ -1,25 +1,19 @@
 import { SECRETS } from "@/secrets";
+import { env } from "cloudflare:workers";
 import { getHeuristicResponse } from "./heuristicLlm";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createCerebras } from "@ai-sdk/cerebras";
 import { generateText } from "ai";
 
 const MODELS = {
-  "slow-reasoning": { provider: "cloudflare", id: "@cf/openai/gpt-oss-20b" },
+  "slow-reasoning": { provider: "cerebras", id: "gpt-oss-20b" },
+  "slow-reasoning-slow": { provider: "cloudflare", id: "@cf/openai/gpt-oss-20b" },
   "quick-cheap": { provider: "cloudflare", id: "@cf/meta/llama-3.1-8b-instruct" },
   "gemini-3-flash": { provider: "google", id: "gemini-3-flash-preview" },
-  "cerebras-fast": { provider: "cerebras", id: "gpt-oss-2b" },
 } as const;
 
 export type LLMAlias = keyof typeof MODELS;
-
-interface GPTOSSResponse {
-  output: Array<{
-    content: Array<{
-      text: string;
-    }>;
-  }>;
-}
+type ModelConfig = (typeof MODELS)[LLMAlias];
 
 export interface LLMOptions {
   temperature?: number;
@@ -56,7 +50,7 @@ export async function callLLM(
   };
 
   // 2. Resolve model configuration
-  const modelConfig = MODELS[alias];
+  const modelConfig = MODELS[alias] as ModelConfig;
   const modelId = modelConfig.id;
 
   if (modelConfig.provider === "google") {
@@ -77,7 +71,7 @@ export async function callLLM(
         prompt: prompt,
         temperature: options?.temperature,
         maxTokens: options?.max_tokens,
-      } as Parameters<typeof generateText>[0]);
+      } as any);
 
       logInfo(`Successfully received response from Google. Length: ${text.length} chars`);
       return text;
@@ -106,7 +100,7 @@ export async function callLLM(
         prompt: prompt,
         temperature: options?.temperature,
         maxTokens: options?.max_tokens,
-      } as Parameters<typeof generateText>[0]);
+      } as any);
 
       logInfo(`Successfully received response from Cerebras. Length: ${text.length} chars`);
       return text;
@@ -117,17 +111,10 @@ export async function callLLM(
     }
   }
 
-  // 3. Handle Cloudflare AI models (legacy env.AI)
+  // 3. Handle Cloudflare AI models (AI-SDK Workers AI)
   const cfModelId = modelId;
 
-  const start = Date.now();
-  const promptLength = prompt.length;
-  const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
-
-  logInfo(`Calling Cloudflare alias '${alias}' (${cfModelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
-  if (options) {
-    logInfo(`Options: ${JSON.stringify(options)}`);
-  }
+  logInfo(`Calling Cloudflare alias '${alias}' (${cfModelId}) with AI-SDK`);
 
   // Check for global reasoning effort override
   const reasoningEffortOverride = typeof SECRETS.LLM_REASONING_EFFORT === "string" ? SECRETS.LLM_REASONING_EFFORT.trim() : "";
@@ -150,146 +137,28 @@ export async function callLLM(
     }
   }
 
-  let response: any;
+  try {
+    const { createWorkersAI } = await import("workers-ai-provider");
+    const workersai = createWorkersAI({
+      binding: env.AI,
+    });
+
     const isGptOss = cfModelId.includes("gpt-oss");
-    const payload = isGptOss
-      ? {
-          input: prompt,
-          ...(options?.temperature !== undefined && {
-            temperature: options.temperature,
-          }),
-          ...(options?.max_tokens !== undefined && {
-            max_tokens: options.max_tokens,
-          }),
-          ...(options?.reasoning && {
-            reasoning: options.reasoning,
-          }),
-        } // GPT-OSS-20B uses 'input' and supports temperature/max_tokens/reasoning
-      : {
-          prompt: prompt,
-          ...(options?.temperature !== undefined && {
-            temperature: options.temperature,
-          }),
-          ...(options?.max_tokens !== undefined && {
-            max_tokens: options.max_tokens,
-          }),
-        }; // Llama uses 'prompt' and supports temperature/max_tokens
+    
+    // AI-SDK handles the model interaction.
+    // We pass the model ID directly to the provider.
+    const { text } = await generateText({
+      model: workersai(cfModelId as any),
+      prompt: prompt,
+      temperature: options?.temperature,
+      maxTokens: options?.max_tokens,
+    } as any);
 
-  const maxAttempts = 3;
-  let lastError: unknown;
-  const timeoutMs = options?.timeoutMs ?? 60_000; // Default to 60s
-
-  options?.logger?.(`Starting LLM call to '${alias}' (${cfModelId})`, {
-    cfModelId,
-    alias,
-    timeoutMs,
-  });
-
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    try {
-      if (attempt > 0) {
-        const backoffBase = 1000 * Math.pow(2, attempt - 1);
-        const jitter = Math.floor(Math.random() * 250);
-        const waitMs = backoffBase + jitter;
-        
-        const msg = `Retry attempt ${attempt + 1}/${maxAttempts}. Waiting ${waitMs}ms`;
-        logInfo(msg, { attempt: attempt + 1, maxAttempts, waitMs });
-        
-        await new Promise((resolve) => setTimeout(resolve, waitMs));
-      }
-
-      logInfo(
-        `Calling Cloudflare alias '${alias}' (${cfModelId}) attempt ${
-          attempt + 1
-        }/${maxAttempts}`
-      );
-
-      const runPromise = (SECRETS.AI as any).run(cfModelId, payload);
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => {
-          reject(new Error("LLM Timeout: call took longer than 300s"));
-        }, 300_000);
-      });
-
-      response = await Promise.race([runPromise, timeoutPromise]);
-      const duration = Date.now() - start;
-      logInfo(`AI.run(${alias}) took ${duration}ms`);
-      
-      // Success - break loop and parse
-      if (cfModelId.includes("gpt-oss")) {
-        // gpt-oss-20b returns a structured output with reasoning and message parts
-        if (
-          response?.output &&
-          Array.isArray(response.output) &&
-          response.output.length > 0
-        ) {
-          const messagePart = response.output.find(
-            (part: any) => part.type === "message"
-          );
-          if (
-            messagePart &&
-            messagePart.content &&
-            Array.isArray(messagePart.content) &&
-            messagePart.content.length > 0 &&
-            typeof messagePart.content[0].text === "string"
-          ) {
-            const text = messagePart.content[0].text;
-            logInfo(
-              `Successfully extracted text from gpt-oss message part. Length: ${text.length} chars`
-            );
-            return text;
-          }
-        }
-        if (options?.logger) {
-          options.logger(`Invalid gpt-oss response structure: ${JSON.stringify(response, null, 2)}`, { level: "error" });
-        } else {
-          console.error(
-            `[llm] Invalid gpt-oss response structure:`,
-            JSON.stringify(response, null, 2)
-          );
-        }
-        throw new Error("Failed to parse LLM response from gpt-oss");
-      } else {
-        // Llama and other models often use this structure
-        logInfo(
-          `Parsing non-gpt-oss response. Has response field: ${!!response?.response}, response type: ${typeof response?.response}`
-        );
-        if (response && typeof response.response === "string") {
-          logInfo(
-            `Successfully extracted text from response. Length: ${response.response.length} chars`
-          );
-          return response.response;
-        }
-      }
-
-      console.error(
-        `[llm] Invalid response structure:`,
-        JSON.stringify(response, null, 2)
-      );
-      throw new Error("Failed to parse LLM response");
-
-    } catch (error) {
-      lastError = error;
-      const msg = error instanceof Error ? error.message : String(error);
-      if (options?.logger) {
-        options.logger(`Attempt ${attempt + 1}/${cfModelId} failed: ${msg}`, { level: "error", error: msg });
-      } else {
-        console.error(
-          `[llm] Attempt ${attempt + 1}/${maxAttempts} failed:`,
-          msg
-        );
-      }
-      
-      if (attempt + 1 >= maxAttempts) {
-        if (options?.logger) {
-           options.logger(`All ${maxAttempts} attempts failed.`, { level: "error" });
-        } else {
-           console.error(`[llm] All ${maxAttempts} attempts failed.`);
-        }
-        throw lastError;
-      }
-    }
+    logInfo(`Successfully received response from Cloudflare via AI-SDK. Length: ${text.length} chars`);
+    return text;
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logInfo(`AI-SDK Cloudflare call failed: ${msg}`, { error: msg });
+    throw error;
   }
-
-  throw new Error("Unexpected end of LLM call loop");
 }

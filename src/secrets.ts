@@ -18,10 +18,9 @@ const secretsSchema = z.object({
 /**
  * Validates the environment variables using Zod.
  * Throws an error immediately if validation fails.
- * Returns the original 'env' object to preserve all bindings and types.
  */
 function validateSecrets() {
-  const result = secretsSchema.safeParse(env);
+  const result = secretsSchema.safeParse(process.env);
 
   if (!result.success) {
     const errorMsg = `❌ Invalid environment variables:\n${result.error.issues
@@ -31,9 +30,7 @@ function validateSecrets() {
     throw new Error(errorMsg);
   }
 
-  // We return the original env from cloudflare:workers to preserve bindings (AI, DB, etc.)
-  // and their types defined in worker-configuration.d.ts
-  return env;
+  return result.data
 }
 
 /**

@@ -31,6 +31,7 @@
     "build:mcp-server": "tsx scripts/build-mcp-server.ts"
   },
   "dependencies": {
+    "@ai-sdk/cerebras": "^2.0.30",
     "@ai-sdk/google": "^3.0.21",
     "@modelcontextprotocol/sdk": "^1.22.0",
     "@radix-ui/react-dialog": "^1.1.14",

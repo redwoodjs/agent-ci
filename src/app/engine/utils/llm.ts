@@ -1,12 +1,14 @@
 import { SECRETS } from "@/secrets";
 import { getHeuristicResponse } from "./heuristicLlm";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
+import { createCerebras } from "@ai-sdk/cerebras";
 import { generateText } from "ai";
 
 const MODELS = {
   "slow-reasoning": { provider: "cloudflare", id: "@cf/openai/gpt-oss-20b" },
   "quick-cheap": { provider: "cloudflare", id: "@cf/meta/llama-3.1-8b-instruct" },
   "gemini-3-flash": { provider: "google", id: "gemini-3-flash-preview" },
+  "cerebras-fast": { provider: "cerebras", id: "gpt-oss-2b" },
 } as const;
 
 export type LLMAlias = keyof typeof MODELS;
@@ -60,9 +62,9 @@ export async function callLLM(
   if (modelConfig.provider === "google") {
     logInfo(`Calling AI-SDK Google model '${alias}' (${modelId})`);
 
-    const apiKey = SECRETS.GOOGLE_AI_KEY;
+    const apiKey = SECRETS.AI_GOOGLE_KEY;
     if (!apiKey) {
-      throw new Error(`Missing GOOGLE_AI_KEY for alias '${alias}'`);
+      throw new Error(`Missing AI_GOOGLE_KEY for alias '${alias}'`);
     }
 
     try {
@@ -82,6 +84,35 @@ export async function callLLM(
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       logInfo(`AI-SDK Google call failed: ${msg}`, { error: msg });
+      throw error;
+    }
+  }
+
+  if (modelConfig.provider === "cerebras") {
+    logInfo(`Calling AI-SDK Cerebras model '${alias}' (${modelId})`);
+
+    const apiKey = SECRETS.AI_CEREBRAS_KEY;
+    if (!apiKey) {
+      throw new Error(`Missing AI_CEREBRAS_KEY for alias '${alias}'`);
+    }
+
+    try {
+      const cerebras = createCerebras({
+        apiKey,
+      });
+
+      const { text } = await generateText({
+        model: cerebras(modelId),
+        prompt: prompt,
+        temperature: options?.temperature,
+        maxTokens: options?.max_tokens,
+      } as Parameters<typeof generateText>[0]);
+
+      logInfo(`Successfully received response from Cerebras. Length: ${text.length} chars`);
+      return text;
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      logInfo(`AI-SDK Cerebras call failed: ${msg}`, { error: msg });
       throw error;
     }
   }

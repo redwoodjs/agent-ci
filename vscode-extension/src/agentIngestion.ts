@@ -2,8 +2,8 @@ import * as vscode from "vscode";
 import * as path from "path";
 import * as https from "https";
 import * as http from "http";
-import * as child_process from "child_process";
-import { convertPbToMarkdown } from "./protobugConverter";
+import * as childProcess from "child_process";
+
 
 /**
  * Interface for Antigravity Context
@@ -23,7 +23,7 @@ export async function identifyAntigravityContext(logger: vscode.OutputChannel): 
     return null;
   }
 
-  const antiraDir = vscode.Uri.file(path.join(homeDir, ".gemini", "antigravity", "brain"));
+  const antigravityDir = vscode.Uri.file(path.join(homeDir, ".gemini", "antigravity", "brain"));
   const workspaces = vscode.workspace.workspaceFolders;
   if (!workspaces || workspaces.length === 0) {
     logger.appendLine("[Antigravity] No active workspace folders found.");
@@ -34,10 +34,10 @@ export async function identifyAntigravityContext(logger: vscode.OutputChannel): 
   logger.appendLine(`[Antigravity] Searching for project associated with ${activeWorkspacePath}`);
 
   try {
-    const projects = await vscode.workspace.fs.readDirectory(antiraDir);
+    const projects = await vscode.workspace.fs.readDirectory(antigravityDir);
     for (const [name, type] of projects) {
       if (type === vscode.FileType.Directory) {
-        const projectPath = vscode.Uri.joinPath(antiraDir, name);
+        const projectPath = vscode.Uri.joinPath(antigravityDir, name);
         const projectFiles = await vscode.workspace.fs.readDirectory(projectPath);
         
         for (const [fileName, fileType] of projectFiles) {
@@ -69,7 +69,8 @@ export async function uploadAntigravityData(
   projectId: string,
   projectPath: string,
   logger: vscode.OutputChannel,
-  getApiUrl: () => string
+  getApiUrl: () => string,
+  force: boolean = false
 ) {
   const apiUrl = getApiUrl();
   const config = vscode.workspace.getConfiguration("machinen");
@@ -88,8 +89,8 @@ export async function uploadAntigravityData(
   try {
     const rootPath = workspaceFolders?.[0].uri.fsPath;
     if (rootPath) {
-      repo = child_process.execSync("git remote get-url origin", { cwd: rootPath, encoding: "utf8" }).trim();
-      branch = child_process.execSync("git rev-parse --abbrev-ref HEAD", { cwd: rootPath, encoding: "utf8" }).trim();
+      repo = childProcess.execSync("git remote get-url origin", { cwd: rootPath, encoding: "utf8" }).trim();
+      branch = childProcess.execSync("git rev-parse --abbrev-ref HEAD", { cwd: rootPath, encoding: "utf8" }).trim();
     }
   } catch (e) {
     logger.appendLine(`[Antigravity] Git info retrieval error: ${e}`);
@@ -106,9 +107,9 @@ export async function uploadAntigravityData(
     try {
       const stat = await vscode.workspace.fs.stat(filePath);
       const lastUploadedMtime = context.globalState.get<number>(`${stateKeyPrefix}.${fileName}`, 0);
-
-      if (stat.mtime > lastUploadedMtime) {
-        logger.appendLine(`[Antigravity] Artifact ${fileName} has changed. Uploading...`);
+      
+      if (force || stat.mtime > lastUploadedMtime) {
+        logger.appendLine(`[Antigravity] Artifact ${fileName} ${force ? "force upload" : "has changed"}. Uploading...`);
         const content = await vscode.workspace.fs.readFile(filePath);
         const text = Buffer.from(content).toString("utf8");
 
@@ -142,48 +143,66 @@ export async function uploadAntigravityData(
     }
   }
 
-  // 2. Conversation (.pb file)
+  // 2. Conversation (Try Language Server first)
+  let trajectoryDecrypted = false;
   try {
-    const conversationsDir = vscode.Uri.file(path.join(path.dirname(path.dirname(projectPath)), "conversations"));
-    const conversationFilePath = vscode.Uri.joinPath(conversationsDir, `${projectId}.pb`);
-    
-    try {
-      const stat = await vscode.workspace.fs.stat(conversationFilePath);
-      const lastUploadedMtime = context.globalState.get<number>(`${stateKeyPrefix}.conversation.pb`, 0);
+    const lsInfo = await discoverLanguageServer(logger);
+    if (lsInfo) {
+      logger.appendLine(`[Antigravity] Identified active Language Server on port ${lsInfo.port}.`);
+      const trajectoriesMap = await getAllCascadeTrajectories(lsInfo.port, lsInfo.csrfToken, logger);
+      
+      if (trajectoriesMap) {
+        const trajectoryIds = Object.keys(trajectoriesMap);
+        logger.appendLine(`[Antigravity] Found ${trajectoryIds.length} total trajectories via LS.`);
+        
+        for (const id of trajectoryIds) {
+          const summary = trajectoriesMap[id];
+          // Filter by workspace
+          const isRelevant = summary.workspaces?.some((w: any) => 
+            w.workspaceFolderAbsoluteUri === vscode.Uri.file(projectPath).toString() ||
+            w.workspaceFolderAbsoluteUri === vscode.Uri.file(projectPath).toString() + "/"
+          );
 
-      if (stat.mtime > lastUploadedMtime) {
-        logger.appendLine(`[Antigravity] Conversation history ${projectId}.pb has changed. Uploading...`);
-        const content = await vscode.workspace.fs.readFile(conversationFilePath);
-        const markdownContent = convertPbToMarkdown(Buffer.from(content));
+          if (isRelevant || id === projectId) {
+            logger.appendLine(`[Antigravity] Fetching trajectory ${id}...`);
+            const trajectory = await getCascadeTrajectory(lsInfo.port, lsInfo.csrfToken, id, logger);
+            if (trajectory) {
+              const payload = {
+                r2Key: `agent/projects/${id}/trajectory.json`,
+                content: JSON.stringify(trajectory, null, 2),
+                metadata: {
+                  title: summary.summary || "Conversation History (Decrypted)",
+                  author: userHandle,
+                  source: "antigravity",
+                  type: "trajectory_decrypted",
+                  repo, folder: folderName, branch,
+                  createdAt: summary.createdTime,
+                  updatedAt: summary.lastModifiedTime
+                }
+              };
 
-        const payload = {
-          r2Key: `agent/projects/${projectId}/conversation.md`,
-          content: markdownContent,
-          metadata: {
-            title: "Conversation History",
-            author: userHandle,
-            source: "antigravity",
-            type: "conversation",
-            repo, folder: folderName, branch
+              const response = await postAgentIngest(payload, apiUrl, apiKey);
+              if (response.success) {
+                logger.appendLine(`[Antigravity] Trajectory ${id} uploaded successfully.`);
+                if (id === projectId) trajectoryDecrypted = true;
+              }
+            }
           }
-        };
-
-        const response = await postAgentIngest(payload, apiUrl, apiKey);
-        if (response.success) {
-          logger.appendLine(`[Antigravity] Conversation ${projectId}.pb uploaded successfully.`);
-          await context.globalState.update(`${stateKeyPrefix}.conversation.pb`, stat.mtime);
-        } else {
-          logger.appendLine(`[Antigravity] Conversation ${projectId}.pb upload failed: ${response.error}`);
-          syncFailures++;
         }
-      } else {
-        logger.appendLine(`[Antigravity] Conversation ${projectId}.pb is up to date.`);
+        
+        if (trajectoryDecrypted) {
+            await context.globalState.update(`${stateKeyPrefix}.trajectory.ts`, Date.now());
+        }
       }
-    } catch (e) {
-      logger.appendLine(`[Antigravity] Conversation history for ${projectId} not found.`);
     }
-  } catch (error) {
-    logger.appendLine(`[Antigravity] Error in conversation upload: ${error}`);
+  } catch (e) {
+    logger.appendLine(`[Antigravity] Failed to extract trajectories via Language Server: ${e}`);
+  }
+
+  // 3. Status Reporting
+  if (!trajectoryDecrypted) {
+    logger.appendLine(`[Antigravity] Warning: No readable conversation trajectories found for project ${projectId}.`);
+    syncFailures++;
   }
 
   if (syncFailures > 0) {
@@ -229,4 +248,146 @@ async function postAgentIngest(payload: any, apiUrl: string, apiKey: string): Pr
   } catch (e) {
     return { success: false, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * Discover the Antigravity Language Server port and CSRF token
+ */
+async function discoverLanguageServer(logger: vscode.OutputChannel): Promise<{ port: number, csrfToken: string } | null> {
+  return new Promise((resolve) => {
+    // We execute ps aux and search for the language server process
+    childProcess.exec('ps aux | grep language_server_macos_arm | grep -v grep', (err, stdout) => {
+      if (err) {
+        logger.appendLine(`[Antigravity] Error running ps: ${err.message}`);
+        return resolve(null);
+      }
+
+      const lines = stdout.split('\n');
+      for (const line of lines) {
+        if (line.includes('--extension_server_port') && line.includes('--csrf_token')) {
+          const portMatch = line.match(/--extension_server_port\s+(\d+)/);
+          const csrfMatch = line.match(/--csrf_token\s+([a-fA-F0-9-]+)/);
+
+          if (portMatch && csrfMatch) {
+            const extensionPort = parseInt(portMatch[1], 10);
+            const csrfToken = csrfMatch[1];
+            
+            // Now find the actual LISTEN port for the language server
+            // Match the PID from the ps output (first column usually, but ps aux format varies)
+            const pidMatch = line.trim().match(/^\S+\s+(\d+)/);
+            if (pidMatch) {
+              const pid = pidMatch[1];
+              childProcess.exec(`lsof -nP -p ${pid} | grep LISTEN`, (err, lsofStdout) => {
+                if (!err && lsofStdout) {
+                  // Usually the HTTP server is one of these ports. 
+                  // In our research, extension_port + 1 (e.g. 64617) was the HTTPS server.
+                  const ports = [...lsofStdout.matchAll(/:(\d+)\s+\(LISTEN\)/g)].map(m => parseInt(m[1], 10));
+                  // We prioritize ports near the extension port
+                  const bestPort = ports.find(p => p === extensionPort + 1) || ports[0];
+                  if (bestPort) {
+                    return resolve({ port: bestPort, csrfToken });
+                  }
+                }
+                // Fallback to guess
+                resolve({ port: extensionPort + 1, csrfToken });
+              });
+              return;
+            }
+            return resolve({ port: extensionPort + 1, csrfToken });
+          }
+        }
+      }
+      resolve(null);
+    });
+  });
+}
+
+/**
+ * Fetch all available Cascade trajectories summary from the Language Server
+ */
+async function getAllCascadeTrajectories(port: number, csrfToken: string, logger: vscode.OutputChannel): Promise<any | null> {
+  const options = {
+    hostname: '127.0.0.1',
+    port: port,
+    path: '/exa.language_server_pb.LanguageServerService/GetAllCascadeTrajectories',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Codeium-Csrf-Token': csrfToken
+    },
+    rejectUnauthorized: false
+  };
+
+  return new Promise((resolve) => {
+    const req = https.request(options, (res) => {
+      let body = '';
+      res.on('data', (chunk) => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            resolve(JSON.parse(body));
+          } catch (e) {
+            logger.appendLine(`[Antigravity] Error parsing trajectories map JSON: ${e}`);
+            resolve(null);
+          }
+        } else {
+          logger.appendLine(`[Antigravity] GetAllCascadeTrajectories failed with status ${res.statusCode}`);
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', (e) => {
+      logger.appendLine(`[Antigravity] Request to Language Server failed (GetAll): ${e.message}`);
+      resolve(null);
+    });
+
+    req.write(JSON.stringify({}));
+    req.end();
+  });
+}
+
+/**
+ * Fetch the Cascade trajectory (decrypted conversation history) from the Language Server
+ */
+async function getCascadeTrajectory(port: number, csrfToken: string, projectId: string, logger: vscode.OutputChannel): Promise<any | null> {
+  const options = {
+    hostname: '127.0.0.1',
+    port: port,
+    path: '/exa.language_server_pb.LanguageServerService/GetCascadeTrajectory',
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Codeium-Csrf-Token': csrfToken
+    },
+    rejectUnauthorized: false // Local server uses self-signed cert
+  };
+
+  return new Promise((resolve) => {
+    const req = https.request(options, (res) => {
+      let body = '';
+      res.on('data', (chunk) => body += chunk);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            resolve(JSON.parse(body));
+          } catch (e) {
+            logger.appendLine(`[Antigravity] Error parsing trajectory JSON: ${e}`);
+            resolve(null);
+          }
+        } else {
+          logger.appendLine(`[Antigravity] GetCascadeTrajectory failed with status ${res.statusCode}: ${body}`);
+          resolve(null);
+        }
+      });
+    });
+
+    req.on('error', (e) => {
+      logger.appendLine(`[Antigravity] Request to Language Server failed: ${e.message}`);
+      resolve(null);
+    });
+
+    req.write(JSON.stringify({ cascadeId: projectId }));
+    req.end();
+  });
 }

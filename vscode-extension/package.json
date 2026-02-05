@@ -12,6 +12,9 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "extensionDependencies": [
+    "google.antigravity"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "configuration": {
@@ -54,6 +57,16 @@
         "command": "machinen.uploadAntigravityData",
         "title": "Upload Antigravity Artifacts to Machinen",
         "category": "Machinen"
+      },
+      {
+        "command": "machinen.forceUploadAntigravityData",
+        "title": "Force Upload Antigravity Artifacts to Machinen",
+        "category": "Machinen"
+      },
+      {
+        "command": "machinen.debugAntigravity",
+        "title": "Debug Antigravity",
+        "category": "Machinen"
       }
     ],
     "keybindings": [
@@ -86,6 +99,8 @@
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.80.0",
+    "protobufjs": "^8.0.0",
+    "snappy": "^7.3.3",
     "typescript": "^5.0.0"
   }
 }

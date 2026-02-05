@@ -1043,7 +1043,8 @@ export function activate(context: vscode.ExtensionContext) {
           antigravityContext.projectId,
           antigravityContext.projectPath,
           logger,
-          getApiUrl
+          getApiUrl,
+          false // force = false
         );
       } else {
         vscode.window.showWarningMessage("Could not identify an active Antigravity project for this workspace.");
@@ -1052,6 +1053,28 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   context.subscriptions.push(uploadAntigravityCommand);
+
+  // Register command to FORCE upload Antigravity data
+  const forceUploadAntigravityCommand = vscode.commands.registerCommand(
+    "machinen.forceUploadAntigravityData",
+    async () => {
+      const antigravityContext = await identifyAntigravityContext(logger);
+      if (antigravityContext) {
+        await uploadAntigravityData(
+          context,
+          antigravityContext.projectId,
+          antigravityContext.projectPath,
+          logger,
+          getApiUrl,
+          true // force = true
+        );
+      } else {
+        vscode.window.showWarningMessage("Could not identify an active Antigravity project for this workspace.");
+      }
+    }
+  );
+
+  context.subscriptions.push(forceUploadAntigravityCommand);
 
   // DEBUG COMMAND: Inspect Antigravity Extension
   context.subscriptions.push(
@@ -1075,9 +1098,24 @@ export function activate(context: vscode.ExtensionContext) {
       try {
         const exports = ext.exports;
         if (typeof exports === 'object') {
-             logger.appendLine(`Exports keys: ${JSON.stringify(Object.keys(exports))}`);
+            logger.appendLine(`Export Keys: ${JSON.stringify(Object.keys(exports))}`);
+            // Try to deep log
+            try {
+                const cache: any[] = [];
+                const str = JSON.stringify(exports, (key, value) => {
+                    if (typeof value === 'object' && value !== null) {
+                        if (cache.includes(value)) return;
+                        cache.push(value);
+                    }
+                    return value;
+                }, 2);
+                logger.appendLine(`Full Exports: ${str}`);
+            } catch (err) {
+                logger.appendLine(`Failed to stringify exports: ${err}`);
+            }
         } else {
-             logger.appendLine(`Exports type: ${typeof exports}`);
+            logger.appendLine(`Exports Type: ${typeof exports}`);
+            logger.appendLine(`Exports Value: ${exports}`);
         }
       } catch (e) {
         logger.appendLine(`Error inspecting exports: ${e}`);

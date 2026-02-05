@@ -11,7 +11,7 @@ import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
 import { routes as engineRoutes } from "./app/engine/routes";
 import { ghRoutes } from "./app/gh/routes";
-import { agentRoutes } from "./app/ingestors/agent/routes";
+import { antigravityRoutes } from "./app/ingestors/antigravity/routes";
 import { HomePage } from "./app/pages/HomePage";
 
 export type AppContext = {
@@ -37,8 +37,8 @@ const app = defineApp([
   // GitHub audit endpoints
   ...ghRoutes,
 
-  // Agent ingestor endpoints
-  ...agentRoutes,
+  // Antigravity ingestor endpoints
+  ...antigravityRoutes,
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";

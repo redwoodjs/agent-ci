@@ -30,7 +30,7 @@ export function IngestionListPage({ request }: { request: Request }) {
   if (source === "discord") prefix = "discord/";
   else if (source === "github") prefix = "github/";
   else if (source === "cursor") prefix = "cursor/";
-  else if (source === "agents") prefix = "agent/";
+  else if (source === "antigravity") prefix = "antigravity/";
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -79,14 +79,14 @@ export function IngestionListPage({ request }: { request: Request }) {
             Cursor
           </a>
           <a
-            href={`/audit/ingestion?source=agents${namespace ? `&namespace=${namespace}` : ""
+            href={`/audit/ingestion?source=antigravity${namespace ? `&namespace=${namespace}` : ""
               }${prefixParam ? `&prefix=${prefixParam}` : ""}`}
-            className={`px-4 py-2 rounded ${source === "agents"
+            className={`px-4 py-2 rounded ${source === "antigravity"
               ? "bg-blue-600 text-white"
               : "bg-gray-200 text-gray-700 hover:bg-gray-300"
               }`}
           >
-            Agents
+            Antigravity
           </a>
         </div>
       </div>

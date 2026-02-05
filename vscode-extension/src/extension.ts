@@ -3,7 +3,7 @@ import * as child_process from "child_process";
 import * as path from "path";
 import * as https from "https";
 import * as http from "http";
-import { identifyAntigravityContext, uploadAntigravityData } from "./agentIngestion";
+import { identifyAntigravityContext, uploadAntigravityData } from "./antigravityIngestion";
 
 const logger = vscode.window.createOutputChannel("Machinen");
 

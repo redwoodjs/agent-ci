@@ -100,7 +100,7 @@ export async function uploadAntigravityData(
     }
   }
 
-  const userHandle = process.env.USER || "agent";
+  const userHandle = process.env.USER || "antigravity";
   const stateKeyPrefix = `antigravity.lastUploadMtime.${projectId}`;
   let syncFailures = 0;
 
@@ -118,7 +118,7 @@ export async function uploadAntigravityData(
         const text = Buffer.from(content).toString("utf8");
 
         const payload = {
-          r2Key: `agent/projects/${projectId}/${fileName}`,
+          r2Key: `antigravity/projects/${projectId}/${fileName}`,
           content: text,
           metadata: {
             title: fileName.replace(".md", "").replace("_", " "),
@@ -129,7 +129,7 @@ export async function uploadAntigravityData(
           }
         };
 
-        const response = await postAgentIngest(payload, apiUrl, apiKey);
+        const response = await postAntigravityIngest(payload, apiUrl, apiKey);
         if (response.success) {
           logger.appendLine(`[Antigravity] Artifact ${fileName} uploaded successfully.`);
           await context.globalState.update(`${stateKeyPrefix}.${fileName}`, stat.mtime);
@@ -183,7 +183,7 @@ export async function uploadAntigravityData(
             const trajectory = await getCascadeTrajectory(lsInfo.port, lsInfo.csrfToken, id, logger);
             if (trajectory) {
               const payload = {
-                r2Key: `agent/projects/${projectId}/conversations/${id}/trajectory.json`,
+                r2Key: `antigravity/projects/${projectId}/conversations/${id}/trajectory.json`,
                 content: JSON.stringify(trajectory, null, 2),
                 metadata: {
                   title: summary.summary || `Conversation ${id}`,
@@ -196,7 +196,7 @@ export async function uploadAntigravityData(
                 }
               };
 
-              const response = await postAgentIngest(payload, apiUrl, apiKey);
+              const response = await postAntigravityIngest(payload, apiUrl, apiKey);
               if (response.success) {
                 logger.appendLine(`[Antigravity] Trajectory ${id} uploaded successfully.`);
                 trajectoryDecrypted = true;
@@ -227,8 +227,8 @@ export async function uploadAntigravityData(
   }
 }
 
-async function postAgentIngest(payload: any, apiUrl: string, apiKey: string): Promise<{ success: boolean; error?: string }> {
-  const endpoint = `${apiUrl.replace(/\/$/, "")}/api/ingestors/agent/conversation`;
+async function postAntigravityIngest(payload: any, apiUrl: string, apiKey: string): Promise<{ success: boolean; error?: string }> {
+  const endpoint = `${apiUrl.replace(/\/$/, "")}/api/ingestors/antigravity/conversation`;
   
   try {
     const url = new URL(endpoint);

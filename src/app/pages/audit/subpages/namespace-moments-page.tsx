@@ -38,10 +38,10 @@ export function NamespaceMomentsPage({ request }: { request: Request }) {
   const validSource = (source === "github" ||
     source === "discord" ||
     source === "cursor" ||
-    source === "agents" ||
+    source === "antigravity" ||
     source === "unknown"
     ? source
-    : null) as "github" | "discord" | "cursor" | "agents" | "unknown" | null;
+    : null) as "github" | "discord" | "cursor" | "antigravity" | "unknown" | null;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -84,7 +84,7 @@ async function NamespaceMomentsContent({
   query,
   page,
 }: {
-  source: "github" | "discord" | "cursor" | "agents" | "unknown" | null;
+  source: "github" | "discord" | "cursor" | "antigravity" | "unknown" | null;
   namespace: string | null;
   prefix: string | null;
   query: string;
@@ -225,7 +225,7 @@ function SearchSection({
   prefix,
   query,
 }: {
-  source: "github" | "discord" | "cursor" | "agents" | "unknown" | null;
+  source: "github" | "discord" | "cursor" | "antigravity" | "unknown" | null;
   namespace: string | null;
   prefix: string | null;
   query: string;
@@ -264,7 +264,7 @@ function MomentsList({
   totalCount: number;
   page: number;
   totalPages: number;
-  source: "github" | "discord" | "cursor" | "agents" | "unknown" | null;
+  source: "github" | "discord" | "cursor" | "antigravity" | "unknown" | null;
   namespace: string | null;
   prefix: string | null;
   query: string;
@@ -288,8 +288,8 @@ function MomentsList({
         return "Discord";
       case "cursor":
         return "Cursor";
-      case "agents":
-        return "Agents";
+      case "antigravity":
+        return "Antigravity";
       case "unknown":
         return "Unknown";
       default:

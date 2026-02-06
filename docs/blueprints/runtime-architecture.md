@@ -197,17 +197,37 @@ Vector similarity is excellent at finding "same subject area" content but poor a
 *   **Goal**: Finalize the Graph.
 *   **Input**: `moment_id`, `Candidate[]`.
 *   **Logic**: 
-    *   **Strict Signal Ranking**: Candidates are ranked according to a tiered hierarchy:
-        1.  **Shared Anchor Count**: Primary sort. Candidates sharing more explicit anchors (e.g., `#123`, `mchn://` links, backticked code) rank higher.
-        2.  **Retrieval Score**: Secondary sort. Falls back to semantic similarity score if anchor counts are equal.
-        3.  **Deterministic Tie-break**: Alphabetical sort by ID if previous scores are equal.
-    *   **Anchor Requirements**: A "Strict Signal" invariant is enforced. A candidate MUST share at least one anchor token (`shared.length > 0`) to be considered for selection. Candidates with zero shared anchors are rejected with `no-shared-anchors`.
-    *   **LLM Veto**: The top 5 ranked candidates undergo an LLM review for chronological and thematic sanity (e.g., ensuring a fix doesn't link to a future issue).
-    *   **Selection**: The highest-ranked candidate that is NOT vetoed and satisfies the anchor requirement is chosen.
+    1.  **Chronological Filtering**: All candidates are strictly filtered to ensure `parent.timestamp < child.timestamp`. Candidates violating this are rejected with `time-inversion` and never reach the LLM.
+    2.  **Continuity Priority**: If the child moment has an explicit `predecessorMomentId` (from materialization), that moment is prioritized.
+    3.  **Blended Shortlisting**: All other valid candidates are ranked using a blended signal of semantic similarity and shared anchors. The top 10 are passed to the LLM.
+    4.  **LLM Selection**: The LLM identifies the "logical continuation". It is provided with relative time gaps (e.g., "5 mins earlier") to understand the work cadence, but is not responsible for time sanity itself.
+    5.  **Selection**: The LLM choice is accepted if it passes the "Continuity" or "Blended Signal" requirements.
+
+#### LLM Selection Specification
+The selector must prioritize **narrative progression** over keyword matching.
+
+**Linking Definition**:
+A "Link" represents a direct causal or chronological step in a specific work unit.
+- *Examples*: A problem being investigated, a solution being implemented, a question being answered, or a task transitioning from "in-progress" to "verified".
+- *Non-Examples*: Intermittent status updates, unrelated tasks happening concurrently, or general semantic overlap (e.g., two different people both mentioning "TypeScript" in different contexts).
+
+**Prompt Structure**:
+```text
+Role: You are the Timeline Fit Judge for Machinen.
+Context: We are rebuilding a work timeline from fragmented events (moments).
+Job: Select the ONE candidate (if any) that represents the most natural logical continuation of the parent's activity.
+
+Child: {{child_text}}
+(Time: Now)
+
+Candidates:
+[1] {{title}} {{summary}} ({{time_gap}} earlier)
+[2] ...
+```
 *   **Context Write**: 
-    *   **INSERT** into `links` table if accepted.
-    *   **Enrichment**: The artifact is updated with `childTitle`, `childSummary`, `chosenParentTitle`, and `chosenParentSummary` to ensure the UI can render fit results without relational lookups.
-    *   Log decision rationale (Including shared anchor details).
+    *   **INSERT** into `links` table if a parent is selected.
+    *   **Decision Audit**: Log the chosen parent and the specific evidence (blended scores + LLM selection reasoning).
+    *   **Enrichment**: The artifact is updated with `childTitle`, `childSummary`, `chosenParentTitle`, and `chosenParentSummary` for optimized UI rendering.
 *   **Output**: `FinalDecision`.
 
 ## 5. End-to-End Walkthrough: "The Prefetching Story"

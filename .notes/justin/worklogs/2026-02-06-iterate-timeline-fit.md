@@ -141,3 +141,22 @@ A standard `JSON.parse()` fails on the backticks, causing the engine to discard 
 ### The Solution
 - **`parseLLMJson` Utility**: Created a resilient parser in `src/app/engine/utils/llm.ts` that uses regex to extract content from markdown code blocks and finds the outermost braces as a fallback.
 - **Orchestrator Integration**: Updated `computeTimelineFitDecision` in `src/app/pipelines/timeline_fit/engine/core/orchestrator.ts` to use this utility. This ensures that valid narrative links are preserved even when the LLM adds formatting "noise."
+
+## Implemented and Verified Robust JSON Parsing for LLM Selection
+We swapped the strict `JSON.parse()` in `computeTimelineFitDecision` for a custom `parseLLMJson` helper in `src/app/engine/utils/llm.ts`. This helper resiliently extracts JSON from markdown-wrapped responses, ensuring we don't drop narrative links due to formatting noise. Verification in `/tmp/sim.log` shows `llm-selector-result` entries succeeding where they previously failed with JSON syntax errors.
+
+## PR: Narrative-Aware Timeline Fit and Robust Link Selection
+
+### Problem and Context
+Previously, Phase 8 (Timeline Fit) was fragile. It relied on simple semantic similarity scores and generic anchor matches, which often resulted in "locally optimal" but narrative-incorrect links. Furthermore, the selection process lacked historical context, causing the LLM to make judgments in isolation. Finally, strict JSON parsing often crashed the engine when the LLM returned markdown-formatted responses (ticks), leading to orphaned moments and broken narrative chains.
+
+### Solution
+We overbalanced Phase 8 from a vector-heavy ranking to a narrative-aware selection process:
+
+1.  **Continuity Signal (Phase 5 \u0026 7)**: We now capture the `predecessorMomentId` during materialization in Phase 5 and inject it as a P1 candidate in Phase 7.
+2.  **Ancestry-Driven Context (Phase 8)**: The orchestrator now retrieves the last 5-10 historical moments (ancestry) for every candidate.
+3.  **Narrative Judge (LLM Selection)**: The LLM acts as a selector, reviewing the child against the candidates and their ancestry using a specific definition of "Natural Continuation" (investigation, answer, milestone).
+4.  **Robust Selection Engine**: Swapped strict `JSON.parse()` for a custom `parseLLMJson` helper in `src/app/engine/utils/llm.ts`. This ensures formatting noise (markdown ticks) doesn't drop narrative links.
+5.  **Evidence-First Auditing**: The LLM's reasoning (`note`) and ancestry context are stored in the database Link Audit Log for full inspectability.
+
+These changes ensure the Knowledge Graph reflects the actual "story" of the work rather than just a bag of similar-looking event fragments.

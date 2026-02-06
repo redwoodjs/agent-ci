@@ -103,6 +103,7 @@ We inject behavior to handle the different constraints of Live vs Simulation.
 6.  **Infrastructure Isolation**: Data is strictly partitioned by `momentGraphNamespace`. In simulations, this namespace is prefixed (e.g., `local-date:redwood:rwsdk`) to ensure simulation runs do not contaminate live data while maintaining project-level isolation.
 7.  **Self-Contained Simulation Artifacts**: For large-scale simulations, artifacts MUST be enriched with all necessary metadata (e.g., Titles/Summaries) to make them self-contained for UI rendering. Relational joins for metadata in the UI data layer are prohibited on the critical path to avoid database parameter limits.
 8.  **Completion Settlement**: Simulation runs transition through a `settling` state before marking as `completed`. This synchronizes the logical end of the work with the asynchronous flush of event logs and artifacts.
+9.  **Robust Reasoning Extraction**: Any LLM-based selection or classification judgment must use resilient parsing (e.g., `parseLLMJson`) to extract valid structured data regardless of markdown formatting or conversational noise in the model output.
 
 ## 4. The 8-Phase Lifecycle (Detailed Flow)
 

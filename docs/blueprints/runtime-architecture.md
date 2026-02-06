@@ -198,10 +198,11 @@ Vector similarity is excellent at finding "same subject area" content but poor a
 *   **Input**: `moment_id`, `Candidate[]`.
 *   **Logic**: 
     1.  **Chronological Filtering**: All candidates are strictly filtered to ensure `parent.timestamp < child.timestamp`. Candidates violating this are rejected with `time-inversion` and never reach the LLM.
-    2.  **Continuity Priority**: If the child moment has an explicit `predecessorMomentId` (from materialization), that moment is prioritized.
+    2.  **Continuity Priority**: If the child moment has an explicit `predecessorMomentId` (from materialization), that moment is prioritized as P1.
     3.  **Blended Shortlisting**: All other valid candidates are ranked using a blended signal of semantic similarity and shared anchors. The top 10 are passed to the LLM.
-    4.  **LLM Selection**: The LLM identifies the "logical continuation". It is provided with relative time gaps (e.g., "5 mins earlier") to understand the work cadence, but is not responsible for time sanity itself.
-    5.  **Selection**: The LLM choice is accepted if it passes the "Continuity" or "Blended Signal" requirements.
+    4.  **Ancestry Context**: For each candidate, the orchestrator walks up the link chain to retrieve the last 5-10 moments in its history, providing a narrative context for the judgment.
+    5.  **LLM Selection**: The LLM identified the "natural continuation" by reviewing the Child against the Candidate AND its historical ancestry.
+    6.  **Selection**: The LLM choice is accepted if it satisfy the narrative progression requirements.
 
 #### LLM Selection Specification
 The selector must prioritize **narrative progression** over keyword matching.
@@ -215,14 +216,43 @@ A "Link" represents a natural progression or significant development within a sp
 ```text
 Role: You are the Timeline Fit Judge for Machinen.
 Context: We are rebuilding a work timeline from fragmented events (moments).
-Job: Select the ONE candidate (if any) that represents the most natural logical continuation of the parent's activity.
+Job: Select the ONE candidate (if any) that represents the most natural continuation of the timeline of moments.
 
-Child: {{child_text}}
-(Time: Now)
+### WHAT IS A "NATURAL CONTINUATION"?
+A link is only valid if the Child is a natural next step or significant development of the Parent's activity.
+- LINK: A situation -> Its evolution or consequence (e.g., Company hire -> Consequent win).
+- LINK: A problem -> Its investigation or resolution.
+- LINK: An initiative -> Its next major milestone.
+- LINK: A question -> Its answer.
+- LINK: Part 1 of a narrative -> Part 2 of that same narrative.
 
-Candidates:
-[1] {{title}} {{summary}} ({{time_gap}} earlier)
-[2] ...
+- NO LINK: Two unrelated events happening at the same time.
+- NO LINK: Superficial semantic overlap (e.g. both mentions the same entities or terms but in entirely different contexts).
+
+### CONTEXT
+- Child Moment: {{child_text}}
+- Child Timestamp: {{child_time}}
+
+### CANDIDATES
+{{#each candidates}}
+[{{index}}] ID: {{id}}
+TITLE: {{title}}
+SUMMARY: {{summary}}
+TIME: {{relative_time}} earlier
+
+#### ANCESTRY (HISTORY OF THIS CANDIDATE)
+{{#each ancestry}}
+- {{title}}: {{summary}}
+{{/each}}
+---------------------------------
+{{/each}}
+
+### OUTPUT
+Return JSON:
+{
+  "selectedId": "...", // The ID of the best parent, or null if none fit
+  "note": "..." // A brief 1-sentence explanation of why this is the natural progression.
+}
 ```
 *   **Context Write**: 
     *   **INSERT** into `links` table if a parent is selected.

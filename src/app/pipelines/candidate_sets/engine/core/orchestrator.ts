@@ -160,6 +160,7 @@ export async function runCandidateSetComputation(input: {
     documentId: string;
     title: string | null;
     summary: string | null;
+    isPredecessor?: boolean;
   }>;
   childTitle: string | null;
   childSummary: string | null;
@@ -203,20 +204,26 @@ export async function runCandidateSetComputation(input: {
 
   const matchIds = matches.map((m: any) => m.id as string);
 
-  // 2.5 Anchor Query (SQLite)
+  // 2.3 Anchor Query (SQLite)
   const anchorMoments = await findMomentsByAnchors(childMoment.anchors ?? [], {
     env: context.env,
     momentGraphNamespace: (context as any).momentGraphNamespace || null,
   });
 
   const anchorMatchIds = anchorMoments.map((m: Moment) => m.id);
-  const anchorMatchSet = new Set(anchorMatchIds);
 
-  // Merge anchor IDs into matchIds, prioritizing them in the list
-  const mergedMatchIds = Array.from(new Set([...anchorMatchIds, ...matchIds]));
+  // 2.4 Predecessor Injection
+  const predecessorMomentId = (childMoment.sourceMetadata as any)?.simulation?.predecessorMomentId;
+  const predecessorMatchIds = typeof predecessorMomentId === "string" ? [predecessorMomentId] : [];
 
-  // Rebuild matches list to include anchor matches (giving them high synthetic scores)
+  // Merge anchor IDs and predecessor IDs into matchIds, prioritizing them in the list
+  const mergedMatchIds = Array.from(new Set([...predecessorMatchIds, ...anchorMatchIds, ...matchIds]));
+
+  // Rebuild matches list to include anchor matches and predecessors (giving them high synthetic scores)
   const mergedMatches = mergedMatchIds.map(id => {
+    if (id === predecessorMomentId) {
+      return { id, score: 1.0 }; // Highest priority
+    }
     const vectorMatch = matches.find((m: { id: string, score: number | null }) => m.id === id);
     if (vectorMatch) {
       return vectorMatch;
@@ -271,6 +278,7 @@ export async function runCandidateSetComputation(input: {
     documentId: c.documentId,
     title: c.title,
     summary: (candidateRowsById.get(c.id) as any)?.summary || null,
+    isPredecessor: c.id === predecessorMomentId,
   }));
 
   return {

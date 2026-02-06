@@ -1,5 +1,5 @@
-
 import { extractAnchorTokens } from "../../../../engine/utils/anchorTokens";
+import { findAncestors } from "../../../../engine/databases/momentGraph";
 
 // -- types and logic from core --
 
@@ -10,7 +10,14 @@ export type TimelineFitDecision = {
   rejected?: boolean;
   rejectReason?: string;
   rank?: number;
-  details?: Record<string, any>;
+  details?: {
+    sharedAnchorTokens: string[];
+    isPredecessor?: boolean;
+    semanticScore?: number;
+    timeDeltaMs?: number;
+    reasoning?: string;
+    ancestry?: Array<{ title: string; summary: string }>;
+  };
   title?: string | null;
   summary?: string | null;
 };
@@ -21,31 +28,40 @@ export type TimelineFitDeepCandidate = {
   documentId: string | null;
   title: string | null;
   summary: string | null;
+  isPredecessor?: boolean;
 };
 
 export async function computeTimelineFitProposalDeep(input: {
   childMomentId: string;
   childText: string;
+  childTimestamp: string;
   candidates: TimelineFitDeepCandidate[];
   extractAnchorTokens: (text: string, maxTokens: number) => string[];
   maxAnchorTokens: number;
   maxSharedAnchorTokens: number;
-  useLlmVeto: boolean;
-  llmVeto?: (input: {
+  llmSelector?: (input: {
     childText: string;
-    candidates: Array<{ id: string; title: string | null; summary: string | null }>;
-  }) => Promise<{ vetoedIds: string[]; note?: string | null }>;
+    childTimestamp: string;
+    candidates: Array<{ 
+      id: string; 
+      title: string | null; 
+      summary: string | null; 
+      relativeTime: string;
+      ancestry: Array<{ title: string; summary: string }>;
+    }>;
+  }) => Promise<{ selectedId: string | null; note?: string | null }>;
+  findAncestors?: (momentId: string) => Promise<Moment[]>;
   logger?: any;
 }): Promise<{
   candidateCount: number;
   chosenParentId: string | null;
   decisions: TimelineFitDecision[];
-  veto?: { vetoedIds: string[]; note?: string | null } | null;
+  selectorResult?: { selectedId: string | null; note?: string | null } | null;
 }> {
   const candidates = Array.isArray(input.candidates) ? input.candidates : [];
   const candidateCount = candidates.length;
   if (candidateCount === 0) {
-    return { candidateCount, chosenParentId: null, decisions: [], veto: null };
+    return { candidateCount, chosenParentId: null, decisions: [], selectorResult: null };
   }
 
   const childTokens = input.extractAnchorTokens(
@@ -53,6 +69,7 @@ export async function computeTimelineFitProposalDeep(input: {
     input.maxAnchorTokens
   );
   const childSet = new Set(childTokens);
+  const childTimeMs = Date.parse(input.childTimestamp);
 
   const ranked = candidates
     .map((c) => {
@@ -70,14 +87,26 @@ export async function computeTimelineFitProposalDeep(input: {
           }
         }
       }
-      return { c, shared };
+
+      // Check for time inversion
+      const parentCreatedAt = (c as any).createdAt || (c as any).sourceMetadata?.createdAt; // Fallback if not in row
+      const parentTimeMs = parentCreatedAt ? Date.parse(parentCreatedAt) : null;
+      const inverted = parentTimeMs !== null && !isNaN(childTimeMs) && parentTimeMs > childTimeMs;
+
+      return { c, shared, inverted, parentTimeMs };
     })
     .sort((a, b) => {
+      // 1. Priority to Predecessor
+      if (a.c.isPredecessor !== b.c.isPredecessor) {
+        return a.c.isPredecessor ? -1 : 1;
+      }
+      // 2. Priority to Anchor Matches
       const aShared = a.shared.length;
       const bShared = b.shared.length;
       if (aShared !== bShared) {
         return bShared - aShared;
       }
+      // 3. Vector Score
       const aScore = typeof a.c.score === "number" ? a.c.score : -1;
       const bScore = typeof b.c.score === "number" ? b.c.score : -1;
       if (aScore !== bScore) {
@@ -86,76 +115,73 @@ export async function computeTimelineFitProposalDeep(input: {
       return a.c.id.localeCompare(b.c.id);
     });
 
-  let veto: { vetoedIds: string[]; note?: string | null } | null = null;
-  if (input.useLlmVeto && input.llmVeto) {
-    veto = await input.llmVeto({
+  // Shortlist top 10 non-inverted candidates
+  const shortlist = ranked.filter(r => !r.inverted).slice(0, 10);
+
+  // Fetch Ancestry for shortlist
+  const ancestryMap = new Map<string, Array<{ title: string; summary: string }>>();
+  if (input.findAncestors) {
+    for (const r of shortlist) {
+      try {
+        const ancestors = await input.findAncestors(r.c.id);
+        ancestryMap.set(r.c.id, ancestors.slice(0, 5).map(m => ({
+          title: m.title,
+          summary: m.summary
+        })));
+      } catch (err) {
+        if (input.logger) input.logger.warn("timeline-fit:ancestry-fail", { id: r.c.id, error: err });
+      }
+    }
+  }
+
+  let selectorResult: { selectedId: string | null; note?: string | null } | null = null;
+  if (shortlist.length > 0 && input.llmSelector) {
+    selectorResult = await input.llmSelector({
       childText: input.childText,
-      candidates: ranked.slice(0, 5).map((r) => ({
-        id: r.c.id,
-        title: r.c.title ?? null,
-        summary: r.c.summary ?? null,
-      })),
+      childTimestamp: input.childTimestamp,
+      candidates: shortlist.map((r) => {
+        const timeGapMs = !isNaN(childTimeMs) && r.parentTimeMs !== null ? childTimeMs - r.parentTimeMs : null;
+        const relativeTime = timeGapMs !== null ? `${Math.floor(timeGapMs / 60000)} mins` : "unknown time";
+        return {
+          id: r.c.id,
+          title: r.c.title ?? null,
+          summary: r.c.summary ?? null,
+          relativeTime,
+          ancestry: ancestryMap.get(r.c.id) || []
+        };
+      }),
     });
   }
-  const vetoed = new Set<string>(
-    Array.isArray(veto?.vetoedIds) ? veto!.vetoedIds : []
-  );
 
+  const chosenParentId = selectorResult?.selectedId || null;
   const decisions: TimelineFitDecision[] = [];
+
   for (let i = 0; i < ranked.length; i++) {
     const entry = ranked[i]!;
     const id = entry.c.id;
     const isSelf = id === input.childMomentId;
-    const isVetoed = vetoed.has(id);
-    const hasSignal = entry.shared.length > 0;
+    const isSelected = id === chosenParentId;
+    const isRejected = entry.inverted || (!isSelected && chosenParentId !== null) || (chosenParentId === null && !isSelf);
     
     decisions.push({
       candidateId: id,
       score: typeof entry.c.score === "number" ? entry.c.score : null,
-      selected: !isSelf && !isVetoed && hasSignal && i === 0,
-      rejected: isSelf || isVetoed || !hasSignal,
-      rejectReason: isSelf ? "self" : isVetoed ? "llm-veto" : !hasSignal ? "no-shared-anchors" : undefined,
+      selected: isSelected,
+      rejected: isRejected,
+      rejectReason: entry.inverted ? "time-inversion" : isSelf ? "self" : undefined,
       rank: i + 1,
       details: {
         sharedAnchorTokens: entry.shared,
+        isPredecessor: entry.c.isPredecessor,
+        reasoning: isSelected ? selectorResult?.note || undefined : undefined,
+        ancestry: ancestryMap.get(id)
       },
       title: entry.c.title ?? null,
       summary: entry.c.summary ?? null,
     });
   }
 
-  const firstOk =
-    ranked.find((r) => r.c.id !== input.childMomentId && !vetoed.has(r.c.id) && r.shared.length > 0) ??
-    null;
-  const chosenParentId = firstOk ? firstOk.c.id : null;
-
-  if (input.logger) {
-    input.logger.info(`timeline-fit:diagnostic:candidate-count`, { childMomentId: input.childMomentId, candidateCount, chosenParentId });
-    if (chosenParentId && firstOk) {
-      input.logger.info(`timeline-fit:diagnostic:matched`, { childMomentId: input.childMomentId, chosenParentId, sharedAnchorTokens: firstOk.shared });
-    } else {
-      const topCandidates = ranked.slice(0, 3).map(r => ({
-        id: r.c.id,
-        sharedCount: r.shared.length,
-        vetoed: vetoed.has(r.c.id)
-      }));
-      input.logger.info(`timeline-fit:diagnostic:no-match`, { childMomentId: input.childMomentId, topCandidates });
-    }
-  } else {
-      console.log(`[timeline-fit:diagnostic] ${input.childMomentId} candidate count: ${candidateCount}, chosenParentId: ${chosenParentId}`);
-      if (chosenParentId && firstOk) {
-        console.log(`[timeline-fit:diagnostic] ${input.childMomentId} matched ${chosenParentId} via ${firstOk.shared.length} shared anchors:`, firstOk.shared);
-      } else {
-        const topCandidates = ranked.slice(0, 3).map(r => ({
-          id: r.c.id,
-          sharedCount: r.shared.length,
-          vetoed: vetoed.has(r.c.id)
-        }));
-        console.log(`[timeline-fit:diagnostic] ${input.childMomentId} no parent selected. Top candidates:`, topCandidates);
-      }
-  }
-
-  return { candidateCount, chosenParentId, decisions, veto };
+  return { candidateCount, chosenParentId, decisions, selectorResult };
 }
 
 export type TimelineFitPorts = {
@@ -166,22 +192,25 @@ export async function computeTimelineFitDecision(input: {
   ports: TimelineFitPorts;
   childMomentId: string;
   childText: string;
+  childTimestamp: string;
   candidates: Array<{
     id: string;
     score: number | null;
     documentId: string | null;
     title: string | null;
     summary: string | null;
+    isPredecessor?: boolean;
   }>;
-  useLlmVeto: boolean;
+  useLlmSelector: boolean;
   maxAnchorTokens: number;
   maxSharedAnchorTokens: number;
+  findAncestors?: (momentId: string) => Promise<Moment[]>;
   logger?: any;
 }): Promise<{
   chosenParentId: string | null;
-  decisions: any[];
+  decisions: TimelineFitDecision[];
   stats: { candidateCount: number };
-  veto?: { vetoedIds: string[]; note?: string | null } | null;
+  selectorResult?: { selectedId: string | null; note?: string | null } | null;
 }> {
   const maxAnchorTokens =
     Number.isFinite(input.maxAnchorTokens) && input.maxAnchorTokens > 0
@@ -193,48 +222,74 @@ export async function computeTimelineFitDecision(input: {
       ? Math.floor(input.maxSharedAnchorTokens)
       : 12;
 
-  const llmVeto =
-    input.useLlmVeto && input.ports.callLLM
+  const llmSelector =
+    input.useLlmSelector && input.ports.callLLM
       ? async (llmInput: {
           childText: string;
+          childTimestamp: string;
           candidates: Array<{
             id: string;
             title: string | null;
             summary: string | null;
+            relativeTime: string;
+            ancestry: Array<{ title: string; summary: string }>;
           }>;
         }) => {
           const prompt =
-            `Given a child moment and candidate parent moments, return a JSON object:\n` +
-            `{"vetoedIds":["..."],"note":"..."}\n\n` +
-            `Child:\n${llmInput.childText}\n\n` +
-            `Candidates:\n` +
+            `You are the Timeline Fit Judge for "Machinen", an engine that reconstructs work history from event fragments (moments).\n\n` +
+            `### THE JOB\n` +
+            `We have a "Child" moment and a list of "Candidate" parent moments. Your task is to select the ONE candidate that represents the natural continuation of the timeline of moments.\n\n` +
+            `### WHAT IS A "NATURAL CONTINUATION"?\n` +
+            `A link is only valid if the Child is a natural next step or significant development of the Parent's activity.\n` +
+            `- LINK: A situation -> Its evolution or consequence (e.g., Company hire -> Consequent win).\n` +
+            `- LINK: A problem -> Its investigation or resolution.\n` +
+            `- LINK: An initiative -> Its next major milestone.\n` +
+            `- LINK: A question -> Its answer.\n` +
+            `- LINK: Part 1 of a narrative -> Part 2 of that same narrative.\n\n` +
+            `- NO LINK: Two unrelated events happening at the same time.\n` +
+            `- NO LINK: Superficial semantic overlap (e.g. both mentions the same entities or terms but in entirely different contexts).\n\n` +
+            `### CONTEXT\n` +
+            `- Child Moment: ${llmInput.childText}\n` +
+            `- Child Timestamp: ${llmInput.childTimestamp}\n\n` +
+            `### CANDIDATES\n` +
             llmInput.candidates
               .map(
-                (c) =>
-                  `- id=${c.id}\n  title=${c.title ?? ""}\n  summary=${
-                    c.summary ?? ""
-                  }`
+                (c, i) =>
+                  `[${i + 1}] ID: ${c.id}\n` +
+                  `TITLE: ${c.title ?? ""}\n` +
+                  `SUMMARY: ${c.summary ?? ""}\n` +
+                  `TIME: ${c.relativeTime} earlier\n\n` +
+                  `#### ANCESTRY\n` +
+                  (c.ancestry.length > 0
+                    ? c.ancestry.map(a => `- ${a.title}: ${a.summary}`).join("\n")
+                    : "- No history available") + "\n" +
+                  `---------------------------------`
               )
-              .join("\n\n");
+              .join("\n\n") +
+            `\n\n### OUTPUT\n` +
+            `Return JSON:\n` +
+            `{\n` +
+            `  "selectedId": "...", // The ID of the best parent, or null if none fit\n` +
+            `  "note": "..." // A brief 1-sentence explanation of why this is the natural progression.\n` +
+            `}`;
+
           try {
             if (input.logger) {
-              input.logger.info("timeline-fit:diagnostic:llm-veto-start", { childMomentId: input.childMomentId, candidateIds: llmInput.candidates.map(c => c.id) });
+              input.logger.info("timeline-fit:diagnostic:llm-selector-start", { childMomentId: input.childMomentId, candidateIds: llmInput.candidates.map(c => c.id) });
             }
             const raw = await input.ports.callLLM!(prompt);
             const parsed = JSON.parse(raw);
-            const vetoedIds = Array.isArray(parsed?.vetoedIds)
-              ? parsed.vetoedIds.filter((x: any) => typeof x === "string")
-              : [];
+            const selectedId = typeof parsed?.selectedId === "string" ? parsed.selectedId : null;
             const note = typeof parsed?.note === "string" ? parsed.note : null;
             if (input.logger) {
-              input.logger.info("timeline-fit:diagnostic:llm-veto-result", { childMomentId: input.childMomentId, vetoedIds, note });
+              input.logger.info("timeline-fit:diagnostic:llm-selector-result", { childMomentId: input.childMomentId, selectedId, note });
             }
-            return { vetoedIds, note };
+            return { selectedId, note };
           } catch (err) {
             if (input.logger) {
-              input.logger.warn("timeline-fit:diagnostic:llm-veto-fail", { childMomentId: input.childMomentId, error: err instanceof Error ? err.message : String(err) });
+              input.logger.warn("timeline-fit:diagnostic:llm-selector-fail", { childMomentId: input.childMomentId, error: err instanceof Error ? err.message : String(err) });
             }
-            return { vetoedIds: [], note: null };
+            return { selectedId: null, note: null };
           }
         }
       : undefined;
@@ -242,12 +297,13 @@ export async function computeTimelineFitDecision(input: {
   const proposal = await computeTimelineFitProposalDeep({
     childMomentId: input.childMomentId,
     childText: input.childText,
+    childTimestamp: input.childTimestamp,
     candidates: input.candidates,
     extractAnchorTokens,
     maxAnchorTokens,
     maxSharedAnchorTokens,
-    useLlmVeto: input.useLlmVeto,
-    llmVeto,
+    llmSelector,
+    findAncestors: input.findAncestors,
     logger: input.logger,
   });
 
@@ -255,7 +311,7 @@ export async function computeTimelineFitDecision(input: {
     chosenParentId: proposal.chosenParentId,
     decisions: proposal.decisions,
     stats: { candidateCount: proposal.candidateCount },
-    veto: proposal.veto ?? null,
+    selectorResult: proposal.selectorResult ?? null,
   };
 }
 import { PipelineContext } from "../../../../engine/runtime/types";
@@ -294,10 +350,18 @@ export async function runTimelineFitForDocument(input: {
     },
     childMomentId: childMoment.id,
     childText,
-    candidates,
-    useLlmVeto: true,
+    childTimestamp: childMoment.createdAt,
+    candidates: candidates.map(c => ({
+      ...c,
+      documentId: c.documentId || null,
+    })),
+    useLlmSelector: true,
     maxAnchorTokens: 24,
     maxSharedAnchorTokens: 12,
+    findAncestors: (momentId) => findAncestors(momentId, {
+      env: context.env,
+      momentGraphNamespace: context.momentGraphNamespace || null
+    }),
     logger: context.logger,
   });
 
@@ -307,12 +371,12 @@ export async function runTimelineFitForDocument(input: {
 
   const audit = {
     kind: "timeline_fit",
-    ruleId: "anchor_token_fit",
+    ruleId: "narrative_continuation_selection",
     evidence: {
       chosenParentId: proposal.chosenParentId,
       decisions: proposal.decisions,
       stats: proposal.stats,
-      veto: proposal.veto,
+      selectorResult: proposal.selectorResult,
     },
   };
 

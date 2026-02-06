@@ -5,58 +5,67 @@ We analyzed the current linking logic in Phase 8 and found it relies too heavily
 
 Since Phase 3 (Macro Synthesis) already organizes moments into coherent streams, we decided that the source of truth for continuity should be captured during **Phase 5 (Materialize Moments)**. By tracking the predecessor ID during the materialization loop, we can provide Phase 8 with a "Continuity" signal that is 100% reliable.
 
-## Work Task Blueprint: Tiered Evidence Linking
+## Investigated Ancestry Lookup for Context
+We realized that judging a moment link in isolation is fragile. To improve LLM accuracy, we must provide the "narrative history" of each candidate. By walking up the graph from a candidate moment using `findAncestors`, we can retrieve the last 5-10 moments that led to it. This provides the LLM with a clear "timeline" for each candidate, allowing it to see if the new child is a natural continuation of that specific thread.
+
+## Revised Work Task Blueprint: Narrative-Aware Timeline Fit
 
 ### Context
-We are overhauling Phase 8 to move from a vector-heavy ranking to a tiered-evidence approach. This ensures that "Stream of Consciousness" narrative links are prioritized above semantic guesses.
+We are overhauling Phase 8 to move from a vector-heavy ranking to a narrative-aware selection process. Continuity is preserved as a hard link (Priority 1), while other candidates are filtered for time-sanity and shortlisted via a blended score. For selection, an LLM reviews the Child against each candidate's **full ancestral narrative** (history) to identify the most natural continuation.
 
 ### Breakdown of Planned Changes
 - **Phase 5 (Materialize Moments)**: Update logic to track the `predecessorId` within each stream and store it in `sourceMetadata.simulation.predecessorMomentId`.
-- **Phase 7 (Candidate Sets)**: Ensure the predecessor moment is explicitly included in the candidate set and tagged with `isPredecessor: true`. Increase candidate limit to 10 for broader context.
+- **Phase 7 (Candidate Sets)**: Ensure the predecessor moment is explicitly included and tagged with `isPredecessor: true`. Increase candidate limit to 10.
 - **Phase 8 (Timeline Fit)**:
-    - Implement **Blended Ranking**: Continuity (Priority 1) > Blended Search Score (Semantic + Anchors).
-    - **Strict Chronological Pre-filtering**: Reject any candidates that are not earlier in time than the child (rejection reason: `time-inversion`) before shortlisting.
-    - Refactor from "Veto" to **LLM Selection**: Provide the LLM with top 10 valid candidates to pick the "Logical Continuation".
-    - **Prompt Specification**: Explicitly define "Linking" as narrative progression. Use the following full template:
+    - **Strict Chronological Pre-filtering**: Reject any candidates that are not earlier in time than the child (`time-inversion`) before anything else.
+    - **Ancestry Lookup**: Fetch the last 5-10 moments in the chain for each candidate (using `findAncestors`) to provide narrative context.
+    - **Blended Ranking**: Prioritize Continuity, then shortlist 10 candidates using a blended score (Semantic Similarity + Shared Anchors).
+    - **LLM Selection Refactor**:
+        - Move from "Veto" to "Selector" pattern.
+        - **FULL PROMPT SPECIFICATION**:
+        ```text
+        You are the Timeline Fit Judge for "Machinen", an engine that reconstructs work history from event fragments (moments).
 
-```text
-  You are the Timeline Fit Judge for "Machinen", an engine that reconstructs work history from event fragments (moments).
+        ### THE JOB
+        We have a "Child" moment and a list of "Candidate" parent moments. Your task is to select the ONE candidate that represents the natural continuation of the timeline of moments.
 
-    ### THE JOB
-    We have a "Child" moment and a list of "Candidate" parent moments. Your task is to select the ONE candidate that represents the natural continuation of timeline of moments.
+        ### WHAT IS A "NATURAL CONTINUATION"?
+        A link is only valid if the Child is a natural next step or significant development of the Parent's activity.
+        - LINK: A situation -> Its evolution or consequence (e.g., Company hire -> Consequent win).
+        - LINK: A problem -> Its investigation or resolution.
+        - LINK: An initiative -> Its next major milestone.
+        - LINK: A question -> Its answer.
+        - LINK: Part 1 of a narrative -> Part 2 of that same narrative.
 
-    ### WHAT IS A "NATURAL CONTINUATION"?
-    A link is only valid if the Child is a natural next step or significant development of the Parent's activity.
-    - LINK: A situation -> Its evolution or consequence.
-    - LINK: A problem -> Its investigation or resolution.
-    - LINK: An initiative -> Its next major milestone.
-    - LINK: A question -> Its answer.
-    - LINK: Part 1 of a narrative -> Part 2 of that same narrative.
+        - NO LINK: Two unrelated events happening at the same time.
+        - NO LINK: Superficial semantic overlap (e.g. both mentions the same entities or terms but in entirely different contexts).
 
-    - NO LINK: Two unrelated events happening at the same time.
-    - NO LINK: Superficial semantic overlap (e.g. both mentions the same entities or terms but in entirely different contexts).
+        ### CONTEXT
+        - Child Moment: {{child_text}}
+        - Child Timestamp: {{child_time}}
 
-    ### CONTEXT
-    - Child Moment: {{child_text}}
-    - Child Timestamp: {{child_time}}
+        ### CANDIDATES
+        {{#each candidates}}
+        [{{index}}] ID: {{id}}
+        TITLE: {{title}}
+        SUMMARY: {{summary}}
+        TIME: {{relative_time}} earlier
 
-    ### CANDIDATES
-    {{#each candidates}}
-    [{{index}}] ID: {{id}}
-    TITLE: {{title}}
-    SUMMARY: {{summary}}
-    TIME: {{relative_time}} earlier
-    {{/each}}
+        #### ANCESTRY (HISTORY OF THIS CANDIDATE)
+        {{#each ancestry}}
+        - {{title}}: {{summary}}
+        {{/each}}
+        ---------------------------------
+        {{/each}}
 
-    ### OUTPUT
-    Return JSON:
-    {
-      "selectedId": "...", // The ID of the best parent, or null if none fit
-      "note": "..." // A brief 1-sentence explanation of why this is the logical progression.
-    }
-```
-
-    - Capture LLM reasoning and signal details in the Link Audit Log.
+        ### OUTPUT
+        Return JSON:
+        {
+          "selectedId": "...", // The ID of the best parent, or null if none fit
+          "note": "..." // A brief 1-sentence explanation of why this is the natural progression.
+        }
+        ```
+    - **Evidence Persistence**: Capture the LLM's reasoning `note` and signal details in the database Link Audit Log.
 
 ### Directory & File Structure
 - [MODIFY] `src/app/pipelines/materialize_moments/engine/core/orchestrator.ts`
@@ -79,25 +88,23 @@ export type TimelineFitDecision = {
     semanticScore?: number;
     timeDeltaMs?: number;
     reasoning?: string;
+    ancestry?: Array<{ title: string; summary: string }>;
   };
 };
 ```
 
 ### Invariants & Constraints
 - **Invariant**: A moment cannot link to a parent that was created later in time.
-- **Constraint**: Continuity links (same stream, sequential) must be the primary signal for ranking.
+- **Constraint**: Narrative continuity (ancestry context) must inform the final judgment.
 
 ### System Flow (Snapshot Diff)
 **Previous Flow**: Vector/Anchor Search -> Mixed Ranking -> Terse Veto -> Selection.
-**New Flow**: Predecessor + Vector/Anchor Search -> **Blended Ranking** (Predecessor > Blended Score) -> **LLM Selection** (10 candidates + definitions + time) -> Selection w/ Evidence.
-
-### Suggested Verification (Manual)
-1. Run a simulation using `wrkr sim`.
-2. Inspect a moment's `linkAuditLog` to verify the LLM's selection reasoning and the "Continuity/Blended" signals were used correctly.
+**New Flow**: Predecessor + Vector/Anchor Search -> **Blended Ranking** -> **Ancestry Context Retrieval** -> **LLM Selection** (10 candidates + ancestry + narrative definitions) -> Selection w/ Evidence.
 
 ### Tasks
 - [ ] Update `materialize_moments` to capture `predecessorMomentId`
 - [ ] Update `candidate_sets` to inject predecessor candidate (limit 10)
-- [ ] Refactor Phase 8 orchestrator for blended ranking and LLM selection
-- [ ] Update Phase 8 LLM prompt with context and definitions
+- [ ] Implement Ancestry Lookup logic in Phase 8
+- [ ] Refactor Phase 8 orchestrator for strict time filtering and blended ranking
+- [ ] Implement full LLM selection prompt template with ancestry context
 - [ ] Update artifact storage to capture reasoning and evidence labels

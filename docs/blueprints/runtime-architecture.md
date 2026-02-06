@@ -197,9 +197,13 @@ Vector similarity is excellent at finding "same subject area" content but poor a
 *   **Goal**: Finalize the Graph.
 *   **Input**: `moment_id`, `Candidate[]`.
 *   **Logic**: 
-    *   **Shared Anchor weighting**: Prioritizes candidates that share explicit anchors.
-    *   **Stream Chaining**: Evaluates whether the previous moment in a document is the best fit, or if a cross-document link is more appropriate.
-    *   **LLM Veto**: Reviews the pair (`Moment`, `Candidate`) for chronological and thematic sanity.
+    *   **Strict Signal Ranking**: Candidates are ranked according to a tiered hierarchy:
+        1.  **Shared Anchor Count**: Primary sort. Candidates sharing more explicit anchors (e.g., `#123`, `mchn://` links, backticked code) rank higher.
+        2.  **Retrieval Score**: Secondary sort. Falls back to semantic similarity score if anchor counts are equal.
+        3.  **Deterministic Tie-break**: Alphabetical sort by ID if previous scores are equal.
+    *   **Anchor Requirements**: A "Strict Signal" invariant is enforced. A candidate MUST share at least one anchor token (`shared.length > 0`) to be considered for selection. Candidates with zero shared anchors are rejected with `no-shared-anchors`.
+    *   **LLM Veto**: The top 5 ranked candidates undergo an LLM review for chronological and thematic sanity (e.g., ensuring a fix doesn't link to a future issue).
+    *   **Selection**: The highest-ranked candidate that is NOT vetoed and satisfies the anchor requirement is chosen.
 *   **Context Write**: 
     *   **INSERT** into `links` table if accepted.
     *   **Enrichment**: The artifact is updated with `childTitle`, `childSummary`, `chosenParentTitle`, and `chosenParentSummary` to ensure the UI can render fit results without relational lookups.

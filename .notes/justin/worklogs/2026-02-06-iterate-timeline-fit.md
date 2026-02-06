@@ -23,7 +23,7 @@ We are overhauling Phase 8 to move from a vector-heavy ranking to a tiered-evide
   You are the Timeline Fit Judge for "Machinen", an engine that reconstructs work history from event fragments (moments).
 
     ### THE JOB
-    We have a "Child" moment and a list of "Candidate" parent moments. Your task is to select the ONE candidate that represents the natural continuation of the parent's specific work stream.
+    We have a "Child" moment and a list of "Candidate" parent moments. Your task is to select the ONE candidate that represents the natural continuation of timeline of moments.
 
     ### WHAT IS A "NATURAL CONTINUATION"?
     A link is only valid if the Child is a natural next step or significant development of the Parent's activity.

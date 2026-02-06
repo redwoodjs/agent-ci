@@ -28,6 +28,8 @@ export type TimelineFitDeepCandidate = {
   documentId: string | null;
   title: string | null;
   summary: string | null;
+  createdAt: string;
+  sourceMetadata?: any;
   isPredecessor?: boolean;
 };
 
@@ -124,10 +126,13 @@ export async function computeTimelineFitProposalDeep(input: {
     for (const r of shortlist) {
       try {
         const ancestors = await input.findAncestors(r.c.id);
-        ancestryMap.set(r.c.id, ancestors.slice(0, 5).map(m => ({
-          title: m.title,
-          summary: m.summary
-        })));
+        ancestryMap.set(r.c.id, ancestors
+          .filter(a => a.id !== input.childMomentId) // Prevent circularity: child cannot be its own ancestor
+          .slice(0, 5)
+          .map(m => ({
+            title: m.title,
+            summary: m.summary
+          })));
       } catch (err) {
         if (input.logger) input.logger.warn("timeline-fit:ancestry-fail", { id: r.c.id, error: err });
       }
@@ -199,6 +204,7 @@ export async function computeTimelineFitDecision(input: {
     documentId: string | null;
     title: string | null;
     summary: string | null;
+    createdAt: string;
     isPredecessor?: boolean;
   }>;
   useLlmSelector: boolean;
@@ -326,6 +332,8 @@ export async function runTimelineFitForDocument(input: {
     documentId: string;
     title: string | null;
     summary: string | null;
+    createdAt: string;
+    isPredecessor?: boolean;
   }>;
 }): Promise<{
   chosenParentId: string | null;
@@ -353,7 +361,7 @@ export async function runTimelineFitForDocument(input: {
     childTimestamp: childMoment.createdAt,
     candidates: candidates.map(c => ({
       ...c,
-      documentId: c.documentId || null,
+      documentId: (c as any).documentId || null,
     })),
     useLlmSelector: true,
     maxAnchorTokens: 24,

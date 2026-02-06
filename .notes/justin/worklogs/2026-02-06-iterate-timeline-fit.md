@@ -117,3 +117,13 @@ The engine must ensure all moments for a document (or set of documents) are full
 
 ### Rationale
 Previously, we encountered "local optimum" failures where the system would choose a poor candidate simply because it was the first one available in a streaming or poorly ordered sequence. By enforcing a **Global Decision Barrier** at Phase 5 (Materialize), we ensure that Phases 7 and 8 have access to the entire pool of potential moments. This allows for a more "Rational Reporter" style of judgment, choosing the best link from the complete set rather than the most convenient link from a partial set.
+
+## Refined Prompt Context and Fixed Circular Ancestry 2026-02-06
+We improved the quality of the Timeline Fit prompt and fixed a critical logic bug regarding ancestry.
+
+### Prompt Refinement
+- **Relative Time**: Propagated `createdAt` from Phase 7 through to Phase 8. This replaces the "unknown time earlier" placeholder with actual durations (e.g., "12 mins earlier"), giving the LLM accurate narrative tempo.
+- **SourceMetadata**: Decided to skip `sourceMetadata` for now to avoid complexity, relying on `createdAt` as a sufficient proxy for chronological ordering.
+
+### Circularity Fix
+- **Ancestry Filtering**: Discovered that the Child Moment was appearing in the Ancestry of its own candidates in logs. Implemented a strict filter in `computeTimelineFitProposalDeep` to exclude the Child from any candidate's history, preventing potential infinite loops in the graph.

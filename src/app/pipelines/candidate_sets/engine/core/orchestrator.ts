@@ -160,6 +160,8 @@ export async function runCandidateSetComputation(input: {
     documentId: string;
     title: string | null;
     summary: string | null;
+    createdAt: string;
+    sourceMetadata?: any;
     isPredecessor?: boolean;
   }>;
   childTitle: string | null;
@@ -278,6 +280,8 @@ export async function runCandidateSetComputation(input: {
     documentId: c.documentId,
     title: c.title,
     summary: (candidateRowsById.get(c.id) as any)?.summary || null,
+    createdAt: (candidateRowsById.get(c.id) as any)?.created_at || c.createdAt,
+    sourceMetadata: (candidateRowsById.get(c.id) as any)?.source_metadata || null,
     isPredecessor: c.id === predecessorMomentId,
   }));
 

@@ -46,7 +46,7 @@ export async function callLLM(
 
   const start = Date.now();
   const promptLength = prompt.length;
-  const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
+  const promptPreview = ((env as any).FULL_PROMPT_PREVIEWS ? prompt : prompt.substring(0, 200)).replace(/\n/g, " ");
 
   const logInfo = (msg: string, data?: any) => {
     if (options?.logger) {

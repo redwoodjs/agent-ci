@@ -161,6 +161,9 @@ This data flow describes exactly what happens to a document as it moves through 
 
 > **Sync Barrier**: Once this phase completes, the data is visible to the rest of the system.
 
+**Rationale: The Global Decision Barrier (Materialize vs. Link)**
+To avoid "local optimum" failures in the graph, we enforce a strict separation between **Interpretation** (Phases 1-5) and **Connection** (Phases 6-8). Pre-interpreting and materializing the entire pool of moments before attempting to link ensures that our linking decisions are made with the benefit of the complete candidate set. This prevents the system from choosing a poor parent link simply because it was the first one available in a sequential or partial stream - we act as a **Rational Reporter**, selecting the best possible connection from the full history.
+
 ### Phase 6: Deterministic Linking
 *   **Goal**: Link what we know for sure (Zero Hallucination).
 *   **Input**: `moment_id`.

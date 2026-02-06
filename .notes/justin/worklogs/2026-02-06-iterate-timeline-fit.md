@@ -108,3 +108,12 @@ export type TimelineFitDecision = {
 - [ ] Refactor Phase 8 orchestrator for strict time filtering and blended ranking
 - [ ] Implement full LLM selection prompt template with ancestry context
 - [ ] Update artifact storage to capture reasoning and evidence labels
+
+## Architectural Decision: The Global Decision Barrier 2026-02-06
+We decided to explicitly record the rationale for our two-pass approach (Materialize all -> Link all).
+
+### Decision
+The engine must ensure all moments for a document (or set of documents) are fully materialized before any linking or timeline fit logic begins.
+
+### Rationale
+Previously, we encountered "local optimum" failures where the system would choose a poor candidate simply because it was the first one available in a streaming or poorly ordered sequence. By enforcing a **Global Decision Barrier** at Phase 5 (Materialize), we ensure that Phases 7 and 8 have access to the entire pool of potential moments. This allows for a more "Rational Reporter" style of judgment, choosing the best link from the complete set rather than the most convenient link from a partial set.

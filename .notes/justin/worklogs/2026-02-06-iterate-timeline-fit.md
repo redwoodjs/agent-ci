@@ -127,3 +127,17 @@ We improved the quality of the Timeline Fit prompt and fixed a critical logic bu
 
 ### Circularity Fix
 - **Ancestry Filtering**: Discovered that the Child Moment was appearing in the Ancestry of its own candidates in logs. Implemented a strict filter in `computeTimelineFitProposalDeep` to exclude the Child from any candidate's history, preventing potential infinite loops in the graph.
+
+## Implemented Robust LLM JSON Parsing 2026-02-06
+We solved the recurring `Unexpected token` errors in Phase 8 caused by the LLM wrapping its response in markdown code blocks.
+
+### The Problem
+The LLM occasionally returns responses like:
+\```json
+{ "selectedId": "...", "note": "..." }
+\```
+A standard `JSON.parse()` fails on the backticks, causing the engine to discard the LLM's decision and orphan the moment.
+
+### The Solution
+- **`parseLLMJson` Utility**: Created a resilient parser in `src/app/engine/utils/llm.ts` that uses regex to extract content from markdown code blocks and finds the outermost braces as a fallback.
+- **Orchestrator Integration**: Updated `computeTimelineFitDecision` in `src/app/pipelines/timeline_fit/engine/core/orchestrator.ts` to use this utility. This ensures that valid narrative links are preserved even when the LLM adds formatting "noise."

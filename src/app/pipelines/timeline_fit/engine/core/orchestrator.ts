@@ -1,5 +1,6 @@
 import { extractAnchorTokens } from "../../../../engine/utils/anchorTokens";
 import { findAncestors } from "../../../../engine/databases/momentGraph";
+import { parseLLMJson } from "../../../../engine/utils/llm";
 
 // -- types and logic from core --
 
@@ -284,7 +285,7 @@ export async function computeTimelineFitDecision(input: {
               input.logger.info("timeline-fit:diagnostic:llm-selector-start", { childMomentId: input.childMomentId, candidateIds: llmInput.candidates.map(c => c.id) });
             }
             const raw = await input.ports.callLLM!(prompt);
-            const parsed = JSON.parse(raw);
+            const parsed = parseLLMJson<{ selectedId: string | null; note?: string | null }>(raw);
             const selectedId = typeof parsed?.selectedId === "string" ? parsed.selectedId : null;
             const note = typeof parsed?.note === "string" ? parsed.note : null;
             if (input.logger) {

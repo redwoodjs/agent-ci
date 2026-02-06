@@ -17,7 +17,45 @@ We are overhauling Phase 8 to move from a vector-heavy ranking to a tiered-evide
     - Implement **Blended Ranking**: Continuity (Priority 1) > Blended Search Score (Semantic + Anchors).
     - **Strict Chronological Pre-filtering**: Reject any candidates that are not earlier in time than the child (rejection reason: `time-inversion`) before shortlisting.
     - Refactor from "Veto" to **LLM Selection**: Provide the LLM with top 10 valid candidates to pick the "Logical Continuation".
-    - **Prompt Specification**: Explicitly define "Linking" as narrative progression (e.g. Issue -> Investigation -> Fix) and include relative time gaps.
+    - **Prompt Specification**: Explicitly define "Linking" as narrative progression. Use the following full template:
+
+```text
+  You are the Timeline Fit Judge for "Machinen", an engine that reconstructs work history from event fragments (moments).
+
+    ### THE JOB
+    We have a "Child" moment and a list of "Candidate" parent moments. Your task is to select the ONE candidate that represents the natural continuation of the parent's specific work stream.
+
+    ### WHAT IS A "NATURAL CONTINUATION"?
+    A link is only valid if the Child is a natural next step or significant development of the Parent's activity.
+    - LINK: A situation -> Its evolution or consequence.
+    - LINK: A problem -> Its investigation or resolution.
+    - LINK: An initiative -> Its next major milestone.
+    - LINK: A question -> Its answer.
+    - LINK: Part 1 of a narrative -> Part 2 of that same narrative.
+
+    - NO LINK: Two unrelated events happening at the same time.
+    - NO LINK: Superficial semantic overlap (e.g. both mentions the same entities or terms but in entirely different contexts).
+
+    ### CONTEXT
+    - Child Moment: {{child_text}}
+    - Child Timestamp: {{child_time}}
+
+    ### CANDIDATES
+    {{#each candidates}}
+    [{{index}}] ID: {{id}}
+    TITLE: {{title}}
+    SUMMARY: {{summary}}
+    TIME: {{relative_time}} earlier
+    {{/each}}
+
+    ### OUTPUT
+    Return JSON:
+    {
+      "selectedId": "...", // The ID of the best parent, or null if none fit
+      "note": "..." // A brief 1-sentence explanation of why this is the logical progression.
+    }
+```
+
     - Capture LLM reasoning and signal details in the Link Audit Log.
 
 ### Directory & File Structure

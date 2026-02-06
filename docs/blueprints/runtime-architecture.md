@@ -207,9 +207,9 @@ Vector similarity is excellent at finding "same subject area" content but poor a
 The selector must prioritize **narrative progression** over keyword matching.
 
 **Linking Definition**:
-A "Link" represents a direct causal or chronological step in a specific work unit.
-- *Examples*: A problem being investigated, a solution being implemented, a question being answered, or a task transitioning from "in-progress" to "verified".
-- *Non-Examples*: Intermittent status updates, unrelated tasks happening concurrently, or general semantic overlap (e.g., two different people both mentioning "TypeScript" in different contexts).
+A "Link" represents a natural progression or significant development within a specific narrative thread or subject.
+- *Examples*: A problem being investigated, an initiative reaching a milestone, a question being answered, or a situation evolving due to a new event (e.g. "Company hire" -> "Consequent performance win").
+- *Non-Examples*: General status markers without development, unrelated events occurring concurrently in the same environment, or superficial semantic overlap.
 
 **Prompt Structure**:
 ```text

@@ -93,6 +93,7 @@ export async function materializeMomentsForDocument(input: {
   for (const stream of streams) {
     const streamId = stream.streamId || "stream";
     const macroMoments = stream.macroMoments || [];
+    let previousMomentId: string | null = null;
 
     for (let i = 0; i < macroMoments.length; i++) {
       const m = macroMoments[i]!;
@@ -132,18 +133,22 @@ export async function materializeMomentsForDocument(input: {
         momentEvidence: m.momentEvidence,
         createdAt: m.createdAt || now,
         author: m.author || "machinen",
-        sourceMetadata: m.sourceMetadata || {
+        sourceMetadata: {
+          ...m.sourceMetadata,
           simulation: {
+            ...m.sourceMetadata?.simulation,
             identityScope: runId,
             r2Key: r2Key,
             streamId,
             macroIndex: i,
+            predecessorMomentId: previousMomentId ?? undefined,
           },
         },
         anchors: m.anchors,
       };
 
       moments.push(moment);
+      previousMomentId = momentId;
     }
   }
 

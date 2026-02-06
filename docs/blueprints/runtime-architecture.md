@@ -103,6 +103,7 @@ We inject behavior to handle the different constraints of Live vs Simulation.
 6.  **Infrastructure Isolation**: Data is strictly partitioned by `momentGraphNamespace`. In simulations, this namespace is prefixed (e.g., `local-date:redwood:rwsdk`) to ensure simulation runs do not contaminate live data while maintaining project-level isolation.
 7.  **Self-Contained Simulation Artifacts**: For large-scale simulations, artifacts MUST be enriched with all necessary metadata (e.g., Titles/Summaries) to make them self-contained for UI rendering. Relational joins for metadata in the UI data layer are prohibited on the critical path to avoid database parameter limits.
 8.  **Completion Settlement**: Simulation runs transition through a `settling` state before marking as `completed`. This synchronizes the logical end of the work with the asynchronous flush of event logs and artifacts.
+9.  **Robust Reasoning Extraction**: Any LLM-based selection or classification judgment must use resilient parsing (e.g., `parseLLMJson`) to extract valid structured data regardless of markdown formatting or conversational noise in the model output.
 
 ## 4. The 8-Phase Lifecycle (Detailed Flow)
 
@@ -161,6 +162,9 @@ This data flow describes exactly what happens to a document as it moves through 
 
 > **Sync Barrier**: Once this phase completes, the data is visible to the rest of the system.
 
+**Rationale: The Global Decision Barrier (Materialize vs. Link)**
+To avoid "local optimum" failures in the graph, we enforce a strict separation between **Interpretation** (Phases 1-5) and **Connection** (Phases 6-8). Pre-interpreting and materializing the entire pool of moments before attempting to link ensures that our linking decisions are made with the benefit of the complete candidate set. This prevents the system from choosing a poor parent link simply because it was the first one available in a sequential or partial stream - we act as a **Rational Reporter**, selecting the best possible connection from the full history.
+
 ### Phase 6: Deterministic Linking
 *   **Goal**: Link what we know for sure (Zero Hallucination).
 *   **Input**: `moment_id`.
@@ -197,17 +201,67 @@ Vector similarity is excellent at finding "same subject area" content but poor a
 *   **Goal**: Finalize the Graph.
 *   **Input**: `moment_id`, `Candidate[]`.
 *   **Logic**: 
-    *   **Strict Signal Ranking**: Candidates are ranked according to a tiered hierarchy:
-        1.  **Shared Anchor Count**: Primary sort. Candidates sharing more explicit anchors (e.g., `#123`, `mchn://` links, backticked code) rank higher.
-        2.  **Retrieval Score**: Secondary sort. Falls back to semantic similarity score if anchor counts are equal.
-        3.  **Deterministic Tie-break**: Alphabetical sort by ID if previous scores are equal.
-    *   **Anchor Requirements**: A "Strict Signal" invariant is enforced. A candidate MUST share at least one anchor token (`shared.length > 0`) to be considered for selection. Candidates with zero shared anchors are rejected with `no-shared-anchors`.
-    *   **LLM Veto**: The top 5 ranked candidates undergo an LLM review for chronological and thematic sanity (e.g., ensuring a fix doesn't link to a future issue).
-    *   **Selection**: The highest-ranked candidate that is NOT vetoed and satisfies the anchor requirement is chosen.
+    1.  **Chronological Filtering**: All candidates are strictly filtered to ensure `parent.timestamp < child.timestamp`. Candidates violating this are rejected with `time-inversion` and never reach the LLM.
+    2.  **Continuity Priority**: If the child moment has an explicit `predecessorMomentId` (from materialization), that moment is prioritized as P1.
+    3.  **Blended Shortlisting**: All other valid candidates are ranked using a blended signal of semantic similarity and shared anchors. The top 10 are passed to the LLM.
+    4.  **Ancestry Context**: For each candidate, the orchestrator walks up the link chain to retrieve the last 5-10 moments in its history, providing a narrative context for the judgment.
+    5.  **LLM Selection**: The LLM identified the "natural continuation" by reviewing the Child against the Candidate AND its historical ancestry.
+    6.  **Selection**: The LLM choice is accepted if it satisfy the narrative progression requirements.
+
+#### LLM Selection Specification
+The selector must prioritize **narrative progression** over keyword matching.
+
+**Linking Definition**:
+A "Link" represents a natural progression or significant development within a specific narrative thread or subject.
+- *Examples*: A problem being investigated, an initiative reaching a milestone, a question being answered, or a situation evolving due to a new event (e.g. "Company hire" -> "Consequent performance win").
+- *Non-Examples*: General status markers without development, unrelated events occurring concurrently in the same environment, or superficial semantic overlap.
+
+**Prompt Structure**:
+```text
+Role: You are the Timeline Fit Judge for Machinen.
+Context: We are rebuilding a work timeline from fragmented events (moments).
+Job: Select the ONE candidate (if any) that represents the most natural continuation of the timeline of moments.
+
+### WHAT IS A "NATURAL CONTINUATION"?
+A link is only valid if the Child is a natural next step or significant development of the Parent's activity.
+- LINK: A situation -> Its evolution or consequence (e.g., Company hire -> Consequent win).
+- LINK: A problem -> Its investigation or resolution.
+- LINK: An initiative -> Its next major milestone.
+- LINK: A question -> Its answer.
+- LINK: Part 1 of a narrative -> Part 2 of that same narrative.
+
+- NO LINK: Two unrelated events happening at the same time.
+- NO LINK: Superficial semantic overlap (e.g. both mentions the same entities or terms but in entirely different contexts).
+
+### CONTEXT
+- Child Moment: {{child_text}}
+- Child Timestamp: {{child_time}}
+
+### CANDIDATES
+{{#each candidates}}
+[{{index}}] ID: {{id}}
+TITLE: {{title}}
+SUMMARY: {{summary}}
+TIME: {{relative_time}} earlier
+
+#### ANCESTRY (HISTORY OF THIS CANDIDATE)
+{{#each ancestry}}
+- {{title}}: {{summary}}
+{{/each}}
+---------------------------------
+{{/each}}
+
+### OUTPUT
+Return JSON:
+{
+  "selectedId": "...", // The ID of the best parent, or null if none fit
+  "note": "..." // A brief 1-sentence explanation of why this is the natural progression.
+}
+```
 *   **Context Write**: 
-    *   **INSERT** into `links` table if accepted.
-    *   **Enrichment**: The artifact is updated with `childTitle`, `childSummary`, `chosenParentTitle`, and `chosenParentSummary` to ensure the UI can render fit results without relational lookups.
-    *   Log decision rationale (Including shared anchor details).
+    *   **INSERT** into `links` table if a parent is selected.
+    *   **Decision Audit**: Log the chosen parent and the specific evidence (blended scores + LLM selection reasoning).
+    *   **Enrichment**: The artifact is updated with `childTitle`, `childSummary`, `chosenParentTitle`, and `chosenParentSummary` for optimized UI rendering.
 *   **Output**: `FinalDecision`.
 
 ## 5. End-to-End Walkthrough: "The Prefetching Story"

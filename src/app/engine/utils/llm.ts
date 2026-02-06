@@ -46,7 +46,7 @@ export async function callLLM(
 
   const start = Date.now();
   const promptLength = prompt.length;
-  const promptPreview = prompt.substring(0, 200).replace(/\n/g, " ");
+  const promptPreview = ((env as any).FULL_PROMPT_PREVIEWS ? prompt : prompt.substring(0, 200)).replace(/\n/g, " ");
 
   const logInfo = (msg: string, data?: any) => {
     if (options?.logger) {
@@ -225,4 +225,37 @@ export async function callLLM(
   }
 
   throw new Error("Unexpected end of LLM call loop");
+}
+
+/**
+ * Robustly parses JSON from an LLM response, stripping markdown code blocks
+ * or conversational fluff around the JSON object.
+ */
+export function parseLLMJson<T>(raw: string): T {
+  let cleaned = raw.trim();
+
+  // 1. Try to extract from markdown code blocks
+  const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/i;
+  const match = cleaned.match(codeBlockRegex);
+  if (match && match[1]) {
+    cleaned = match[1].trim();
+  }
+
+  // 2. If still not looking like JSON, try to find the start/end braces
+  if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) {
+    const startIdx = cleaned.indexOf("{");
+    const endIdx = cleaned.lastIndexOf("}");
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      cleaned = cleaned.substring(startIdx, endIdx + 1);
+    } else {
+      // Try arrays
+      const startArr = cleaned.indexOf("[");
+      const endArr = cleaned.lastIndexOf("]");
+      if (startArr !== -1 && endArr !== -1 && endArr > startArr) {
+        cleaned = cleaned.substring(startArr, endArr + 1);
+      }
+    }
+  }
+
+  return JSON.parse(cleaned);
 }

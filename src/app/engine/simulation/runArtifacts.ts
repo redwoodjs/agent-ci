@@ -101,7 +101,11 @@ export async function fetchMomentsFromRun(
             "created_at",
             "importance",
             "is_subject",
+            "subject_kind",
+            "subject_reason",
+            "subject_evidence_json",
             "moment_kind",
+            "moment_evidence_json",
           ])
           .where("id", "in", distinctIds as any)
           .execute();
@@ -133,6 +137,12 @@ async function fetchMomentDetails(
       sourceMetadata: any | null;
       author: string | null;
       createdAt: string | null;
+      isSubject: boolean | null;
+      subjectKind: string | null;
+      subjectReason: string | null;
+      subjectEvidence: any[] | null;
+      momentKind: string | null;
+      momentEvidence: any[] | null;
     }
   >
 > {
@@ -148,6 +158,12 @@ async function fetchMomentDetails(
         sourceMetadata: r.source_metadata ?? null,
         author: r.author ?? null,
         createdAt: r.created_at ?? null,
+        isSubject: Boolean(r.is_subject),
+        subjectKind: r.subject_kind ?? null,
+        subjectReason: r.subject_reason ?? null,
+        subjectEvidence: typeof r.subject_evidence_json === "string" ? JSON.parse(r.subject_evidence_json) : null,
+        momentKind: r.moment_kind ?? null,
+        momentEvidence: typeof r.moment_evidence_json === "string" ? JSON.parse(r.moment_evidence_json) : null,
       });
     }
   }
@@ -393,6 +409,12 @@ export async function getSimulationRunMaterializedMoments(
     author: string | null;
     createdAt: string;
     updatedAt: string;
+    isSubject?: boolean | null;
+    subjectKind?: string | null;
+    subjectReason?: string | null;
+    subjectEvidence?: any[] | null;
+    momentKind?: string | null;
+    momentEvidence?: any[] | null;
   }>
 > {
   const db = getSimulationDb(context);
@@ -423,23 +445,44 @@ export async function getSimulationRunMaterializedMoments(
     .orderBy("artifact_key", "asc")
     .execute()) as unknown as SimulationRunArtifactRow[];
 
+  const momentIds = new Set<string>();
+  for (const r of rows) {
+    const o = r.output_json ?? {};
+    if (Array.isArray(o.moments)) {
+      for (const m of o.moments) {
+        if (m.id) momentIds.add(m.id);
+      }
+    }
+  }
+
+  const detailsById = momentIds.size > 0
+    ? await fetchMomentDetails(context, runId, Array.from(momentIds))
+    : new Map<string, any>();
+
   const moments: any[] = [];
   for (const r of rows) {
     const o = r.output_json ?? {};
     if (Array.isArray(o.moments)) {
         for (const m of o.moments) {
+            const details = detailsById.get(m.id);
             moments.push({
                 r2Key: r.artifact_key,
                 streamId: m.sourceMetadata?.simulation?.streamId || "default",
                 macroIndex: Number(m.sourceMetadata?.simulation?.macroIndex ?? 0),
                 momentId: m.id,
-                parentId: m.parentId ?? null,
-                title: m.title ?? null,
-                summary: m.summary ?? null,
-                sourceMetadata: m.sourceMetadata ?? null,
-                author: m.author ?? null,
+                parentId: m.parentId ?? details?.parentId ?? null,
+                title: m.title ?? details?.title ?? null,
+                summary: m.summary ?? details?.summary ?? null,
+                sourceMetadata: m.sourceMetadata ?? details?.sourceMetadata ?? null,
+                author: m.author ?? details?.author ?? null,
                 createdAt: r.created_at,
                 updatedAt: r.updated_at || r.created_at,
+                isSubject: details?.isSubject ?? null,
+                subjectKind: details?.subjectKind ?? null,
+                subjectReason: details?.subjectReason ?? null,
+                subjectEvidence: details?.subjectEvidence ?? null,
+                momentKind: details?.momentKind ?? null,
+                momentEvidence: details?.momentEvidence ?? null,
             });
         }
     }

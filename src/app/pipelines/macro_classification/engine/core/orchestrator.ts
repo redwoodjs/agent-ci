@@ -217,31 +217,43 @@ export async function classifyMacroMoments(input: {
     .map((m, idx) => `Index: ${idx + 1}\nTitle: ${m.title || ""}\nSummary: ${m.summary || ""}\n`)
     .join("\n---\n\n");
 
-  const prompt = `You are classifying macro moments in a timeline.
+  const prompt = `You are classifying macro moments in a timeline using a "Significance Bar" to identify subjects worth tracking at the organizational level.
+  
+  For each macro moment, output:
+  - momentKind: one of "problem", "challenge", "opportunity", "initiative", "attempt", "decision", "solution"
+  - isSubject: true only when the moment carries substantial "Narrative Weight" (see Significance Bar rules below).
+  - subjectKind: when isSubject is true, this must be the same as momentKind.
+  - subjectReason: REQUIRED when isSubject is true. 1-2 sentences explaining why this moment reaches the threshold of a subject worth tracking (e.g., "This represents a structural architectural shift" or "This is the start of a deep investigation into a regression").
+  - subjectEvidence: when isSubject is true, a list of 1-4 exact substrings taken from the Title or Summary.
+  - momentEvidence: a list of 1-4 exact substrings taken from the Title or Summary that support momentKind.
+  - confidence: "high" | "medium" | "low". Use "low" when the kind is mostly inferred and not supported by explicit anchors.
+  
+  Significance Bar (Narrative Weight) Rules:
+  - SUBJECTS (isSubject: true):
+    - Problems: Technical hurdles requiring investigation, regressions, or blocker issues.
+    - Initiatives: New functional surface area, structural changes, or deep research.
+    - Opportunities: Strategic improvements that change system capability.
+  - REJECTED AS SUBJECTS (isSubject: false):
+    - Cosmetic Tweaks: CSS adjustments, color changes, typo fixes.
+    - Administrative Chores: Assigning reviewers, updating labels, generic "done" markers.
+    - Status Chatter: "Pairing now", "Back soon", "Checking something".
+    - Trivial Maintenance: Small README updates, minor dependency bumps without logic change.
+    (Note: These can still have a momentKind like "decision" or "attempt", but they are NOT subjects).
 
-For each macro moment, output:
-- momentKind: one of "problem", "challenge", "opportunity", "initiative", "attempt", "decision", "solution"
-- isSubject: true only when momentKind is one of the topic demarcation kinds (problem/challenge/opportunity/initiative)
-- subjectKind: when isSubject is true, this must be the same as momentKind
-- subjectReason: when isSubject is true, 1-2 sentences explaining why this starts a topic
-- subjectEvidence: when isSubject is true, a list of 1-4 exact substrings taken from the Title or Summary
-- momentEvidence: a list of 1-4 exact substrings taken from the Title or Summary that support momentKind
-- confidence: "high" | "medium" | "low". Use "low" when the kind is mostly inferred and not supported by explicit anchors.
-
-Source rules:
-- Cursor-style content is usually attempts and decisions, not solutions.
-- Treat a merged pull request as a solution. If a pull request appears closed without merging, treat it as an attempt or decision, not a solution.
-
-Output format:
-- Return a single JSON array.
-- Each item must have: index (1-based), momentKind, isSubject, subjectKind, subjectReason, subjectEvidence, momentEvidence, confidence.
-- Do not include any extra text.
-
-Document: ${input.documentId}
-
-Macro moments:
-${momentsText}
-`;
+  Source rules:
+  - Cursor-style content is usually attempts and decisions, not solutions.
+  - Treat a merged pull request as a solution. If a pull request appears closed without merging, treat it as an attempt or decision, not a solution.
+  
+  Output format:
+  - Return a single JSON array.
+  - Each item must have: index (1-based), momentKind, isSubject, subjectKind, subjectReason, subjectEvidence, momentEvidence, confidence.
+  - Do not include any extra text.
+  
+  Document: ${input.documentId}
+  
+  Macro moments:
+  ${momentsText}
+  `;
 
   const raw = await callLLM(prompt, "slow-reasoning", {
     logger: input.context.logger?.info,

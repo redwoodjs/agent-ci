@@ -32,9 +32,23 @@ A subject moment is a macro moment whose primary role is topic demarcation. It i
 - opportunity
 - initiative
 
-Subject moments can still attach under an earlier moment when there is a causal or contextual relationship. This keeps cause/effect structure in the tree while still surfacing topic boundaries.
+#### The Significance Bar (Narrative Weight)
+To prevent the Knowledge Graph from being cluttered with trivial activity, we enforce a **Significance Bar** for subject classification. A moment is only marked as a subject if it carries substantial **Narrative Weight**.
 
-Moments with no parent are treated as "unparented moments" rather than being automatically treated as subjects.
+**Accepted as Subjects:**
+- **Significant Problems**: Technical hurdles requiring investigation, regressions, or blocker issues.
+- **Structural Initiatives**: New functional surface area, cross-cutting refactors, or multi-step feature developments.
+- **Strategic Opportunities**: Non-trivial improvements that change the direction or capability of the system.
+
+**Rejected as Subjects (Noise):**
+- **Cosmetic Tweaks**: Margin adjustments, color changes, typo fixes.
+- **Administrative Coordination**: Assigning reviewers, updating labels, generic "done" markers without technical detail.
+- **Trivial Content Maintenance**: Updating READMEs or documentation files without structural change.
+- **Status Chatter**: "I'm working on this", "Will follow up", "Pairing now".
+
+These rejected items should be classified as `chore`, `attempt`, or `decision` but NOT as `subject`.
+
+Subject moments can still attach under an earlier moment when there is a causal or contextual relationship. This keeps cause/effect structure in the tree while still surfacing topic boundaries.
 
 ### 2. Macro moments use explicit inclusion criteria
 

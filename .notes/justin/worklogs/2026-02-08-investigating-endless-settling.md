@@ -84,4 +84,15 @@ We have implemented the fix, updated the architecture blueprint, and provided a 
 3. **Architecture**: Revised `docs/blueprints/runtime-architecture.md` to document the locking requirement for all transition states.
 4. **Walkthrough**: Created a walkthrough for user verification.
 
-The simulation engine should now correctly transition runs from "settling" to "completed".
+
+## Final PR Description
+
+## Problem and Context
+Simulations were occasionally getting stuck in the `settling` state indefinitely. This prevented runs from reaching the `completed` status, even after all logical work (narrative synthesis, linking, and fitting) was finished.
+
+The issue was caused by a mismatch in the simulation runner's lock acquisition logic. While the runner correctly identified `settling` as an active state requiring a "tick," the internal atomic update used to acquire the `busy_running` lock excluded this status from its safety check. This resulted in a silent deadlock where the runner would skip the run because it couldn't acquire the lock, leaving the simulation in a terminal loop.
+
+## Solution
+This change updates the simulation runner to correctly recognize and lock all active transition statuses. By including `settling` and `advance` in the lock acquisition criteria, the runner can now successfully process these terminal state transitions.
+
+We also updated the `Unified Pipeline Blueprint` to record this locking requirement as a system invariant, ensuring future status additions maintain the necessary lock compatibility.

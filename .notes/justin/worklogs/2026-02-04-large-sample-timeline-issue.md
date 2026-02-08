@@ -110,3 +110,33 @@ Large-scale simulations were failing with 'llm-veto-fail' due to uninitialized s
 
 **Verification**:
 Confirmed 140+ `engine.context-initialized` events in the logs and verified the presence of enriched metadata in processed artifacts.
+
+## PR
+
+### Title
+Fix Service Initialization and Relational Bottlenecks in Large-Scale Simulations
+
+### Description
+#### Problem
+We observed two critical failure modes during large-scale simulations that degraded system reliability and visibility. 
+
+First, background workers were frequently encountering errors when attempting LLM-based reasoning. This was due to incomplete service initialization in the worker environment; while the infrastructure was present, the LLM and Vector services were not being correctly attached to the execution context.
+
+Second, simulations with a high volume of moments resulted in "(Untitled)" entries in the UI. This was caused by the UI data layer attempting to resolve moment metadata using relational SQL joins with long lists of IDs. These lists eventually exceeded the hard limits of the database engine, causing the lookups to fail and the UI to fall back to generic titles.
+
+#### Solution
+We have addressed these issues by ensuring worker readiness and transitioning to a self-contained artifact data model.
+
+1. **Worker Service Initialization**: We updated the background worker setup to ensure that LLM, Vector, and Database services are fully initialized before processing begins. This ensures that features like the "LLM Veto" in Timeline Fit have the necessary reasoning capabilities in the background.
+
+2. **Artifact Enrichment**: We implemented a "JSON-Blob-First" strategy. Instead of relying on render-time database lookups for moment details, the simulation orchestrators now fetch and bake metadata (titles and summaries) directly into the output artifacts during execution. 
+
+3. **UI Performance Optimization**: The UI data layer has been updated to prioritize these enriched fields. By reading metadata directly from the already-loaded artifacts, we bypass the relational database joins entirely, eliminating the parameter limit bottlenecks and improving page load speeds for large simulations.
+
+4. **Synthesis Robustness**: We increased the output ceiling for Phase 3 synthesis to 4000 tokens to ensure that complex documents do not have their summaries truncated.
+
+#### Verification
+We verified the solution using empirical evidence from the system logs:
+- **Initialization Logs**: Over 140 successful service initialization events were recorded in the worker logs, confirming that the reasoning services are now active.
+- **Enrichment Logs**: Runtime logs confirm the successful transition to the "JSON-Blob-First" strategy across Linking and Timeline Fit phases.
+- **Metadata Audit**: Manual inspection of output artifacts confirms the presence of correctly enriched metadata for both parent and child moments.

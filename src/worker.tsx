@@ -11,6 +11,7 @@ import { routes as cursorIngestorRoutes } from "./app/ingestors/cursor/routes";
 import { routes as githubIngestorRoutes } from "./app/ingestors/github/routes";
 import { routes as engineRoutes } from "./app/engine/routes";
 import { ghRoutes } from "./app/gh/routes";
+import { antigravityRoutes } from "./app/ingestors/antigravity/routes";
 import { HomePage } from "./app/pages/HomePage";
 import { SECRETS } from "@/secrets";
 
@@ -37,6 +38,9 @@ const app = defineApp([
 
   // GitHub audit endpoints
   ...ghRoutes,
+
+  // Antigravity ingestor endpoints
+  ...antigravityRoutes,
 ]);
 
 export { RealtimeDurableObject } from "rwsdk/realtime/durableObject";

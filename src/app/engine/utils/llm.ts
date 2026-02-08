@@ -41,6 +41,9 @@ export async function callLLM(
     return getHeuristicResponse(prompt, alias);
   }
 
+  const start = Date.now();
+  const promptLength = prompt.length;
+  const promptPreview = ((env as any).FULL_PROMPT_PREVIEWS ? prompt : prompt.substring(0, 200)).replace(/\n/g, " ");
   const logInfo = (msg: string, data?: any) => {
     if (options?.logger) {
       options.logger(msg, data);
@@ -54,7 +57,7 @@ export async function callLLM(
   const modelId = modelConfig.id;
 
   if (modelConfig.provider === "google") {
-    logInfo(`Calling AI-SDK Google model '${alias}' (${modelId})`);
+    logInfo(`Calling AI-SDK Google model '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
 
     const apiKey = SECRETS.AI_GOOGLE_KEY;
     if (!apiKey) {
@@ -73,7 +76,8 @@ export async function callLLM(
         maxTokens: options?.max_tokens,
       } as any);
 
-      logInfo(`Successfully received response from Google. Length: ${text.length} chars`);
+      const duration = Date.now() - start;
+      logInfo(`Successfully received response from Google. Length: ${text.length} chars. Duration: ${duration}ms`);
       return text;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -83,7 +87,7 @@ export async function callLLM(
   }
 
   if (modelConfig.provider === "cerebras") {
-    logInfo(`Calling AI-SDK Cerebras model '${alias}' (${modelId})`);
+    logInfo(`Calling AI-SDK Cerebras model '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
 
     const apiKey = SECRETS.AI_CEREBRAS_KEY;
     if (!apiKey) {
@@ -102,7 +106,8 @@ export async function callLLM(
         maxTokens: options?.max_tokens,
       } as any);
 
-      logInfo(`Successfully received response from Cerebras. Length: ${text.length} chars`);
+      const duration = Date.now() - start;
+      logInfo(`Successfully received response from Cerebras. Length: ${text.length} chars. Duration: ${duration}ms`);
       return text;
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
@@ -114,7 +119,7 @@ export async function callLLM(
   // 3. Handle Cloudflare AI models (AI-SDK Workers AI)
   const cfModelId = modelId;
 
-  logInfo(`Calling Cloudflare alias '${alias}' (${cfModelId}) with AI-SDK`);
+  logInfo(`Calling Cloudflare alias '${alias}' (${cfModelId}) with AI-SDK and prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
 
   // Check for global reasoning effort override
   const reasoningEffortOverride = typeof SECRETS.LLM_REASONING_EFFORT === "string" ? SECRETS.LLM_REASONING_EFFORT.trim() : "";
@@ -154,11 +159,45 @@ export async function callLLM(
       maxTokens: options?.max_tokens,
     } as any);
 
-    logInfo(`Successfully received response from Cloudflare via AI-SDK. Length: ${text.length} chars`);
+    const duration = Date.now() - start;
+    logInfo(`Successfully received response from Cloudflare via AI-SDK. Length: ${text.length} chars. Duration: ${duration}ms`);
     return text;
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     logInfo(`AI-SDK Cloudflare call failed: ${msg}`, { error: msg });
     throw error;
   }
+}
+
+/**
+ * Robustly parses JSON from an LLM response, stripping markdown code blocks
+ * or conversational fluff around the JSON object.
+ */
+export function parseLLMJson<T>(raw: string): T {
+  let cleaned = raw.trim();
+
+  // 1. Try to extract from markdown code blocks
+  const codeBlockRegex = /```(?:json)?\s*([\s\S]*?)\s*```/i;
+  const match = cleaned.match(codeBlockRegex);
+  if (match && match[1]) {
+    cleaned = match[1].trim();
+  }
+
+  // 2. If still not looking like JSON, try to find the start/end braces
+  if (!cleaned.startsWith("{") && !cleaned.startsWith("[")) {
+    const startIdx = cleaned.indexOf("{");
+    const endIdx = cleaned.lastIndexOf("}");
+    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+      cleaned = cleaned.substring(startIdx, endIdx + 1);
+    } else {
+      // Try arrays
+      const startArr = cleaned.indexOf("[");
+      const endArr = cleaned.lastIndexOf("]");
+      if (startArr !== -1 && endArr !== -1 && endArr > startArr) {
+        cleaned = cleaned.substring(startArr, endArr + 1);
+      }
+    }
+  }
+
+  return JSON.parse(cleaned);
 }

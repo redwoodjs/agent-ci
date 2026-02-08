@@ -28,6 +28,7 @@ export async function fetchMomentsFromRun(
     return [];
   }
 
+
   // 1. Get run info for legacy fallback
   const runRow = (await db
     .selectFrom("simulation_runs")

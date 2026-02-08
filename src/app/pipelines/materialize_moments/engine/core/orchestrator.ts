@@ -8,6 +8,7 @@ export async function computeMaterializedMomentIdentityTagged(input: {
   documentId: string;
   streamId: string;
   macroIndex: number;
+  microPathsHash?: string | null;
   sha256Hex: (value: string) => Promise<string>;
   uuidFromSha256Hex: (hex: string) => string;
 }): Promise<{ momentId: string; rawIdHex: string }> {
@@ -18,7 +19,7 @@ export async function computeMaterializedMomentIdentityTagged(input: {
       input.effectiveNamespace ?? "",
       input.documentId,
       input.streamId,
-      String(input.macroIndex),
+      input.microPathsHash || String(input.macroIndex),
     ].join("\n")
   );
   return { rawIdHex, momentId: input.uuidFromSha256Hex(rawIdHex) };
@@ -30,6 +31,7 @@ export async function computeMaterializedMomentIdentity(input: {
   documentId: string;
   streamId: string;
   macroIndex: number;
+  microPathsHash?: string | null;
   sha256Hex: (value: string) => Promise<string>;
   uuidFromSha256Hex: (hex: string) => string;
 }): Promise<{ momentId: string; rawIdHex: string }> {
@@ -40,6 +42,7 @@ export async function computeMaterializedMomentIdentity(input: {
     documentId: input.documentId,
     streamId: input.streamId,
     macroIndex: input.macroIndex,
+    microPathsHash: input.microPathsHash,
     sha256Hex: input.sha256Hex,
     uuidFromSha256Hex: input.uuidFromSha256Hex,
   });
@@ -90,6 +93,7 @@ export async function materializeMomentsForDocument(input: {
   for (const stream of streams) {
     const streamId = stream.streamId || "stream";
     const macroMoments = stream.macroMoments || [];
+    let previousMomentId: string | null = null;
 
     for (let i = 0; i < macroMoments.length; i++) {
       const m = macroMoments[i]!;
@@ -106,6 +110,7 @@ export async function materializeMomentsForDocument(input: {
         documentId: document.id,
         streamId,
         macroIndex: i,
+        microPathsHash,
         sha256Hex,
         uuidFromSha256Hex,
       });
@@ -128,18 +133,22 @@ export async function materializeMomentsForDocument(input: {
         momentEvidence: m.momentEvidence,
         createdAt: m.createdAt || now,
         author: m.author || "machinen",
-        sourceMetadata: m.sourceMetadata || {
+        sourceMetadata: {
+          ...m.sourceMetadata,
           simulation: {
+            ...m.sourceMetadata?.simulation,
             identityScope: runId,
             r2Key: r2Key,
             streamId,
             macroIndex: i,
+            predecessorMomentId: previousMomentId ?? undefined,
           },
         },
         anchors: m.anchors,
       };
 
       moments.push(moment);
+      previousMomentId = momentId;
     }
   }
 

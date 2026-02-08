@@ -202,6 +202,7 @@ export async function processSimulationJob(
             }
 
             const engineContext = createEngineContext(env, "indexing");
+
             const pipelineContext: any = {
               ...engineContext,
               r2Key: message.r2Key,

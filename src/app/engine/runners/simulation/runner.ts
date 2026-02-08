@@ -46,6 +46,7 @@ export async function tickSimulationRun(
     row.status !== "running" &&
     row.status !== "awaiting_documents" &&
     row.status !== "advance" &&
+    row.status !== "settling" &&
     !isStaleLock
   ) {
     return { status: row.status, currentPhase: row.current_phase };
@@ -111,8 +112,12 @@ export async function tickSimulationRun(
 
   try {
     let result: { status: string; currentPhase: string } | null = null;
+    let finalStatus: string = "running";
+    let currentPhase: string = phase;
 
-    if (phase === "r2_listing") {
+    if (row.status === "settling") {
+      finalStatus = "completed";
+    } else if (phase === "r2_listing") {
       result = await tickR2Listing(context, { runId });
     } else {
       const phaseDef = getPhaseByName(phase);
@@ -127,8 +132,8 @@ export async function tickSimulationRun(
       result = await tickGenericDocumentPolling(context, { runId, phase });
     }
 
-    let finalStatus = result?.status ?? "running";
-    let currentPhase = result?.currentPhase ?? phase;
+    finalStatus = result?.status ?? finalStatus;
+    currentPhase = result?.currentPhase ?? currentPhase;
 
     await addSimulationRunEvent(context, {
       runId,
@@ -154,8 +159,8 @@ export async function tickSimulationRun(
           `[runner] Advancing run ${runId} from ${phase} to ${currentPhase}`,
         );
       } else {
-        finalStatus = "completed";
-        console.log(`[runner] Run ${runId} completed all phases`);
+        finalStatus = "settling";
+        console.log(`[runner] Run ${runId} completed all phases, settling events...`);
       }
     }
 
@@ -188,7 +193,7 @@ export async function tickSimulationRun(
     }
 
     if (
-      finalStatus === "running" &&
+      (finalStatus === "running" || finalStatus === "settling") &&
       (context.env as any).ENGINE_INDEXING_QUEUE
     ) {
       await (context.env as any).ENGINE_INDEXING_QUEUE.send({
@@ -427,20 +432,24 @@ async function tickR2Listing(
   const keys = result.objects.map((o) => o.key).filter((k) => !!k);
 
   // Filtering logic
-  const isGithubIssue = (k: string) =>
-    k.startsWith("github/") &&
-    k.includes("/issues/") &&
-    k.endsWith("/latest.json");
-  const isGithubPr = (k: string) =>
-    k.startsWith("github/") &&
-    k.includes("/pull-requests/") &&
-    k.endsWith("/latest.json");
-  const isDiscord = (k: string) => k.startsWith("discord/");
-  const isCursor = (k: string) => k.startsWith("cursor/conversations/");
-  const filterSupported = (k: string) =>
-    isGithubIssue(k) || isGithubPr(k) || isDiscord(k) || isCursor(k);
+  const validKeys = keys.filter((k) => {
+    const isGithubIssue =
+      k.startsWith("github/") &&
+      (!r2ListConfig.githubRepo ||
+        k.startsWith(`github/${r2ListConfig.githubRepo}/`)) &&
+      k.includes("/issues/") &&
+      k.endsWith("/latest.json");
+    const isGithubPr =
+      k.startsWith("github/") &&
+      (!r2ListConfig.githubRepo ||
+        k.startsWith(`github/${r2ListConfig.githubRepo}/`)) &&
+      k.includes("/pull-requests/") &&
+      k.endsWith("/latest.json");
+    const isDiscord = k.startsWith("discord/");
+    const isCursor = k.startsWith("cursor/conversations/");
 
-  const validKeys = keys.filter(filterSupported);
+    return isGithubIssue || isGithubPr || isDiscord || isCursor;
+  });
 
   if (validKeys.length > 0) {
     const batchIndex = r2ListConfig.pagesProcessed;

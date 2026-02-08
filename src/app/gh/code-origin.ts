@@ -288,7 +288,7 @@ Rules:
 Write a clear narrative that explains the sequence and causal relationships between events using the Timeline order.`;
 
     console.log(`[code-origin] Calling LLM to synthesize narrative`);
-    const narrative = await callLLM(prompt, "slow-reasoning", {
+    const narrative = await callLLM(prompt, "cerebras-gpt-oss-120b", {
       temperature: 0,
       reasoning: { effort: "low" },
     });

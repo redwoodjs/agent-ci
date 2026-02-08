@@ -48,7 +48,7 @@ export async function computeMicroMomentsForChunkBatch(
     `OUTPUT:`;
 
   try {
-    const response = await callLLM(prompt, "slow-reasoning", {
+    const response = await callLLM(prompt, "cerebras-gpt-oss-120b", {
       temperature: 0,
       max_tokens: 1200,
       reasoning: {

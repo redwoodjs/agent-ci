@@ -352,7 +352,7 @@ export async function runTimelineFitForDocument(input: {
 
   const proposal = await computeTimelineFitDecision({
     ports: { 
-      callLLM: (prompt) => context.llm.call(prompt, "slow-reasoning", { 
+      callLLM: (prompt) => context.llm.call(prompt, "cerebras-gpt-oss-120b", { 
         temperature: 0,
         logger: context.logger?.info,
       }) 

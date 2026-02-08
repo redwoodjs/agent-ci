@@ -1,4 +1,4 @@
-# Unified Pipeline Blueprint
+# Runtime Architecture Blueprint
 
 ## 1. Purpose
 

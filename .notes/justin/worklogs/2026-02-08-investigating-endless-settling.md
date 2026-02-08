@@ -95,4 +95,4 @@ The issue was caused by a mismatch in the simulation runner's lock acquisition l
 ## Solution
 This change updates the simulation runner to correctly recognize and lock all active transition statuses. By including `settling` and `advance` in the lock acquisition criteria, the runner can now successfully process these terminal state transitions.
 
-We also updated the arch blueprint to record this locking requirement as a system invariant, ensuring future status additions maintain the necessary lock compatibility.
+We also updated the Runtime Architecture Blueprint to record this locking requirement as a system invariant, ensuring future status additions maintain the necessary lock compatibility.

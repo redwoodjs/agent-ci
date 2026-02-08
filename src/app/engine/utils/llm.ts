@@ -52,121 +52,142 @@ export async function callLLM(
     }
   };
 
-  // 2. Resolve model configuration
   const modelConfig = MODELS[alias] as ModelConfig;
   const modelId = modelConfig.id;
 
-  if (modelConfig.provider === "google") {
-    logInfo(`Calling AI-SDK Google model '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
+  logInfo(`Logging alias '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
 
-    const apiKey = SECRETS.AI_GOOGLE_KEY;
-    if (!apiKey) {
-      throw new Error(`Missing AI_GOOGLE_KEY for alias '${alias}'`);
-    }
+  const maxAttempts = 3;
+  let lastError: unknown;
 
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
-      const google = createGoogleGenerativeAI({
-        apiKey,
+      if (attempt > 0) {
+        const backoffBase = 1000 * Math.pow(2, attempt - 1);
+        const jitter = Math.floor(Math.random() * 250);
+        const waitMs = backoffBase + jitter;
+        
+        logInfo(`Retry attempt ${attempt + 1}/${maxAttempts}. Waiting ${waitMs}ms`, { attempt: attempt + 1, maxAttempts, waitMs });
+        
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+
+      logInfo(`Calling alias '${alias}' (${modelId}) attempt ${attempt + 1}/${maxAttempts}`);
+
+      const callPromise = async () => {
+        // 2. Execute model configuration
+
+        if (modelConfig.provider === "google") {
+          logInfo(`Calling AI-SDK Google model '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
+
+          const apiKey = SECRETS.AI_GOOGLE_KEY;
+          if (!apiKey) {
+            throw new Error(`Missing AI_GOOGLE_KEY for alias '${alias}'`);
+          }
+
+          const google = createGoogleGenerativeAI({
+            apiKey,
+          });
+
+          const { text } = await generateText({
+            model: google(modelId),
+            prompt: prompt,
+            temperature: options?.temperature,
+            maxTokens: options?.max_tokens,
+          } as any);
+
+          const duration = Date.now() - start;
+          logInfo(`Successfully received response from Google. Length: ${text.length} chars. Duration: ${duration}ms`);
+          return text;
+        }
+
+        if (modelConfig.provider === "cerebras") {
+          logInfo(`Calling AI-SDK Cerebras model '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
+
+          const apiKey = SECRETS.AI_CEREBRAS_KEY;
+          if (!apiKey) {
+            throw new Error(`Missing AI_CEREBRAS_KEY for alias '${alias}'`);
+          }
+
+          const cerebras = createCerebras({
+            apiKey,
+          });
+
+          const { text } = await generateText({
+            model: cerebras(modelId),
+            prompt: prompt,
+            temperature: options?.temperature,
+            maxTokens: options?.max_tokens,
+          } as any);
+
+          const duration = Date.now() - start;
+          logInfo(`Successfully received response from Cerebras. Length: ${text.length} chars. Duration: ${duration}ms`);
+          return text;
+        }
+
+        // 3. Handle Cloudflare AI models (AI-SDK Workers AI)
+        const cfModelId = modelId;
+
+        logInfo(`Calling Cloudflare alias '${alias}' (${cfModelId}) with AI-SDK and prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
+
+        // Check for global reasoning effort override
+        const reasoningEffortOverride = typeof SECRETS.LLM_REASONING_EFFORT === "string" ? SECRETS.LLM_REASONING_EFFORT.trim() : "";
+        
+        if (reasoningEffortOverride) {
+          if (reasoningEffortOverride === "none") {
+            logInfo(`[llm] Overriding reasoning effort to 'none' (removing reasoning options)`);
+            if (options && options.reasoning) {
+              options.reasoning = undefined;
+            }
+          } else if (["low", "medium", "high"].includes(reasoningEffortOverride)) {
+            logInfo(`[llm] Overriding reasoning effort to '${reasoningEffortOverride}' (from env.LLM_REASONING_EFFORT)`);
+            if (!options) {
+              options = {};
+            }
+            if (!options.reasoning) {
+              options.reasoning = {};
+            }
+            options.reasoning.effort = reasoningEffortOverride as "low" | "medium" | "high";
+          }
+        }
+
+        const { createWorkersAI } = await import("workers-ai-provider");
+        const workersai = createWorkersAI({
+          binding: env.AI,
+        });
+
+        const { text } = await generateText({
+          model: workersai(cfModelId as any),
+          prompt: prompt,
+          temperature: options?.temperature,
+          maxTokens: options?.max_tokens,
+        } as any);
+
+        const duration = Date.now() - start;
+        logInfo(`Successfully received response from Cloudflare via AI-SDK. Length: ${text.length} chars. Duration: ${duration}ms`);
+        return text;
+      };
+
+      const timeoutMs = options?.timeoutMs ?? 300_000;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => {
+          reject(new Error(`LLM Timeout: call took longer than ${timeoutMs / 1000}s`));
+        }, timeoutMs);
       });
 
-      const { text } = await generateText({
-        model: google(modelId),
-        prompt: prompt,
-        temperature: options?.temperature,
-        maxTokens: options?.max_tokens,
-      } as any);
-
-      const duration = Date.now() - start;
-      logInfo(`Successfully received response from Google. Length: ${text.length} chars. Duration: ${duration}ms`);
-      return text;
+      return await Promise.race([callPromise(), timeoutPromise]);
     } catch (error) {
+      lastError = error;
       const msg = error instanceof Error ? error.message : String(error);
-      logInfo(`AI-SDK Google call failed: ${msg}`, { error: msg });
-      throw error;
-    }
-  }
-
-  if (modelConfig.provider === "cerebras") {
-    logInfo(`Calling AI-SDK Cerebras model '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
-
-    const apiKey = SECRETS.AI_CEREBRAS_KEY;
-    if (!apiKey) {
-      throw new Error(`Missing AI_CEREBRAS_KEY for alias '${alias}'`);
-    }
-
-    try {
-      const cerebras = createCerebras({
-        apiKey,
-      });
-
-      const { text } = await generateText({
-        model: cerebras(modelId),
-        prompt: prompt,
-        temperature: options?.temperature,
-        maxTokens: options?.max_tokens,
-      } as any);
-
-      const duration = Date.now() - start;
-      logInfo(`Successfully received response from Cerebras. Length: ${text.length} chars. Duration: ${duration}ms`);
-      return text;
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      logInfo(`AI-SDK Cerebras call failed: ${msg}`, { error: msg });
-      throw error;
-    }
-  }
-
-  // 3. Handle Cloudflare AI models (AI-SDK Workers AI)
-  const cfModelId = modelId;
-
-  logInfo(`Calling Cloudflare alias '${alias}' (${cfModelId}) with AI-SDK and prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
-
-  // Check for global reasoning effort override
-  const reasoningEffortOverride = typeof SECRETS.LLM_REASONING_EFFORT === "string" ? SECRETS.LLM_REASONING_EFFORT.trim() : "";
-  
-  if (reasoningEffortOverride) {
-    if (reasoningEffortOverride === "none") {
-      logInfo(`[llm] Overriding reasoning effort to 'none' (removing reasoning options)`);
-      if (options && options.reasoning) {
-        options.reasoning = undefined;
+      logInfo(`Attempt ${attempt + 1}/${maxAttempts} failed: ${msg}`, { error: msg });
+      
+      if (attempt + 1 >= maxAttempts) {
+        throw lastError;
       }
-    } else if (["low", "medium", "high"].includes(reasoningEffortOverride)) {
-      logInfo(`[llm] Overriding reasoning effort to '${reasoningEffortOverride}' (from env.LLM_REASONING_EFFORT)`);
-      if (!options) {
-        options = {};
-      }
-      if (!options.reasoning) {
-        options.reasoning = {};
-      }
-      options.reasoning.effort = reasoningEffortOverride as "low" | "medium" | "high";
     }
   }
 
-  try {
-    const { createWorkersAI } = await import("workers-ai-provider");
-    const workersai = createWorkersAI({
-      binding: env.AI,
-    });
-
-    const isGptOss = cfModelId.includes("gpt-oss");
-    
-    // AI-SDK handles the model interaction.
-    // We pass the model ID directly to the provider.
-    const { text } = await generateText({
-      model: workersai(cfModelId as any),
-      prompt: prompt,
-      temperature: options?.temperature,
-      maxTokens: options?.max_tokens,
-    } as any);
-
-    const duration = Date.now() - start;
-    logInfo(`Successfully received response from Cloudflare via AI-SDK. Length: ${text.length} chars. Duration: ${duration}ms`);
-    return text;
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error);
-    logInfo(`AI-SDK Cloudflare call failed: ${msg}`, { error: msg });
-    throw error;
-  }
+  throw new Error("Unexpected end of LLM call loop");
 }
 
 /**

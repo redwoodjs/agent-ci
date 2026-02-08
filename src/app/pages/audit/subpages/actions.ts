@@ -3933,7 +3933,7 @@ Rules:
 Write a clear narrative that explains the sequence and causal relationships between events and pull requests, drawing from all available sources in the Timeline.`;
 
     console.log(`[code-tldr] Calling LLM to generate TLDR and narrative`);
-    const fullResponse = await callLLM(prompt, "slow-reasoning", {
+    const fullResponse = await callLLM(prompt, "cerebras-gpt-oss-120b", {
       temperature: 0,
       reasoning: { effort: "low" },
     });

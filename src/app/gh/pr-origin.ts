@@ -638,7 +638,7 @@ Write a clear narrative that explains the sequence and causal relationships betw
     console.log(
       `[pr-origin] Calling LLM to synthesize narrative for ${prNumbers.length} PRs`
     );
-    const fullResponse = await callLLM(prompt, "slow-reasoning", {
+    const fullResponse = await callLLM(prompt, "cerebras-gpt-oss-120b", {
       temperature: 0,
       reasoning: { effort: "low" },
     });

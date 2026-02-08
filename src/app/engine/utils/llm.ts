@@ -6,10 +6,10 @@ import { createCerebras } from "@ai-sdk/cerebras";
 import { generateText } from "ai";
 
 const MODELS = {
-  "slow-reasoning": { provider: "cerebras", id: "gpt-oss-20b" },
-  "slow-reasoning-slow": { provider: "cloudflare", id: "@cf/openai/gpt-oss-20b" },
-  "quick-cheap": { provider: "cloudflare", id: "@cf/meta/llama-3.1-8b-instruct" },
-  "gemini-3-flash": { provider: "google", id: "gemini-3-flash-preview" },
+  "cerebras-gpt-oss-120b": { provider: "cerebras", id: "gpt-oss-120b" },
+  "cloudflare-gpt-oss-20b": { provider: "cloudflare", id: "@cf/openai/gpt-oss-20b" },
+  "cloudflare-llama-3.1-8b": { provider: "cloudflare", id: "@cf/meta/llama-3.1-8b-instruct" },
+  "google-gemini-3-flash": { provider: "google", id: "gemini-3-flash-preview" },
 } as const;
 
 export type LLMAlias = keyof typeof MODELS;
@@ -28,7 +28,7 @@ export interface LLMOptions {
 
 export async function callLLM(
   prompt: string,
-  alias: LLMAlias = "slow-reasoning",
+  alias: LLMAlias = "cerebras-gpt-oss-120b",
   options?: LLMOptions
 ): Promise<string> {
   // 1. Check for simulation heuristic override (dynamic response)
@@ -54,6 +54,27 @@ export async function callLLM(
 
   const modelConfig = MODELS[alias] as ModelConfig;
   const modelId = modelConfig.id;
+
+  // Check for global reasoning effort override
+  const reasoningEffortOverride = typeof SECRETS.LLM_REASONING_EFFORT === "string" ? SECRETS.LLM_REASONING_EFFORT.trim() : "";
+  
+  if (reasoningEffortOverride) {
+    if (reasoningEffortOverride === "none") {
+      logInfo(`[llm] Overriding reasoning effort to 'none' (removing reasoning options)`);
+      if (options && options.reasoning) {
+        options.reasoning = undefined;
+      }
+    } else if (["low", "medium", "high"].includes(reasoningEffortOverride)) {
+      logInfo(`[llm] Overriding reasoning effort to '${reasoningEffortOverride}' (from env.LLM_REASONING_EFFORT)`);
+      if (!options) {
+        options = {};
+      }
+      if (!options.reasoning) {
+        options.reasoning = {};
+      }
+      options.reasoning.effort = reasoningEffortOverride as "low" | "medium" | "high";
+    }
+  }
 
   logInfo(`Logging alias '${alias}' (${modelId}) with prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
 
@@ -116,6 +137,11 @@ export async function callLLM(
           const { text } = await generateText({
             model: cerebras(modelId),
             prompt: prompt,
+            providerOptions: {
+              cerebras: {
+                reasoningEffort: options?.reasoning?.effort ?? "medium",
+              },
+            },
             temperature: options?.temperature,
             maxTokens: options?.max_tokens,
           } as any);
@@ -130,27 +156,6 @@ export async function callLLM(
 
         logInfo(`Calling Cloudflare alias '${alias}' (${cfModelId}) with AI-SDK and prompt length: ${promptLength} chars. Preview: ${promptPreview}...`);
 
-        // Check for global reasoning effort override
-        const reasoningEffortOverride = typeof SECRETS.LLM_REASONING_EFFORT === "string" ? SECRETS.LLM_REASONING_EFFORT.trim() : "";
-        
-        if (reasoningEffortOverride) {
-          if (reasoningEffortOverride === "none") {
-            logInfo(`[llm] Overriding reasoning effort to 'none' (removing reasoning options)`);
-            if (options && options.reasoning) {
-              options.reasoning = undefined;
-            }
-          } else if (["low", "medium", "high"].includes(reasoningEffortOverride)) {
-            logInfo(`[llm] Overriding reasoning effort to '${reasoningEffortOverride}' (from env.LLM_REASONING_EFFORT)`);
-            if (!options) {
-              options = {};
-            }
-            if (!options.reasoning) {
-              options.reasoning = {};
-            }
-            options.reasoning.effort = reasoningEffortOverride as "low" | "medium" | "high";
-          }
-        }
-
         const { createWorkersAI } = await import("workers-ai-provider");
         const workersai = createWorkersAI({
           binding: env.AI,
@@ -159,6 +164,12 @@ export async function callLLM(
         const { text } = await generateText({
           model: workersai(cfModelId as any),
           prompt: prompt,
+          providerOptions: {
+            "workers-ai": {
+              // Workers AI doesn't have a direct reasoning effort flag yet in the provider, 
+              // but we map it if they support it in the future.
+            }
+          },
           temperature: options?.temperature,
           maxTokens: options?.max_tokens,
         } as any);

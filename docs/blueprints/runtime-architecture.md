@@ -146,9 +146,15 @@ This data flow describes exactly what happens to a document as it moves through 
 *   **Output**: `MacroStream[]` (Draft moments with anchors).
 
 ### Phase 4: Classification
-*   **Goal**: Filter noise and Tag.
+*   **Goal**: Filter noise and identify organizational subjects.
 *   **Input**: `MacroStream[]`.
-*   **Logic**: LLM decides: Is this a "Bg Fix"? A "Feature Request"? Just "Chore"?
+*   **Logic**: 
+    1.  **Noise Gating**: Strips automated bot updates and administrative trivia using regex patterns.
+    2.  **LLM Classification**: Assigns a `momentKind` (e.g., `problem`, `attempt`, `decision`).
+    3.  **The Significance Bar (Narrative Weight)**: The LLM determines if a moment reaches the threshold of a **Subject**. 
+        - A "Subject" must represent a non-trivial development (investigation of a problem, structural initiative, strategic opportunity).
+        - Administrative chores, cosmetic tweaks, and status chatter are rejected as subjects even if they otherwise fit a kind (e.g., a "color fix" is a `decision` but NOT a `subject`).
+    4.  **Justification**: The LLM must provide a `subjectReason` to explain *why* the moment meets the organizational significance threshold.
 *   **Output**: `ClassifiedStream[]`.
 
 ### Phase 5: Materialize (The Commit)

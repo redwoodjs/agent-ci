@@ -390,7 +390,7 @@ export async function synthesizeMicroMomentsIntoStreams(
 - required_summary_prefix: ${summaryDescriptor ?? "(none)"}
 - required_document_ref_token: ${documentRef ?? "(none)"}
 - If required_document_ref_token is not "(none)", SUMMARY must contain it in brackets exactly once: [${
-          documentRef ?? ""
+      documentRef ?? ""
         }]
 `
       : "";
@@ -409,8 +409,10 @@ Selection rules (macro moments to exclude):
 - Do not emit macro moments for automated system or bot status updates (examples: deployment previews, CI status, preview builds, dependency bot updates) unless they contain a concrete decision or a change in technical direction.
 - Do not emit macro moments for administrative state changes (examples: closing an issue, adding labels, assigning reviewers) unless the text includes a concrete technical decision or an implementation change.
 - Do not emit macro moments for social chatter, jokes, greetings, reactions, emojis, memes, gifs, or off-topic banter.
-- Do not emit macro moments for administrative or status updates (examples: "back now", "will continue later") unless they change the technical direction of the work.
+- Do not emit macro moments for administrative or status updates (examples: "back now", "will continue later", "checking something", "pairing now") unless they significantly change the technical direction of the work.
 - Do not emit macro moments for generic encouragement or gratitude.
+- Do not emit macro moments for minor UI tweaks (examples: margin/padding adjustments, color changes, typo fixes in UI text) unless they are part of a larger structural initiative.
+- Do not emit macro moments for trivial content maintenance (examples: small README fix, copyright date update) that does not represent a work milestone.
 
 Selection rules (macro moments to include):
 - Emit a macro moment only when it contains at least one of:

@@ -60,6 +60,15 @@ export async function MaterializedMomentsCard({
                     <div className="text-xs text-gray-400 italic">No summary available</div>
                   )}
 
+                  {(m as any).subjectReason && (
+                    <div className="mt-2 p-2 bg-blue-50/50 border border-blue-100 rounded text-xs text-blue-900">
+                      <div className="font-semibold text-[10px] uppercase tracking-wider text-blue-600 mb-1">
+                        Subject Reason
+                      </div>
+                      <div className="leading-relaxed">{(m as any).subjectReason}</div>
+                    </div>
+                  )}
+
                   <div className="pt-2 border-t border-gray-50 mt-1">
                     <div className="font-mono text-[10px] text-gray-500 truncate" title={m.r2Key}>
                       Key: {m.r2Key}

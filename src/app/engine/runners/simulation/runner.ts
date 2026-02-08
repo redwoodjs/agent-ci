@@ -65,7 +65,7 @@ export async function tickSimulationRun(
     .where("run_id", "=", runId)
     .where((eb) =>
       eb.or([
-        eb("status", "in", ["running", "awaiting_documents"]),
+        eb("status", "in", ["running", "awaiting_documents", "settling", "advance"]),
         eb.and([
           eb("status", "=", "busy_running"),
           eb("updated_at", "<", fiveMinutesAgo),

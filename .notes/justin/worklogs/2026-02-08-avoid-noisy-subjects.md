@@ -56,3 +56,20 @@ We are moving forward with the implementation of the Significance Bar for subjec
 
 ## Completed the Implementation
 We have updated the classification and synthesis logic to include the Significance Bar and Narrative Weight criteria. We have also updated the database helpers and UI components to surface the 'subjectReason' justifications. The architecture blueprints have been revised to reflect these changes.
+
+## Drafted Pull Request
+
+### Title
+Refine Subject Classification with Significance Bar and Narrative Weight
+
+### Description
+#### Problem
+The Knowledge Graph was being cluttered with low-signal "subjects" such as cosmetic CSS tweaks, administrative label changes, and bot status updates. These moments, while chronologically real, lack the technical significance or "narrative weight" required to be useful as organizational entry points in the graph. Furthermore, when subjects were created, the reasoning behind their classification was hidden from the UI, making it difficult to audit the engine's judgment.
+
+#### Solution
+We introduced a structured **Significance Bar** based on the concept of **Narrative Weight**.
+
+1. **Prompt Engineering**: Both the `synthesizeMicroMoments` and `classifyMacroMoments` prompts were updated to enforce stricter inclusion/exclusion criteria. The classifier now explicitly separates organizational subjects (Problems, Initiatives, Opportunities) from incidental decisions or chores (Cosmetic fixes, Admin trivia).
+2. **Explicit Justification**: The `subjectReason` field is now mandatory for all subject classifications, forcing the LLM to provide a narrative justification for why a moment reaches the significance threshold.
+3. **UI/Data Surface Area**: The database ingestion and simulation UI components were updated to fetch and display this `subjectReason`. Users can now see a "Subject Justification" box in the Simulation UI, providing transparency into the engine's reasoning.
+4. **Blueprints**: The `runtime-architecture.md` and `subject-moments-and-evidence.md` blueprints were synchronized to reflect these new rules as the source of truth.

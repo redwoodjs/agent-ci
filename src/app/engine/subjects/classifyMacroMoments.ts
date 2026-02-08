@@ -116,7 +116,7 @@ Macro moments:
 ${momentsText}
 `;
 
-  const raw = await callLLM(prompt, "slow-reasoning", {
+  const raw = await callLLM(prompt, "cerebras-gpt-oss-120b", {
     temperature: 0,
     reasoning: { effort: "low" },
   });

@@ -182,7 +182,7 @@ ${formattedMoments}
       : null;
 
   try {
-    const response = await callLLM(synthesisPrompt, "slow-reasoning", {
+    const response = await callLLM(synthesisPrompt, "cerebras-gpt-oss-120b", {
       temperature: 0,
       max_tokens: 4000,
       reasoning: {
@@ -490,7 +490,7 @@ ${formattedMoments}
       : null;
 
   try {
-    const response = await callLLM(synthesisPrompt, "slow-reasoning", {
+    const response = await callLLM(synthesisPrompt, "cerebras-gpt-oss-120b", {
       temperature: 0,
       max_tokens: 4000,
       logger: options?.logger,

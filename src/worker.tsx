@@ -13,6 +13,8 @@ import { routes as engineRoutes } from "./app/engine/routes";
 import { ghRoutes } from "./app/gh/routes";
 import { antigravityRoutes } from "./app/ingestors/antigravity/routes";
 import { HomePage } from "./app/pages/HomePage";
+import { SECRETS } from "@/secrets";
+
 
 export type AppContext = {
   user: any;

@@ -110,7 +110,7 @@ We are aligning on a "Moonshot" goal for this feature:
 - **Vision**: If a developer were to delete an entire feature's codebase, they should be able to point the Machinen agent at this spec and have it regenerated exactly as it was.
 - **Why**: This proves the spec has sufficient narrative fidelity and rationale to serve as the true "Source of Truth" for the system.
 
-## [Action Taken] Drafting Work Task Blueprint (Step 4)
+## [Action Taken] Drafting RFC (Step 4)
 
 ### Context
 We are implementing the "Speccing" engine, a system that regenerates technical specifications by replaying the historical development narrative of a "Subject" (Initiative/Feature). The core mechanics rely on a chronological traversal of the Moment Graph, pulling high-fidelity source documents (GitHub, Cursor, Discord), and "time-locking" them to match the state of the system at the time each moment occurred.
@@ -351,137 +351,69 @@ The user proposed the ultimate simplification: **Removing the `mchn` CLI entirel
 ### Conclusion: "Pure Web"
 We are moving to a **pure web-service architecture**. Machinen provides the "Brain" and the "Replay Logic", and the IDE Agent acts as the "Hands" using standard web tools. Use of the `mchn` CLI is officially superseded by this `curl`-first model.
 
-## The 2000ft View: Machinen Speccing System
-The Speccing system is a reconstructive engine designed to generate high-fidelity technical specifications by replaying the historical development narrative of a project feature or initiative.
+## RFC: Technical Specification for Machinen Speccing
 
-### 1. The Moonshot: "The Deletion Test"
-We are creating a spec with such high "Narrative Fidelity" that if someone **deleted your entire feature codebase**, you could use this spec to regenerate it perfectly. It's the ultimate "Source of Truth."
+### 2000ft View Narrative
+The Machinen Speccing Engine is a reconstructive system designed to generate high-fidelity technical specifications by replaying the development narrative of a project feature or initiative. It enforces a strict "No Time Travel" invariant, ensuring that the generating agent only sees the information that was known at each historical point in time.
 
-### 2. The Engine: "The Time-Locked Brain"
-Machinen handles the complex state logic that AI agents can't do alone:
-- **Chronological Replay**: A Priority Queue walk that ensures history is replayed in the exact order it happened, even across parallel branches of work.
-- **Document Slicing**: Provider-specific hooks that "freeze" raw source data (PRs, Cursor logs, Discord threads) to exactly what was known at time $T$. The agent never sees the "future" while speccing the past.
-
-### 3. The Interface: "Pure Web" (Zero-Abstraction)
-We have eliminated all custom bridges (MCP) and custom CLIs to achieve a zero-installation, zero-latency model:
-- **Discovery**: The agent learns about the feature via native **Shims** (e.g., `.agent/rules/` for Antigravity or **AGENTS.md** for Cursor). These shims point the agent to a base `curl` command.
-- **Execution**: The agent drives the loop using standard `curl` commands. No custom scripts to maintain or index.
-
-### 4. The Loop: "The Universal Actor"
-We solve the cross-editor problem by moving the **Instruction Layer** directly into the API responses:
-- **Self-Driving API**: Every JSON response from Machinen tells the agent exactly what to do next: *"Here is the evidence for Moment [XYZ]. Now, update the spec at [Path] with these details and call this next URL: `curl http://.../speccing/next?sessionId=123`"*.
-- **Portability**: The agent doesn't need to be specialized; it just needs to follow the dynamic instructions provided by the server.
-
-### 5. The Output: "Living Provenance"
-The final spec is a **tapestry of evidence**. Every technical decision is hyperlinked to the original PR diff or chat message that justified it.
-
-## Work Task Blueprint: Speccing Engine (Final)
+The system follows a "Pure Web + Universal Actor" model. Machinen acts as the stateful, time-locked "Brain," managing the moment graph traversal and high-fidelity source document slicing. The developer's IDE agent (Cursor, Antigravity, etc.) acts as the "Hands," driving the loop using standard `curl` commands and following self-instructing API responses. This architecture ensures cross-editor portability, zero-installation friction, and maximum performance.
 
 ### Context
-We are implementing the speccing engine as a stateful web service. The engine manages the Priority Queue (PQ) traversal of the moment graph and provides "time-travelled" source document slices. The developer's IDE agent drives the loop by consuming turn-by-turn instructions from the API via `curl`.
+- **Problem**: Traditional technical specifications often drift from reality because they capture the end-state but lose the rationale, pivot points, and "how-it-was-built" narrative.
+- **Solution**: A system that chronologically walks a "Subject" in the Knowledge Graph, pulling raw evidence (PR diffs, chat logs) and "time-locking" them to match the state of the world at that moment.
+- **Approach**: We utilize a Priority Queue (PQ) based traversal to handle branching histories and a dedicated Durable Object (`SpeccingStateDO`) to manage transient session state (PQ tracking, working spec drafts, and turn history).
+
+### Database Changes (MANDATORY)
+**Decision**: We use a dedicated **SpeccingState Durable Object** (`src/app/engine/databases/speccing/`).
+**Rationale**: Speccing sessions involve transient, high-churn data like the Priority Queue and large, evolving drafts. Isolating this in a dedicated DO prevents bloat in the core `momentGraph` and aligns with the project's "Domain-Specific Storage" pattern (cf. `simulationState`).
+
+| Table | Column | Type | Description |
+| :--- | :--- | :--- | :--- |
+| **speccing_sessions** | id | text (PK) | Unique session identifier. |
+| | subject_id | text | The root subject being replayed. |
+| | priority_queue_json | text | JSON array of Moment IDs waiting to be processed. |
+| | processed_ids_json | text | JSON array of Moment IDs already integrated. |
+| | working_spec | text | The current evolved draft of the specification. |
+| | status | text | 'active', 'completed', 'failed'. |
+| | created_at | text | ISO timestamp. |
+| | updated_at | text | ISO timestamp for TTL cleanup. |
+
+### Behavior Spec
+#### 1. Session Initialization
+- **GIVEN**: A valid `subjectId` exists in the `moments` table.
+- **WHEN**: A POST request is made to `/api/speccing/start?subjectId=ID`.
+- **THEN**: The system initializes a `SpeccingStateDO`, populates the `priority_queue` with the root moment, and returns a `sessionId`.
+- **AND**: The response includes a `curl` command for the `next` turn.
+
+#### 2. Chronological Replay Loop
+- **GIVEN**: An active session with unprocessed moments in the PQ.
+- **WHEN**: A GET request is made to `/api/speccing/next?sessionId=ID`.
+- **THEN**: The system pops the earliest unprocessed moment $M$.
+- **AND**: It fetches raw source documents linked to $M$ and applies provider-specific "Time Travel" slicing (timestamp <= $M.createdAt$).
+- **AND**: It returns the time-locked context, the moment summary, and the next `curl` command.
 
 ### Breakdown of Planned Changes
 - **Database Layer**:
-    - [NEW] `spec_replay_state` table to track session PQ and progress.
+    - [NEW] `src/app/engine/databases/speccing/`: Create dedicated DO, migrations, and index. 
 - **Core Engine (The Brain)**:
-    - [NEW] `src/app/engine/runners/speccing/runner.ts`: Implement session management, PQ walk, and "Self-Instructing" response logic.
-    - [MODIFY] `src/app/engine/types.ts`: Update `Plugin` interface with the `timeTravel` hook.
-- **Plugin Heuristics (High-Fidelity Slicing)**:
-    - [MODIFY] `cursor.ts`: Slicing by generation/event timestamp.
-    - [MODIFY] `github.ts`: Filtering comments/events by `created_at`.
-    - [MODIFY] `discord.ts`: Filtering messages by timestamp.
-- **Integration Layer**:
-    - [NEW] `AGENTS.md`: Define the universal `curl`-based replay protocol.
-    - [NEW] `.agent/rules/speccing-shim.md`: A native rule for Antigravity redirecting to `AGENTS.md`.
-
-### Directory & File Structure
-```text
-.
-├── [NEW] AGENTS.md
-├── .agent/rules/
-│   └── [NEW] speccing-shim.md
-└── src/app/engine/
-    ├── [MODIFY] types.ts
-    ├── runners/
-    │   └── [NEW] speccing/
-    │       └── runner.ts
-    └── plugins/
-        ├── [MODIFY] cursor.ts
-        ├── [MODIFY] github.ts
-        └── [MODIFY] discord.ts
-```
-
-### Invariants & Constraints
-1. **Absolute Time-Lock**: The API must never return data from the "future" relative to the current replay moment.
-2. **Stateless Protocols, Stateful Backend**: The `sessionId` is handled by Machinen; all complexity resides server-side.
-
-### Suggested Verification (Manual)
-1. Initialize a session via `curl` and verify instructions.
-2. Run `next` calls and confirm the source documents are correctly sliced.
-3. Demonstrate a sample replay loop in the editor.
-
-## [Refinement] Native Duplication & Project-Agnostic Installability
-We are refining the "Instruction Layer" based on user feedback regarding agent performance and cross-project utility.
-
-### 1. From "Redirection" to "Native Copy"
-Instead of a shim that tells the agent to "Go read AGENTS.md," we will **copy the core instructions** directly into the native rule files (`.agent/rules/speccing.md`, `.cursorrules`, etc.).
-- **Rationale**: Agents sometimes "skim" redirected instructions or waste reasoning cycles following pointers. Providing the protocol natively ensures the highest "instruction adherence" from the first turn.
-- **Maintenance**: We will treat the protocol as a "template" that gets stamped into these files.
-
-### 2. The Machinen "Installer" (Project-Agnosticism)
-The speccing feature is a capability of the **Machinen Engine**, not just the `machinen` repo. We need a way to "install" Machinen Speccing into any codebase.
-- **The Solution**: We will define a bootstrapping script/command (e.g., `mchn install-specs`) that:
-  - Detects the IDE (Cursor vs. Antigravity).
-  - Injects the appropriate `AGENTS.md` and `.agent/rules/` templates.
-  - Configures the base Machinen API URL for that project.
-- **The Protocol**: The instructions themselves (the `curl` commands) will be generic, relying on project-local configuration (like an env var or a config file) to know which Machinen instance to talk to.
-
-### Summary
-Machinen becomes a **Spec-as-a-Service** platform. You point it at a repository, run the installer, and your IDE agent is immediately empowered to perform high-fidelity historical replays.
-
-## [Simplified] From "CLI" to "Standalone Bootstrap Script"
-The user challenged the need for a full `mchn` CLI. We already have patterns for standalone scripts (like the MCP server build/run scripts). We can achieve project-agnostic installation with a simple bootstrapping script.
-
-### The Bootstrap Script (`bootstrap-specs.sh` or `.ts`)
-Instead of a binary:
-1. **Role**: A one-time setup tool.
-2. **Action**:
-   - Injects the universal `AGENTS.md`.
-   - Injects the native rules (`.agent/rules/speccing.md` or `.cursor/rules/speccing.mdc`).
-   - Optionally adds a script or env var to the project to point to the correct Machinen instance.
-3. **Complexity**: Minimal. It can be a simple `curl | bash` pattern or a small TS script run via `npx ts-node`.
-
-### Conclusion
-We are removing the "CLI" from the blueprint. The "Speccing Tool" is a dynamic set of **instructions** and **curls** injected into a repo via a simple **Bootstrap Script**.
-
-## Work Task Blueprint: Machinen Speccing (Refined)
-
-### Context
-We are implementing the speccing engine as a stateful web service. The engine manages chronological traversal of the moment graph and provides "time-locked" source document slices. The developer's IDE agent drives the loop by consuming turn-by-turn instructions via `curl`. Project-agnosticism is achieved via a standalone bootstrap script that injects native instructions into any repository.
-
-### Breakdown of Planned Changes
-- **Database Layer**:
-    - [NEW] `spec_replay_state` table to track session progress (Priority Queue).
-- **Core Engine (The Brain)**:
-    - [NEW] `src/app/engine/runners/speccing/runner.ts`: Implement session manager, PQ walk, and "Self-Instructing" response logic.
+    - [NEW] `src/app/engine/runners/speccing/runner.ts`: Implement PQ-based chronological walker and "Self-Instructing" response logic.
     - [MODIFY] `src/app/engine/types.ts`: Update `Plugin` interface with the `timeTravel` hook.
 - **Plugin Heuristics (Fidelity Slicing)**:
-    - [MODIFY] `cursor.ts`, `github.ts`, `discord.ts`: Implement source-specific "time-locking" logic.
-- **Integration Layer (The Actor)**:
-    - These are generated by the bootstrap script:
-    - [NEW] `AGENTS.md`: Universal `curl`-based replay protocol.
-    - [NEW] `.agent/rules/speccing.md`: Native Antigravity rule (full copy of protocol).
-    - [NEW] `.cursor/rules/speccing.mdc`: Native Cursor rule (full copy of protocol).
+    - [MODIFY] `cursor.ts`, `github.ts`, `discord.ts`: Implement source-specific "time-locking" logic (e.g., generation/comment/message slicing).
 - **Tooling (The Vehicle)**:
-    - [NEW] `scripts/bootstrap-speccing.ts`: Standalone script to generate the files above: `AGENTS.md`, `.agent/rules/speccing.md`, `.cursor/rules/speccing.mdc`
+    - [NEW] `scripts/bootstrap-specs.sh`: A standalone POSIX-compliant script to inject the `AGENTS.md` and native IDE instructions into any repository.
 
 ### Directory & File Structure
 ```text
 .
 ├── scripts/
-│   └── [NEW] bootstrap-speccing.ts
+│   └── [NEW] bootstrap-specs.sh
 └── src/app/engine/
-    ├── [MODIFY] types.ts
+    ├── databases/
+    │   └── [NEW] speccing/
+    │       ├── durableObject.ts
+    │       ├── migrations.ts
+    │       └── index.ts
     ├── runners/
     │   └── [NEW] speccing/
     │       └── runner.ts
@@ -491,22 +423,42 @@ We are implementing the speccing engine as a stateful web service. The engine ma
         └── [MODIFY] discord.ts
 ```
 
+### Types & Data Structures
+```typescript
+export interface SpeccingSessionTable {
+  id: string;
+  subject_id: string;
+  priority_queue_json: string; // Ordered by createdAt
+  processed_ids_json: string;
+  working_spec: string;
+  status: 'active' | 'completed' | 'failed';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Plugin {
+  // ...
+  timeTravel?: (doc: any, timestamp: string) => Promise<any>;
+}
+```
+
 ### Invariants & Constraints
-1. **No Instruction Redirects**: All IDE-specific rule files must contain the full protocol to minimize agent reasoning tax.
-2. **Pure Curl**: The loop must rely only on standard `curl` and JSON parsing.
-3. **Absolute Time-Lock**: No "future" data leakage during replay.
+1. **Absolute Time-Lock**: No data leakage from the "future" relative to the current moment.
+2. **Stateless Protocols**: All session state is managed by the backend; the agent only carries the `sessionId`.
+3. **Zero Maintenance Actor**: Instructions are delivered dynamically in API responses to avoid stale READMEs/rules.
 
-### Verification Plan
-1. **Static**: Run bootstrap script in a test repo and verify rule injection.
-2. **Logic**: Exercise the session API via `curl` and check PQ order.
-3. **End-to-End**: Perform a 3-turn replay in Cursor/Antigravity and verify spec evolution.
+### System Flow (Snapshot Diff)
+- **Previous Flow**: Subject Lookup -> Bulk LLM Summarization.
+- **New Flow**: `/start` -> [ PQ Pop -> Time-Locked Slicing -> Agent Revision -> PQ Push Children ] -> `/finish`.
 
-## [Refinement] Script-Only Instruction Delivery
-The user clarified that the instruction files (`AGENTS.md`, `.agent/rules/speccing.md`, etc.) should not be static files in the root of the project. Instead, they should be **generated/injected purely via the bootstrap script**.
+### Suggested Verification (Manual)
+1. Run `bootstrap-specs.sh` in a test project and verify `.agent/rules/` and `AGENTS.md` injection.
+2. Initialize a session: `curl -X POST "http://localhost:3000/api/speccing/start?subjectId=xyz"`
+3. Drive the loop: `curl "http://localhost:3000/api/speccing/next?sessionId=abc"` and verify the `instruction` field.
 
-### The Template Model
-- **Source**: The "Master" protocol logic will be stored as templates within the `scripts/` directory (e.g., as strings within `bootstrap-speccing.ts` or as sibling `.template` files).
-- **Injection**: Running `npx ts-node scripts/bootstrap-speccing.ts` (or similar) will create these files in the target project's root and rule directories.
-- **Portability**: This ensures the Machinen repo stays clean, and other projects can "boot" their speccing capability without manually copying files.
+### Tasks
+- [ ] Implement `SpeccingStateDO` and migrations.
+- [ ] Add `timeTravel` hooks to Cursor/GitHub plugins.
+- [ ] Build the Speccing Runner (PQ walker).
+- [ ] Create the Bash bootstrap script and instruction templates.
 
-I am updating the Work Task Blueprint to reflect this.

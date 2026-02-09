@@ -388,3 +388,17 @@ Incoming jobs from Cloudflare Queues are routed based on `queueName` and `jobTyp
 1.  **Phase Autonomy**: Each phase in `src/app/pipelines` is "whole". It defines what it does, how it renders in the simulator, and its core engine logic. (Historical simulation-specific helpers have been consolidated into core logic or simulation strategies).
 2.  **Strategy Isolation**: The logic for *how* to save state or *how* to transition is entirely decoupled from the phase logic itself, living in `src/app/engine/runtime/strategies/`.
 3.  **Plugin Decoupling**: Ingestion and domain-specific normalization are handled by `src/app/engine/plugins/`, allowing the engine to remain agnostic to the source material (e.g., GitHub issue vs. Discord message).
+
+## 7. Reconstructive Engines: Speccing
+
+Beyond live ingestion and simulation, the system supports **Reconstructive Engines** that consume the Moment Graph to synthesize new structured artifacts.
+
+### 7.1 The Speccing Engine
+The Speccing Engine reconstructs technical specifications by chronologically replaying a feature's development narrative. 
+
+- **State Timing**: Unlike live pipelines, speccing is **Reconstructive**. It uses a Priority Queue (PQ) to walk the graph and "time-travels" raw source documents to match the state of the world at each historical moment.
+- **Isolation**: Speccing session state (PQ tracking, drafts) is handled by a dedicated `SpeccingStateDO` to prevent interference with core Knowledge Graph operations.
+- **Self-Instructing Integration**: Integration with IDEs is "Pure Web" - the engine provides turn-by-turn `curl` instructions in API responses, directing the IDE agent without requiring custom editor plugins.
+
+### 7.2 The Time-Travel Invariant
+All reconstructive engines MUST enforce the **Absolute Time-Lock**. When fetching source evidence for a moment $M$, no information with a timestamp $> M.createdAt$ can be returned. This ensures narrative fidelity and prevents "future-leakage" during reconstruction.

@@ -581,3 +581,34 @@ We have finalized the implementation of the core Speccing Engine and its associa
 - **Bootstrap Script**: Autonomous project initialization and protocol enforcement.
 
 We are now ready to begin verification.
+
+## Verification Steps (Localhost)
+
+We are using `http://localhost:5174` as the worker URL for local verification.
+
+### 1. Discover Subjects
+Find a subject to spec using semantic search:
+```bash
+export API_KEY="your_api_key"
+export WORKER_URL="http://localhost:5174"
+export NAMESPACE="redwoodjs/machinen"
+
+curl -X POST "$WORKER_URL/api/subjects/search" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{\"query\": \"Refactoring progress\", \"namespace\": \"$NAMESPACE\"}"
+```
+
+### 2. Start Speccing Session
+Initialize the session with a `subjectId` (retrieved from step 1):
+```bash
+curl -X POST "$WORKER_URL/api/speccing/start?subjectId=YOUR_SUBJECT_ID" \
+  -H "Authorization: Bearer $API_KEY"
+```
+
+### 3. Replay Narrative
+Follow the `next_command` in the starting response or use:
+```bash
+curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=YOUR_SESSION_ID"
+```
+

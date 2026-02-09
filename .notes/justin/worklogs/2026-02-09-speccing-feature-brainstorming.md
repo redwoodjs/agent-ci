@@ -109,3 +109,114 @@ We have researched the existing plugins to determine how we can "extrapolate bac
 We are aligning on a "Moonshot" goal for this feature:
 - **Vision**: If a developer were to delete an entire feature's codebase, they should be able to point the Machinen agent at this spec and have it regenerated exactly as it was.
 - **Why**: This proves the spec has sufficient narrative fidelity and rationale to serve as the true "Source of Truth" for the system.
+
+## [Action Taken] Drafting Work Task Blueprint (Step 4)
+
+### Context
+We are implementing the "Speccing" engine, a system that regenerates technical specifications by replaying the historical development narrative of a "Subject" (Initiative/Feature). The core mechanics rely on a chronological traversal of the Moment Graph, pulling high-fidelity source documents (GitHub, Cursor, Discord), and "time-locking" them to match the state of the system at the time each moment occurred.
+
+### Breakdown of Planned Changes
+- **Core Abstractions**:
+    - Update `Plugin` interface to include the `timeTravel` hook.
+- **Plugin Heuristics**:
+    - Implement `timeTravel` for `cursor.ts` (generation slicing).
+    - Implement `timeTravel` for `github.ts` (comment/event filtering).
+    - Implement `timeTravel` for `discord.ts` (message filtering).
+- **Speccing Runner**:
+    - [NEW] Create `src/app/engine/runners/speccing/runner.ts`.
+    - Implement the Priority Queue (PQ) based chronological walk.
+    - Implement the agentic loop: `Replay -> Propose Spec Change -> Reference Sources`.
+
+### Directory & File Structure
+```text
+src/app/engine/
+├── [MODIFY] types.ts
+├── runners/
+│   └── [NEW] speccing/
+│       └── runner.ts
+└── plugins/
+    ├── [MODIFY] cursor.ts
+    ├── [MODIFY] github.ts
+    └── [MODIFY] discord.ts
+```
+
+### Types & Data Structures
+```typescript
+// In types.ts
+export interface Plugin {
+  // ...
+  timeTravel?: (
+    rawJson: any,
+    timestamp: string,
+    context: IndexingHookContext
+  ) => Promise<any> | any;
+}
+
+// In speccingRunner.ts
+export interface SpeccingState {
+  workingSpec: string;
+  processedMomentIds: Set<string>;
+  priorityQueue: Moment[];
+}
+```
+
+### Invariants & Constraints
+1. **No Time Travel**: The agent MUST NOT receive any content from a document that was created after the `createdAt` timestamp of the current moment being replayed.
+2. **Provenance-First**: Every proposed change to the "Working Spec" must cite a specific Moment ID and Source Document version as evidence.
+
+### System Flow (Snapshot Diff)
+**Current Flow**: Single-pass vector search -> LLM summary.
+**New Flow**: Subject Root -> PQ Walk -> [For each Moment: Time-Locked Document Extraction -> LLM Revision Step] -> Final Spec.
+
+### Suggested Verification (Manual)
+1. Run the `SpeccingRunner` against a known historical feature branch.
+2. Verify that the intermediate logs show the spec "evolving" as the replays proceed.
+3. Compare the generated spec with the known end-state of the feature.
+
+### Tasks
+- [ ] [MODIFY] `src/app/engine/types.ts`: Add `timeTravel` hook.
+- [ ] [MODIFY] `src/app/engine/plugins/cursor.ts`: Implement generation slicing.
+- [ ] [MODIFY] `src/app/engine/plugins/github.ts`: Implement comment filtering.
+- [ ] [MODIFY] `src/app/engine/plugins/discord.ts`: Implement message filtering.
+- [ ] [NEW] `src/app/engine/runners/speccing/runner.ts`: Implement PQ walk and agentic loop.
+
+## [Pivoted] Delegating the Agentic Loop to the IDE Agent (MCP)
+Based on co-design discussion, we are shifting the "Agentic Loop" out of the Machinen runner and into the IDE (Cursor/Antigravity).
+
+### The New Architecture: "Replay API + IDE Actor"
+1. **Machinen (Backend)**: Becomes a **Stateful Replay Engine**. It manages the Priority Queue walk and high-fidelity, time-locked document slicing.
+2. **MCP Server (Bridge)**: We expose Machinen's replay engine as an MCP server with tools like `get_next_replay_moment`.
+3. **IDE Agent (Actor)**: The agent in the developer's console (Antigravity/Cursor) handles the actual file writing and turn-by-turn revisions.
+
+### Benefits
+- **Visibility**: The user sees the spec being built in their editor in real-time.
+- **User-in-the-loop**: Replaying through the IDE allows the user to pause, ask questions, or steer the agent during the process.
+- **Lower Lift**: Leverages existing agentic capabilities of the IDE for file operations and reasoning.
+
+### Technical Requirement: Stateful Session Management
+To support this, Machinen needs a way to track a "Speccing Session":
+- We likely need a `spec_replay_state` table to store the PQ and processed moment IDs for an active session ID.
+- The MCP tool will simply call `session.next()` and return the result.
+
+### Integration Layer: Skills & Workflows
+We will define an **Antigravity Skill** or **Workflow** (or an `agents.md` for general agents) that tells the agent:
+- "Call the Machinen MCP tool to get the next moment."
+- "Reconstruct the spec based on the source data provided."
+- "Cite your sources."
+- "Repeat until the stream is exhausted."
+
+## [Challenge] why use MCP if we can just use Curl/CLI?
+The user challenged the overhead and latency of MCP servers. If the IDE agent (Cursor/Antigravity) can already run commands, why wrap our API in an MCP tool?
+
+### Our Analysis: The "Bridge" vs. the "Script"
+1. **The MCP Argument (Encapsulation)**: A tool like `speccing_next` provides a structured schema (JSON-RPC) that the agent can "understand" without reading documentation. It hides auth headers and URL management.
+2. **The CLI/Curl Argument (Low Latency & Control)**: Raw commands are faster, easier to debug, and don't require the agent to "discover" a server. The agent can just follow a `.agent/workflows/speccing.md` or an `agents.md` file.
+
+### Decision: "CLI-First" Stateful Replay
+We will prioritize making the **Machinen API** the "Source of State" but expose it via a **thin CLI utility** (or well-documented `curl` patterns) that the agent can execute.
+- **Machinen API**: Holds the session state (`spec_replay_state`), handles the PQ walk, and slices the documents.
+- **CLI Utility**: `mchn spec start <subjectId>` and `mchn spec next <sessionId>`.
+- **IDE Agent**: Follows a workflow to call these commands and update the local spec.
+
+### Can it be stateful?
+Yes. Both MCP and CLI are stateless protocols, but the **Backend** (Machinen) is stateful. We pass a `sessionId` (a "ticket") back and forth. The API stores the "Cursor" (the PQ) for that session in the database.

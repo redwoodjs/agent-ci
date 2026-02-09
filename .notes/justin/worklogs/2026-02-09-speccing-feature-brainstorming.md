@@ -220,3 +220,99 @@ We will prioritize making the **Machinen API** the "Source of State" but expose 
 
 ### Can it be stateful?
 Yes. Both MCP and CLI are stateless protocols, but the **Backend** (Machinen) is stateful. We pass a `sessionId` (a "ticket") back and forth. The API stores the "Cursor" (the PQ) for that session in the database.
+
+## [Decision] Using AGENTS.md for Cross-Editor Portability
+The user raised concerns about the portability of Antigravity-specific "Workflows". We have researched emerging standards and decided to adopt **AGENTS.md** as our primary "Instruction Layer".
+
+### The Multi-Editor Strategy
+1. **Universal Layer (AGENTS.md)**: We will maintain an `AGENTS.md` file at the project root. This file acts as a "README for AI" and defines the **Speccing Replay Protocol**. Any agent (Cursor, VS Code/Copilot, Antigravity) that reads this file will know how to call the Machinen CLI/API to perform a replay.
+2. **Native Layer (Antigravity Workflows)**: We will still provide `.agent/workflows/speccing.md` for a "premium" experience in Antigravity, but its logic will strictly follow the protocol defined in `AGENTS.md`.
+3. **Cursor Support**: Cursor agents natively read `AGENTS.md` (and `.cursorrules`), so our Speccing feature will be "discovered" by Cursor agents automatically if indexed.
+
+### Standardizing the Loop Logic
+The `AGENTS.md` will contain a section:
+- **Speccing Protocol**:
+    - "When asked to spec a feature, first call `mchn spec start <subjectId>`."
+    - "Hold the `sessionId` in memory."
+    - "Enter a loop: call `mchn spec next <sessionId>`, apply the provided time-locked context to update the spec, and cite the Moment ID."
+    - "Stop when 'replay_exhausted' is true."
+
+This ensures the feature is not trapped in one IDE while still providing a high-quality experience in our primary environment.
+
+## [Pivoted] The "Self-Instructing API" (Universal Actor Pattern)
+To solve the "Workflows are IDE-specific" and "Antigravity doesn't support AGENTS.md" challenges, we are moving the "Instruction Layer" into the **API Response** itself.
+
+### The "Self-Driving" Handshake
+Instead of teaching the agent the "Speccing Algorithm" via a config file (`AGENTS.md` or `speccing.md`), the Machinen API will **direct the agent turn-by-turn**.
+
+1. **Step 1**: User asks: "mchn: spec out feature X".
+2. **Step 2**: Agent runs `mchn spec start`.
+3. **Step 3 (The Pivot)**: The API returns a JSON response containing:
+    - `state`: The current session ID.
+    - `instructions`: A clear markdown string for the agent: "I've initialized. Now run `mchn spec next` to see the first piece of evidence."
+4. **Step 4**: The agent simply follows the `instructions` field in each response.
+    - Each `speccing_next` result will include: "Here is the frozen document snippet at . Revise the spec at [Path] with these details, then call `mchn spec next` to continue."
+
+### Why this scales
+- **Zero Config**: No need for `AGENTS.md`, `.cursorrules`, or Antigravity Workflows to contain complex logic. The logic (the "The Brain") stays on the Machinen server.
+- **Universal Portability**: Any agent that can run a CLI and read JSON can be the actor.
+- **Robustness**: The server controls the flow, ensuring the "No Time Travel" invariant is never violated regardless of which IDE is used.
+
+## [Investigated] Solving the "Bootstrapping Problem" (Discovery Strategy)
+The user correctly identified a bootstrapping problem: if the agent doesn't have a standardized config file (`AGENTS.md`), how does it know to call `mchn spec start`?
+
+### Three-Pronged Discovery
+We will use a combination of "Discovery Signals" to ensure the agent finds the entry point:
+
+1. **Static Discovery (Project Context)**:
+   - We maintain a minimal, project-baseline "Rule" or "Context" file (e.g., `README.md` or a tiny project-level directive) that simply states:
+     - "For speccing new work based on historical narrative, use the `mchn` CLI. Call `mchn spec start <subjectId>`."
+2. **Tool Discovery (MCP Grounding)**:
+   - The existing `search_machinen` MCP tool's documentation will be updated. When an agent searches for "narrative" or "speccing," the tool's description will explicitly suggest:
+     - "To generate a technical spec from this subject's history, start a speccing session with `mchn spec start`."
+3. **Trigger-Based Orchestration**:
+   - In Antigravity or Cursor, the user often starts with "mchn: ...". This prompt triggers the agent to search for "mchn" in its current context (Files and Tools). Between the minimal project rule and the MCP tool hint, the agent will have a 99% hit rate for discovering the entry point.
+
+Once the agent runs that **first** command, the "Self-Instructing API" takes over, and the bootstrapping problem is solved for the remainder of the session.
+
+## [Final Alignment] The Hybrid Interface (Discovery vs. Execution)
+We have refined the roles of MCP and CLI to address the user's concerns about latency and bootstrapping.
+
+1. **MCP (The Discovery Layer)**:
+   - **Role**: Entry point and "Capability Advertising".
+   - **Why**: An agent is much more likely to "know" a capability exists if it's listed in its Tool palette (MCP).
+   - **Action**: We provide a `speccing_start` tool. Calling this initialized the session and returns the **First Instruction**.
+
+2. **CLI/mchn (The Execution Layer)**:
+   - **Role**: The high-performance loop.
+   - **Why**: Minimizes the JSON-RPC overhead for large document snippets.
+   - **Action**: Once the session is started (via MCP or directly), the agent is instructed to use `mchn spec next` to drive the iteration.
+
+3. **Rules/Directives (The Context Layer)**:
+   - **Role**: Ensuring the agent knows where to look.
+   - **Action**: We will include a minimal directive in `README.md` (or similar) that points the agent toward the speccing capability.
+
+### Summary
+The **discovery** can happen via MCP (automatic) or README (manual but robust). The **execution** happens via the `mchn` script to keep it fast. This "sneaky" bootstrapping ensures the agent finds the door, and the "Self-Instructing API" ensures it stays on the path.
+
+## [Action Taken] The AGENTS.md Shim for Antigravity
+The user suggested that we might be "shoehorning" `agents.md` and asked for a proper "shim" in Antigravity.
+
+### The Shim Strategy
+To ensure Antigravity (and other agents) follow the universal `AGENTS.md` without proprietary lock-in:
+1. **Universal Layer**: `AGENTS.md` at the project root remains the single source of truth for the speccing protocol.
+2. **Antigravity Shim**: We will create `.agent/rules/speccing-shim.md`. This file is natively supported by Antigravity and will contain a single instruction:
+   - "For all speccing and narrative replay tasks, you MUST read and follow the instructions in `AGENTS.md`."
+3. **Cursor Shim**: A similar entry in `.cursorrules` (or `.cursor/rules/speccing.mdc`) will do the same for Cursor.
+
+### Why this works
+- **No Shoehorning**: We aren't forcing the IDE to "support" `agents.md` natively. We are using the IDE's native "Rules" system to **point** at the standard.
+- **Dry**: The complex "how-to" logic lives only in `AGENTS.md`. The shims are just pointers.
+
+## [Correction] Cursor Natively Supports AGENTS.md
+We corrected our understanding: **Cursor does support `AGENTS.md` natively**. 
+
+### Revised Shim Strategy
+- **Cursor**: No shim required. The agent will read `AGENTS.md` directly from the project root.
+- **Antigravity**: Still needs the shim (`.agent/rules/speccing-shim.md`) because it does not yet support the global `AGENTS.md` standard.
+- **Result**: We maintain a single source of truth (`AGENTS.md`) and only add boilerplate where the IDE hasn't yet caught up to the standard.

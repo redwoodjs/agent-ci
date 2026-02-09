@@ -1,0 +1,6 @@
+ignoredBuiltDependencies:
+  - keytar
+  - protobufjs
+
+onlyBuiltDependencies:
+  - '@vscode/vsce-sign'

@@ -462,3 +462,50 @@ export interface Plugin {
 - [ ] Build the Speccing Runner (PQ walker).
 - [ ] Create the Bash bootstrap script and instruction templates.
 
+
+## [Prompt Design] Instruction Payloads & Spec Templates
+To ensure high adherence and consistent output, we are defining the specific prompt and instruction payloads that will be used by the "Speccing Replay" loop.
+
+### 1. The Bootstrap Payload (`AGENTS.md`)
+This is the "Genesis Prompt" that tells the agent how to start.
+```markdown
+# Machinen Speccing Protocol
+You are an expert technical writer and architect. Your task is to reconstruct a high-fidelity technical specification by replaying the development narrative of a specific "Subject".
+
+## The Protocol
+1. **Bootstrap**: Your first action must be to initialize the session.
+   Execute: `curl -X POST "http://localhost:3000/api/speccing/start?subjectId=<ID>"`
+2. **The Turn**: The response will contain a `sessionId`, a `moment` for you to process, and some `timeTravelContext` (raw evidence).
+3. **The Action**: Use the evidence to update the technical specification at `docs/specs/<subject>.md`.
+4. **The Loop**: Always follow the `instruction` field in the JSON response. It will provide the next `curl` command to execute.
+5. **Completion**: When the response indicates that there are no more moments (`status: 'completed'`), finalize the document and notify the user.
+
+## The Goal
+Create a spec that passes the "Deletion Test". Your output must follow this mandatory structure:
+
+- **2000ft View Narrative**: High-level architectural narrative (becomes the PR description).
+- **Database Changes**: Schema changes and their rationale.
+- **Behavior Spec**: Ground truth behaviors (GIVEN/WHEN/THEN).
+- **Implementation Detail (The Pipes)**:
+    - **Pipes**: Data flow steps.
+    - **Breakdown**: Code changes (`[NEW]`, `[MODIFY]`, `[DELETE]`).
+- **Directory & File Structure**: Tree view of files.
+- **Types & Data Structures**: Snippets of types.
+- **Invariants & Constraints**: Rules for the system.
+- **System Flow (Snapshot Diff)**: Previous -> New flow delta.
+- **Suggested Verification**: Commands for the human Advisor.
+- **Tasks**: Granular checklist.
+```
+
+### 2. The Turn Payload (API `instruction` field)
+Every `GET /api/speccing/next` call will return a response containing:
+```json
+{
+  "sessionId": "...",
+  "moment": { "id": "...", "summary": "...", "createdAt": "..." },
+  "evidence": [ ... ],
+  "instruction": "REPLAY TURN: Integrate the evidence above into the spec. Focus on the rationale for [Change X]. Once done, proceed to the next moment: `curl http://.../next?sessionId=...`",
+  "status": "active"
+}
+```
+

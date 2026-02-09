@@ -366,6 +366,8 @@ The system follows a "Pure Web + Universal Actor" model. Machinen acts as the st
 ### Database Changes (MANDATORY)
 **Decision**: We use a dedicated **SpeccingState Durable Object** (`src/app/engine/databases/speccing/`).
 **Rationale**: Speccing sessions involve transient, high-churn data like the Priority Queue and large, evolving drafts. Isolating this in a dedicated DO prevents bloat in the core `momentGraph` and aligns with the project's "Domain-Specific Storage" pattern (cf. `simulationState`).
+> [!NOTE]
+> **Subject Storage**: While we use a dedicated `SUBJECT_INDEX` (Vectorize) for discovery, the relational source of truth for subjects remains the `moments` table in `MomentGraphDO` (filtered by `is_subject: true`). The legacy `SubjectDO` is a stub and will be removed once the v8 migration is verified.
 
 | Table | Column | Type | Description |
 | :--- | :--- | :--- | :--- |
@@ -374,6 +376,7 @@ The system follows a "Pure Web + Universal Actor" model. Machinen acts as the st
 | | priority_queue_json | text | JSON array of Moment IDs waiting to be processed. |
 | | processed_ids_json | text | JSON array of Moment IDs already integrated. |
 | | working_spec | text | The current evolved draft of the specification. |
+| | replay_timestamp | text | The timestamp of the current moment being replayed (used for time-locking). |
 | | status | text | 'active', 'completed', 'failed'. |
 | | created_at | text | ISO timestamp. |
 | | updated_at | text | ISO timestamp for TTL cleanup. |
@@ -392,6 +395,54 @@ The system follows a "Pure Web + Universal Actor" model. Machinen acts as the st
 - **AND**: It fetches raw source documents linked to $M$ and applies provider-specific "Time Travel" slicing (timestamp <= $M.createdAt$).
 - **AND**: It returns the time-locked context, the moment summary, and the next `curl` command.
 
+### API Specification
+
+#### 1. Discovery API
+Used to find relevant Subjects for speccing.
+- **Endpoint**: `POST /api/subjects/search`
+- **Alias**: `POST /debug/query-subject-index` (legacy compat)
+- **Request Body**:
+  ```json
+  { "query": "string" }
+  ```
+- **Response**:
+  ```json
+  {
+    "matches": [
+      { "id": "string", "title": "string", "score": number, "summary": "string" }
+    ]
+  }
+  ```
+
+#### 2. Speccing Loop API
+Stateful chronological walker.
+
+##### **`POST /api/speccing/start`**
+- **Query Params**: `subjectId` (string)
+- **Response**:
+  ```json
+  {
+    "sessionId": "string",
+    "status": "active",
+    "instruction": "Initial bootstrap instruction...",
+    "next_command": "curl http://.../next?sessionId=..."
+  }
+  ```
+
+##### **`GET /api/speccing/next`**
+- **Query Params**: `sessionId` (string)
+- **Response**:
+  ```json
+  {
+    "sessionId": "string",
+    "status": "active" | "completed",
+    "moment": { "id": "string", "summary": "string", "createdAt": "string" },
+    "evidence": [...],
+    "instruction": "Detailed replay instruction for the agent.",
+    "next_command": "curl http://.../next?sessionId=..."
+  }
+  ```
+
 ### Breakdown of Planned Changes
 - **Database Layer**:
     - [NEW] `src/app/engine/databases/speccing/`: Create dedicated DO, migrations, and index. 
@@ -400,8 +451,11 @@ The system follows a "Pure Web + Universal Actor" model. Machinen acts as the st
     - [MODIFY] `src/app/engine/types.ts`: Update `Plugin` interface with the `timeTravel` hook.
 - **Plugin Heuristics (Fidelity Slicing)**:
     - [MODIFY] `cursor.ts`, `github.ts`, `discord.ts`: Implement source-specific "time-locking" logic (e.g., generation/comment/message slicing).
+- **Discovery & Orchestration**:
+    - [NEW] `src/app/engine/routes/subjects.ts`: Implement `POST /api/subjects/search` for semantic discovery.
+    - [MODIFY] `src/app/pipelines/materialize_moments/index.ts`: Add logic to embed and index `isSubject` moments into `SUBJECT_INDEX`.
 - **Tooling (The Vehicle)**:
-    - [NEW] `scripts/bootstrap-specs.sh`: A standalone POSIX-compliant script to inject the `AGENTS.md` and native IDE instructions into any repository.
+    - [NEW] `scripts/bootstrap-specs.sh`: A standalone POSIX-compliant script to inject the `AGENTS.md` and native IDE instructions. **Features local namespace detection via `git remote` heuristics.**
 
 ### Directory & File Structure
 ```text
@@ -417,6 +471,9 @@ The system follows a "Pure Web + Universal Actor" model. Machinen acts as the st
     ├── runners/
     │   └── [NEW] speccing/
     │       └── runner.ts
+    ├── routes/
+    │   ├── [NEW] speccing.ts
+    │   └── [NEW] subjects.ts
     └── plugins/
         ├── [MODIFY] cursor.ts
         ├── [MODIFY] github.ts
@@ -443,9 +500,10 @@ export interface Plugin {
 ```
 
 ### Invariants & Constraints
-1. **Absolute Time-Lock**: No data leakage from the "future" relative to the current moment.
+1. **Absolute Time-Lock**: No data leakage from the "future" relative to the current moment. All queries must respect the `replay_timestamp`.
 2. **Stateless Protocols**: All session state is managed by the backend; the agent only carries the `sessionId`.
 3. **Zero Maintenance Actor**: Instructions are delivered dynamically in API responses to avoid stale READMEs/rules.
+4. **Autonomous Namespace Resolution**: The client resolves the project namespace locally (via `git`) to ensure project-agnosticity.
 
 ### System Flow (Snapshot Diff)
 - **Previous Flow**: Subject Lookup -> Bulk LLM Summarization.
@@ -508,4 +566,5 @@ Every `GET /api/speccing/next` call will return a response containing:
   "status": "active"
 }
 ```
+
 

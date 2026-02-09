@@ -517,6 +517,22 @@ export const githubPlugin: Plugin = {
 
       return `## GitHub Context\n\n${contextSection}`;
     },
+    async timeTravel(evidence: any, timestamp: string, context: IndexingHookContext) {
+      const data = evidence as any;
+      const targetTime = Date.parse(timestamp);
+      if (isNaN(targetTime)) {
+        return data;
+      }
+
+      if (Array.isArray(data.comments)) {
+        data.comments = data.comments.filter((c: any) => {
+          const ct = Date.parse(c.created_at);
+          return isNaN(ct) || ct <= targetTime;
+        });
+      }
+
+      return data;
+    },
   },
 };
 

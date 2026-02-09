@@ -97,6 +97,10 @@
       "tag": "v13",
       "new_sqlite_classes": ["EngineSimulationStateDO"],
     },
+    {
+      "tag": "v14",
+      "new_sqlite_classes": ["SpeccingStateDO"],
+    },
   ],
   "durable_objects": {
     "bindings": [
@@ -127,6 +131,10 @@
       {
         "name": "DISCORD_WEBHOOK_BATCHER",
         "class_name": "DiscordWebhookBatcherDO",
+      },
+      {
+        "name": "SPECCING_STATE_DO",
+        "class_name": "SpeccingStateDO",
       },
     ],
   },

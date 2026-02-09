@@ -548,5 +548,29 @@ export const discordPlugin: Plugin = {
 
       return `## Discord Context\n\n${contextSection}`;
     },
+    async timeTravel(evidence: any, timestamp: string, context: IndexingHookContext) {
+      const targetTime = Date.parse(timestamp);
+      if (isNaN(targetTime)) {
+        return evidence;
+      }
+
+      const data = evidence as any;
+
+      if (Array.isArray(data.messages)) {
+        data.messages = data.messages.filter((msg: any) => {
+          const mt = Date.parse(msg.timestamp);
+          return isNaN(mt) || mt <= targetTime;
+        });
+      }
+
+      if (data.starter_message) {
+        const st = Date.parse(data.starter_message.timestamp);
+        if (!isNaN(st) && st > targetTime) {
+          return null;
+        }
+      }
+
+      return data;
+    },
   },
 };

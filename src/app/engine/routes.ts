@@ -34,6 +34,8 @@ import {
 } from "./momentGraphNamespace";
 
 import { simulationAdminRoutes } from "./routes/simulation";
+import { searchSubjectsHandler } from "./routes/subjects";
+import { startSpeccingHandler, nextSpeccingHandler } from "./routes/speccing";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const body = (ctx as any)?.parsedBody as
@@ -1205,6 +1207,18 @@ export const routes = [
   }),
   route("/timeline", {
     get: [requireQueryApiKey, timelineHandler],
+  }),
+  route("/api/subjects/search", {
+    post: [requireQueryApiKey, searchSubjectsHandler],
+  }),
+  route("/debug/query-subject-index", {
+    post: [requireQueryApiKey, searchSubjectsHandler],
+  }),
+  route("/api/speccing/start", {
+    post: [requireQueryApiKey, startSpeccingHandler],
+  }),
+  route("/api/speccing/next", {
+    get: [requireQueryApiKey, nextSpeccingHandler],
   }),
 ];
 

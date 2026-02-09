@@ -358,5 +358,24 @@ export const cursorPlugin: Plugin = {
         primaryMetadata: documentChunks[0],
       };
     },
+    async timeTravel(evidence: any, timestamp: string, context: IndexingHookContext) {
+      const data = evidence as CursorConversationLatestJson;
+      const targetTime = Date.parse(timestamp);
+      if (isNaN(targetTime)) {
+        return data;
+      }
+
+      const filteredGens = (data.generations || []).filter((gen) => {
+        const earliestGenTime = (gen.events || []).reduce((min: number, event: any) => {
+          const ts = (event as any).timestamp || (event as any)._ingestion_timestamp;
+          if (!ts) return min;
+          const parsed = typeof ts === "number" ? (ts < 1e12 ? ts * 1000 : ts) : Date.parse(ts);
+          return isNaN(parsed) ? min : Math.min(min, parsed);
+        }, Infinity);
+        return earliestGenTime <= targetTime;
+      });
+
+      return { ...data, generations: filteredGens };
+    },
   },
 };

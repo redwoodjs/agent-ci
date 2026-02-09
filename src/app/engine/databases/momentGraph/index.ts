@@ -52,7 +52,7 @@ export type MomentGraphContext = {
 
 const MIN_VECTOR_IMPORTANCE_FOR_VECTORIZE = 0.4;
 
-function getMomentDb(context: MomentGraphContext) {
+export function getMomentDb(context: MomentGraphContext) {
   return createDb<MomentDatabase>(
     context.env.MOMENT_GRAPH_DO as DurableObjectNamespace<MomentGraphDO>,
     qualifyName("moment-graph-v2", context.momentGraphNamespace)
@@ -286,6 +286,10 @@ export async function addMoment(
         });
       }
       await context.env.MOMENT_INDEX.upsert([momentVector]);
+      
+      if (isSubject) {
+        await context.env.SUBJECT_INDEX.upsert([momentVector]);
+      }
     } else {
       console.log("[moment-linker] vector upsert skipped (low importance)", {
         id: moment.id,

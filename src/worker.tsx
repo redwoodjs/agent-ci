@@ -56,6 +56,7 @@ export { DiscordWebhookBatcherDO } from "@/app/ingestors/discord/db/webhook-batc
 export { SubjectDO } from "@/app/engine/databases/subjects/durableObject";
 // Temporary export for migration - will be removed after v8 migration completes
 export { SubjectDO as SubjectGraphDO } from "@/app/engine/databases/subjects/durableObject";
+export { SpeccingStateDO } from "@/app/engine/databases/speccing/durableObject";
 
 import { processSchedulerJob } from "@/app/ingestors/github/services/scheduler-service";
 import { processProcessorJob } from "@/app/ingestors/github/services/processor-service";

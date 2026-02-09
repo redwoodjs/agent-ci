@@ -1,7 +1,7 @@
 {
   "name": "machinen",
   "displayName": "Machinen",
-  "description": "Shows code origin and decisions when hovering over //? in code",
+  "description": "",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.80.0"
@@ -94,11 +94,13 @@
   "scripts": {
     "vscode:prepublish": "pnpm run compile",
     "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./"
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.80.0",
+    "@vscode/vsce": "^3.2.1",
     "protobufjs": "^8.0.0",
     "snappy": "^7.3.3",
     "typescript": "^5.0.0"

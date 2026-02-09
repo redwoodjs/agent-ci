@@ -18,8 +18,9 @@ export async function searchSubjectsHandler({ request }: RequestInfo) {
     const embedding = await getEmbedding(queryText);
     const envCloudflare = env as Cloudflare.Env;
 
-    const results = await envCloudflare.SUBJECT_INDEX.query(embedding, {
+    const results = await envCloudflare.MOMENT_INDEX.query(embedding, {
       topK: 10,
+      filter: { isSubject: true },
       returnMetadata: true,
     });
 

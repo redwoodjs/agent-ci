@@ -286,10 +286,6 @@ export async function addMoment(
         });
       }
       await context.env.MOMENT_INDEX.upsert([momentVector]);
-      
-      if (isSubject) {
-        await context.env.SUBJECT_INDEX.upsert([momentVector]);
-      }
     } else {
       console.log("[moment-linker] vector upsert skipped (low importance)", {
         id: moment.id,

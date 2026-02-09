@@ -612,3 +612,25 @@ Follow the `next_command` in the starting response or use:
 curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=YOUR_SESSION_ID"
 ```
 
+
+## [Pivoted] Unifying Subject Discovery on MOMENT_INDEX
+
+We decided to eliminate the dedicated `SUBJECT_INDEX` and instead unify all moment-related vector discovery on the `MOMENT_INDEX`.
+
+### Rationale:
+- **Redundancy**: Subjects are just root moments; maintaining two separate vector indexes for the same data is unnecessary.
+- **Filtering**: Cloudflare Vectorize supports metadata filtering. We can achieve the same discovery by filtering for subjects in the main index.
+
+### Mandatory Infrastructure Step:
+> [!IMPORTANT]
+> **Create Metadata Index**: Before this works in production, we MUST create a metadata index for the `isSubject` field on the `MOMENT_INDEX`.
+> ```bash
+> npx wrangler vectorize create-metadata-index moment-index-v8 \
+>   --property-name='isSubject' \
+>   --type='boolean'
+> ```
+
+### Plan Update:
+- Modify `src/app/engine/routes/subjects.ts` to query `MOMENT_INDEX` with `{ isSubject: true }` filter.
+- Modify `src/app/engine/databases/momentGraph/index.ts` to stop upserting to `SUBJECT_INDEX`.
+

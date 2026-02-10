@@ -79,4 +79,11 @@ We identified a total stall in the simulation run during the `micro_batches` pha
 We introduced a document-level resiliency layer to ensure simulation runs can advance even in the presence of problematic data.
 - **Visibility Protection**: We updated all JSON path queries and updates to use `COALESCE` patterns, ensuring that newly discovered documents are always visible to the orchestrator regardless of their initial state.
 - **Zombie Ditcher**: We added an `attempts_json` column to track retries per phase. If a document fails to progress after 3 attempts, the system now automatically "ditches" it—marking it as skipped in the phase history and logging a warning event.
-- **Eventual Advancement**: By skipping high-failure documents, the simulation runner can now reach the "advance" state and move on to subsequent phases, preserving the overall progress of the run.
+- **Eventual Advancement**: 
+## Speccing Engine Implementation & Discovery Investigation
+We transitioned into implementing and verifying the **Speccing Engine** to replay narratives from the simulation runs.
+
+### Technical Findings
+1. **Discovery Stall**: `POST /api/subjects/search` returns 0 results even with `DEBUG_SKIP_FILTER: true`. Although Vectorize reports 16,383 vectors in `moment-index-v8`, they likely lack the `momentGraphNamespace` metadata for our simulation run because the metadata indices were created *after* the initial materialization.
+2. **Durable Object Fallback**: We successfully implemented and verified a fallback mechanism in `subjects.ts`. If semantic search fails, the engine can now query the Durable Object directly to find subjects if a namespace is provided.
+3. **Connectivity Stabilization**: We standardized all local verification on `127.0.0.1:5174` to resolve intermittent "Connection Refused" issues caused by IPv6/localhost resolution conflicts.

@@ -5,7 +5,7 @@ const secretsSchema = z.object({
   // Environment Variables
   AI_GOOGLE_KEY: z.string().min(1),
   AI_CEREBRAS_KEY: z.string().min(1),
-  AUTH_SECRET_KEY: z.string().min(1),
+  AUTH_SECRET_KEY: z.string().min(1).optional(),
   API_KEY: z.string().min(1),
   INGEST_API_KEY: z.string().min(1),
   DISCORD_BOT_TOKEN: z.string().min(1).optional(),

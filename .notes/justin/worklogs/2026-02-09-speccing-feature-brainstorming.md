@@ -734,3 +734,15 @@ npx wrangler vectorize create-metadata-index moment-index-v8 \
   --property-name='momentGraphNamespace' \
   --type='string'
 ```
+
+## [Investigated] Namespace Parameter Support (Missing)
+We verified the `src/app/engine/routes/subjects.ts` and `src/app/engine/routes/speccing.ts` files and confirmed that they currently **ignore** `namespace` and `namespacePrefix` parameters in the request body/query.
+
+### Findings
+1. **Code Analysis**: The route handlers only extract `query` (subjects) and `subjectId` (speccing), relying on `getMomentGraphNamespaceFromEnv` which reads strictly from environment variables.
+2. **Empirical Test**: We executed a `curl` command against the local worker with the explicit namespace `redwoodjs/machinen` and prefix `local-2026-02-10-12-08-focused-mole`. 
+3. **Result**: The API returned `{"matches":[]}`, confirming it did not query the requested simulation namespace (or the simulation data is missing, but the code confirms the parameter is ignored).
+
+### Conclusion
+The current implementation does not support the requirement to "include a moment graph namespace" dynamically. The API is hard-pinning to the worker's environment variables.
+

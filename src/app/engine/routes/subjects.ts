@@ -60,11 +60,30 @@ export async function searchSubjectsHandler({ request }: RequestInfo) {
 
     const embedding = await getEmbedding(queryText);
 
+    console.log(`[subjects:search] Querying with filter:`, JSON.stringify(filter));
+
     const results = await envCloudflare.MOMENT_INDEX.query(embedding, {
       topK: 10,
       filter,
       returnMetadata: true,
     });
+    
+    console.log(`[subjects:search] Found ${results.matches.length} matches with filter`);
+    if (results.matches.length === 0) {
+        const noSubjectFilter = { ...filter };
+        delete noSubjectFilter.isSubject;
+        console.log(`[subjects:search] Retrying WITHOUT isSubject filter:`, JSON.stringify(noSubjectFilter));
+        const res2 = await envCloudflare.MOMENT_INDEX.query(embedding, {
+            topK: 10,
+            filter: noSubjectFilter,
+            returnMetadata: true,
+        });
+        console.log(`[subjects:search] Found ${res2.matches.length} matches WITHOUT isSubject filter`);
+        if (res2.matches.length > 0) {
+            console.log(`[subjects:search] Example metadata from first match:`, JSON.stringify(res2.matches[0].metadata));
+        }
+    }
+
 
     const matches = results.matches.map((match) => ({
       id: match.id,

@@ -813,7 +813,118 @@ None.
 3. **Simulation Replay**: Run `bootstrap-specs.sh` with `NAMESPACE_PREFIX=sim-123` and verify the generated curls return simulation data.
 
 ### Tasks
-- [ ] [MODIFY] `src/app/engine/plugins/redwood-scope-router.ts` to handle repository context <!-- id: 1 -->
-- [ ] [MODIFY] `src/app/engine/routes/subjects.ts` to invoke plugins <!-- id: 2 -->
-- [ ] [MODIFY] `src/app/engine/routes/speccing.ts` to invoke plugins <!-- id: 3 -->
-- [ ] [MODIFY] `scripts/bootstrap-specs.sh` to pass repository context <!-- id: 4 -->
+- [x] [MODIFY] `src/app/engine/plugins/redwood-scope-router.ts` to handle repository context <!-- id: 1 -->
+- [x] [MODIFY] `src/app/engine/routes/subjects.ts` to invoke plugins <!-- id: 2 -->
+- [x] [MODIFY] `src/app/engine/routes/speccing.ts` to invoke plugins <!-- id: 3 -->
+- [x] [MODIFY] `scripts/bootstrap-specs.sh` to pass repository context <!-- id: 4 -->
+
+### Vectorize Filtering Discrepancy (Discovery)
+We observed that while the Dynamic Namespace is resolved correctly, the Discovery API returns 0 matches when using the `isSubject: true` filter.
+
+**Key Findings:**
+- **Namespace Resolution**: Confirmed working. Server logs show the resolved namespace matches the prefix.
+- **Data Existence (SQLite)**: Durable Object storage (MomentGraphDO) contains the expected moments for the simulation namespace (verified via `admin/tree-stats`).
+- **Data Existence (Vectorize)**: The remote `moment-index-v8` index **does** contain the vectors.
+- **Filter Failure**: 
+    - Querying with `filter: { isSubject: true, momentGraphNamespace: "..." }` -> **0 matches**.
+    - Querying with `filter: { momentGraphNamespace: "..." }` -> **10 matches**.
+- **Metadata Verification**: Matches retrieved *without* the `isSubject` filter contain `"isSubject": true` in their metadata.
+
+**Hypothesis**: Cloudflare Vectorize is currently sensitive to the boolean filter format or there is a type mismatch between how it was indexed and how it is being queried.
+
+---
+
+## Verified Namespace Resolution via Manual Curl
+
+### 1. Discovery (Semantic Search)
+To find a valid Subject ID within the simulation namespace:
+
+```bash
+curl -X POST "http://localhost:5174/api/subjects/search" \
+  -H "Authorization: Bearer dev" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Recent work",
+    "context": {
+      "repository": "redwoodjs/sdk",
+      "namespacePrefix": "local-2026-02-10-12-08-focused-mole"
+    }
+  }'
+```
+
+### 2. Speccing Start
+Use a `subjectId` from the results above to initialize the session:
+
+```bash
+curl -X POST "http://localhost:5174/api/speccing/start?subjectId=<ID_FROM_SEARCH>" \
+  -H "Authorization: Bearer dev" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "context": {
+      "repository": "redwoodjs/sdk",
+      "namespacePrefix": "local-2026-02-10-12-08-focused-mole"
+    }
+  }'
+```
+
+
+## Verified Namespace Resolution via Manual Curl
+
+We verified the implementation against the local development server to confirm that the `repository` and `namespacePrefix` context parameters are correctly resolved to the target namespace.
+
+### Discovery API Test
+
+**GIVEN** a local dev server running on `http://localhost:5174`
+**WHEN** sending a search request with repository context and prefix
+**THEN** the server logs confirm the correct namespace resolution
+
+```bash
+curl -X POST "http://localhost:5174/api/subjects/search" \
+  -H "Authorization: Bearer dev" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Recent work on streams",
+    "context": {
+      "repository": "redwoodjs/sdk",
+      "namespacePrefix": "local-2026-02-10-12-08-focused-mole"
+    }
+  }'
+```
+
+**Observed Server Logs**:
+```text
+[scope-router] query (repository context) {
+  repository: 'redwoodjs/sdk',
+  project: 'rwsdk',
+  namespace: 'redwood:rwsdk'
+}
+[subjects:search] querying namespace: local-2026-02-10-12-08-focused-mole:redwood:rwsdk
+```
+
+### Speccing API Test
+
+**GIVEN** a local dev server
+**WHEN** initializing a speccing session with context
+**THEN** the session correctly resolves and uses the prefixed namespace
+
+```bash
+curl -X POST "http://localhost:5174/api/speccing/start?subjectId=test-subject" \
+  -H "Authorization: Bearer dev" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "context": {
+      "repository": "redwoodjs/sdk",
+      "namespacePrefix": "local-2026-02-10-12-08-focused-mole"
+    }
+  }'
+```
+
+**Observed Server Logs**:
+```text
+[scope-router] query (repository context) {
+  repository: 'redwoodjs/sdk',
+  project: 'rwsdk',
+  namespace: 'redwood:rwsdk'
+}
+[speccing:start] Resolved dynamic namespace: local-2026-02-10-12-08-focused-mole:redwood:rwsdk
+```

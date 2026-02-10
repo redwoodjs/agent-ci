@@ -719,3 +719,19 @@ curl -X POST "$WORKER_URL/api/speccing/start?subjectId=$SUBJECT_ID" \
 
 Then follow the `instruction` field in each JSON response to walk through the narrative turn-by-turn.
 
+
+## [Infrastructure] Vectorize Metadata Indexing
+
+To fix the `1031` error and enable property-based filtering (like `isSubject`), we need to create metadata indices on the active Vectorize index (`moment-index-v8`).
+
+```bash
+# 1. Index 'isSubject' (Boolean) for discovery filtering
+npx wrangler vectorize create-metadata-index moment-index-v8 \
+  --property-name='isSubject' \
+  --type='boolean'
+
+# 2. Index 'momentGraphNamespace' (String) for simulation scoping
+npx wrangler vectorize create-metadata-index moment-index-v8 \
+  --property-name='momentGraphNamespace' \
+  --type='string'
+```

@@ -746,94 +746,74 @@ We verified the `src/app/engine/routes/subjects.ts` and `src/app/engine/routes/s
 ### Conclusion
 The current implementation does not support the requirement to "include a moment graph namespace" dynamically. The API is hard-pinning to the worker's environment variables.
 
-## RFC: Namespace Parameter Support
+## RFC: Context-Aware Namespace Resolution
 
 ### 2000ft View Narrative
-The Speccing Engine API currently relies solely on server-side environment variables `MOMENT_GRAPH_NAMESPACE` and `MOMENT_GRAPH_NAMESPACE_PREFIX` to determine which Moment Graph to query. This creates a blocking issue for verifying the engine's behavior against **Simulations**, which run in isolated namespaces (e.g., `redwoodjs/machinen:sim-run-123`).
+The Speccing Engine API currently relies solely on server-side environment variables `MOMENT_GRAPH_NAMESPACE` and `MOMENT_GRAPH_NAMESPACE_PREFIX` to determine which Moment Graph to query. This creates a blocking issue for verifying the engine's behavior against **Simulations** (which run in isolated namespaces like `redwoodjs/machinen:sim-run-123`) and limits future multi-tenant capabilities.
 
-To support simulation replays and multi-tenant scenarios, we must update the API to dynamically accept `namespace` and `namespacePrefix` parameters from the client. This change allows the developer (or test runner) to explicitly target a specific simulation run, while maintaining backward compatibility by falling back to environment variables when parameters are omitted.
+Attempts to replicate namespace mapping logic (e.g., `redwoodjs/sdk` -> `redwood:rwsdk`) in client-side scripts proved fragile. Instead, we propose a **Context-Based Resolution** strategy: the client provides raw context (Git Repository URL, Simulation Prefix), and the server uses shared internal logic to resolve this into the canonical Moment Graph Namespace. This ensures the "Intelligence" stays on the server while the client remains a simple vehicle for context.
 
 ### Database Changes
 None.
 
 ### Behavior Spec
-#### 1. Subject Discovery with Override
-- **GIVEN**: A client sends a `POST /api/subjects/search` request with `{ "namespacePrefix": "sim-123" }`.
+#### 1. Context-Based Subject Discovery
+- **GIVEN**: A client sends `POST /api/subjects/search` with `{ "context": { "repository": "redwoodjs/machinen", "namespacePrefix": "sim-123" } }`.
 - **WHEN**: The handler processes the request.
-- **THEN**: It queries the `MOMENT_INDEX` using a filter constructed from the provided prefix (e.g., `namespace: "redwoodjs/machinen:sim-123"`), overriding the worker's default environment prefix.
+- **THEN**: It uses `inferNamespaceFromRepo` to map `redwoodjs/machinen` -> `redwood:machinen`.
+- **AND**: It prepends the prefix to form the query filter: `namespace: "redwood:machinen:sim-123"`.
 
-#### 2. Speccing Session Initialization with Context
-- **GIVEN**: A client requests `POST /api/speccing/start?subjectId=xyz` with a JSON body `{ "namespacePrefix": "sim-123" }` (or query param).
+#### 2. Speccing Session with Stickiness
+- **GIVEN**: A client starts a session via `POST /api/speccing/start` with the same context.
 - **WHEN**: The session is initialized.
-- **THEN**: The `SpeccingSession` stores this specific namespace context.
-- **AND**: Subsequent `next` calls for this session use this stored context to fetch moments, ensuring the replay stays within the simulation boundary.
+- **THEN**: The resolved namespace (`redwood:machinen:sim-123`) is stored in the `SpeccingSession` state.
+- **AND**: All subsequent `next` calls for this session use this stored namespace, ignoring any environment variables, guaranteeing the replay stays within the targeted simulation.
 
 ### API Reference
-#### `POST /api/subjects/search`
+#### `POST /api/subjects/search` and `POST /api/speccing/start`
 **Body**:
 ```json
 {
-  "query": "string",
-  "namespace": "string (optional)",
-  "namespacePrefix": "string (optional)"
-}
-```
-
-#### `POST /api/speccing/start`
-**Query**: `subjectId` (string)
-**Body**:
-```json
-{
-  "namespace": "string (optional)",
-  "namespacePrefix": "string (optional)"
+  "query": "string (for search only)",
+  "context": {
+    "repository": "string (optional, owner/repo pair e.g. redwoodjs/machinen)",
+    "gitRemote": "string (optional, e.g. https://github.com/redwoodjs/machinen.git)",
+    "namespacePrefix": "string (optional, e.g. sim-123)"
+  }
 }
 ```
 
 ### Implementation Breakdown
-- **[MODIFY]** `src/app/engine/routes/subjects.ts`: Extract namespace params from request body. Use `applyMomentGraphNamespacePrefixValue` to resolve final namespace.
-- **[MODIFY]** `src/app/engine/routes/speccing.ts`: 
-    - In `startSpeccingHandler`, extract namespace params.
-    - Pass resolved namespace to `initializeSpeccingSession`.
-    - Ensure `SpeccingState` persists this namespace for the session duration.
-    - In `nextSpeccingHandler`, ensuring the `context` passed to `tickSpeccingSession` uses the session's persisted namespace (implied, or explicitly passed if stateless). *Correction: The current `next` handler re-derives env var namespace. We must ensure the session state's namespace is used.*
-- **[MODIFY]** `scripts/bootstrap-specs.sh`: Detect `NAMESPACE_PREFIX` env var and inject it into the generated `AGENTS.md` curl commands.
+#### 1. Plugin Enhancement (Logic Encapsulation)
+- **[MODIFY]** `src/app/engine/plugins/redwood-scope-router.ts`:
+    - Update `computeMomentGraphNamespaceForQuery` to inspect `context.clientContext.repository` and `context.clientContext.gitRemote`.
+    - Reuse existing internal inference functions (`inferProjectFrom...`) to map these to canonical namespaces.
+    - **Crucial**: This keeps all mapping logic self-contained within the plugin, allowing for future extraction to userland.
 
-### Directory & File Structure
-No new files. Modifications only to existing routes and scripts.
+#### 2. API Updates (Plugin Invocation)
+- **[MODIFY]** `src/app/engine/routes/subjects.ts` & `src/app/engine/routes/speccing.ts`:
+    - Instantiate `EngineContext` (via `createEngineContext`) to access the plugin registry.
+    - Iterate through `context.plugins` and invoke `scoping.computeMomentGraphNamespaceForQuery` with the request body's `context` as `clientContext`.
+    - Use the first non-null result as the **Base Namespace**.
+    - Apply `namespacePrefix` (from request body) to the Base Namespace.
 
-### Types & Data Structures
-```typescript
-// src/app/engine/routes/subjects.ts
-interface SearchBody {
-  query: string;
-  namespace?: string;
-  namespacePrefix?: string;
-}
-
-// src/app/engine/runners/speccing/runner.ts
-interface SpeccingSessionContext {
-    env: Cloudflare.Env;
-    momentGraphNamespace: string | null; // Now dynamic per session
-}
-```
+#### 3. Client Script
+- **[MODIFY]** `scripts/bootstrap-specs.sh`:
+    - Rename `NAMESPACE` variable to `REPOSITORY`.
+    - Read `NAMESPACE_PREFIX` from environment.
+    - Update `AGENTS.md` to send `context: { repository, namespacePrefix }` in all curl commands.
 
 ### Invariants & Constraints
-1. **Backward Compatibility**: If no parameters are provided, the system MUST behave exactly as it does today (using `MOMENT_GRAPH_NAMESPACE` env var).
-2. **Session Stickiness**: Once a speccing session is started with a specific namespace, that namespace MUST be used for all subsequent turns in the replay. It cannot switch mid-stream.
-
-### System Flow (Snapshot Diff)
-**Current**: Request -> Handler -> `getEnv()` -> Query Default.
-**New**: Request -> Handler -> `getParam() || getEnv()` -> Query Specific.
+1. **Server Authority**: The server determines the final namespace mapping. The client only provides evidence (Repo URL).
+2. **Backward Compatibility**: If no context is provided, the system falls back to `MOMENT_GRAPH_NAMESPACE` env vars.
 
 ### Suggested Verification
-1. **Simulation Replay**:
-    - Run a simulation (generates prefix `sim-ABC`).
-    - Run `export NAMESPACE_PREFIX=sim-ABC && ./scripts/bootstrap-specs.sh`.
-    - Run the generated `discovery` curl.
-    - Verify subjects from `sim-ABC` are returned.
+1. **Refactoring Safety**: Verify indexing still correctly claims `redwood:rwsdk` documents (logs).
+2. **API Logic**: Curl discovery with `repository: "redwoodjs/machinen"` and verify it returns results (hitting `redwood:machinen`).
+3. **Simulation Replay**: Run `bootstrap-specs.sh` with `NAMESPACE_PREFIX=sim-123` and verify the generated curls return simulation data.
 
 ### Tasks
-- [ ] [MODIFY] `src/app/engine/routes/subjects.ts`
-- [ ] [MODIFY] `src/app/engine/routes/speccing.ts`
-- [ ] [MODIFY] `scripts/bootstrap-specs.sh`
-
+- [ ] [MODIFY] `src/app/engine/plugins/redwood-scope-router.ts` to handle repository context <!-- id: 1 -->
+- [ ] [MODIFY] `src/app/engine/routes/subjects.ts` to invoke plugins <!-- id: 2 -->
+- [ ] [MODIFY] `src/app/engine/routes/speccing.ts` to invoke plugins <!-- id: 3 -->
+- [ ] [MODIFY] `scripts/bootstrap-specs.sh` to pass repository context <!-- id: 4 -->

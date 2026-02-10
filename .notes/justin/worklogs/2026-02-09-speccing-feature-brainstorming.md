@@ -654,3 +654,68 @@ To verify the Speccing Engine with high fidelity without polluting the main name
 ### Rationale:
 By using a simulation prefix, we ensure that the Speccing Engine is replaying a controlled dataset (the "buggy cache" of the simulation) rather than the raw ingestion stream, allowing us to verify the transition from 'buggy' simulation state to 'clean' specification.
 
+
+## [Verification] Narrative Replay via Simulation Namespace
+
+To verify the Speccing Engine end-to-end, we will generate a fresh set of moments via a simulation run and then use the Speccing Engine to "replay" that specific simulated narrative.
+
+### 1. Pre-requisites
+- Worker running locally on `localhost:5174`.
+- `API_KEY` set in `.dev.vars` and exported.
+
+### 2. Generate a Simulation Run
+Start a simulation to populate the Moment Graph with a fresh namespace.
+
+```bash
+export API_KEY="b54d6938d772ac7c760221db30e3fcd71b412f61c8f0740a3c43ba8e2aae9d24"
+export WORKER_URL="http://localhost:5174"
+
+# Create a simulation run (using redwood/machinen as base)
+curl -X POST "$WORKER_URL/admin/simulation/runs" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"namespace": "redwoodjs/machinen", "description": "Speccing Verification Run"}'
+```
+
+### 3. Capture the Namespace Prefix
+From the response above (or by listing runs), find the `prefix` (e.g., `prod-2026-02-10-...`).
+
+```bash
+# List recent simulation runs to find your prefix
+curl -s -H "Authorization: Bearer $API_KEY" "$WORKER_URL/admin/simulation/runs" | jq '.runs[0].prefix'
+```
+
+### 4. Verify Discovery in the Sim Namespace
+Now search for subjects *within* that simulation's namespace.
+
+```bash
+export SIM_NAMESPACE_PREFIX="<PREFIX_FROM_STEP_3>"
+export BASE_NAMESPACE="redwoodjs/machinen"
+
+curl -X POST "$WORKER_URL/api/subjects/search" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"query\": \"Refactoring\",
+    \"namespace\": \"$BASE_NAMESPACE\",
+    \"namespacePrefix\": \"$SIM_NAMESPACE_PREFIX\"
+  }"
+```
+
+### 5. Replay the Session
+Start the speccing session using a `subjectId` from the search results.
+
+```bash
+export SUBJECT_ID="<ID_FROM_SEARCH>"
+
+curl -X POST "$WORKER_URL/api/speccing/start?subjectId=$SUBJECT_ID" \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"namespace\": \"$BASE_NAMESPACE\",
+    \"namespacePrefix\": \"$SIM_NAMESPACE_PREFIX\"
+  }"
+```
+
+Then follow the `instruction` field in each JSON response to walk through the narrative turn-by-turn.
+

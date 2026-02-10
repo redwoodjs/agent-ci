@@ -13,16 +13,20 @@ if [ -z "$API_KEY" ]; then
   echo "Warning: API_KEY environment variable not set. API calls will fail."
 fi
 
-# 1. Detect Namespace from Git
+# 1. Detect Repository from Git
 # Extracts "owner/repo" from origin remote
-NAMESPACE=$(git remote -v 2>/dev/null | grep 'origin.*(fetch)' | head -n 1 | sed -E 's/.*github.com[:\/](.*)\.git.*/\1/' | sed 's/.*github.com[:\/]//')
+REPOSITORY=$(git remote -v 2>/dev/null | grep 'origin.*(fetch)' | head -n 1 | sed -E 's/.*github.com[:\/](.*)\.git.*/\1/' | sed 's/.*github.com[:\/]//')
 
-if [ -z "$NAMESPACE" ]; then
+if [ -z "$REPOSITORY" ]; then
   # Fallback: Use directory name
-  NAMESPACE=$(basename "$(pwd)")
-  echo "Notice: Could not detect namespace from git, using directory name: $NAMESPACE"
+  REPOSITORY=$(basename "$(pwd)")
+  echo "Notice: Could not detect repository from git, using directory name: $REPOSITORY"
 else
-  echo "Detected Project Namespace: $NAMESPACE"
+  echo "Detected Project Repository: $REPOSITORY"
+fi
+
+if [ -n "$NAMESPACE_PREFIX" ]; then
+  echo "Using Namespace Prefix: $NAMESPACE_PREFIX"
 fi
 
 # 2. Check/Inject AGENTS.md (The Protocol)
@@ -39,12 +43,25 @@ You are an expert technical writer and architect. Your task is to reconstruct a 
    curl -X POST "$WORKER_URL/api/subjects/search" \\
      -H "Authorization: Bearer \$API_KEY" \\
      -H "Content-Type: application/json" \\
-     -d '{"query": "Recent work", "namespace": "$NAMESPACE"}'
+     -d '{
+       "query": "Recent work",
+       "context": {
+         "repository": "$REPOSITORY",
+         "namespacePrefix": "$NAMESPACE_PREFIX"
+       }
+     }'
    \`\`\`
 2. **Bootstrap**: Initialize the speccing session for a Subject ID.
    \`\`\`bash
    curl -X POST "$WORKER_URL/api/speccing/start?subjectId=<ID>" \\
-     -H "Authorization: Bearer \$API_KEY"
+     -H "Authorization: Bearer \$API_KEY" \\
+     -H "Content-Type: application/json" \\
+     -d '{
+       "context": {
+         "repository": "$REPOSITORY",
+         "namespacePrefix": "$NAMESPACE_PREFIX"
+       }
+     }'
    \`\`\`
 3. **The Turn**: The response will contain a \`moment\` and \`evidence\`.
 4. **The Action**: Integrate the evidence into the specification at \`docs/specs/<subject>.md\`.
@@ -89,12 +106,13 @@ echo ""
 echo "----------------------------------------------------------------"
 echo "Machinen Speccing Engine Initialized"
 echo "----------------------------------------------------------------"
-echo "Namespace:  $NAMESPACE"
+echo "Repository: $REPOSITORY"
+echo "Prefix:     $NAMESPACE_PREFIX"
 echo "Worker:     $WORKER_URL"
 echo ""
 echo "Discovery Command:"
 echo "curl -X POST \"$WORKER_URL/api/subjects/search\" \\"
 echo "  -H \"Authorization: Bearer \$API_KEY\" \\"
 echo "  -H \"Content-Type: application/json\" \\"
-echo "  -d '{\"query\": \"Summary of recent work\", \"namespace\": \"$NAMESPACE\"}'"
+echo "  -d '{\"query\": \"Summary of recent work\", \"context\": {\"repository\": \"$REPOSITORY\", \"namespacePrefix\": \"$NAMESPACE_PREFIX\"}}'"
 echo "----------------------------------------------------------------"

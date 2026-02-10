@@ -2,7 +2,8 @@ import { env } from "cloudflare:workers";
 import { type RequestInfo } from "rwsdk/worker";
 import { getSpeccingDb } from "../databases/speccing";
 import { initializeSpeccingSession, tickSpeccingSession } from "../runners/speccing/runner";
-import { getMomentGraphNamespaceFromEnv } from "../momentGraphNamespace";
+import { getMomentGraphNamespaceFromEnv, applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
+import { createEngineContext } from "../index";
 
 export async function startSpeccingHandler({ request }: RequestInfo) {
   const url = new URL(request.url);
@@ -14,7 +15,42 @@ export async function startSpeccingHandler({ request }: RequestInfo) {
 
   try {
     const envCloudflare = env as Cloudflare.Env;
-    const momentGraphNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
+    let momentGraphNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
+
+    // Dynamic Resolution via Plugins
+    const body = (await request.json().catch(() => ({}))) as {
+      context?: {
+        repository?: string;
+        namespacePrefix?: string;
+      }
+    };
+
+    if (body.context) {
+       const engineContext = createEngineContext(envCloudflare, "querying");
+       const queryContext = {
+        query: "speccing-init", // Dummy query for context
+        env: envCloudflare,
+        clientContext: body.context
+      };
+      
+      for (const plugin of engineContext.plugins) {
+        if (plugin.scoping?.computeMomentGraphNamespaceForQuery) {
+          const ns = await plugin.scoping.computeMomentGraphNamespaceForQuery(queryContext);
+          if (ns) {
+            momentGraphNamespace = ns;
+            break;
+          }
+        }
+      }
+      
+      if (body.context.namespacePrefix && momentGraphNamespace) {
+        momentGraphNamespace = applyMomentGraphNamespacePrefixValue(momentGraphNamespace, body.context.namespacePrefix);
+      }
+      if (momentGraphNamespace) {
+        console.log(`[speccing:start] Resolved dynamic namespace: ${momentGraphNamespace}`);
+      }
+    }
+
     const context = {
         env: envCloudflare,
         momentGraphNamespace

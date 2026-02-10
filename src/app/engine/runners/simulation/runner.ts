@@ -523,24 +523,57 @@ async function recoverPhaseZombies(
   const phase = input.phase;
   const zombieThreshold = new Date(Date.now() - 30000).toISOString(); // 30s timeout
 
-  const zombies = await db
+  const zombies = (await db
     .selectFrom("simulation_run_documents")
-    .select(["r2_key"])
+    .select(["r2_key", "attempts_json"])
     .where("run_id", "=", input.runId)
-    .where(sql`json_extract(dispatched_phases_json, '$')`, "like", `%${phase}%`)
-    .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${phase}%`)
+    .where(sql`json_extract(COALESCE(dispatched_phases_json, '[]'), '$')`, "like", `%${phase}%`)
+    .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "not like", `%${phase}%`)
     .where("updated_at", "<", zombieThreshold)
-    .execute();
+    .execute()) as unknown as SimulationRunDocumentRow[];
 
   if (zombies.length > 0) {
+    const MAX_ATTEMPTS = 3;
     console.log(`[runner] Recovering ${zombies.length} zombies for ${phase}`);
     for (const z of zombies) {
-      await (context.env as any).ENGINE_INDEXING_QUEUE.send({
-        jobType: "simulation-document",
-        runId: input.runId,
-        phase,
-        r2Key: z.r2_key,
-      });
+      const attempts = (z.attempts_json || {}) as Record<string, number>;
+      const currentAttempts = (attempts[phase] || 1) + 1; // Start at 1 because we already sent it once
+      attempts[phase] = currentAttempts;
+
+      if (currentAttempts > MAX_ATTEMPTS) {
+        console.warn(`[runner] Ditching document ${z.r2_key} for phase ${phase} after ${currentAttempts} attempts`);
+        await db.updateTable("simulation_run_documents")
+          .set({
+            processed_phases_json: sql`json_insert(COALESCE(processed_phases_json, '[]'), '$[#]', ${phase})`,
+            updated_at: new Date().toISOString()
+          } as any)
+          .where("run_id", "=", input.runId)
+          .where("r2_key", "=", z.r2_key)
+          .execute();
+        
+        await addSimulationRunEvent(context, {
+          runId: input.runId,
+          level: "warn",
+          kind: "phase.document_ditched",
+          payload: { phase, r2Key: z.r2_key, attempts: currentAttempts }
+        });
+      } else {
+        await db.updateTable("simulation_run_documents")
+          .set({
+            attempts_json: JSON.stringify(attempts),
+            updated_at: new Date().toISOString()
+          } as any)
+          .where("run_id", "=", input.runId)
+          .where("r2_key", "=", z.r2_key)
+          .execute();
+
+        await (context.env as any).ENGINE_INDEXING_QUEUE.send({
+          jobType: "simulation-document",
+          runId: input.runId,
+          phase,
+          r2Key: z.r2_key,
+        });
+      }
     }
   }
 }
@@ -579,7 +612,7 @@ async function tickGenericDocumentPolling(
           })
           .onConflict((oc) =>
             oc.columns(["run_id", "r2_key"]).doUpdateSet({
-              dispatched_phases_json: sql`json_insert(dispatched_phases_json, '$[#]', ${phase})`,
+              dispatched_phases_json: sql`json_insert(COALESCE(dispatched_phases_json, '[]'), '$[#]', ${phase})`,
               updated_at: now,
             })
           )
@@ -608,8 +641,8 @@ async function tickGenericDocumentPolling(
         .selectFrom("simulation_run_documents")
         .select(["r2_key"])
         .where("run_id", "=", input.runId)
-        .where(sql`json_extract(processed_phases_json, '$')`, "like", `%ingest_diff%`)
-        .where(sql`json_extract(dispatched_phases_json, '$')`, "not like", `%${phase}%`)
+        .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "like", `%ingest_diff%`)
+        .where(sql`json_extract(COALESCE(dispatched_phases_json, '[]'), '$')`, "not like", `%${phase}%`)
         .limit(10)
         .execute();
       
@@ -617,9 +650,9 @@ async function tickGenericDocumentPolling(
           for (const doc of docs) {
               await db.updateTable("simulation_run_documents")
                 .set({
-                    dispatched_phases_json: sql`json_insert(dispatched_phases_json, '$[#]', ${phase})`,
+                    dispatched_phases_json: sql`json_insert(COALESCE(dispatched_phases_json, '[]'), '$[#]', ${phase})`,
                     updated_at: now
-                })
+                } as any)
                 .where("run_id", "=", input.runId)
                 .where("r2_key", "=", doc.r2_key)
                 .execute();
@@ -653,8 +686,8 @@ async function tickGenericDocumentPolling(
         .selectFrom("simulation_run_documents")
         .select(["r2_key"])
         .where("run_id", "=", input.runId)
-        .where(sql`json_extract(processed_phases_json, '$')`, "like", `%${prevPhase}%`)
-        .where(sql`json_extract(dispatched_phases_json, '$')`, "not like", `%${phase}%`)
+        .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "like", `%${prevPhase}%`)
+        .where(sql`json_extract(COALESCE(dispatched_phases_json, '[]'), '$')`, "not like", `%${phase}%`)
         .limit(50)
         .execute();
 
@@ -663,9 +696,9 @@ async function tickGenericDocumentPolling(
           await db
             .updateTable("simulation_run_documents")
             .set({
-              dispatched_phases_json: sql`json_insert(dispatched_phases_json, '$[#]', ${phase})`,
+              dispatched_phases_json: sql`json_insert(COALESCE(dispatched_phases_json, '[]'), '$[#]', ${phase})`,
               updated_at: now,
-            })
+            } as any)
             .where("run_id", "=", input.runId)
             .where("r2_key", "=", doc.r2_key)
             .execute();
@@ -687,8 +720,8 @@ async function tickGenericDocumentPolling(
     .selectFrom("simulation_run_documents")
     .select([sql<number>`count(*)`.as("count")])
     .where("run_id", "=", input.runId)
-    .where(sql`json_extract(dispatched_phases_json, '$')`, "like", `%${phase}%`)
-    .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${phase}%`)
+    .where(sql`json_extract(COALESCE(dispatched_phases_json, '[]'), '$')`, "like", `%${phase}%`)
+    .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "not like", `%${phase}%`)
     .executeTakeFirst();
 
   if (toNumber(pending?.count) > 0) {
@@ -703,7 +736,7 @@ async function tickGenericDocumentPolling(
       .select([sql<number>`count(*)`.as("count")])
       .where("run_id", "=", input.runId)
       .where(
-        sql`json_extract(processed_phases_json, '$')`,
+        sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`,
         "like",
         `%${phase}%`
       )
@@ -753,7 +786,7 @@ async function tickGenericDocumentPolling(
     .selectFrom("simulation_run_documents")
     .select([sql<number>`count(*)`.as("count")])
     .where("run_id", "=", input.runId)
-    .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${phase}%`)
+    .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "not like", `%${phase}%`)
     .executeTakeFirst();
 
   if (toNumber(anyPendingInRun?.count) > 0) {

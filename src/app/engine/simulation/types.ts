@@ -31,6 +31,7 @@ export interface SimulationRunDocumentsTable {
   updated_at: string;
   dispatched_phases_json: string | null;
   processed_phases_json: string | null;
+  attempts_json: string | null;
 }
 
 export interface SimulationRunEventsTable {
@@ -134,6 +135,7 @@ export type SimulationRunDocumentRow = Override<
     error_json: { message: string; stack?: string } | null;
     dispatched_phases_json: string[] | null;
     processed_phases_json: string[] | null;
+    attempts_json: Record<string, number> | null;
   }
 >;
 

@@ -235,7 +235,7 @@ export async function processSimulationJob(
 
             // Record completion for the document/phase
             const updateCols: any = {
-              processed_phases_json: sql`json_insert(processed_phases_json, '$[#]', ${currentPhaseName})`,
+              processed_phases_json: sql`json_insert(COALESCE(processed_phases_json, '[]'), '$[#]', ${currentPhaseName})`,
               updated_at: new Date().toISOString()
             };
 
@@ -247,7 +247,7 @@ export async function processSimulationJob(
               .set(updateCols)
               .where("run_id", "=", message.runId)
               .where("r2_key", "=", message.r2Key)
-              .where(sql`json_extract(processed_phases_json, '$')`, "not like", `%${currentPhaseName}%`)
+              .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "not like", `%${currentPhaseName}%`)
               .execute();
 
             // Trigger advance check

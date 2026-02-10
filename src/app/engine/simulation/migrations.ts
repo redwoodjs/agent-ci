@@ -437,5 +437,17 @@ export const simulationStateMigrations = {
       await db.schema.dropTable("simulation_run_artifacts").execute();
     },
   },
+  "015_add_attempts_to_documents": {
+    async up(db) {
+      await db.schema
+        .alterTable("simulation_run_documents")
+        .addColumn("attempts_json", "text")
+        .execute();
+      return [];
+    },
+    async down(db) {
+      // Alter table drop column not supported in some DBs
+    },
+  },
 } satisfies Migrations;
 

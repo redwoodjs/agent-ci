@@ -50,7 +50,17 @@ We will ensure that all documents are properly tracked during dispatch and that 
 - Ensure `dispatched_phases_json` is initialized to `'[]'` on first insert.
 
 ### Tasks
-- [ ] Add migration `015_add_attempts_to_documents` <!-- id: 20 -->
-- [ ] Implement `COALESCE` fix in `runner.ts` <!-- id: 21 -->
-- [ ] Implement retry limit in `recoverPhaseZombies` <!-- id: 22 -->
-- [ ] Verify fix by forcing a zombie scenario <!-- id: 23 -->
+- [x] Add migration `015_add_attempts_to_documents` <!-- id: 20 -->
+- [x] Implement `COALESCE` fix in `runner.ts` <!-- id: 21 -->
+- [x] Implement retry limit in `recoverPhaseZombies` <!-- id: 22 -->
+- [x] Verify fix by forcing a zombie scenario <!-- id: 23 -->
+
+## Implemented Resiliency Fixes
+
+We have completed the implementation of the simulation resiliency fixes:
+1.  **Resolved the "Ghost Document" bug**: Updated `runner.ts` and `simulation-worker.ts` to use `COALESCE` for JSON column queries and updates.
+2.  **Implemented Document Ditching**: Added `attempts_json` tracking and logic in `recoverPhaseZombies` to skip documents after 3 failed attempts.
+3.  **Updated Architecture Blueprint**: Formally documented the resiliency requirements in `docs/blueprints/runtime-architecture.md`.
+4.  **Added Migration**: Created `015_add_attempts_to_documents` to support the new tracking column.
+
+The system will now correctly identify stalled documents and prevent infinite loops by eventually "ditching" high-failure documents and advancing the simulation.

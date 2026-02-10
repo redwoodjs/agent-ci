@@ -746,3 +746,94 @@ We verified the `src/app/engine/routes/subjects.ts` and `src/app/engine/routes/s
 ### Conclusion
 The current implementation does not support the requirement to "include a moment graph namespace" dynamically. The API is hard-pinning to the worker's environment variables.
 
+## RFC: Namespace Parameter Support
+
+### 2000ft View Narrative
+The Speccing Engine API currently relies solely on server-side environment variables `MOMENT_GRAPH_NAMESPACE` and `MOMENT_GRAPH_NAMESPACE_PREFIX` to determine which Moment Graph to query. This creates a blocking issue for verifying the engine's behavior against **Simulations**, which run in isolated namespaces (e.g., `redwoodjs/machinen:sim-run-123`).
+
+To support simulation replays and multi-tenant scenarios, we must update the API to dynamically accept `namespace` and `namespacePrefix` parameters from the client. This change allows the developer (or test runner) to explicitly target a specific simulation run, while maintaining backward compatibility by falling back to environment variables when parameters are omitted.
+
+### Database Changes
+None.
+
+### Behavior Spec
+#### 1. Subject Discovery with Override
+- **GIVEN**: A client sends a `POST /api/subjects/search` request with `{ "namespacePrefix": "sim-123" }`.
+- **WHEN**: The handler processes the request.
+- **THEN**: It queries the `MOMENT_INDEX` using a filter constructed from the provided prefix (e.g., `namespace: "redwoodjs/machinen:sim-123"`), overriding the worker's default environment prefix.
+
+#### 2. Speccing Session Initialization with Context
+- **GIVEN**: A client requests `POST /api/speccing/start?subjectId=xyz` with a JSON body `{ "namespacePrefix": "sim-123" }` (or query param).
+- **WHEN**: The session is initialized.
+- **THEN**: The `SpeccingSession` stores this specific namespace context.
+- **AND**: Subsequent `next` calls for this session use this stored context to fetch moments, ensuring the replay stays within the simulation boundary.
+
+### API Reference
+#### `POST /api/subjects/search`
+**Body**:
+```json
+{
+  "query": "string",
+  "namespace": "string (optional)",
+  "namespacePrefix": "string (optional)"
+}
+```
+
+#### `POST /api/speccing/start`
+**Query**: `subjectId` (string)
+**Body**:
+```json
+{
+  "namespace": "string (optional)",
+  "namespacePrefix": "string (optional)"
+}
+```
+
+### Implementation Breakdown
+- **[MODIFY]** `src/app/engine/routes/subjects.ts`: Extract namespace params from request body. Use `applyMomentGraphNamespacePrefixValue` to resolve final namespace.
+- **[MODIFY]** `src/app/engine/routes/speccing.ts`: 
+    - In `startSpeccingHandler`, extract namespace params.
+    - Pass resolved namespace to `initializeSpeccingSession`.
+    - Ensure `SpeccingState` persists this namespace for the session duration.
+    - In `nextSpeccingHandler`, ensuring the `context` passed to `tickSpeccingSession` uses the session's persisted namespace (implied, or explicitly passed if stateless). *Correction: The current `next` handler re-derives env var namespace. We must ensure the session state's namespace is used.*
+- **[MODIFY]** `scripts/bootstrap-specs.sh`: Detect `NAMESPACE_PREFIX` env var and inject it into the generated `AGENTS.md` curl commands.
+
+### Directory & File Structure
+No new files. Modifications only to existing routes and scripts.
+
+### Types & Data Structures
+```typescript
+// src/app/engine/routes/subjects.ts
+interface SearchBody {
+  query: string;
+  namespace?: string;
+  namespacePrefix?: string;
+}
+
+// src/app/engine/runners/speccing/runner.ts
+interface SpeccingSessionContext {
+    env: Cloudflare.Env;
+    momentGraphNamespace: string | null; // Now dynamic per session
+}
+```
+
+### Invariants & Constraints
+1. **Backward Compatibility**: If no parameters are provided, the system MUST behave exactly as it does today (using `MOMENT_GRAPH_NAMESPACE` env var).
+2. **Session Stickiness**: Once a speccing session is started with a specific namespace, that namespace MUST be used for all subsequent turns in the replay. It cannot switch mid-stream.
+
+### System Flow (Snapshot Diff)
+**Current**: Request -> Handler -> `getEnv()` -> Query Default.
+**New**: Request -> Handler -> `getParam() || getEnv()` -> Query Specific.
+
+### Suggested Verification
+1. **Simulation Replay**:
+    - Run a simulation (generates prefix `sim-ABC`).
+    - Run `export NAMESPACE_PREFIX=sim-ABC && ./scripts/bootstrap-specs.sh`.
+    - Run the generated `discovery` curl.
+    - Verify subjects from `sim-ABC` are returned.
+
+### Tasks
+- [ ] [MODIFY] `src/app/engine/routes/subjects.ts`
+- [ ] [MODIFY] `src/app/engine/routes/speccing.ts`
+- [ ] [MODIFY] `scripts/bootstrap-specs.sh`
+

@@ -64,3 +64,22 @@ We have completed the implementation of the simulation resiliency fixes:
 4.  **Added Migration**: Created `015_add_attempts_to_documents` to support the new tracking column.
 
 The system will now correctly identify stalled documents and prevent infinite loops by eventually "ditching" high-failure documents and advancing the simulation.
+
+## PR Draft: Implement Simulation Resiliency and Visibility Fixes
+
+### 2000ft View
+We identified two root causes for chronic simulation stalls in the `micro_batches` phase: the **"Ghost Document"** visibility bug and the **absence of document-level ditching logic**. 
+
+This PR introduces a robust resiliency layer to ensure simulation runs reach terminal states even when encountering worker crashes or unprocessable document fragments.
+
+### Key Changes
+- **Visibility Protection**: All JSON list queries and updates in `runner.ts` and `simulation-worker.ts` now use `COALESCE` to prevent SQLite `NULL` pitfalls where `json_insert(NULL, ...)` returns `NULL`.
+- **Zombie Ditching**:
+    - Added `attempts_json` tracking to the `simulation_run_documents` schema.
+    - Updated `recoverPhaseZombies` to increment attempt counts and eventually "ditch" documents that fail after 3 attempts by marking them as processed and skipping further dispatch.
+- **Blueprint Alignment**: Updated `docs/blueprints/runtime-architecture.md` to codify "Simulation Resiliency & Zombie Ditching" as a core system constraint.
+
+### Status
+- **Bug Fix**: "Ghost Documents" are now visible and recoverable.
+- **Resiliency**: Infinite stalls are prevented via bounded retries.
+- **Verification**: Verified via local simulation logs and DB state inspection.

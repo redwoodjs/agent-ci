@@ -667,7 +667,6 @@ To verify the Speccing Engine end-to-end, we will generate a fresh set of moment
 Start a simulation to populate the Moment Graph with a fresh namespace.
 
 ```bash
-export API_KEY="b54d6938d772ac7c760221db30e3fcd71b412f61c8f0740a3c43ba8e2aae9d24"
 export WORKER_URL="http://localhost:5174"
 
 # Create a simulation run (using redwood/machinen as base)

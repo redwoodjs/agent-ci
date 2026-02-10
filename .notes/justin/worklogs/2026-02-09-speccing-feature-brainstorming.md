@@ -634,3 +634,23 @@ We decided to eliminate the dedicated `SUBJECT_INDEX` and instead unify all mome
 - Modify `src/app/engine/routes/subjects.ts` to query `MOMENT_INDEX` with `{ isSubject: true }` filter.
 - Modify `src/app/engine/databases/momentGraph/index.ts` to stop upserting to `SUBJECT_INDEX`.
 
+
+## Verification Strategy: End-to-End Simulation Sandbox
+
+To verify the Speccing Engine with high fidelity without polluting the main namespace, we will use a sandboxed "Simulation" flow.
+
+### Strategy:
+1. **Initialize Sandbox**: Deploy/Run the worker on `localhost:5174`.
+2. **Create Simulation**: Use the `/admin/simulation/runs` endpoint to create a new simulation run.
+3. **Capture Namespace Prefix**: Identify the generated `momentGraphNamespacePrefix` from the simulation run metadata (e.g., `sim-abc-123`).
+4. **Environment Configuration**: 
+   - Set `MOMENT_GRAPH_NAMESPACE_PREFIX` in `.dev.vars` to match the simulation prefix.
+   - Alternatively, pass the prefix in discovery and bootstrap API calls.
+5. **Execute Speccing Loop**:
+   - Run `scripts/bootstrap-specs.sh` in a test repository.
+   - Use the `curl` commands provided in the bootstrap output to search for subjects within the simulation namespace.
+   - Proceed through the `/start` and `/next` loop as an agent would.
+
+### Rationale:
+By using a simulation prefix, we ensure that the Speccing Engine is replaying a controlled dataset (the "buggy cache" of the simulation) rather than the raw ingestion stream, allowing us to verify the transition from 'buggy' simulation state to 'clean' specification.
+

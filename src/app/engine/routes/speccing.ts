@@ -23,7 +23,7 @@ export async function startSpeccingHandler({ request }: RequestInfo) {
     const sessionId = await initializeSpeccingSession(context, subjectId);
     return Response.json({ 
         sessionId,
-        next_command: `curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`
+        instruction: `Session initialized. Execute the following to retrieve the first moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`
     });
   } catch (error) {
     console.error(`[speccing:start] Error:`, error);

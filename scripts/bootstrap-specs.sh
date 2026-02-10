@@ -31,21 +31,39 @@ if [ ! -f "AGENTS.md" ]; then
   cat <<EOF > AGENTS.md
 # Machinen Speccing Protocol
 
-This project use the Machinen Speccing Engine for autonomous development.
+You are an expert technical writer and architect. Your task is to reconstruct a high-fidelity technical specification by replaying the development narrative of a specific "Subject" (feature/initiative).
 
-## Core Rules
-1. **The SPEC is the Source of Truth**: All architectural decisions MUST be reflected in the specification during the speccing replay.
-2. **Reconstructed Narrative**: We follow the chronological replay of moments from the Knowledge Graph to recover design rationale.
-3. **Pure Curl**: We interact with the engine via \`curl\` and follow its self-instructing narrative loop.
+## The Protocol
+1. **Discovery**: Identify the Subject you want to spec.
+   \`\`\`bash
+   curl -X POST "$WORKER_URL/api/subjects/search" \\
+     -H "Authorization: Bearer \$API_KEY" \\
+     -H "Content-Type: application/json" \\
+     -d '{"query": "Recent work", "namespace": "$NAMESPACE"}'
+   \`\`\`
+2. **Bootstrap**: Initialize the speccing session for a Subject ID.
+   \`\`\`bash
+   curl -X POST "$WORKER_URL/api/speccing/start?subjectId=<ID>" \\
+     -H "Authorization: Bearer \$API_KEY"
+   \`\`\`
+3. **The Turn**: The response will contain a \`moment\` and \`evidence\`.
+4. **The Action**: Integrate the evidence into the specification at \`docs/specs/<subject>.md\`.
+5. **The Loop**: Always follow the \`instruction\` field in the JSON response. It will provide the next \`curl\` command to execute.
 
-## Discovery
-To discover a subject (feature/initiative) to spec:
-\`\`\`bash
-curl -X POST "$WORKER_URL/api/subjects/search" \\
-  -H "Authorization: Bearer \$API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"query": "Recent architectural changes", "namespace": "$NAMESPACE"}'
-\`\`\`
+## Mandatory Spec Structure
+Your output must follow this structure:
+- **2000ft View Narrative**: High-level architectural narrative.
+- **Database Changes**: Schema changes and their rationale.
+- **Behavior Spec**: Ground truth behaviors (GIVEN/WHEN/THEN).
+- **Implementation Detail**:
+    - **Pipes**: Data flow steps.
+    - **Breakdown**: Code changes (\`[NEW]\`, \`[MODIFY]\`, \`[DELETE]\`).
+- **Directory & File Structure**: Tree view of files.
+- **Types & Data Structures**: Snippets of types.
+- **Invariants & Constraints**: Rules for the system.
+- **System Flow (Snapshot Diff)**: Previous -> New flow delta.
+- **Suggested Verification**: Commands/URLs for manual validation.
+- **Tasks**: Granular checklist.
 EOF
   echo "✅ AGENTS.md created."
 else

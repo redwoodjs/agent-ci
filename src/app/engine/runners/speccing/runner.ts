@@ -111,8 +111,7 @@ export async function tickSpeccingSession(
       summary: moment.summary,
       createdAt: moment.createdAt,
     },
-    instruction: `We just replayed: "${moment.title}".\n\nSummary: ${moment.summary}\n\nYour task is to integrate this narrative into the spec and reconcile any code snapshots as of ${moment.createdAt}.`,
-    next_command: `curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`
+    instruction: `REPLAY TURN: Integrate the evidence into the spec. Focus on "${moment.title}". Once done, proceed to the next moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`,
   };
 }
 

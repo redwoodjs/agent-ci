@@ -290,6 +290,7 @@ export async function runDeterministicLinkingForDocument(input: {
   moments: Moment[];
 }): Promise<{
   decisions: Array<{
+    childMomentId: string;
     proposedParentId: string | null;
     audit: any;
     streamId: string;

@@ -29,13 +29,38 @@ export class ArtifactStorage implements StorageStrategy {
         const bucket = this.env.MACHINEN_BUCKET;
         const object = await bucket.get(output.key);
         if (!object) {
-          throw new Error(`Offloaded artifact not found in R2: ${output.key}`);
+          const msg = `[ArtifactStorage] Offloaded artifact missing: ${output.key} for ${phase.name}/${key}`;
+          console.error(msg);
+          
+          // Log to events table
+          const id = crypto.randomUUID();
+          const now = new Date().toISOString();
+          await this.simDb
+            .insertInto("simulation_run_events")
+            .values({
+              id,
+              run_id: this.runId,
+              level: "error",
+              kind: "artifact.missing_offload",
+              payload_json: JSON.stringify({
+                message: msg,
+                phase: phase.name,
+                r2Key: key, // usually the r2Key is the artifact key for document phases
+                offloadKey: output.key
+              }),
+              created_at: now,
+            })
+            .execute();
+
+          return null; 
         }
         const text = await object.text();
         return JSON.parse(text) as T;
       }
       return output as T;
     }
+    
+    // Explicitly null if not found in DB
     return null;
   }
 

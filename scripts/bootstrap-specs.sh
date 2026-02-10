@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-DEFAULT_WORKER_URL="https://machinen-engine.justin.workers.dev"
+DEFAULT_WORKER_URL="https://machinen.redwoodjs.workers.dev"
 WORKER_URL="${MACHINEN_ENGINE_URL:-$DEFAULT_WORKER_URL}"
 
 if [ -z "$API_KEY" ]; then

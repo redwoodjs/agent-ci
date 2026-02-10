@@ -65,21 +65,18 @@ We have completed the implementation of the simulation resiliency fixes:
 
 The system will now correctly identify stalled documents and prevent infinite loops by eventually "ditching" high-failure documents and advancing the simulation.
 
-## PR Draft: Implement Simulation Resiliency and Visibility Fixes
+## PR Draft: Implement Simulation Resiliency and Zombie Ditching
 
-### 2000ft View
-We identified two root causes for chronic simulation stalls in the `micro_batches` phase: the **"Ghost Document"** visibility bug and the **absence of document-level ditching logic**. 
+### Context
+Our simulation engine processes large volumes of documents through a unified 8-phase pipeline. Maintaining throughput and reliability during these runs is critical for generating accurate knowledge graph reconstructions without human intervention.
 
-This PR introduces a robust resiliency layer to ensure simulation runs reach terminal states even when encountering worker crashes or unprocessable document fragments.
+### Problem
+We identified a total stall in the simulation run during the `micro_batches` phase. This was caused by two primary issues:
+1.  **Ghost Documents**: Due to the way SQLite's `json_insert` behaves with `NULL` inputs, documents with uninitialized state became invisible to our recovery queries. They were neither "processed" nor "dispatched" in a way the system could detect, leaving them in a permanent limbo.
+2.  **Infinite Retries**: The system lacked any mechanism to abandon documents that consistently failed (e.g., due to crashing workers or persistent timeouts). This caused the runner to stay in the same phase indefinitely, waiting for a completion that would never happen.
 
-### Key Changes
-- **Visibility Protection**: All JSON list queries and updates in `runner.ts` and `simulation-worker.ts` now use `COALESCE` to prevent SQLite `NULL` pitfalls where `json_insert(NULL, ...)` returns `NULL`.
-- **Zombie Ditching**:
-    - Added `attempts_json` tracking to the `simulation_run_documents` schema.
-    - Updated `recoverPhaseZombies` to increment attempt counts and eventually "ditch" documents that fail after 3 attempts by marking them as processed and skipping further dispatch.
-- **Blueprint Alignment**: Updated `docs/blueprints/runtime-architecture.md` to codify "Simulation Resiliency & Zombie Ditching" as a core system constraint.
-
-### Status
-- **Bug Fix**: "Ghost Documents" are now visible and recoverable.
-- **Resiliency**: Infinite stalls are prevented via bounded retries.
-- **Verification**: Verified via local simulation logs and DB state inspection.
+### Solution
+We introduced a document-level resiliency layer to ensure simulation runs can advance even in the presence of problematic data.
+- **Visibility Protection**: We updated all JSON path queries and updates to use `COALESCE` patterns, ensuring that newly discovered documents are always visible to the orchestrator regardless of their initial state.
+- **Zombie Ditcher**: We added an `attempts_json` column to track retries per phase. If a document fails to progress after 3 attempts, the system now automatically "ditches" it—marking it as skipped in the phase history and logging a warning event.
+- **Eventual Advancement**: By skipping high-failure documents, the simulation runner can now reach the "advance" state and move on to subsequent phases, preserving the overall progress of the run.

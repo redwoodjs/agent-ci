@@ -93,3 +93,29 @@ No changes.
 - [ ] Implement Pick-Up Latch for Batches in `simulation-worker.ts`.
 - [ ] Add `updated_at: now` to document resets in `runs.ts`.
 - [ ] Update `runtime-architecture.md` to reflect the 30-minute ditching rule.
+
+## Investigated widespread 'get: Unspecified error (0)'
+
+Our local simulation advanced successfully through `micro_batches` and `macro_synthesis` (Phase 2 & 3), but hit a brick wall in `materialize_moments` (Phase 5).
+
+### Findings
+- **Error**: 1282 occurrences of `get: Unspecified error (0)` in `sim.log`.
+- **Cause**: The `limit(100)` boost increased worker concurrency to a point where the local Miniflare R2 implementation (local filesystem-backed) started failing fetch operations.
+- **Trigger**: Every document in the pipeline attempts to `load()` previous artifacts via R2. At a 100-doc dispatch limit, 100 concurrent workers hit the local storage in high succession.
+
+## RFC: Resilience Patch (Local R2 Stabilization)
+
+### 1. 2000ft View Narrative
+**Problem**: Local development infrastructure (Miniflare) cannot handle 100+ concurrent R2 `get` operations reliably, leading to "Unspecified error (0)".
+**Solution**: We implement **R2 Retry Logic** in the storage strategy and moderate polling to **50 documents** per tick. This preserves the "Throughput Boost" while staying within the stability bounds of the local dev environment.
+
+### 2. Implementation Breakdown
+- [MODIFY] [runner.ts](file:///Users/justin/rw/worktrees/machinen_y-no-materialize/src/app/engine/runners/simulation/runner.ts): Reduce `limit(100)` to `limit(50)`.
+- [MODIFY] [simulation.ts](file:///Users/justin/rw/worktrees/machinen_y-no-materialize/src/app/engine/runtime/strategies/simulation.ts): Add a retry loop for `bucket.get`.
+
+### 3. Verification
+- Manual rerun from `materialize_moments`.
+
+### 4. Tasks
+- [ ] Add Retry Logic to `ArtifactStorage.load` in `simulation.ts`.
+- [ ] Moderate Polling limits to 50 in `runner.ts`.

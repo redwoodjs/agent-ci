@@ -12,8 +12,9 @@ export async function pollJobs(): Promise<Job[]> {
       return [];
     }
 
-    const jobs = await response.json() as Job[];
-    return jobs;
+    const data = await response.json() as { username: string, jobs: Job[] };
+    console.log(`[Bridge] Server confirmed presence for user: ${data.username}`);
+    return data.jobs;
   } catch (error) {
     console.error("[Bridge] Error polling jobs:", error);
     return [];

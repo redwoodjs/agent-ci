@@ -56,6 +56,32 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // 3. GitHub App Token Exchange Mock
+  const tokenMatch = url?.match(/\/app\/installations\/(\d+)\/access_tokens/);
+  if (method === 'POST' && tokenMatch) {
+    const installationId = tokenMatch[1];
+    const authHeader = req.headers['authorization'];
+    console.log(`[DTU] Token exchange for installation: ${installationId}`);
+    if (authHeader) {
+      console.log(`[DTU] Received JWT: ${authHeader.substring(0, 20)}...`);
+    }
+    
+    // Return a mock installation token
+    const response = {
+      token: `ghs_mock_token_${installationId}_${Math.random().toString(36).substring(7)}`,
+      expires_at: new Date(Date.now() + 3600 * 1000).toISOString(),
+      permissions: {
+        actions: "read",
+        metadata: "read"
+      },
+      repository_selection: "selected"
+    };
+
+    res.writeHead(201, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(response));
+    return;
+  }
+
   // Health check
   if ((method === 'GET' || method === 'HEAD') && url === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json' });

@@ -46,5 +46,9 @@
     "node_id": "MDQ6VXNlcjY1NDMyMQ==",
     "avatar_url": "https://avatars.githubusercontent.com/u/654321?v=4",
     "type": "User"
+  },
+  "installation": {
+    "id": 12345678,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTIzNDU2Nzg="
   }
 }

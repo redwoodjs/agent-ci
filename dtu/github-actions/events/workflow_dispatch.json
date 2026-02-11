@@ -17,5 +17,9 @@
   "sender": {
     "login": "peterp",
     "id": 654321
+  },
+  "installation": {
+    "id": 12345678,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTIzNDU2Nzg="
   }
 }

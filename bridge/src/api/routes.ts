@@ -3,6 +3,7 @@ import { route } from "rwsdk/router";
 import { z } from "zod";
 
 import { SECRETS } from "../secrets";
+import { getInstallationToken } from "../github";
 
 export const apiRoutes = [
   route("/webhook", { post: handleWebhook }),
@@ -87,11 +88,16 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
   const jobsJson = await env.OA1_BRIDGE_JOBS.get(`queued_jobs@${username}`);
   const jobs = jobsJson ? JSON.parse(jobsJson) : [];
   
+  const installationId = payload.installation?.id;
+  if (!installationId) {
+      return new Response("Missing installation ID in payload", { status: 400 });
+  }
+
   jobs.push({ 
     deliveryId,
     githubJobId: payload.workflow_job.id,
     githubRepo: payload.repository.full_name,
-    githubToken: SECRETS.GITHUB_TOKEN, // Pass the token to the runner -> container
+    installationId, // Store the installationId instead of GITHUB_TOKEN
   }); 
   
   await env.OA1_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify(jobs));
@@ -116,14 +122,33 @@ async function handleJobs({ request }: { request: Request }): Promise<Response> 
 
   // Get and Clear for MVP
   const jobsJson = await env.OA1_BRIDGE_JOBS.get(`queued_jobs@${username}`);
-  const jobs = jobsJson ? JSON.parse(jobsJson) : [];
+  const rawJobs = jobsJson ? JSON.parse(jobsJson) : [];
+  const jobs = [];
 
-  if (jobs.length > 0) {
+  if (rawJobs.length > 0) {
+    // Generate tokens for each job on-demand
+    for (const job of rawJobs) {
+        try {
+            console.log(`[Bridge] Generating on-demand token for ${job.githubRepo}...`);
+            const token = await getInstallationToken(job.installationId.toString(), job.githubRepo);
+            jobs.push({
+                ...job,
+                githubToken: token,
+            });
+        } catch (error) {
+            console.error(`[Bridge] Failed to generate token for job ${job.githubJobId}:`, error);
+            // In a real system, we might want to re-queue this or mark as failed
+        }
+    }
+
     // Clear the queue
     await env.OA1_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify([]));
   }
 
-  return new Response(JSON.stringify(jobs), {
+  return new Response(JSON.stringify({
+    username,
+    jobs,
+  }), {
     headers: { "Content-Type": "application/json" },
   });
 }

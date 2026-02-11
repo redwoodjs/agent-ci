@@ -32,11 +32,11 @@
       Things to consider: Handling the GitHub API response structure, mapping steps to shell commands.
       Importance: 5
       Cite references: [worklog: 2026-02-10-0853](worklogs/2026-02-10-0853-direct-github-pull.md)
-- [ ] Securely generate on-demand Installation Tokens in the Bridge
+- [x] Securely generate on-demand Installation Tokens in the Bridge
       Motivation: Moving away from a persistent `GITHUB_TOKEN` to short-lived, job-scoped installation tokens for better security.
       Things to consider: GitHub App authentication flow, token scope and expiration.
       Importance: 4
-      Cite references: [worklog: 2026-02-10-0853](worklogs/2026-02-10-0853-direct-github-pull.md)
+      Cite references: [worklog: 2026-02-11-1535](worklogs/2026-02-11-1535-github-installation-tokens.md)
 - [ ] Implement secret resolution via GitHub Secrets API
       Motivation: The worker container needs to fetch and decrypt secrets required for the job steps.
       Things to consider: Using the installation token to query the Secrets API, handling encrypted values if necessary.
@@ -61,3 +61,13 @@
       Motivation: Prevent unauthorized job fetching.
       Things to consider: Verify `BRIDGE_API_KEY` in `src/bridge.ts` and Bridge headers.
       Importance: 3
+- [ ] Update Runner to validate its own presence via the Bridge response
+      Motivation: Ensure the Runner only proceeds if the Bridge has correctly identified it and marked it as online.
+      Things to consider: The Bridge now returns `{ username, jobs }`. The Runner should verify this username.
+      Importance: 4
+      Cite references: [worklog: 2026-02-11-1535](worklogs/2026-02-11-1535-github-installation-tokens.md)
+- [ ] Verify the full flow with the real Runner agent
+      Motivation: Confirm that the on-demand tokens work correctly when used by the actual runner agent to pull job specs.
+      Things to consider: Timing of token generation vs. usage.
+      Importance: 5
+      Cite references: [worklog: 2026-02-11-1535](worklogs/2026-02-11-1535-github-installation-tokens.md)

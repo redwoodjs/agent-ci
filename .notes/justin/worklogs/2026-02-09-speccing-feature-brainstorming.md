@@ -818,19 +818,89 @@ None.
 - [x] [MODIFY] `src/app/engine/routes/speccing.ts` to invoke plugins <!-- id: 3 -->
 - [x] [MODIFY] `scripts/bootstrap-specs.sh` to pass repository context <!-- id: 4 -->
 
-### Vectorize Filtering Discrepancy (Discovery)
-We observed that while the Dynamic Namespace is resolved correctly, the Discovery API returns 0 matches when using the `isSubject: true` filter.
+### Discovery: Vectorize Metadata Filter Latency / Indexing Requirement
+We confirmed that `isSubject: true` exists in the remote Vectorize metadata (via `wrangler vectorize get-vectors`), but the API filter `filter: { isSubject: true }` returns zero matches.
 
-**Key Findings:**
-- **Namespace Resolution**: Confirmed working. Server logs show the resolved namespace matches the prefix.
-- **Data Existence (SQLite)**: Durable Object storage (MomentGraphDO) contains the expected moments for the simulation namespace (verified via `admin/tree-stats`).
-- **Data Existence (Vectorize)**: The remote `moment-index-v8` index **does** contain the vectors.
-- **Filter Failure**: 
-    - Querying with `filter: { isSubject: true, momentGraphNamespace: "..." }` -> **0 matches**.
-    - Querying with `filter: { momentGraphNamespace: "..." }` -> **10 matches**.
-- **Metadata Verification**: Matches retrieved *without* the `isSubject` filter contain `"isSubject": true` in their metadata.
+**Findings & Discussion:**
+- **The Filter Gap**: Removing the boolean filter allows retrieval of the exact same vectors, which clearly show `isSubject: true` in their metadata.
+- **Hypothesis (Late Index addition)**: We recently added the metadata index for `isSubject`. In Cloudflare Vectorize, adding a metadata index on an *existing* field might not automatically index the data retroactively, or might require a background process to "settle".
+- **Conclusion**: The "bug" isn't in our resolution or materialization logic, but likely in the Vectorize state or the timing of its metadata indexing.
 
-**Hypothesis**: Cloudflare Vectorize is currently sensitive to the boolean filter format or there is a type mismatch between how it was indexed and how it is being queried.
+## Research: Vectorize Metadata Indexing Behavior
+We performed research into Cloudflare Vectorize's metadata indexing and found the following:
+
+- **Indexes are NOT Retroactive**: When `wrangler vectorize create-metadata-index` is run, it only indexes vectors that are inserted or upserted **after** that command completes.
+- **Existing Vectors**: Any vectors present in the index before the metadata index was created will **not** be searchable via that metadata filter, even if the metadata is physically present in the vector's metadata block.
+- **Fix**: The vectors must be re-upserted (overwritten by ID) to be included in the new index.
+
+**Conclusion**: Since we added the `isSubject` index *after* the simulation was processed, those vectors are physically missing from the `isSubject` index. We need to re-index the simulation data.
+
+## RFC: Vectorize Re-indexing Admin Tool
+
+### 2000ft View Narrative
+We discovered that adding a metadata index to Cloudflare Vectorize (e.g., `isSubject`) does not retroactively index existing vectors. Consequently, simulation data processed before the index was created is physically present but semantically invisible to boolean filters. We need an administrative tool to "re-upsert" these vectors. This tool will iterate through the SQLite storage (MomentGraphDO) for a specified namespace and re-invoke the indexing logic (`addMoment`) to force an overwrite in the Vectorize index.
+
+### Database Changes
+None. We are reading from existing SQLite tables and updating remote Vectorize state.
+
+### Behavior Spec
+**GIVEN** a Vectorize index `MOMENT_INDEX` with some vectors missing from a newly created metadata index.
+**WHEN** a POST request is sent to `/admin/reindex-vectors` with a `momentGraphNamespace`.
+**THEN** the server should fetch all moments for that namespace from `MomentGraphDO` and upsert them to `MOMENT_INDEX`.
+**THEN** subsequent filtered queries should return the re-indexed results.
+
+### API Reference
+**POST** `/admin/reindex-vectors`
+- **Auth**: Bearer Token (Query API Key)
+- **Body**:
+  ```json
+  {
+    "momentGraphNamespace": "local-prefix:redwood:rwsdk"
+  }
+  ```
+- **Response**:
+  ```json
+  {
+    "success": true,
+    "processedCount": 142
+  }
+  ```
+
+### Implementation Breakdown
+- **[MODIFY]** `src/app/engine/databases/momentGraph/index.ts`: Add `getMomentsForReindexing(namespace)` to stream all moments from the DO.
+- **[MODIFY]** `src/app/engine/routes.ts`: Register `/admin/reindex-vectors` and implement its handler.
+
+### Directory & File Structure
+```
+src/
+  app/
+    engine/
+      routes.ts
+      databases/
+        momentGraph/
+          index.ts
+```
+
+### Types & Data Structures
+No changes to existing types.
+
+### Invariants & Constraints
+- The `momentId` must be preserved to ensure the Vectorize operation is an **upsert** (overwrite) rather than a duplicate.
+- Authorization must be enforced via the existing `requireQueryApiKey` middleware.
+
+### System Flow (Snapshot Diff)
+**Previous**: Metadata index creation -> No retroactive filtering.
+**New**: Metadata index creation -> Admin Re-index -> Retroactive filtering enabled.
+
+### Suggested Verification
+1. Run `curl -X POST /admin/reindex-vectors` for the simulation namespace.
+2. Observe "vector upsert" logs in the server.
+3. Rerun the Discovery `/api/subjects/search` and verify results are no longer empty.
+
+### Tasks
+- [ ] Implement `getMomentsForReindexing` in `momentGraph/index.ts`
+- [ ] Implement `reindexNamespaceVectorsHandler` in `routes.ts`
+- [ ] Verify fix with `curl`
 
 ---
 

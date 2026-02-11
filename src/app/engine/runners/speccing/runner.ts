@@ -235,7 +235,7 @@ async function fetchEvidenceForMoment(
              if (r2Key.includes('/threads/')) sourceType = 'discord-thread';
              else sourceType = 'discord-channel';
         } else if (plugin.name === 'github') {
-             if (r2Key.includes('/issues/') || r2Key.includes('/pull/')) sourceType = 'github-pr-issue';
+             if (r2Key.includes('/issues/') || r2Key.includes('/pull/') || r2Key.includes('/pull-requests/')) sourceType = 'github-pr-issue';
              else if (r2Key.includes('/projects/')) sourceType = 'github-project';
         }
     }

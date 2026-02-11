@@ -19,8 +19,11 @@ The engine consists of three main layers:
 1.  **Discovery**: Agent searches for a subject via `POST /api/subjects/search`.
 2.  **Initialization**: Agent calls `POST /api/speccing/start`.
     - Engine creates a `sessionId` in `SpeccingStateDO`.
+    - **Namespace Binding**: Engine persists the resolved `momentGraphNamespace` in the session record.
     - Engine identifies the root moment and seeds the Priority Queue (PQ).
 3.  **The Replay Turn**: Agent calls `GET /api/speccing/next`.
+    - Engine loads the `sessionId` from `SpeccingStateDO`.
+    - **Context Recovery**: Engine re-hydrates the `MomentGraphContext` using the persisted `momentGraphNamespace`.
     - Engine pops the earliest moment $M$ from the PQ.
     - Engine triggers **Time Travel Hooks** in plugins to slice raw evidence (timestamp <= $M.createdAt$).
     - Engine pushes $M$'s children onto the PQ.
@@ -38,6 +41,7 @@ The engine uses the **SpeccingStateDO** for session management:
 | `priority_queue_json` | text | Ordered list of pending moment IDs. |
 | `processed_ids_json` | text | List of integrated moment IDs. |
 | `working_spec` | text | The current evolving markdown draft. |
+| `moment_graph_namespace` | text | The qualified namespace string used to locate the Moment Graph. |
 | `replay_timestamp` | text | Current high-water mark for time-locking. |
 | `status` | text | `active`, `completed`, `failed`. |
 
@@ -57,6 +61,7 @@ The engine uses the **SpeccingStateDO** for session management:
 ## Requirements, Invariants & Constraints
 - **[Requirement] Absolute Time-Lock**: No data leakage from the future.
 - **[Invariant] Stateless Agent**: The agent must not store session state locally; it must rely entirely on the `sessionId` and the backend PQ.
+- **[Invariant] Namespace Affinity**: A speccing session is strictly bound to the namespace resolved at creation. All subsequent turns must operate within that same namespace.
 - **[Constraint] Pure Web Access**: The engine must be reachable via standard `curl` to ensure compatibility across all IDE environments.
 - **[Architecture Rule] Plugin-Driven Namespace Resolution**: The engine delegates project namespace resolution (e.g., `redwood:machinen`) to plugins (e.g., `redwood-scope-router`). Plugins inspect the `clientContext` (repository, remote) to map local development environments to canonical prefixes.
 - **[Infrastructure Constraint] Vectorize Filter Latency**: Cloudflare Vectorize metadata indexes are **not retroactive**. If an index (e.g., `isSubject`) is created after vectors are inserted, those vectors will not be searchable via that filter until they are re-upserted.

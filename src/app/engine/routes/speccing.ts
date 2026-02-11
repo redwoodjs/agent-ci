@@ -77,13 +77,10 @@ export async function nextSpeccingHandler({ request }: RequestInfo) {
 
   try {
     const envCloudflare = env as Cloudflare.Env;
-    const momentGraphNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
-    const context = {
-        env: envCloudflare,
-        momentGraphNamespace
-    };
+    const url = new URL(request.url);
+    const baseUrl = `${url.protocol}//${url.host}`;
 
-    const result = await tickSpeccingSession(context, sessionId);
+    const result = await tickSpeccingSession(envCloudflare, sessionId, baseUrl);
     return Response.json(result);
   } catch (error) {
     console.error(`[speccing:next] Error:`, error);

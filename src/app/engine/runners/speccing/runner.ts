@@ -6,6 +6,7 @@ import { Moment } from "../../types";
 export interface SpeccingSession {
   id: string;
   subjectId: string;
+  momentGraphNamespace: string;
   priorityQueue: string[]; // Moment IDs
   processedIds: string[];
   workingSpec: string;
@@ -18,7 +19,6 @@ export async function initializeSpeccingSession(
   subjectId: string
 ): Promise<string> {
   const speccingDb = getSpeccingDb(context.env);
-  const momentDb = getMomentDb(context);
   
   // Find the subject moment
   const subject = await getMoment(subjectId, context);
@@ -34,6 +34,7 @@ export async function initializeSpeccingSession(
     .values({
       id: sessionId,
       subject_id: subjectId,
+      moment_graph_namespace: context.momentGraphNamespace,
       priority_queue_json: JSON.stringify([subjectId]),
       processed_ids_json: JSON.stringify([]),
       working_spec: `# Specification: ${subject.title}\n\n${subject.summary}\n\n`,
@@ -48,11 +49,11 @@ export async function initializeSpeccingSession(
 }
 
 export async function tickSpeccingSession(
-  context: MomentGraphContext,
-  sessionId: string
+  env: Cloudflare.Env,
+  sessionId: string,
+  baseUrl: string
 ): Promise<any> {
-  const speccingDb = getSpeccingDb(context.env);
-  const momentDb = getMomentDb(context);
+  const speccingDb = getSpeccingDb(env);
 
   const session = await speccingDb
     .selectFrom("speccing_sessions")
@@ -64,8 +65,27 @@ export async function tickSpeccingSession(
     return { status: session?.status ?? "not_found" };
   }
 
-  const pq: string[] = JSON.parse(session.priority_queue_json);
-  const processed: string[] = JSON.parse(session.processed_ids_json);
+  // Re-hydrate MomentGraphContext from persisted namespace
+  const context: MomentGraphContext = {
+    env: env as any,
+    momentGraphNamespace: session.moment_graph_namespace || null,
+  };
+  const momentDb = getMomentDb(context);
+
+  console.log("[speccing] tick session", {
+    id: sessionId,
+    namespace: context.momentGraphNamespace,
+    pq_raw: session.priority_queue_json,
+  });
+
+  // Handle auto-parsing vs string
+  const pq: string[] = typeof session.priority_queue_json === 'string' 
+    ? JSON.parse(session.priority_queue_json) 
+    : session.priority_queue_json;
+    
+  const processed: string[] = typeof session.processed_ids_json === 'string'
+    ? JSON.parse(session.processed_ids_json)
+    : session.processed_ids_json;
 
   if (pq.length === 0) {
     await speccingDb
@@ -76,29 +96,27 @@ export async function tickSpeccingSession(
     return { status: "completed" };
   }
 
-  // Pop the earliest moment (PQ should be sorted by original timestamp if possible, 
-  // but for now we just take the first in a breadth-first or depth-first manner. 
-  // Breadth-first is safer for narrative).
+  // Pop the earliest moment
   const currentMomentId = pq.shift()!;
   processed.push(currentMomentId);
 
   const moment = await getMoment(currentMomentId, context);
   if (!moment) {
-      // Skip if moment disappeared
+      console.warn(`[speccing] moment ${currentMomentId} not found in namespace ${context.momentGraphNamespace}, skipping.`);
       await updateSession(speccingDb, sessionId, pq, processed, session.working_spec, session.replay_timestamp);
-      return tickSpeccingSession(context, sessionId);
+      return tickSpeccingSession(env, sessionId, baseUrl);
   }
 
-  // Find children (moments pointing to this as parent)
+  // Find children
   const children = await momentDb
     .selectFrom("moments")
     .select("id")
     .where("parent_id", "=", currentMomentId)
     .execute();
 
-  const newPq = [...pq, ...children.map((c: any) => (c as any).id)];
+  const newPq = [...pq, ...children.map((c: any) => c.id)];
 
-  // Update working spec (Self-Instructing narrative)
+  // Update working spec
   const updatedSpec = session.working_spec + `## [Moment] ${moment.title}\n\n${moment.summary}\n\n`;
 
   await updateSession(speccingDb, sessionId, newPq, processed, updatedSpec, moment.createdAt);
@@ -111,7 +129,7 @@ export async function tickSpeccingSession(
       summary: moment.summary,
       createdAt: moment.createdAt,
     },
-    instruction: `REPLAY TURN: Integrate the evidence into the spec. Focus on "${moment.title}". Once done, proceed to the next moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`,
+    instruction: `REPLAY TURN: Integrate the evidence into the spec. Focus on "${moment.title}". Once done, proceed to the next moment: curl -H "Authorization: Bearer dev" "${baseUrl}/api/speccing/next?sessionId=${sessionId}"`,
   };
 }
 

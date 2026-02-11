@@ -23,8 +23,21 @@ export const speccingMigrations = {
           .execute(),
       ];
     },
+  },
+  "002_add_namespace_context": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("speccing_sessions")
+          .addColumn("moment_graph_namespace", "text")
+          .execute(),
+      ];
+    },
     async down(db) {
-      await db.schema.dropTable("speccing_sessions").execute();
+      await db.schema
+        .alterTable("speccing_sessions")
+        .dropColumn("moment_graph_namespace")
+        .execute();
     },
   },
 } satisfies Migrations;

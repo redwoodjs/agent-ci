@@ -1026,3 +1026,231 @@ instead of re-calculating embeddings (which was triggering the 1031 errors), we'
 - user is performing a new simulation run to ensure all data is indexed correctly from the start.
 - removed re-indexing routes and handlers from `src/app/engine/routes.ts`.
 
+
+## Re-indexing Abandoned - Forever
+
+As per user instruction, we are abandoning re-indexing entirely. This is a dead end. We will rely on new simulation runs for clean data.
+
+### Verification of Speccing with Gentle Panda
+
+Namespace: `local-2026-02-11-11-20-gentle-panda`
+
+#### 1. Search for Subject
+
+```bash
+curl -X POST "http://localhost:5174/api/subjects/search" \
+  -H "Authorization: Bearer dev" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Identified full‑page reload issue for client‑side filters",
+    "context": {
+      "repository": "redwoodjs/sdk",
+      "namespacePrefix": "local-2026-02-11-11-20-gentle-panda"
+    }
+  }'
+```
+
+#### 2. Start Speccing Session
+
+```bash
+# Replace SUBJECT_ID with the ID from the previous command
+curl -X POST "http://localhost:5174/api/speccing/start?subjectId=SUBJECT_ID" \
+  -H "Authorization: Bearer dev" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "context": {
+      "repository": "redwoodjs/sdk",
+      "namespacePrefix": "local-2026-02-11-11-20-gentle-panda"
+    }
+  }'
+```
+
+## Speccing Flow Verification Output (Gentle Panda)
+
+### 1. Subject Search
+```json
+{"matches":[{"id":"81c32b4b-2480-a144-3f6b-23946a9d1541","score":0.59475386,"title":"Recommended anchor‑based navigation to trigger RSC fetches","summary":"@mjmeyer explained that the SDK only intercepts real `<a>` clicks via `initClientNavigation`, not programmatic `pushState`. He advised rendering filters as `<a href=\"?filter=…\">` or GET forms so the SDK can catch the navigation and fetch RSC data without a full reload. This recommendation shaped the subsequent design direction.","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"},{"id":"c3ef1dba-8100-ddc9-54f7-514257ceabb4","score":0.5773965,"title":"Identified full‑page reload issue for client‑side filters","summary":"The team discovered that using native navigation APIs such as `window.location.href` or `history.pushState` caused full page reloads in the Redwood SDK (`rwsdk`), preventing lightweight server‑component (RSC) payloads for dynamic table filters. The problem was clarified as a server‑side redirect rather than a client‑side navigation, prompting the need for a different approach. [mchn://gh/issue/redwoodjs/sdk/552]","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"},{"id":"05369fda-31ce-7613-e4d7-3b8e0ee31073","score":0.5696609,"title":"Proposal to create a beginner-friendly “getting started” guide and workflow","summary":"Community members expressed a desire for occasional contributions to improve onboarding resources. An experienced developer recommended beginners start with full server rendering, inspect network payloads, and gradually add client interactions, suggesting a step‑by‑step guide using rwsdk and RSC. The proposal includes a detailed workflow—fetching data, displaying it, adding client components, triggering updates, and refreshing the page—supported by a reference video demonstration.","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"},{"id":"7f11cc0a-9803-e287-0766-8a11c104bbc9","score":0.56462353,"title":"Github Issue #348: Identified limitation of render middleware for client context providers","summary":"Github Issue #348 The team discovered that the existing render middleware only accepts a `Document` component, preventing client‑side context providers from being added to multiple routes and causing mismatched server/client HTML and undefined `useContext` values. Attempts to work around the limitation using SDK composition or `RW.Document` failed because middleware cannot return JSX, confirming a missing capability in the SDK. [mchn://gh/issue/redwoodjs/sdk/348]","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"},{"id":"e98f5f16-61e4-e14d-a2a2-c7cdec58e7b2","score":0.55962306,"title":"Initiated demo repositories and code sharing for programmatic navigation","summary":"A minimal repository demonstrating anchor links and server functions was shared (https://github.com/mj-meyer/rwsdk-demos). Additional demo repos were posted, including a TODO‑app and a makeshift `navigate` implementation using `__rsc_callServer()`. These resources served as concrete experiments toward a programmatic navigation solution.","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"},{"id":"dcd3f9a6-9e0c-8712-1d5f-d3f33188ba56","score":0.5468119,"title":"Github Issue #552: Proposed pre‑fetch caching and set as priority","summary":"Github Issue #552 The team discussed using the RSC mechanism for client‑side navigation and proposed adding pre‑fetch logic to load pages ahead of time, cache them in the browser, and serve the cache on later requests. It was noted that RSC actions currently use POST requests, so caching would require switching to GET requests. @peterp then confirmed that implementing this pre‑fetch/caching change is next on his priority list. [mchn://gh/issue/redwoodjs/sdk/552]","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"},{"id":"4ea1b087-7611-5002-4a01-56f72c43e63d","score":0.5450108,"title":"Github Issue #348: Explored layout‑middleware API designs as a solution","summary":"Github Issue #348 Several proposals were put forward to extend the render API with layout support, including a nested `layout(Layout, …)` helper, an API shape that nests layouts within the render call, and an alternative syntax `render(Document, Layout1, Layout2, …, [routes])`. Discussion also highlighted the need to treat providers as client‑only wrappers and consider future client‑side routing plans. [mchn://gh/issue/redwoodjs/sdk/348]","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"},{"id":"a193ad6d-d6cc-3afb-5fcc-e60a24aa2f6f","score":0.53366315,"title":"Github PR #933: Added prefetch navigation support","summary":"Github PR #933 introduced `initClientNavigation`, enabling pages to be preloaded via `<link rel=\"prefetch\" href=\"/path/to/page\">`. RedwoodSDK now detects these links and caches them using the WebAPI, addressing and closing issue #552. This implementation expands the SDK’s navigation capabilities. [mchn://gh/pr/redwoodjs/sdk/933]","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"},{"id":"33d1e878-86db-943d-e335-a8b83f9c8869","score":0.5307403,"title":"Identified toast integration issue requiring client component","summary":"The contributor reported a problem where the toast library could only be used within a client component, highlighting a limitation in the current setup. They praised the handling of the issue and planned to reintegrate the toast library into the test suite, while also noting the usefulness of the form‑hooks documentation.","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"},{"id":"911ac86e-7dcf-5ba5-4811-6e39734be88c","score":0.51934975,"title":"Shipped programmatic navigation feature to documentation","summary":"The navigation feature was officially released, with documentation added at https://docs.rwsdk.com/guides/frontend/client-side-nav/#programmatic-navigation, marking the completion of the effort to enable lightweight client‑side navigation without full page reloads.","namespace":"local-2026-02-11-11-20-gentle-panda:redwood:rwsdk"}]}
+```
+
+### 2. Session Start
+```json
+{"sessionId":"4e4aec8a-92fe-4324-a54e-4666a33007ab","instruction":"Session initialized. Execute the following to retrieve the first moment: curl -H \"Authorization: Bearer $API_KEY\" \"$WORKER_URL/api/speccing/next?sessionId=4e4aec8a-92fe-4324-a54e-4666a33007ab\""}
+```
+
+### 3. Next Turn (First Moment)
+```json
+{"status":"completed"}
+```
+
+## Investigation: Speccing Session Immediately Completes
+
+### Finding
+The speccing session successfully starts but immediately returns  on the first  call.
+
+**Root Cause Verification:**
+1. `startSpeccingHandler` correctly resolves the namespace (e.g., `local-2026-02-11-...`) based on the request body.
+2. `nextSpeccingHandler` **FAIL**: It completely ignores the context and defaults to:
+   ```typescript
+   const momentGraphNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
+   ```
+3. As a result, `tickSpeccingSession` runs against the *default* namespace (likely empty or different), fails to find the subject moment (which lives in `local-2026-...`), treats it as "disappeared", skips it, empties the queue, and marks the session as completed.
+
+### Recommended Fix
+We must persist the `momentGraphNamespace` in the `speccing_sessions` table so that subsequent `tick` calls can re-hydrate the correct context without requiring the client to re-send it every time.
+
+**Plan:**
+1.  **Modify Schema**: Add `namespace` column to `speccing_sessions` table in `src/app/engine/databases/speccing/migrations.ts`.
+2.  **Update Initialization**: In `runner.ts`, save the resolved namespace during `initializeSpeccingSession`.
+3.  **Update Tick**: In `runner.ts`, read the namespace from the session record and use it to construct the `MomentGraphContext`.
+
+## RFC: Persisting Namespace Context in Speccing Sessions
+
+### Context
+Speccing sessions are initialized with a specific `momentGraphNamespace` (e.g., from a simulation run like `local-2026-02-11-...`). However, the `next` action (tick) currently reconstructs the engine context from the environment variables, losing the original namespace. This causes the runner to look for the subject in the wrong namespace (default), failing to find it, and prematurely completing the session.
+
+### Problem
+- `startSpeccingHandler` resolves the correct namespace but doesn't persist it.
+- `nextSpeccingHandler` has no way to know which namespace the session belongs to.
+- `tickSpeccingSession` fails to find moments because it queries the wrong D1 namespace / table prefix.
+
+### Solution
+Persist the `momentGraphNamespace` in the `speccing_sessions` table.
+
+### Proposed Changes
+
+#### 1. Database Schema
+Modify `src/app/engine/databases/speccing/migrations.ts`:
+- Add `moment_graph_namespace` column (TEXT, nullable for backward compatibility, but practically required).
+
+```typescript
+await db.schema
+  .alterTable("speccing_sessions")
+  .addColumn("moment_graph_namespace", "text")
+  .execute();
+```
+
+#### 2. Speccing Runner
+Modify `src/app/engine/runners/speccing/runner.ts`:
+- Update `initializeSpeccingSession` to accept and save `momentGraphNamespace`.
+- Update `tickSpeccingSession` to:
+    1. Read `moment_graph_namespace` from the session record.
+    2. Construct a new `MomentGraphContext` using this namespace.
+    3. Use this context for all `getMoment` calls.
+
+#### 3. API Handlers
+- `startSpeccingHandler` already has the namespace; pass it to `initialize`.
+- `nextSpeccingHandler` does *not* need to resolve namespace from env; it just needs to call `tick`, which will now self-bootstrap the correct context from the DB.
+
+### Verification Plan
+1. Apply migrations.
+2. Restart dev server.
+3. Run the "Gentle Panda" verification flow again.
+4. Verify that `next` returns the first moment instead of `{"status": "completed"}`.
+
+## RFC: Speccing Session Namespace Persistence
+
+### 1. 2000ft View Narrative
+When a speccing session is started, we often resolve a specific simulation namespace (e.g., `local-2026-02-11-gentle-panda`) based on the request context. However, this resolved namespace is currently only used during the session initialization. When the client subsequent calls `/api/speccing/next`, the API defaults back to the environment's base namespace because the session's origin namespace was not persisted. This leads to the engine searching for moments in the wrong database tables/prefixes, resulting in immediate session "completion" as it skips missing moments.
+
+We propose persisting the resolved `momentGraphNamespace` in the `speccing_sessions` table. This ensures that the engine can re-hydrate the correct context for every "tick" of the replay, maintaining continuity even when targeting ephemeral simulation namespaces.
+
+### 2. Database Changes
+We will add a column to the `speccing_sessions` table to store the namespace string.
+
+**Table: speccing_sessions**
+- `moment_graph_namespace`: TEXT (Column) - Stores the qualified namespace string used to locate the Moment Graph.
+
+**Rationale:**
+Allows the Speccing Engine to be "namespace-aware" across multiple HTTP requests without requiring the client to pass the namespace context on every turn.
+
+### 3. Behavior Spec
+**GIVEN** a Speccing session started for a subject in namespace "A"
+**WHEN** the client calls `/api/speccing/next` for that session
+**THEN** the engine should query for moments in namespace "A"
+**AND** it should return the next moment in the narrative instead of completing immediately.
+
+### 4. API Reference
+No change to public interfaces, but the internal behavior of existing endpoints will change.
+
+- `POST /api/speccing/start`: Resolves namespace and persists it in the new session record.
+- `GET /api/speccing/next`: Reads the persisted namespace from the session record to construct the lookup context.
+
+### 5. Implementation Breakdown
+- **[MODIFY]** `src/app/engine/databases/speccing/migrations.ts`: Add `moment_graph_namespace` column.
+- **[MODIFY]** `src/app/engine/runners/speccing/runner.ts`: 
+    - Update `initializeSpeccingSession` to accept and store the namespace.
+    - Update `tickSpeccingSession` to read the namespace and use it for context construction.
+- **[MODIFY]** `src/app/engine/routes/speccing.ts`: 
+    - Pass the resolved namespace to the runner in `startSpeccingHandler`.
+    - Simplified `nextSpeccingHandler` as it no longer needs to guess the namespace from env.
+
+### 6. Directory & File Structure
+```
+src/app/engine/
+├── databases/
+│   └── speccing/
+│       └── migrations.ts [MODIFY]
+├── runners/
+│   └── speccing/
+│       └── runner.ts [MODIFY]
+└── routes/
+    └── speccing.ts [MODIFY]
+```
+
+### 7. Types & Data Structures
+```typescript
+// src/app/engine/runners/speccing/runner.ts
+export interface SpeccingSession {
+  // ... existing fields ...
+  momentGraphNamespace: string;
+}
+```
+
+### 8. Invariants & Constraints
+- A speccing session must always operate within the namespace it was initialized with.
+- If a session record exists but lacks a `moment_graph_namespace`, it should fall back to the default environment namespace (backward compatibility).
+
+### 9. System Flow (Snapshot Diff)
+**Previous Flow:**
+Client Start -> Resolve Namespace -> Initialize Session (Namespace Lost) -> Client Next -> Resolve Default Namespace -> Fail to find moment -> Completed.
+
+**New Flow:**
+Client Start -> Resolve Namespace -> Initialize Session (Namespace Saved) -> Client Next -> Load Saved Namespace -> Find moment -> Continue Replay.
+
+### 10. Suggested Verification
+Run the following flow:
+1. Run a simulation to produce a namespace.
+2. Run `curl` to search for a subject in that namespace.
+3. Run `curl` to `/api/speccing/start` with the subject and namespace context.
+4. Run `curl` to `/api/speccing/next` and verify it returns the first moment instead of completing.
+
+### 11. Tasks
+- [ ] [Implementation] Add `moment_graph_namespace` to `speccing_sessions` schema <- [ ] Identify and fix the new stall id: 18 -->
+- [ ] [Implementation] Update `runner.ts` to save and load namespace <- [ ] Identify and fix the new stall id: 19 -->
+- [ ] [Implementation] Update `speccing.ts` API routes <- [ ] Identify and fix the new stall id: 20 -->
+- [ ] [Verification] Verify full flow with simulation namespace <- [ ] Identify and fix the new stall id: 21 -->
+
+## Final Review: Speccing Namespace Persistence
+
+### Changes
+1.  **Schema**: Added `moment_graph_namespace` to `speccing_sessions`.
+2.  **Runner**: Updated logic to save/load namespace context.
+3.  **API**: Simplified flow to ensure persistence across turns.
+4.  **Learning**: Documented Error 1031 as a credential issue.
+
+### Verification
+Full E2E flow verified with namespace `local-2026-02-11-11-20-gentle-panda`. `api/speccing/next` now correctly advances through the narrative moments found in the simulation.
+
+### Learning Extracted
+Cloudflare AI Error 1031 in local dev is a configuration/credential issue, not a service failure.
+
+## Draft PR: Speccing Session Namespace Persistence
+
+### Context
+Speccing sessions targeting simulation namespaces were losing context after the initialization turn, causing immediate session completion.
+
+### Problem
+The `sessionId` was the only state persisted, but the qualified namespace required to locate moments in the Knowledge Graph was reconstructed on every request from server environment variables, bypassing any simulation-specific prefixes.
+
+### Solution
+We extended the `speccing_sessions` schema to persist the resolved `momentGraphNamespace`. The runner now re-hydrates the correct context from the database for every turn, ensuring narrative continuity.

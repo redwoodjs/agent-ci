@@ -348,10 +348,18 @@ export async function restartSimulationRunFromPhase(
 
   if (phase === "ingest_diff") {
      await db.updateTable("simulation_run_documents")
-      .set({ processed_at: "pending", dispatched_phases_json: null, processed_phases_json: null, changed: 0, error_json: null } as any)
+      .set({ 
+        processed_at: "pending", 
+        dispatched_phases_json: null, 
+        processed_phases_json: null, 
+        updated_at: now, 
+        changed: 0, 
+        error_json: null 
+      } as any)
       .where("run_id", "=", runId)
       .execute();
   } else {
+     // ...
      // For other phases, we need to carefully remove only the cleared phases from the JSON
      // to preserve history of earlier phases. This requires a batched read-modify-write.
      
@@ -407,6 +415,7 @@ export async function restartSimulationRunFromPhase(
               .set({
                   dispatched_phases_json: JSON.stringify(u.dispatched),
                   processed_phases_json: JSON.stringify(u.processed),
+                  updated_at: new Date().toISOString(),
                   error_json: null // Clear errors on restart
               } as any)
               .where("run_id", "=", runId)

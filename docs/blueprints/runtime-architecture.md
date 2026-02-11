@@ -104,10 +104,13 @@ We inject behavior to handle the different constraints of Live vs Simulation.
 7.  **Self-Contained Simulation Artifacts**: For large-scale simulations, artifacts MUST be enriched with all necessary metadata (e.g., Titles/Summaries) to make them self-contained for UI rendering. Relational joins for metadata in the UI data layer are prohibited on the critical path to avoid database parameter limits.
 8.  **Completion Settlement**: Simulation runs transition through a `settling` state before marking as `completed`. This synchronizes the logical end of the work with the asynchronous flush of event logs and artifacts. **The simulation runner MUST correctly acquire locks for all active statuses (including `settling` and `advance`) to ensure terminal state transitions achieve eventual consistency.**
 9.  **Robust Reasoning Extraction**: Any LLM-based selection or classification judgment must use resilient parsing (e.g., `parseLLMJson`) to extract valid structured data regardless of markdown formatting or conversational noise in the model output.
-10. **Simulation Resiliency & Zombie Ditching**: To prevent infinite stalls caused by problematic documents (e.g., crashing workers or timeouts), the simulation runner implements a **Ditching** mechanism.
+10. **Simulation Resiliency & Zombie Ditching**: To prevent infinite stalls caused by problematic documents (e.g., crashing workers or timeouts), the simulation runner implements a **Double-Reset Ditching** mechanism.
     - **Attempt Tracking**: The orchestrator tracks attempts per document per phase in `attempts_json`.
-    - **Visibility Protection**: All JSON list columns (dispatched, processed) must be properly initialized and queried using `COALESCE` to prevent SQLite `NULL` pitfalls where `json_insert(NULL, ...)` returns `NULL`.
-    - **Eventual Advancement**: If a document fails to process after `MAX_ATTEMPTS` (default: 3), or remains silent beyond the `zombieThreshold` (5 minutes), it is marked as "failed/skipped" in the phase history, allowing the simulation run to advance to subsequent phases instead of stalling indefinitely.
+    - **The Double-Reset Invariant**: To decouple queue latency from active processing, liveness is signaled twice:
+        - **Dispatch Reset**: The runner refreshes `updated_at` when enqueuing a unit (Document or Batch). This allows a **30-minute window** for the unit to wait in the queue.
+        - **Pick-Up Latch (Active Reset)**: The worker refreshes `updated_at` immediately upon job receipt. This resets the 30-minute window for active processing.
+    - **Restart Touch**: Any manual restart of a phase MUST forcefully refresh the `updated_at` timestamp of all reset units to `now()`.
+    - **Eventual Advancement**: If a document results in a silent failure beyond the `zombieThreshold` (30 minutes), it is marked as "failed/skipped" in the phase history, allowing the simulation run to advance to subsequent phases instead of stalling indefinitely.
 
 ## 4. The 8-Phase Lifecycle (Detailed Flow)
 

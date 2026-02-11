@@ -521,7 +521,7 @@ async function recoverPhaseZombies(
 ): Promise<void> {
   const db = getSimulationDb(context);
   const phase = input.phase;
-  const zombieThreshold = new Date(Date.now() - 300000).toISOString(); // 5m timeout
+  const zombieThreshold = new Date(Date.now() - 1800000).toISOString(); // 30m timeout
 
   const zombies = (await db
     .selectFrom("simulation_run_documents")
@@ -643,7 +643,7 @@ async function tickGenericDocumentPolling(
         .where("run_id", "=", input.runId)
         .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "like", `%ingest_diff%`)
         .where(sql`json_extract(COALESCE(dispatched_phases_json, '[]'), '$')`, "not like", `%${phase}%`)
-        .limit(10)
+        .limit(100)
         .execute();
       
       if (docs.length > 0) {
@@ -688,7 +688,7 @@ async function tickGenericDocumentPolling(
         .where("run_id", "=", input.runId)
         .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "like", `%${prevPhase}%`)
         .where(sql`json_extract(COALESCE(dispatched_phases_json, '[]'), '$')`, "not like", `%${phase}%`)
-        .limit(50)
+        .limit(100)
         .execute();
 
       if (docs.length > 0) {

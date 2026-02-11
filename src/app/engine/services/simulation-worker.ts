@@ -138,6 +138,16 @@ export async function processSimulationJob(
               ),
             };
 
+            // PICK-UP LATCH: Refresh timestamp immediately upon receipt.
+            // This decouples queue wait time from processing time.
+            if ((message as any).r2Key) {
+              await db.updateTable("simulation_run_documents")
+                .set({ updated_at: new Date().toISOString() })
+                .where("run_id", "=", message.runId)
+                .where("r2_key", "=", (message as any).r2Key)
+                .execute();
+            }
+
             const logger: any = {
               info: (msg: string, data?: any) => {
                 console.log(`[sim-worker:${currentPhaseName}] ${msg}`, data);

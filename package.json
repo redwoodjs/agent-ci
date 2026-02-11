@@ -2,7 +2,7 @@
   "name": "oa-1",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others \"pnpm --filter dtu/github-actions dev\" \"wait-on http://localhost:8910 && pnpm --filter bridge dev\" \"wait-on http://localhost:8911 && pnpm --filter runner dev\""
+    "dev": "concurrently --kill-others --names \"GitHub,Bridge,Runner\" \"pnpm --filter dtu-github-actions dev\" \"wait-on http://localhost:8910 && pnpm --filter bridge dev\" \"wait-on http://localhost:8911 && pnpm --filter runner dev\""
   },
   "devDependencies": {
     "concurrently": "^9.2.1",

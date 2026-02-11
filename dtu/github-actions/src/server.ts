@@ -57,9 +57,9 @@ const server = http.createServer((req, res) => {
   }
 
   // Health check
-  if (method === 'GET' && url === '/') {
+  if ((method === 'GET' || method === 'HEAD') && url === '/') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ status: 'online', seededJobs: jobs.size }));
+    res.end(method === 'GET' ? JSON.stringify({ status: 'online', seededJobs: jobs.size }) : undefined);
     return;
   }
 

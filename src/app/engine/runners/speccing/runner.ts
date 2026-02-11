@@ -36,8 +36,8 @@ export async function initializeSpeccingSession(
     .values({
       id: sessionId,
       subject_id: subjectId,
-      priority_queue_json: [subjectId] as any,
-      processed_ids_json: [] as any,
+      priority_queue_json: JSON.stringify([subjectId]) as any,
+      processed_ids_json: JSON.stringify([]) as any,
       working_spec: `# Specification: ${subject.title}\n\n${subject.summary}\n\n`,
       replay_timestamp: subject.createdAt,
       moment_graph_namespace: context.momentGraphNamespace ?? null,
@@ -94,8 +94,11 @@ export async function tickSpeccingSession(
   };
 
   // rwsdk/db auto-parses JSON columns
-  const pq = session.priority_queue_json || [];
-  const processed = session.processed_ids_json || [];
+  const pq = (session.priority_queue_json || []) as string[];
+  const processed = (session.processed_ids_json || []) as string[];
+
+  console.log(`[speccing:next] Session ${sessionId} PQ type: ${typeof pq}, isArray: ${Array.isArray(pq)}`);
+  console.log(`[speccing:next] PQ content:`, pq);
 
   if (pq.length === 0) {
     console.log(`[speccing:next] Session ${sessionId} completed (empty PQ)`);
@@ -268,8 +271,8 @@ async function updateSession(
   await db
     .updateTable("speccing_sessions")
     .set({
-      priority_queue_json: JSON.stringify(pq),
-      processed_ids_json: JSON.stringify(processed),
+      priority_queue_json: JSON.stringify(pq) as any,
+      processed_ids_json: JSON.stringify(processed) as any,
       working_spec: spec,
       replay_timestamp: timestamp,
       updated_at: new Date().toISOString(),

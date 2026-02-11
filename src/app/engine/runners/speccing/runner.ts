@@ -222,43 +222,25 @@ async function fetchEvidenceForMoment(
       momentGraphNamespace: context.momentGraphNamespace
     };
 
-    // Synthesize chunks from microPaths
-    const microPaths = moment.microPaths || [];
-    const syntheticChunks: ChunkMetadata[] = microPaths.map((path, i) => ({
-      chunkId: `${moment.id}-${i}`,
-      documentId: moment.documentId,
-      source: plugin.name,
-      type: "reconstructed-speccing-chunk",
-      documentTitle: moment.title,
-      author: moment.author,
-      jsonPath: path,
-      sourceMetadata: {
-          ...moment.sourceMetadata,
-          // Ensure type is preserved for github plugin
-          type: moment.sourceMetadata?.type || moment.sourceMetadata?.github?.type
-      },
-    }));
+    // Request the full document content from the plugin
+    // We use a specific "full-document" chunk to trigger the plugin's complete rendering logic
+    const fullDocumentRequest: ChunkMetadata[] = [{
+        chunkId: "full-doc",
+        documentId: moment.documentId,
+        source: plugin.name,
+        type: "full-document",
+        documentTitle: moment.title,
+        author: moment.author,
+        jsonPath: "$.", // Request root
+        sourceMetadata: {
+            ...moment.sourceMetadata,
+            type: moment.sourceMetadata?.type || moment.sourceMetadata?.github?.type
+        },
+    }];
 
-    // If no microPaths, create a fallback chunk to ensure plugins like github (which check length) don't bail
-    if (syntheticChunks.length === 0) {
-        syntheticChunks.push({
-            chunkId: `${moment.id}-fallback`,
-            documentId: moment.documentId,
-            source: plugin.name,
-            type: "reconstructed-speccing-fallback",
-            documentTitle: moment.title,
-            author: moment.author,
-            jsonPath: "$.",
-            sourceMetadata: {
-                ...moment.sourceMetadata,
-                type: moment.sourceMetadata?.type || moment.sourceMetadata?.github?.type
-            },
-        });
-    }
+    console.log(`[speccing:evidence] Calling reconstructContext for full document.`);
 
-    console.log(`[speccing:evidence] Calling reconstructContext with ${syntheticChunks.length} chunks. First chunk path: ${syntheticChunks[0]?.jsonPath}`);
-
-    const reconstructed = await plugin.evidence.reconstructContext(syntheticChunks, timeLockedData, queryContext);
+    const reconstructed = await plugin.evidence.reconstructContext(fullDocumentRequest, timeLockedData, queryContext);
     
     console.log(`[speccing:evidence] Reconstruction result for ${r2Key}:`, reconstructed ? `Content length: ${reconstructed.content.length}` : "null");
 

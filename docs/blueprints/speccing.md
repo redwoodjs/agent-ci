@@ -9,10 +9,10 @@ The engine follows a **Unified Actor Model**:
 - **Machinen** is the "Brain" (stateful, time-locked data provider).
 - **The IDE Agent** (Cursor, Antigravity) is the "Hands" (stateless, loop-driven executor).
 
-## High-Level Structure
+## Core Architecture
 The engine consists of three main layers:
 1.  **Stateful Storage (`SpeccingStateDO`)**: A dedicated SQLite-backed Durable Object for managing transient session states (Priority Queues, working drafts).
-2.  **Chronological Runner**: A walker logic that pops moments from the PQ and slices source evidence by timestamp.
+2.  **Evidence Reconstruction Layer**: A pipeline that fetches raw source documents from R2 and invokes plugin hooks (`timeTravel`, `reconstructContext`) to produce high-fidelity, time-locked evidence.
 3.  **Self-Instructing API**: A REST interface that delivers both narrative data and the literal commands (instructions) the agent must execute next.
 
 ## System Flow
@@ -24,9 +24,11 @@ The engine consists of three main layers:
 3.  **The Replay Turn**: Agent calls `GET /api/speccing/next`.
     - Engine loads the `sessionId` from `SpeccingStateDO`.
     - **Context Recovery**: Engine re-hydrates the `MomentGraphContext` using the persisted `momentGraphNamespace`.
-    - Engine pops the earliest moment $M$ from the PQ.
-    - Engine triggers **Time Travel Hooks** in plugins to slice raw evidence (timestamp <= $M.createdAt$).
-    - Engine pushes $M$'s children onto the PQ.
+    - Engine pops the earliest moment `M` from the PQ.
+    - **High-Fidelity Fetch**: Engine retrieves the raw JSON source document `D` (linked to `M`) from R2.
+    - **Evidence Slicing**: Engine triggers **Time Travel Hooks** in plugins to slice `D` by timestamp (`T <= M.createdAt`).
+    - **Reconstruction**: Engine triggers **Reconstruction Hooks** to format the sliced data into a high-fidelity markdown evidence string.
+    - Engine pushes `M`'s children onto the PQ.
     - Engine returns the context + `instruction` + `next_command`.
 4.  **Completion**: When the PQ is empty, the engine returns `status: completed`.
 
@@ -58,14 +60,39 @@ The engine uses the **SpeccingStateDO** for session management:
 - **THEN** all raw documents (PR comments, Discord messages) are filtered to exclude any data with a timestamp `T > T1`.
 - **AND** any code references must reflect the state of the repository at `T1`.
 
+## API Reference
+
+### `POST /api/subjects/search`
+Discovery endpoint for finding subjects. Uses semantic search with metadata filtering.
+- **Payload**: `{ "query": string, "namespace": string, "namespacePrefix": string }`
+- **Response**: `{ "matches": Array<{ id, title, summary, score }> }`
+
+### `POST /api/speccing/start`
+Initializes a stateful speccing session.
+- **Query Param**: `subjectId`
+- **Payload**: `{ "namespace": string, "namespacePrefix": string }`
+- **Response**: `{ "sessionId", "status", "instruction", "next_command" }`
+
+### `GET /api/speccing/next`
+Advances the replay loop.
+- **Query Param**: `sessionId`
+- **Response**: `{ "status", "moment", "evidence", "instruction", "next_command" }`
+
 ## Requirements, Invariants & Constraints
 - **[Requirement] Absolute Time-Lock**: No data leakage from the future.
 - **[Invariant] Stateless Agent**: The agent must not store session state locally; it must rely entirely on the `sessionId` and the backend PQ.
 - **[Invariant] Namespace Affinity**: A speccing session is strictly bound to the namespace resolved at creation. All subsequent turns must operate within that same namespace.
 - **[Constraint] Pure Web Access**: The engine must be reachable via standard `curl` to ensure compatibility across all IDE environments.
-- **[Architecture Rule] Plugin-Driven Namespace Resolution**: The engine delegates project namespace resolution (e.g., `redwood:machinen`) to plugins (e.g., `redwood-scope-router`). Plugins inspect the `clientContext` (repository, remote) to map local development environments to canonical prefixes.
-- **[Infrastructure Constraint] Vectorize Filter Latency**: Cloudflare Vectorize metadata indexes are **not retroactive**. If an index (e.g., `isSubject`) is created after vectors are inserted, those vectors will not be searchable via that filter until they are re-upserted.
+- **[Architecture Rule] Plugin-Driven Namespace Resolution**: The engine delegates project namespace resolution (e.g., `redwood:machinen`) to plugins.
+- **[Infrastructure Constraint] Vectorize Metadata Indexing**: Metadata indices must be explicitly created on the Vectorize index for filtering (e.g., `isSubject`).
+
+## Directory Mapping
+- `src/app/engine/runners/speccing/`: Core replay logic and runner.
+- `src/app/engine/databases/speccing/`: SQLite schema and session storage.
+- `src/app/engine/routes/speccing.ts`: Speccing loop API handlers.
+- `src/app/engine/routes/subjects.ts`: Discovery API handlers.
+- `src/app/engine/plugins/`: High-fidelity `timeTravel` and `reconstructContext` implementations.
 
 ## Learnings & Anti-Patterns
-- **Avoid Bulk LLM Summarization**: Early versions attempted to summarize all moments at once. This led to hallucination and loss of detail. The shifted approach uses a turn-based replay to maintain high narrative fidelity.
-- **Relational vs. Vector Subjects**: We moved away from a separate `SubjectDO` in favor of using the `moments` table as the source of truth, with `SUBJECT_INDEX` providing the semantic search capability. This prevents data duplication and keeps the graph unified.
+- **Avoid Bulk LLM Summarization**: Turn-based replay prevents hallucination and maintains high fidelity.
+- **Relational vs. Vector Subjects**: Unify subjects and moments in the `moments` table to prevent duplication, using Vectorize for ranked retrieval.

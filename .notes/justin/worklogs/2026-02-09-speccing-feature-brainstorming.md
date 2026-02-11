@@ -1281,11 +1281,11 @@ No schema changes are required. We will utilize the existing `moment_graph_names
 
 ### Behavior Spec
 **Scenario: Replaying a High-Fidelity Turn**
-- **GIVEN**: A speccing session is active and at timestamp $.
-- **WHEN**: The next moment $ (linked to document $) is popped from the Priority Queue.
-- **THEN**: The runner must fetch the raw JSON content of $ from the Machinen R2 bucket.
-- **AND**: It must invoke (D).evidence.timeTravel(D, T)$ to slice the document to its historical state.
-- **AND**: It must invoke (D).evidence.reconstructContext$ to format the evidence for the agent.
+- **GIVEN**: A speccing session is active and at timestamp `T`.
+- **WHEN**: The next moment `M` (linked to document `D`) is popped from the Priority Queue.
+- **THEN**: The runner must fetch the raw JSON content of `D` from the Machinen R2 bucket.
+- **AND**: It must invoke `Plugin(D).evidence.timeTravel(D, T)` to slice the document to its historical state.
+- **AND**: It must invoke `Plugin(D).evidence.reconstructContext` to format the evidence for the agent.
 - **AND**: The response to the agent must include this high-fidelity `evidence` string.
 
 ### API Reference

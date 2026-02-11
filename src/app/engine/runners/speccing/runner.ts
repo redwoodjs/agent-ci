@@ -1,7 +1,8 @@
 import { sql } from "rwsdk/db";
 import { getSpeccingDb, type SpeccingDatabase } from "../../databases/speccing";
 import { getMomentDb, type MomentGraphContext, getMoment, getMoments } from "../../databases/momentGraph";
-import { Moment } from "../../types";
+import { Moment, ChunkMetadata, IndexingHookContext, QueryHookContext } from "../../types";
+import { createEngineContext } from "../../index";
 
 export interface SpeccingSession {
   id: string;
@@ -56,6 +57,12 @@ export interface SpeccingSessionResult {
     title: string;
     summary: string;
     createdAt: string;
+  };
+  evidence?: {
+    content: string;
+    source: string;
+    r2Key: string;
+    diff?: string;
   };
   instruction?: string;
   workerUrl?: string;
@@ -138,6 +145,9 @@ export async function tickSpeccingSession(
   // Update working spec (Self-Instructing narrative)
   const updatedSpec = session.working_spec + `## [Moment] ${moment.title}\n\n${moment.summary}\n\n`;
 
+  // Fetch evidence
+  const evidence = await fetchEvidenceForMoment(moment, hydratedContext);
+
   await updateSession(speccingDb, sessionId, newPq, processed, updatedSpec, moment.createdAt);
 
   return {
@@ -148,8 +158,117 @@ export async function tickSpeccingSession(
       summary: moment.summary,
       createdAt: moment.createdAt,
     },
+    evidence: evidence ?? undefined,
     instruction: `REPLAY TURN: Integrate the evidence into the spec. Focus on "${moment.title}". Once done, proceed to the next moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`,
   };
+}
+
+async function fetchEvidenceForMoment(
+  moment: Moment,
+  context: MomentGraphContext
+): Promise<SpeccingSessionResult['evidence'] | null> {
+  const r2Key = moment.sourceMetadata?.simulation?.r2Key;
+  if (!r2Key) return null;
+
+  try {
+    const bucket = context.env.MACHINEN_BUCKET as R2Bucket;
+    if (!bucket) {
+      console.warn(`[speccing:evidence] MACHINEN_BUCKET not found in env`);
+      return null;
+    }
+
+    const obj = await bucket.get(r2Key);
+    if (!obj) {
+      console.warn(`[speccing:evidence] R2 object not found: ${r2Key}`);
+      return null;
+    }
+
+    const rawJson = await obj.json();
+    const engineContext = createEngineContext(context.env, "querying");
+    
+    // Find matching plugin
+    const plugin = engineContext.plugins.find(p => 
+      r2Key.startsWith(p.name + "/") || 
+      moment.sourceMetadata?.source === p.name
+    );
+
+    if (!plugin || !plugin.evidence || !plugin.evidence.reconstructContext) {
+      console.warn(`[speccing:evidence] No matching plugin or reconstruction logic for ${r2Key}`);
+      return null;
+    }
+
+    let timeLockedData = rawJson;
+    if (plugin.evidence.timeTravel) {
+      const indexingContext: IndexingHookContext = {
+        r2Key,
+        env: context.env,
+        momentGraphNamespace: context.momentGraphNamespace,
+        indexingMode: "replay"
+      };
+      timeLockedData = await plugin.evidence.timeTravel(rawJson, moment.createdAt, indexingContext);
+    }
+
+    if (!timeLockedData) {
+      console.warn(`[speccing:evidence] Time travel returned null for ${r2Key} at ${moment.createdAt}`);
+      return null;
+    }
+
+    const queryContext: QueryHookContext = {
+      query: moment.summary,
+      env: context.env,
+      momentGraphNamespace: context.momentGraphNamespace
+    };
+
+    // Synthesize chunks from microPaths
+    const microPaths = moment.microPaths || [];
+    const syntheticChunks: ChunkMetadata[] = microPaths.map((path, i) => ({
+      chunkId: `${moment.id}-${i}`,
+      documentId: moment.documentId,
+      source: plugin.name,
+      type: "reconstructed-speccing-chunk",
+      documentTitle: moment.title,
+      author: moment.author,
+      jsonPath: path,
+      sourceMetadata: {
+          ...moment.sourceMetadata,
+          // Ensure type is preserved for github plugin
+          type: moment.sourceMetadata?.type || moment.sourceMetadata?.github?.type
+      },
+    }));
+
+    // If no microPaths, create a fallback chunk to ensure plugins like github (which check length) don't bail
+    if (syntheticChunks.length === 0) {
+        syntheticChunks.push({
+            chunkId: `${moment.id}-fallback`,
+            documentId: moment.documentId,
+            source: plugin.name,
+            type: "reconstructed-speccing-fallback",
+            documentTitle: moment.title,
+            author: moment.author,
+            jsonPath: "$",
+            sourceMetadata: {
+                ...moment.sourceMetadata,
+                type: moment.sourceMetadata?.type || moment.sourceMetadata?.github?.type
+            },
+        });
+    }
+
+    const reconstructed = await plugin.evidence.reconstructContext(syntheticChunks, timeLockedData, queryContext);
+    if (!reconstructed) {
+      console.warn(`[speccing:evidence] Reconstruction failed for ${r2Key}`);
+      return null;
+    }
+
+    return {
+      content: reconstructed.content,
+      source: plugin.name,
+      r2Key,
+      diff: reconstructed.diff
+    };
+  } catch (error) {
+    console.error(`[speccing:evidence] Error fetching evidence for ${r2Key}:`, error);
+    return null;
+  }
 }
 
 async function updateSession(

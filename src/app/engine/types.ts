@@ -209,6 +209,7 @@ export interface ReconstructedContext {
   content: string;
   source: string;
   primaryMetadata: ChunkMetadata;
+  diff?: string;
 }
 
 export interface EngineContext {

@@ -7,6 +7,7 @@ import type {
   QueryHookContext,
   ReconstructedContext,
 } from "../types";
+import { fetchPullRequestDiff } from "../../ingestors/github/utils/github-api";
 
 interface GitHubLatestJson {
   github_id: number;
@@ -494,10 +495,23 @@ export const githubPlugin: Plugin = {
 
       const content = docSections.join("\n");
 
+      let diff: string | undefined;
+      if (sourceMetadata.type === "github-pr-issue" && sourceMetadata.owner && sourceMetadata.repo && sourceMetadata.number) {
+        const rawDoc = sourceDocument as GitHubLatestJson;
+        if (rawDoc.pull_request_url || rawDoc.url?.includes("/pulls/")) {
+            try {
+                diff = await fetchPullRequestDiff(sourceMetadata.owner, sourceMetadata.repo, sourceMetadata.number);
+            } catch (error) {
+                console.warn(`[github:reconstruct] Failed to fetch PR diff for #${sourceMetadata.number}:`, error);
+            }
+        }
+      }
+
       return {
         content,
         source: "github",
         primaryMetadata: firstChunk,
+        diff
       };
     },
 

@@ -401,3 +401,32 @@ export async function fetchProjectItems(
   return items;
 }
 
+
+export async function fetchPullRequestDiff(
+  owner: string,
+  repo: string,
+  prNumber: number
+): Promise<string> {
+  const token = (env as any).GITHUB_TOKEN as string | undefined;
+  if (!token) {
+    throw new Error("GITHUB_TOKEN is not set");
+  }
+
+  const url = `https://api.github.com/repos/${owner}/${repo}/pulls/${prNumber}`;
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `token ${token}`,
+      Accept: "application/vnd.github.v3.diff",
+      "User-Agent": "machinen-github-ingestor/1.0",
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(
+      `GitHub API error (diff): ${response.status} ${response.statusText} | URL: ${url} | Body: ${errorText.substring(0, 500)}`
+    );
+  }
+
+  return await response.text();
+}

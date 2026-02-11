@@ -521,7 +521,7 @@ async function recoverPhaseZombies(
 ): Promise<void> {
   const db = getSimulationDb(context);
   const phase = input.phase;
-  const zombieThreshold = new Date(Date.now() - 30000).toISOString(); // 30s timeout
+  const zombieThreshold = new Date(Date.now() - 300000).toISOString(); // 5m timeout
 
   const zombies = (await db
     .selectFrom("simulation_run_documents")

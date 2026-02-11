@@ -107,7 +107,7 @@ We inject behavior to handle the different constraints of Live vs Simulation.
 10. **Simulation Resiliency & Zombie Ditching**: To prevent infinite stalls caused by problematic documents (e.g., crashing workers or timeouts), the simulation runner implements a **Ditching** mechanism.
     - **Attempt Tracking**: The orchestrator tracks attempts per document per phase in `attempts_json`.
     - **Visibility Protection**: All JSON list columns (dispatched, processed) must be properly initialized and queried using `COALESCE` to prevent SQLite `NULL` pitfalls where `json_insert(NULL, ...)` returns `NULL`.
-    - **Eventual Advancement**: If a document fails to process after `MAX_ATTEMPTS` (default: 3), it is marked as "failed/skipped" in the phase history, allowing the simulation run to advance to subsequent phases instead of stalling indefinitely.
+    - **Eventual Advancement**: If a document fails to process after `MAX_ATTEMPTS` (default: 3), or remains silent beyond the `zombieThreshold` (5 minutes), it is marked as "failed/skipped" in the phase history, allowing the simulation run to advance to subsequent phases instead of stalling indefinitely.
 
 ## 4. The 8-Phase Lifecycle (Detailed Flow)
 

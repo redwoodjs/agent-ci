@@ -216,21 +216,6 @@ export async function processSimulationJob(
               services: ["llm", "vector", "db", "plugins"] 
             });
 
-            pipelineContext.heartbeat = async () => {
-              const table = currentPhaseName === "micro_batches" ? "simulation_run_micro_batches" : "simulation_run_documents";
-              const query = db.updateTable(table as any)
-                .set({ updated_at: new Date().toISOString() })
-                .where("run_id", "=", message.runId)
-                // @ts-ignore - r2_key exists on both tables
-                .where("r2_key", "=", message.r2Key);
-              
-              if (message.jobType === "simulation-batch" && "batchIndex" in message) {
-                await (query as any).where("batch_index", "=", message.batchIndex).execute();
-              } else {
-                await query.execute();
-              }
-            };
-
             const output = await executePhase(phaseDef, message.r2Key, strategies, pipelineContext);
 
             // Record completion for the document/phase

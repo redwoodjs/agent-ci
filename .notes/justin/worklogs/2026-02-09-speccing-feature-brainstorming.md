@@ -1389,3 +1389,29 @@ Modify `src/app/engine/databases/speccing/migrations.ts`:
 - **NO VECTORIZE CALLS during speccing replay.**
 - **Moments must be navigated via SQL relationships (parent/child) in D1.**
 - **Document context should be derived from `moment.source_metadata` or `moment.document_id` if available.**
+
+## STAPLE TO YOUR FOREHEAD: CRITICAL CONSTRAINTS FOR SPECCING
+
+- **DO NOT USE VECTORIZE _AT ALL_ FOR SPECCING - IT IS NOT NEEDED**
+- **DO NOT DO THINGS WITH MICRO MOMENTS, UNLESS YOU FEEL YOU ABSOLUTELY MUST, IN WHICH CASE, EXPLAIN VERY VERY VERY CLEARLY WHY**
+- ****DO**** investigate using `sourceMetadata` on moments. See how it is populated on the simulation/creation side. Or, use sqlite3 and check out the db in .wrangler if needed.
+
+### Goal: Raw Document Data / PR Diffs in Turn Replay
+The objective of the `next` call is to provide the actual raw document state (or PR diffs) at the time of the moment, enabling the speccing narrative to be grounded in the actual evidence. We have plugins for "time traveling" to reconstruct earlier versions of documents; these must be integrated into the flow.
+
+## [Investigation] Speccing Evidence Grounding & Constraints
+We have finalized the investigation into providing raw document evidence for the Speccing Engine.
+
+### Critical Constraints (The "Forehead" Protocol)
+These constraints must guide all further implementation:
+1. **NO VECTORIZE**: Avoid using Vectorize for speccing replay. The hierarchy is defined by the Moment Graph.
+2. **SOURCE DOCUMENTS**: Provide **raw document data** and **GitHub PR diffs** for reconstruction.
+3. **SOURCE METADATA**: Use `sourceMetadata` on moments to identify the backing document (contains `simulation.r2Key`).
+4. **TIME TRAVEL & RECONSTRUCTION**: Existing plugin hooks (`timeTravel`, `reconstructContext`) must be integrated.
+5. **NO MICRO MOMENTS**: Do not use micro-moments unless absolutely necessary.
+
+### Empirical Findings
+- **Metadata Persistence**: Verified that `materializeMomentsForDocument` populates `sourceMetadata` with `simulation.r2Key`.
+- **Database Evidence**: Local `sqlite3` inspection of the `moments` table confirms that the `r2Key` is available for all simulated moments.
+- **GitHub Diffs**: Confirmed that the current ingestor only stores metadata JSON; code diffs will be fetched on-the-fly via the GitHub API using the PR number found in `sourceMetadata`.
+- **Plugin Readyness**: Core plugins (`github`, `discord`, `cursor`) already have the necessary `timeTravel` and `reconstructContext` logic implemented.

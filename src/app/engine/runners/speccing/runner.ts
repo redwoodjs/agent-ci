@@ -94,8 +94,8 @@ export async function tickSpeccingSession(
   };
 
   // rwsdk/db auto-parses JSON columns
-  const pq = (session.priority_queue_json || []) as string[];
-  const processed = (session.processed_ids_json || []) as string[];
+  const pq = [].concat((session.priority_queue_json as any || [])) as string[]
+  const processed = [].concat((session.processed_ids_json as any || [])) as string[];
 
   console.log(`[speccing:next] Session ${sessionId} PQ type: ${typeof pq}, isArray: ${Array.isArray(pq)}`);
   console.log(`[speccing:next] PQ content:`, pq);

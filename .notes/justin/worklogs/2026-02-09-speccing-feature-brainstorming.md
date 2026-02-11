@@ -1415,3 +1415,48 @@ These constraints must guide all further implementation:
 - **Database Evidence**: Local `sqlite3` inspection of the `moments` table confirms that the `r2Key` is available for all simulated moments.
 - **GitHub Diffs**: Confirmed that the current ingestor only stores metadata JSON; code diffs will be fetched on-the-fly via the GitHub API using the PR number found in `sourceMetadata`.
 - **Plugin Readyness**: Core plugins (`github`, `discord`, `cursor`) already have the necessary `timeTravel` and `reconstructContext` logic implemented.
+
+## RFC: High-Fidelity Evidence Grounding for Speccing
+We are implementing the retrieval and time-locking of raw document evidence to ground the Speccing narrative replay.
+
+### 2000ft View Narrative
+The Speccing Engine drives a turn-based replay of a feature's development. Currently, it only returns the Moment summary. This RFC extends the `next` turn to include the **raw evidence** (raw document state and code diffs) as they existed at the time of the moment. 
+
+By using the `r2Key` persisted in `sourceMetadata`, the runner will fetch the immutable source JSON from R2. It will then pass this data through the relevant plugin's `timeTravel` hook to strip out "future" information and the `reconstructContext` hook to generate a human-readable evidence snippet (e.g., Cursor turns, Discord messages, or GitHub body/comments).
+
+### Behavior Spec
+- **GIVEN**: A Speccing Session is at Moment $M$.
+- **WHEN**: `GET /api/speccing/next` is called.
+- **THEN**: The runner identifies the `r2Key` from $M.sourceMetadata$.
+- **AND**: It fetches the document from R2 and uses the matching Plugin to produce a time-locked, reconstructed context.
+- **AND**: For GitHub PRs, it fetch the code diff from the GitHub API using the PR number in metadata.
+- **AND**: The response returns the Moment AND the Evidence.
+
+### Implementation Breakdown
+- **[MODIFY] [runner.ts](file:///Users/justin/rw/worktrees/machinen_specs/src/app/engine/runners/speccing/runner.ts)**:
+    - Implement `fetchEvidenceForMoment(moment, context)`.
+    - Loop through `context.plugins` to find the one that handles the document.
+    - Call `timeTravel` and `reconstructContext`.
+    - Update `SpeccingSessionResult` and `tickSpeccingSession` to include the evidence.
+- **[MODIFY] [github.ts](file:///Users/justin/rw/worktrees/machinen_specs/src/app/engine/plugins/github.ts)**:
+    - Add logic to fetch PR diffs from the GitHub API when called via a new hook or during reconstruction.
+
+### Types & Data Structures
+```typescript
+export interface SpeccingSessionResult {
+  status: 'active' | 'completed' | 'failed' | 'not_found';
+  moment?: { ... };
+  evidence?: {
+    content: string;
+    source: string;
+    r2Key: string;
+    diff?: string; // Optional code diff for PRs
+  };
+  instruction?: string;
+}
+```
+
+### Suggested Verification
+1. `curl` the `next` endpoint for a known simulation session.
+2. Verify the `evidence.content` contains the historical state (e.g., only the first few turns of a Cursor conversation).
+3. Verify that GitHub PR moments include the diff text.

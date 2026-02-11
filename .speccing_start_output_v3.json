@@ -1,1 +1,0 @@
-{"sessionId":"f6e62000-6135-470b-8a18-8ed33348c6b5","instruction":"Session initialized. Execute the following to retrieve the first moment: curl -H \"Authorization: Bearer $API_KEY\" \"$WORKER_URL/api/speccing/next?sessionId=f6e62000-6135-470b-8a18-8ed33348c6b5\""}

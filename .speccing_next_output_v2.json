@@ -1,1 +1,0 @@
-{"error":"Failed to advance speccing","details":"Error: corrupted migrations: previously executed migration 002_add_namespace_context is missing"}

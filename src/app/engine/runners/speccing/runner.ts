@@ -36,8 +36,8 @@ export async function initializeSpeccingSession(
     .values({
       id: sessionId,
       subject_id: subjectId,
-      priority_queue_json: JSON.stringify([subjectId]),
-      processed_ids_json: JSON.stringify([]),
+      priority_queue_json: [subjectId] as any,
+      processed_ids_json: [] as any,
       working_spec: `# Specification: ${subject.title}\n\n${subject.summary}\n\n`,
       replay_timestamp: subject.createdAt,
       moment_graph_namespace: context.momentGraphNamespace ?? null,
@@ -93,26 +93,12 @@ export async function tickSpeccingSession(
     momentGraphNamespace: sessionNamespace
   };
 
-  const parseJsonField = (field: string | null, defaultValue: string[] = []): string[] => {
-    if (!field) return defaultValue;
-    if (typeof field !== 'string') return defaultValue;
-    
-    try {
-      const parsed = JSON.parse(field);
-      return Array.isArray(parsed) ? parsed : [parsed];
-    } catch (e) {
-      // If it looks like a GUID, wrap it in an array
-      if (field.includes('-') && field.length > 20) {
-          return [field];
-      }
-      return defaultValue;
-    }
-  };
-
-  const pq = parseJsonField(session.priority_queue_json);
-  const processed = parseJsonField(session.processed_ids_json);
+  // rwsdk/db auto-parses JSON columns
+  const pq = session.priority_queue_json || [];
+  const processed = session.processed_ids_json || [];
 
   if (pq.length === 0) {
+    console.log(`[speccing:next] Session ${sessionId} completed (empty PQ)`);
     await speccingDb
       .updateTable("speccing_sessions")
       .set({ status: "completed", updated_at: new Date().toISOString() })

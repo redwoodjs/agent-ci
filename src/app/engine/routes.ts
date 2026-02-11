@@ -1162,6 +1162,61 @@ async function clearDefaultNamespaceMomentLinksHandler({
   });
 }
 
+async function reindexNamespaceVectorsHandler({ request }: RequestInfo) {
+  if (request.method !== \"POST\") {
+    return Response.json({ error: \"Method not allowed\" }, { status: 405 });
+  }
+
+  let body: { momentGraphNamespace?: string } | undefined;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: \"Invalid JSON body\" }, { status: 400 });
+  }
+
+  const momentGraphNamespace = body?.momentGraphNamespace;
+  if (!momentGraphNamespace) {
+    return Response.json({ error: \"Missing momentGraphNamespace\" }, { status: 400 });
+  }
+
+  const envCloudflare = env as Cloudflare.Env;
+  const context = {
+    env: envCloudflare,
+    momentGraphNamespace,
+  };
+
+  let processedCount = 0;
+  const batchSize = 100;
+  let offset = 0;
+
+  try {
+    while (true) {
+      const moments = await getMomentsForReindexing(context, { limit: batchSize, offset });
+      if (moments.length === 0) break;
+
+      for (const moment of moments) {
+        await addMoment(moment, context);
+        processedCount++;
+      }
+
+      offset += batchSize;
+      if (moments.length < batchSize) break;
+    }
+
+    return Response.json({
+      success: true,
+      momentGraphNamespace,
+      processedCount,
+    });
+  } catch (error) {
+    console.error(`[reindex] Error during reindexing:`, error);
+    return Response.json({
+      error: \"Reindexing failed\",
+      details: error instanceof Error ? error.message : String(error),
+    }, { status: 500 });
+  }
+}
+
 export const routes = [
   route("/query", {
     post: [

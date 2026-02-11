@@ -199,6 +199,9 @@ This phase is restricted to explicit, unambiguous cross-links (e.g. Git refs). I
 
 **Rationale: Semantic Generator vs. Continuity Evidence**
 Vector similarity is excellent at finding "same subject area" content but poor at distinguishing "same work item timeline". High semantic similarity can cause false-positive links between unrelated tasks. We use SQLite for anchor matching because strict token equality is a more reliable indicator of work continuity than vector distance, and relational queries are significantly faster than metadata filtering in high-cardinality vector indexes.
+
+> [!IMPORTANT]
+> **Vectorize Metadata Integrity**: Cloudflare Vectorize metadata indexes are **not retroactive**. Adding an index to a property (e.g., `isSubject`) will only enable filtering for vectors inserted *after* index creation. Systems using Vectorize must provide administrative re-indexing routes to backfill metadata indexes for existing data.
 *   **Context Read**: 
     *   Vector Index returns top K matches (IDs + Scores).
     *   SQLite returns exact anchor matches.

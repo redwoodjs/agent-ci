@@ -58,8 +58,10 @@ The engine uses the **SpeccingStateDO** for session management:
 - **[Requirement] Absolute Time-Lock**: No data leakage from the future.
 - **[Invariant] Stateless Agent**: The agent must not store session state locally; it must rely entirely on the `sessionId` and the backend PQ.
 - **[Constraint] Pure Web Access**: The engine must be reachable via standard `curl` to ensure compatibility across all IDE environments.
-- **[Architecture Rule] Autonomous Namespace Resolution**: Client-side tooling must resolve the project namespace (e.g., `redwood:machinen`) locally before talking to the engine.
+- **[Architecture Rule] Plugin-Driven Namespace Resolution**: The engine delegates project namespace resolution (e.g., `redwood:machinen`) to plugins (e.g., `redwood-scope-router`). Plugins inspect the `clientContext` (repository, remote) to map local development environments to canonical prefixes.
+- **[Infrastructure Constraint] Vectorize Filter Latency**: Cloudflare Vectorize metadata indexes are **not retroactive**. If an index (e.g., `isSubject`) is created after vectors are inserted, those vectors will not be searchable via that filter until they are re-upserted.
 
 ## Learnings & Anti-Patterns
 - **Avoid Bulk LLM Summarization**: Early versions attempted to summarize all moments at once. This led to hallucination and loss of detail. The shifted approach uses a turn-based replay to maintain high narrative fidelity.
 - **Relational vs. Vector Subjects**: We moved away from a separate `SubjectDO` in favor of using the `moments` table as the source of truth, with `SUBJECT_INDEX` providing the semantic search capability. This prevents data duplication and keeps the graph unified.
+- **Late-Add Metadata Indexes**: Discovered that adding `isSubject` to a production index did not retroactively index existing moments. **Pattern**: Always implement an administrative re-indexing endpoint (`/admin/reindex-vectors`) when extending the vector metadata schema.

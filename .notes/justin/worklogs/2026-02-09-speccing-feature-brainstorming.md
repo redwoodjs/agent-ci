@@ -1013,3 +1013,16 @@ instead of re-calculating embeddings (which was triggering the 1031 errors), we'
 - mapped vectors back to moments and passed them to `addMoment` via the `embedding` option.
 - added logging for moments without existing vectors.
 
+
+## investigation outcome: re-indexing abandoned in favor of new run
+
+### findings
+- **vectorize getByIds failure**: both `getByIds` and `describe` on the `MOMENT_INDEX` returned 400 errors. this prevented our "copy existing vectors" optimization.
+- **embedding error 1031**: re-generating embeddings for a large batch of existing moments triggered cloudflare workers ai rate limits/upstream errors.
+- **metadata indexing**: vectorize metadata indexes are confirmed to be non-retroactive. indexing only applies to vectors upserted *after* the index was created.
+
+### resolution
+- decided to abandon the re-indexing tool to avoid further time sink.
+- user is performing a new simulation run to ensure all data is indexed correctly from the start.
+- removed re-indexing routes and handlers from `src/app/engine/routes.ts`.
+

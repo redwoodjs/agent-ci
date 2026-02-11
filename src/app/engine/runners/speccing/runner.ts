@@ -36,8 +36,8 @@ export async function initializeSpeccingSession(
     .values({
       id: sessionId,
       subject_id: subjectId,
-      priority_queue_json: JSON.stringify([subjectId]) as any,
-      processed_ids_json: JSON.stringify([]) as any,
+      priority_queue_json: [subjectId] as any,
+      processed_ids_json: [] as any,
       working_spec: `# Specification: ${subject.title}\n\n${subject.summary}\n\n`,
       replay_timestamp: subject.createdAt,
       moment_graph_namespace: context.momentGraphNamespace ?? null,
@@ -94,11 +94,8 @@ export async function tickSpeccingSession(
   };
 
   // rwsdk/db auto-parses JSON columns
-  const pq = (session.priority_queue_json || []) as string[];
-  const processed = (session.processed_ids_json || []) as string[];
-
-  console.log(`[speccing:next] Session ${sessionId} PQ type: ${typeof pq}, isArray: ${Array.isArray(pq)}`);
-  console.log(`[speccing:next] PQ content:`, pq);
+  const pq = session.priority_queue_json || [];
+  const processed = session.processed_ids_json || [];
 
   if (pq.length === 0) {
     console.log(`[speccing:next] Session ${sessionId} completed (empty PQ)`);
@@ -173,6 +170,7 @@ async function fetchEvidenceForMoment(
     }
 
     const rawJson = await obj.json();
+    console.log(`[speccing:evidence] Fetched raw JSON for ${r2Key}. Size: ${JSON.stringify(rawJson).length}`);
     const engineContext = createEngineContext(context.env, "querying");
     
     // Find matching plugin
@@ -182,12 +180,14 @@ async function fetchEvidenceForMoment(
     );
 
     if (!plugin || !plugin.evidence || !plugin.evidence.reconstructContext) {
-      console.warn(`[speccing:evidence] No matching plugin or reconstruction logic for ${r2Key}`);
+      console.warn(`[speccing:evidence] No matching plugin or reconstruction logic for ${r2Key}. Plugin found: ${plugin?.name}`);
       return null;
     }
+    console.log(`[speccing:evidence] Selected plugin: ${plugin.name} for ${r2Key}`);
 
     let timeLockedData = rawJson;
     if (plugin.evidence.timeTravel) {
+      console.log(`[speccing:evidence] Executing timeTravel for ${r2Key} at ${moment.createdAt}`);
       const indexingContext: IndexingHookContext = {
         r2Key,
         env: context.env,
@@ -198,7 +198,7 @@ async function fetchEvidenceForMoment(
     }
 
     if (!timeLockedData) {
-      console.warn(`[speccing:evidence] Time travel returned null for ${r2Key} at ${moment.createdAt}`);
+      console.warn(`[speccing:evidence] timeTravel returned null for ${r2Key}`);
       return null;
     }
 
@@ -242,7 +242,12 @@ async function fetchEvidenceForMoment(
         });
     }
 
+    console.log(`[speccing:evidence] Calling reconstructContext with ${syntheticChunks.length} chunks. First chunk path: ${syntheticChunks[0]?.jsonPath}`);
+
     const reconstructed = await plugin.evidence.reconstructContext(syntheticChunks, timeLockedData, queryContext);
+    
+    console.log(`[speccing:evidence] Reconstruction result for ${r2Key}:`, reconstructed ? `Content length: ${reconstructed.content.length}` : "null");
+
     if (!reconstructed) {
       console.warn(`[speccing:evidence] Reconstruction failed for ${r2Key}`);
       return null;
@@ -271,8 +276,8 @@ async function updateSession(
   await db
     .updateTable("speccing_sessions")
     .set({
-      priority_queue_json: JSON.stringify(pq) as any,
-      processed_ids_json: JSON.stringify(processed) as any,
+      priority_queue_json: JSON.stringify(pq),
+      processed_ids_json: JSON.stringify(processed),
       working_spec: spec,
       replay_timestamp: timestamp,
       updated_at: new Date().toISOString(),

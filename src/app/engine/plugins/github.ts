@@ -427,25 +427,40 @@ export const githubPlugin: Plugin = {
         docSections.push(`**Author:** @${prIssueDoc.author}`);
         docSections.push(`**State:** ${prIssueDoc.state}`);
 
-        for (const chunk of documentChunks) {
-          if (!chunk.jsonPath) {
-            continue;
-          }
-          const content = extractJsonPath(sourceDocument, chunk.jsonPath);
-          if (content) {
-            if (
-              chunk.type === "pull-request-body" ||
-              chunk.type === "issue-body"
-            ) {
-              docSections.push(`\n**Description:**\n${content}`);
-            } else if (
-              chunk.type === "pull-request-comment" ||
-              chunk.type === "issue-comment"
-            ) {
-              const commentAuthor = chunk.author || "unknown";
-              docSections.push(
-                `\n**Comment by @${commentAuthor}:**\n${content}`
-              );
+        // Filter chunks that are specific parts of the PR/Issue
+        const relevantChunks = documentChunks.filter(c =>
+            c.type === "pull-request-body" ||
+            c.type === "issue-body" ||
+            c.type === "pull-request-comment" ||
+            c.type === "issue-comment"
+        );
+
+        console.log(`[github:reconstruct] Processing ${documentChunks.length} chunks. Relevant: ${relevantChunks.length}. Types: ${documentChunks.map(c => c.type).join(', ')}`);
+
+        if (relevantChunks.length > 0) {
+          for (const chunk of relevantChunks) {
+            if (!chunk.jsonPath) {
+              console.warn(`[github:reconstruct] Chunk ${chunk.id} missing jsonPath.`);
+              continue;
+            }
+            const content = extractJsonPath(sourceDocument, chunk.jsonPath);
+            if (content) {
+              if (
+                chunk.type === "pull-request-body" ||
+                chunk.type === "issue-body"
+              ) {
+                docSections.push(`\n**Description:**\n${content}`);
+              } else if (
+                chunk.type === "pull-request-comment" ||
+                chunk.type === "issue-comment"
+              ) {
+                const commentAuthor = chunk.author || "unknown";
+                docSections.push(
+                  `\n**Comment by @${commentAuthor}:**\n${content}`
+                );
+              }
+            } else {
+              console.warn(`[github:reconstruct] Could not extract content for chunk ${chunk.id} at jsonPath ${chunk.jsonPath}`);
             }
           }
         }
@@ -479,11 +494,9 @@ export const githubPlugin: Plugin = {
                   item.title ||
                   `${item.content_type}${
                     item.content_id ? ` #${item.content_id}` : ""
-                  }`;
+                  }${fieldValuesText ? ` - ${fieldValuesText}` : ""}`;
                 docSections.push(
-                  `\n**Project Item:** ${itemTitle}${
-                    fieldValuesText ? ` (${fieldValuesText})` : ""
-                  }`
+                  `\n**Project Item:** ${itemTitle}`
                 );
               } catch {
                 docSections.push(`\n**Project Item:**\n${content}`);

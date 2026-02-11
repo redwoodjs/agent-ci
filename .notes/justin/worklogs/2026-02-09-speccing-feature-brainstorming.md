@@ -1254,3 +1254,8 @@ The `sessionId` was the only state persisted, but the qualified namespace requir
 
 ### Solution
 We extended the `speccing_sessions` schema to persist the resolved `momentGraphNamespace`. The runner now re-hydrates the correct context from the database for every turn, ensuring narrative continuity.
+
+### Verified Next Turn Output (After Persistence Fix)
+```json
+{"status":"active","moment":{"id":"dcd3f9a6-9e0c-8712-1d5f-d3f33188ba56","title":"Github Issue #552: Proposed pre‑fetch caching and set as priority","summary":"Github Issue #552 The team discussed using the RSC mechanism for client‑side navigation and proposed adding pre‑fetch logic to load pages ahead of time, cache them in the browser, and serve the cache on later requests. It was noted that RSC actions currently use POST requests, so caching would require switching to GET requests. @peterp then confirmed that implementing this pre‑fetch/caching change is next on his priority list. [mchn://gh/issue/redwoodjs/sdk/552]","createdAt":"2025-06-30T07:44:29.000Z"},"instruction":"REPLAY TURN: Integrate the evidence into the spec. Focus on \"Github Issue #552: Proposed pre‑fetch caching and set as priority\". Once done, proceed to the next moment: curl -H \"Authorization: Bearer dev\" \"http://localhost:5174/api/speccing/next?sessionId=7d3f8ad0-6721-4da5-a08a-153ff2dd5f55\""}
+```

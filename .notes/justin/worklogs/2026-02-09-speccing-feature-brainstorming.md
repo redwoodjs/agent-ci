@@ -1281,11 +1281,11 @@ No schema changes are required. We will utilize the existing `moment_graph_names
 
 ### Behavior Spec
 **Scenario: Replaying a High-Fidelity Turn**
-- **GIVEN**: A speccing session is active and at timestamp `T`.
-- **WHEN**: The next moment `M` (linked to document `D`) is popped from the Priority Queue.
-- **THEN**: The runner must fetch the raw JSON content of `D` from the Machinen R2 bucket.
-- **AND**: It must invoke `Plugin(D).evidence.timeTravel(D, T)` to slice the document to its historical state.
-- **AND**: It must invoke `Plugin(D).evidence.reconstructContext` to format the evidence for the agent.
+- **GIVEN**: A speccing session is active and at timestamp $.
+- **WHEN**: The next moment $ (linked to document $) is popped from the Priority Queue.
+- **THEN**: The runner must fetch the raw JSON content of $ from the Machinen R2 bucket.
+- **AND**: It must invoke (D).evidence.timeTravel(D, T)$ to slice the document to its historical state.
+- **AND**: It must invoke (D).evidence.reconstructContext$ to format the evidence for the agent.
 - **AND**: The response to the agent must include this high-fidelity `evidence` string.
 
 ### API Reference
@@ -1351,3 +1351,41 @@ export interface ReconstructedContext {
 - [ ] [Implementation] Update `runner.ts` to fetch from R2 and invoke plugin hooks.
 - [ ] [Verification] Manual verification via `curl` and evidence inspection.
 
+
+## Revised RFC: Speccing Session Namespace Persistence (v2)
+
+### STAPLE TO FOREHEAD CONSTRAINTS
+- **DO NOT USE VECTORIZE _AT ALL_ FOR SPECCING - IT IS NOT NEEDED**
+- **DO NOT DO THINGS WITH MICRO MOMENTS, UNLESS YOU FEEL YOU ABSOLUTELY MUST, IN WHICH CASE, EXPLAIN VERY VERY VERY CLEARLY WHY**
+- **INVESTIGATE using `sourceMetadata` on moments.**
+
+### 1. 2000ft View Narrative
+The Speccing Engine currently loses its namespace context (e.g., simulation-specific namespaces) during turns because the workspace/moment-graph namespace is not persisted in the session. This causes follow-up requests to default to the environment namespace, failing to find simulation-specific data and resulting in premature completion.
+
+We will persist the resolved `momentGraphNamespace` in the `speccing_sessions` table to ensure context continuity across all turns of a speccing session.
+
+### 2. Database Changes
+Modify `src/app/engine/databases/speccing/migrations.ts`:
+- Add `moment_graph_namespace` column (TEXT).
+
+### 3. Behavior Spec
+**GIVEN** a Speccing session started for a subject in simulation namespace "panda-123"
+**WHEN** the client calls `/api/speccing/next` for that session
+**THEN** the engine must re-hydrate the context using "panda-123" persisted in the session record.
+**AND** it should successfully locate the next moments using SQL lookups (D1) only.
+
+### 4. API Reference
+- `POST /api/speccing/start`: Resolves namespace and persists it.
+- `GET /api/speccing/next`: Reads persisted namespace to construct context.
+
+### 5. Implementation Breakdown
+- **[MODIFY]** `src/app/engine/databases/speccing/migrations.ts`: Add column.
+- **[MODIFY]** `src/app/engine/runners/speccing/runner.ts`: 
+    - Save namespace in `initializeSpeccingSession`.
+    - Load namespace and reconstruct `MomentGraphContext` in `tickSpeccingSession`.
+- **[MODIFY]** `src/app/engine/routes/speccing.ts`: Pass resolved namespace to runner.
+
+### 6. Invariants & Constraints
+- **NO VECTORIZE CALLS during speccing replay.**
+- **Moments must be navigated via SQL relationships (parent/child) in D1.**
+- **Document context should be derived from `moment.source_metadata` or `moment.document_id` if available.**

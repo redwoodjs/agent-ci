@@ -23,6 +23,9 @@ export const speccingMigrations = {
           .execute(),
       ];
     },
+    async down(db) {
+      await db.schema.dropTable("speccing_sessions").execute();
+    },
   },
   "002_add_namespace_context": {
     async up(db) {

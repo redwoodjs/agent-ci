@@ -1,8 +1,9 @@
 import { env } from "cloudflare:workers";
 import { type RequestInfo } from "rwsdk/worker";
 import { getSpeccingDb } from "../databases/speccing";
-import { initializeSpeccingSession, tickSpeccingSession } from "../runners/speccing/runner";
+import { initializeSpeccingSession, tickSpeccingSession, type SpeccingSessionResult } from "../runners/speccing/runner";
 import { getMomentGraphNamespaceFromEnv, applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
+import { type MomentGraphContext } from "../databases/momentGraph";
 import { createEngineContext } from "../index";
 
 export async function startSpeccingHandler({ request }: RequestInfo) {
@@ -77,10 +78,13 @@ export async function nextSpeccingHandler({ request }: RequestInfo) {
 
   try {
     const envCloudflare = env as Cloudflare.Env;
-    const url = new URL(request.url);
-    const baseUrl = `${url.protocol}//${url.host}`;
+    // Context only needs env here; runner will re-hydrate momentGraphNamespace from DB
+    const context: MomentGraphContext = {
+        env: envCloudflare,
+        momentGraphNamespace: null,
+    };
 
-    const result = await tickSpeccingSession(envCloudflare, sessionId, baseUrl);
+    const result = await tickSpeccingSession(context, sessionId);
     return Response.json(result);
   } catch (error) {
     console.error(`[speccing:next] Error:`, error);

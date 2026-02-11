@@ -290,8 +290,8 @@ async function updateSession(
   await db
     .updateTable("speccing_sessions")
     .set({
-      priority_queue_json: JSON.stringify(pq),
-      processed_ids_json: JSON.stringify(processed),
+      priority_queue_json: JSON.stringify(pq) as any,
+      processed_ids_json: JSON.stringify(processed) as any,
       working_spec: spec,
       replay_timestamp: timestamp,
       updated_at: new Date().toISOString(),

@@ -1259,3 +1259,95 @@ We extended the `speccing_sessions` schema to persist the resolved `momentGraphN
 ```json
 {"status":"active","moment":{"id":"dcd3f9a6-9e0c-8712-1d5f-d3f33188ba56","title":"Github Issue #552: Proposed pre‑fetch caching and set as priority","summary":"Github Issue #552 The team discussed using the RSC mechanism for client‑side navigation and proposed adding pre‑fetch logic to load pages ahead of time, cache them in the browser, and serve the cache on later requests. It was noted that RSC actions currently use POST requests, so caching would require switching to GET requests. @peterp then confirmed that implementing this pre‑fetch/caching change is next on his priority list. [mchn://gh/issue/redwoodjs/sdk/552]","createdAt":"2025-06-30T07:44:29.000Z"},"instruction":"REPLAY TURN: Integrate the evidence into the spec. Focus on \"Github Issue #552: Proposed pre‑fetch caching and set as priority\". Once done, proceed to the next moment: curl -H \"Authorization: Bearer dev\" \"http://localhost:5174/api/speccing/next?sessionId=7d3f8ad0-6721-4da5-a08a-153ff2dd5f55\""}
 ```
+
+## Investigated Lost High-Fidelity Provenance Logic
+We conducted a deep dive into the current `SpeccingRunner` implementation to understand why the engine is returning low-fidelity summaries instead of the time-locked source evidence originally envisioned.
+
+### Findings: The "Guts" are Disconnected
+1.  **Plugin System Ready**: We confirmed that the `Plugin` interface includes the `timeTravel` and `reconstructContext` hooks. Crucially, the GitHub, Cursor, and Discord plugins already have these implemented and verified to handle historical slicing.
+2.  **Runner Omission**: The current implementation of `tickSpeccingSession` in `runner.ts` is too shallow. It retrieves the `Moment` object but does not use its `documentId` to fetch the raw source from R2. It completely bypasses the plugin hooks, resulting in a replay that only sees what the indexing engine summarized, not what the original developer wrote.
+3.  **Missing Evidence Invariant**: The "No Time Travel" invariant is currently only partially enforced (via the PQ chronological order). Without the `timeTravel` hook being called on the raw source document, we cannot guarantee that the agent isn't seeing "future" comments or generations within a single document.
+
+### Conclusion
+We need to reconnect the `SpeccingRunner` to the source document repository and the plugin evidence hooks to restore the "Reconstructive Spec Generation" vision.
+
+## RFC: High-Fidelity Provenance Restoration
+
+### 2000ft View Narrative
+This change restores the core architectural vision of high-fidelity, time-locked provenance to the Speccing Engine. We will modify the `SpeccingRunner` to fetch the raw source document for every moment replayed and invoke the source-specific `timeTravel` and `reconstructContext` plugin hooks. This ensures the generating agent has access to the actual source material (code diffs, chat logs, conversation turns) as it existed at each historical point in time, enabling the "Deletion Test" level of specification accuracy.
+
+### Database Changes
+No schema changes are required. We will utilize the existing `moment_graph_namespace` and `replay_timestamp` persisted in the `speccing_sessions` table.
+
+### Behavior Spec
+**Scenario: Replaying a High-Fidelity Turn**
+- **GIVEN**: A speccing session is active and at timestamp $.
+- **WHEN**: The next moment $ (linked to document $) is popped from the Priority Queue.
+- **THEN**: The runner must fetch the raw JSON content of $ from the Machinen R2 bucket.
+- **AND**: It must invoke (D).evidence.timeTravel(D, T)$ to slice the document to its historical state.
+- **AND**: It must invoke (D).evidence.reconstructContext$ to format the evidence for the agent.
+- **AND**: The response to the agent must include this high-fidelity `evidence` string.
+
+### API Reference
+**[MODIFY] `GET /api/speccing/next`**
+- **Response Shape**: Includes an `evidence` array containing reconstructed high-fidelity context.
+```json
+{
+  "status": "active",
+  "moment": { "id": "...", "title": "...", "summary": "..." },
+  "evidence": [
+    {
+      "content": "Reconstructed markdown from source...",
+      "source": "github"
+    }
+  ],
+  "instruction": "..."
+}
+```
+
+### Implementation Breakdown
+- **[MODIFY] `src/app/engine/runners/speccing/runner.ts`**:
+    - Add logic to `tickSpeccingSession` to fetch the raw source JSON from R2.
+    - Implement plugin lookup based on document source.
+    - Chain the `timeTravel` and `reconstructContext` calls before returning the result.
+- **[MODIFY] `src/app/engine/index.ts`**: Ensure `createEngineContext` provides necessary bindings for the runner.
+
+### Directory & File Structure
+```text
+src/app/engine/
+├── index.ts
+└── runners/
+    └── speccing/
+        └── runner.ts
+```
+
+### Types & Data Structures
+We use the existing `ReconstructedContext` type from `types.ts`:
+```typescript
+export interface ReconstructedContext {
+  content: string;
+  source: string;
+  primaryMetadata: ChunkMetadata;
+}
+```
+
+### Invariants & Constraints
+- **Absolute Time-Lock**: The `replay_timestamp` MUST be passed to the `timeTravel` hook to ensure no data from the future is leaked to the agent.
+- **R2 Availability**: The runner must handle missing R2 objects gracefully (e.g., falling back to the moment summary if the source is unavailable).
+
+### System Flow (Snapshot Diff)
+**Previous**: Moment Table -> LLM Instruction.
+**New**: Moment Table -> R2 Source -> Plugin(TimeTravel) -> Plugin(Reconstruct) -> LLM Instruction + High-Fidelity Evidence.
+
+### Suggested Verification
+1.  Initialize a speccing session against a known historical subject.
+2.  Call `/api/speccing/next` and verify that the `evidence` field contains actual PR bodies or chat messages instead of just a summary.
+3.  Check that the evidence in the response does not contain any information created after the moment's `createdAt` timestamp.
+
+### Tasks
+- [ ] [Planning] Record Findings in Worklog
+- [ ] [Planning] Draft RFC for High-Fidelity Provenance Restoration
+- [ ] [Alignment] User Approval of RFC
+- [ ] [Implementation] Update `runner.ts` to fetch from R2 and invoke plugin hooks.
+- [ ] [Verification] Manual verification via `curl` and evidence inspection.
+

@@ -150,7 +150,12 @@ export async function tickSpeccingSession(
 
   return {
     status: "active",
-    moment,
+    moment: {
+        id: moment.id,
+        title: moment.title,
+        summary: moment.summary,
+        createdAt: moment.createdAt
+    },
     evidence: evidence ?? undefined,
     instruction: `REPLAY TURN: Integrate the evidence into the spec. Focus on "${moment.title}". Once done, proceed to the next moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`,
   };

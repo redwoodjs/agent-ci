@@ -12,8 +12,8 @@ The engine follows a **Unified Actor Model**:
 ## High-Level Structure
 The engine consists of three main layers:
 1.  **Stateful Storage (`SpeccingStateDO`)**: A dedicated SQLite-backed Durable Object for managing transient session states (Priority Queues, working drafts).
-2.  **Chronological Runner**: A walker logic that pops moments from the PQ and slices source evidence by timestamp.
-3.  **Self-Instructing API**: A REST interface that delivers both narrative data and the literal commands (instructions) the agent must execute next.
+2.  **Chronological Runner**: A walker logic that pops moments from the PQ and drives the **High-Fidelity Evidence Retrieval** flow.
+3.  **Self-Instructing API**: A REST interface that delivers both narrative data, raw evidence snippets, and the literal commands (instructions) the agent must execute next.
 
 ## System Flow
 1.  **Discovery**: Agent searches for a subject via `POST /api/subjects/search`.
@@ -22,9 +22,13 @@ The engine consists of three main layers:
     - Engine identifies the root moment and seeds the Priority Queue (PQ).
 3.  **The Replay Turn**: Agent calls `GET /api/speccing/next`.
     - Engine pops the earliest moment $M$ from the PQ.
-    - Engine triggers **Time Travel Hooks** in plugins to slice raw evidence (timestamp <= $M.createdAt$).
+    - Engine retrieves `r2Key` from $M.sourceMetadata$.
+    - Engine fetches raw document JSON from R2 (MACHINEN_BUCKET).
+    - Engine invokes **Time Travel Hooks** in the matching Plugin to slice the raw JSON (timestamp <= $M.createdAt$).
+    - Engine invokes **Context Reconstruction Hooks** to generate a human-readable evidence snippet.
+    - **GitHub Extension**: Engine fetches the code diff on-the-fly from the GitHub API for PR moments.
     - Engine pushes $M$'s children onto the PQ.
-    - Engine returns the context + `instruction` + `next_command`.
+    - Engine returns the moment summary + reconstructed evidence + `instruction` + `next_command`.
 4.  **Completion**: When the PQ is empty, the engine returns `status: completed`.
 
 ## Database Schema
@@ -56,8 +60,12 @@ The engine uses the **SpeccingStateDO** for session management:
 
 ## Requirements, Invariants & Constraints
 - **[Requirement] Absolute Time-Lock**: No data leakage from the future.
+- **[Requirement] High-Fidelity Evidence**: Narrative replays must be grounded in raw document data (or PR diffs), not just summaries.
 - **[Invariant] Stateless Agent**: The agent must not store session state locally; it must rely entirely on the `sessionId` and the backend PQ.
 - **[Constraint] Pure Web Access**: The engine must be reachable via standard `curl` to ensure compatibility across all IDE environments.
+- **[Architecture Rule] NO VECTORIZE for Replay**: Once the replay has started, the Moment Graph provides the definitive narrative structure. Semantic search (Vectorize) is only used for initial Subject discovery.
+- **[Architecture Rule] NO MICRO MOMENTS**: Replays must use raw source documents time-travelled back to the moment's timestamp. Micro-moments (summaries) should be avoided unless reconstructive fidelity is impossible with raw data.
+- **[Architecture Rule] Plugin-Driven Evidence**: The engine delegates document fetching, slicing (`timeTravel`), and formatting (`reconstructContext`) to source-specific plugins.
 - **[Architecture Rule] Plugin-Driven Namespace Resolution**: The engine delegates project namespace resolution (e.g., `redwood:machinen`) to plugins (e.g., `redwood-scope-router`). Plugins inspect the `clientContext` (repository, remote) to map local development environments to canonical prefixes.
 - **[Infrastructure Constraint] Vectorize Filter Latency**: Cloudflare Vectorize metadata indexes are **not retroactive**. If an index (e.g., `isSubject`) is created after vectors are inserted, those vectors will not be searchable via that filter until they are re-upserted.
 

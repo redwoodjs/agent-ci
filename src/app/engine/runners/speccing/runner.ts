@@ -94,8 +94,11 @@ export async function tickSpeccingSession(
   };
 
   // rwsdk/db auto-parses JSON columns
-  const pq = session.priority_queue_json || [];
-  const processed = session.processed_ids_json || [];
+  const pq = (session.priority_queue_json || []) as string[];
+  const processed = (session.processed_ids_json || []) as string[];
+
+  console.log(`[speccing:next] Session ${sessionId} PQ type: ${typeof pq}, isArray: ${Array.isArray(pq)}`);
+  console.log(`[speccing:next] PQ content:`, pq);
 
   if (pq.length === 0) {
     console.log(`[speccing:next] Session ${sessionId} completed (empty PQ)`);
@@ -108,7 +111,11 @@ export async function tickSpeccingSession(
   }
 
   // Pop the earliest moment
-  const currentMomentId = pq.shift()!;
+  const currentMomentId = pq.shift();
+  if (!currentMomentId) {
+       // Should be unreachable given length check, but safe guard types
+       return { status: "completed" };
+  }
   processed.push(currentMomentId);
 
   const moment = await getMoment(currentMomentId, hydratedContext);
@@ -133,17 +140,17 @@ export async function tickSpeccingSession(
 
   // Fetch evidence
   const evidence = await fetchEvidenceForMoment(moment, hydratedContext);
+ 
+  // We use the newPq and processed arrays which we know are arrays now
+  // When saving back, if the user requested manual stringification, we can do it here
+  // But wait, the updateSession function simply takes the arrays.
+  // Let's check updateSession next.
 
   await updateSession(speccingDb, sessionId, newPq, processed, updatedSpec, moment.createdAt);
 
   return {
     status: "active",
-    moment: {
-      id: moment.id,
-      title: moment.title,
-      summary: moment.summary,
-      createdAt: moment.createdAt,
-    },
+    moment,
     evidence: evidence ?? undefined,
     instruction: `REPLAY TURN: Integrate the evidence into the spec. Focus on "${moment.title}". Once done, proceed to the next moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`,
   };
@@ -169,7 +176,14 @@ async function fetchEvidenceForMoment(
       return null;
     }
 
-    const rawJson = await obj.json();
+    let rawJson: any;
+    if (r2Key.endsWith(".jsonl")) {
+      // For JSONL files, do not parse as a single JSON object
+      // Pass the raw text to the plugin (e.g. Discord plugin handles this)
+      rawJson = await obj.text();
+    } else {
+      rawJson = await obj.json();
+    }
     console.log(`[speccing:evidence] Fetched raw JSON for ${r2Key}. Size: ${JSON.stringify(rawJson).length}`);
     const engineContext = createEngineContext(context.env, "querying");
     
@@ -234,7 +248,7 @@ async function fetchEvidenceForMoment(
             type: "reconstructed-speccing-fallback",
             documentTitle: moment.title,
             author: moment.author,
-            jsonPath: "$",
+            jsonPath: "$.",
             sourceMetadata: {
                 ...moment.sourceMetadata,
                 type: moment.sourceMetadata?.type || moment.sourceMetadata?.github?.type

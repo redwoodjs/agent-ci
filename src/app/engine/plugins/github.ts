@@ -463,6 +463,19 @@ export const githubPlugin: Plugin = {
               console.warn(`[github:reconstruct] Could not extract content for chunk ${chunk.id} at jsonPath ${chunk.jsonPath}`);
             }
           }
+        } else {
+            // Fallback: render full body and comments if no specific chunks are found
+            if (prIssueDoc.body) {
+                docSections.push(`\n**Description:**\n${prIssueDoc.body}`);
+            }
+            if (prIssueDoc.comments && prIssueDoc.comments.length > 0) {
+                docSections.push(`\n**Comments:**`);
+                for (const comment of prIssueDoc.comments) {
+                    const commentAuthor = normalizeGitHubHandle(comment.author);
+                    const commentDate = new Date(comment.created_at).toLocaleString();
+                    docSections.push(`\n---\n**@${commentAuthor} [${commentDate}]:**\n${comment.body}`);
+                }
+            }
         }
       } else if (sourceMetadata.type === "github-project") {
         const projectDoc = sourceDocument as GitHubProjectLatestJson;

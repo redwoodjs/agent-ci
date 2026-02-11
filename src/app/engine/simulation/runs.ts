@@ -359,7 +359,6 @@ export async function restartSimulationRunFromPhase(
       .where("run_id", "=", runId)
       .execute();
   } else {
-     // ...
      // For other phases, we need to carefully remove only the cleared phases from the JSON
      // to preserve history of earlier phases. This requires a batched read-modify-write.
      

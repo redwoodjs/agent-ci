@@ -64,4 +64,3 @@ The engine uses the **SpeccingStateDO** for session management:
 ## Learnings & Anti-Patterns
 - **Avoid Bulk LLM Summarization**: Early versions attempted to summarize all moments at once. This led to hallucination and loss of detail. The shifted approach uses a turn-based replay to maintain high narrative fidelity.
 - **Relational vs. Vector Subjects**: We moved away from a separate `SubjectDO` in favor of using the `moments` table as the source of truth, with `SUBJECT_INDEX` providing the semantic search capability. This prevents data duplication and keeps the graph unified.
-- **Late-Add Metadata Indexes**: Discovered that adding `isSubject` to a production index did not retroactively index existing moments. **Pattern**: Always implement an administrative re-indexing endpoint (`/admin/reindex-vectors`) when extending the vector metadata schema.

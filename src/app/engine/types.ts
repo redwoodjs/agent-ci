@@ -237,6 +237,11 @@ export interface VectorizeIndex {
   insert(
     vectors: Array<{ id: string; values: number[]; metadata: ChunkMetadata }>
   ): Promise<void>;
+  getByIds(
+    ids: string[]
+  ): Promise<
+    Array<{ id: string; values?: number[]; metadata: ChunkMetadata }>
+  >;
 }
 
 export interface CursorConversationLatestJson {

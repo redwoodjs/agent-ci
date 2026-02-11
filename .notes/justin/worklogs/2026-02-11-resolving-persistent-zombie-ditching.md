@@ -30,31 +30,39 @@ In `runs.ts#restartSimulationRunFromPhase`, resetting a run correctly clears the
 In `simulation-worker.ts`, the worker only updates the document's `updated_at` timestamp **after** the phase execution completes.
 - **Problem**: Long-running phases (like `micro_batches` or `timeline_fit`) can take minutes. If a document is picked up after waiting 4 minutes in the queue, and then takes 2 minutes to process, the supervisor will ditch it during that processing window because the timestamp hasn't moved.
 
-## RFC: Liveness Protection Layer
+## RFC: Liveness Protection Layer (Double-Reset Strategy)
 
 ### 1. 2000ft View Narrative
-**Problem**: Simulation runs on large datasets (~200+ docs) or after manual restarts consistently fail due to "Zombie Ditching". This is caused by a restrictive 5-minute timeout that is triggered by (a) queue congestion where documents wait > 5m to be picked up, and (b) simulation restarts where documents retain ancient `updated_at` timestamps from original ingestion.
-**Solution**: We will implement a "Liveness Protection" layer that decouples "Queue Wait Time" from "Active Processing Time" and ensures that any reset or restart operation forcefully refreshes document timestamps. We will also increase the absolute threshold to 30 minutes to provide a safer buffer for local serial processing.
+**Problem**: Simulation runs fail because the 5-minute "Zombie" timeout is fundamentally incompatible with (a) serial queue lag in high-throughput local runs (~200 docs), and (b) simulation restarts with stale data.
+**Solution**: We implement a **Double-Reset** liveness strategy for all work units (Documents and Batches). 
+1. **Reset 1 (Dispatch)**: The runner moves the clock when it enqueues the work. This window (30 minutes) covers the **Wait in Line** time.
+2. **Reset 2 (Pickup)**: The worker moves the clock (The Pick-Up Latch) the millisecond it pulls the job. This covers the **Active Work** time.
+3. **Restart Protection**: Any manual restart forcefully touches all involved timestamps to `now()`.
 
 ### 2. Database Changes
-No schema changes. We are utilizing existing fields (`updated_at`).
+No schema changes. We are utilizing existing `updated_at` fields on `simulation_run_documents` and `simulation_run_r2_batches`.
 
 ### 3. Behavior Spec
-- **GIVEN** a simulation run is restarted from a phase
-- **WHEN** the runner resets the document states
-- **THEN** it must also update the `updated_at` timestamp for all affected documents to `now()`.
+- **GIVEN** a worker picks up a job (Type: `simulation-document` OR `simulation-batch`)
+- **WHEN** processing begins
+- **THEN** it must immediately update the corresponding database row's `updated_at` timestamp before calling the orchestrator.
 
-- **GIVEN** a Simulation Worker receives a job from the queue
-- **WHEN** it begins processing
-- **THEN** it must immediately update the document's `updated_at` timestamp (The Pick-Up Latch) before executing the phase logic.
+- **GIVEN** a simulation run is restarted
+- **WHEN** document states are reset
+- **THEN** all involved `simulation_run_documents` rows MUST have `updated_at` set to `now()`.
 
 ### 4. API Reference
-No changes to public APIs. Internal behavior modifications only.
+No changes to public interfaces.
 
 ### 5. Implementation Breakdown
-- [MODIFY] [runner.ts](file:///Users/justin/rw/worktrees/machinen_y-no-materialize/src/app/engine/runners/simulation/runner.ts): Increase `zombieThreshold` to 30m and polling limits to 100.
-- [MODIFY] [runs.ts](file:///Users/justin/rw/worktrees/machinen_y-no-materialize/src/app/engine/simulation/runs.ts): Add `updated_at` refresh to `restartSimulationRunFromPhase`.
-- [MODIFY] [simulation-worker.ts](file:///Users/justin/rw/worktrees/machinen_y-no-materialize/src/app/engine/services/simulation-worker.ts): Implement Pick-Up Latch.
+- [MODIFY] [runner.ts](file:///Users/justin/rw/worktrees/machinen_y-no-materialize/src/app/engine/runners/simulation/runner.ts): 
+    - Increase `zombieThreshold` to 30m.
+    - Boost polling limits to 100 for all phases.
+- [MODIFY] [runs.ts](file:///Users/justin/rw/worktrees/machinen_y-no-materialize/src/app/engine/simulation/runs.ts): 
+    - Add `updated_at: now` to document resets in `restartSimulationRunFromPhase`.
+- [MODIFY] [simulation-worker.ts](file:///Users/justin/rw/worktrees/machinen_y-no-materialize/src/app/engine/services/simulation-worker.ts): 
+    - Implement Pick-Up Latch for `simulation-document` jobs.
+    - Implement Pick-Up Latch for `simulation-batch` jobs (Phase 1).
 
 ### 6. Directory & File Structure
 ```text
@@ -65,31 +73,23 @@ src/app/engine/
 ```
 
 ### 7. Types & Data Structures
-No changes to existing types.
+No changes.
 
 ### 8. Invariants & Constraints
-- **Invariant**: A document's `updated_at` must represent its last known "life sign", which includes either (a) being dispatched, (b) being picked up by a worker, or (c) completing a phase.
+- **Invariant**: The `updated_at` timestamp on any work unit (Document/Batch) must represent either its position in the queue (if waiting) or its active processing heartbeat (if with a worker).
 
 ### 9. System Flow (Snapshot Diff)
-**Previous Flow**:
-1. Runner dispatches job -> sets `updated_at`.
-2. Document sits in queue. If > 5m, supervisor ditches it.
-3. Worker picks up, processes (takes time), then sets `updated_at` on completion.
-
-**New Flow**:
-1. Runner dispatches job -> sets `updated_at` -> **30m window starts**.
-2. Document sits in queue.
-3. Worker picks up -> **IMMEDIATELY refreshes `updated_at`** -> **window resets**.
-4. Worker processes (window is safe).
-5. Worker completes -> resets `updated_at` again.
+**Previous**: Dispatch (Start Clock) -> Queue Wait -> Processing -> Complete (End Clock/Result).
+**New**: Dispatch (Start Clock 1) -> Queue Wait -> **Pickup (Start Clock 2)** -> Processing -> Complete (End Clock/Result).
 
 ### 10. Suggested Verification
-- Manual verification: `pnpm run sim-restart --run-id <ID> --phase micro_batches`
-- Check `sim.log` for logs: `[runner] Recovering X zombies` (should be 0 for active runs).
+- Manual rerun of the 200+ doc simulation.
+- Verify zero zombies in `sim.log` after restart.
 
 ### 11. Tasks
 - [ ] Increase `zombieThreshold` to 30 minutes in `runner.ts`.
 - [ ] Boost dispatch polling limits to 100 in `runner.ts`.
-- [ ] Implement Pick-Up Latch in `processSimulationJob` in `simulation-worker.ts`.
+- [ ] Implement Pick-Up Latch for Documents in `simulation-worker.ts`.
+- [ ] Implement Pick-Up Latch for Batches in `simulation-worker.ts`.
 - [ ] Add `updated_at: now` to document resets in `runs.ts`.
 - [ ] Update `runtime-architecture.md` to reflect the 30-minute ditching rule.

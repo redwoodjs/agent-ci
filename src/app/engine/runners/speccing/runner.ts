@@ -222,6 +222,21 @@ async function fetchEvidenceForMoment(
       momentGraphNamespace: context.momentGraphNamespace
     };
 
+    let sourceType = moment.sourceMetadata?.type || moment.sourceMetadata?.github?.type;
+    
+    // Polyfill missing type based on R2 key patterns
+    if (!sourceType) {
+        if (plugin.name === 'discord') {
+             if (r2Key.includes('/threads/')) sourceType = 'discord-thread';
+             else sourceType = 'discord-channel';
+        } else if (plugin.name === 'github') {
+             if (r2Key.includes('/issues/') || r2Key.includes('/pull/')) sourceType = 'github-pr-issue';
+             else if (r2Key.includes('/projects/')) sourceType = 'github-project';
+        }
+    }
+    
+    console.log(`[speccing:evidence] Inferred sourceType '${sourceType}' for ${r2Key} (plugin: ${plugin.name})`);
+
     // Request the full document content from the plugin
     // We use a specific "full-document" chunk to trigger the plugin's complete rendering logic
     const fullDocumentRequest: ChunkMetadata[] = [{
@@ -234,7 +249,7 @@ async function fetchEvidenceForMoment(
         jsonPath: "$.", // Request root
         sourceMetadata: {
             ...moment.sourceMetadata,
-            type: moment.sourceMetadata?.type || moment.sourceMetadata?.github?.type
+            type: sourceType
         },
     }];
 

@@ -1460,3 +1460,16 @@ export interface SpeccingSessionResult {
 1. `curl` the `next` endpoint for a known simulation session.
 2. Verify the `evidence.content` contains the historical state (e.g., only the first few turns of a Cursor conversation).
 3. Verify that GitHub PR moments include the diff text.
+
+## [Fix] Source Type Inference for Missing Metadata
+We discovered that many moments in the simulation run (`local-2026-02-11-gentle-panda`) are missing the `sourceMetadata.type` field. This caused plugins (like Discord and GitHub) to return empty content because they rely on this field to select the correct rendering strategy (e.g., `discord-thread` vs `discord-channel`).
+
+**Action Taken**:
+- Implemented a polyfill in `runner.ts` to infer `sourceType` from the `r2Key` structure when metadata is missing.
+- **Heuristics**:
+    - `/threads/` -> `discord-thread`
+    - `/issues/` or `/pull/` -> `github-pr-issue`
+- Added logging to confirm the inferred type during execution.
+
+**Result**:
+- `next` calls now correctly return the full document content for both Discord and GitHub moments, even when the underlying metadata is incomplete.

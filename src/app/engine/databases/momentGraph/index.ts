@@ -2282,6 +2282,47 @@ export async function getAllMoments(
   }));
 }
 
+export async function getMomentsForReindexing(
+  context: MomentGraphContext,
+  options?: {
+    limit?: number;
+    offset?: number;
+  }
+): Promise<Moment[]> {
+  const db = getMomentDb(context);
+
+  const limit = options?.limit ?? 100;
+  const offset = options?.offset ?? 0;
+
+  const rows = (await db
+    .selectFrom("moments")
+    .selectAll()
+    .limit(limit)
+    .offset(offset)
+    .execute()) as any[];
+
+  return rows.map((row) => {
+    return {
+      id: row.id,
+      documentId: row.document_id,
+      title: row.title || "(untitled)",
+      summary: row.summary || "(empty)",
+      importance: row.importance ?? undefined,
+      isSubject: row.is_subject === 1,
+      subjectKind: row.subject_kind ?? undefined,
+      subjectReason: row.subject_reason ?? undefined,
+      subjectEvidence: row.subject_evidence_json ?? undefined,
+      momentKind: row.moment_kind ?? undefined,
+      momentEvidence: row.moment_evidence_json ?? undefined,
+      createdAt: row.created_at,
+      author: row.author || "machinen",
+      sourceMetadata: row.source_metadata ?? undefined,
+      microPaths: row.micro_paths_json ?? undefined,
+      microPathsHash: row.micro_paths_hash ?? undefined,
+    };
+  });
+}
+
 export async function getUnparentedMoments(
   context: MomentGraphContext,
   options?: {

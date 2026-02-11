@@ -998,3 +998,18 @@ curl -X POST "http://localhost:5174/api/speccing/start?subjectId=test-subject" \
 }
 [speccing:start] Resolved dynamic namespace: local-2026-02-10-12-08-focused-mole:redwood:rwsdk
 ```
+
+## optimized re-indexing to reuse existing vectors
+
+instead of re-calculating embeddings (which was triggering the 1031 errors), we've updated the re-indexing handler to fetch existing vector values from `MOMENT_INDEX.getByIds`.
+
+### rationale
+- **cost/performance**: re-generating embeddings for existing data is slow and unnecessary.
+- **reliability**: bypassing the AI API eliminates the 1031 rate-limiting/upstream failure issues we observed.
+- **precision**: we only need to update the *metadata* in Vectorize to fix the `isSubject` filter.
+
+### implementation
+- used `context.env.MOMENT_INDEX.getByIds` to batch-fetch vectors.
+- mapped vectors back to moments and passed them to `addMoment` via the `embedding` option.
+- added logging for moments without existing vectors.
+

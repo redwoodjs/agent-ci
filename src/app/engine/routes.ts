@@ -20,6 +20,8 @@ import {
   getDocumentAuditLogsForDocument,
   getRecentDocumentAuditEvents,
   clearAllMomentLinks,
+  addMoment,
+  getMomentsForReindexing,
 } from "./databases/momentGraph";
 import {
   processScannerJob,
@@ -1163,20 +1165,20 @@ async function clearDefaultNamespaceMomentLinksHandler({
 }
 
 async function reindexNamespaceVectorsHandler({ request }: RequestInfo) {
-  if (request.method !== \"POST\") {
-    return Response.json({ error: \"Method not allowed\" }, { status: 405 });
+  if (request.method !== "POST") {
+    return Response.json({ error: "Method not allowed" }, { status: 405 });
   }
 
   let body: { momentGraphNamespace?: string } | undefined;
   try {
     body = await request.json();
   } catch {
-    return Response.json({ error: \"Invalid JSON body\" }, { status: 400 });
+    return Response.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
   const momentGraphNamespace = body?.momentGraphNamespace;
   if (!momentGraphNamespace) {
-    return Response.json({ error: \"Missing momentGraphNamespace\" }, { status: 400 });
+    return Response.json({ error: "Missing momentGraphNamespace" }, { status: 400 });
   }
 
   const envCloudflare = env as Cloudflare.Env;
@@ -1194,9 +1196,22 @@ async function reindexNamespaceVectorsHandler({ request }: RequestInfo) {
       const moments = await getMomentsForReindexing(context, { limit: batchSize, offset });
       if (moments.length === 0) break;
 
+      const momentIds = moments.map((m) => m.id);
+      const existingVectors = await context.env.MOMENT_INDEX.getByIds(momentIds);
+      const vectorMap = new Map(existingVectors.map((v) => [v.id, v.values]));
+
       for (const moment of moments) {
-        await addMoment(moment, context);
-        processedCount++;
+        const existingEmbedding = vectorMap.get(moment.id);
+        
+        if (existingEmbedding) {
+          // Re-upsert with existing vector to update metadata
+          await addMoment(moment, context, { embedding: existingEmbedding as number[] });
+          processedCount++;
+        } else {
+          // If vector is missing, we could optionally call AI, but let's log it for now
+          // to avoid the 1031 error that triggered this research.
+          console.warn(`[reindex] Vector missing for moment ${moment.id}, skipping to avoid AI latency/errors.`);
+        }
       }
 
       offset += batchSize;
@@ -1211,7 +1226,7 @@ async function reindexNamespaceVectorsHandler({ request }: RequestInfo) {
   } catch (error) {
     console.error(`[reindex] Error during reindexing:`, error);
     return Response.json({
-      error: \"Reindexing failed\",
+      error: "Reindexing failed",
       details: error instanceof Error ? error.message : String(error),
     }, { status: 500 });
   }
@@ -1255,6 +1270,9 @@ export const routes = [
 
   route("/admin/clear-default-namespace-moment-links", {
     post: [requireQueryApiKey, clearDefaultNamespaceMomentLinksHandler],
+  }),
+  route("/admin/reindex-vectors", {
+    post: [requireQueryApiKey, reindexNamespaceVectorsHandler],
   }),
 
   route("/debug/r2-list", {

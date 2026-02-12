@@ -643,7 +643,7 @@ async function tickGenericDocumentPolling(
         .where("run_id", "=", input.runId)
         .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "like", `%ingest_diff%`)
         .where(sql`json_extract(COALESCE(dispatched_phases_json, '[]'), '$')`, "not like", `%${phase}%`)
-        .limit(100)
+        .limit(50)
         .execute();
       
       if (docs.length > 0) {
@@ -688,7 +688,7 @@ async function tickGenericDocumentPolling(
         .where("run_id", "=", input.runId)
         .where(sql`json_extract(COALESCE(processed_phases_json, '[]'), '$')`, "like", `%${prevPhase}%`)
         .where(sql`json_extract(COALESCE(dispatched_phases_json, '[]'), '$')`, "not like", `%${phase}%`)
-        .limit(100)
+        .limit(50)
         .execute();
 
       if (docs.length > 0) {

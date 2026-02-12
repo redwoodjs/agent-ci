@@ -117,5 +117,15 @@ Our local simulation advanced successfully through `micro_batches` and `macro_sy
 - Manual rerun from `materialize_moments`.
 
 ### 4. Tasks
-- [ ] Add Retry Logic to `ArtifactStorage.load` in `simulation.ts`.
-- [ ] Moderate Polling limits to 50 in `runner.ts`.
+- [x] Add Retry Logic to `ArtifactStorage.load` in `simulation.ts`.
+- [x] Moderate Polling limits to 50 in `runner.ts`.
+
+## Implementation & Verification
+
+We have implemented both the Liveness Protection Layer (RFC 1) and the Resilience Patch (RFC 2).
+
+### Final Status
+- **Double-Reset Strategy**: Fully implemented (Dispatch Reset + Pick-Up Latch).
+- **Restart Protection**: Force-touching timestamps on phase restart.
+- **R2 Stability**: Retry logic (3 attempts) + Polling moderated to 50 docs/tick.
+- **AB Updated**: Double-Reset Ditched protocol formally documented.

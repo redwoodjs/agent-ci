@@ -27,7 +27,25 @@ export class ArtifactStorage implements StorageStrategy {
         output.__offloaded_at__ === "R2"
       ) {
         const bucket = this.env.MACHINEN_BUCKET;
-        const object = await bucket.get(output.key);
+        
+        // R2 Retry Logic: Local Miniflare R2 can fail with 'Unspecified error' under high concurrency.
+        let object: R2Object | null = null;
+        let attempts = 0;
+        const maxAttempts = 3;
+        
+        while (attempts < maxAttempts) {
+          try {
+            object = await bucket.get(output.key);
+            break;
+          } catch (error) {
+            attempts++;
+            if (attempts >= maxAttempts) throw error;
+            const delay = Math.pow(2, attempts) * 100; // 200ms, 400ms
+            console.warn(`[ArtifactStorage] R2 get failed (attempt ${attempts}), retrying in ${delay}ms...`, output.key);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+        }
+
         if (!object) {
           const msg = `[ArtifactStorage] Offloaded artifact missing: ${output.key} for ${phase.name}/${key}`;
           console.error(msg);
@@ -54,7 +72,7 @@ export class ArtifactStorage implements StorageStrategy {
 
           return null; 
         }
-        const text = await object.text();
+        const text = await (object as any).text();
         return JSON.parse(text) as T;
       }
       return output as T;

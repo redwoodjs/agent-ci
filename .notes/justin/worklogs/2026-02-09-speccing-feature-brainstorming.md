@@ -1461,6 +1461,9 @@ export interface SpeccingSessionResult {
 2. Verify the `evidence.content` contains the historical state (e.g., only the first few turns of a Cursor conversation).
 3. Verify that GitHub PR moments include the diff text.
 
+## COMMIT THIS TO MEMORY
+* MICRO MOMENTS HAVE **NOTHING AT ALL** TO DO WITH DOCUMENTS. LEAVE. MICRO. MOMENTS. ALONE.
+
 ## [Fix] Source Type Inference for Missing Metadata
 We discovered that many moments in the simulation run (`local-2026-02-11-gentle-panda`) are missing the `sourceMetadata.type` field. This caused plugins (like Discord and GitHub) to return empty content because they rely on this field to select the correct rendering strategy (e.g., `discord-thread` vs `discord-channel`).
 
@@ -1471,5 +1474,72 @@ We discovered that many moments in the simulation run (`local-2026-02-11-gentle-
     - `/issues/` or `/pull/` -> `github-pr-issue`
 - Added logging to confirm the inferred type during execution.
 
+## [Protocol] Verification for `redwoodjs/sdk`
+We have established a standardized testing protocol for the Speccing Engine using the `gentle-panda` simulation sandbox.
+
+### 1. Subject Discovery
+Find a subject to spec within the `sdk` repo's simulation workspace.
+```bash
+curl -X POST "http://localhost:5174/api/subjects/search" \
+  -H "Authorization: Bearer dev" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "client-side navigation",
+    "context": {
+      "repository": "redwoodjs/sdk",
+      "namespacePrefix": "local-2026-02-11-11-20-gentle-panda"
+    }
+  }'
+```
+
+### 2. Session Initialization
+Start the replay for a specific subject (e.g., `c3ef1dba-8100-ddc9-54f7-514257ceabb4`).
+```bash
+curl -X POST "http://localhost:5174/api/speccing/start?subjectId=c3ef1dba-8100-ddc9-54f7-514257ceabb4" \
+  -H "Authorization: Bearer dev" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "context": {
+      "repository": "redwoodjs/sdk",
+      "namespacePrefix": "local-2026-02-11-11-20-gentle-panda"
+    }
+  }'
+```
+
+### 3. Narrative Replay Turn
+Execute the `next_command` provided in the previous response.
+```bash
+curl -s -H "Authorization: Bearer dev" "http://localhost:5174/api/speccing/next?sessionId=<SESSION_ID>"
+```
+*Note: Each turn will provide a sanitized `moment` (id, title, summary, createdAt) and the full historical `evidence` reconstructed from R2.*
+
 **Result**:
 - `next` calls now correctly return the full document content for both Discord and GitHub moments, even when the underlying metadata is incomplete.
+
+## [Protocol] E2E Agent Actor Setup (`redwoodjs/sdk`)
+This setup allows an AI agent (Cursor, Antigravity, etc.) to act as the "Hands" in the SDK repository, replaying the narrative and building the spec.
+
+### 1. Configure the Target Repository
+Navigate to your local `redwoodjs/sdk` workspace and run the bootstrap script from this repo. This will inject `AGENTS.md` and `.cursorrules` configured for the `gentle-panda` simulation.
+
+```bash
+# In your SDK repo terminal
+export API_KEY="dev"
+export MACHINEN_ENGINE_URL="http://localhost:5174"
+export NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda"
+
+# Run bootstrap from the machinen workspace
+/Users/justin/rw/worktrees/machinen_specs/scripts/bootstrap-specs.sh
+```
+
+### 2. Trigger the Agent
+Once bootstrapped, simply ask your IDE agent (Antigravity/Cursor/Windsurf) in the **SDK repo**:
+> "Read AGENTS.md and spec out the feature 'Identified full‑page reload issue for client‑side filters' (subject c3ef1dba-8100-ddc9-54f7-514257ceabb4)."
+
+### 3. Agent Execution Loop
+The agent will:
+1. Read `AGENTS.md` to understand the `curl` protocol.
+2. Call \`/api/speccing/start\`.
+3. Enter the \`/api/speccing/next\` loop, following the \`instruction\` field in each response.
+4. Update \`docs/specs/client-side-navigation.md\` iteratively based on the high-fidelity evidence (R2 source docs + PR diffs).
+

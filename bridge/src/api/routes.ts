@@ -3,7 +3,7 @@ import { route } from "rwsdk/router";
 import { z } from "zod";
 
 import { SECRETS } from "../secrets";
-import { getInstallationToken } from "../github";
+import { getInstallationToken, getRegistrationToken, getInstallationIdForRepo } from "../github";
 
 function requiresAuthToken({ request }: { request: Request }) {
   const apiKey = request.headers.get("x-api-key");
@@ -16,6 +16,7 @@ export const apiRoutes = [
   route("/webhook", { post: handleWebhook }),
   route("/jobs", [requiresAuthToken, handleJobs ]),
   route("/presence", handlePresence),
+  route("/registration-token", [requiresAuthToken, handleRegistrationToken]),
 ];
 
 const webhookHeadersSchema = z.object({
@@ -176,6 +177,36 @@ async function handlePresence({ request }: { request: Request }): Promise<Respon
 }
 
 
+
+
+async function handleRegistrationToken({ request }: { request: Request }): Promise<Response> {
+  const url = new URL(request.url);
+  const username = url.searchParams.get("username");
+  const repo = url.searchParams.get("repo");
+
+  if (!username || !repo) {
+    return new Response("Missing username or repo", { status: 400 });
+  }
+
+  try {
+    const owner = repo.includes("/") ? repo.split("/")[0] : username;
+    const repoName = repo.includes("/") ? repo.split("/")[1] : repo;
+    const fullRepo = `${owner}/${repoName}`;
+
+    console.log(`[Bridge] Fetching installation for ${fullRepo}...`);
+    const installationId = await getInstallationIdForRepo(owner, repoName);
+
+    console.log(`[Bridge] Generating registration token for ${fullRepo}...`);
+    const token = await getRegistrationToken(installationId, fullRepo);
+
+    return new Response(JSON.stringify({ token }), {
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (error: any) {
+    console.error(`[Bridge] Failed to get registration token:`, error);
+    return new Response(error.message, { status: 500 });
+  }
+}
 
 /**
  * Utilities

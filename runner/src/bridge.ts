@@ -24,3 +24,26 @@ export async function pollJobs(): Promise<Job[]> {
     return [];
   }
 }
+
+export async function fetchRegistrationToken(): Promise<string> {
+  const url = `${config.BRIDGE_URL}/api/registration-token?username=${config.GITHUB_USERNAME}&repo=${config.GITHUB_REPO}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        "x-api-key": config.BRIDGE_API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+       const errorBody = await response.text();
+       throw new Error(`Failed to fetch registration token: ${response.status} ${response.statusText}\n${errorBody}`);
+    }
+
+    const data = await response.json() as { token: string };
+    return data.token;
+  } catch (error) {
+    console.error("[Bridge] Error fetching registration token:", error);
+    throw error;
+  }
+}

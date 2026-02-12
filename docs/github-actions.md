@@ -60,19 +60,30 @@ Used by simulation scripts (`dtu/github-actions/simulate.ts`) to populate the mo
 
 ---
 
-## 2. The GitHub Long-Poll
+## 2. Automatic Runner Registration
 
 Even if the Bridge says you are "active," GitHub itself won't send the job to your machine unless the official GitHub Actions self-hosted runner application is running and connected to GitHub’s servers.
 
-### How it works
-When your YAML says `runs-on: opposite-actions`, GitHub looks for an open HTTPS long-poll connection from a runner registered to that repo with that label.
+### The Registration Flow
+The OA-1 system automates runner registration using the Bridge as a secure credential manager. This eliminates the need for manual registration tokens.
 
-1.  **Registration**: The official runner application (`./run.sh`) must be registered with the repository or organization.
-2.  **Connection**: Once started, it maintains a persistent connection to GitHub.
-3.  **Job Assignment**: If the connection isn't open, the job will hang in "Queued" status even if your Bridge check passed.
+1.  **Request Token**: The Runner calls the Bridge (`GET /api/registration-token`) before spinning up a Docker container.
+2.  **Generate Token**: The Bridge uses its **GitHub App Credentials** to authenticate via the GitHub API and fetch a fresh `registration-token` for the repository.
+3.  **Bootstrap**: The Runner injects this token into the Docker container.
+4.  **Registration**: The official runner application (`./run.sh`) uses the token to register itself with a unique name (e.g., `oa-runner-1`).
 
-### OA-1 Integration
-The local OA-1 Runner initiates the standard GitHub Actions self-hosted runner process (`./run.sh`) automatically if configured. This ensures that GitHub can "see" the runner and assign jobs to it, while the OA-1 Runner provides the enhanced orchestration and local-first features.
+### Required Credentials
+For the Bridge to perform this automation, the following environment variables (defined in your root `.env` or Bridge `.dev.vars`) must be configured:
+
+- `GITHUB_APP_ID`: The ID of your GitHub App.
+- `GITHUB_PRIVATE_KEY`: The PEM-formatted private key for your GitHub App.
+- `GITHUB_USERNAME`: Your GitHub username or organization name.
+- `GITHUB_REPO`: The `owner/repo` string for the target repository.
+
+### Required GitHub App Permissions
+The GitHub App must be installed on the repository with at least:
+- **Actions**: `Read & write`
+- **Metadata**: `Read-only`
 
 ---
 

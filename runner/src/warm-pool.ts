@@ -1,141 +1,258 @@
 import Docker from "dockerode";
 import path from "path";
 import fs from "fs";
-import { pollJobs } from "./bridge";
+import { pollJobs, fetchRegistrationToken } from "./bridge";
+import { config } from "./config";
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const IMAGE = "ghcr.io/actions/actions-runner:latest";
-const CONTAINER_NAME = "warm-runner";
+const CONTAINER_PREFIX = "oa-runner-";
+const MAX_RUNNERS = 10;
 
-let intervalId: NodeJS.Timeout | null = null;
+interface RunnerState {
+  id: string; // Container ID
+  name: string;
+  type: "warm" | "active";
+  stream?: NodeJS.ReadableStream;
+}
+
+export class WarmPool {
+  private runners: Map<string, RunnerState> = new Map();
+  private isRunning: boolean = false;
+  private reconcileInterval: NodeJS.Timeout | null = null;
+  private nextRunnerId: number = 1;
+
+  constructor() {
+    this.reconcile = this.reconcile.bind(this);
+  }
+
+  public async start() {
+    if (this.isRunning) return;
+    this.isRunning = true;
+    console.log("[WarmPool] Starting warm pool manager...");
+
+    // Cleanup existing runners on start to ensure clean state
+    await this.cleanupAll();
+
+    // Initial reconcile
+    await this.reconcile();
+
+    // Start periodic reconcile loop (failsafe)
+    this.reconcileInterval = setInterval(this.reconcile, 5000);
+  }
+
+  public async stop() {
+    console.log("[WarmPool] Stopping warm pool manager...");
+    this.isRunning = false;
+    if (this.reconcileInterval) clearInterval(this.reconcileInterval);
+    await this.cleanupAll();
+  }
+
+  private async reconcile() {
+    if (!this.isRunning) return;
+
+    // Filter out runners that might have died unexpectedly (if we missed the exit event)
+    // For now, we rely on event listeners, but we could add a docker.listContainers check here for robustness.
+
+    const warmCount = Array.from(this.runners.values()).filter((r) => r.type === "warm").length;
+    const totalCount = this.runners.size;
+
+    // n + 1 Rule: We want exactly 1 warm runner.
+    if (warmCount < 1 && totalCount < MAX_RUNNERS) {
+      // Spawn new warm runner
+      console.log(`[WarmPool] Need warm runner (Warm: ${warmCount}, Total: ${totalCount}). Spawning...`);
+      await this.spawnRunner();
+    } else if (warmCount > 1) {
+      // Too many warm runners? (Race condition maybe). We could kill one, or just let it be.
+      // For now, we only spawn if < 1.
+    }
+    
+    if (totalCount >= MAX_RUNNERS && warmCount === 0) {
+      console.warn("[WarmPool] Max runners reached. Cannot spawn new warm runner.");
+    }
+    
+    // Poll the bridge to announce presence
+    await pollJobs();
+  }
+
+  private async spawnRunner() {
+    const runId = this.nextRunnerId++;
+    const containerName = `${CONTAINER_PREFIX}${runId}`;
+
+    const workDir = path.resolve(process.cwd(), "_/work", runId.toString()); // Unique work dir per runner
+
+    // Ensure directories exist
+    if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
+
+    try {
+        // Ensure image exists before spawning
+        await this.ensureImage();
+
+        console.log(`[WarmPool] Fetching registration token for ${containerName}...`);
+        const registrationToken = await fetchRegistrationToken();
+
+        const repoUrl = `https://github.com/${config.GITHUB_REPO}`;
+
+        const container = await docker.createContainer({
+            Image: IMAGE,
+            name: containerName,
+            // Use config.sh for registration if needed, but the official image 
+            // usually uses these env vars to auto-configure on startup.
+            // Actually, the entrypoint /run.sh handles this if these are set.
+            Env: [
+                `RUNNER_NAME=${containerName}`,
+                `RUNNER_TOKEN=${registrationToken}`,
+                `RUNNER_REPOSITORY_URL=${repoUrl}`,
+                `RUNNER_FLAGS=--ephemeral --unattended`,
+            ],
+            Cmd: ["/home/runner/run.sh", "--once"],
+            HostConfig: {
+            Binds: [
+                `${workDir}:/home/runner/_work`,
+                "/var/run/docker.sock:/var/run/docker.sock",
+            ],
+            AutoRemove: true, // Auto-remove on exit makes cleanup easier
+            },
+            Tty: true,
+        });
+
+        const runnerId = container.id;
+        
+        // Add to map IMMEDIATELY as warm
+        this.runners.set(runnerId, {
+            id: runnerId,
+            name: containerName,
+            type: "warm"
+        });
+
+        await container.start();
+        console.log(`[WarmPool] Started runner ${containerName} (${runnerId.substring(0, 12)})`);
+
+
+        // Attach listeners
+        this.attachToRunner(container, runnerId);
+
+    } catch (error: any) {
+        console.error(`[WarmPool] Failed to spawn runner ${containerName}:`, error.message);
+        // Clean up map if needed (though we added it, it failed start, so maybe not there effectively?)
+    }
+  }
+
+  private async attachToRunner(container: Docker.Container, runnerId: string) {
+    // 1. Monitor Logs for "Job received"
+    try {
+        const stream = await container.logs({
+            stdout: true,
+            stderr: true,
+            follow: true,
+            tail: 0
+        }) as NodeJS.ReadableStream;
+
+        const runnerState = this.runners.get(runnerId);
+        if (runnerState) {
+            runnerState.stream = stream;
+        }
+
+        stream.on('data', (chunk: Buffer) => {
+            const logLine = chunk.toString();
+            console.log(`[Runner ${runnerId.substring(0,6)}] ${logLine.trim()}`); // Verbose
+
+            // Detection logic
+            if (logLine.includes("Job") && logLine.includes("message received")) {
+                this.markAsActive(runnerId);
+            }
+        });
+
+        // 2. Monitor Exit
+        container.wait().then((result) => {
+             console.log(`[WarmPool] Runner ${runnerId.substring(0, 12)} exited with code ${result.StatusCode}`);
+             this.handleRunnerExit(runnerId);
+        }).catch(err => {
+            console.error(`[WarmPool] Error waiting for runner ${runnerId}:`, err);
+             this.handleRunnerExit(runnerId);
+        });
+
+    } catch (error) {
+        console.error(`[WarmPool] Failed to attach to runner ${runnerId}:`, error);
+        // If we can't attach, we should probably kill it to be safe, or just let it die.
+        this.handleRunnerExit(runnerId);
+    }
+  }
+
+  private markAsActive(runnerId: string) {
+    const runner = this.runners.get(runnerId);
+    if (runner && runner.type === "warm") {
+      console.log(`[WarmPool] Runner ${runner.name} picked up a job! Marking as ACTIVE.`);
+      runner.type = "active";
+      // Trigger reconcile to spawn a new warm runner
+      this.reconcile();
+    }
+  }
+
+  private handleRunnerExit(runnerId: string) {
+    if (this.runners.has(runnerId)) {
+        this.runners.delete(runnerId);
+        console.log(`[WarmPool] Removed runner ${runnerId.substring(0, 12)} from pool.`);
+        // Trigger reconcile to replace it if it was the warm one
+        this.reconcile();
+    }
+  }
+
+  private async cleanupAll() {
+    console.log("[WarmPool] Cleaning up all managed runners...");
+    // 1. List all containers matching our prefix
+    const containers = await docker.listContainers({
+        all: true,
+        filters: { name: [CONTAINER_PREFIX] }
+    });
+
+    for (const c of containers) {
+        console.log(`[WarmPool] Killing/Removing ${c.Names[0]}...`);
+        try {
+            const container = docker.getContainer(c.Id);
+            // If running, kill
+            if (c.State === 'running') {
+                 await container.kill().catch(() => {});
+            }
+            // Remove
+            await container.remove({ force: true }).catch(() => {});
+        } catch (e) {
+            console.error(`[WarmPool] Failed to cleanup ${c.Id}:`, e);
+        }
+    }
+    this.runners.clear();
+  }
+
+  private async ensureImage(): Promise<void> {
+    const images = await docker.listImages({
+      filters: { reference: [IMAGE] },
+    });
+  
+    if (images.length === 0) {
+      console.log(`[WarmPool] Pulling image ${IMAGE}...`);
+      await new Promise<void>((resolve, reject) => {
+        docker.pull(IMAGE, (err: any, stream: any) => {
+          if (err) return reject(err);
+          docker.modem.followProgress(stream, (err: any) => {
+            if (err) reject(err);
+            else resolve();
+          },
+          () => {});
+        });
+      });
+      console.log(`[WarmPool] Pull complete.`);
+    }
+  }
+}
+
+// Export singleton instance or function wrappers for compatibility
+export const warmPool = new WarmPool();
 
 export async function startWarmPool() {
-  console.log("[WarmPool] Starting warm pool manager...");
-
-  // Initial check
-  await checkAndSpawn();
-  await pollJobs();
-
-  // Polling loop
-  intervalId = setInterval(async () => {
-    try {
-      await checkAndSpawn();
-      await pollJobs();
-    } catch (error) {
-      console.error("[WarmPool] Error in polling loop:", error);
-    }
-  }, 10_000);
+    await warmPool.start();
 }
 
 export async function stopWarmPool() {
-  console.log("[WarmPool] Stopping warm pool manager...");
-  if (intervalId) clearInterval(intervalId);
-
-  const containers = await docker.listContainers({
-    all: true,
-    filters: {
-      name: [CONTAINER_NAME],
-    },
-  });
-
-  const warmRunner = containers.find((c) => c.Names.includes(`/${CONTAINER_NAME}`));
-  if (warmRunner) {
-    console.log(`[WarmPool] Removing container ${warmRunner.Id.substring(0, 12)}...`);
-    const container = docker.getContainer(warmRunner.Id);
-    await container.remove({ force: true });
-    console.log("[WarmPool] Container removed.");
-  }
+    await warmPool.stop();
 }
 
-async function checkAndSpawn() {
-  console.log("[WarmPool] Checking runner status...");
-
-  const containers = await docker.listContainers({
-    all: true,
-    filters: {
-      name: [CONTAINER_NAME],
-    },
-  });
-
-  const warmRunner = containers.find((c) => c.Names.includes(`/${CONTAINER_NAME}`));
-
-  if (warmRunner) {
-    if (warmRunner.State === "running") {
-      console.log("[WarmPool] Warm runner is healthy and listening.");
-      return;
-    } else {
-      console.log(`[WarmPool] Found warm runner in state: ${warmRunner.State}. Removing...`);
-      const container = docker.getContainer(warmRunner.Id);
-      await container.remove({ force: true });
-    }
-  } else {
-    console.log("[WarmPool] No warm runner found.");
-  }
-
-  await spawnRunner();
-}
-
-async function ensureImage(): Promise<void> {
-  const images = await docker.listImages({
-    filters: { reference: [IMAGE] },
-  });
-
-  if (images.length === 0) {
-    console.log(`[WarmPool] Pulling image ${IMAGE}...`);
-    await new Promise<void>((resolve, reject) => {
-      docker.pull(IMAGE, (err: any, stream: any) => {
-        if (err) return reject(err);
-        docker.modem.followProgress(stream, (err: any) => {
-          if (err) reject(err);
-          else resolve();
-        },
-        (event) => {
-            // Optional: log progress
-        });
-      });
-    });
-    console.log(`[WarmPool] Pull complete.`);
-  }
-}
-
-async function spawnRunner() {
-  console.log("[WarmPool] Spawning new warm runner...");
-
-  try {
-     await ensureImage();
-  } catch(error: any) {
-      console.error("[WarmPool] Failed to pull image:", error.message);
-      return;
-  }
-
-  const workDir = path.resolve(process.cwd(), "_/work");
-  const identityDir = path.resolve(process.cwd(), "_/identity");
-
-  // Ensure directories exist (redundant check but good for safety)
-  if (!fs.existsSync(workDir)) fs.mkdirSync(workDir, { recursive: true });
-  if (!fs.existsSync(identityDir)) fs.mkdirSync(identityDir, { recursive: true });
-
-  try {
-    const container = await docker.createContainer({
-      Image: IMAGE,
-      name: CONTAINER_NAME,
-      Cmd: ["/home/runner/run.sh", "--once"],
-      HostConfig: {
-        Binds: [
-          `${workDir}:/home/runner/_work`,
-          `${identityDir}/.runner:/home/runner/.runner`,
-          `${identityDir}/.credentials:/home/runner/.credentials`,
-          `${identityDir}/.credentials_rsaparams:/home/runner/.credentials_rsaparams`,
-          "/var/run/docker.sock:/var/run/docker.sock",
-        ],
-        AutoRemove: true,
-      },
-      Tty: true, // Often helpful for runner output
-    });
-
-    await container.start();
-    console.log(`[WarmPool] Started new runner container: ${container.id.substring(0, 12)}`);
-  } catch (error: any) {
-    console.error("[WarmPool] Failed to spawn runner:", error.message);
-  }
-}

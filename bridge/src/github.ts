@@ -70,13 +70,68 @@ async function importPrivateKey(pem: string): Promise<CryptoKey> {
   );
 }
 
+
+/**
+ * Gets a registration token for a specific repository.
+ */
+export async function getRegistrationToken(installationId: string, repositoryName: string): Promise<string> {
+  const token = await getInstallationToken(installationId, repositoryName, { actions: "write" });
+  const url = `${SECRETS.GITHUB_API_URL}/repos/${repositoryName}/actions/runners/registration-token`;
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "oa-1-bridge",
+    },
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Failed to get registration token: ${response.status} ${response.statusText}\n${errorBody}`);
+  }
+
+  const data: any = await response.json();
+  return data.token;
+}
+
+/**
+ * Finds the installation ID for a given repository.
+ */
+export async function getInstallationIdForRepo(owner: string, repo: string): Promise<string> {
+    const jwt = await generateGitHubAppJWT();
+    const url = `${SECRETS.GITHUB_API_URL}/repos/${owner}/${repo}/installation`;
+
+    const response = await fetch(url, {
+        headers: {
+            Authorization: `Bearer ${jwt}`,
+            Accept: "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "oa-1-bridge",
+        },
+    });
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Failed to get installation ID for ${owner}/${repo}: ${response.status} ${response.statusText}\n${errorBody}`);
+    }
+
+    const data: any = await response.json();
+    return data.id.toString();
+}
+
 /**
  * Exchanges a GitHub App JWT for an installation access token.
  */
-export async function getInstallationToken(installationId: string, repositoryName: string): Promise<string> {
+export async function getInstallationToken(
+    installationId: string, 
+    repositoryName: string, 
+    permissions: Record<string, string> = { actions: "read", contents: "read", metadata: "read" }
+): Promise<string> {
   const jwt = await generateGitHubAppJWT();
-  const GITHUB_API_URL = process.env.GITHUB_API_URL || "https://api.github.com";
-  const url = `${GITHUB_API_URL}/app/installations/${installationId}/access_tokens`;
+  const url = `${SECRETS.GITHUB_API_URL}/app/installations/${installationId}/access_tokens`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -88,7 +143,7 @@ export async function getInstallationToken(installationId: string, repositoryNam
     },
     body: JSON.stringify({
         repositories: [repositoryName.split("/")[1]], // Only grant access to this repo
-        permissions: { actions: "read", contents: "read", metadata: "read" }
+        permissions
     })
   });
 
@@ -100,3 +155,4 @@ export async function getInstallationToken(installationId: string, repositoryNam
   const data: any = await response.json();
   return data.token;
 }
+

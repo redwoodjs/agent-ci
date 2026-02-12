@@ -20,11 +20,14 @@ export async function startSpeccingHandler({ request }: RequestInfo) {
 
     // Dynamic Resolution via Plugins
     const body = (await request.json().catch(() => ({}))) as {
+      revisionMode?: "server" | "client";
       context?: {
         repository?: string;
         namespacePrefix?: string;
-      }
+      };
     };
+
+    const revisionMode = body.revisionMode || "server";
 
     if (body.context) {
        const engineContext = createEngineContext(envCloudflare, "querying");
@@ -57,7 +60,7 @@ export async function startSpeccingHandler({ request }: RequestInfo) {
         momentGraphNamespace
     };
 
-    const sessionId = await initializeSpeccingSession(context, subjectId);
+    const sessionId = await initializeSpeccingSession(context, subjectId, revisionMode);
     return Response.json({ 
         sessionId,
         instruction: `SESSION INITIALIZED: 1. Following the protocol in .agent/rules/machinen.md, prepare to iteratively update the technical specification in docs/specs/. 2. Execute the first turn: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`
@@ -79,12 +82,16 @@ export async function nextSpeccingHandler({ request }: RequestInfo) {
   try {
     const envCloudflare = env as Cloudflare.Env;
     // Context only needs env here; runner will re-hydrate momentGraphNamespace from DB
-    const context: MomentGraphContext = {
-        env: envCloudflare,
-        momentGraphNamespace: null,
+    const body = (await request.json().catch(() => ({}))) as {
+      userPrompt?: string;
     };
 
-    const result = await tickSpeccingSession(context, sessionId);
+    const context: MomentGraphContext = {
+      env: envCloudflare,
+      momentGraphNamespace: null,
+    };
+
+    const result = await tickSpeccingSession(context, sessionId, body.userPrompt);
     return Response.json(result);
   } catch (error) {
     console.error(`[speccing:next] Error:`, error);

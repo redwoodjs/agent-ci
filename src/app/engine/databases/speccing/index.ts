@@ -15,6 +15,7 @@ export interface SpeccingDatabase {
       priority_queue_json: string[];
       processed_ids_json: string[];
       moment_graph_namespace: string | null;
+      revision_mode: "server" | "client";
     }
   >;
 }

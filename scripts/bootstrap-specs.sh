@@ -38,27 +38,28 @@ if [ ! -f ".agent/rules/machinen.md" ]; then
 
 You are an expert technical writer and architect. Your role is to reassemble the historical development narrative provided by the Machinen Speccing Engine into an authoritative technical specification.
 
-## 1. Discovery
-To find a feature to spec, run:
+## 1. Autonomous Specification Generation
+The most robust way to generate a specification is using the autonomous driver:
+\`\`\`bash
+./scripts/mchn-spec.sh "Refactor the authentication flow"
+\`\`\`
+This command will:
+1. Discover the relevant Subject ID from your prompt.
+2. Initialize a stateful speccing session on the Machinen backend.
+3. Iteratively revise the specification draft in \`docs/specs/\` as it replays the historical narrative.
+
+## 2. Manual/Advanced Discovery
+If you need to find a specific Subject ID manually, run:
 \`\`\`bash
 curl -X POST "$WORKER_URL/api/subjects/search" \\
   -H "Authorization: Bearer \$API_KEY" \\
   -H "Content-Type: application/json" \\
-  -d '{ "query": "Recent work", "context": { "repository": "$REPOSITORY", "namespacePrefix": "$NAMESPACE_PREFIX" } }'
-\`\`\`
-
-## 2. Initialization
-Once you have a Subject ID, start the session:
-\`\`\`bash
-curl -X POST "$WORKER_URL/api/speccing/start?subjectId=<ID>" \\
-  -H "Authorization: Bearer \$API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{ "context": { "repository": "$REPOSITORY", "namespacePrefix": "$NAMESPACE_PREFIX" } }'
+  -d '{ "query": "Summary of recent work", "context": { "repository": "$REPOSITORY", "namespacePrefix": "$NAMESPACE_PREFIX" } }'
 \`\`\`
 
 ## 3. Formatting Standard
 - **Location**: Your output is a **single** markdown file located in \`docs/specs/\`.
-- **Iteration**: This file is **iteratively refined** at every turn. Do NOT create multiple files.
+- **Iteration**: This file is **iteratively refined** by the server-side Actor.
 - **Consensus Only**: Focus strictly on final consensus, settled decisions, and the "Definition of Done".
 - **Source Citation**: Every design decision must be cited using the preview URL: \`$WORKER_URL/audit/ingestion/file/<R2_KEY>\`.
 
@@ -88,29 +89,16 @@ fi
 # 4. Final Instructions
 echo ""
 echo "----------------------------------------------------------------"
-echo "Machinen Speccing Engine Initialized (Antigravity MVP)"
-echo "----------------------------------------------------------------"
-echo "Repository: $REPOSITORY"
-echo "Prefix:     $NAMESPACE_PREFIX"
-echo "Worker:     $WORKER_URL"
-echo ""
-echo "Discovery Command:"
-echo "curl -X POST \"$WORKER_URL/api/subjects/search\" \\"
-echo "  -H \"Authorization: Bearer \$API_KEY\" \\"
-echo "  -H \"Content-Type: application/json\" \\"
-echo "  -d '{\"query\": \"Summary of recent work\", \"context\": {\"repository\": \"$REPOSITORY\", \"namespacePrefix\": \"$NAMESPACE_PREFIX\"}}'"
-echo "----------------------------------------------------------------"
-
-# 4. Final Instructions
-echo ""
-echo "----------------------------------------------------------------"
 echo "Machinen Speccing Engine Initialized"
 echo "----------------------------------------------------------------"
 echo "Repository: $REPOSITORY"
 echo "Prefix:     $NAMESPACE_PREFIX"
 echo "Worker:     $WORKER_URL"
 echo ""
-echo "Discovery Command:"
+echo "Autonomous Generation Command:"
+echo "./scripts/mchn-spec.sh \"Summary of recent work\""
+echo ""
+echo "Manual Discovery Command:"
 echo "curl -X POST \"$WORKER_URL/api/subjects/search\" \\"
 echo "  -H \"Authorization: Bearer \$API_KEY\" \\"
 echo "  -H \"Content-Type: application/json\" \\"

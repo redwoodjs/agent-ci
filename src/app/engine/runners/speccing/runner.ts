@@ -3,6 +3,46 @@ import { getSpeccingDb, type SpeccingDatabase } from "../../databases/speccing";
 import { getMomentDb, type MomentGraphContext, getMoment, getMoments } from "../../databases/momentGraph";
 import { Moment, ChunkMetadata, IndexingHookContext, QueryHookContext } from "../../types";
 import { createEngineContext } from "../../index";
+import { callLLM } from "../../utils/llm";
+
+async function reviseSpecTurn(
+  context: MomentGraphContext,
+  currentSpec: string,
+  moment: Moment,
+  evidence: SpeccingSessionResult['evidence'] | null,
+  userPrompt?: string
+): Promise<string> {
+  const prompt = `
+# Role
+You are the Machinen Speccing Actor. Your goal is to iteratively refine a technical specification by integrating new evidence from a development narrative.
+
+# Formatting Standard
+- Maintain a clear, narrative-driven technical specification.
+- Use headers to organize chapters.
+- Ground all claims in the provided evidence.
+- If evidence includes code diffs, incorporate relevant architectural changes.
+
+# Current Specification Draft
+${currentSpec}
+
+# New Evidence: ${moment.title}
+Summary: ${moment.summary}
+Historical Context:
+${evidence?.content || "No detailed evidence available."}
+${evidence?.diff ? `Code Changes:\n\`\`\`diff\n${evidence.diff}\n\`\`\`` : ""}
+
+${userPrompt ? `# User Guidance\n${userPrompt}` : ""}
+
+# Action
+Revise the current specification draft to incorporate the new evidence. Return the FULL updated specification. Keep the tone professional, technical, and objective.
+`;
+
+  return await callLLM(prompt, "cerebras-gpt-oss-120b", {
+    reasoning: {
+      effort: "high"
+    }
+  });
+}
 
 export interface SpeccingSession {
   id: string;
@@ -10,6 +50,7 @@ export interface SpeccingSession {
   priorityQueue: string[]; // Moment IDs
   processedIds: string[];
   workingSpec: string;
+  revisionMode: 'server' | 'client';
   replayTimestamp: string;
   momentGraphNamespace: string | null;
   status: 'active' | 'completed' | 'failed';
@@ -17,10 +58,10 @@ export interface SpeccingSession {
 
 export async function initializeSpeccingSession(
   context: MomentGraphContext,
-  subjectId: string
+  subjectId: string,
+  revisionMode: 'server' | 'client' = 'server'
 ): Promise<string> {
   const speccingDb = getSpeccingDb(context.env);
-  const momentDb = getMomentDb(context);
   
   // Find the subject moment
   const subject = await getMoment(subjectId, context);
@@ -39,6 +80,7 @@ export async function initializeSpeccingSession(
       priority_queue_json: [subjectId] as any,
       processed_ids_json: [] as any,
       working_spec: `# Specification: ${subject.title}\n\n${subject.summary}\n\n`,
+      revision_mode: revisionMode,
       replay_timestamp: subject.createdAt,
       moment_graph_namespace: context.momentGraphNamespace ?? null,
       status: "active",
@@ -64,13 +106,15 @@ export interface SpeccingSessionResult {
     r2Key: string;
     diff?: string;
   };
+  revisedSpec?: string;
   instruction?: string;
   workerUrl?: string;
 }
 
 export async function tickSpeccingSession(
   context: MomentGraphContext,
-  sessionId: string
+  sessionId: string,
+  userPrompt?: string
 ): Promise<SpeccingSessionResult> {
   const speccingDb = getSpeccingDb(context.env);
   type SpeccingDb = ReturnType<typeof getSpeccingDb>;
@@ -122,7 +166,7 @@ export async function tickSpeccingSession(
   if (!moment) {
       console.warn(`[speccing] moment ${currentMomentId} disappeared from namespace ${sessionNamespace}, skipping.`);
       await updateSession(speccingDb, sessionId, pq, processed, session.working_spec, session.replay_timestamp);
-      return tickSpeccingSession(hydratedContext, sessionId);
+      return tickSpeccingSession(hydratedContext, sessionId, userPrompt);
   }
 
   // Find children
@@ -135,16 +179,18 @@ export async function tickSpeccingSession(
 
   const newPq = [...pq, ...children.map((c) => c.id)];
 
-  // Update working spec (Self-Instructing narrative)
-  const updatedSpec = session.working_spec + `## [Moment] ${moment.title}\n\n${moment.summary}\n\n`;
-
   // Fetch evidence
   const evidence = await fetchEvidenceForMoment(moment, hydratedContext);
- 
-  // We use the newPq and processed arrays which we know are arrays now
-  // When saving back, if the user requested manual stringification, we can do it here
-  // But wait, the updateSession function simply takes the arrays.
-  // Let's check updateSession next.
+
+  let updatedSpec = session.working_spec;
+  if (session.revision_mode === 'server') {
+    console.log(`[speccing:next] Performing server-side revision for session ${sessionId}`);
+    updatedSpec = await reviseSpecTurn(hydratedContext, session.working_spec, moment, evidence, userPrompt);
+  } else {
+    console.log(`[speccing:next] Client-side revision mode. Skipping server-side LLM call.`);
+    // Fallback: append a marker for consistency in the working_spec
+    updatedSpec = session.working_spec + `\n\n## [Moment] ${moment.title}\n\n${moment.summary}\n\n`;
+  }
 
   await updateSession(speccingDb, sessionId, newPq, processed, updatedSpec, moment.createdAt);
 
@@ -157,7 +203,10 @@ export async function tickSpeccingSession(
         createdAt: moment.createdAt
     },
     evidence: evidence ?? undefined,
-    instruction: `NEXT ACTIONS: 1. Update the specification at docs/specs/ (markdown) for "${moment.title}" following the standard in .agent/rules/machinen.md. 2. Proceed to the next moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`,
+    revisedSpec: session.revision_mode === 'server' ? updatedSpec : undefined,
+    instruction: session.revision_mode === 'server'
+      ? `NEXT ACTIONS: 1. The specification has been revised. Save the revisedSpec to your local file. 2. Continue the loop by calling /next.`
+      : `NEXT ACTIONS: 1. Update the specification locally using the provided evidence. 2. Continue the loop by calling /next.`,
   };
 }
 

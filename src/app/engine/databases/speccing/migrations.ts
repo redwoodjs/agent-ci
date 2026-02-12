@@ -43,4 +43,20 @@ export const speccingMigrations = {
         .execute();
     },
   },
+  "003_add_revision_mode": {
+    async up(db) {
+      return [
+        await db.schema
+          .alterTable("speccing_sessions")
+          .addColumn("revision_mode", "text")
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema
+        .alterTable("speccing_sessions")
+        .dropColumn("revision_mode")
+        .execute();
+    },
+  },
 } satisfies Migrations;

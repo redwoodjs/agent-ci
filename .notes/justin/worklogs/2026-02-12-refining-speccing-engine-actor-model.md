@@ -20,14 +20,13 @@ We explored the benefits of transitioning to a "Self-Instructing" model. By movi
 ### 2000ft View Narrative
 We are pivoting the Speccing Engine from an "IDE-agent-as-executor" model to a "Self-Instructing API" model. In this new model, the Machinen backend handles the heavy reasoning of revising the specification based on historical evidence, while the client (a lightweight script) acts as a driver and output viewer.
 
-### Database / Session State
-We leverage the existing `SpeccingStateDO` to persist the narrative replay state. We are NOT providing the current spec as context each time; instead, it is stored in the `working_spec` column of the `speccing_sessions` table.
+### Database / Session State & Revision Modes
+We leverage the existing `SpeccingStateDO` to persist the narrative replay state. The system supports two revision modes:
 
-- **`working_spec`**: The server-side source of truth for the evolving specification.
-- **`priority_queue_json`**: Persisted ordering for the chronological replay.
-- **`processed_ids_json`**: Tracks progress to ensure narrative continuity.
+1. **Server Mode (The Actor)**: The Machinen backend performs the LLM revision step and returns the `revisedSpec`. This is the preferred mode for the synchronous `mchn-spec.sh` loop.
+2. **Client Mode (The Agent)**: The backend provides raw evidence and instructions (turn-by-turn), and the IDE agent (Cursor/Antigravity) performs the actual file revision. This allows for manual intervention and more complex agentic behaviors.
 
-This ensures that the "Intelligence" (the backend) has full control over the versioning and integrity of the specification draft.
+The `working_spec` column in the `speccing_sessions` table stores the evolving draft, ensuring continuity regardless of mode.
 
 ### Proposed Changes
 

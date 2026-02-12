@@ -1517,28 +1517,32 @@ curl -s -H "Authorization: Bearer dev" "http://localhost:5174/api/speccing/next?
 - `next` calls now correctly return the full document content for both Discord and GitHub moments, even when the underlying metadata is incomplete.
 
 ## [Protocol] E2E Agent Actor Setup (`redwoodjs/sdk`)
-This setup allows an AI agent (Antigravity MVP) to act as the "Hands" in the SDK repository, replaying the narrative and building the spec.
+This setup allows an AI agent (Antigravity) to act as the "Hands" in a target repository, replaying development narratives to build authoritative specs.
 
 ### 1. Configure the Target Repository
-Navigate to your local `redwoodjs/sdk` workspace and run the bootstrap script from this repo. This will inject the Machinen protocol into `.agent/rules/machinen.md`.
+Navigate to the repository you want to spec (e.g., `redwoodjs/sdk`) and run the bootstrap script from the `machinen` workspace. This injects the protocol and formatting standard into `.agent/rules/machinen.md`.
 
 ```bash
-# In your SDK repo terminal
-export API_KEY="dev"
-export MACHINEN_ENGINE_URL="http://localhost:5174"
-export NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda"
+# In the target repo terminal
+export API_KEY="your-key"
+export MACHINEN_ENGINE_URL="http://localhost:5174" # Or production URL
+export NAMESPACE_PREFIX="optional-simulation-prefix"
 
-# Run bootstrap from the machinen workspace
+# Run bootstrap from the machinen source
 /Users/justin/rw/worktrees/machinen_specs/scripts/bootstrap-specs.sh
 ```
 
-### 2. Trigger the Agent
-Once bootstrapped, your Antigravity agent will already see the Machinen protocol in its rules. Simply ask it:
-> "Spec out the feature 'Identified full‑page reload issue for client‑side filters' (subject c3ef1dba-8100-ddc9-54f7-514257ceabb4)."
+### 2. Trigger Discovery & Speccing
+Antigravity automatically picks up the rules in `.agent/rules/machinen.md`. You can simply ask it to find recent work and spec it out:
 
-### 3. Agent Execution Loop
-The agent will:
-1. Identify the \`curl\` command in its rules (\`.agent/rules/machinen.md\`).
-2. Call \`/api/speccing/start\`.
-3. Enter the \`/api/speccing/next\` loop, following the dynamic instructions and the static standard in \`.agent/rules/machinen.md\`.
+> "Discover what we've been working on recently using the Machinen protocol, then pick the most relevant subject and spec it out."
+
+Or, if you already have a Subject ID:
+> "Spec out the feature 'Identified full‑page reload issue for client‑side filters' (subject c3ef1dba-8100-ddc9-54f7-514257ceabb4) using the Machinen protocol."
+
+### 3. Automated Execution Loop
+Once triggered, the agent will:
+1. **Discovery**: Call `/api/subjects/search` to identify the narrative.
+2. **Bootstrap**: Call `/api/speccing/start` to initialize the replay session.
+3. **Loop**: Iteratively call `/api/speccing/next`, replaying each moment and refining the specification in `docs/specs/<subject>.md` until the narrative is complete.
 

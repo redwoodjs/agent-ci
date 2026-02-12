@@ -66,4 +66,7 @@ coverage
 # Wrangler
 .wrangler
 
+_/work
+_/identity
+_
 actions-runner

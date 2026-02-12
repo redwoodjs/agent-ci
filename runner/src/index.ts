@@ -1,39 +1,20 @@
 import { config } from "./config";
-import { pollJobs } from "./bridge";
-import { executeJob, ensureImageExists, startGitHubRunner } from "./executor";
+import { startWarmPool, stopWarmPool } from "./warm-pool";
 
 async function main() {
   console.log(`[Runner] Starting runner for user: ${config.GITHUB_USERNAME}`);
   console.log(`[Runner] Bridge URL: ${config.BRIDGE_URL}`);
 
-  // 1. Pre-warm Docker environment
-  await ensureImageExists();
-  console.log("[Runner] Docker environment ready.");
+  await startWarmPool();
 
-  // 2. Start GitHub Long-Poll if configured
-  await startGitHubRunner();
+  const cleanup = async () => {
+    console.log("[Runner] Shutting down...");
+    await stopWarmPool();
+    process.exit(0);
+  };
 
-  // 3. Initial poll to announce availability
-  console.log("[Runner] Announcing availability to bridge...");
-  const initialJobs = await pollJobs();
-  if (initialJobs.length > 0) {
-    for (const job of initialJobs) {
-      await executeJob(job);
-    }
-  }
-
-  // 3. Regular Polling loop
-  setInterval(async () => {
-    console.log("[Runner] Polling for jobs...");
-    const jobs = await pollJobs();
-
-    if (jobs.length > 0) {
-      console.log(`[Runner] Found ${jobs.length} jobs.`);
-      for (const job of jobs) {
-        await executeJob(job);
-      }
-    }
-  }, 10_000);
+  process.on("SIGINT", cleanup);
+  process.on("SIGTERM", cleanup);
 }
 
 main().catch((err) => {

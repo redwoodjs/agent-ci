@@ -71,3 +71,13 @@
       Things to consider: Timing of token generation vs. usage.
       Importance: 5
       Cite references: [worklog: 2026-02-11-1535](worklogs/2026-02-11-1535-github-installation-tokens.md)
+
+## Next Steps
+- [ ] Implement job claiming logic within the warm container
+      The current warm runner listens for jobs but we need to verify it correctly claims and executes them when assigned by the bridge/GitHub.
+      Importance: 5
+      Ref: `runner/src/warm-pool.ts`
+- [ ] Handle job completion and container rotation
+      Ensure the runner cleans up after a job or recycles the container to avoid side effects (dirty workspace, leftover processes) between jobs.
+      Importance: 5
+      Ref: `runner/src/warm-pool.ts`

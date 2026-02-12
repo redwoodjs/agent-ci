@@ -60,7 +60,7 @@ export async function startSpeccingHandler({ request }: RequestInfo) {
     const sessionId = await initializeSpeccingSession(context, subjectId);
     return Response.json({ 
         sessionId,
-        instruction: `Session initialized. Execute the following to retrieve the first moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}". Note: Evidence may contain unrelated conversation; focus only on consensus and final decisions when updating the spec.`
+        instruction: `SESSION INITIALIZED: 1. Following the protocol in .agent/rules/machinen.md, prepare to iteratively update the technical specification in docs/specs/. 2. Execute the first turn: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`
     });
   } catch (error) {
     console.error(`[speccing:start] Error:`, error);

@@ -29,52 +29,44 @@ if [ -n "$NAMESPACE_PREFIX" ]; then
   echo "Using Namespace Prefix: $NAMESPACE_PREFIX"
 fi
 
-# 2. Check/Inject AGENTS.md (The Protocol)
-if [ ! -f "AGENTS.md" ]; then
-  echo "Initializing AGENTS.md..."
-  cat <<EOF > AGENTS.md
+# 2. Check/Inject .agent/rules/machinen.md (The Protocol & Standard)
+if [ ! -f ".agent/rules/machinen.md" ]; then
+  echo "Initializing .agent/rules/machinen.md..."
+  mkdir -p .agent/rules
+  cat <<EOF > .agent/rules/machinen.md
 # Machinen Speccing Protocol
 
-You are an expert technical writer and architect. Your task is to reconstruct a high-fidelity technical specification by replaying the development narrative of a specific "Subject" (feature/initiative).
+You are an expert technical writer and architect. Your role is to reassemble the historical development narrative provided by the Machinen Speccing Engine into an authoritative technical specification.
 
-## The Protocol
-1. **Discovery**: Identify the Subject you want to spec.
-   \`\`\`bash
-   curl -X POST "$WORKER_URL/api/subjects/search" \\
-     -H "Authorization: Bearer \$API_KEY" \\
-     -H "Content-Type: application/json" \\
-     -d '{
-       "query": "Recent work",
-       "context": {
-         "repository": "$REPOSITORY",
-         "namespacePrefix": "$NAMESPACE_PREFIX"
-       }
-     }'
-   \`\`\`
-2. **Bootstrap**: Initialize the speccing session for a Subject ID.
-   \`\`\`bash
-   curl -X POST "$WORKER_URL/api/speccing/start?subjectId=<ID>" \\
-     -H "Authorization: Bearer \$API_KEY" \\
-     -H "Content-Type: application/json" \\
-     -d '{
-       "context": {
-         "repository": "$REPOSITORY",
-         "namespacePrefix": "$NAMESPACE_PREFIX"
-       }
-     }'
-   \`\`\`
-3. **The Turn**: The response will contain a \`moment\` and \`evidence\`.
-4. **The Action**: Integrate the evidence into the specification at \`docs/specs/<subject>.md\`.
-5. **The Loop**: Always follow the \`instruction\` field in the JSON response. It will provide the next \`curl\` command to execute.
+## 1. Discovery
+To find a feature to spec, run:
+\`\`\`bash
+curl -X POST "$WORKER_URL/api/subjects/search" \\
+  -H "Authorization: Bearer \$API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "query": "Recent work", "context": { "repository": "$REPOSITORY", "namespacePrefix": "$NAMESPACE_PREFIX" } }'
+\`\`\`
 
-## Mandatory Spec Structure
-Your output must follow this structure:
+## 2. Initialization
+Once you have a Subject ID, start the session:
+\`\`\`bash
+curl -X POST "$WORKER_URL/api/speccing/start?subjectId=<ID>" \\
+  -H "Authorization: Bearer \$API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{ "context": { "repository": "$REPOSITORY", "namespacePrefix": "$NAMESPACE_PREFIX" } }'
+\`\`\`
+
+## 3. Formatting Standard
+- **Location**: Your output is a **single** markdown file located in \`docs/specs/\`.
+- **Iteration**: This file is **iteratively refined** at every turn. Do NOT create multiple files.
+- **Consensus Only**: Focus strictly on final consensus, settled decisions, and the "Definition of Done".
+- **Source Citation**: Every design decision must be cited using the preview URL: \`$WORKER_URL/audit/ingestion/file/<R2_KEY>\`.
+
+## 4. Mandatory Spec Structure
 - **2000ft View Narrative**: High-level architectural narrative.
 - **Database Changes**: Schema changes and their rationale.
 - **Behavior Spec**: Ground truth behaviors (GIVEN/WHEN/THEN).
-- **Implementation Detail**:
-    - **Pipes**: Data flow steps.
-    - **Breakdown**: Code changes (\`[NEW]\`, \`[MODIFY]\`, \`[DELETE]\`).
+- **Implementation Detail**: Breakdown of code changes (\`[NEW]\`, \`[MODIFY]\`, \`[DELETE]\`).
 - **Directory & File Structure**: Tree view of files.
 - **Types & Data Structures**: Snippets of types.
 - **Invariants & Constraints**: Rules for the system.
@@ -82,24 +74,32 @@ Your output must follow this structure:
 - **Suggested Verification**: Commands/URLs for manual validation.
 - **Tasks**: Granular checklist.
 EOF
-  echo "✅ AGENTS.md created."
+  echo "✅ .agent/rules/machinen.md created."
 else
-  echo "✓ AGENTS.md already exists."
+  echo "✓ .agent/rules/machinen.md already exists."
 fi
 
-# 3. Inject Native IDE Rules (.cursorrules / .windsurf)
-# Only if they don't exist, to avoid overwriting user preferences
-for rule_file in .cursorrules .windsurfrules; do
-  if [ ! -f "$rule_file" ]; then
-    echo "Initializing $rule_file..."
-    cat <<EOF > "$rule_file"
-# Machinen Speccing Protocol
-Refer to AGENTS.md for core rules.
-Always prioritize the narrative replay provided by the Speccing Engine API.
-EOF
-    echo "✅ $rule_file created."
-  fi
-done
+# 3. Cleanup Legacy Hidden Directories
+if [ -d ".machinen" ]; then
+  echo "Cleaning up legacy .machinen directory..."
+  rm -rf .machinen
+fi
+
+# 4. Final Instructions
+echo ""
+echo "----------------------------------------------------------------"
+echo "Machinen Speccing Engine Initialized (Antigravity MVP)"
+echo "----------------------------------------------------------------"
+echo "Repository: $REPOSITORY"
+echo "Prefix:     $NAMESPACE_PREFIX"
+echo "Worker:     $WORKER_URL"
+echo ""
+echo "Discovery Command:"
+echo "curl -X POST \"$WORKER_URL/api/subjects/search\" \\"
+echo "  -H \"Authorization: Bearer \$API_KEY\" \\"
+echo "  -H \"Content-Type: application/json\" \\"
+echo "  -d '{\"query\": \"Summary of recent work\", \"context\": {\"repository\": \"$REPOSITORY\", \"namespacePrefix\": \"$NAMESPACE_PREFIX\"}}'"
+echo "----------------------------------------------------------------"
 
 # 4. Final Instructions
 echo ""

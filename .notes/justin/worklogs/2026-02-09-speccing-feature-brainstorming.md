@@ -1517,10 +1517,10 @@ curl -s -H "Authorization: Bearer dev" "http://localhost:5174/api/speccing/next?
 - `next` calls now correctly return the full document content for both Discord and GitHub moments, even when the underlying metadata is incomplete.
 
 ## [Protocol] E2E Agent Actor Setup (`redwoodjs/sdk`)
-This setup allows an AI agent (Cursor, Antigravity, etc.) to act as the "Hands" in the SDK repository, replaying the narrative and building the spec.
+This setup allows an AI agent (Antigravity MVP) to act as the "Hands" in the SDK repository, replaying the narrative and building the spec.
 
 ### 1. Configure the Target Repository
-Navigate to your local `redwoodjs/sdk` workspace and run the bootstrap script from this repo. This will inject `AGENTS.md` and `.cursorrules` configured for the `gentle-panda` simulation.
+Navigate to your local `redwoodjs/sdk` workspace and run the bootstrap script from this repo. This will inject the Machinen protocol into `.agent/rules/machinen.md`.
 
 ```bash
 # In your SDK repo terminal
@@ -1533,13 +1533,12 @@ export NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda"
 ```
 
 ### 2. Trigger the Agent
-Once bootstrapped, simply ask your IDE agent (Antigravity/Cursor/Windsurf) in the **SDK repo**:
-> "Read AGENTS.md and spec out the feature 'Identified full‑page reload issue for client‑side filters' (subject c3ef1dba-8100-ddc9-54f7-514257ceabb4)."
+Once bootstrapped, your Antigravity agent will already see the Machinen protocol in its rules. Simply ask it:
+> "Spec out the feature 'Identified full‑page reload issue for client‑side filters' (subject c3ef1dba-8100-ddc9-54f7-514257ceabb4)."
 
 ### 3. Agent Execution Loop
 The agent will:
-1. Read `AGENTS.md` to understand the `curl` protocol.
+1. Identify the \`curl\` command in its rules (\`.agent/rules/machinen.md\`).
 2. Call \`/api/speccing/start\`.
-3. Enter the \`/api/speccing/next\` loop, following the \`instruction\` field in each response.
-4. Update \`docs/specs/client-side-navigation.md\` iteratively based on the high-fidelity evidence (R2 source docs + PR diffs).
+3. Enter the \`/api/speccing/next\` loop, following the dynamic instructions and the static standard in \`.agent/rules/machinen.md\`.
 

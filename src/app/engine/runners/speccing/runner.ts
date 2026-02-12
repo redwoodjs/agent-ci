@@ -157,7 +157,7 @@ export async function tickSpeccingSession(
         createdAt: moment.createdAt
     },
     evidence: evidence ?? undefined,
-    instruction: `REPLAY TURN: Integrate the evidence into the spec. Focus on "${moment.title}". Note: There may be unrelated conversation; focus only on consensus and final decisions. Once done, proceed to the next moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`,
+    instruction: `NEXT ACTIONS: 1. Update the specification at docs/specs/ (markdown) for "${moment.title}" following the standard in .agent/rules/machinen.md. 2. Proceed to the next moment: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`,
   };
 }
 

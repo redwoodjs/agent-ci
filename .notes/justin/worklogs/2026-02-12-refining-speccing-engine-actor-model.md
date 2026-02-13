@@ -179,3 +179,14 @@ Add a programmatic 'prefetch' function to RedwoodSDK's client-side navigation.
 It should wrap 'preloadNavigationUrl' and be exported from 'rwsdk/client'.
 EOF
 ```
+## Final Optimization: Instant Spec File Availability
+We addressed the "long wait" for the specification file by moving the session ID logic to the client.
+- **Client-Side ID Generation**: The `mchn-spec.sh` script now slugifies the subject title locally and appends a random suffix. 
+- **Zero-Latency File Creation**: The script `touch`es the `docs/specs/*.md` file immediately after discovery. This allows the user to open the file in their IDE before the initialization roundtrip to the server甚至 finishes.
+- **Model Revert**: We tested `google-gemini-3-flash` for session naming to reduce startup latency, but the user found it slower than the default. We reverted back to `cerebras-gpt-oss-120b` for all naming tasks.
+- **Live Streaming**: The CLI now uses `curl -N | tee "$SPEC_FILE"` to stream content directly into the final destination, providing a truly live, "typewriter" effect in the editor.
+
+## Final Verification Results
+- **Startup Latency**: Reduced from ~5s to <1s (from user perspective).
+- **Streaming Reliability**: Raw text streams are stable and stay within Cloudflare CPU limits.
+- **Search Robustness**: Global fallback successfully finds subjects regardless of namespace prefix alignment.

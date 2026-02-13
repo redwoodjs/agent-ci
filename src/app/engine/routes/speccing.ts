@@ -60,7 +60,8 @@ export async function startSpeccingHandler({ request }: RequestInfo) {
         momentGraphNamespace
     };
 
-    const sessionId = await initializeSpeccingSession(context, subjectId, revisionMode);
+    const proposedSessionId = url.searchParams.get("sessionId") || (body as any).sessionId;
+    const sessionId = await initializeSpeccingSession(context, subjectId, revisionMode, proposedSessionId);
     return Response.json({ 
         sessionId,
         instruction: `SESSION INITIALIZED: 1. Following the protocol in .agent/rules/machinen.md, prepare to iteratively update the technical specification in docs/specs/. 2. Execute the first turn: curl -H "Authorization: Bearer $API_KEY" "$WORKER_URL/api/speccing/next?sessionId=${sessionId}"`

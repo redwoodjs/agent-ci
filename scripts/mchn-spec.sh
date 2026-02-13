@@ -62,25 +62,32 @@ fi
 echo "Found Subject: $SUBJECT_TITLE" >&2
 
 # 3. Initialization
+# Generate semantic identifier locally to unblock the user immediately
+SESSION_SLUG=$(echo "$SUBJECT_TITLE" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+SESSION_ID="${SESSION_SLUG:-session}-$((1000 + RANDOM % 9000))"
+SPEC_FILE="docs/specs/${SESSION_ID}.md"
+
 echo "--- Initializing Speccing Session ---" >&2
-START_RESPONSE=$(curl -s -X POST "$WORKER_URL/api/speccing/start?subjectId=$SUBJECT_ID" \
+echo "Target File: $SPEC_FILE" >&2
+mkdir -p docs/specs
+touch "$SPEC_FILE"
+
+# Call /start with the proposed ID
+START_RESPONSE=$(curl -s -X POST "$WORKER_URL/api/speccing/start?subjectId=$SUBJECT_ID&sessionId=$SESSION_ID" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
   -d "{ \"revisionMode\": \"$MODE\", \"context\": { \"repository\": \"$REPOSITORY\", \"namespacePrefix\": \"$NAMESPACE_PREFIX\" } }")
 
-SESSION_ID=$(echo "$START_RESPONSE" | jq -r '.sessionId')
+# Verify the session ID (though we proposed it, we should check for errors)
+RETURNED_SESSION_ID=$(echo "$START_RESPONSE" | jq -r '.sessionId')
 
-if [ "$SESSION_ID" = "null" ] || [ -z "$SESSION_ID" ]; then
+if [ "$RETURNED_SESSION_ID" = "null" ] || [ -z "$RETURNED_SESSION_ID" ]; then
   echo "Error: Failed to initialize session: $START_RESPONSE" >&2
   exit 1
 fi
 
-echo "Session Started: $SESSION_ID" >&2
-
 # 4. Autonomous Loop
 TURN=1
-SPEC_FILE="docs/specs/${SESSION_ID}.md"
-mkdir -p docs/specs
 
 while true; do
   # Call /next/stream

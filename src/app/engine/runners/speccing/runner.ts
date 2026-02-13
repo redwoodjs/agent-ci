@@ -150,7 +150,8 @@ export interface SpeccingSession {
 export async function initializeSpeccingSession(
   context: MomentGraphContext,
   subjectId: string,
-  revisionMode: 'server' | 'client' = 'server'
+  revisionMode: 'server' | 'client' = 'server',
+  proposedSessionId?: string
 ): Promise<string> {
   const speccingDb = getSpeccingDb(context.env);
   
@@ -161,8 +162,12 @@ export async function initializeSpeccingSession(
   }
 
   const now = new Date().toISOString();
-  const semanticId = await generateSemanticSessionId(subject.title, subject.summary);
-  const sessionId = `${semanticId}-${Math.floor(Math.random() * 10000)}`;
+  let sessionId = proposedSessionId;
+  
+  if (!sessionId) {
+    const semanticId = await generateSemanticSessionId(subject.title, subject.summary);
+    sessionId = `${semanticId}-${Math.floor(Math.random() * 10000)}`;
+  }
 
   await speccingDb
     .insertInto("speccing_sessions")

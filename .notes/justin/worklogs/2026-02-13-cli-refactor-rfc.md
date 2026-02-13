@@ -102,3 +102,10 @@ NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
 npx tsx /Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts \
 "Identified full‑page reload issue for client‑side filters"
 ```
+## 2026-02-13: Auditing Speccing Resiliency and CLI Silence
+
+### Investigated: Premature Session Completion
+We discovered that the speccing loop terminates prematurely because the `tickSpeccingSessionStream` function in `runner.ts` incorrectly manages the Priority Queue (PQ). 
+- **Finding**: The logic correctly pops the latest moment from the PQ (`pq.shift()`) but **never fetches or pushes the descendants of that moment back into the queue**.
+- **Evidence**: `runner.ts:356` and `runner.ts:380` show state updates using the *popped* version of the queue, with no intermediary "tree walk" to find children.
+- **Impact**: The engine only processes the root subject and stops, missing the entire historical narrative tree.

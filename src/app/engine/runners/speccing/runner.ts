@@ -208,41 +208,49 @@ export interface SpeccingSessionResult {
   workerUrl?: string;
 }
 
-export async function tickSpeccingSession(
+export interface SpeccingTurnContext {
+  status: 'active' | 'completed' | 'not_found';
+  session?: any;
+  moment?: Moment;
+  evidence?: SpeccingSessionResult['evidence'] | null;
+  hydratedContext?: MomentGraphContext;
+  fullPrompt?: string;
+  isFirstTurn?: boolean;
+  newPq?: string[];
+  processed?: string[];
+  speccingDb?: ReturnType<typeof getSpeccingDb>;
+}
+
+async function prepareSpeccingTurn(
   context: MomentGraphContext,
   sessionId: string,
   userPrompt?: string
-): Promise<SpeccingSessionResult> {
-  const speccingDb = getSpeccingDb(context.env);
-  type SpeccingDb = ReturnType<typeof getSpeccingDb>;
-  const momentDb = getMomentDb(context);
+): Promise<SpeccingTurnContext> {
+  const { env } = context;
+  const speccingDb = getSpeccingDb(env as any);
 
   const session = await speccingDb
     .selectFrom("speccing_sessions")
-    .selectAll()
     .where("id", "=", sessionId)
+    .selectAll()
     .executeTakeFirst();
 
   if (!session || session.status !== "active") {
-    return { status: (session?.status as SpeccingSessionResult['status']) ?? "not_found" };
+    return { status: (session?.status as any) ?? "not_found" };
   }
 
   // Re-hydrate context with the persisted namespace
   const sessionNamespace = session.moment_graph_namespace ?? context.momentGraphNamespace;
-  const hydratedContext: MomentGraphContext = {
-    ...context,
+  const hydratedContext: MomentGraphContext = { 
+    ...context, 
     momentGraphNamespace: sessionNamespace
   };
 
-  // rwsdk/db auto-parses JSON columns
-  const pq = [].concat((session.priority_queue_json as any || [])) as string[]
+  const pq = [].concat((session.priority_queue_json as any || [])) as string[];
   const processed = [].concat((session.processed_ids_json as any || [])) as string[];
 
-  console.log(`[speccing:next] Session ${sessionId} PQ type: ${typeof pq}, isArray: ${Array.isArray(pq)}`);
-  console.log(`[speccing:next] PQ content:`, pq);
-
   if (pq.length === 0) {
-    console.log(`[speccing:next] Session ${sessionId} completed (empty PQ)`);
+    // Mark as completed in DB if not already
     await speccingDb
       .updateTable("speccing_sessions")
       .set({ status: "completed", updated_at: new Date().toISOString() })
@@ -251,53 +259,73 @@ export async function tickSpeccingSession(
     return { status: "completed" };
   }
 
-  // detect if it's the very first turn
   const isFirstTurn = processed.length === 0;
+  const currentMomentId = pq.shift()!;
+  
+  // Safety check: if currentMomentId is undefined despite length check, return completed
+  if (!currentMomentId) return { status: "completed" };
 
-  // Pop the earliest moment
-  const currentMomentId = pq.shift();
-  if (!currentMomentId) {
-       // Should be unreachable given length check, but safe guard types
-       return { status: "completed" };
-  }
   processed.push(currentMomentId);
+
+  // Find children and update PQ (Traversal Logic)
+  const nextPq = await queueDescendants(hydratedContext, currentMomentId, pq);
+
+  // Persist queue advancement immediately so we don't loop on failure
+  await updateSessionProgress(speccingDb, sessionId, nextPq, processed);
 
   const moment = await getMoment(currentMomentId, hydratedContext);
   if (!moment) {
-      console.warn(`[speccing] moment ${currentMomentId} disappeared from namespace ${sessionNamespace}, skipping.`);
-      await updateSession(speccingDb, sessionId, pq, processed, session.working_spec, session.replay_timestamp);
-      return tickSpeccingSession(hydratedContext, sessionId, userPrompt);
+    console.warn(`[speccing] moment ${currentMomentId} disappeared from namespace ${sessionNamespace}, skipping.`);
+    // Recursively skip this moment
+    return prepareSpeccingTurn(context, sessionId, userPrompt);
   }
 
-  // Find children
-  const momentDbForSession = getMomentDb(hydratedContext);
-  const children = await momentDbForSession
-    .selectFrom("moments")
-    .select("id")
-    .where("parent_id", "=", currentMomentId)
-    .execute();
-
-  const newPq = [...pq, ...children.map((c) => c.id)];
-
-  // Fetch evidence
   const evidence = await fetchEvidenceForMoment(moment, hydratedContext);
 
-  let updatedSpec = session.working_spec;
-  if (session.revision_mode === 'server') {
-    if (isFirstTurn && userPrompt) {
-      console.log(`[speccing:next] Performing initial DRAFT pass for session ${sessionId}`);
-      updatedSpec = await draftSpec(hydratedContext, moment!, userPrompt);
-    } else {
-      console.log(`[speccing:next] Performing server-side revision for session ${sessionId}`);
-      updatedSpec = await reviseSpecTurn(hydratedContext, session.working_spec, moment!, evidence, userPrompt);
-    }
-  } else {
-    console.log(`[speccing:next] Client-side revision mode. Skipping server-side LLM call.`);
-    // Fallback: append a marker for consistency in the working_spec
-    updatedSpec = session.working_spec + `\n\n## [Moment] ${moment!.title}\n\n${moment!.summary}\n\n`;
+  const workerUrl = (context.env as any).MACHINEN_ENGINE_URL || "https://machinen.redwoodjs.workers.dev";
+  const fullPrompt = isFirstTurn && userPrompt 
+    ? constructDraftPrompt(workerUrl, moment, userPrompt)
+    : constructRevisePrompt(workerUrl, session.working_spec, moment, evidence, userPrompt);
+
+  return {
+    status: "active",
+    session,
+    moment,
+    evidence: evidence ?? null,
+    hydratedContext,
+    fullPrompt,
+    isFirstTurn,
+    newPq: nextPq,
+    processed,
+    speccingDb
+  };
+}
+
+export async function tickSpeccingSession(
+  context: MomentGraphContext,
+  sessionId: string,
+  userPrompt?: string
+): Promise<SpeccingSessionResult> {
+  const prep = await prepareSpeccingTurn(context, sessionId, userPrompt);
+
+  if (prep.status !== "active") {
+    return { status: prep.status as any };
   }
 
-  await updateSession(speccingDb, sessionId, newPq, processed, updatedSpec, moment!.createdAt);
+  const { session, moment, evidence, fullPrompt, isFirstTurn, newPq, processed, speccingDb, hydratedContext } = prep;
+
+  let updatedSpec = session!.working_spec;
+  if (session!.revision_mode === 'server') {
+     console.log(`[speccing:next] Calling LLM (non-streaming) for session ${sessionId}`);
+     updatedSpec = await callLLM(fullPrompt!, "cerebras-gpt-oss-120b", {
+        reasoning: { effort: "high" }
+     });
+  } else {
+     console.log(`[speccing:next] Client mode, skipping LLM.`);
+     updatedSpec = session!.working_spec + `\n\n## [Moment] ${moment!.title}\n\n${moment!.summary}\n\n`;
+  }
+
+  await updateSession(speccingDb!, sessionId, newPq!, processed!, updatedSpec, moment!.createdAt);
 
   return {
     status: "active",
@@ -308,10 +336,10 @@ export async function tickSpeccingSession(
         createdAt: moment!.createdAt
     },
     evidence: evidence ?? undefined,
-    revisedSpec: session.revision_mode === 'server' ? updatedSpec : undefined,
-    instruction: session.revision_mode === 'server'
-      ? (isFirstTurn ? `DRAFTING COMPLETE: Initial specification drafted from your prompt. Proceeding to refine with historical moments.` : `NEXT ACTIONS: 1. The specification has been revised. Save the revisedSpec to your local file. 2. Continue the loop by calling /next.`)
-      : `NEXT ACTIONS: 1. Update the specification locally using the provided evidence. 2. Continue the loop by calling /next.`,
+    revisedSpec: session!.revision_mode === 'server' ? updatedSpec : undefined,
+    instruction: session!.revision_mode === 'server'
+      ? (isFirstTurn ? `DRAFTING COMPLETE: Initial specification drafted. Proceeding to refine.` : `NEXT ACTIONS: Save revisedSpec locally. Continue loop.`)
+      : `NEXT ACTIONS: Update locally with evidence. Continue loop.`,
   };
 }
 
@@ -325,59 +353,23 @@ export async function tickSpeccingSessionStream(
   userPrompt?: string,
   ctx?: { waitUntil: (promise: Promise<any>) => void }
 ): Promise<Response> {
-  const { env } = context;
-  const speccingDb = getSpeccingDb(env as any);
-  const session = await speccingDb
-    .selectFrom("speccing_sessions")
-    .where("id", "=", sessionId)
-    .selectAll()
-    .executeTakeFirst();
+  const prep = await prepareSpeccingTurn(context, sessionId, userPrompt);
 
-  if (!session) {
-    return Response.json({ error: `Session not found: ${sessionId}` }, { status: 404 });
+  if (prep.status !== "active") {
+    if (prep.status === "completed") return Response.json({ status: "completed" });
+    return Response.json({ error: `Session status: ${prep.status}` }, { status: 404 });
   }
 
-  // Re-hydrate context with the persisted namespace
-  const sessionNamespace = session.moment_graph_namespace ?? context.momentGraphNamespace;
-  const hydratedContext: MomentGraphContext = { 
-    ...context, 
-    env: env as any,
-    momentGraphNamespace: sessionNamespace
-  };
+  const { session, moment, fullPrompt, newPq, processed, speccingDb, isFirstTurn } = prep;
 
-  const pq = [].concat((session.priority_queue_json as any || [])) as string[];
-  const processed = [].concat((session.processed_ids_json as any || [])) as string[];
-
-  if (pq.length === 0) {
-    return Response.json({ status: "completed" });
-  }
-
-  const isFirstTurn = processed.length === 0;
-  const currentMomentId = pq.shift()!;
-  processed.push(currentMomentId);
-
-  // Persist queue advancement immediately so we don't loop on failure
-  await updateSessionProgress(speccingDb, sessionId, pq, processed);
-
-  const moment = await getMoment(currentMomentId, hydratedContext);
-  if (!moment) {
-    throw new Error(`Moment not found: ${currentMomentId}`);
-  }
-  const evidence = await fetchEvidenceForMoment(moment, hydratedContext);
-
-  const workerUrl = (context.env as any).MACHINEN_ENGINE_URL || "https://machinen.redwoodjs.workers.dev";
-  const fullPrompt = isFirstTurn && userPrompt 
-    ? constructDraftPrompt(workerUrl, moment, userPrompt)
-    : constructRevisePrompt(workerUrl, session.working_spec, moment, evidence, userPrompt);
-
-  console.log(`[speccing:stream] Prompt constructed. Length: ${fullPrompt.length}. Calling streamLLM...`);
+  console.log(`[speccing:stream] Prompt constructed. Length: ${fullPrompt!.length}. Calling streamLLM...`);
   
-  const result = await streamLLM(fullPrompt, "cerebras-gpt-oss-120b", { 
+  const result = await streamLLM(fullPrompt!, "cerebras-gpt-oss-120b", { 
     reasoning: { effort: "high" },
     onFinish: async (finalPayload) => {
         const updatePromise = (async () => {
             try {
-                await updateSession(speccingDb, sessionId, pq, processed, finalPayload, moment.createdAt);
+                await updateSession(speccingDb!, sessionId, newPq!, processed!, finalPayload, moment!.createdAt);
                 console.log(`[speccing:stream] Session ${sessionId} turn complete and persisted.`);
             } catch (err) {
                 console.error(`[speccing:stream] FAILED to persist session ${sessionId}:`, err);
@@ -397,10 +389,10 @@ export async function tickSpeccingSessionStream(
   const metadata = {
     status: "active",
     moment: {
-      id: moment.id,
-      title: moment.title,
-      summary: moment.summary,
-      createdAt: moment.createdAt
+      id: moment!.id,
+      title: moment!.title,
+      summary: moment!.summary,
+      createdAt: moment!.createdAt
     },
     isFirstTurn
   };
@@ -646,6 +638,25 @@ async function fetchEvidenceForMoment(
     console.error(`[speccing:evidence] Error fetching evidence for ${r2Key}:`, error);
     return null;
   }
+}
+
+async function queueDescendants(
+  context: MomentGraphContext,
+  parentId: string,
+  currentPq: string[]
+): Promise<string[]> {
+  const db = getMomentDb(context);
+  const children = await db
+    .selectFrom("moments")
+    .select("id")
+    .where("parent_id", "=", parentId)
+    .execute();
+
+  if (children.length > 0) {
+    console.log(`[speccing:pq] Found ${children.length} descendants for ${parentId}. Appending to PQ.`);
+    return [...currentPq, ...children.map((c) => c.id)];
+  }
+  return currentPq;
 }
 
 async function updateSessionProgress(

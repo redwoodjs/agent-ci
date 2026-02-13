@@ -183,6 +183,7 @@ async function main() {
         const startTime = Date.now();
         let firstChunkTime: number | null = null;
         let chunkIdx = 0;
+        const isVerbose = process.env.VERBOSE === 'true';
 
         while (true) {
             const { done, value } = await reader.read();
@@ -190,17 +191,16 @@ async function main() {
 
             if (firstChunkTime === null) {
                 firstChunkTime = Date.now();
-                console.log(`\n[debug] First chunk received after ${firstChunkTime - startTime}ms`);
+                if (isVerbose) console.log(`\n[debug] First chunk received after ${firstChunkTime - startTime}ms`);
             }
 
             chunkIdx++;
             const text = decoder.decode(value, { stream: true });
-            // console.debug(`[debug] Chunk ${chunkIdx}: ${text.length} chars`);
             process.stdout.write(text);
             appendFileSync(specPath, text);
         }
         const endTime = Date.now();
-        console.log(`\n[debug] Stream finished. Total time: ${endTime - startTime}ms. Chunks: ${chunkIdx}`);
+        if (isVerbose) console.log(`\n[debug] Stream finished. Total time: ${endTime - startTime}ms. Chunks: ${chunkIdx}`);
         process.stdout.write('\n');
     }
 

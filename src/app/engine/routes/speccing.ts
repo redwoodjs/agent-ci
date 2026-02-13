@@ -99,7 +99,7 @@ export async function nextSpeccingHandler({ request }: RequestInfo) {
     return Response.json({ error: "Failed to advance speccing", details: String(error) }, { status: 500 });
   }
 }
-export async function nextSpeccingStreamHandler({ request }: RequestInfo) {
+export async function nextSpeccingStreamHandler({ request, ctx }: RequestInfo) {
   const url = new URL(request.url);
   const sessionId = url.searchParams.get("sessionId");
 
@@ -119,7 +119,7 @@ export async function nextSpeccingStreamHandler({ request }: RequestInfo) {
       momentGraphNamespace,
     };
 
-    return await tickSpeccingSessionStream(context, sessionId, body.userPrompt);
+    return await tickSpeccingSessionStream(context, sessionId, body.userPrompt, ctx as any);
   } catch (error) {
     console.error(`[speccing:next:stream] Error:`, error);
     return Response.json({ error: "Failed to stream speccing", details: String(error) }, { status: 500 });

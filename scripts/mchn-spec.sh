@@ -106,9 +106,13 @@ while true; do
     -d "{ \"userPrompt\": \"$PROMPT\" }" \
     -D "$HEADERS_TMP" | tee "$SPEC_FILE" > "$BODY_TMP"
 
-  # Check metadata header
-  METADATA_JSON=$(grep -i "x-speccing-metadata:" "$HEADERS_TMP" | sed 's/[Xx]-[Ss]peccing-[Mm]etadata: //I' | tr -d '\r')
+  # Check metadata header (expected to be Base64 encoded)
+  METADATA_B64=$(grep -i "x-speccing-metadata:" "$HEADERS_TMP" | sed 's/[Xx]-[Ss]peccing-[Mm]etadata: //I' | tr -d '\r')
   
+  if [ -n "$METADATA_B64" ]; then
+    METADATA_JSON=$(echo "$METADATA_B64" | base64 -D 2>/dev/null || echo "$METADATA_B64" | base64 -d 2>/dev/null)
+  fi
+
   if [ -z "$METADATA_JSON" ]; then
     # Maybe it was a JSON response (completion or error)
     if jq -e . "$BODY_TMP" >/dev/null 2>&1; then

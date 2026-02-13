@@ -322,12 +322,11 @@ export async function tickSpeccingSession(
 export async function tickSpeccingSessionStream(
   context: MomentGraphContext,
   sessionId: string,
-  userPrompt?: string
+  userPrompt?: string,
+  ctx?: { waitUntil: (promise: Promise<any>) => void }
 ): Promise<Response> {
   const { env } = context;
   const speccingDb = getSpeccingDb(env as any);
-  const hydratedContext = { ...context, env: env as any };
-
   const session = await speccingDb
     .selectFrom("speccing_sessions")
     .where("id", "=", sessionId)
@@ -337,6 +336,14 @@ export async function tickSpeccingSessionStream(
   if (!session) {
     return Response.json({ error: `Session not found: ${sessionId}` }, { status: 404 });
   }
+
+  // Re-hydrate context with the persisted namespace
+  const sessionNamespace = session.moment_graph_namespace ?? context.momentGraphNamespace;
+  const hydratedContext: MomentGraphContext = { 
+    ...context, 
+    env: env as any,
+    momentGraphNamespace: sessionNamespace
+  };
 
   const pq = [].concat((session.priority_queue_json as any || [])) as string[];
   const processed = [].concat((session.processed_ids_json as any || [])) as string[];
@@ -360,7 +367,25 @@ export async function tickSpeccingSessionStream(
     ? constructDraftPrompt(workerUrl, moment, userPrompt)
     : constructRevisePrompt(workerUrl, session.working_spec, moment, evidence, userPrompt);
 
-  const result = await streamLLM(fullPrompt, "cerebras-gpt-oss-120b", { reasoning: { effort: "high" } });
+  console.log(`[speccing:stream] Prompt constructed. Length: ${fullPrompt.length}. Calling streamLLM...`);
+  
+  const result = await streamLLM(fullPrompt, "cerebras-gpt-oss-120b", { 
+    reasoning: { effort: "high" },
+    onFinish: async (finalPayload) => {
+        const updatePromise = (async () => {
+            await updateSession(speccingDb, sessionId, pq, processed, finalPayload, moment.createdAt);
+            console.log(`[speccing:stream] Session ${sessionId} turn complete and persisted.`);
+        })();
+        if (ctx) {
+            ctx.waitUntil(updatePromise);
+        } else {
+            console.warn(`[speccing:stream] No ExecutionContext provided, update might be killed.`);
+            void updatePromise;
+        }
+    }
+  });
+
+  console.log(`[speccing:stream] streamLLM returned result object. Initiating response...`);
 
   const metadata = {
     status: "active",
@@ -370,28 +395,17 @@ export async function tickSpeccingSessionStream(
       summary: moment.summary,
       createdAt: moment.createdAt
     },
-    evidence: evidence ?? undefined,
     isFirstTurn
   };
 
+  console.log(`[speccing:stream] Returning TextStreamResponse for session ${sessionId}. Metadata: ${JSON.stringify(metadata)}`);
+
   // Skip transformStream complexity for raw Worker streaming
-  const stream = result.toTextStreamResponse({
+  return result.toTextStreamResponse({
     headers: {
-        "x-speccing-metadata": JSON.stringify(metadata)
+        "x-speccing-metadata": Buffer.from(JSON.stringify(metadata)).toString('base64')
     },
   });
-
-  // Monitor for completion to persist to DB
-  void (async () => {
-    let finalPayload = "";
-    for await (const chunk of result.textStream) {
-        finalPayload += chunk;
-    }
-    await updateSession(speccingDb, sessionId, pq, processed, finalPayload, moment.createdAt);
-    console.log(`[speccing:stream] Session ${sessionId} turn complete and persisted.`);
-  })();
-
-  return stream;
 }
 
 function constructDraftPrompt(workerUrl: string, subject: Moment, userPrompt: string): string {

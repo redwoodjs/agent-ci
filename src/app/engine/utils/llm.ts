@@ -24,6 +24,7 @@ export interface LLMOptions {
   };
   logger?: (message: string, data?: any) => void;
   timeoutMs?: number;
+  onFinish?: (text: string) => void | Promise<void>;
 }
 
 export async function callLLM(
@@ -209,6 +210,8 @@ export async function streamLLM(
   const modelConfig = MODELS[alias] as ModelConfig;
   const modelId = modelConfig.id;
 
+  console.log(`[llm:stream] Starting stream for alias='${alias}' (${modelId}). Prompt length: ${prompt.length}`);
+
   if (modelConfig.provider === "google") {
     const apiKey = SECRETS.AI_GOOGLE_KEY;
     if (!apiKey) throw new Error(`Missing AI_GOOGLE_KEY for alias '${alias}'`);
@@ -218,6 +221,12 @@ export async function streamLLM(
       prompt: prompt,
       temperature: options?.temperature,
       maxTokens: options?.max_tokens,
+      onFinish: async (result: any) => {
+        console.log(`[llm:stream] Google stream finished. Length: ${result.text.length}`);
+        if (options?.onFinish) {
+          await options.onFinish(result.text);
+        }
+      }
     } as any);
   }
 
@@ -235,6 +244,12 @@ export async function streamLLM(
       },
       temperature: options?.temperature,
       maxTokens: options?.max_tokens,
+      onFinish: async (result: any) => {
+        console.log(`[llm:stream] Cerebras stream finished. Length: ${result.text.length}`);
+        if (options?.onFinish) {
+          await options.onFinish(result.text);
+        }
+      }
     } as any);
   }
 
@@ -246,6 +261,12 @@ export async function streamLLM(
     prompt: prompt,
     temperature: options?.temperature,
     maxTokens: options?.max_tokens,
+    onFinish: async (result: any) => {
+      console.log(`[llm:stream] Cloudflare stream finished. Length: ${result.text.length}`);
+      if (options?.onFinish) {
+        await options.onFinish(result.text);
+      }
+    }
   } as any);
 }
 

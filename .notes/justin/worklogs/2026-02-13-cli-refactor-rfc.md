@@ -123,3 +123,21 @@ To address the premature completion and code duplication issues, we refactored `
     3.  Early state persistence (resilience).
     4.  Moment and Evidence fetching.
 - **Benefit**: This guarantees that both the streaming and non-streaming execution paths share the exact same robust tree-walking behavior.
+
+### Fixed: Single-Turn Execution (Priority Queue Serialization)
+We resolved a critical bug where the speccing session would terminate after exactly one turn, despite having valid descendants.
+- **Root Cause**: The SQL update for `priority_queue_json` and `processed_ids_json` was injecting raw string arrays (`['a', 'b']`). The database driver coerced these into comma-separated strings (`"a,b"`), which were invalid JSON when read back, effectively looking like a single ID or corrupt data.
+- **Fix**: Explicitly wrapped these fields in `JSON.stringify(...)` within `updateSession` and `updateSessionProgress` in `runner.ts`.
+
+### Fixed: Namespace Propagation (Cross-Namespace Speccing)
+We resolved an issue where subjects found via Fuzzy Search in a non-default namespace (e.g., `redwood:rwsdk`) would "disappear" in subsequent turns.
+- **Root Cause**: The CLI correctly found the subject, but the `start` command initialized the session in the default namespace (`redwood:machinen`). Subsequent `getMoment` calls failed to find child nodes because they were looking in the wrong database partition.
+- **Fix**: 
+    1.  Updated `mchn-spec.ts` to capture the `momentGraphNamespace` from the discovery result.
+    2.  Updated `speccing.ts` to accept and respect this namespace during session initialization.
+
+### Refined: CLI UX
+- **Verbose vs Default**: We refined `mchn-spec.ts` to be informative but not noisy.
+    - **Default**: Shows turn progress ("Turn X") and the target filename, but hides raw content streaming.
+    - **Verbose**: Shows raw token streaming and debug timing.
+- **Target File Visibility**: Ensured the target filename is logged on every turn header for clarity.

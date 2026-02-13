@@ -100,7 +100,7 @@ To generate a specification for the "Client Pre-fetching" feature using the loca
 # 2. Run the script with the specific context and prompt
 # We use the 'local-2026-02-11-11-20-gentle-panda' namespace for the redwoodjs/sdk repository
 API_KEY=dev \
-MACHINEN_ENGINE_URL=http://localhost:8787 \
+MACHINEN_ENGINE_URL=http://localhost:5174 \
 NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
 ./scripts/mchn-spec.sh "Adding a new programmatic api to support manual client prefetching"
 ```

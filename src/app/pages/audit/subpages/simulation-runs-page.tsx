@@ -272,7 +272,7 @@ async function SimulationRunsContent({
 
   const [run, eventsRes] = await Promise.all([
     getSimulationRunById(context, { runId }),
-    getSimulationRunEvents(context, { runId, limit: 2000 }),
+    getSimulationRunEvents(context, { runId, limit: 10000 }),
   ]);
 
   if (!run) {

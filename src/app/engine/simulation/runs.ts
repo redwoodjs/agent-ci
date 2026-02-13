@@ -342,25 +342,88 @@ export async function restartSimulationRunFromPhase(
     .execute();
 
   // Clear document tracking for this phase and subsequent ones
+  // Clear document tracking for this phase and subsequent ones
   const phaseIdx = simulationPhases.indexOf(phase);
-  const phasesToClear = simulationPhases.slice(phaseIdx);
+  const phasesToClear = new Set(simulationPhases.slice(phaseIdx));
 
-  // We can't easily clear specific phases from the JSON array in SQL without complexity, 
-  // but we can at least clear processed_at for all docs if we restart from ingest_diff or anytime we want a full re-eval.
-  // Actually, the safest is to just clear the dispatched_phases_json and processed_at for all docs 
-  // because ingest_diff is the only one that sets processed_at on simulation_run_documents.
   if (phase === "ingest_diff") {
      await db.updateTable("simulation_run_documents")
-      .set({ processed_at: "pending", dispatched_phases_json: null, processed_phases_json: null, changed: 0, error_json: null } as any)
+      .set({ 
+        processed_at: "pending", 
+        dispatched_phases_json: null, 
+        processed_phases_json: null, 
+        updated_at: now, 
+        changed: 0, 
+        error_json: null 
+      } as any)
       .where("run_id", "=", runId)
       .execute();
   } else {
-     // For other phases, we just need to ensure they don't think they've already dispatched or processed
-     // We'll do a crude clear for now to be safe.
-      await db.updateTable("simulation_run_documents")
-      .set({ dispatched_phases_json: null, processed_phases_json: null, error_json: null } as any)
-      .where("run_id", "=", runId)
-      .execute();
+     // For other phases, we need to carefully remove only the cleared phases from the JSON
+     // to preserve history of earlier phases. This requires a batched read-modify-write.
+     
+     let cursor: string | undefined = undefined;
+     const batchSize = 500;
+     
+     while (true) {
+        const query = db.selectFrom("simulation_run_documents")
+          .select(["r2_key", "dispatched_phases_json", "processed_phases_json"])
+          .where("run_id", "=", runId)
+          .limit(batchSize);
+          
+        if (cursor) {
+          // @ts-ignore
+          query.where("r2_key", ">", cursor);
+        }
+        
+        // @ts-ignore
+        const docs = await query.orderBy("r2_key").execute();
+        
+        if (docs.length === 0) break;
+        
+        const updates: { r2Key: string, dispatched: string[], processed: string[] }[] = [];
+        
+        for (const doc of docs) {
+            let dispatched: string[] = [];
+            try {
+                dispatched = JSON.parse(doc.dispatched_phases_json as string || "[]");
+            } catch {}
+            
+            let processed: string[] = [];
+            try {
+                processed = JSON.parse(doc.processed_phases_json as string || "[]");
+            } catch {}
+            
+            const newDispatched = dispatched.filter(p => !phasesToClear.has(p as any));
+            const newProcessed = processed.filter(p => !phasesToClear.has(p as any));
+            
+            if (newDispatched.length !== dispatched.length || newProcessed.length !== processed.length) {
+                updates.push({
+                    r2Key: doc.r2_key,
+                    dispatched: newDispatched,
+                    processed: newProcessed
+                });
+            }
+        }
+        
+        // Perform updates in parallel promise batches
+        // Note: In a real heavy-load scenario, we might want to use a bulk update statement or temp table,
+        // but for now this is safer than wiping everything.
+        await Promise.all(updates.map(u => 
+            db.updateTable("simulation_run_documents")
+              .set({
+                  dispatched_phases_json: JSON.stringify(u.dispatched),
+                  processed_phases_json: JSON.stringify(u.processed),
+                  updated_at: new Date().toISOString(),
+                  error_json: null // Clear errors on restart
+              } as any)
+              .where("run_id", "=", runId)
+              .where("r2_key", "=", u.r2Key)
+              .execute()
+        ));
+        
+        cursor = docs[docs.length - 1].r2_key;
+     }
   }
 
   // Clear artifact tables

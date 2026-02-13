@@ -122,9 +122,12 @@ async function getSimulationRunEventsHandler({ params, request }: RequestInfo) {
       ? Number(limitRaw)
       : undefined;
 
+  const sortRaw = url.searchParams.get("sort");
+  const sort = sortRaw === "asc" ? "asc" : "desc";
+
   const events = await getSimulationRunEvents(
     { env: env as Cloudflare.Env, momentGraphNamespace: null },
-    { runId, limit }
+    { runId, limit, sort }
   );
 
   return Response.json({ events });

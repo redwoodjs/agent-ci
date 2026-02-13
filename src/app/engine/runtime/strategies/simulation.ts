@@ -27,15 +27,58 @@ export class ArtifactStorage implements StorageStrategy {
         output.__offloaded_at__ === "R2"
       ) {
         const bucket = this.env.MACHINEN_BUCKET;
-        const object = await bucket.get(output.key);
-        if (!object) {
-          throw new Error(`Offloaded artifact not found in R2: ${output.key}`);
+        
+        // R2 Retry Logic: Local Miniflare R2 can fail with 'Unspecified error' under high concurrency.
+        let object: R2Object | null = null;
+        let attempts = 0;
+        const maxAttempts = 3;
+        
+        while (attempts < maxAttempts) {
+          try {
+            object = await bucket.get(output.key);
+            break;
+          } catch (error) {
+            attempts++;
+            if (attempts >= maxAttempts) throw error;
+            const delay = Math.pow(2, attempts) * 100; // 200ms, 400ms
+            console.warn(`[ArtifactStorage] R2 get failed (attempt ${attempts}), retrying in ${delay}ms...`, { key: output.key, error: error instanceof Error ? { message: error.message, stack: error.stack } : error });
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
         }
-        const text = await object.text();
+
+        if (!object) {
+          const msg = `[ArtifactStorage] Offloaded artifact missing: ${output.key} for ${phase.name}/${key}`;
+          console.error(msg);
+          
+          // Log to events table
+          const id = crypto.randomUUID();
+          const now = new Date().toISOString();
+          await this.simDb
+            .insertInto("simulation_run_events")
+            .values({
+              id,
+              run_id: this.runId,
+              level: "error",
+              kind: "artifact.missing_offload",
+              payload_json: JSON.stringify({
+                message: msg,
+                phase: phase.name,
+                r2Key: key, // usually the r2Key is the artifact key for document phases
+                offloadKey: output.key
+              }),
+              created_at: now,
+            })
+            .execute();
+
+          return null; 
+        }
+        const text = await (object as any).text();
         return JSON.parse(text) as T;
       }
       return output as T;
     }
+    
+    // Explicitly null if not found in DB
     return null;
   }
 

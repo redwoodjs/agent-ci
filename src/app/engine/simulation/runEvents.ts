@@ -50,7 +50,7 @@ export async function addSimulationRunEvent(
 
 export async function getSimulationRunEvents(
   context: SimulationDbContext,
-  input: { runId: string; limit?: number }
+  input: { runId: string; limit?: number; sort?: "asc" | "desc" }
 ): Promise<
   Array<{
     id: string;
@@ -71,14 +71,16 @@ export async function getSimulationRunEvents(
   const limitRaw = input.limit;
   const limit =
     typeof limitRaw === "number" && Number.isFinite(limitRaw) && limitRaw > 0
-      ? Math.min(5000, Math.floor(limitRaw))
+      ? Math.min(50000, Math.floor(limitRaw))
       : 2000;
+
+  const sort = input.sort === "asc" ? "asc" : "desc";
 
   const rows = (await db
     .selectFrom("simulation_run_events")
     .selectAll()
     .where("run_id", "=", runId)
-    .orderBy("created_at", "desc")
+    .orderBy("created_at", sort)
     .limit(limit)
     .execute()) as unknown as SimulationRunEventRow[];
 

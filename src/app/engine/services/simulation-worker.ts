@@ -30,7 +30,7 @@ async function withSimulationErrorTracking<T>(
     const errorStack = error instanceof Error ? error.stack : undefined;
     const errorJson = JSON.stringify({ message: errorMsg, stack: errorStack });
 
-    console.error(`[simulation-worker] Error in phase ${phaseName ?? "unknown"}:`, error);
+    console.error(`[simulation-worker] Error in phase ${phaseName ?? "unknown"}:\n`, errorStack ?? error);
 
     // Record error to the database
     if (r2Key) {
@@ -138,6 +138,16 @@ export async function processSimulationJob(
               ),
             };
 
+            // PICK-UP LATCH: Refresh timestamp immediately upon receipt.
+            // This decouples queue wait time from processing time.
+            if ((message as any).r2Key) {
+              await db.updateTable("simulation_run_documents")
+                .set({ updated_at: new Date().toISOString() })
+                .where("run_id", "=", message.runId)
+                .where("r2_key", "=", (message as any).r2Key)
+                .execute();
+            }
+
             const logger: any = {
               info: (msg: string, data?: any) => {
                 console.log(`[sim-worker:${currentPhaseName}] ${msg}`, data);
@@ -215,21 +225,6 @@ export async function processSimulationJob(
               runId: message.runId, 
               services: ["llm", "vector", "db", "plugins"] 
             });
-
-            pipelineContext.heartbeat = async () => {
-              const table = currentPhaseName === "micro_batches" ? "simulation_run_micro_batches" : "simulation_run_documents";
-              const query = db.updateTable(table as any)
-                .set({ updated_at: new Date().toISOString() })
-                .where("run_id", "=", message.runId)
-                // @ts-ignore - r2_key exists on both tables
-                .where("r2_key", "=", message.r2Key);
-              
-              if (message.jobType === "simulation-batch" && "batchIndex" in message) {
-                await (query as any).where("batch_index", "=", message.batchIndex).execute();
-              } else {
-                await query.execute();
-              }
-            };
 
             const output = await executePhase(phaseDef, message.r2Key, strategies, pipelineContext);
 

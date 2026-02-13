@@ -61,6 +61,58 @@ Revise the current specification draft to incorporate the new evidence. Integrat
   });
 }
 
+async function draftSpec(
+  context: MomentGraphContext,
+  subject: Moment,
+  userPrompt: string
+): Promise<string> {
+  const workerUrl = (context.env as any).MACHINEN_ENGINE_URL || "https://machinen.redwoodjs.workers.dev";
+  const citationUrl = subject.sourceMetadata?.simulation?.r2Key ? `${workerUrl}/audit/ingestion/file/${subject.sourceMetadata.simulation.r2Key}` : null;
+
+  const prompt = `
+# Role
+You are the Machinen Speccing Actor (Technical Writer and Architect). Your role is to reassemble the historical development narrative provided by the Machinen Speccing Engine into an authoritative technical specification.
+
+# Task: Initial Drafting
+Your goal is to construct the FIRST draft of the technical specification based purely on the user's initial prompt and the high-level subject metadata. 
+
+# Formatting Standard
+- **Location**: Your output is a single markdown file.
+- **Consensus Only**: Focus strictly on final consensus, settled decisions, and the "Definition of Done".
+- **Source Citation**: Cite the subject moment. ${citationUrl ? `Citation URL: ${citationUrl}` : ""}
+- **Tone**: Keep the tone professional, technical, and objective. Use "We" as the voice.
+
+# Mandatory Spec Structure
+Ensure the specification follows this structure:
+1.  **2000ft View Narrative**: High-level architectural narrative.
+2.  **Database Changes**: Schema changes and their rationale.
+3.  **Behavior Spec**: Ground truth behaviors (GIVEN/WHEN/THEN).
+4.  **Implementation Detail**: Breakdown of code changes (\`[NEW]\`, \`[MODIFY]\`, \`[DELETE]\`).
+5.  **Directory & File Structure**: Tree view of files.
+6.  **Types & Data Structures**: Snippets of types.
+7.  **Invariants & Constraints**: Rules for the system.
+8.  **System Flow (Snapshot Diff)**: Previous -> New flow delta.
+9.  **Suggested Verification**: Commands/URLs for manual validation.
+10. **Tasks**: Granular checklist.
+
+# User Prompt (THE SOURCE OF TRUTH FOR THIS DRAFT)
+${userPrompt}
+
+# Subject Metadata
+Title: ${subject.title}
+Summary: ${subject.summary}
+
+# Action
+Generate the FULL initial technical specification draft. Follow the Mandatory Spec Structure strictly. Use placeholders or "[To be refined]" for sections where details are currently unknown but likely to be revealed in the historical narrative (moments).
+`;
+
+  return await callLLM(prompt, "cerebras-gpt-oss-120b", {
+    reasoning: {
+      effort: "high"
+    }
+  });
+}
+
 async function generateSemanticSessionId(
   title: string,
   summary: string
@@ -194,6 +246,9 @@ export async function tickSpeccingSession(
     return { status: "completed" };
   }
 
+  // detect if it's the very first turn
+  const isFirstTurn = processed.length === 0;
+
   // Pop the earliest moment
   const currentMomentId = pq.shift();
   if (!currentMomentId) {
@@ -224,28 +279,33 @@ export async function tickSpeccingSession(
 
   let updatedSpec = session.working_spec;
   if (session.revision_mode === 'server') {
-    console.log(`[speccing:next] Performing server-side revision for session ${sessionId}`);
-    updatedSpec = await reviseSpecTurn(hydratedContext, session.working_spec, moment, evidence, userPrompt);
+    if (isFirstTurn && userPrompt) {
+      console.log(`[speccing:next] Performing initial DRAFT pass for session ${sessionId}`);
+      updatedSpec = await draftSpec(hydratedContext, moment!, userPrompt);
+    } else {
+      console.log(`[speccing:next] Performing server-side revision for session ${sessionId}`);
+      updatedSpec = await reviseSpecTurn(hydratedContext, session.working_spec, moment!, evidence, userPrompt);
+    }
   } else {
     console.log(`[speccing:next] Client-side revision mode. Skipping server-side LLM call.`);
     // Fallback: append a marker for consistency in the working_spec
-    updatedSpec = session.working_spec + `\n\n## [Moment] ${moment.title}\n\n${moment.summary}\n\n`;
+    updatedSpec = session.working_spec + `\n\n## [Moment] ${moment!.title}\n\n${moment!.summary}\n\n`;
   }
 
-  await updateSession(speccingDb, sessionId, newPq, processed, updatedSpec, moment.createdAt);
+  await updateSession(speccingDb, sessionId, newPq, processed, updatedSpec, moment!.createdAt);
 
   return {
     status: "active",
     moment: {
-        id: moment.id,
-        title: moment.title,
-        summary: moment.summary,
-        createdAt: moment.createdAt
+        id: moment!.id,
+        title: moment!.title,
+        summary: moment!.summary,
+        createdAt: moment!.createdAt
     },
     evidence: evidence ?? undefined,
     revisedSpec: session.revision_mode === 'server' ? updatedSpec : undefined,
     instruction: session.revision_mode === 'server'
-      ? `NEXT ACTIONS: 1. The specification has been revised. Save the revisedSpec to your local file. 2. Continue the loop by calling /next.`
+      ? (isFirstTurn ? `DRAFTING COMPLETE: Initial specification drafted from your prompt. Proceeding to refine with historical moments.` : `NEXT ACTIONS: 1. The specification has been revised. Save the revisedSpec to your local file. 2. Continue the loop by calling /next.`)
       : `NEXT ACTIONS: 1. Update the specification locally using the provided evidence. 2. Continue the loop by calling /next.`,
   };
 }

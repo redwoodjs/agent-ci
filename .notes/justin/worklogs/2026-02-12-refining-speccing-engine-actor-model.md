@@ -120,3 +120,40 @@ Session Started: a1b2c3d4-e5f6-7890-abcd-1234567890ab
 Final Specification saved to: docs/specs/c3ef1dba-8100-ddc9-54f7-514257ceabb4.md
 Open it now to review the results.
 ```
+## Investigated Client Navigation and Prefetching
+We researched the `redwoodjs/sdk` repository to understand the current state of client navigation.
+- **Core Logic**: Located in `sdk/sdk/src/runtime/client/navigation.ts` and `navigationCache.ts`.
+- **Key Function**: `preloadNavigationUrl` is the primary mechanism for prefetching.
+- **Current Pattern**: Relies on `<link rel="x-prefetch">` tags discovered during hydration.
+- **Goal**: Add a programmatic `prefetch(url)` API to the SDK to allow manual trigger.
+
+## Ideation: Draft First, Refine Later
+We've decided to refine the Speccing Engine's execution model. Instead of jumping straight into historical moments, we will perform an **Initial Drafting Pass** based purely on the user's prompt and the subject's high-level metadata.
+1. **Turn 1 (Drafting)**: Use the (potentially large) user prompt to construct the first full version of the specification.
+2. **Subsequent Turns (Refinement)**: Iterate through the Moment Graph to correct, update, or expand the draft based on what actually happened during implementation.
+
+## Implementation Plan: "Draft First" Model
+- **`initializeSpeccingSession`**: Continue to seed the Priority Queue with the `subjectId`.
+- **`tickSpeccingSession`**: 
+    - detect if it's the first turn (processedIds is empty).
+    - If so, use a specialized `draftSpec` LLM call that emphasizes the user's prompt.
+    - Subsequent turns use the existing `reviseSpecTurn` logic.
+
+### Usage Example: Large Prompt via HEREDOC
+For complex features like the Programmatic Prefetch API, we can provide a detailed specification draft in the prompt:
+
+```bash
+API_KEY=dev \
+MACHINEN_ENGINE_URL=http://localhost:5174 \
+NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
+~/rw/worktrees/machinen_specs/scripts/mchn-spec.sh - <<EOF
+I want to add a new programmatic prefetch API to the RedwoodSDK client.
+Currently, prefetching only happens via link tags. I want an exported 'prefetch' function that can be called manually.
+
+Requirements:
+1. It should take a URL (string or URL object).
+2. It should use the existing 'preloadNavigationUrl' internal function.
+3. It should be exported from 'rwsdk/client'.
+4. It should be safe to call multiple times for the same URL.
+EOF
+```

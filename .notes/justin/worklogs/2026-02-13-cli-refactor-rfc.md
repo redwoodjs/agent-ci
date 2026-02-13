@@ -109,3 +109,17 @@ We discovered that the speccing loop terminates prematurely because the `tickSpe
 - **Finding**: The logic correctly pops the latest moment from the PQ (`pq.shift()`) but **never fetches or pushes the descendants of that moment back into the queue**.
 - **Evidence**: `runner.ts:356` and `runner.ts:380` show state updates using the *popped* version of the queue, with no intermediary "tree walk" to find children.
 - **Impact**: The engine only processes the root subject and stops, missing the entire historical narrative tree.
+
+### Investigated: CLI Output Leakage
+We audited `mchn-spec.ts` to identify why non-essential output is still appearing in the terminal by default.
+- **Finding**: The `isVerbose` guard is implemented on token streaming and detailed diagnostics, but the turn-level headers and completion signals were still visible or inconsistent. 
+- **Action**: We will enforce strict silence by default, ensuring only the "Thinking..." spinner (the wait indicator) and the final save path are visible unless `VERBOSE=true` is set.
+
+### Implemented: Shared Speccing Logic (Refactor)
+To address the premature completion and code duplication issues, we refactored `runner.ts` to extract the core turn-preparation logic into a shared helper: `prepareSpeccingTurn`.
+- **Change**: `tickSpeccingSession` and `tickSpeccingSessionStream` now both delegate to this helper for:
+    1.  Session hydration and validation.
+    2.  Priority Queue popping and **Atomic Descendant Discovery** (the fix for the bug).
+    3.  Early state persistence (resilience).
+    4.  Moment and Evidence fetching.
+- **Benefit**: This guarantees that both the streaming and non-streaming execution paths share the exact same robust tree-walking behavior.

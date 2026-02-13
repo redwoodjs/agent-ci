@@ -400,11 +400,42 @@ export async function tickSpeccingSessionStream(
 
   console.log(`[speccing:stream] Returning TextStreamResponse for session ${sessionId}. Metadata: ${JSON.stringify(metadata)}`);
 
-  // Skip transformStream complexity for raw Worker streaming
-  return result.toTextStreamResponse({
+  // Add headers to discourage buffering in proxies/servers
+  const baseResponse = result.toTextStreamResponse({
     headers: {
-        "x-speccing-metadata": Buffer.from(JSON.stringify(metadata)).toString('base64')
+        "x-speccing-metadata": Buffer.from(JSON.stringify(metadata)).toString('base64'),
+        "X-Accel-Buffering": "no",
+        "Cache-Control": "no-cache, no-transform",
+        "Connection": "keep-alive"
     },
+  });
+
+  // Add chunk logging to verify data flow
+  let chunkCount = 0;
+  let totalLength = 0;
+  const streamStartTime = Date.now();
+  const loggingStream = new TransformStream({
+    transform(chunk, controller) {
+      chunkCount++;
+      totalLength += chunk.length;
+      const now = Date.now();
+      console.log(`[speccing:stream] Chunk ${chunkCount} sent (+${now - streamStartTime}ms). Length: ${chunk.length}`);
+      controller.enqueue(chunk);
+    },
+    flush() {
+      const now = Date.now();
+      console.log(`[speccing:stream] Stream finished for session ${sessionId} (+${now - streamStartTime}ms). Total chunks: ${chunkCount}, Total length: ${totalLength}`);
+    }
+  });
+
+  if (!baseResponse.body) {
+    throw new Error("Response body is empty or non-streamable");
+  }
+
+  return new Response(baseResponse.body.pipeThrough(loggingStream), {
+    status: baseResponse.status,
+    statusText: baseResponse.statusText,
+    headers: baseResponse.headers,
   });
 }
 

@@ -12,15 +12,32 @@ async function reviseSpecTurn(
   evidence: SpeccingSessionResult['evidence'] | null,
   userPrompt?: string
 ): Promise<string> {
+  const workerUrl = (context.env as any).MACHINEN_ENGINE_URL || "https://machinen.redwoodjs.workers.dev";
+  const citationUrl = evidence?.r2Key ? `${workerUrl}/audit/ingestion/file/${evidence.r2Key}` : null;
+
   const prompt = `
 # Role
-You are the Machinen Speccing Actor. Your goal is to iteratively refine a technical specification by integrating new evidence from a development narrative.
+You are the Machinen Speccing Actor (Technical Writer and Architect). Your role is to reassemble the historical development narrative provided by the Machinen Speccing Engine into an authoritative technical specification.
 
 # Formatting Standard
-- Maintain a clear, narrative-driven technical specification.
-- Use headers to organize chapters.
-- Ground all claims in the provided evidence.
-- If evidence includes code diffs, incorporate relevant architectural changes.
+- **Location**: Your output is a single markdown file.
+- **Iteration**: This file is iteratively refined. Return the FULL updated specification.
+- **Consensus Only**: Focus strictly on final consensus, settled decisions, and the "Definition of Done".
+- **Source Citation**: Every design decision should be cited using the evidence source. ${citationUrl ? `Current turn citation URL: ${citationUrl}` : ""}
+- **Tone**: Keep the tone professional, technical, and objective. Use "We" as the voice.
+
+# Mandatory Spec Structure
+Ensure the specification follows this structure:
+1.  **2000ft View Narrative**: High-level architectural narrative.
+2.  **Database Changes**: Schema changes and their rationale.
+3.  **Behavior Spec**: Ground truth behaviors (GIVEN/WHEN/THEN).
+4.  **Implementation Detail**: Breakdown of code changes (\`[NEW]\`, \`[MODIFY]\`, \`[DELETE]\`).
+5.  **Directory & File Structure**: Tree view of files.
+6.  **Types & Data Structures**: Snippets of types.
+7.  **Invariants & Constraints**: Rules for the system.
+8.  **System Flow (Snapshot Diff)**: Previous -> New flow delta.
+9.  **Suggested Verification**: Commands/URLs for manual validation.
+10. **Tasks**: Granular checklist.
 
 # Current Specification Draft
 ${currentSpec}
@@ -34,7 +51,7 @@ ${evidence?.diff ? `Code Changes:\n\`\`\`diff\n${evidence.diff}\n\`\`\`` : ""}
 ${userPrompt ? `# User Guidance\n${userPrompt}` : ""}
 
 # Action
-Revise the current specification draft to incorporate the new evidence. Return the FULL updated specification. Keep the tone professional, technical, and objective.
+Revise the current specification draft to incorporate the new evidence. Integrate the details into the appropriate sections according to the Mandatory Spec Structure. Ground all claims in the provided evidence.
 `;
 
   return await callLLM(prompt, "cerebras-gpt-oss-120b", {

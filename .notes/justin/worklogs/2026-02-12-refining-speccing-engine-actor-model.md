@@ -89,3 +89,34 @@ We have implemented the hybrid Speccing Engine and the autonomous `mchn-spec.sh`
 ./scripts/mchn-spec.sh "Summary of recent work"
 ```
 This command successfully reaches the local worker and initiates discovery.
+
+### Usage Example: Autonomous Specification Generation
+To generate a specification for the "Client Pre-fetching" feature using the local development server and specific namespace:
+
+```bash
+# 1. Ensure the dev server is running
+# pnpm dev
+
+# 2. Run the script with the namespace prefix and a specific prompt
+# We use the 'dev-justin-3' namespace and prompt for programmatic prefetching
+API_KEY=b54d6938d772ac7c760221db30e3fcd71b412f61c8f0740a3c43ba8e2aae9d24 \
+MACHINEN_ENGINE_URL=http://localhost:8787 \
+NAMESPACE_PREFIX="dev-justin-3" \
+./scripts/mchn-spec.sh "Adding a new programmatic api to support manual client prefetching"
+```
+
+#### Expected Output Trace:
+```text
+--- Searching for relevant subject ---
+Found Subject: subject-prefetch-v1
+--- Initializing Speccing Session ---
+Session Started: a1b2c3d4-e5f6-7890-abcd-1234567890ab
+--- Turn 1: Fetching next moment ---
+[speccing:next] Performing server-side revision for session a1b2c3d4-e5f6-7890-abcd-1234567890ab
+✅ Turn 1 complete. Updated docs/specs/subject-prefetch-v1.md
+--- Turn 2: Fetching next moment ---
+...
+--- Speccing Complete ---
+Final Specification saved to: docs/specs/subject-prefetch-v1.md
+Open it now to review the results.
+```

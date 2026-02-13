@@ -97,26 +97,26 @@ To generate a specification for the "Client Pre-fetching" feature using the loca
 # 1. Ensure the dev server is running
 # pnpm dev
 
-# 2. Run the script with the namespace prefix and a specific prompt
-# We use the 'dev-justin-3' namespace and prompt for programmatic prefetching
-API_KEY=b54d6938d772ac7c760221db30e3fcd71b412f61c8f0740a3c43ba8e2aae9d24 \
+# 2. Run the script with the specific context and prompt
+# We use the 'local-2026-02-11-11-20-gentle-panda' namespace for the redwoodjs/sdk repository
+API_KEY=dev \
 MACHINEN_ENGINE_URL=http://localhost:8787 \
-NAMESPACE_PREFIX="dev-justin-3" \
+NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
 ./scripts/mchn-spec.sh "Adding a new programmatic api to support manual client prefetching"
 ```
 
 #### Expected Output Trace:
 ```text
 --- Searching for relevant subject ---
-Found Subject: subject-prefetch-v1
+Found Subject: c3ef1dba-8100-ddc9-54f7-514257ceabb4
 --- Initializing Speccing Session ---
 Session Started: a1b2c3d4-e5f6-7890-abcd-1234567890ab
 --- Turn 1: Fetching next moment ---
 [speccing:next] Performing server-side revision for session a1b2c3d4-e5f6-7890-abcd-1234567890ab
-✅ Turn 1 complete. Updated docs/specs/subject-prefetch-v1.md
+✅ Turn 1 complete. Updated docs/specs/c3ef1dba-8100-ddc9-54f7-514257ceabb4.md
 --- Turn 2: Fetching next moment ---
 ...
 --- Speccing Complete ---
-Final Specification saved to: docs/specs/subject-prefetch-v1.md
+Final Specification saved to: docs/specs/c3ef1dba-8100-ddc9-54f7-514257ceabb4.md
 Open it now to review the results.
 ```

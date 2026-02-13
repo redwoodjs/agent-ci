@@ -74,7 +74,7 @@ API_KEY=dev \
 MACHINEN_ENGINE_URL=http://localhost:5174/ \
 NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
 npx tsx /Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts \
-"I want to extend RedwoodSDK's client-side navigation support, to add a new possibility for manual prefetching using a programmatic client side API, via a new 'prefetch' function"
+"Identified full‑page reload issue for client‑side filters"
 ```
 
 > [!NOTE]
@@ -88,3 +88,17 @@ npx tsx /Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts \
 - [x] Add `VERBOSE` logging and anti-buffering headers.
 - [x] Fix session continuity (infinite loop) by advancing state atomically.
 - [ ] Verify functionality and delete `mchn-spec.sh`.
+
+### Test Snippet: Prefetching Feature Replication
+
+```bash
+# Workflow Example: Prefetching for client navigation
+# Subject: Identified full‑page reload issue for client‑side filters
+
+VERBOSE=true \
+API_KEY=dev \
+MACHINEN_ENGINE_URL=http://localhost:5174/ \
+NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
+npx tsx /Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts \
+"Identified full‑page reload issue for client‑side filters"
+```

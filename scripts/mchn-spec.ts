@@ -83,8 +83,9 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 5)
 // --- Main Execution ---
 
 async function main() {
+  const isVerbose = process.env.VERBOSE === 'true';
   const repository = getRepositoryContext();
-  console.log(`--- Searching for relevant subject in ${repository} ---`);
+  if (isVerbose) console.log(`--- Searching for relevant subject in ${repository} ---`);
 
   // 1. Discovery
   const discoveryResponse = await fetchWithRetry(`${WORKER_URL}/api/subjects/search`, {
@@ -107,15 +108,17 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`Found Subject: ${match.title}`);
+  if (isVerbose) console.log(`Found Subject: ${match.title}`);
 
   // 2. Initialization
   const sessionSlug = match.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const sessionId = `${sessionSlug || 'session'}-${Math.floor(1000 + Math.random() * 9000)}`;
   const specPath = join('docs', 'specs', `${sessionId}.md`);
 
-  console.log(`--- Initializing Speccing Session ---`);
-  console.log(`Target File: ${specPath}`);
+  if (isVerbose) {
+    console.log(`--- Initializing Speccing Session ---`);
+    console.log(`Target File: ${specPath}`);
+  }
   
   mkdirSync(join('docs', 'specs'), { recursive: true });
   writeFileSync(specPath, ''); // Touch file
@@ -141,7 +144,7 @@ async function main() {
   // 3. Autonomous Loop
   let turn = 1;
   while (true) {
-    console.log(`--- Turn ${turn}: Streaming refinements ---`);
+    if (isVerbose) console.log(`--- Turn ${turn}: Streaming refinements ---`);
 
     const response = await fetchWithRetry(`${WORKER_URL}/api/speccing/next/stream?sessionId=${sessionId}`, {
       method: 'POST',
@@ -152,28 +155,32 @@ async function main() {
       body: JSON.stringify({ userPrompt: PROMPT })
     });
 
-    // Check for metadata header
+    // Check for metadata or completion
     const metadataB64 = response.headers.get('x-speccing-metadata');
     let metadata: any = null;
     if (metadataB64) {
       metadata = JSON.parse(Buffer.from(metadataB64, 'base64').toString('utf-8'));
     }
 
-    if (!response.body) {
-        // Fallback for non-streaming response (e.g. status completion)
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json') || !response.body) {
         const bodyText = await response.text();
         try {
             const data = JSON.parse(bodyText);
             if (data.status === 'completed') {
-                console.log(`--- Speccing Complete ---`);
+                if (isVerbose) console.log(`\n--- Speccing Complete ---`);
                 break;
             }
         } catch (e) {
-            console.error(`Error: Unexpected non-stream response: ${bodyText}`);
-            process.exit(1);
+            // Not JSON or parse error, ignore and continue if body exists
+            if (!response.body) {
+                console.error(`Error: Unexpected non-stream response: ${bodyText}`);
+                process.exit(1);
+            }
         }
-    } else {
-        // Stream the body chunks
+    }
+
+    if (response.body) {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         
@@ -183,28 +190,55 @@ async function main() {
         const startTime = Date.now();
         let firstChunkTime: number | null = null;
         let chunkIdx = 0;
-        const isVerbose = process.env.VERBOSE === 'true';
+
+        // Busy indicator
+        const chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let charIdx = 0;
+        const spinner = setInterval(() => {
+            if (firstChunkTime === null && isVerbose) {
+                process.stdout.write(`\r${chars[charIdx++ % chars.length]} Thinking... `);
+            }
+        }, 80);
+
+        let accumulatedBody = '';
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
 
             if (firstChunkTime === null) {
+                clearInterval(spinner);
+                if (isVerbose) process.stdout.write('\r          \r'); // Clear spinner
                 firstChunkTime = Date.now();
                 if (isVerbose) console.log(`\n[debug] First chunk received after ${firstChunkTime - startTime}ms`);
             }
 
             chunkIdx++;
             const text = decoder.decode(value, { stream: true });
-            process.stdout.write(text);
+            accumulatedBody += text;
+            if (isVerbose) process.stdout.write(text);
             appendFileSync(specPath, text);
         }
+
+        // Final check if the streamed body itself was a completion signal
+        try {
+            const data = JSON.parse(accumulatedBody);
+            if (data.status === 'completed') {
+                if (isVerbose) console.log(`\n--- Speccing Complete (Streamed) ---`);
+                break;
+            }
+        } catch (e) {
+            // Not a completion JSON, just content
+        }
+
         const endTime = Date.now();
-        if (isVerbose) console.log(`\n[debug] Stream finished. Total time: ${endTime - startTime}ms. Chunks: ${chunkIdx}`);
-        process.stdout.write('\n');
+        if (isVerbose) {
+            console.log(`\n[debug] Stream finished. Total time: ${endTime - startTime}ms. Chunks: ${chunkIdx}`);
+            process.stdout.write('\n');
+        }
     }
 
-    if (metadata?.moment) {
+    if (metadata?.moment && isVerbose) {
       console.log(`✅ Turn ${turn} complete. Processed: ${metadata.moment.title}`);
     }
 

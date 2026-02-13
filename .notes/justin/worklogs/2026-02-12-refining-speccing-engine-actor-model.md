@@ -147,6 +147,6 @@ API_KEY=dev \
 MACHINEN_ENGINE_URL=http://localhost:5174 \
 NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
 ~/rw/worktrees/machinen_specs/scripts/mchn-spec.sh - <<EOF
-I want to extend RedwoodSDK's client-side navigation support, to add a new possibility for manual prefetching using a programmatic client side API, via a new `prefetch` function
+I want to extend RedwoodSDK's client-side navigation support, to add a new possibility for manual prefetching using a programmatic client side API, via a new 'prefetch' function
 EOF
 ```

@@ -356,6 +356,9 @@ export async function tickSpeccingSessionStream(
   const currentMomentId = pq.shift()!;
   processed.push(currentMomentId);
 
+  // Persist queue advancement immediately so we don't loop on failure
+  await updateSessionProgress(speccingDb, sessionId, pq, processed);
+
   const moment = await getMoment(currentMomentId, hydratedContext);
   if (!moment) {
     throw new Error(`Moment not found: ${currentMomentId}`);
@@ -373,8 +376,12 @@ export async function tickSpeccingSessionStream(
     reasoning: { effort: "high" },
     onFinish: async (finalPayload) => {
         const updatePromise = (async () => {
-            await updateSession(speccingDb, sessionId, pq, processed, finalPayload, moment.createdAt);
-            console.log(`[speccing:stream] Session ${sessionId} turn complete and persisted.`);
+            try {
+                await updateSession(speccingDb, sessionId, pq, processed, finalPayload, moment.createdAt);
+                console.log(`[speccing:stream] Session ${sessionId} turn complete and persisted.`);
+            } catch (err) {
+                console.error(`[speccing:stream] FAILED to persist session ${sessionId}:`, err);
+            }
         })();
         if (ctx) {
             ctx.waitUntil(updatePromise);
@@ -639,6 +646,23 @@ async function fetchEvidenceForMoment(
     console.error(`[speccing:evidence] Error fetching evidence for ${r2Key}:`, error);
     return null;
   }
+}
+
+async function updateSessionProgress(
+  db: ReturnType<typeof getSpeccingDb>,
+  id: string,
+  pq: string[],
+  processed: string[]
+) {
+  await db
+    .updateTable("speccing_sessions")
+    .set({
+      priority_queue_json: pq as any,
+      processed_ids_json: processed as any,
+      updated_at: new Date().toISOString(),
+    })
+    .where("id", "=", id)
+    .execute();
 }
 
 async function updateSession(

@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { getHeuristicResponse } from "./heuristicLlm";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createCerebras } from "@ai-sdk/cerebras";
-import { generateText } from "ai";
+import { generateText, streamText } from "ai";
 
 const MODELS = {
   "cerebras-gpt-oss-120b": { provider: "cerebras", id: "gpt-oss-120b" },
@@ -199,6 +199,54 @@ export async function callLLM(
   }
 
   throw new Error("Unexpected end of LLM call loop");
+}
+
+export async function streamLLM(
+  prompt: string,
+  alias: LLMAlias = "cerebras-gpt-oss-120b",
+  options?: LLMOptions
+) {
+  const modelConfig = MODELS[alias] as ModelConfig;
+  const modelId = modelConfig.id;
+
+  if (modelConfig.provider === "google") {
+    const apiKey = SECRETS.AI_GOOGLE_KEY;
+    if (!apiKey) throw new Error(`Missing AI_GOOGLE_KEY for alias '${alias}'`);
+    const google = createGoogleGenerativeAI({ apiKey });
+    return streamText({
+      model: google(modelId),
+      prompt: prompt,
+      temperature: options?.temperature,
+      maxTokens: options?.max_tokens,
+    } as any);
+  }
+
+  if (modelConfig.provider === "cerebras") {
+    const apiKey = SECRETS.AI_CEREBRAS_KEY;
+    if (!apiKey) throw new Error(`Missing AI_CEREBRAS_KEY for alias '${alias}'`);
+    const cerebras = createCerebras({ apiKey });
+    return streamText({
+      model: cerebras(modelId),
+      prompt: prompt,
+      providerOptions: {
+        cerebras: {
+          reasoningEffort: options?.reasoning?.effort ?? "medium",
+        },
+      },
+      temperature: options?.temperature,
+      maxTokens: options?.max_tokens,
+    } as any);
+  }
+
+  // Cloudflare
+  const { createWorkersAI } = await import("workers-ai-provider");
+  const workersai = createWorkersAI({ binding: env.AI });
+  return streamText({
+    model: workersai(modelId as any),
+    prompt: prompt,
+    temperature: options?.temperature,
+    maxTokens: options?.max_tokens,
+  } as any);
 }
 
 /**

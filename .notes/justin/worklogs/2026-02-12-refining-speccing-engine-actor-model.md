@@ -120,12 +120,26 @@ Session Started: a1b2c3d4-e5f6-7890-abcd-1234567890ab
 Final Specification saved to: docs/specs/c3ef1dba-8100-ddc9-54f7-514257ceabb4.md
 Open it now to review the results.
 ```
-## Investigated Client Navigation and Prefetching
-We researched the `redwoodjs/sdk` repository to understand the current state of client navigation.
-- **Core Logic**: Located in `sdk/sdk/src/runtime/client/navigation.ts` and `navigationCache.ts`.
-- **Key Function**: `preloadNavigationUrl` is the primary mechanism for prefetching.
-- **Current Pattern**: Relies on `<link rel="x-prefetch">` tags discovered during hydration.
-- **Goal**: Add a programmatic `prefetch(url)` API to the SDK to allow manual trigger.
+## Implemented Streaming and Search Refinements
+We finalized the streaming and search optimizations to address Cloudflare Worker CPU limits and subject discovery issues.
+
+### Raw Text Streaming Protocol
+- **Endpoint**: `/api/speccing/next/stream`
+- **Mechanism**: Uses `ReadableStream` and `result.toTextStreamResponse()` for zero-buffer, low-overhead delivery.
+- **Metadata**: Carried in `x-speccing-metadata` header to avoid JSON parsing in the body stream.
+- **Persistence**: Final spec is persisted to `SpeccingStateDO` in the background after the stream completes.
+
+### Resilient Subject Search
+- **Diagnostic Logging**: Added detailed logs for vectorized match scores and filtered results.
+- **Fuzzy Fallback**: If no subjects match the requested `namespacePrefix`, we retry the search globally (namespace-agnostic). This ensures subjects from "settled" default runs are always discoverable.
+
+### CLI Enhancements
+- **Streaming Driver**: `mchn-spec.sh` now uses `curl -N` and `tee` for real-time terminal output.
+- **Local Sync**: The local MD file is iteratively updated at the end of each turn's stream.
+
+## Verification
+- **Real-time Specs**: Verified that the CLI shows the specification being built chunk-by-chunk.
+- **Resilient Search**: Confirmed that `mchn-spec.sh` finds subjects even when the namespace is misconfigured or the subject is in the default namespace.
 
 ## Ideation: Draft First, Refine Later
 We've decided to refine the Speccing Engine's execution model. Instead of jumping straight into historical moments, we will perform an **Initial Drafting Pass** based purely on the user's prompt and the subject's high-level metadata.
@@ -142,11 +156,26 @@ We've decided to refine the Speccing Engine's execution model. Instead of jumpin
 ### Usage Example: Large Prompt via HEREDOC
 For complex features like the Programmatic Prefetch API, we can provide a detailed specification draft in the prompt:
 
+## Pivoting on Streaming: CPU vs Wall-clock
+We discussed the 30s limit on Cloudflare Workers. While SSE/Streaming can run for up to 15 minutes of *wall-clock* time, the *CPU time* limit is much stricter (30s on Unbound, 50ms on Standard). 
+- **Plan**: Use a raw `ReadableStream` of text for the specification body to minimize overhead. 
+- **Protocol**: The script will receive metadata (Status/Moment) in HTTP headers or as a single initial JSON line, then the raw stream for the spec.
+
+## Resolving Subject Search Failures
+The user hit "No matching subject found" for a very relevant prompt.
+- **Problem**: Namespace filtering might be too narrow if the simulation didn't tag exactly as expected.
+- **Fix**: Implement a "Relaxed Fallback" in `searchSubjectsHandler`. If zero results are found in the specific namespace, we retry a global search across all subjects in the repository.
+- **Diagnostics**: Added detailed logging of match scores and metadata to the backend.
+
+## Finalized "Draft First" Example
+We've updated the HEREDOC example to use a more natural phrasing that matches our refined search logic:
+
 ```bash
 API_KEY=dev \
 MACHINEN_ENGINE_URL=http://localhost:5174 \
 NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
 ~/rw/worktrees/machinen_specs/scripts/mchn-spec.sh - <<EOF
-I want to extend RedwoodSDK's client-side navigation support, to add a new possibility for manual prefetching using a programmatic client side API, via a new 'prefetch' function
+Add a programmatic 'prefetch' function to RedwoodSDK's client-side navigation.
+It should wrap 'preloadNavigationUrl' and be exported from 'rwsdk/client'.
 EOF
 ```

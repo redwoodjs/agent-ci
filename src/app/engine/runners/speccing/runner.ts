@@ -3,7 +3,7 @@ import { getSpeccingDb, type SpeccingDatabase } from "../../databases/speccing";
 import { getMomentDb, type MomentGraphContext, getMoment, getMoments } from "../../databases/momentGraph";
 import { Moment, ChunkMetadata, IndexingHookContext, QueryHookContext } from "../../types";
 import { createEngineContext } from "../../index";
-import { callLLM } from "../../utils/llm";
+import { callLLM, streamLLM } from "../../utils/llm";
 
 async function reviseSpecTurn(
   context: MomentGraphContext,
@@ -130,7 +130,7 @@ Examples:
 Return ONLY the kebab-case identifier, no other text or explanation.
 `;
 
-  const result = await callLLM(prompt);
+  const result = await callLLM(prompt, "cerebras-gpt-oss-120b");
   // Clean up any accidental LLM output
   return result.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `session-${Date.now()}`;
 }
@@ -308,6 +308,167 @@ export async function tickSpeccingSession(
       ? (isFirstTurn ? `DRAFTING COMPLETE: Initial specification drafted from your prompt. Proceeding to refine with historical moments.` : `NEXT ACTIONS: 1. The specification has been revised. Save the revisedSpec to your local file. 2. Continue the loop by calling /next.`)
       : `NEXT ACTIONS: 1. Update the specification locally using the provided evidence. 2. Continue the loop by calling /next.`,
   };
+}
+
+/**
+ * Optimized raw text streaming for Cloudflare Workers.
+ * Emits metadata as a JSON header, then streams the raw spec body.
+ */
+export async function tickSpeccingSessionStream(
+  context: MomentGraphContext,
+  sessionId: string,
+  userPrompt?: string
+): Promise<Response> {
+  const { env } = context;
+  const speccingDb = getSpeccingDb(env as any);
+  const hydratedContext = { ...context, env: env as any };
+
+  const session = await speccingDb
+    .selectFrom("speccing_sessions")
+    .where("id", "=", sessionId)
+    .selectAll()
+    .executeTakeFirst();
+
+  if (!session) {
+    return Response.json({ error: `Session not found: ${sessionId}` }, { status: 404 });
+  }
+
+  const pq = JSON.parse(session.priority_queue_json as unknown as string) as string[];
+  const processed = JSON.parse(session.processed_ids_json as unknown as string) as string[];
+
+  if (pq.length === 0) {
+    return Response.json({ status: "completed" });
+  }
+
+  const isFirstTurn = processed.length === 0;
+  const currentMomentId = pq.shift()!;
+  processed.push(currentMomentId);
+
+  const moment = await getMoment(currentMomentId, hydratedContext);
+  if (!moment) {
+    throw new Error(`Moment not found: ${currentMomentId}`);
+  }
+  const evidence = await fetchEvidenceForMoment(moment, hydratedContext);
+
+  const workerUrl = (context.env as any).MACHINEN_ENGINE_URL || "https://machinen.redwoodjs.workers.dev";
+  const fullPrompt = isFirstTurn && userPrompt 
+    ? constructDraftPrompt(workerUrl, moment, userPrompt)
+    : constructRevisePrompt(workerUrl, session.working_spec, moment, evidence, userPrompt);
+
+  const result = await streamLLM(fullPrompt, "cerebras-gpt-oss-120b", { reasoning: { effort: "high" } });
+
+  const metadata = {
+    status: "active",
+    moment: {
+      id: moment.id,
+      title: moment.title,
+      summary: moment.summary,
+      createdAt: moment.createdAt
+    },
+    evidence: evidence ?? undefined,
+    isFirstTurn
+  };
+
+  // Skip transformStream complexity for raw Worker streaming
+  const stream = result.toTextStreamResponse({
+    headers: {
+        "x-speccing-metadata": JSON.stringify(metadata)
+    },
+  });
+
+  // Monitor for completion to persist to DB
+  void (async () => {
+    let finalPayload = "";
+    for await (const chunk of result.textStream) {
+        finalPayload += chunk;
+    }
+    await updateSession(speccingDb, sessionId, pq, processed, finalPayload, moment.createdAt);
+    console.log(`[speccing:stream] Session ${sessionId} turn complete and persisted.`);
+  })();
+
+  return stream;
+}
+
+function constructDraftPrompt(workerUrl: string, subject: Moment, userPrompt: string): string {
+  const citationUrl = subject.sourceMetadata?.simulation?.r2Key ? `${workerUrl}/audit/ingestion/file/${subject.sourceMetadata.simulation.r2Key}` : null;
+  return `
+# Role
+You are the Machinen Speccing Actor (Technical Writer and Architect). Your role is to reassemble the historical development narrative provided by the Machinen Speccing Engine into an authoritative technical specification.
+
+# Task: Initial Drafting
+Your goal is to construct the FIRST draft of the technical specification based purely on the user's initial prompt and the high-level subject metadata. 
+
+# Formatting Standard
+- **Location**: Your output is a single markdown file.
+- **Consensus Only**: Focus strictly on final consensus, settled decisions, and the "Definition of Done".
+- **Source Citation**: Cite the subject moment. ${citationUrl ? `Citation URL: ${citationUrl}` : ""}
+- **Tone**: Keep the tone professional, technical, and objective. Use "We" as the voice.
+
+# Mandatory Spec Structure
+Ensure the specification follows this structure:
+1.  **2000ft View Narrative**: High-level architectural narrative.
+2.  **Database Changes**: Schema changes and their rationale.
+3.  **Behavior Spec**: Ground truth behaviors (GIVEN/WHEN/THEN).
+4.  **Implementation Detail**: Breakdown of code changes (\`[NEW]\`, \`[MODIFY]\`, \`[DELETE]\`).
+5.  **Directory & File Structure**: Tree view of files.
+6.  **Types & Data Structures**: Snippets of types.
+7.  **Invariants & Constraints**: Rules for the system.
+8.  **System Flow (Snapshot Diff)**: Previous -> New flow delta.
+9.  **Suggested Verification**: Commands/URLs for manual validation.
+10. **Tasks**: Granular checklist.
+
+# User Prompt (THE SOURCE OF TRUTH FOR THIS DRAFT)
+${userPrompt}
+
+# Subject Metadata
+Title: ${subject.title}
+Summary: ${subject.summary}
+
+# Action
+Generate the FULL initial technical specification draft. Follow the Mandatory Spec Structure strictly. Use placeholders or "[To be refined]" for sections where details are currently unknown but likely to be revealed in the historical narrative (moments).
+`;
+}
+
+function constructRevisePrompt(workerUrl: string, currentSpec: string, moment: Moment, evidence: any, userPrompt?: string): string {
+  const citationUrl = evidence?.r2Key ? `${workerUrl}/audit/ingestion/file/${evidence.r2Key}` : null;
+  return `
+# Role
+You are the Machinen Speccing Actor (Technical Writer and Architect). Your role is to reassemble the historical development narrative provided by the Machinen Speccing Engine into an authoritative technical specification.
+
+# Formatting Standard
+- **Location**: Your output is a single markdown file.
+- **Iteration**: This file is iteratively refined. Return the FULL updated specification.
+- **Consensus Only**: Focus strictly on final consensus, settled decisions, and the "Definition of Done".
+- **Source Citation**: Every design decision should be cited using the evidence source. ${citationUrl ? `Current turn citation URL: ${citationUrl}` : ""}
+- **Tone**: Keep the tone professional, technical, and objective. Use "We" as the voice.
+
+# Mandatory Spec Structure
+Ensure the specification follows this structure:
+1.  **2000ft View Narrative**: High-level architectural narrative.
+2.  **Database Changes**: Schema changes and their rationale.
+3.  **Behavior Spec**: Ground truth behaviors (GIVEN/WHEN/THEN).
+4.  **Implementation Detail**: Breakdown of code changes (\`[NEW]\`, \`[MODIFY]\`, \`[DELETE]\`).
+5.  **Directory & File Structure**: Tree view of files.
+6.  **Types & Data Structures**: Snippets of types.
+7.  **Invariants & Constraints**: Rules for the system.
+8.  **System Flow (Snapshot Diff)**: Previous -> New flow delta.
+9.  **Suggested Verification**: Commands/URLs for manual validation.
+10. **Tasks**: Granular checklist.
+
+# Current Specification Draft
+${currentSpec}
+
+# New Evidence: ${moment.title}
+Summary: ${moment.summary}
+Historical Context:
+${evidence?.content || "No detailed evidence available."}
+${evidence?.diff ? `Code Changes:\n\`\`\`diff\n${evidence.diff}\n\`\`\`` : ""}
+
+${userPrompt ? `# User Guidance\n${userPrompt}` : ""}
+
+# Action
+Revise the current specification draft to incorporate the new evidence. Integrate the details into the appropriate sections according to the Mandatory Spec Structure. Ground all claims in the provided evidence.
+`;
 }
 
 async function fetchEvidenceForMoment(

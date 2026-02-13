@@ -83,52 +83,52 @@ SPEC_FILE="docs/specs/${SESSION_ID}.md"
 mkdir -p docs/specs
 
 while true; do
-  echo "--- Turn $TURN: Fetching next moment ---" >&2
+  # Call /next/stream
+  echo "--- Turn $TURN: Streaming refinements ---" >&2
   
-  # Call /next
-  NEXT_RESPONSE=$(curl -s -X POST "$WORKER_URL/api/speccing/next?sessionId=$SESSION_ID" \
+  HEADERS_TMP=$(mktemp)
+  # Stream the body directly into the SPEC_FILE for immediate visibility
+  # We still record to BODY_TMP to check for JSON errors after the fact
+  BODY_TMP=$(mktemp)
+  
+  # Note: if it's an error, SPEC_FILE will temporarily contain JSON. 
+  # This is acceptable for "live" mode as we'll handle it after curl finishes.
+  curl -N -s -X POST "$WORKER_URL/api/speccing/next/stream?sessionId=$SESSION_ID" \
     -H "Authorization: Bearer $API_KEY" \
     -H "Content-Type: application/json" \
-    -d "{ \"userPrompt\": \"$PROMPT\" }")
+    -d "{ \"userPrompt\": \"$PROMPT\" }" \
+    -D "$HEADERS_TMP" | tee "$SPEC_FILE" > "$BODY_TMP"
 
-  # Validate JSON
-  if ! echo "$NEXT_RESPONSE" | jq . >/dev/null 2>&1; then
-    echo "Error: Backend returned non-JSON response: $NEXT_RESPONSE" >&2
-    exit 1
-  fi
-
-  STATUS=$(echo "$NEXT_RESPONSE" | jq -r '.status')
-
-  if [ "$STATUS" = "completed" ]; then
-    echo "--- Speccing Complete ---" >&2
-    break
-  fi
-
-  if [ "$STATUS" = "not_found" ] || [ "$STATUS" = "failed" ] || [ "$STATUS" = "null" ]; then
-    echo "Error: Session $STATUS - $NEXT_RESPONSE" >&2
-    exit 1
-  fi
-
-  # Extract revised spec or evidence
-  if [ "$MODE" = "server" ]; then
-    REVISED_SPEC=$(echo "$NEXT_RESPONSE" | jq -r '.revisedSpec')
-    if [ "$REVISED_SPEC" != "null" ]; then
-      echo "$REVISED_SPEC" > "$SPEC_FILE"
-      echo "✅ Turn $TURN complete. Updated $SPEC_FILE" >&2
-    else
-      echo "Warning: No revisedSpec returned in server mode." >&2
+  # Check metadata header
+  METADATA_JSON=$(grep -i "x-speccing-metadata:" "$HEADERS_TMP" | sed 's/[Xx]-[Ss]peccing-[Mm]etadata: //I' | tr -d '\r')
+  
+  if [ -z "$METADATA_JSON" ]; then
+    # Maybe it was a JSON response (completion or error)
+    if jq -e . "$BODY_TMP" >/dev/null 2>&1; then
+      STATUS=$(jq -r '.status' "$BODY_TMP")
+      if [ "$STATUS" = "completed" ]; then
+         echo "--- Speccing Complete ---" >&2
+         rm -f "$HEADERS_TMP" "$BODY_TMP"
+         break
+      fi
+      ERROR=$(jq -r '.error' "$BODY_TMP")
+      if [ "$ERROR" != "null" ]; then
+         echo "Error: $ERROR" >&2
+         # Restore potentially corrupted SPEC_FILE or just exit
+         rm -f "$HEADERS_TMP" "$BODY_TMP"
+         exit 1
+      fi
     fi
-  else
-    # Client Mode - Output evidence for manual/agent use
-    MOMENT_TITLE=$(echo "$NEXT_RESPONSE" | jq -r '.moment.title')
-    echo "Client Mode: Moment '$MOMENT_TITLE' ready for revision." >&2
-    echo "$NEXT_RESPONSE" | jq .
-    # Note: In a real autonomous client mode, the script would need to invoke an LLM here.
-    # For now, we print and wait (or rely on the IDE agent to handle the instructions).
-    echo "Press Enter to continue to next turn..." >&2
-    read _
+    echo "Error: Failed to get metadata or valid response" >&2
+    rm -f "$HEADERS_TMP" "$BODY_TMP"
+    exit 1
   fi
 
+  MOMENT_TITLE=$(echo "$METADATA_JSON" | jq -r '.moment.title')
+  echo "✅ Turn $TURN complete. Processed: $MOMENT_TITLE" >&2
+  echo "Updated $SPEC_FILE" >&2
+  
+  rm -f "$HEADERS_TMP" "$BODY_TMP"
   TURN=$((TURN + 1))
 done
 

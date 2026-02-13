@@ -1,7 +1,7 @@
 import { env } from "cloudflare:workers";
 import { type RequestInfo } from "rwsdk/worker";
 import { getSpeccingDb } from "../databases/speccing";
-import { initializeSpeccingSession, tickSpeccingSession, type SpeccingSessionResult } from "../runners/speccing/runner";
+import { initializeSpeccingSession, tickSpeccingSession, tickSpeccingSessionStream, type SpeccingSessionResult } from "../runners/speccing/runner";
 import { getMomentGraphNamespaceFromEnv, applyMomentGraphNamespacePrefixValue } from "../momentGraphNamespace";
 import { type MomentGraphContext } from "../databases/momentGraph";
 import { createEngineContext } from "../index";
@@ -96,5 +96,31 @@ export async function nextSpeccingHandler({ request }: RequestInfo) {
   } catch (error) {
     console.error(`[speccing:next] Error:`, error);
     return Response.json({ error: "Failed to advance speccing", details: String(error) }, { status: 500 });
+  }
+}
+export async function nextSpeccingStreamHandler({ request }: RequestInfo) {
+  const url = new URL(request.url);
+  const sessionId = url.searchParams.get("sessionId");
+
+  if (!sessionId) {
+    return Response.json({ error: "Missing 'sessionId' parameter" }, { status: 400 });
+  }
+
+  try {
+    const envCloudflare = env as Cloudflare.Env;
+    const body = (await request.json().catch(() => ({}))) as {
+      userPrompt?: string;
+    };
+
+    const momentGraphNamespace = getMomentGraphNamespaceFromEnv(envCloudflare);
+    const context: MomentGraphContext = {
+      env: envCloudflare,
+      momentGraphNamespace,
+    };
+
+    return await tickSpeccingSessionStream(context, sessionId, body.userPrompt);
+  } catch (error) {
+    console.error(`[speccing:next:stream] Error:`, error);
+    return Response.json({ error: "Failed to stream speccing", details: String(error) }, { status: 500 });
   }
 }

@@ -60,10 +60,26 @@ export async function searchSubjectsHandler({ request }: RequestInfo) {
 
     const embedding = await getEmbedding(queryText);
 
-    const results = await envCloudflare.MOMENT_INDEX.query(embedding, {
+    console.log(`[subjects:search] Querying Vectorize with topK=10. Namespace Filter: ${finalNamespace || "none"}`);
+    
+    let results = await envCloudflare.MOMENT_INDEX.query(embedding, {
       topK: 10,
       filter,
       returnMetadata: true,
+    });
+
+    if (results.matches.length === 0 && finalNamespace) {
+      console.warn(`[subjects:search] No matches found in namespace ${finalNamespace}. Retrying without namespace filter...`);
+      results = await envCloudflare.MOMENT_INDEX.query(embedding, {
+        topK: 5,
+        filter: { isSubject: true },
+        returnMetadata: true,
+      });
+    }
+
+    console.log(`[subjects:search] Found ${results.matches.length} matches.`);
+    results.matches.forEach((m, i) => {
+      console.log(`  [${i}] score=${m.score.toFixed(4)} id=${m.id} title=${(m.metadata as any)?.documentTitle} ns=${(m.metadata as any)?.momentGraphNamespace}`);
     });
 
     const matches = results.matches.map((match) => ({

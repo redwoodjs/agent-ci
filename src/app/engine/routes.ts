@@ -37,7 +37,7 @@ import {
 
 import { simulationAdminRoutes } from "./routes/simulation";
 import { searchSubjectsHandler } from "./routes/subjects";
-import { startSpeccingHandler, nextSpeccingHandler } from "./routes/speccing";
+import { startSpeccingHandler, nextSpeccingHandler, nextSpeccingStreamHandler } from "./routes/speccing";
 
 async function queryHandler({ request, ctx }: RequestInfo) {
   const body = (ctx as any)?.parsedBody as
@@ -1222,6 +1222,9 @@ export const routes = [
   }),
   route("/api/speccing/next", {
     post: [requireQueryApiKey, nextSpeccingHandler],
+  }),
+  route("/api/speccing/next/stream", {
+    post: [requireQueryApiKey, nextSpeccingStreamHandler],
   }),
 ];
 

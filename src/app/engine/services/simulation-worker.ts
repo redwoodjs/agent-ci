@@ -30,7 +30,7 @@ async function withSimulationErrorTracking<T>(
     const errorStack = error instanceof Error ? error.stack : undefined;
     const errorJson = JSON.stringify({ message: errorMsg, stack: errorStack });
 
-    console.error(`[simulation-worker] Error in phase ${phaseName ?? "unknown"}:`, error);
+    console.error(`[simulation-worker] Error in phase ${phaseName ?? "unknown"}:\n`, errorStack ?? error);
 
     // Record error to the database
     if (r2Key) {

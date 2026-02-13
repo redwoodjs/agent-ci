@@ -129,3 +129,21 @@ We have implemented both the Liveness Protection Layer (RFC 1) and the Resilienc
 - **Restart Protection**: Force-touching timestamps on phase restart.
 - **R2 Stability**: Retry logic (3 attempts) + Polling moderated to 50 docs/tick.
 - **AB Updated**: Double-Reset Ditched protocol formally documented.
+
+## Draft PR: Narrative
+
+### Context
+Simulation runs with large document sets (~200+) or those restarted after a significant delay were experiencing persistent stalls or failures. These issues manifested as "Zombie Ditching"—where the system incorrectly discarded active documents—and R2 storage errors during high-concurrency phases.
+
+### Problem
+Our investigation identified three primary failure modes:
+1. **Queue Congestion**: A strict 5-minute inactivity threshold was insufficient for documents waiting in long serial queues or undergoing resource-intensive processing (LLM/Embeddings).
+2. **Restart Death**: Simulations restarted from earlier phases retained stale timestamps, causing the supervisor to immediately flag them as zombies.
+3. **Local Storage Failure**: Increasing throughput polling limits to 100 documents per tick overwhelmed local development infrastructure (Miniflare R2), resulting in "Unspecified error (0)" during artifact retrieval.
+
+### Solution
+We have implemented a dual-layered protection strategy to ensure simulation liveness and stability:
+- **Double-Reset Liveness Strategy**: We introduced a "Pick-Up Latch" that refreshes work unit timestamps the moment processing begins. The initial "wait in line" threshold has also been extended to 30 minutes to accommodate high-throughput local runs.
+- **Restart Protection**: Manual simulation restarts now forcefully touch all involved document timestamps to prevent immediate ditching of stale data.
+- **R2 Stability Patch**: We added retry logic (3 attempts) to artifact load operations and moderated polling limits to 50 documents per tick, ensuring reliability within local development environments while maintaining improved performance.
+

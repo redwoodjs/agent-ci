@@ -41,7 +41,7 @@ export class ArtifactStorage implements StorageStrategy {
             attempts++;
             if (attempts >= maxAttempts) throw error;
             const delay = Math.pow(2, attempts) * 100; // 200ms, 400ms
-            console.warn(`[ArtifactStorage] R2 get failed (attempt ${attempts}), retrying in ${delay}ms...`, output.key);
+            console.warn(`[ArtifactStorage] R2 get failed (attempt ${attempts}), retrying in ${delay}ms...`, { key: output.key, error: error instanceof Error ? { message: error.message, stack: error.stack } : error });
             await new Promise(resolve => setTimeout(resolve, delay));
           }
         }

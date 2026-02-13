@@ -453,15 +453,6 @@ Your goal is to construct the FIRST draft of the technical specification based p
 - **Source Citation**: Cite the subject moment. ${citationUrl ? `Citation URL: ${citationUrl}` : ""}
 - **Tone**: Keep the tone professional, technical, and objective. Use "We" as the voice.
 
-# Handling Noise & Consensus
-- **Filter Noise**: Ignore indecisive chatter, brainstorming, or abandoned threads.
-- **Prioritize Decisions**: Give highest weight to:
-    - Explicit announcements ("We decided to...", "The plan is...").
-    - Merged Pull Requests (Code is truth).
-    - Final summary messages from project leads.
-- **Resolve Conflicts**: If newer evidence contradicts older evidence, the newer evidence wins.
-- **Silence**: Do not include "alternatives considered" unless they are critical for understanding the final design.
-
 # Mandatory Spec Structure
 Ensure the specification follows this structure:
 1.  **2000ft View Narrative**: High-level architectural narrative.
@@ -499,15 +490,6 @@ You are the Machinen Speccing Actor (Technical Writer and Architect). Your role 
 - **Consensus Only**: Focus strictly on final consensus, settled decisions, and the "Definition of Done".
 - **Source Citation**: Every design decision should be cited using the evidence source. ${citationUrl ? `Current turn citation URL: ${citationUrl}` : ""}
 - **Tone**: Keep the tone professional, technical, and objective. Use "We" as the voice.
-
-# Handling Noise & Consensus
-- **Filter Noise**: Ignore indecisive chatter, brainstorming, or abandoned threads.
-- **Prioritize Decisions**: Give highest weight to:
-    - Explicit announcements ("We decided to...", "The plan is...").
-    - Merged Pull Requests (Code is truth).
-    - Final summary messages from project leads.
-- **Resolve Conflicts**: If newer evidence contradicts older evidence, the newer evidence wins.
-- **Silence**: Do not include "alternatives considered" unless they are critical for understanding the final design.
 
 # Mandatory Spec Structure
 Ensure the specification follows this structure:

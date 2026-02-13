@@ -185,7 +185,10 @@ async function main() {
         const decoder = new TextDecoder();
         
         // Clear file for this turn's full rewrite (server-side revision model)
-        writeFileSync(specPath, '');
+        // Only clear initially if it's the first turn (streaming mode)
+        if (turn === 1) {
+            writeFileSync(specPath, '');
+        }
 
         const startTime = Date.now();
         let firstChunkTime: number | null = null;
@@ -220,7 +223,10 @@ async function main() {
             // Only stream to stdout if VERBOSE is true
             if (isVerbose) process.stdout.write(text);
             
-            appendFileSync(specPath, text);
+            // Stream to file ONLY if it's the first turn
+            if (turn === 1) {
+                appendFileSync(specPath, text);
+            }
         }
 
         // Final check if the streamed body itself was a completion signal
@@ -232,6 +238,11 @@ async function main() {
             }
         } catch (e) {
             // Not a completion JSON, just content
+        }
+
+        // For subsequent turns, write the full accumulated body at once (atomic update)
+        if (turn > 1 && accumulatedBody.trim().length > 0) {
+             writeFileSync(specPath, accumulatedBody);
         }
 
         const endTime = Date.now();

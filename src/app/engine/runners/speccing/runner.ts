@@ -417,8 +417,8 @@ export async function tickSpeccingSessionStream(
     transform(chunk, controller) {
       chunkCount++;
       totalLength += chunk.length;
-      const now = Date.now();
-      console.log(`[speccing:stream] Chunk ${chunkCount} sent (+${now - streamStartTime}ms). Length: ${chunk.length}`);
+      // const now = Date.now();
+      // console.log(`[speccing:stream] Chunk ${chunkCount} sent (+${now - streamStartTime}ms). Length: ${chunk.length}`);
       controller.enqueue(chunk);
     },
     flush() {
@@ -656,6 +656,7 @@ async function queueDescendants(
     console.log(`[speccing:pq] Found ${children.length} descendants for ${parentId}. Appending to PQ.`);
     return [...currentPq, ...children.map((c) => c.id)];
   }
+  console.log(`[speccing:pq] No descendants found for ${parentId}.`);
   return currentPq;
 }
 
@@ -668,8 +669,8 @@ async function updateSessionProgress(
   await db
     .updateTable("speccing_sessions")
     .set({
-      priority_queue_json: pq as any,
-      processed_ids_json: processed as any,
+      priority_queue_json: JSON.stringify(pq) as any,
+      processed_ids_json: JSON.stringify(processed) as any,
       updated_at: new Date().toISOString(),
     })
     .where("id", "=", id)
@@ -687,8 +688,8 @@ async function updateSession(
   await db
     .updateTable("speccing_sessions")
     .set({
-      priority_queue_json: pq as any,
-      processed_ids_json: processed as any,
+      priority_queue_json: JSON.stringify(pq) as any,
+      processed_ids_json: JSON.stringify(processed) as any,
       working_spec: spec,
       replay_timestamp: timestamp,
       updated_at: new Date().toISOString(),

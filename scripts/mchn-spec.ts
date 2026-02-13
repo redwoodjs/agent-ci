@@ -85,7 +85,8 @@ async function fetchWithRetry(url: string, options: RequestInit, maxRetries = 5)
 async function main() {
   const isVerbose = process.env.VERBOSE === 'true';
   const repository = getRepositoryContext();
-  if (isVerbose) console.log(`--- Searching for relevant subject in ${repository} ---`);
+  
+  console.log(`--- Searching for relevant subject in ${repository} ---`);
 
   // 1. Discovery
   const discoveryResponse = await fetchWithRetry(`${WORKER_URL}/api/subjects/search`, {
@@ -108,17 +109,15 @@ async function main() {
     process.exit(1);
   }
 
-  if (isVerbose) console.log(`Found Subject: ${match.title}`);
+  console.log(`Found Subject: ${match.title}`);
 
   // 2. Initialization
   const sessionSlug = match.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
   const sessionId = `${sessionSlug || 'session'}-${Math.floor(1000 + Math.random() * 9000)}`;
   const specPath = join('docs', 'specs', `${sessionId}.md`);
 
-  if (isVerbose) {
-    console.log(`--- Initializing Speccing Session ---`);
-    console.log(`Target File: ${specPath}`);
-  }
+  console.log(`--- Initializing Speccing Session ---`);
+  console.log(`Target File: ${specPath}`);
   
   mkdirSync(join('docs', 'specs'), { recursive: true });
   writeFileSync(specPath, ''); // Touch file
@@ -131,6 +130,7 @@ async function main() {
     },
     body: JSON.stringify({
       revisionMode: REVISION_MODE,
+      momentGraphNamespace: match.metadata?.momentGraphNamespace ?? undefined,
       context: { repository, namespacePrefix: NAMESPACE_PREFIX }
     })
   });
@@ -144,7 +144,7 @@ async function main() {
   // 3. Autonomous Loop
   let turn = 1;
   while (true) {
-    if (isVerbose) console.log(`--- Turn ${turn}: Streaming refinements ---`);
+    console.log(`--- Turn ${turn}: Streaming refinements ---`);
 
     const response = await fetchWithRetry(`${WORKER_URL}/api/speccing/next/stream?sessionId=${sessionId}`, {
       method: 'POST',
@@ -168,7 +168,7 @@ async function main() {
         try {
             const data = JSON.parse(bodyText);
             if (data.status === 'completed') {
-                if (isVerbose) console.log(`\n--- Speccing Complete ---`);
+                console.log(`\n--- Speccing Complete ---`);
                 break;
             }
         } catch (e) {
@@ -195,7 +195,7 @@ async function main() {
         const chars = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
         let charIdx = 0;
         const spinner = setInterval(() => {
-            if (firstChunkTime === null && isVerbose) {
+            if (firstChunkTime === null) {
                 process.stdout.write(`\r${chars[charIdx++ % chars.length]} Thinking... `);
             }
         }, 80);
@@ -208,7 +208,7 @@ async function main() {
 
             if (firstChunkTime === null) {
                 clearInterval(spinner);
-                if (isVerbose) process.stdout.write('\r          \r'); // Clear spinner
+                process.stdout.write('\r          \r'); // Clear spinner
                 firstChunkTime = Date.now();
                 if (isVerbose) console.log(`\n[debug] First chunk received after ${firstChunkTime - startTime}ms`);
             }
@@ -216,7 +216,10 @@ async function main() {
             chunkIdx++;
             const text = decoder.decode(value, { stream: true });
             accumulatedBody += text;
+            
+            // Only stream to stdout if VERBOSE is true
             if (isVerbose) process.stdout.write(text);
+            
             appendFileSync(specPath, text);
         }
 
@@ -224,7 +227,7 @@ async function main() {
         try {
             const data = JSON.parse(accumulatedBody);
             if (data.status === 'completed') {
-                if (isVerbose) console.log(`\n--- Speccing Complete (Streamed) ---`);
+                console.log(`\n--- Speccing Complete (Streamed) ---`);
                 break;
             }
         } catch (e) {
@@ -234,11 +237,15 @@ async function main() {
         const endTime = Date.now();
         if (isVerbose) {
             console.log(`\n[debug] Stream finished. Total time: ${endTime - startTime}ms. Chunks: ${chunkIdx}`);
-            process.stdout.write('\n');
+        } else {
+             // In non-verbose mode, print a newline if we were streaming content
+             // (though we suppressed content, we might want to separate turns cleanly)
+             // Actually, the spinner clear handles the line.
         }
+        process.stdout.write('\n');
     }
 
-    if (metadata?.moment && isVerbose) {
+    if (metadata?.moment) {
       console.log(`✅ Turn ${turn} complete. Processed: ${metadata.moment.title}`);
     }
 

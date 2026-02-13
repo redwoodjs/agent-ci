@@ -21,6 +21,7 @@ export async function startSpeccingHandler({ request }: RequestInfo) {
     // Dynamic Resolution via Plugins
     const body = (await request.json().catch(() => ({}))) as {
       revisionMode?: "server" | "client";
+      momentGraphNamespace?: string;
       context?: {
         repository?: string;
         namespacePrefix?: string;
@@ -29,7 +30,10 @@ export async function startSpeccingHandler({ request }: RequestInfo) {
 
     const revisionMode = body.revisionMode || "server";
 
-    if (body.context) {
+    if (body.momentGraphNamespace) {
+      momentGraphNamespace = body.momentGraphNamespace;
+      console.log(`[speccing:start] Using provided namespace: ${momentGraphNamespace}`);
+    } else if (body.context) {
        const engineContext = createEngineContext(envCloudflare, "querying");
        const queryContext = {
         query: "speccing-init", // Dummy query for context

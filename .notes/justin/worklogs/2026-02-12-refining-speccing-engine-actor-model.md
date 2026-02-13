@@ -147,13 +147,6 @@ API_KEY=dev \
 MACHINEN_ENGINE_URL=http://localhost:5174 \
 NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
 ~/rw/worktrees/machinen_specs/scripts/mchn-spec.sh - <<EOF
-I want to add a new programmatic prefetch API to the RedwoodSDK client.
-Currently, prefetching only happens via link tags. I want an exported 'prefetch' function that can be called manually.
-
-Requirements:
-1. It should take a URL (string or URL object).
-2. It should use the existing 'preloadNavigationUrl' internal function.
-3. It should be exported from 'rwsdk/client'.
-4. It should be safe to call multiple times for the same URL.
+I want to extend RedwoodSDK's client-side navigation support, to add a new possibility for manual prefetching using a programmatic client side API, via a new `prefetch` function
 EOF
 ```

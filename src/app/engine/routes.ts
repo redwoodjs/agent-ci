@@ -1221,7 +1221,7 @@ export const routes = [
     post: [requireQueryApiKey, startSpeccingHandler],
   }),
   route("/api/speccing/next", {
-    get: [requireQueryApiKey, nextSpeccingHandler],
+    post: [requireQueryApiKey, nextSpeccingHandler],
   }),
 ];
 

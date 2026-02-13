@@ -46,18 +46,20 @@ fi
 
 # 2. Discovery
 echo "--- Searching for relevant subject ---" >&2
-SUBJECT_ID=$(curl -s -X POST "$WORKER_URL/api/subjects/search" \
+SEARCH_RESPONSE=$(curl -s -X POST "$WORKER_URL/api/subjects/search" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
-  -d "{ \"query\": \"$PROMPT\", \"context\": { \"repository\": \"$REPOSITORY\", \"namespacePrefix\": \"$NAMESPACE_PREFIX\" } }" \
-  | jq -r '.matches[0].id')
+  -d "{ \"query\": \"$PROMPT\", \"context\": { \"repository\": \"$REPOSITORY\", \"namespacePrefix\": \"$NAMESPACE_PREFIX\" } }")
+
+SUBJECT_ID=$(echo "$SEARCH_RESPONSE" | jq -r '.matches[0].id')
+SUBJECT_TITLE=$(echo "$SEARCH_RESPONSE" | jq -r '.matches[0].title')
 
 if [ "$SUBJECT_ID" = "null" ] || [ -z "$SUBJECT_ID" ]; then
   echo "Error: No matching subject found for prompt: $PROMPT" >&2
   exit 1
 fi
 
-echo "Found Subject: $SUBJECT_ID" >&2
+echo "Found Subject: $SUBJECT_TITLE" >&2
 
 # 3. Initialization
 echo "--- Initializing Speccing Session ---" >&2
@@ -77,7 +79,7 @@ echo "Session Started: $SESSION_ID" >&2
 
 # 4. Autonomous Loop
 TURN=1
-SPEC_FILE="docs/specs/${SUBJECT_ID}.md"
+SPEC_FILE="docs/specs/${SESSION_ID}.md"
 mkdir -p docs/specs
 
 while true; do
@@ -89,6 +91,12 @@ while true; do
     -H "Content-Type: application/json" \
     -d "{ \"userPrompt\": \"$PROMPT\" }")
 
+  # Validate JSON
+  if ! echo "$NEXT_RESPONSE" | jq . >/dev/null 2>&1; then
+    echo "Error: Backend returned non-JSON response: $NEXT_RESPONSE" >&2
+    exit 1
+  fi
+
   STATUS=$(echo "$NEXT_RESPONSE" | jq -r '.status')
 
   if [ "$STATUS" = "completed" ]; then
@@ -96,7 +104,7 @@ while true; do
     break
   fi
 
-  if [ "$STATUS" = "not_found" ] || [ "$STATUS" = "failed" ]; then
+  if [ "$STATUS" = "not_found" ] || [ "$STATUS" = "failed" ] || [ "$STATUS" = "null" ]; then
     echo "Error: Session $STATUS - $NEXT_RESPONSE" >&2
     exit 1
   fi

@@ -44,6 +44,28 @@ Revise the current specification draft to incorporate the new evidence. Return t
   });
 }
 
+async function generateSemanticSessionId(
+  title: string,
+  summary: string
+): Promise<string> {
+  const prompt = `
+Generate a short, URL-safe semantic identifier (kebab-case) for a speccing session.
+The session is about: ${title}
+Summary: ${summary}
+
+Examples:
+- "auth-refactor-api"
+- "ui-component-library-v2"
+- "data-migration-strategy"
+
+Return ONLY the kebab-case identifier, no other text or explanation.
+`;
+
+  const result = await callLLM(prompt);
+  // Clean up any accidental LLM output
+  return result.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || `session-${Date.now()}`;
+}
+
 export interface SpeccingSession {
   id: string;
   subjectId: string;
@@ -69,8 +91,9 @@ export async function initializeSpeccingSession(
     throw new Error(`Subject moment not found: ${subjectId}`);
   }
 
-  const sessionId = crypto.randomUUID();
   const now = new Date().toISOString();
+  const semanticId = await generateSemanticSessionId(subject.title, subject.summary);
+  const sessionId = `${semanticId}-${Math.floor(Math.random() * 10000)}`;
 
   await speccingDb
     .insertInto("speccing_sessions")
@@ -341,8 +364,8 @@ async function updateSession(
   await db
     .updateTable("speccing_sessions")
     .set({
-      priority_queue_json: JSON.stringify(pq) as any,
-      processed_ids_json: JSON.stringify(processed) as any,
+      priority_queue_json: pq as any,
+      processed_ids_json: processed as any,
       working_spec: spec,
       replay_timestamp: timestamp,
       updated_at: new Date().toISOString(),

@@ -59,13 +59,32 @@ interface SpeccingMetadata {
 - The script must respect the `retry-after` header if provided by the server.
 
 ### Suggested Verification
-1.  Run `API_KEY=dev MACHINEN_ENGINE_URL=http://localhost:5174 tsx scripts/mchn-spec.ts "test prompt"`.
-2.  Observe live streaming output in the terminal and file.
-3.  Force a 429 error (via mock or real quota) and verify the retry logic with backoff.
+1.  Run the **Definitive Execution Example** below from the SDK directory.
+2.  Observe live streaming output in the terminal and verify the file `docs/specs/*.md` is updated incrementally.
+3.  Check server logs for `[speccing:stream] Chunk X sent (+Yms)` to confirm per-token streaming.
+4.  Run with `VERBOSE=true` to see `[debug]` timing diagnostics in the CLI.
+
+### Execution Example (Definitive)
+
+Run the following command from the project root or the SDK directory to trigger the autonomous speccing loop with diagnostics:
+
+```bash
+VERBOSE=true \
+API_KEY=dev \
+MACHINEN_ENGINE_URL=http://localhost:5174/ \
+NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
+npx tsx /Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts \
+"I want to extend RedwoodSDK's client-side navigation support, to add a new possibility for manual prefetching using a programmatic client side API, via a new 'prefetch' function"
+```
+
+> [!NOTE]
+> `VERBOSE=true` enables timing diagnostics (`[debug]` logs) to measure chunk arrival latency.
 
 ### Tasks
-- [ ] Implement `mchn-spec.ts` boilerplate and environment detection.
-- [ ] Implement `requestWithRetry` logic.
-- [ ] Implement subject discovery and session initialization.
-- [ ] Implement the autonomous streaming loop with live file updates.
+- [x] Implement `mchn-spec.ts` boilerplate and environment detection.
+- [x] Implement `requestWithRetry` logic.
+- [x] Implement subject discovery and session initialization.
+- [x] Implement the autonomous streaming loop with live file updates.
+- [x] Add `VERBOSE` logging and anti-buffering headers.
+- [x] Fix session continuity (infinite loop) by advancing state atomically.
 - [ ] Verify functionality and delete `mchn-spec.sh`.

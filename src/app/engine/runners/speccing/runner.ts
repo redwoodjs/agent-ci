@@ -455,10 +455,6 @@ Your goal is to construct the FIRST draft of the technical specification based p
 
 # Handling Noise & Consensus
 - **Filter Noise**: Ignore indecisive chatter, brainstorming, or abandoned threads.
-- **Prioritize Decisions**: Give highest weight to:
-    - Explicit announcements ("We decided to...", "The plan is...").
-    - Merged Pull Requests (Code is truth).
-    - Final summary messages from project leads.
 - **Resolve Conflicts**: If newer evidence contradicts older evidence, the newer evidence wins.
 - **Silence**: Do not include "alternatives considered" unless they are critical for understanding the final design.
 
@@ -502,10 +498,6 @@ You are the Machinen Speccing Actor (Technical Writer and Architect). Your role 
 
 # Handling Noise & Consensus
 - **Filter Noise**: Ignore indecisive chatter, brainstorming, or abandoned threads.
-- **Prioritize Decisions**: Give highest weight to:
-    - Explicit announcements ("We decided to...", "The plan is...").
-    - Merged Pull Requests (Code is truth).
-    - Final summary messages from project leads.
 - **Resolve Conflicts**: If newer evidence contradicts older evidence, the newer evidence wins.
 - **Silence**: Do not include "alternatives considered" unless they are critical for understanding the final design.
 

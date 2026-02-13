@@ -338,8 +338,8 @@ export async function tickSpeccingSessionStream(
     return Response.json({ error: `Session not found: ${sessionId}` }, { status: 404 });
   }
 
-  const pq = JSON.parse(session.priority_queue_json as unknown as string) as string[];
-  const processed = JSON.parse(session.processed_ids_json as unknown as string) as string[];
+  const pq = [].concat((session.priority_queue_json as any || [])) as string[];
+  const processed = [].concat((session.processed_ids_json as any || [])) as string[];
 
   if (pq.length === 0) {
     return Response.json({ status: "completed" });

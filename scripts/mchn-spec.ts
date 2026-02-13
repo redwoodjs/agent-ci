@@ -144,7 +144,7 @@ async function main() {
   // 3. Autonomous Loop
   let turn = 1;
   while (true) {
-    console.log(`--- Turn ${turn}: Streaming refinements ---`);
+    console.log(`--- Turn ${turn}: Streaming refinements to ${specPath} ---`);
 
     const response = await fetchWithRetry(`${WORKER_URL}/api/speccing/next/stream?sessionId=${sessionId}`, {
       method: 'POST',

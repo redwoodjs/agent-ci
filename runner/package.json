@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev": "tsc && node --env-file=.env dist/index.js"
+    "dev": "tsc && node --env-file=.env dist/index.js",
+    "oa": "node --env-file=.env dist/cli.js"
   },
   "keywords": [],
   "author": "",

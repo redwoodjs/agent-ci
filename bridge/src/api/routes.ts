@@ -17,6 +17,7 @@ export const apiRoutes = [
   route("/jobs", [requiresAuthToken, handleJobs ]),
   route("/presence", handlePresence),
   route("/registration-token", [requiresAuthToken, handleRegistrationToken]),
+  route("/local-job", [requiresAuthToken, handleLocalJob]),
 ];
 
 const webhookHeadersSchema = z.object({
@@ -137,6 +138,10 @@ async function handleJobs({ request }: { request: Request }): Promise<Response> 
   if (rawJobs.length > 0) {
     // Generate tokens for each job on-demand
     for (const job of rawJobs) {
+        if (job.localSync) {
+            jobs.push(job);
+            continue;
+        }
         try {
             console.log(`[Bridge] Generating on-demand token for ${job.githubRepo}...`);
             const token = await getInstallationToken(job.installationId.toString(), job.githubRepo);
@@ -158,6 +163,36 @@ async function handleJobs({ request }: { request: Request }): Promise<Response> 
     username,
     jobs,
   }), {
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+async function handleLocalJob({ request }: { request: Request }): Promise<Response> {
+  const body = await request.json() as any;
+  const { username, repoName, repoPath, headSha } = body;
+
+  if (!username || !repoName || !repoPath || !headSha) {
+    return new Response("Missing required fields", { status: 400 });
+  }
+
+  const deliveryId = crypto.randomUUID();
+  console.log(`[Bridge] Queuing local sync job for ${username}: ${repoName} (DeliveryID: ${deliveryId})`);
+
+  const jobsJson = await env.OA1_BRIDGE_JOBS.get(`queued_jobs@${username}`);
+  const jobs = jobsJson ? JSON.parse(jobsJson) : [];
+
+  jobs.push({
+    deliveryId,
+    githubJobId: "local-" + Date.now(),
+    githubRepo: repoName,
+    localSync: true,
+    localPath: repoPath,
+    headSha,
+  });
+
+  await env.OA1_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify(jobs));
+
+  return new Response(JSON.stringify({ status: "ok", deliveryId }), {
     headers: { "Content-Type": "application/json" },
   });
 }

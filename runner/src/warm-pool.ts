@@ -21,6 +21,7 @@ export class WarmPool {
   private isRunning: boolean = false;
   private reconcileInterval: NodeJS.Timeout | null = null;
   private nextRunnerId: number = 1;
+  private processedJobs: Set<string> = new Set();
 
   constructor() {
     this.reconcile = this.reconcile.bind(this);
@@ -71,11 +72,23 @@ export class WarmPool {
       console.warn("[WarmPool] Max runners reached. Cannot spawn new warm runner.");
     }
     
-    // Poll the bridge to announce presence
-    await pollJobs();
+    
+    // Poll the bridge to announce presence and get jobs
+    const jobs = await pollJobs();
+    for (const job of jobs) {
+        if (this.processedJobs.has(job.deliveryId)) continue;
+        
+        console.log(`[WarmPool] Received job: ${job.deliveryId} (LocalSync: ${job.localSync})`);
+        this.processedJobs.add(job.deliveryId);
+
+        if (job.localSync) {
+            console.log(`[WarmPool] Spawning dedicated local runner for job ${job.deliveryId}`);
+            await this.spawnRunner(job);
+        }
+    }
   }
 
-  private async spawnRunner() {
+  private async spawnRunner(job?: any) {
     const runId = this.nextRunnerId++;
     const randomSuffix = Math.random().toString(36).substring(2, 7);
     const containerName = `${CONTAINER_PREFIX}${runId}-${randomSuffix}`;
@@ -105,6 +118,7 @@ export class WarmPool {
                 `RUNNER_TOKEN=${registrationToken}`,
                 `RUNNER_REPOSITORY_URL=${repoUrl}`,
                 `RUNNER_FLAGS=--ephemeral --unattended --labels opposite-actions`,
+                ...(job?.localSync ? [`OA_LOCAL_SYNC=true`, `PATH=/tmp/oa-shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`] : []),
             ],
             // Run config.sh before run.sh to properly register the runner with the correct labels
             Cmd: ["bash", "-c", "./config.sh --url $RUNNER_REPOSITORY_URL --token $RUNNER_TOKEN --name $RUNNER_NAME --unattended $RUNNER_FLAGS && ./run.sh --once"],
@@ -112,8 +126,12 @@ export class WarmPool {
             Binds: [
                 `${workDir}:/home/runner/_work`,
                 "/var/run/docker.sock:/var/run/docker.sock",
+                ...(job?.localSync ? [
+                    `${job.localPath}:/home/runner/_work/${job.githubRepo}/${job.githubRepo}`,
+                    ...(await this.prepareShims(containerName))
+                ] : [])
             ],
-            AutoRemove: true, // Auto-remove on exit makes cleanup easier
+            AutoRemove: !job?.localSync, // Keep local sync containers for debugging
             },
             Tty: true,
         });
@@ -157,7 +175,7 @@ export class WarmPool {
 
         stream.on('data', (chunk: Buffer) => {
             const logLine = chunk.toString();
-            console.log(`[Runner ${runnerId.substring(0,6)}] ${logLine.trim()}`); // Verbose
+            // console.log(`[Runner ${runnerId.substring(0,6)}] ${logLine.trim()}`); // Verbose
 
             // Detection logic
             if (logLine.includes("Job") && logLine.includes("message received")) {
@@ -244,6 +262,27 @@ export class WarmPool {
       });
       console.log(`[WarmPool] Pull complete.`);
     }
+  }
+
+  private async prepareShims(containerName: string): Promise<string[]> {
+    const shimsDir = path.resolve(process.cwd(), "_/shims", containerName);
+    if (!fs.existsSync(shimsDir)) fs.mkdirSync(shimsDir, { recursive: true });
+
+    const gitShimPath = path.join(shimsDir, "git");
+    const gitShimContent = `#!/bin/bash
+case "$1" in
+  checkout|fetch|reset|init)
+    echo "[OA Shim] Intercepted '$1' to protect local files."
+    exit 0
+    ;;
+  *)
+    /usr/bin/git "$@"
+    ;;
+esac
+`;
+    fs.writeFileSync(gitShimPath, gitShimContent, { mode: 0o755 });
+    
+    return [`${shimsDir}:/tmp/oa-shims`];
   }
 }
 

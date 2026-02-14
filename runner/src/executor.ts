@@ -123,7 +123,7 @@ export async function executeJob(job: Job): Promise<void> {
       stderr: true,
       follow: false,
     });
-    console.log(`[Executor] Logs:\n${logBuffer.toString()}`);
+    // console.log(`[Executor] Logs:\n${logBuffer.toString()}`);
 
     // 6. Cleanup
     if (exitCode !== 0) {

@@ -8,8 +8,11 @@ export interface Job {
     name: string;
   };
   env?: Record<string, string>;
-  githubJobId?: number;
+  githubJobId?: string | number;
   githubRepo?: string;
   githubToken?: string;
+  localSync?: boolean;
+  localPath?: string;
+  headSha?: string;
   [key: string]: any;
 }

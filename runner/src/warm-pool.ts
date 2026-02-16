@@ -118,7 +118,11 @@ export class WarmPool {
                 `RUNNER_TOKEN=${registrationToken}`,
                 `RUNNER_REPOSITORY_URL=${repoUrl}`,
                 `RUNNER_FLAGS=--ephemeral --unattended --labels opposite-actions`,
-                ...(job?.localSync ? [`OA_LOCAL_SYNC=true`, `PATH=/tmp/oa-shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`] : []),
+                ...(job?.localSync ? [
+                    `OA_LOCAL_SYNC=true`,
+                    `PATH=/tmp/oa-shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+                    ...(job.headSha ? [`OA_HEAD_SHA=${job.headSha}`] : [])
+                ] : []),
             ],
             // Run config.sh before run.sh to properly register the runner with the correct labels
             Cmd: ["bash", "-c", "./config.sh --url $RUNNER_REPOSITORY_URL --token $RUNNER_TOKEN --name $RUNNER_NAME --unattended $RUNNER_FLAGS && ./run.sh --once"],

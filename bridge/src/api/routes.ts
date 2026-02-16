@@ -78,6 +78,14 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
 
   await env.OA1_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(webhookData));
   
+  // 3b. Update recent list
+  const recentWebhooksJson = await env.OA1_BRIDGE_JOBS.get("webhooks:recent");
+  const recentIds: string[] = recentWebhooksJson ? JSON.parse(recentWebhooksJson) : [];
+  if (!recentIds.includes(deliveryId)) {
+    recentIds.unshift(deliveryId);
+    await env.OA1_BRIDGE_JOBS.put("webhooks:recent", JSON.stringify(recentIds.slice(0, 50)));
+  }
+
   // Store mapping for GitHub API mock
   const jobId = payload.workflow_job?.id;
   if (jobId) {
@@ -177,6 +185,24 @@ async function handleLocalJob({ request }: { request: Request }): Promise<Respon
 
   const deliveryId = crypto.randomUUID();
   console.log(`[Bridge] Queuing local sync job for ${username}: ${repoName} (DeliveryID: ${deliveryId})`);
+
+  // Store for UI
+  const jobData = {
+    deliveryId,
+    eventType: "local_sync",
+    timestamp: Date.now(),
+    username,
+    status: "queued",
+    headSha,
+    repoName,
+  };
+  await env.OA1_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(jobData));
+
+  // Update recent list
+  const recentWebhooksJson = await env.OA1_BRIDGE_JOBS.get("webhooks:recent");
+  const recentIds: string[] = recentWebhooksJson ? JSON.parse(recentWebhooksJson) : [];
+  recentIds.unshift(deliveryId);
+  await env.OA1_BRIDGE_JOBS.put("webhooks:recent", JSON.stringify(recentIds.slice(0, 50)));
 
   const jobsJson = await env.OA1_BRIDGE_JOBS.get(`queued_jobs@${username}`);
   const jobs = jobsJson ? JSON.parse(jobsJson) : [];

@@ -4,31 +4,43 @@ import { config } from "./config";
 
 async function run() {
   const command = process.argv[2];
+  const arg = process.argv[3];
 
   if (command === "run") {
-    await handleRun();
+    await handleRun(arg);
   } else {
-    console.log("Usage: oa <command>");
+    console.log("Usage: oa <command> [args]");
     console.log("Commands:");
-    console.log("  run: Run local CI simulation");
+    console.log("  run [sha]: Run local CI simulation (defaults to HEAD)");
     process.exit(1);
   }
 }
 
-async function handleRun() {
+async function handleRun(sha?: string) {
   console.log("[OA] Starting local CI simulation...");
 
   try {
     // 1. Get Repo Info
     const repoPath = process.cwd();
     const repoName = path.basename(repoPath);
-    const headSha = execSync("git rev-parse HEAD").toString().trim();
+    
+    let headSha: string;
+    if (sha) {
+      try {
+        headSha = execSync(`git rev-parse --verify ${sha}`).toString().trim();
+        console.log(`[OA] Using provided SHA: ${headSha}`);
+      } catch (e) {
+        throw new Error(`Invalid SHA: ${sha}`);
+      }
+    } else {
+      headSha = execSync("git rev-parse HEAD").toString().trim();
+      console.log(`[OA] Using HEAD: ${headSha}`);
+    }
     
     // We assume the username is in config
     const username = config.GITHUB_USERNAME;
 
     console.log(`[OA] Repo: ${repoName} (${repoPath})`);
-    console.log(`[OA] HEAD: ${headSha}`);
 
     // 2. Queue Job via Bridge
     const bridgeUrl = config.BRIDGE_URL;

@@ -14,17 +14,17 @@ export async function getWorkflowTemplate(filePath: string) {
   return await convertWorkflowTemplate(result.context, result.value);
 }
 
-export async function parseWorkflowSteps(filePath: string, jobName: string) {
+export async function parseWorkflowSteps(filePath: string, taskName: string) {
   const template = await getWorkflowTemplate(filePath);
   
   // Find the job by ID or Name
   const job = template.jobs.find(j => {
     if (j.type !== 'job') return false;
-    return j.id.toString() === jobName || (j.name && j.name.toString() === jobName);
+    return j.id.toString() === taskName || (j.name && j.name.toString() === taskName);
   });
 
   if (!job || job.type !== 'job') {
-    throw new Error(`Job "${jobName}" not found in workflow "${filePath}"`);
+    throw new Error(`Task "${taskName}" not found in workflow "${filePath}"`);
   }
 
   return job.steps.map((step, index) => {

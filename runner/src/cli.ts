@@ -15,7 +15,7 @@ async function run() {
     // Basic argument parsing
     let sha: string | undefined;
     let workflow: string | undefined;
-    let jobName: string | undefined;
+    let taskName: string | undefined;
     let runAll = false;
     let branch: string | undefined;
 
@@ -23,8 +23,8 @@ async function run() {
         if ((args[i] === "--workflow" || args[i] === "-w") && args[i+1]) {
             workflow = args[i+1];
             i++;
-        } else if ((args[i] === "--job" || args[i] === "-j") && args[i+1]) {
-            jobName = args[i+1];
+        } else if ((args[i] === "--task" || args[i] === "-t" || args[i] === "--job" || args[i] === "-j") && args[i+1]) {
+            taskName = args[i+1];
             i++;
         } else if (args[i] === "--all" || args[i] === "-a") {
             runAll = true;
@@ -36,18 +36,36 @@ async function run() {
         }
     }
 
-    if (runAll && !workflow) {
-        await handleRunAll({ sha, branch, jobName });
+    if (!runAll && !workflow) {
+        console.error("[OA] Error: You must specify either --workflow <path> or --all");
+        console.log("");
+        printUsage();
+        process.exit(1);
+    }
+
+    if (runAll) {
+        await handleRunAll({ sha, branch, taskName });
     } else {
-        await handleRun({ sha, workflow, jobName });
+        await handleRun({ sha, workflow, taskName });
     }
   } else {
-    console.log("Usage: oa <command> [args]");
-    console.log("Commands:");
-    console.log("  run [sha] [--workflow <path>] [--job <name>]: Run local CI simulation (defaults to HEAD)");
-    console.log("  run [sha] --all [--branch <name>]: Run all relevant PR/Push workflows for the branch");
+    printUsage();
     process.exit(1);
   }
+}
+
+function printUsage() {
+    console.log("Usage: oa <command> [args]");
+    console.log("");
+    console.log("Commands:");
+    console.log("  run [sha] --workflow <path> [--task <name>]: Run a specific workflow (defaults to HEAD)");
+    console.log("  run [sha] --all [--branch <name>] [--task <name>]: Run all relevant PR/Push workflows for the branch");
+    console.log("");
+    console.log("Options:");
+    console.log("  -w, --workflow <path>  Path to the workflow file");
+    console.log("  -t, --task <name>      Specific task (job) to run");
+    console.log("  -a, --all              Run all relevant workflows");
+    console.log("  --branch <name>        Branch name for relevance check (defaults to current branch)");
 }
 
 function resolveRepoRoot() {
@@ -91,10 +109,10 @@ function getCurrentBranch(repoRoot: string) {
     }
 }
 
-async function handleRun(options: { sha?: string; workflow?: string; jobName?: string }) {
+async function handleRun(options: { sha?: string; workflow?: string; taskName?: string }) {
   const { sha } = options;
   let workflow = options.workflow;
-  let jobName = options.jobName;
+  let taskName = options.taskName;
 
   console.log("[OA] Starting local CI simulation...");
 
@@ -109,23 +127,8 @@ async function handleRun(options: { sha?: string; workflow?: string; jobName?: s
     // 4. Resolve Workflow
     const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
     if (!workflow) {
-        if (!fs.existsSync(workflowsDir)) {
-            throw new Error(`Workflow directory not found: ${workflowsDir}`);
-        }
-        const yamlFiles = fs.readdirSync(workflowsDir).filter(f => f.endsWith(".yml") || f.endsWith(".yaml"));
-        if (yamlFiles.includes("test.yml")) {
-            workflow = "test.yml";
-        } else if (yamlFiles.includes("ci.yml")) {
-            workflow = "ci.yml";
-        } else if (yamlFiles.length === 1) {
-            workflow = yamlFiles[0];
-        } else if (yamlFiles.length === 0) {
-            throw new Error(`No workflow files found in ${workflowsDir}`);
-        } else {
-            console.error("[OA] Multiple workflows found. Please specify one with --workflow:");
-            yamlFiles.forEach(f => console.error(`  - ${f}`));
-            process.exit(1);
-        }
+        // This should be caught by the run() check now, but keeping for safety
+        throw new Error("Workflow path is required when not using --all");
     }
 
     let workflowPath: string;
@@ -149,17 +152,17 @@ async function handleRun(options: { sha?: string; workflow?: string; jobName?: s
     const template = await getWorkflowTemplate(workflowPath);
     const jobs = template.jobs.filter(j => j.type === "job");
 
-    if (!jobName) {
+    if (!taskName) {
         if (jobs.length === 1) {
-            jobName = jobs[0].id.toString();
+            taskName = jobs[0].id.toString();
         } else {
             const jobIds = jobs.map(j => j.id.toString());
             // Look for common entry point names
             const found = ["test", "ci", "run", "build"].find(name => jobIds.includes(name));
             if (found) {
-                jobName = found;
+                taskName = found;
             } else {
-                console.error(`[OA] Multiple jobs found in workflow. Please specify one with --job:`);
+                console.error(`[OA] Multiple tasks found in workflow. Please specify one with --task:`);
                 jobIds.forEach(id => console.error(`  - ${id}`));
                 process.exit(1);
             }
@@ -168,14 +171,14 @@ async function handleRun(options: { sha?: string; workflow?: string; jobName?: s
 
     // Double check specific job if provided
     const jobIds = jobs.map(j => j.id.toString());
-    if (!jobIds.includes(jobName)) {
-        console.error(`[OA] Job "${jobName}" not found in ${path.basename(workflowPath)}. Available jobs:`);
+    if (!jobIds.includes(taskName)) {
+        console.error(`[OA] Task "${taskName}" not found in ${path.basename(workflowPath)}. Available tasks:`);
         jobIds.forEach(id => console.error(`  - ${id}`));
         process.exit(1);
     }
 
-    console.log(`[OA] Parsing workflow: ${path.basename(workflowPath)} (job: ${jobName})`);
-    const steps = await parseWorkflowSteps(workflowPath, jobName);
+    console.log(`[OA] Parsing workflow: ${path.basename(workflowPath)} (task: ${taskName})`);
+    const steps = await parseWorkflowSteps(workflowPath, taskName);
 
     // 6. Construct Job
     const job: Job = {
@@ -204,7 +207,7 @@ async function handleRun(options: { sha?: string; workflow?: string; jobName?: s
   }
 }
 
-async function handleRunAll(options: { sha?: string; branch?: string; jobName?: string }) {
+async function handleRunAll(options: { sha?: string; branch?: string; taskName?: string }) {
     console.log("[OA] Scanning for relevant workflows...");
     
     try {
@@ -222,7 +225,7 @@ async function handleRunAll(options: { sha?: string; branch?: string; jobName?: 
         }
 
         const yamlFiles = fs.readdirSync(workflowsDir).filter(f => f.endsWith(".yml") || f.endsWith(".yaml"));
-        const relevantJobs: { workflowPath: string; jobName: string }[] = [];
+        const relevantJobs: { workflowPath: string; taskName: string }[] = [];
 
         for (const file of yamlFiles) {
             const workflowPath = path.join(workflowsDir, file);
@@ -232,8 +235,8 @@ async function handleRunAll(options: { sha?: string; branch?: string; jobName?: 
                 const jobs = template.jobs.filter(j => j.type === "job");
                 for (const job of jobs) {
                     const id = job.id.toString();
-                    if (!options.jobName || options.jobName === id) {
-                        relevantJobs.push({ workflowPath, jobName: id });
+                    if (!options.taskName || options.taskName === id) {
+                        relevantJobs.push({ workflowPath, taskName: id });
                     }
                 }
             }
@@ -244,11 +247,11 @@ async function handleRunAll(options: { sha?: string; branch?: string; jobName?: 
             return;
         }
 
-        console.log(`[OA] Found ${relevantJobs.length} relevant job(s) to run.`);
+        console.log(`[OA] Found ${relevantJobs.length} relevant task(s) to run.`);
 
-        for (const { workflowPath, jobName } of relevantJobs) {
-            console.log(`[OA] --- Running Workflow: ${path.basename(workflowPath)} | Job: ${jobName} ---`);
-            const steps = await parseWorkflowSteps(workflowPath, jobName);
+        for (const { workflowPath, taskName } of relevantJobs) {
+            console.log(`[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName} ---`);
+            const steps = await parseWorkflowSteps(workflowPath, taskName);
             
             const job: Job = {
                 deliveryId: `local-run-${Date.now()}`,

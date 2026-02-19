@@ -48,6 +48,8 @@ const KNOWN_NOISE_ERRORS = [
   /Caught exception from InitializeJob/,
   // Stack trace lines from any of the above
   /^\[(?:RUNNER|WORKER) [^\]]+ERR\s+[^\]]+\]\s+at /,
+  // All JobServerQueue errors are internal best-effort processing (feed, upload, timeline)
+  /JobServerQueue/,
 ];
 
 // ─── Phase-based filter ───────────────────────────────────────────────────────
@@ -155,6 +157,18 @@ export async function executeLocalJob(job: Job): Promise<void> {
   // 3. Prepare directories (done first so containerName is available for the header)
   const { name: containerName, outputLogPath, debugLogPath } = createLogContext("oa-runner");
 
+  // Tell the DTU which log directory to write step output into — do this as early as
+  // possible so it's ready before the runner container boots and sends feed lines.
+  const dtuUrl = config.GITHUB_API_URL;
+  const stepOutputPath = path.join(path.dirname(outputLogPath), "step-output.log");
+  await fetch(`${dtuUrl}/_dtu/start-runner`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ runnerName: containerName, logDir: path.dirname(outputLogPath) }),
+  }).catch(() => {
+    /* non-fatal */
+  });
+
   // Open output stream immediately so header + footer lines are captured in the log
   const outputStream = fs.createWriteStream(outputLogPath);
   const debugStream = fs.createWriteStream(debugLogPath);
@@ -177,7 +191,6 @@ export async function executeLocalJob(job: Job): Promise<void> {
   emit(`  └─ Delivery: ${job.deliveryId}\n`);
 
   // 1. Seed the job to Local DTU
-  const dtuUrl = config.GITHUB_API_URL;
   const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -301,6 +314,43 @@ esac
 
   // outputStream + debugStream already open from above
 
+  // Tail step-output.log written by the DTU during job execution.
+  // Runs in parallel with container log streaming; stops once container exits.
+  let tailDone = false;
+  const tailPromise = (async () => {
+    let offset = 0;
+    let partial = "";
+    // Wait for file to exist (DTU creates it on start-runner)
+    while (!fs.existsSync(stepOutputPath) && !tailDone) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+    while (!tailDone) {
+      try {
+        const stat = fs.statSync(stepOutputPath);
+        if (stat.size > offset) {
+          const fd = fs.openSync(stepOutputPath, "r");
+          const chunk = Buffer.alloc(stat.size - offset);
+          fs.readSync(fd, chunk, 0, chunk.length, offset);
+          fs.closeSync(fd);
+          offset = stat.size;
+          partial += chunk.toString("utf8");
+          const lines = partial.split("\n");
+          partial = lines.pop() ?? "";
+          for (const line of lines) {
+            emit(line);
+          }
+        }
+      } catch {
+        /* file may not exist yet */
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    // Flush any remaining partial line
+    if (partial.trim()) {
+      emit(partial);
+    }
+  })();
+
   await new Promise<void>((resolve) => {
     const rl = createInterface({ input: rawStream, crlfDelay: Infinity });
 
@@ -319,11 +369,14 @@ esac
     });
   });
 
+  // Stop tail now that container has finished
+  tailDone = true;
+  await tailPromise;
+
   // 8. Wait for completion
   const waitResult = await container.wait();
   const containerExitCode = waitResult.StatusCode;
 
-  // The Actions runner process exits 0 even when a job is marked "Failed".
   // Trust the result reported in the log over the container exit code.
   const loggedResult = filterLine.getJobResult(); // e.g. "Succeeded", "Failed", or null
   const jobSucceeded =

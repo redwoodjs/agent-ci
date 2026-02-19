@@ -1,5 +1,8 @@
 import http from "node:http";
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { execa } from "execa";
 import { config } from "./config.js";
 import {
@@ -9,6 +12,35 @@ import {
   ContextData,
   MessageResponse,
 } from "./types.js";
+
+// Set up file logging
+const DTU_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..");
+const DTU_LOGS_DIR = path.join(DTU_ROOT, "_", "logs");
+fs.mkdirSync(DTU_LOGS_DIR, { recursive: true });
+const DTU_LOG_PATH = path.join(DTU_LOGS_DIR, "dtu-server.log");
+const logStream = fs.createWriteStream(DTU_LOG_PATH, { flags: "a" });
+
+const _origLog = console.log.bind(console);
+const _origWarn = console.warn.bind(console);
+const _origError = console.error.bind(console);
+
+function writeToLog(...args: unknown[]): void {
+  const line = args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+  logStream.write(`${new Date().toISOString()} ${line}\n`);
+}
+
+console.log = (...args: unknown[]) => {
+  _origLog(...args);
+  writeToLog(...args);
+};
+console.warn = (...args: unknown[]) => {
+  _origWarn(...args);
+  writeToLog("[WARN]", ...args);
+};
+console.error = (...args: unknown[]) => {
+  _origError(...args);
+  writeToLog("[ERROR]", ...args);
+};
 
 // Kill existing process on port 8910
 try {
@@ -30,6 +62,29 @@ export const messageQueues = new Map<string, any[]>();
 export const pendingPolls = new Map<string, { res: http.ServerResponse; baseUrl: string }>();
 export const timelines = new Map<string, any[]>();
 export const logs = new Map<string, string[]>();
+
+// Active runner: set by POST /_dtu/start-runner from localJob.ts
+// The DTU writes feed lines to this file so the client can tail it.
+let activeStepOutputPath: string | null = null;
+
+/** Runner-internal log prefixes that should never appear in user-facing step output. */
+const RUNNER_INTERNAL_RE =
+  /^\[(?:RUNNER|WORKER) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z (?:INFO|WARN|ERR)\s/;
+
+function writeStepOutputLine(line: string): void {
+  if (!activeStepOutputPath) {
+    return;
+  }
+  // Filter out runner-internal log lines — only write actual step output
+  if (RUNNER_INTERNAL_RE.test(line)) {
+    return;
+  }
+  try {
+    fs.appendFileSync(activeStepOutputPath, line + "\n");
+  } catch {
+    // best-effort
+  }
+}
 
 // Clear state on start
 jobs.clear();
@@ -69,19 +124,36 @@ function toContextData(obj: any): any {
   return { t: 0, s: "" };
 }
 
+// Build a TemplateToken MappingToken in the format ActionStep.Inputs expects.
+// TemplateTokenJsonConverter uses "type" key (integer) NOT the contextData "t" key.
+// TokenType.Mapping = 2. Items are serialized as {Key: scalarToken, Value: templateToken}.
+// Strings without file/line/col are serialized as bare string values.
+function toTemplateTokenMapping(obj: { [key: string]: string }): object {
+  const entries = Object.entries(obj);
+  if (entries.length === 0) {
+    return { type: 2 };
+  }
+  return {
+    type: 2,
+    map: entries.map(([k, v]) => ({ Key: k, Value: v })),
+  };
+}
+
 function createJobResponse(jobId: string, payload: any, baseUrl: string): MessageResponse {
   const mappedSteps: JobStep[] = (payload.steps || []).map((step: any, index: number) => {
-    // If it's already in the correct format (from workflowParser), preserve it
-    // But ensure mandatory fields for official runner are present
+    const inputsObj: { [key: string]: string } =
+      step.Inputs || (step.run ? { script: step.run } : {});
     const s = {
-      Id: step.Id || step.id || crypto.randomUUID(),
-      Name: step.Name || step.DisplayName || step.name || `step-${index}`,
-      Type: step.Type || "Action",
-      Reference: step.Reference || {
-        Type: "Script",
-      },
-      Inputs: step.Inputs || (step.run ? { script: step.run } : {}),
-      ContextData: step.ContextData || toContextData({}),
+      id: step.Id || step.id || crypto.randomUUID(),
+      name: step.Name || step.DisplayName || step.name || `step-${index}`,
+      type: (step.Type || "Action").toLowerCase(),
+      // ActionSourceType.Script = 3
+      reference: { type: 3 },
+      // inputs is TemplateToken (MappingToken). Must use {"type": 2, "map": [...]} format.
+      inputs: toTemplateTokenMapping(inputsObj),
+      contextData: step.ContextData || toContextData({}),
+      // condition must be explicit — null Condition causes NullReferenceException in EvaluateStepIf
+      condition: step.condition || "success()",
     };
 
     return s;
@@ -140,6 +212,10 @@ function createJobResponse(jobId: string, payload: any, baseUrl: string): Messag
 
   const ContextData: ContextData = {
     github: toContextData(githubContext),
+    steps: { t: 2, d: [] }, // Empty steps context (required by EvaluateStepIf)
+    needs: { t: 2, d: [] }, // Empty needs context
+    strategy: { t: 2, d: [] }, // Empty strategy context
+    matrix: { t: 2, d: [] }, // Empty matrix context
   };
 
   const jobRequest: PipelineAgentJobRequest = {
@@ -561,10 +637,11 @@ export const server = http.createServer((req, res) => {
               serviceType: "distributedtask",
               identifier: "A85B8835-C1A1-4AAC-AE97-1C3D0BA72DBD",
               displayName: "distributedtask",
-              relativeToSetting: 3, // FullyQualified
+              relativeToSetting: 3,
               relativePath: "",
               description: "Distributed Task Service",
               serviceOwner: "A85B8835-C1A1-4AAC-AE97-1C3D0BA72DBD",
+              status: 1, // ServiceStatus.Online — REQUIRED or VssLocationService skips it
               locationMappings: [
                 {
                   accessMappingMoniker: "PublicAccessMapping",
@@ -576,10 +653,11 @@ export const server = http.createServer((req, res) => {
               serviceType: "distributedtask",
               identifier: "A8C47E17-4D56-4A56-92BB-DE7EA7DC65BE", // Pools
               displayName: "Pools",
-              relativeToSetting: 3, // FullyQualified
+              relativeToSetting: 3,
               relativePath: "/_apis/distributedtask/pools",
               description: "Pools Service",
               serviceOwner: "A85B8835-C1A1-4AAC-AE97-1C3D0BA72DBD",
+              status: 1,
               locationMappings: [
                 {
                   accessMappingMoniker: "PublicAccessMapping",
@@ -591,11 +669,12 @@ export const server = http.createServer((req, res) => {
               serviceType: "distributedtask",
               identifier: "27d7f831-88c1-4719-8ca1-6a061dad90eb", // ActionDownloadInfo
               displayName: "ActionDownloadInfo",
-              relativeToSetting: 3, // FullyQualified
+              relativeToSetting: 3,
               relativePath:
                 "/_apis/distributedtask/hubs/{hubName}/plans/{planId}/actiondownloadinfo",
               description: "Action Download Info Service",
               serviceOwner: "A85B8835-C1A1-4AAC-AE97-1C3D0BA72DBD",
+              status: 1,
               locationMappings: [
                 {
                   accessMappingMoniker: "PublicAccessMapping",
@@ -607,11 +686,28 @@ export const server = http.createServer((req, res) => {
               serviceType: "distributedtask",
               identifier: "858983e4-19bd-4c5e-864c-507b59b58b12", // AppendTimelineRecordFeedAsync
               displayName: "AppendTimelineRecordFeed",
-              relativeToSetting: 3, // FullyQualified
+              relativeToSetting: 3,
               relativePath:
                 "/_apis/distributedtask/hubs/{hubName}/plans/{planId}/timelines/{timelineId}/records/{recordId}/feed",
               description: "Timeline Feed Service",
               serviceOwner: "A85B8835-C1A1-4AAC-AE97-1C3D0BA72DBD",
+              status: 1,
+              locationMappings: [
+                {
+                  accessMappingMoniker: "PublicAccessMapping",
+                  location: `${baseUrl}`,
+                },
+              ],
+            },
+            {
+              serviceType: "distributedtask",
+              identifier: "46f5667d-263a-4684-91b1-dff7fdcf64e2", // AppendLogContent / log file upload
+              displayName: "TaskLog",
+              relativeToSetting: 3,
+              relativePath: "/_apis/distributedtask/hubs/{hubName}/plans/{planId}/logs/{logId}",
+              description: "Task Log Service",
+              serviceOwner: "A85B8835-C1A1-4AAC-AE97-1C3D0BA72DBD",
+              status: 1,
               locationMappings: [
                 {
                   accessMappingMoniker: "PublicAccessMapping",
@@ -626,7 +722,30 @@ export const server = http.createServer((req, res) => {
     return;
   }
 
-  // 19. Append Timeline Record Feed Mock
+  // POST /_dtu/start-runner — called by localJob.ts when spawning a runner container
+  // Body: { runnerName: string, logDir: string }
+  if (method === "POST" && url === "/_dtu/start-runner") {
+    let body = "";
+    req.on("data", (chunk) => {
+      body += chunk;
+    });
+    req.on("end", () => {
+      try {
+        const { logDir } = JSON.parse(body);
+        fs.mkdirSync(logDir, { recursive: true });
+        activeStepOutputPath = path.join(logDir, "step-output.log");
+        // Truncate/create fresh for this run
+        fs.writeFileSync(activeStepOutputPath, "");
+      } catch (e) {
+        console.warn("[DTU] start-runner parse error:", e);
+      }
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    return;
+  }
+
+  // 19. Append Timeline Record Feed — write lines to active runner's step-output.log
   if (method === "POST" && url?.includes("/feed")) {
     let body = "";
     req.on("data", (chunk) => {
@@ -635,22 +754,28 @@ export const server = http.createServer((req, res) => {
     req.on("end", () => {
       try {
         const payload = JSON.parse(body || "{}");
-        // The feed often contains lines in a specific format
-        // We'll just store the raw payload for inspection in dump
-        const timelineId = url.split("/timelines/")[1].split("/")[0];
-        const existing = logs.get(timelineId) || [];
-
-        if (Array.isArray(payload)) {
-          existing.push(...payload.map((p) => (typeof p === "string" ? p : JSON.stringify(p))));
-        } else if (payload.value && Array.isArray(payload.value)) {
-          existing.push(...payload.value.map((p: any) => p.message || JSON.stringify(p)));
-        } else {
-          existing.push(body);
+        let count = 0;
+        if (payload.value && Array.isArray(payload.value)) {
+          for (const l of payload.value) {
+            const msg = typeof l === "string" ? l : (l.message ?? "");
+            if (msg) {
+              writeStepOutputLine(msg);
+              count++;
+            }
+          }
+        } else if (Array.isArray(payload)) {
+          for (const l of payload) {
+            writeStepOutputLine(typeof l === "string" ? l : JSON.stringify(l));
+            count++;
+          }
         }
-        logs.set(timelineId, existing);
-        console.log(`[DTU] Captured feed for ${timelineId}`);
-      } catch (e) {
-        console.warn("[DTU] Failed to parse feed body", e);
+        if (count > 0) {
+          console.log(
+            `[DTU] Feed: wrote ${count} lines to ${activeStepOutputPath ?? "(no active runner)"}`,
+          );
+        }
+      } catch {
+        // best-effort
       }
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ count: 0, value: [] }));
@@ -880,9 +1005,78 @@ export const server = http.createServer((req, res) => {
 
   // 18. Generic Step Outputs Handler
   if (method === "POST" && url?.includes("/outputs")) {
-    console.log(`[DTU] Acknowledging step outputs: ${url}`);
     res.writeHead(200);
     res.end(JSON.stringify({ value: {} }));
+    return;
+  }
+
+  // Log file upload (resource 46f5667d) — AppendLogContentAsync sends UTF-8 step log text.
+  // POST /_apis/distributedtask/hubs/{hub}/plans/{planId}/logs/{logId}?startLine=...
+  // We write each non-annotation line to step-output.log.
+  if (
+    (method === "POST" || method === "PUT") &&
+    url?.includes("/_apis/") &&
+    url?.includes("/logs/")
+  ) {
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      const text = Buffer.concat(chunks).toString("utf8");
+      try {
+        // Each line of text is a step log line. Filter runner-internal annotations.
+        for (const rawLine of text.split("\n")) {
+          const line = rawLine.trimEnd();
+          // Skip empty lines and ##[...] annotation markers
+          if (!line || line.startsWith("##[") || line.startsWith("[command]")) {
+            continue;
+          }
+          writeStepOutputLine(line);
+        }
+        if (text.trim()) {
+          console.log(`[DTU] Log upload: wrote ${text.split("\n").length} lines to step-output`);
+        }
+      } catch {
+        /* best-effort */
+      }
+      // Extract logId from URL: .../logs/{logId}?...
+      const logIdMatch = url?.match(/\/logs\/(\d+)/);
+      const logId = logIdMatch ? parseInt(logIdMatch[1]) : 1;
+      const lineCount = text.split("\n").filter((l: string) => l.trim()).length;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ id: logId, lineCount, createdOn: new Date().toISOString() }));
+    });
+    return;
+  }
+
+  // Create log entry stub (returns a log ID)
+  if (
+    method === "POST" &&
+    url?.includes("/_apis/") &&
+    url?.includes("/logs") &&
+    !url?.includes("/logs/")
+  ) {
+    const logId = Math.floor(Math.random() * 10000);
+    req.on("data", () => {});
+    req.on("end", () => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ id: logId, lineCount: 0, createdOn: new Date().toISOString() }));
+    });
+    return;
+  }
+
+  // Attachments / results stub — accept and discard
+  if (
+    (method === "POST" || method === "PUT" || method === "PATCH") &&
+    url?.includes("/_apis/") &&
+    (url?.includes("/attachments") || url?.includes("/results"))
+  ) {
+    req.on("data", () => {});
+    req.on("end", () => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ value: [] }));
+    });
     return;
   }
 
@@ -1034,6 +1228,27 @@ export const server = http.createServer((req, res) => {
         releasedVersion: "6.0",
       },
       {
+        id: "858983e4-19bd-4c5e-864c-507b59b58b12",
+        area: "distributedtask",
+        resourceName: "feed",
+        routeTemplate:
+          "_apis/distributedtask/hubs/{hubName}/plans/{planId}/timelines/{timelineId}/records/{recordId}/feed",
+        resourceVersion: 1,
+        minVersion: "1.0",
+        maxVersion: "9.0",
+        releasedVersion: "9.0",
+      },
+      {
+        id: "46f5667d-263a-4684-91b1-dff7fdcf64e2",
+        area: "distributedtask",
+        resourceName: "logs",
+        routeTemplate: "_apis/distributedtask/hubs/{hubName}/plans/{planId}/logs/{logId}",
+        resourceVersion: 1,
+        minVersion: "1.0",
+        maxVersion: "9.0",
+        releasedVersion: "9.0",
+      },
+      {
         id: "8893BC5B-35B2-4BE7-83CB-99E683551DB4",
         area: "distributedtask",
         resourceName: "records",
@@ -1105,5 +1320,6 @@ if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== 
     console.log(
       `[DTU] OA-RUN-1 Mock GitHub API server running at http://0.0.0.0:${config.DTU_PORT}`,
     );
+    console.log(`[DTU] Logging to ${DTU_LOG_PATH}`);
   });
 }

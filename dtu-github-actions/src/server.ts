@@ -1,5 +1,6 @@
 import http from 'node:http';
 import crypto from 'node:crypto';
+import { execa } from 'execa';
 import { config } from './config.js';
 import { 
     PipelineAgentJobRequest, 
@@ -8,8 +9,17 @@ import {
     ContextData, 
     JobResources, 
     JobWorkspace,
+    JobRepository,
     MessageResponse 
 } from './types.js';
+
+// Kill existing process on port 8910
+try {
+    await execa('kill', ['-9', '$(lsof -t -i:8910)'], { shell: true, reject: false });
+    console.log('[DTU] Killed existing process on port 8910');
+} catch (e) {
+    // Ignore error if no process found
+}
 
 /**
  * Digital Twin Universe (DTU) - GitHub API Mock Server
@@ -22,12 +32,39 @@ export const jobs = new Map<string, any>();
 export const sessions = new Map<string, any>();
 export const messageQueues = new Map<string, any[]>();
 export const pendingPolls = new Map<string, { res: http.ServerResponse, baseUrl: string }>();
+export const timelines = new Map<string, any[]>();
+export const logs = new Map<string, string[]>();
 
 // Clear state on start
 jobs.clear();
 sessions.clear();
 messageQueues.clear();
 pendingPolls.clear();
+timelines.clear();
+logs.clear();
+
+// Helper to convert JS objects to ContextData
+function toContextData(obj: any): { t: number, a?: any[], d?: any[], s?: string, b?: boolean, n?: number, v?: any } {
+    if (typeof obj === 'string') return { t: 0, s: obj };
+    if (typeof obj === 'boolean') return { t: 3, b: obj };
+    if (typeof obj === 'number') return { t: 4, n: obj };
+    
+    if (Array.isArray(obj)) {
+        return { 
+            t: 1, 
+            a: obj.map(toContextData) 
+        };
+    }
+    
+    if (typeof obj === 'object' && obj !== null) {
+        return { 
+            t: 2, 
+            d: Object.entries(obj).map(([k, v]) => ({ k, v: toContextData(v) })) 
+        };
+    }
+    
+    return { t: 0, s: "" };
+}
 
 function createJobResponse(jobId: string, payload: any, baseUrl: string): MessageResponse {
     const mappedSteps: JobStep[] = (payload.steps || []).map((step: any) => ({
@@ -35,44 +72,50 @@ function createJobResponse(jobId: string, payload: any, baseUrl: string): Messag
         Id: crypto.randomUUID(),
     }));
 
+    const repoFullName = payload.repository?.full_name || "redwoodjs/opposite-actions";
+    const ownerName = payload.repository?.owner?.login || "redwoodjs";
+
     const Variables: { [key: string]: JobVariable } = {
-        "system.github.token": {
-            Value: "fake-token",
-            IsSecret: true,
+        "system.github.token": { Value: "fake-token", IsSecret: true },
+        "system.github.job": { Value: "local-job", IsSecret: false },
+        "system.github.repository": { Value: repoFullName, IsSecret: false },
+        "github.repository": { Value: repoFullName, IsSecret: false },
+        "github.actor": { Value: ownerName, IsSecret: false },
+        "github.sha": { Value: payload.headSha || "0000000000000000000000000000000000000000", IsSecret: false },
+        "github.ref": { Value: "refs/heads/main", IsSecret: false },
+        "repository": { Value: repoFullName, IsSecret: false },
+        "GITHUB_REPOSITORY": { Value: repoFullName, IsSecret: false },
+        "GITHUB_ACTOR": { Value: ownerName, IsSecret: false },
+        "build.repository.name": { Value: repoFullName, IsSecret: false },
+        "build.repository.uri": { Value: `https://github.com/${repoFullName}`, IsSecret: false }
+    };
+
+    // ... ContextData ...
+
+    const githubContext = {
+        repository: repoFullName,
+        event: {
+            repository: {
+                full_name: repoFullName,
+                name: payload.repository?.name || "opposite-actions",
+                owner: { login: ownerName }
+            },
+            pull_request: null
         },
-        "system.github.job": {
-            Value: "local-job",
-            IsSecret: false,
-        },
-        "system.github.repository": {
-            Value: "redwoodjs/opposite-actions",
-            IsSecret: false,
-        },
-        "github.repository": {
-            Value: "redwoodjs/opposite-actions",
-            IsSecret: false,
-        },
-        "github.actor": {
-            Value: "peterp",
-            IsSecret: false,
-        }
+        actor: ownerName,
+        sha: "0000000000000000000000000000000000000000",
+        ref: "refs/heads/main",
+        server_url: baseUrl,
+        api_url: `${baseUrl}/_apis`,
+        graphql_url: `${baseUrl}/_graphql`,
+        workspace: "/home/runner/work/opposite-actions/opposite-actions",
+        action: "__run",
+        token: "fake-token",
+        job: "local-job"
     };
 
     const ContextData: ContextData = {
-        "github": {
-            "t": 2, // Dictionary
-            "v": [
-                { "k": "repository", "v": { "t": 0, "v": "redwoodjs/opposite-actions" } },
-                { "k": "actor", "v": { "t": 0, "v": "peterp" } },
-                { "k": "sha", "v": { "t": 0, "v": "0000000000000000000000000000000000000000" } },
-                { "k": "ref", "v": { "t": 0, "v": "refs/heads/main" } },
-                { "k": "server_url", "v": { "t": 0, "v": baseUrl } },
-                { "k": "api_url", "v": { "t": 0, "v": `${baseUrl}/_apis` } },
-                { "k": "graphql_url", "v": { "t": 0, "v": `${baseUrl}/_graphql` } },
-                { "k": "workspace", "v": { "t": 0, "v": "/home/runner/work/opposite-actions/opposite-actions" } },
-                { "k": "action", "v": { "t": 0, "v": "__run" } }
-            ]
-        }
+        "github": toContextData(githubContext) as any
     };
 
     const jobRequest: PipelineAgentJobRequest = {
@@ -94,7 +137,24 @@ function createJobResponse(jobId: string, payload: any, baseUrl: string): Messag
         Variables: Variables,
         ContextData: ContextData,
         Resources: {
-            Repositories: [],
+            Repositories: [
+                {
+                    Alias: "self",
+                    Id: "repo-1",
+                    Type: "git",
+                    Version: payload.headSha || "HEAD",
+                    Url: `https://github.com/${repoFullName}`,
+                    Properties: {
+                        id: "repo-1",
+                        name: payload.repository?.name || "opposite-actions",
+                        fullName: repoFullName, // Required by types
+                        repoFullName: repoFullName, // camelCase
+                        owner: ownerName,
+                        defaultBranch: payload.repository?.default_branch || "main",
+                        cloneUrl: `https://github.com/${repoFullName}.git`
+                    }
+                }
+            ],
             Endpoints: [
                 {
                     Name: "SystemVssConnection",
@@ -125,6 +185,10 @@ function createJobResponse(jobId: string, payload: any, baseUrl: string): Messag
         EnvironmentVariables: []
     };
 
+    console.log(`[DTU] DEBUG: Generating Job Response for JobId: ${crypto.randomUUID()}`);
+    console.log(`[DTU] DEBUG: repoFullName in Resources: ${jobRequest.Resources.Repositories[0].Properties['repoFullName']}`);
+    console.log(`[DTU] DEBUG: ContextData Payload:`, JSON.stringify(jobRequest.ContextData, null, 2));
+
     return {
         MessageId: 1,
         MessageType: 'PipelineAgentJobRequest',
@@ -151,8 +215,8 @@ export const server = http.createServer((req, res) => {
   let host = headers.host || `localhost:${config.DTU_PORT}`;
   const protocol = headers['x-forwarded-proto'] || 'http';
 
-  // If host is host.docker.internal without port, append it
-  if (host === 'host.docker.internal' || host === 'localhost') {
+  // If host doesn't have a port, append it
+  if (!host.includes(':')) {
      host = `${host}:${config.DTU_PORT}`;
   }
 
@@ -178,6 +242,7 @@ export const server = http.createServer((req, res) => {
 
           jobs.set(jobId, { ...payload, steps: mappedSteps });
           console.log(`[DTU] Seeded job: ${jobId}`);
+          console.log(`[DTU] Seed Payload Repository:`, JSON.stringify(payload.repository, null, 2));
           
           // Notify any pending polls
           for (const [sessionId, { res, baseUrl: runnerBaseUrl }] of pendingPolls) {
@@ -372,11 +437,22 @@ export const server = http.createServer((req, res) => {
        if (jobs.size > 0) {
            const [[jobId, jobData]] = Array.from(jobs.entries());
            console.log(`[DTU] TRACE-DELIVERY: Job found. Sending immediate job ${jobId} to session ${sessionId}`);
-           res.writeHead(200, { 'Content-Type': 'application/json' });
-           res.end(JSON.stringify(createJobResponse(jobId, jobData, baseUrl)));
-           jobs.delete(jobId);
-           pendingPolls.delete(sessionId);
-           return;
+           try {
+               const response = createJobResponse(jobId, jobData, baseUrl);
+               res.writeHead(200, { 'Content-Type': 'application/json' });
+               res.end(JSON.stringify(response));
+               jobs.delete(jobId);
+               pendingPolls.delete(sessionId);
+               return;
+           } catch (e) {
+               console.error(`[DTU] Error creating job response:`, e);
+               // Don't delete job, let it retry? Or delete to avoid loop?
+               // Better to not delete so we can debug, but might infinite loop.
+               // For now, allow retry.
+               res.writeHead(500);
+               res.end('Internal Server Error generating job');
+               return;
+           }
        }
 
        // Long poll: Wait up to 20 seconds before returning empty
@@ -459,11 +535,54 @@ export const server = http.createServer((req, res) => {
                 location: `${baseUrl}/_apis/distributedtask/pools`
               }
             ]
+          },
+          {
+            serviceType: "distributedtask",
+            identifier: "27d7f831-88c1-4719-8ca1-6a061dad90eb", // ActionDownloadInfo
+            displayName: "ActionDownloadInfo",
+            relativeToSetting: 3, // FullyQualified
+            relativePath: "/_apis/distributedtask/hubs/{hubName}/plans/{planId}/actiondownloadinfo",
+            description: "Action Download Info Service",
+            serviceOwner: "A85B8835-C1A1-4AAC-AE97-1C3D0BA72DBD",
+            locationMappings: [
+              {
+                accessMappingMoniker: "PublicAccessMapping",
+                location: `${baseUrl}`
+              }
+            ]
+          },
+          {
+            serviceType: "distributedtask",
+            identifier: "858983e4-19bd-4c5e-864c-507b59b58b12", // AppendTimelineRecordFeedAsync
+            displayName: "AppendTimelineRecordFeed",
+            relativeToSetting: 3, // FullyQualified
+            relativePath: "/_apis/distributedtask/hubs/{hubName}/plans/{planId}/timelines/{timelineId}/records/{recordId}/feed",
+            description: "Timeline Feed Service",
+            serviceOwner: "A85B8835-C1A1-4AAC-AE97-1C3D0BA72DBD",
+            locationMappings: [
+              {
+                accessMappingMoniker: "PublicAccessMapping",
+                location: `${baseUrl}`
+              }
+            ]
           }
         ]
       }
     }));
     return;
+  }
+
+  // 19. Append Timeline Record Feed Mock
+  if (method === 'POST' && url?.includes('/feed')) {
+      // console.log(`[DTU] Append timeline record feed: ${url}`);
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+          // Just acknowledge
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ count: 0, value: [] }));
+      });
+      return;
   }
 
   // 10. Pools Handler (Mock)
@@ -558,6 +677,150 @@ export const server = http.createServer((req, res) => {
     return;
   }
 
+  // 15. Timeline Records Handler (Status Updates & Log Links)
+  if (method === 'PATCH' && url?.includes('/_apis/distributedtask/timelines/') && url?.includes('/records')) {
+    console.log(`[DTU] Handling timeline records update: ${url}`);
+    const timelineId = url.split('/timelines/')[1].split('/')[0];
+    
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+       try {
+         const payload = JSON.parse(body || '{}');
+         const newRecords = payload.value || [];
+         
+         let existing = timelines.get(timelineId) || [];
+         
+         // Merge records
+         for (const record of newRecords) {
+             const idx = existing.findIndex(r => r.id === record.id);
+             if (idx >= 0) {
+                 existing[idx] = { ...existing[idx], ...record };
+             } else {
+                 existing.push(record);
+             }
+         }
+         
+         timelines.set(timelineId, existing);
+         console.log(`[DTU] Updated timeline ${timelineId} with ${newRecords.length} records`);
+
+         res.writeHead(200, { 'Content-Type': 'application/json' });
+         res.end(JSON.stringify({ count: existing.length, value: existing }));
+       } catch (e) {
+         console.error('[DTU] Error parsing timeline body', e);
+         res.writeHead(400);
+         res.end();
+       }
+    });
+    return;
+  }
+
+  // 16. Log Creation Handler
+  if (method === 'POST' && url?.includes('/_apis/distributedtask/') && url?.includes('/logs') && !url?.includes('/lines')) {
+      console.log(`[DTU] Creating log: ${url}`);
+      let logId = "";
+      const match = url.match(/\/logs\/([^/?]+)/);
+      if (match) logId = match[1];
+
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+           // Ensure map entry exists
+           if (!logs.has(logId)) logs.set(logId, []);
+           
+           res.writeHead(201, { 'Content-Type': 'application/json' });
+           res.end(JSON.stringify({ id: logId, state: "Created" })); // Mock response
+      });
+      return;
+  }
+
+  // 17. Log Line Appending Handler
+  if (method === 'POST' && url?.includes('/_apis/distributedtask/') && url?.includes('/lines')) {
+      // console.log(`[DTU] Appending log lines: ${url}`);
+      let logId = "";
+      const match = url.match(/\/logs\/([^/?]+)/);
+      if (match) logId = match[1];
+
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+           try {
+             const payload = JSON.parse(body || '{}');
+             const lines = (payload.value || []).map((l: any) => l.message || l); // Handle object or string lines
+             
+             const existing = logs.get(logId) || [];
+             existing.push(...lines);
+             logs.set(logId, existing);
+             
+             // Console log for visibility in pnpm dev
+             lines.forEach((l: string) => console.log(`[Log-${logId.substring(0,4)}] ${l}`));
+
+             res.writeHead(200, { 'Content-Type': 'application/json' });
+             res.end(JSON.stringify({ count: existing.length, value: existing })); 
+           } catch (e) {
+               console.error('[DTU] Error appending logs', e);
+               res.writeHead(400);
+               res.end();
+           }
+      });
+      return;
+  }
+
+  // Debug: Dump State
+  if (method === 'GET' && url === '/_dtu/dump') {
+      const dump = {
+          jobs: Object.fromEntries(jobs),
+          timelines: Object.fromEntries(timelines),
+          logs: Object.fromEntries(logs)
+      };
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(dump));
+      return;
+  }
+
+  // 18. Resolve Action Download Info Mock
+  if (method === 'POST' && url?.includes('/actiondownloadinfo')) {
+      console.log(`[DTU] resolving action download info: ${url}`);
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+          try {
+              const payload = JSON.parse(body || '{}');
+              const actions = payload.actions || [];
+              const result: any = { actions: {} };
+
+              for (const action of actions) {
+                  const key = `${action.nameWithOwner}@${action.ref}`;
+                  // Construct a public GitHub URL for the action
+                  // e.g. https://api.github.com/repos/actions/checkout/tarball/v4
+                  // or https://codeload.github.com/actions/checkout/legacy.tar.gz/refs/tags/v4 ?
+                  // The runner seems to support standard GitHub API tarball URLs.
+                  // We'll use the API URL format which redirects to codeload.
+                  const downloadUrl = `https://api.github.com/repos/${action.nameWithOwner}/tarball/${action.ref}`;
+                  
+                  result.actions[key] = {
+                      nameWithOwner: action.nameWithOwner,
+                      resolvedNameWithOwner: action.nameWithOwner,
+                      ref: action.ref,
+                      resolvedSha: "fake-sha",
+                      tarballUrl: downloadUrl,
+                      zipballUrl: downloadUrl.replace("tarball", "zipball"),
+                      authentication: null // No token for public actions
+                  };
+              }
+
+              console.log(`[DTU] Resolved ${actions.length} actions.`);
+              res.writeHead(200, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify(result));
+          } catch (e) {
+              console.error('[DTU] Error resolving actions', e);
+              res.writeHead(400);
+              res.end();
+          }
+      });
+      return;
+  }
+
   // 8. Global OPTIONS Handler (for CORS/Capabilities + Resource Discovery)
   if (method === 'OPTIONS') {
     res.writeHead(200, {
@@ -620,6 +883,16 @@ export const server = http.createServer((req, res) => {
           releasedVersion: "9.0"
         },
         {
+          id: "27d7f831-88c1-4719-8ca1-6a061dad90eb",
+          area: "distributedtask",
+          resourceName: "actiondownloadinfo",
+          routeTemplate: "_apis/distributedtask/hubs/{hubName}/plans/{planId}/actiondownloadinfo",
+          resourceVersion: 1,
+          minVersion: "1.0",
+          maxVersion: "6.0",
+          releasedVersion: "6.0"
+        },
+        {
           id: "8893BC5B-35B2-4BE7-83CB-99E683551DB4",
           area: "distributedtask",
           resourceName: "records",
@@ -673,6 +946,11 @@ export const server = http.createServer((req, res) => {
     res.end(method === 'GET' ? JSON.stringify({ status: 'online', seededJobs: jobs.size }) : undefined);
     return;
   }
+
+  // 16. Fallback (404)
+  // Log unhandled requests to see if we satisfy all runner demands
+  console.log(`[DTU] 404 Not Found: ${req.method} ${url}`);
+  console.log(`[DTU] Unhandled Headers:`, JSON.stringify(req.headers, null, 2));
 
   res.writeHead(404);
   res.end('Not Found (DTU Mock)');

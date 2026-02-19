@@ -37,8 +37,29 @@ export interface Endpoint {
   };
 }
 
+export interface RepositoryProperties {
+  id: string;
+  name: string;
+  fullName: string;
+  repoFullName?: string; // Re-added as required by runner
+  owner?: string;
+  defaultBranch?: string;
+  cloneUrl?: string;
+  [key: string]: string | undefined;
+}
+
+export interface JobRepository {
+  Alias: string;
+  Id: string;
+  Type: string;
+  Version: string;
+  Url: string;
+  Properties: RepositoryProperties;
+  [key: string]: any;
+}
+
 export interface JobResources {
-  Repositories: any[];
+  Repositories: JobRepository[];
   Endpoints: Endpoint[];
 }
 

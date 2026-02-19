@@ -10,7 +10,7 @@
   "private": true,
   "scripts": {
     "build": "vite build",
-    "dev": "CI=true vite dev --port 8911 --strictPort",
+    "dev": "(pnpm dlx kill-port 8910 || true) && CI=true vite dev --port 8911 --strictPort",
     "dev:init": "rw-scripts dev-init",
     "preview": "vite preview",
     "worker:run": "rw-scripts worker-run",

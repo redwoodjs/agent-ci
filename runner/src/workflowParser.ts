@@ -29,7 +29,15 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
 
   return job.steps.map((step, index) => {
     const stepId = step.id || `step-${index + 1}`;
-    const stepName = step.name ? step.name.toString() : stepId;
+    let stepName = step.name ? step.name.toString() : stepId;
+    
+    // Fix for __actions_checkout issue
+    // If a step uses an action but has no name, @actions/workflow-parser might auto-generate a name like __actions_checkout
+    // which causes the runner to treat it as a special internal step expecting specific inputs.
+    // We force a display name if one isn't provided.
+    if (!step.name && (step as any).uses) {
+        stepName = (step as any).uses.toString();
+    }
 
     if ('run' in step) {
       return {
@@ -46,6 +54,17 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
       };
     } else if ('uses' in step) {
       // Basic support for 'uses' steps
+      // Parse uses string: owner/repo@ref
+      const uses = step.uses.toString();
+      let name = uses;
+      let ref = "";
+      
+      if (uses.indexOf("@") >= 0) {
+          const parts = uses.split("@");
+          name = parts[0];
+          ref = parts[1];
+      }
+      
       return {
         Type: 'Action',
         Name: stepName,
@@ -53,7 +72,10 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
         Id: crypto.randomUUID(),
         Reference: {
           Type: 'Repository',
-          Name: step.uses.toString()
+          Name: name,
+          Ref: ref,
+          RepositoryType: 'GitHub',
+          Path: ""
         },
         Inputs: {
           ...(step as any).with // If we want to support 'with' inputs

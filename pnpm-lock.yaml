@@ -58,7 +58,7 @@ importers:
         specifier: 4.61.1
         version: 4.61.1(@cloudflare/workers-types@4.20260131.0)
 
-  dtu/github-actions:
+  dtu-github-actions:
     dependencies:
       zod:
         specifier: ^3.24.1
@@ -67,6 +67,9 @@ importers:
       '@types/node':
         specifier: ^22.10.2
         version: 22.19.11
+      execa:
+        specifier: ^9.6.1
+        version: 9.6.1
       tsx:
         specifier: ^4.19.2
         version: 4.21.0
@@ -80,8 +83,8 @@ importers:
   runner:
     dependencies:
       '@actions/workflow-parser':
-        specifier: ^0.3.44
-        version: 0.3.44
+        specifier: 0.3.43
+        version: 0.3.43
       dockerode:
         specifier: ^4.0.2
         version: 4.0.9
@@ -114,8 +117,8 @@ packages:
     resolution: {integrity: sha512-Ix5p8nilwVZolpK6Oukm/rzowiCZGBKTTeN1IqR4ZKMuM949ets3y4jLNNPm64a/dCZTEgXzGnNp7CxMiuv7oQ==}
     engines: {node: '>= 18'}
 
-  '@actions/workflow-parser@0.3.44':
-    resolution: {integrity: sha512-uk+wL1eMc34aRNeaYUyYrQMGYZCAfXFSM101kXSnqsrxVoDgJ72f+LUhQ+frZ3f0lau0rl0RQmeOIymiNELulQ==}
+  '@actions/workflow-parser@0.3.43':
+    resolution: {integrity: sha512-hghYVU7h//IGf+NaQgZrO7SI2Pre88ZKZQ8sM/1CBx1bEIJM9t9MMAeTCnKOknNaxBScbDPmmpwil26DxKgMwA==}
     engines: {node: '>= 18'}
 
   '@ast-grep/napi-darwin-arm64@0.39.9':
@@ -3143,7 +3146,7 @@ snapshots:
 
   '@actions/expressions@0.3.44': {}
 
-  '@actions/workflow-parser@0.3.44':
+  '@actions/workflow-parser@0.3.43':
     dependencies:
       '@actions/expressions': 0.3.44
       cronstrue: 2.59.0
@@ -3911,13 +3914,13 @@ snapshots:
 
   '@types/docker-modem@3.0.6':
     dependencies:
-      '@types/node': 22.19.11
+      '@types/node': 24.10.13
       '@types/ssh2': 1.15.5
 
   '@types/dockerode@3.3.47':
     dependencies:
       '@types/docker-modem': 3.0.6
-      '@types/node': 22.19.11
+      '@types/node': 24.10.13
       '@types/ssh2': 1.15.5
 
   '@types/eslint-scope@3.7.7':
@@ -5535,7 +5538,7 @@ snapshots:
       '@protobufjs/path': 1.1.2
       '@protobufjs/pool': 1.1.0
       '@protobufjs/utf8': 1.1.0
-      '@types/node': 22.19.11
+      '@types/node': 24.10.13
       long: 5.3.2
 
   proxy-agent@6.5.0:

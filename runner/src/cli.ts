@@ -193,7 +193,9 @@ async function handleRun(options: { sha?: string; workflow?: string; taskName?: 
       },
       repository: {
         name: name,
-        owner: { login: owner }
+        full_name: githubRepo,
+        owner: { login: owner },
+        default_branch: 'main'
       },
       steps
     };
@@ -265,7 +267,9 @@ async function handleRunAll(options: { sha?: string; branch?: string; taskName?:
                 },
                 repository: {
                   name: name,
-                  owner: { login: owner }
+                  full_name: githubRepo,
+                  owner: { login: owner },
+                  default_branch: 'main'
                 },
                 steps
             };

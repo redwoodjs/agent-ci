@@ -70,3 +70,7 @@ _/work
 _/identity
 _
 actions-runner
+
+temp_runner_source
+tmp-runner-logs
+temp_*

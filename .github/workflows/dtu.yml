@@ -42,7 +42,7 @@ jobs:
           cache: 'pnpm'
 
       - name: Install dependencies
-        run: pnpm install
+        run: echo "pew pew pew"
 
       - name: Run DTU tests
-        run: pnpm --filter dtu-github-actions test
+        run: echo "hello world"

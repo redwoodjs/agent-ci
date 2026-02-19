@@ -4,7 +4,7 @@
   "description": "Digital Twin Universe - GitHub Actions Mock and Simulation",
   "type": "module",
   "scripts": {
-    "dev": "tsx --env-file=.env src/server.ts",
+    "dev": "(pnpm dlx kill-port 8910 || true) && tsx --env-file=.env src/server.ts",
     "simulate": "tsx --env-file=.env src/simulate.ts",
     "test": "BRIDGE_URL=http://localhost:8911 GITHUB_WEBHOOK_SECRET=test-secret vitest run"
   },
@@ -16,6 +16,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "execa": "^9.6.1",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^4.0.18"

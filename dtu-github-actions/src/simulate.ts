@@ -48,7 +48,7 @@ async function main() {
       } else {
         console.log("[DTU] Mock server seeded successfully.");
       }
-    } catch (err) {
+    } catch {
       console.warn(
         `[DTU] Warning: Could not connect to mock server at ${config.DTU_URL}. Is it running?`,
       );

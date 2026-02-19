@@ -40,7 +40,7 @@ function getNextRunnerId(): string {
 
 export async function executeLocalJob(job: Job): Promise<void> {
   const debugPattern = process.env.DEBUG || "";
-  const isDebug = minimatch("runner", debugPattern) || minimatch("runner:*", debugPattern);
+  const _isDebug = minimatch("runner", debugPattern) || minimatch("runner:*", debugPattern);
 
   console.log(`[LocalJob] DEBUG: config.GITHUB_API_URL = '${config.GITHUB_API_URL}'`);
 

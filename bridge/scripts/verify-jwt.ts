@@ -13,7 +13,7 @@ async function testJWT() {
     const jwt = await generateGitHubAppJWT();
     console.log("Generated JWT:", jwt);
 
-    const [headerB64, payloadB64, signatureB64] = jwt.split(".");
+    const [headerB64, payloadB64, _signatureB64] = jwt.split(".");
 
     const header = JSON.parse(atob(headerB64.replace(/-/g, "+").replace(/_/g, "/")));
     const payload = JSON.parse(atob(payloadB64.replace(/-/g, "+").replace(/_/g, "/")));

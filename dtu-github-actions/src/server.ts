@@ -7,17 +7,13 @@ import {
   JobStep,
   JobVariable,
   ContextData,
-  JobResources,
-  JobWorkspace,
-  JobRepository,
   MessageResponse,
 } from "./types.js";
 
 // Kill existing process on port 8910
 try {
   await execa("kill", ["-9", "$(lsof -t -i:8910)"], { shell: true, reject: false });
-  console.log("[DTU] Killed existing process on port 8910");
-} catch (e) {
+} catch {
   // Ignore error if no process found
 }
 
@@ -279,7 +275,7 @@ export const server = http.createServer((req, res) => {
           res.writeHead(400);
           res.end("Missing job ID");
         }
-      } catch (e) {
+      } catch {
         res.writeHead(400);
         res.end("Invalid JSON");
       }
@@ -660,7 +656,7 @@ export const server = http.createServer((req, res) => {
     url?.includes("/agents")
   ) {
     console.log(`[DTU] Handling get agents request: ${url}`);
-    const agentName = new URLSearchParams(url.split("?")[1]).get("agentName");
+    const _agentName = new URLSearchParams(url.split("?")[1]).get("agentName");
 
     // If querying by name, return empty list to simulate "not found" so runner registers
     res.writeHead(200, { "Content-Type": "application/json" });

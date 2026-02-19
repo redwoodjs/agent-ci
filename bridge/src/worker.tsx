@@ -11,9 +11,8 @@ export type AppContext = {};
 
 export default defineApp([
   setCommonHeaders(),
-  ({ ctx }) => {
+  ({ ctx: _ctx }) => {
     // setup ctx here
-    ctx;
   },
   prefix("/api", apiRoutes),
   render(Document, [route("/", Home), route("/admin/jobs", JobsPage)]),

@@ -55,7 +55,7 @@ export async function startGitHubRunner(): Promise<void> {
           `[GitHubRunner] Configuration mismatch. Current: ${currentConfig.gitHubUrl}, Expected: ${expectedRepoUrl}`,
         );
       }
-    } catch (e) {
+    } catch {
       console.warn("[GitHubRunner] Failed to read .runner config. Re-configuring...");
     }
   }
@@ -137,7 +137,7 @@ export async function executeJob(job: Job): Promise<void> {
   ensureLogDirs();
   let logPath = path.join(IN_PROGRESS_LOGS_DIR, `${timestamp}-${runnerName}.log`);
 
-  const logStream = fs.createWriteStream(logPath, { flags: "a" });
+  const _logStream = fs.createWriteStream(logPath, { flags: "a" });
 
   console.log(`[Executor] Processing job: ${job.deliveryId}`);
 

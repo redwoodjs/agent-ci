@@ -308,7 +308,7 @@ async function verifySignature(
       new TextEncoder().encode(payload),
     );
     return verified;
-  } catch (e) {
+  } catch {
     return false;
   }
 }

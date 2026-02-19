@@ -26,7 +26,7 @@ async function request(method: string, path: string, body?: any) {
               status: res.statusCode || 0,
               body: data ? JSON.parse(data) : null,
             });
-          } catch (e) {
+          } catch {
             resolve({ status: res.statusCode || 0, body: data });
           }
         });

@@ -93,7 +93,7 @@ function resolveRepoInfo(repoRoot: string) {
     if (match) {
       githubRepo = match[1];
     }
-  } catch (e) {
+  } catch {
     console.warn("[OA] Could not detect remote 'origin', using config default.");
   }
   return githubRepo;
@@ -105,7 +105,7 @@ function resolveHeadSha(repoRoot: string, sha?: string) {
     const headSha = execSync(`git rev-parse ${ref}`, { cwd: repoRoot }).toString().trim();
     console.log(`[OA] Using SHA: ${headSha} (${ref})`);
     return headSha;
-  } catch (e) {
+  } catch {
     throw new Error(`Failed to resolve ref: ${ref}`);
   }
 }
@@ -113,7 +113,7 @@ function resolveHeadSha(repoRoot: string, sha?: string) {
 function getCurrentBranch(repoRoot: string) {
   try {
     return execSync("git branch --show-current", { cwd: repoRoot }).toString().trim();
-  } catch (e) {
+  } catch {
     return "main";
   }
 }

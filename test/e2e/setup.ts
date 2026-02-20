@@ -68,7 +68,7 @@ export class E2ETestHarness {
         "supervisor/src/cli.ts",
         "run",
         "--workflow",
-        ".github/workflows/smoke-test.yml",
+        ".github/workflows/tests.yml",
         "--task",
         "test",
       ],

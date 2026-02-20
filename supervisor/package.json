@@ -9,7 +9,8 @@
   "scripts": {
     "build": "tsgo",
     "dev": "node --env-file=.env dist/index.js",
-    "oa": "tsx --env-file=.env src/cli.ts"
+    "oa": "tsx --env-file=.env src/cli.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@actions/workflow-parser": "0.3.43",

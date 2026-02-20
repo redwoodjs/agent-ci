@@ -4,6 +4,9 @@ import { bootstrapAndReturnApp } from "./server/index.js";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import type { Polka } from "polka";
+import fs from "node:fs";
+import path from "node:path";
+import { DTU_LOG_PATH } from "./server/logger.js";
 
 let PORT: number;
 
@@ -157,5 +160,27 @@ describe("DTU Server", () => {
     expect(pollRes.body.MessageType).toBe("PipelineAgentJobRequest");
     const body = JSON.parse(pollRes.body.Body);
     expect(body.JobDisplayName).toBe("poll-job");
+  });
+
+  it("should log unhandled requests to 404.log", async () => {
+    const logDir = path.dirname(DTU_LOG_PATH);
+    const logFile = path.join(logDir, "404.log");
+
+    // Clean up any existing 404.log
+    if (fs.existsSync(logFile)) {
+      fs.unlinkSync(logFile);
+    }
+
+    const res = await request("POST", "/some/unhandled/route", { test: "payload" });
+    expect(res.status).toBe(404);
+
+    // Give the file writing a tiny bit of time to complete if needed,
+    // though appendFileSync is synchronous.
+    expect(fs.existsSync(logFile)).toBe(true);
+    const logContent = fs.readFileSync(logFile, "utf-8");
+
+    expect(logContent).toContain("404 Not Found: POST /some/unhandled/route");
+    expect(logContent).toContain("Body (parsed JSON)");
+    expect(logContent).toContain('"test": "payload"');
   });
 });

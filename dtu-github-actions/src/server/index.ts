@@ -2,6 +2,7 @@ import polka from "polka";
 import bodyParser from "body-parser";
 import { execa } from "execa";
 import fs from "node:fs";
+import path from "node:path";
 import { config } from "../config.js";
 import { state } from "./store.js";
 import { setupDtuLogging, DTU_LOG_PATH } from "./logger.js";
@@ -250,19 +251,25 @@ export async function bootstrapAndReturnApp() {
 
   // Catch-all 404 with payload dumping
   app.all("/*", (req: any, res) => {
-    console.log(`[DTU] 404 Not Found: ${req.method} ${req.url}`);
+    console.log(`[DTU] 404 Not Found: ${req.method} ${req.url} (Details in 404.log)`);
 
-    // Dump Headers
-    console.log(`[DTU] 404 Debug Headers:`, JSON.stringify(req.headers, null, 2));
+    let logContent = `\\n--- [${new Date().toISOString()}] 404 Not Found: ${req.method} ${req.url} ---\\n`;
+    logContent += `Headers: ${JSON.stringify(req.headers, null, 2)}\\n`;
 
-    // Dump Body if parsed
     if (req.body && Object.keys(req.body).length > 0) {
-      console.log(`[DTU] 404 Debug Body (parsed JSON):`, JSON.stringify(req.body, null, 2));
+      logContent += `Body (parsed JSON): ${JSON.stringify(req.body, null, 2)}\\n`;
     } else if (typeof req.body === "string" && req.body.length > 0) {
-      console.log(
-        `[DTU] 404 Debug Body (raw text):`,
-        req.body.substring(0, 500) + (req.body.length > 500 ? "..." : ""),
-      );
+      logContent += `Body (raw text): ${req.body.substring(0, 500)}${req.body.length > 500 ? "..." : ""}\\n`;
+    }
+
+    try {
+      const logDir = path.dirname(DTU_LOG_PATH);
+      if (!fs.existsSync(logDir)) {
+        fs.mkdirSync(logDir, { recursive: true });
+      }
+      fs.appendFileSync(path.join(logDir, "404.log"), logContent);
+    } catch {
+      /* best-effort */
     }
 
     res.writeHead(404);

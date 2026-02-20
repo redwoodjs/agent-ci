@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
-import { server, jobs } from "./server.js";
+import { state } from "./server/store.js";
+import { bootstrapAndReturnApp } from "./server/index.js";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
+import type { Polka } from "polka";
 
 let PORT: number;
 
@@ -42,10 +44,14 @@ async function request(method: string, path: string, body?: any) {
 }
 
 describe("DTU Server", () => {
+  let server: Polka;
+
   beforeAll(async () => {
-    await new Promise<void>((resolve) => {
-      server.listen(0, () => {
-        const address = server.address() as AddressInfo;
+    state.reset();
+    const app = await bootstrapAndReturnApp();
+    return new Promise<void>((resolve) => {
+      server = app.listen(0, () => {
+        const address = server.server?.address() as AddressInfo;
         PORT = address.port;
         resolve();
       });
@@ -53,12 +59,16 @@ describe("DTU Server", () => {
   });
 
   beforeEach(() => {
-    jobs.clear();
+    state.jobs.clear();
   });
 
   afterAll(async () => {
     await new Promise<void>((resolve) => {
-      server.close(() => resolve());
+      if (server && server.server) {
+        server.server.close(() => resolve());
+      } else {
+        resolve();
+      }
     });
   });
 
@@ -73,7 +83,7 @@ describe("DTU Server", () => {
     const res = await request("POST", "/_dtu/seed", job);
     expect(res.status).toBe(201);
     expect(res.body.jobId).toBe("123");
-    const storedJob = jobs.get("123");
+    const storedJob = state.jobs.get("123");
     expect(storedJob.id).toBe(job.id);
     expect(storedJob.name).toBe(job.name);
   });
@@ -124,7 +134,7 @@ describe("DTU Server", () => {
   });
 
   it("should handle session creation", async () => {
-    const res = await request("POST", "/distributedtask/pools/1/sessions");
+    const res = await request("POST", "/_apis/distributedtask/pools/1/sessions");
     expect(res.status).toBe(200);
     expect(res.body.sessionId).toBeDefined();
     expect(res.body.agent.name).toBe("oa-runner");
@@ -132,14 +142,17 @@ describe("DTU Server", () => {
 
   it("should handle long polling for messages", async () => {
     // 1. Create a session first
-    const sessionRes = await request("POST", "/distributedtask/pools/1/sessions");
+    const sessionRes = await request("POST", "/_apis/distributedtask/pools/1/sessions");
     const sessionId = sessionRes.body.sessionId;
 
     // 2. Poll for messages (expecting 204 or 200 if job seeded)
     // We'll seed a job first to ensure 200
     await request("POST", "/_dtu/seed", { id: 456, name: "poll-job" });
 
-    const pollRes = await request("GET", `/_apis/distributedtask/messages?sessionId=${sessionId}`);
+    const pollRes = await request(
+      "GET",
+      `/_apis/distributedtask/pools/1/messages?sessionId=${sessionId}`,
+    );
     expect(pollRes.status).toBe(200);
     expect(pollRes.body.MessageType).toBe("PipelineAgentJobRequest");
     const body = JSON.parse(pollRes.body.Body);

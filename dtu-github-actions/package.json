@@ -7,16 +7,20 @@
   "author": "",
   "type": "module",
   "scripts": {
-    "dev": "(pnpm dlx kill-port 8910 || true) && tsx --env-file=.env src/server.ts",
+    "dev": "(pnpm dlx kill-port 8910 || true) && tsx --env-file=.env src/server/index.ts",
     "simulate": "tsx --env-file=.env src/simulate.ts",
     "typecheck": "tsgo",
     "test": "BRIDGE_URL=http://localhost:8911 GITHUB_WEBHOOK_SECRET=test-secret vitest run"
   },
   "dependencies": {
+    "body-parser": "^2.2.2",
+    "polka": "^0.5.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/body-parser": "^1.19.6",
     "@types/node": "^22.10.2",
+    "@types/polka": "^0.5.8",
     "execa": "^9.6.1",
     "tsx": "^4.19.2",
     "vitest": "^4.0.18"

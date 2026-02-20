@@ -11,7 +11,7 @@ export class E2ETestHarness {
 
   async startDTU() {
     console.log("[E2E] Starting DTU...");
-    this.dtuProcess = execa("pnpm", ["tsx", "dtu-github-actions/src/server.ts"], {
+    this.dtuProcess = execa("pnpm", ["tsx", "dtu-github-actions/src/server/index.ts"], {
       cwd: PROJECT_ROOT,
       env: {
         ...process.env,

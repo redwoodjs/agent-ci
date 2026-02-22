@@ -9,7 +9,181 @@ let procs: any[] = [];
 let dtuProc: any = null;
 let supervisorProc: any = null;
 let activeSupervisorRunId: string | null = null;
+import type { FSWatcher } from "node:fs";
+
 let appState = { projectPath: "", commitId: "WORKING_TREE" };
+const watchedProjects = new Map<string, { watcher: FSWatcher | null; lastCommit: string }>();
+
+async function saveWatchedProjects() {
+  const fs = await import("node:fs/promises");
+  const configPath = path.join(Utils.paths.userData, "watched_projects.json");
+  const projects = Array.from(watchedProjects.keys());
+  try {
+    await fs.mkdir(Utils.paths.userData, { recursive: true });
+    await fs.writeFile(configPath, JSON.stringify(projects, null, 2));
+  } catch (e) {
+    console.error("Failed to save watched projects:", e);
+  }
+}
+
+async function enableWatchModeForProject(projectPath: string) {
+  if (watchedProjects.has(projectPath)) {
+    return;
+  }
+
+  let lastCommit = "";
+  try {
+    const gitProc = Bun.spawn(["git", "log", "-1", "--format=%H"], { cwd: projectPath });
+    const output = await new Response(gitProc.stdout).text();
+    lastCommit = output.trim();
+  } catch {}
+
+  try {
+    const gitDir = path.join(projectPath, ".git");
+    const watcher = fsSync.watch(gitDir, { recursive: true }, async (_eventType, filename) => {
+      if (
+        filename &&
+        (filename === "logs/HEAD" || filename === "HEAD" || filename.startsWith("refs/heads/"))
+      ) {
+        try {
+          const gitProc = Bun.spawn(["git", "log", "-1", "--format=%H"], {
+            cwd: projectPath,
+          });
+          const output = await new Response(gitProc.stdout).text();
+          const currentCommit = output.trim();
+          const watchData = watchedProjects.get(projectPath);
+
+          if (watchData && currentCommit && currentCommit !== watchData.lastCommit) {
+            watchData.lastCommit = currentCommit;
+
+            const fsPromises = await import("node:fs/promises");
+            const workflowsPath = path.join(projectPath, ".github", "workflows");
+            const files = await fsPromises.readdir(workflowsPath, {
+              withFileTypes: true,
+            });
+            let workflowId: string | null = null;
+            for (const file of files) {
+              if (file.isFile() && (file.name.endsWith(".yml") || file.name.endsWith(".yaml"))) {
+                workflowId = file.name;
+                break;
+              }
+            }
+
+            if (workflowId) {
+              rpc.send.dtuLog(
+                `\n[OA] Auto-Run: New commit ${currentCommit.substring(0, 7)} detected. Running workflow ${workflowId}\n`,
+              );
+              handleRunWorkflow({ projectPath, workflowId }, (msg) => rpc.send.dtuLog(msg));
+            }
+          }
+        } catch {}
+      }
+    });
+
+    watchedProjects.set(projectPath, { watcher, lastCommit });
+  } catch (e) {
+    console.error("Failed to watch .git directory", e);
+    // Fallback to null watcher but keep state
+    watchedProjects.set(projectPath, { watcher: null, lastCommit });
+  }
+
+  await saveWatchedProjects();
+}
+
+async function disableWatchModeForProject(projectPath: string) {
+  const watchData = watchedProjects.get(projectPath);
+  if (watchData) {
+    if (watchData.watcher) {
+      watchData.watcher.close();
+    }
+    watchedProjects.delete(projectPath);
+    await saveWatchedProjects();
+  }
+}
+
+async function handleRunWorkflow(
+  { projectPath, workflowId }: { projectPath: string; workflowId: string },
+  sendLog: (msg: string) => void,
+) {
+  if (supervisorProc) {
+    supervisorProc.kill();
+    supervisorProc = null;
+    activeSupervisorRunId = null;
+  }
+
+  const workflowsPath = path.join(projectPath, ".github", "workflows");
+  const fullPath = path.join(workflowsPath, workflowId);
+
+  sendLog(`\n[OA] Starting workflow run: ${workflowId} in ${projectPath}\n`);
+
+  try {
+    supervisorProc = Bun.spawn(
+      ["pnpm", "--filter", "supervisor", "run", "oa", "run", "--workflow", fullPath],
+      {
+        cwd: getWorkspaceRoot(),
+        env: process.env,
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    const currentProc = supervisorProc;
+    procs.push(supervisorProc);
+
+    currentProc.exited
+      .then(() => {
+        if (supervisorProc === currentProc) {
+          supervisorProc = null;
+          activeSupervisorRunId = null;
+        }
+      })
+      .catch(() => {});
+
+    let runIdResolved = false;
+    let resolveRunId: (id: string | null) => void;
+    const runIdPromise = new Promise<string | null>((r) => (resolveRunId = r));
+
+    const readOutput = async (stream: ReadableStream | null) => {
+      if (!stream) {
+        return;
+      }
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          break;
+        }
+        const text = decoder.decode(value);
+
+        if (!runIdResolved) {
+          const match = text.match(/(oa-runner-\d+)/);
+          if (match) {
+            runIdResolved = true;
+            activeSupervisorRunId = match[1];
+            resolveRunId(match[1]);
+          }
+        }
+
+        sendLog(text);
+      }
+    };
+
+    readOutput(supervisorProc.stdout);
+    readOutput(supervisorProc.stderr);
+
+    setTimeout(() => {
+      if (!runIdResolved) {
+        resolveRunId(null);
+      }
+    }, 5000);
+
+    return await runIdPromise;
+  } catch (e) {
+    console.error("Failed to run workflow:", e);
+    sendLog(`[OA] Failed to run workflow: ${(e as Error).message}\n`);
+    return null;
+  }
+}
 
 function getWorkspaceRoot() {
   let current = import.meta.dirname;
@@ -95,9 +269,24 @@ async function doLaunchDTU() {
   }
 }
 
+async function loadWatchedProjects() {
+  const fs = await import("node:fs/promises");
+  const configPath = path.join(Utils.paths.userData, "watched_projects.json");
+  try {
+    const content = await fs.readFile(configPath, "utf-8");
+    const projects = JSON.parse(content) as string[];
+    for (const projectPath of projects) {
+      await enableWatchModeForProject(projectPath);
+    }
+  } catch {
+    // file doesn't exist
+  }
+}
+
 async function startBackgroundProcesses() {
   // Supervisor can be started here or later through similar buttons if needed
   await doLaunchDTU();
+  await loadWatchedProjects();
 }
 
 startBackgroundProcesses();
@@ -195,86 +384,18 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
 
         return workflows;
       },
+      getRunOnCommitEnabled: async ({ projectPath }) => {
+        return watchedProjects.has(projectPath);
+      },
+      toggleRunOnCommit: async ({ projectPath, enabled }) => {
+        if (enabled) {
+          await enableWatchModeForProject(projectPath);
+        } else {
+          await disableWatchModeForProject(projectPath);
+        }
+      },
       runWorkflow: async ({ projectPath, workflowId }) => {
-        if (supervisorProc) {
-          supervisorProc.kill();
-          supervisorProc = null;
-          activeSupervisorRunId = null;
-        }
-
-        const workflowsPath = path.join(projectPath, ".github", "workflows");
-        const fullPath = path.join(workflowsPath, workflowId);
-
-        rpc.send.dtuLog(`\n[OA] Starting workflow run: ${workflowId} in ${projectPath}\n`);
-
-        try {
-          supervisorProc = Bun.spawn(
-            ["pnpm", "--filter", "supervisor", "run", "oa", "run", "--workflow", fullPath],
-            {
-              cwd: getWorkspaceRoot(),
-              env: process.env,
-              stdout: "pipe",
-              stderr: "pipe",
-            },
-          );
-          const currentProc = supervisorProc;
-          procs.push(supervisorProc);
-
-          currentProc.exited
-            .then(() => {
-              if (supervisorProc === currentProc) {
-                supervisorProc = null;
-                activeSupervisorRunId = null;
-              }
-            })
-            .catch(() => {});
-
-          let runIdResolved = false;
-          let resolveRunId: (id: string | null) => void;
-          const runIdPromise = new Promise<string | null>((r) => (resolveRunId = r));
-
-          const readOutput = async (stream: ReadableStream | null) => {
-            if (!stream) {
-              return;
-            }
-            const reader = stream.getReader();
-            const decoder = new TextDecoder();
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                break;
-              }
-              const text = decoder.decode(value);
-
-              if (!runIdResolved) {
-                const match = text.match(/(oa-runner-\d+)/);
-                if (match) {
-                  runIdResolved = true;
-                  activeSupervisorRunId = match[1];
-                  resolveRunId(match[1]);
-                }
-              }
-
-              rpc.send.dtuLog(text);
-            }
-          };
-
-          readOutput(supervisorProc.stdout);
-          readOutput(supervisorProc.stderr);
-
-          // Timeout runId resolution after 5 seconds just in case
-          setTimeout(() => {
-            if (!runIdResolved) {
-              resolveRunId(null);
-            }
-          }, 5000);
-
-          return await runIdPromise;
-        } catch (e) {
-          console.error("Failed to run workflow:", e);
-          rpc.send.dtuLog(`[OA] Failed to run workflow: ${(e as Error).message}\n`);
-          return null;
-        }
+        return await handleRunWorkflow({ projectPath, workflowId }, (msg) => rpc.send.dtuLog(msg));
       },
       stopWorkflow: async () => {
         if (supervisorProc) {

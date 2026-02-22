@@ -32,7 +32,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         recentList.appendChild(item);
       });
     } else {
-      recentList.innerHTML = `<div style="color: var(--text-secondary); text-align: center; padding: 32px">No recent projects. Click "Open Project..." to get started.</div>`;
+      recentList.innerHTML = `<div style="color: var(--text-secondary); text-align: center; padding: 32px">No recent repos. Click "Open Repo..." to get started.</div>`;
     }
   }
 

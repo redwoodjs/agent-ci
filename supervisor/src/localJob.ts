@@ -259,7 +259,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     gitShimPath,
     `#!/bin/bash
 case "$1" in
-  checkout|fetch|reset|init)
+  checkout|fetch|reset)
     echo "[OA Shim] Intercepted '$1' to protect local files."
     exit 0
     ;;

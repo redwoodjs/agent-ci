@@ -225,7 +225,7 @@ async function loadRecentProjects() {
       recentProjectsList.appendChild(projEl);
     });
   } else {
-    recentProjectsList.innerHTML = `<div style="color: #666; font-style: italic">No recent projects</div>`;
+    recentProjectsList.innerHTML = `<div style="color: #666; font-style: italic">No recent repos</div>`;
   }
 }
 

@@ -27,9 +27,40 @@
       </div>
     </div>
     <div class="content animate-fade-in">
-      <div style="margin-bottom: 24px">
-        <h1 id="project-name-display">Project Name</h1>
-        <div style="color: var(--text-secondary); margin-top: 4px">Select a run context below</div>
+      <div
+        style="
+          margin-bottom: 24px;
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+        "
+      >
+        <div>
+          <h1 id="project-name-display">Repository Name</h1>
+          <div style="color: var(--text-secondary); margin-top: 4px">
+            Select a run context below
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px">
+          <span style="font-size: 13px; color: var(--text-secondary); font-weight: bold"
+            >Run on commit:</span
+          >
+          <button
+            id="watch-mode-toggle"
+            class="btn"
+            style="
+              padding: 4px 12px;
+              font-size: 12px;
+              background: #333;
+              color: white;
+              border: none;
+              border-radius: 4px;
+              cursor: pointer;
+            "
+          >
+            Off
+          </button>
+        </div>
       </div>
       <div id="commits-list" style="display: flex; flex-direction: column; gap: 8px">
         <!-- Populated by JS -->

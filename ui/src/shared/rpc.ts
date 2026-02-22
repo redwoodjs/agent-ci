@@ -58,6 +58,14 @@ export type MyRPCSchema = {
         params: void;
         response: boolean;
       };
+      getRunOnCommitEnabled: {
+        params: { projectPath: string };
+        response: boolean;
+      };
+      toggleRunOnCommit: {
+        params: { projectPath: string; enabled: boolean };
+        response: void;
+      };
     };
     messages: {};
   };

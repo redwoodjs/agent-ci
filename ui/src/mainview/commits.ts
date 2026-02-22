@@ -29,6 +29,38 @@ document.addEventListener("DOMContentLoaded", async () => {
     projName.innerText = projectPath;
   }
 
+  const runOnCommitToggle = document.getElementById("watch-mode-toggle");
+  if (runOnCommitToggle && projectPath) {
+    const updateWatchUI = (enabled: boolean) => {
+      if (enabled) {
+        runOnCommitToggle.innerText = "On";
+        runOnCommitToggle.style.background = "#28a745";
+        runOnCommitToggle.style.color = "white";
+      } else {
+        runOnCommitToggle.innerText = "Off";
+        runOnCommitToggle.style.background = "#333";
+        runOnCommitToggle.style.color = "white";
+      }
+    };
+
+    const isWatchEnabled = await rpc.request.getRunOnCommitEnabled({ projectPath });
+    updateWatchUI(isWatchEnabled);
+
+    runOnCommitToggle.addEventListener("click", async () => {
+      runOnCommitToggle.setAttribute("disabled", "true");
+      try {
+        const currentState = await rpc.request.getRunOnCommitEnabled({ projectPath });
+        const newState = !currentState;
+        await rpc.request.toggleRunOnCommit({ projectPath, enabled: newState });
+        updateWatchUI(newState);
+      } catch (e) {
+        console.error("Failed to toggle run on commit", e);
+      } finally {
+        runOnCommitToggle.removeAttribute("disabled");
+      }
+    });
+  }
+
   const list = document.getElementById("commits-list");
   if (list && projectPath) {
     const commits = await rpc.request.getRunCommits({ projectPath });

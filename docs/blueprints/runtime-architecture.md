@@ -97,24 +97,31 @@ We inject behavior to handle the different constraints of Live vs Simulation.
 
 To manage infrastructure costs and predict scaling impacts, the engine includes a built-in **Cost Estimation** subsystem, primarily active during **Simulation** runs.
 
-### 5.1 Token Usage Tracking
+### 5.1 High-Fidelity Token Usage Tracking
 
-All LLM calls are intercepted at the `callLLM` utility level. By capturing the `usage` metadata from the AI providers, we maintain a high-fidelity record of consumption.
+All LLM calls are intercepted at the `callLLM` utility level. By capturing the `usage` metadata from the AI providers, we maintain a high-fidelity record of consumption. In simulations, this metadata is recorded into the root simulation database (not namespaced) to ensure a permanent audit trail.
 
-**The Strategy: Size-Based Bucketing**
-Recording every individual LLM call is too granular for high-volume simulations (10,000+ calls). Instead, we aggregate usage into **Buckets** defined by:
-1.  **Model Alias** (e.g., `cerebras-gpt-oss-120b`).
-2.  **Input Token Count** (Logarithmic or stepped ranges, e.g., `<1k`, `1k-4k`).
-3.  **Output Token Count** (Similar ranges).
+**The Strategy: Dimensional Bucketing & Online Statistics**
+Recording every individual LLM call is too granular for high-volume simulations. Instead, we aggregate usage into **Buckets** defined by:
+1.  **Model Alias** (e.g., `google-gemini-3-flash`).
+2.  **Input Token Count** (Logarithmic ranges).
+3.  **Output Token Count** (Logarithmic ranges).
 
-This allows us to perform statistical analysis (mean, stdev) on different "shapes" of LLM logic (e.g., "Small Extraction" vs "Large Synthesis") without requiring manual labeling of every call site.
+**Online Variance (Welford's Algorithm)**:
+To maintain statistical accuracy without storing every data point, we implement **Welford's Algorithm** directly in the database logic. This allows us to track the **running mean** and the **Running M2** (sum of squares of differences from the mean) in $O(1)$ time per update.
+- **Mean update**: $\mu_n = \mu_{n-1} + \frac{x_n - \mu_{n-1}}{n}$
+- **M2 update**: $M2_n = M2_{n-1} + (x_n - \mu_{n-1})(x_n - \mu_{n})$
+- **Variance**: $\sigma^2 = \frac{M2}{n-1}$
 
-### 5.2 Persistence & Extrapolation
+### 5.2 Analytical Projections & Statistical Significance
 
-Captured stats are persisted to the `simulation_run_llm_costs` table in the Simulation DB. This data is used to:
-- **Analyze actual cost**: Calculate the exact $ spent on a specific simulation run.
-- **Predict future cost**: Extrapolate observed averages to larger datasets (e.g., "If this run cost $X for 100 docs, 5000 docs will cost $Y").
-- **Statistically validate**: Identify outliers or high-variance logic that might lead to billing spikes.
+The engine uses these running statistics to provide live observability via the **Cost Analysis Dashboard**.
+
+- **Calculated USD Costs**: Bucket-level costs are calculated by multiplying token means by current model pricing ($p_{in} \cdot \mu_{in} + p_{out} \cdot \mu_{out}$).
+- **Propagation of Error**: Global variance is calculated by propagating variances across all buckets, allowing the system to calculate a **total Standard Deviation ($\sigma$)** for the entire run.
+- **95% Confidence Intervals**: We apply a **Z-score of 1.96** to provide a 95% confidence interval for the "Mean Cost per Document."
+- **Significance Threshold ($n \ge 30$)**: Following the **Central Limit Theorem**, we mark a run as "Statistically Significant" once it exceeds 30 individual API calls. This signals that the sampling distribution of the mean has normalized and the projections are reliable.
+- **Extrapolation**: Observed mean costs are linearly extrapolated to scale points (100, 500, 1000, 5000 docs) to help developers predict the billing impact of a full-scale production run based on a small simulation sample.
 
 ## 6. System Constraints
 

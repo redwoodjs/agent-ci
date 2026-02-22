@@ -21,6 +21,7 @@ import {
   getSimulationRunTimelineFitDecisions,
   getSimulationRunMaterializedMoments,
   getSimulationRunCosts,
+  getSimulationRunDocumentCount,
 } from "@/app/engine/databases/simulationState";
 import {
   simulationPhasesOrdered,
@@ -283,10 +284,11 @@ async function SimulationRunsContent({
     );
   }
 
-  const [run, eventsRes, costs] = await Promise.all([
+  const [run, eventsRes, costs, docCountResult] = await Promise.all([
     getSimulationRunById(context, { runId }),
     getSimulationRunEvents(context, { runId, limit: 10000 }),
     getSimulationRunCosts(context, { runId }),
+    getSimulationRunDocumentCount(context, { runId }),
   ]);
 
   if (!run) {
@@ -326,9 +328,12 @@ async function SimulationRunsContent({
     namespacePrefix,
   );
 
-  const totalDocs = Array.isArray((run as any)?.config?.r2Keys)
-    ? (run as any).config.r2Keys.length
-    : 0;
+  const totalDocs =
+    docCountResult > 0
+      ? docCountResult
+      : Array.isArray((run as any)?.config?.r2Keys)
+        ? (run as any).config.r2Keys.length
+        : 0;
   const progress = await getSimulationRunProgressSummary(context, {
     runId,
     totalDocs,
@@ -400,10 +405,35 @@ async function SimulationRunsContent({
                 {costs.totalOutputTokens.toLocaleString()} tokens out
               </div>
               {totalDocs > 0 && (
-                <div className="text-xs font-semibold text-gray-700 mt-1">
-                  Cost per document: $
-                  {(costs.totalCostUsd / totalDocs).toFixed(4)}
-                </div>
+                <>
+                  <div className="text-xs font-semibold text-gray-700 mt-1">
+                    Cost per document: $
+                    {(costs.totalCostUsd / totalDocs).toFixed(4)} ({totalDocs}{" "}
+                    docs)
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-[9px] text-slate-400 uppercase tracking-tight font-bold mb-1">
+                      Extrapolated Cost Projections
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                      {[100, 200, 500, 1000, 2000, 5000].map((count) => (
+                        <div
+                          key={count}
+                          className="bg-slate-50 border border-slate-100 px-2 py-1 rounded text-[10px] whitespace-nowrap"
+                        >
+                          <span className="text-slate-500">{count} docs:</span>
+                          <span className="ml-1 font-bold text-slate-700">
+                            $
+                            {(
+                              (costs.totalCostUsd / totalDocs) *
+                              count
+                            ).toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
               )}
             </div>
             {lastEvent ? (

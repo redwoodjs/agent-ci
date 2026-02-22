@@ -141,6 +141,28 @@ export async function getSimulationRunById(
   };
 }
 
+export async function getSimulationRunDocumentCount(
+  context: SimulationDbContext,
+  input: { runId: string },
+): Promise<number> {
+  const db = getSimulationDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return 0;
+  }
+
+  const row = (await db
+    .selectFrom("simulation_run_documents")
+    .select([db.fn.count<number>("r2_key").as("count")])
+    .where("run_id", "=", runId)
+    .executeTakeFirst()) as any;
+
+  return typeof row?.count === "number" ? row.count : 0;
+}
+
 export async function getRecentSimulationRuns(
   context: SimulationDbContext,
   input: { limit?: number },

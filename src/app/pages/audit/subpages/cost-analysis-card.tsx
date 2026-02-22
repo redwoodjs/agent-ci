@@ -168,7 +168,10 @@ export function CostAnalysisCard({
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
               {projections.map((p) => (
-                <div key={p.count} className="p-3 bg-slate-50 rounded border border-slate-100">
+                <div
+                  key={p.count}
+                  className="p-3 bg-slate-50 rounded border border-slate-100"
+                >
                   <div className="text-xs text-slate-500 font-medium">
                     {p.count.toLocaleString()} docs
                   </div>

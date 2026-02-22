@@ -7,7 +7,13 @@ import {
   CardTitle,
 } from "@/app/components/ui/card";
 
-export function CostAnalysisCard({ costs }: { costs: any }) {
+export function CostAnalysisCard({
+  costs,
+  totalDocs,
+}: {
+  costs: any;
+  totalDocs?: number;
+}) {
   if (!costs || costs.models.length === 0) {
     return (
       <Card>
@@ -18,6 +24,13 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
       </Card>
     );
   }
+
+  const costPerDoc =
+    totalDocs && totalDocs > 0 ? costs.totalCostUsd / totalDocs : 0;
+  const projections = [100, 200, 500, 1000, 2000, 5000].map((count) => ({
+    count,
+    cost: costPerDoc * count,
+  }));
 
   return (
     <div className="space-y-6">
@@ -37,6 +50,11 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
               <div className="text-2xl font-bold text-slate-900">
                 ${costs.totalCostUsd.toFixed(4)}
               </div>
+              {totalDocs && totalDocs > 0 && (
+                <div className="text-[10px] text-slate-500 mt-1">
+                  ${costPerDoc.toFixed(4)} per document ({totalDocs} docs)
+                </div>
+              )}
             </div>
             <div className="p-4 bg-blue-50 rounded-lg">
               <div className="text-sm text-blue-600 font-medium">
@@ -137,6 +155,36 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
           </div>
         </CardContent>
       </Card>
+
+      {costPerDoc > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Cost Projections</CardTitle>
+            <CardDescription>
+              Estimated costs for larger scale simulations based on current run
+              averages (${costPerDoc.toFixed(4)}/doc).
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+              {projections.map((p) => (
+                <div key={p.count} className="p-3 bg-slate-50 rounded border border-slate-100">
+                  <div className="text-xs text-slate-500 font-medium">
+                    {p.count.toLocaleString()} docs
+                  </div>
+                  <div className="text-lg font-bold text-slate-700">
+                    ${p.cost.toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 text-[10px] text-gray-400 italic">
+              * Projections assume linear scaling of document size and analysis
+              complexity based on this run's profile.
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

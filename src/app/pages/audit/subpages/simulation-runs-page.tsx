@@ -544,7 +544,7 @@ async function SimulationRunsContent({
       ) : null}
 
       {isCostView ? (
-        <CostAnalysisCard costs={costs} />
+        <CostAnalysisCard costs={costs} totalDocs={totalDocs} />
       ) : viewDef ? (
         <viewDef.component
           runId={runId}

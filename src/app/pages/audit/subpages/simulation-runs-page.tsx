@@ -471,12 +471,16 @@ async function SimulationRunsContent({
                       Extrapolated Cost Projections
                     </div>
                     <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
-                      {[100, 200, 500, 1000, 2000, 5000].map((count) => (
+                      {[
+                        100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000,
+                      ].map((count) => (
                         <div
                           key={count}
                           className="bg-slate-50 border border-slate-100 px-2 py-1 rounded text-[10px] whitespace-nowrap"
                         >
-                          <span className="text-slate-500">{count} docs:</span>
+                          <span className="text-slate-500">
+                            {formatCompactNumber(count)} docs:
+                          </span>
                           <span className="ml-1 font-bold text-slate-700">
                             $
                             {((costs.totalCostUsd / totalDocs) * count).toFixed(

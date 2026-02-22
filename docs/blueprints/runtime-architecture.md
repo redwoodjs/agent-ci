@@ -121,7 +121,7 @@ The engine uses these running statistics to provide live observability via the *
 - **Propagation of Error**: Global variance is calculated by propagating variances across all buckets, allowing the system to calculate a **total Standard Deviation ($\sigma$)** for the entire run.
 - **95% Confidence Intervals**: We apply a **Z-score of 1.96** to provide a 95% confidence interval for the "Mean Cost per Document."
 - **Significance Threshold ($n \ge 30$)**: Following the **Central Limit Theorem**, we mark a run as "Statistically Significant" once it exceeds 30 individual API calls. This signals that the sampling distribution of the mean has normalized and the projections are reliable.
-- **Extrapolation**: Observed mean costs are linearly extrapolated to scale points (100, 500, 1000, 5000 docs) to help developers predict the billing impact of a full-scale production run based on a small simulation sample.
+- **Extrapolation**: Observed mean costs are linearly extrapolated to scale points (100, 500, 1000, 5000, 10000, 20000, 50000 docs) to help developers predict the billing impact of a full-scale production run based on a small simulation sample.
 
 ## 6. System Constraints
 

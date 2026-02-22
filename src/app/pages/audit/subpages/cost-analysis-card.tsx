@@ -30,11 +30,11 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <div className="p-4 bg-green-50 rounded-lg">
-              <div className="text-sm text-green-600 font-medium">
+            <div className="p-4 bg-slate-50 rounded-lg">
+              <div className="text-sm text-slate-600 font-medium">
                 Estimated Total AI Cost
               </div>
-              <div className="text-2xl font-bold text-green-900">
+              <div className="text-2xl font-bold text-slate-900">
                 ${costs.totalCostUsd.toFixed(4)}
               </div>
             </div>
@@ -126,7 +126,7 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
                           m.totalInputTokens + m.totalOutputTokens
                         ).toLocaleString()}
                       </td>
-                      <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-green-700">
+                      <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-slate-700">
                         ${m.totalCostUsd.toFixed(4)}
                       </td>
                     </tr>
@@ -214,7 +214,7 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
                             </span>
                           </div>
                         </td>
-                        <td className="px-4 py-2 whitespace-nowrap text-xs text-right text-green-700">
+                        <td className="px-4 py-2 whitespace-nowrap text-xs text-right text-slate-700">
                           ${b.totalCostUsd.toFixed(4)}
                         </td>
                       </tr>

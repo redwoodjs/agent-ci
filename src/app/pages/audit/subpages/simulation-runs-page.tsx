@@ -252,7 +252,7 @@ async function SimulationRunsContent({
                         {r.updatedAt}
                       </div>
                       {typeof r.estimatedCostUsd === "number" && (
-                        <div className="text-xs font-semibold text-green-700 mt-1">
+                        <div className="text-xs font-semibold text-slate-700 mt-1">
                           Est. AI Cost: ${r.estimatedCostUsd.toFixed(4)}
                           {r.config?.r2Keys?.length > 0 &&
                             ` ($${(
@@ -370,7 +370,7 @@ async function SimulationRunsContent({
               href={viewLink("costs")}
               className={`px-3 py-1 rounded-full text-xs font-semibold ${
                 isCostView
-                  ? "bg-green-100 text-green-800 border border-green-200"
+                  ? "bg-slate-100 text-slate-800 border border-slate-200"
                   : "bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200"
               }`}
             >
@@ -391,7 +391,7 @@ async function SimulationRunsContent({
               updated=<span className="font-mono">{run.updatedAt}</span>
             </div>
             <div className="mt-2 pt-2 border-t">
-              <div className="font-semibold text-green-700">
+              <div className="font-semibold text-slate-700">
                 Estimated Total AI Usage Cost: ${costs.totalCostUsd.toFixed(4)}
               </div>
               <div className="text-xs text-gray-600">
@@ -514,7 +514,7 @@ async function SimulationRunsContent({
               </a>
             ))}
             <a
-              className="text-sm text-green-600 hover:underline font-semibold"
+              className="text-sm text-blue-600 hover:underline font-semibold"
               href={viewLink("costs")}
             >
               AI Cost Analysis

@@ -11,6 +11,7 @@ import { setupDtuLogging, DTU_LOG_PATH } from "./logger.js";
 import { registerDtuRoutes } from "./routes/dtu.js";
 import { registerGithubRoutes } from "./routes/github.js";
 import { registerActionRoutes } from "./routes/actions/index.js";
+import { registerCacheRoutes } from "./routes/cache.js";
 
 async function terminateOldProcess() {
   // Kill existing process on DTU port
@@ -30,13 +31,15 @@ export async function bootstrapAndReturnApp() {
 
   // Middleware
   app.use(bodyParser.json({ limit: "50mb" }));
-  // Text parser for raw log uploads (resource 46f5667d)
-  app.use(bodyParser.text({ type: ["text/plain", "application/octet-stream"], limit: "50mb" }));
+  // Raw parsers for logs and cache uploads
+  app.use(bodyParser.text({ type: ["text/plain"], limit: "50mb" }));
+  app.use(bodyParser.raw({ type: ["application/octet-stream"], limit: "500mb" })); // Cache archives can be large
 
   // Routes
   registerDtuRoutes(app);
   registerGithubRoutes(app);
   registerActionRoutes(app);
+  registerCacheRoutes(app);
 
   // Raw plain text log uploads via stream / catchall logs endpoint
   app.post("/_apis/distributedtask/hubs/:hub/plans/:planId/logs/:logId", (req: any, res) => {

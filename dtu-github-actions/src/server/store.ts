@@ -16,6 +16,11 @@ export const state = {
   // planId -> step-output.log path
   planToLogPath: new Map<string, string>(),
 
+  // cacheKey -> { version: string, archiveLocation: string, size: number }
+  caches: new Map<string, { version: string; archiveLocation: string; size: number }>(),
+  // cacheId (number) -> { tempPath: string, key: string, version: string }
+  pendingCaches: new Map<number, { tempPath: string; key: string; version: string }>(),
+
   reset() {
     this.jobs.clear();
     this.sessions.clear();
@@ -26,5 +31,7 @@ export const state = {
     this.runnerLogs.clear();
     this.sessionToRunner.clear();
     this.planToLogPath.clear();
+    this.caches.clear();
+    this.pendingCaches.clear();
   },
 };

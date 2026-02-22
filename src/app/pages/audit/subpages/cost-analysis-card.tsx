@@ -1,4 +1,5 @@
 import React from "react";
+import { formatCompactNumber } from "@/lib/utils";
 import {
   Card,
   CardContent,
@@ -69,7 +70,7 @@ export function CostAnalysisCard({
                 AI Tokens In
               </div>
               <div className="text-2xl font-bold text-gray-900">
-                {costs.totalInputTokens.toLocaleString()}
+                {formatCompactNumber(costs.totalInputTokens)}
               </div>
             </div>
             <div className="p-4 bg-gray-50 rounded-lg">
@@ -77,7 +78,7 @@ export function CostAnalysisCard({
                 AI Tokens Out
               </div>
               <div className="text-2xl font-bold text-gray-900">
-                {costs.totalOutputTokens.toLocaleString()}
+                {formatCompactNumber(costs.totalOutputTokens)}
               </div>
             </div>
           </div>
@@ -122,27 +123,27 @@ export function CostAnalysisCard({
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-600">
                         <div className="flex flex-col items-end">
                           <span>
-                            {Math.round(m.avgInputTokens).toLocaleString()}
+                            {formatCompactNumber(m.avgInputTokens)}
                             {inCi > 0 && (
                               <span className="text-gray-400 text-[10px] ml-1">
-                                ±{Math.round(inCi)}
+                                ±{formatCompactNumber(inCi)}
                               </span>
                             )}
                           </span>
                           <span>
-                            {Math.round(m.avgOutputTokens).toLocaleString()}
+                            {formatCompactNumber(m.avgOutputTokens)}
                             {outCi > 0 && (
                               <span className="text-gray-400 text-[10px] ml-1">
-                                ±{Math.round(outCi)}
+                                ±{formatCompactNumber(outCi)}
                               </span>
                             )}
                           </span>
                         </div>
                       </td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-gray-600">
-                        {(
-                          m.totalInputTokens + m.totalOutputTokens
-                        ).toLocaleString()}
+                        {formatCompactNumber(
+                          m.totalInputTokens + m.totalOutputTokens,
+                        )}
                       </td>
                       <td className="px-4 py-2 whitespace-nowrap text-sm text-right font-medium text-slate-700">
                         ${m.totalCostUsd.toFixed(4)}
@@ -258,24 +259,24 @@ export function CostAnalysisCard({
                         <td className="px-4 py-2 whitespace-nowrap text-xs text-right text-gray-600">
                           <div className="flex flex-col items-end">
                             <span>
-                              {Math.round(b.avgInputTokens).toLocaleString()}
+                              {formatCompactNumber(b.avgInputTokens)}
                               {inCi > 0 && (
                                 <span
                                   title="95% CI (Z=1.96)"
                                   className="text-gray-400 text-[10px] ml-1"
                                 >
-                                  ±{Math.round(inCi)}
+                                  ±{formatCompactNumber(inCi)}
                                 </span>
                               )}
                             </span>
                             <span>
-                              {Math.round(b.avgOutputTokens).toLocaleString()}
+                              {formatCompactNumber(b.avgOutputTokens)}
                               {outCi > 0 && (
                                 <span
                                   title="95% CI (Z=1.96)"
                                   className="text-gray-400 text-[10px] ml-1"
                                 >
-                                  ±{Math.round(outCi)}
+                                  ±{formatCompactNumber(outCi)}
                                 </span>
                               )}
                             </span>

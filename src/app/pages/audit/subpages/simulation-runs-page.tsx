@@ -29,6 +29,7 @@ import {
 } from "@/app/pipelines/registry";
 import { getSimulationRunProgressSummary } from "@/app/engine/simulation/runProgress";
 import { getMoments } from "@/app/engine/databases/momentGraph";
+import { formatCompactNumber } from "@/lib/utils";
 import { SimulationRunControls } from "./simulation-run-controls";
 import { CopyTextButton } from "./copy-text-button";
 import { SimulationLogsViewer } from "./simulation-logs-viewer";
@@ -409,8 +410,8 @@ async function SimulationRunsContent({
               </div>
               <div className="text-xs text-gray-600">
                 {costs.totalCallCount} API calls |{" "}
-                {costs.totalInputTokens.toLocaleString()} tokens in |{" "}
-                {costs.totalOutputTokens.toLocaleString()} tokens out
+                {formatCompactNumber(costs.totalInputTokens)} tokens in |{" "}
+                {formatCompactNumber(costs.totalOutputTokens)} tokens out
               </div>
               {totalDocs > 0 && (
                 <>

@@ -424,10 +424,9 @@ async function SimulationRunsContent({
                           <span className="text-slate-500">{count} docs:</span>
                           <span className="ml-1 font-bold text-slate-700">
                             $
-                            {(
-                              (costs.totalCostUsd / totalDocs) *
-                              count
-                            ).toFixed(2)}
+                            {((costs.totalCostUsd / totalDocs) * count).toFixed(
+                              2,
+                            )}
                           </span>
                         </div>
                       ))}

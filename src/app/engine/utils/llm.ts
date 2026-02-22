@@ -217,15 +217,21 @@ export async function callLLM(
 
         if (usageResult && options?.pipelineContext?.simulationId) {
           try {
+            // AI-SDK usage can have promptTokens/completionTokens or inputTokens/outputTokens depending on provider/version
+            const promptTokens =
+              usageResult.promptTokens ?? usageResult.inputTokens ?? 0;
+            const completionTokens =
+              usageResult.completionTokens ?? usageResult.outputTokens ?? 0;
+
             logInfo(
-              `Recording LLM cost for simulation ${options.pipelineContext.simulationId}: ${usageResult.promptTokens} in, ${usageResult.completionTokens} out`,
+              `Recording LLM cost for simulation ${options.pipelineContext.simulationId}: ${promptTokens} in, ${completionTokens} out`,
               { usage: usageResult },
             );
             await recordLLMCost(
               options.pipelineContext,
               alias,
-              usageResult.promptTokens || 0,
-              usageResult.completionTokens || 0,
+              promptTokens,
+              completionTokens,
               duration,
             );
           } catch (e) {
@@ -292,7 +298,7 @@ async function recordLLMCost(
 
   const db = getSimulationDb({
     env,
-    momentGraphNamespace: context.momentGraphNamespace ?? null,
+    momentGraphNamespace: null, // Simulation metadata (costs, events, etc) always lives in the root simulation DB
   });
   const inputBucket = getTokenBucket(promptTokens);
   const outputBucket = getTokenBucket(completionTokens);

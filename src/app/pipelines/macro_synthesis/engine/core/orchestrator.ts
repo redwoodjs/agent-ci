@@ -3,14 +3,17 @@ import { PipelineContext } from "../../../../engine/runtime/types";
 import { synthesizeMicroMomentsIntoStreams } from "../../../../engine/synthesis/synthesizeMicroMoments";
 import { extractAnchorTokens } from "../../../../engine/utils/anchorTokens";
 
-export type MicroBatchIdentity = { batchHash: string; promptContextHash: string };
+export type MicroBatchIdentity = {
+  batchHash: string;
+  promptContextHash: string;
+};
 
 export async function computeMicroStreamHash(input: {
   batches: MicroBatchIdentity[];
   sha256Hex: (value: string) => Promise<string>;
 }): Promise<string> {
   const identityParts = input.batches.map(
-    (b) => `${b.batchHash}:${b.promptContextHash}`
+    (b) => `${b.batchHash}:${b.promptContextHash}`,
   );
   return await input.sha256Hex(identityParts.join("\n"));
 }
@@ -29,11 +32,14 @@ export function extractAnchorsFromStreams(input: {
     for (const m of moments) {
       const text = `${m.title ?? ""}\n${m.summary ?? ""}`.trim();
       const momentAnchors: string[] = [];
-      for (const tok of input.extractAnchorTokens(text, input.maxTokensPerMoment)) {
+      for (const tok of input.extractAnchorTokens(
+        text,
+        input.maxTokensPerMoment,
+      )) {
         momentAnchors.push(tok);
         anchors.push(tok); // Collect global anchors
       }
-      
+
       // Attach anchors to the moment for downstream phases (Linking)
       m.anchors = momentAnchors;
 
@@ -58,7 +64,12 @@ export async function computeMacroSynthesisForDocument(input: {
   document: Document;
   context: PipelineContext;
   plannedBatches: Array<{ batchHash: string; promptContextHash: string }>;
-  microMoments: Array<{ path: string; summary: string; createdAt: string; author: string }>;
+  microMoments: Array<{
+    path: string;
+    summary: string;
+    createdAt: string;
+    author: string;
+  }>;
 }): Promise<{
   microStreamHash: string;
   streams: Array<{ streamId: string; macroMoments: MomentDescription[] }>;
@@ -89,15 +100,14 @@ export async function computeMacroSynthesisForDocument(input: {
   }));
 
   // 3. Synthesize
-  const macroSynthesisPromptContext = (document as any).metadata?.macroSynthesisPromptContext ?? null;
-  const streams = await synthesizeMicroMomentsIntoStreams(
-    engineMicroMoments,
-    {
-      macroSynthesisPromptContext,
-      auditSink: (event) => auditEvents.push(event),
-      logger: context.logger?.info,
-    }
-  );
+  const macroSynthesisPromptContext =
+    (document as any).metadata?.macroSynthesisPromptContext ?? null;
+  const streams = await synthesizeMicroMomentsIntoStreams(engineMicroMoments, {
+    macroSynthesisPromptContext,
+    auditSink: (event) => auditEvents.push(event),
+    logger: context.logger?.info,
+    pipelineContext: context,
+  });
 
   // 4. Extract Anchors
   const anchors = extractAnchorsFromStreams({

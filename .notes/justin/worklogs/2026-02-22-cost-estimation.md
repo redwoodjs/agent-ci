@@ -63,5 +63,25 @@ Finally, we will build a Cost Analysis UI. On the simulation list page, we will 
    - Display "Cost per doc" and "Tokens per doc" on the list view.
    - Add a link to the new Cost Analysis view for each run.
 9. **[NEW]** `src/app/pages/audit/subpages/simulation-cost-analysis-page.tsx`: 
-   - Build the detailed view showing bucket breakdowns.
-   - Calculate and display extrapolations (100, 500, 1000, 5000 docs).
+### Precision and Stability (Decision 2026-02-23)
+
+During implementation, we identified a risk of precision loss in the sum of squares calculation ($\sum x^2$) for variance. This is particularly relevant when aggregating billions of tokens into a single bucket across thousands of calls. 
+
+**Risks identified:**
+1.  **Floating point headroom:** `MAX_SAFE_INTEGER` $(\approx 9 \times 10^{15})$ could be exceeded by the sum of squares if individual calls reach 100k+ tokens.
+2.  **Catastrophic cancellation:** Subtracting two very large numbers $(\sum x^2 - (\sum x)^2 / n)$ to find a small variance can lead to significant numerical error or even negative results due to precision "jitter."
+
+**Decisions:**
+-   **Rejected `decimal.js` / BigNumber:** Evaluated using arbitrary-precision libraries to handle massive sums of squares. 
+    -   *Issue 1 (Atomicity):* Using JS-level precision libraries breaks our atomic `INSERT ... ON CONFLICT` pattern. We would have to Read -> Calculate in JS -> Write, which introduces race conditions in high-concurrency simulation workers unless wrapped in heavy DB transactions.
+    -   *Issue 2 (Storage):* Storing `Decimal` objects requires `TEXT` columns in SQLite, which breaks native SQL aggregations (like `SUM()`) and makes external reporting much harder.
+-   **Rejected unit scaling:** While scaling to "K-Tokens" (units of 1,000) would work, it creates friction for raw SQL queries and requires mental translation of stats.
+-   **Adopted Welford’s Algorithm:** We implemented an **online variance algorithm** that stores the `mean` and `M2` (sum of squared differences from the mean). 
+    -   *Benefit:* It is numerically stable as it avoids "Big - Big" subtractions (the source of most precision errors).
+    -   *Benefit:* It fits perfectly into the `ON CONFLICT` (upsert) logic, allowing the database to update the statistics atomically without JS intervention.
+    -   The `m2` update formula used: $M_{2,new} = M_{2,old} + (x - \mu_{old})(x - \mu_{new})$.
+
+**Migration:** Migration `016` was updated to include:
+- `mean_input_tokens`, `m2_input_tokens`
+- `mean_output_tokens`, `m2_output_tokens`
+instead of squared totals.

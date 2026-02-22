@@ -81,30 +81,54 @@ The engine orchestrates plugins using three strategies (implemented in `src/app/
 
 We inject behavior to handle the different constraints of Live vs Simulation.
 
-### 3.1 Live Strategy (Minimizing Latency)
+### 4.1 Live Strategy (Minimizing Latency)
 *   **Goal**: Process a webhook as fast as possible.
 *   **Storage**: `NoOpStorage` (or `LogStorage`). We don't save intermediate state to DB to save milliseconds.
 *   **Transition**: `QueueTransition`. We enqueue a job for the next phase to ensure reliability and respect the 30s CPU limit (avoiding deep recursion).
 *   **Context**: `LiveContext`. Connects to real-time environment.
 
-### 3.2 Simulation Strategy (Maximizing Throughput & Inspectability)
+### 4.2 Simulation Strategy (Maximizing Throughput & Inspectability)
 *   **Goal**: Process 10,000+ items without crashing.
 *   **Storage**: `ArtifactStorage`. We persist input/output to `simulation_run_artifacts` for checkpointing and UI debugging.
 *   **Transition**: `QueueTransition`. We enqueue a job for the next phase. This breaks the stack, respects the 30s timeout, and allows the Supervisor to pace the work (Backpressure).
 *   **Context**: `SimulationContext`. Can mock time or external APIs.
 
-## 4. System Constraints
+## 5. Cost Estimation & Observability
+
+To manage infrastructure costs and predict scaling impacts, the engine includes a built-in **Cost Estimation** subsystem, primarily active during **Simulation** runs.
+
+### 5.1 Token Usage Tracking
+
+All LLM calls are intercepted at the `callLLM` utility level. By capturing the `usage` metadata from the AI providers, we maintain a high-fidelity record of consumption.
+
+**The Strategy: Size-Based Bucketing**
+Recording every individual LLM call is too granular for high-volume simulations (10,000+ calls). Instead, we aggregate usage into **Buckets** defined by:
+1.  **Model Alias** (e.g., `cerebras-gpt-oss-120b`).
+2.  **Input Token Count** (Logarithmic or stepped ranges, e.g., `<1k`, `1k-4k`).
+3.  **Output Token Count** (Similar ranges).
+
+This allows us to perform statistical analysis (mean, stdev) on different "shapes" of LLM logic (e.g., "Small Extraction" vs "Large Synthesis") without requiring manual labeling of every call site.
+
+### 5.2 Persistence & Extrapolation
+
+Captured stats are persisted to the `simulation_run_llm_costs` table in the Simulation DB. This data is used to:
+- **Analyze actual cost**: Calculate the exact $ spent on a specific simulation run.
+- **Predict future cost**: Extrapolate observed averages to larger datasets (e.g., "If this run cost $X for 100 docs, 5000 docs will cost $Y").
+- **Statistically validate**: Identify outliers or high-variance logic that might lead to billing spikes.
+
+## 6. System Constraints
 
 1.  **UNIFIED ORCHESTRATOR**: There is only ONE execution code path: `executePhase`.
 2.  **STRATEGY INJECTION**: Differences between Live/Sim are solely handled by `StorageStrategy` and `TransitionStrategy`.
 3.  **QUEUE BOUNDARY**: Both strategies use `QueueTransition` for reliability. Recursion is avoided to prevent CPU Timeouts (30s limit).
-4.  **No Per-Phase Runners**: All orchestration usage must go through the generic pipeline.
-5.  **Statelessness**: Workers are ephemeral.
-6.  **Infrastructure Isolation**: Data is strictly partitioned by `momentGraphNamespace`. In simulations, this namespace is prefixed (e.g., `local-date:redwood:rwsdk`) to ensure simulation runs do not contaminate live data while maintaining project-level isolation.
-7.  **Self-Contained Simulation Artifacts**: For large-scale simulations, artifacts MUST be enriched with all necessary metadata (e.g., Titles/Summaries) to make them self-contained for UI rendering. Relational joins for metadata in the UI data layer are prohibited on the critical path to avoid database parameter limits.
-8.  **Completion Settlement**: Simulation runs transition through a `settling` state before marking as `completed`. This synchronizes the logical end of the work with the asynchronous flush of event logs and artifacts. **The simulation runner MUST correctly acquire locks for all active statuses (including `settling` and `advance`) to ensure terminal state transitions achieve eventual consistency.**
-9.  **Robust Reasoning Extraction**: Any LLM-based selection or classification judgment must use resilient parsing (e.g., `parseLLMJson`) to extract valid structured data regardless of markdown formatting or conversational noise in the model output.
-10. **Simulation Resiliency & Zombie Ditching**: To prevent infinite stalls caused by problematic documents (e.g., crashing workers or timeouts), the simulation runner implements a **Double-Reset Ditching** mechanism.
+4.  **THREADED CONTEXT**: Observability (like `simulationId`) must be explicitly threaded through the `PipelineContext` to downstream utilities like `callLLM`.
+5.  **No Per-Phase Runners**: All orchestration usage must go through the generic pipeline.
+6.  **Statelessness**: Workers are ephemeral.
+7.  **Infrastructure Isolation**: Data is strictly partitioned by `momentGraphNamespace`. In simulations, this namespace is prefixed (e.g., `local-date:redwood:rwsdk`) to ensure simulation runs do not contaminate live data while maintaining project-level isolation.
+8.  **Self-Contained Simulation Artifacts**: For large-scale simulations, artifacts MUST be enriched with all necessary metadata (e.g., Titles/Summaries) to make them self-contained for UI rendering. Relational joins for metadata in the UI data layer are prohibited on the critical path to avoid database parameter limits.
+9.  **Completion Settlement**: Simulation runs transition through a `settling` state before marking as `completed`. This synchronizes the logical end of the work with the asynchronous flush of event logs and artifacts. **The simulation runner MUST correctly acquire locks for all active statuses (including `settling` and `advance`) to ensure terminal state transitions achieve eventual consistency.**
+10. **Robust Reasoning Extraction**: Any LLM-based selection or classification judgment must use resilient parsing (e.g., `parseLLMJson`) to extract valid structured data regardless of markdown formatting or conversational noise in the model output.
+11. **Simulation Resiliency & Zombie Ditching**: To prevent infinite stalls caused by problematic documents (e.g., crashing workers or timeouts), the simulation runner implements a **Double-Reset Ditching** mechanism.
     - **Attempt Tracking**: The orchestrator tracks attempts per document per phase in `attempts_json`.
     - **The Double-Reset Invariant**: To decouple queue latency from active processing, liveness is signaled twice:
         - **Dispatch Reset**: The runner refreshes `updated_at` when enqueuing a unit (Document or Batch). This allows a **30-minute window** for the unit to wait in the queue.

@@ -5,6 +5,7 @@ const secretsSchema = z.object({
   // Environment Variables
   AI_GOOGLE_KEY: z.string().min(1),
   AI_CEREBRAS_KEY: z.string().min(1),
+  AI_ARTIFICIAL_ANALYSIS_KEY: z.string().min(1).optional(),
   AUTH_SECRET_KEY: z.string().min(1).optional(),
   API_KEY: z.string().min(1),
   INGEST_API_KEY: z.string().min(1),
@@ -30,7 +31,7 @@ function validateSecrets() {
     throw new Error(errorMsg);
   }
 
-  return result.data
+  return result.data;
 }
 
 /**

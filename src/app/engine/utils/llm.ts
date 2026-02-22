@@ -216,6 +216,9 @@ export async function callLLM(
 
         if (usageResult && options?.pipelineContext?.simulationId) {
           try {
+            logInfo(
+              `Recording LLM cost for simulation ${options.pipelineContext.simulationId}: ${usageResult.promptTokens} in, ${usageResult.completionTokens} out`,
+            );
             await recordLLMCost(
               options.pipelineContext,
               alias,
@@ -225,8 +228,15 @@ export async function callLLM(
             );
           } catch (e) {
             logInfo(
-              `Failed to record LLM cost: ${e instanceof Error ? e.message : String(e)}`,
+              `Failed to record LLM cost for simulation ${options.pipelineContext.simulationId}: ${e instanceof Error ? e.message : String(e)}`,
             );
+          }
+        } else {
+          if (!usageResult) {
+            logInfo(`No usageResult returned from ${modelConfig.provider}`);
+          }
+          if (!options?.pipelineContext?.simulationId) {
+            logInfo(`No simulationId found in pipelineContext`);
           }
         }
 

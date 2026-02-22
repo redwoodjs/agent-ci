@@ -395,7 +395,8 @@ async function SimulationRunsContent({
                 Estimated Total AI Usage Cost: ${costs.totalCostUsd.toFixed(4)}
               </div>
               <div className="text-xs text-gray-600">
-                {costs.totalCallCount} API calls | {costs.totalInputTokens.toLocaleString()} tokens in |{" "}
+                {costs.totalCallCount} API calls |{" "}
+                {costs.totalInputTokens.toLocaleString()} tokens in |{" "}
                 {costs.totalOutputTokens.toLocaleString()} tokens out
               </div>
               {totalDocs > 0 && (

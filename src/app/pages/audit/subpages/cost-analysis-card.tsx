@@ -23,16 +23,16 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
     <div className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>LLM Cost Summary</CardTitle>
+          <CardTitle>AI Usage Cost Summary</CardTitle>
           <CardDescription>
-            Aggregated token usage and estimated USD cost.
+            Estimated aggregate AI model costs based on token usage.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
             <div className="p-4 bg-green-50 rounded-lg">
               <div className="text-sm text-green-600 font-medium">
-                Total Cost
+                Estimated Total AI Cost
               </div>
               <div className="text-2xl font-bold text-green-900">
                 ${costs.totalCostUsd.toFixed(4)}
@@ -40,7 +40,7 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
             </div>
             <div className="p-4 bg-blue-50 rounded-lg">
               <div className="text-sm text-blue-600 font-medium">
-                Total Calls
+                Total API Calls
               </div>
               <div className="text-2xl font-bold text-blue-900">
                 {costs.totalCallCount.toLocaleString()}
@@ -48,7 +48,7 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
             </div>
             <div className="p-4 bg-gray-50 rounded-lg">
               <div className="text-sm text-gray-600 font-medium">
-                Input Tokens
+                AI Tokens In
               </div>
               <div className="text-2xl font-bold text-gray-900">
                 {costs.totalInputTokens.toLocaleString()}
@@ -56,7 +56,7 @@ export function CostAnalysisCard({ costs }: { costs: any }) {
             </div>
             <div className="p-4 bg-gray-50 rounded-lg">
               <div className="text-sm text-gray-600 font-medium">
-                Output Tokens
+                AI Tokens Out
               </div>
               <div className="text-2xl font-bold text-gray-900">
                 {costs.totalOutputTokens.toLocaleString()}

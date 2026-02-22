@@ -253,7 +253,7 @@ async function SimulationRunsContent({
                       </div>
                       {typeof r.estimatedCostUsd === "number" && (
                         <div className="text-xs font-semibold text-green-700 mt-1">
-                          Est. Cost: ${r.estimatedCostUsd.toFixed(4)}
+                          Est. AI Cost: ${r.estimatedCostUsd.toFixed(4)}
                           {r.config?.r2Keys?.length > 0 &&
                             ` ($${(
                               r.estimatedCostUsd / r.config.r2Keys.length
@@ -374,7 +374,7 @@ async function SimulationRunsContent({
                   : "bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200"
               }`}
             >
-              Cost Analysis: ${costs.totalCostUsd.toFixed(3)}
+              AI Cost Analysis: ${costs.totalCostUsd.toFixed(3)}
             </a>
           </div>
         </CardHeader>
@@ -392,11 +392,11 @@ async function SimulationRunsContent({
             </div>
             <div className="mt-2 pt-2 border-t">
               <div className="font-semibold text-green-700">
-                Estimated Total Cost: ${costs.totalCostUsd.toFixed(4)}
+                Estimated Total AI Usage Cost: ${costs.totalCostUsd.toFixed(4)}
               </div>
               <div className="text-xs text-gray-600">
-                {costs.totalCallCount} calls | {costs.totalInputTokens} in |{" "}
-                {costs.totalOutputTokens} out
+                {costs.totalCallCount} API calls | {costs.totalInputTokens.toLocaleString()} tokens in |{" "}
+                {costs.totalOutputTokens.toLocaleString()} tokens out
               </div>
               {totalDocs > 0 && (
                 <div className="text-xs font-semibold text-gray-700 mt-1">
@@ -516,7 +516,7 @@ async function SimulationRunsContent({
               className="text-sm text-green-600 hover:underline font-semibold"
               href={viewLink("costs")}
             >
-              Cost Analysis
+              AI Cost Analysis
             </a>
           </div>
         </CardContent>

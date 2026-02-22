@@ -6,6 +6,7 @@ import { createCerebras } from "@ai-sdk/cerebras";
 import { generateText } from "ai";
 import type { PipelineContext } from "../runtime/types";
 import { getSimulationDb } from "../simulation/db";
+import { sql } from "rwsdk/db";
 
 const MODELS = {
   "cerebras-gpt-oss-120b": { provider: "cerebras", id: "gpt-oss-120b" },
@@ -218,12 +219,13 @@ export async function callLLM(
           try {
             logInfo(
               `Recording LLM cost for simulation ${options.pipelineContext.simulationId}: ${usageResult.promptTokens} in, ${usageResult.completionTokens} out`,
+              { usage: usageResult },
             );
             await recordLLMCost(
               options.pipelineContext,
               alias,
-              usageResult.promptTokens,
-              usageResult.completionTokens,
+              usageResult.promptTokens || 0,
+              usageResult.completionTokens || 0,
               duration,
             );
           } catch (e) {
@@ -318,88 +320,18 @@ async function recordLLMCost(
       oc
         .columns(["run_id", "model_alias", "input_bucket", "output_bucket"])
         .doUpdateSet({
-          total_input_tokens: (eb: any) =>
-            eb.bxp("total_input_tokens", "+", promptTokens),
-          total_output_tokens: (eb: any) =>
-            eb.bxp("total_output_tokens", "+", completionTokens),
-          total_duration_ms: (eb: any) =>
-            eb.bxp("total_duration_ms", "+", durationMs),
-          // Welford's Algorithm:
-          // new_mean = old_mean + (x - old_mean) / new_n
-          // new_m2 = old_m2 + (x - old_mean) * (x - new_mean)
-          m2_input_tokens: (eb: any) =>
-            eb.bxp(
-              "m2_input_tokens",
-              "+",
-              eb.bxp(
-                eb.bxp(eb.val(promptTokens), "-", eb.ref("mean_input_tokens")),
-                "*",
-                eb.bxp(
-                  eb.val(promptTokens),
-                  "-",
-                  eb.bxp(
-                    "mean_input_tokens",
-                    "+",
-                    eb
-                      .bxp(
-                        eb.val(promptTokens),
-                        "-",
-                        eb.ref("mean_input_tokens"),
-                      )
-                      .div(eb.bxp("call_count", "+", 1)),
-                  ),
-                ),
-              ),
-            ),
-          mean_input_tokens: (eb: any) =>
-            eb.bxp(
-              "mean_input_tokens",
-              "+",
-              eb
-                .bxp(eb.val(promptTokens), "-", eb.ref("mean_input_tokens"))
-                .div(eb.bxp("call_count", "+", 1)),
-            ),
-          m2_output_tokens: (eb: any) =>
-            eb.bxp(
-              "m2_output_tokens",
-              "+",
-              eb.bxp(
-                eb.bxp(
-                  eb.val(completionTokens),
-                  "-",
-                  eb.ref("mean_output_tokens"),
-                ),
-                "*",
-                eb.bxp(
-                  eb.val(completionTokens),
-                  "-",
-                  eb.bxp(
-                    "mean_output_tokens",
-                    "+",
-                    eb
-                      .bxp(
-                        eb.val(completionTokens),
-                        "-",
-                        eb.ref("mean_output_tokens"),
-                      )
-                      .div(eb.bxp("call_count", "+", 1)),
-                  ),
-                ),
-              ),
-            ),
-          mean_output_tokens: (eb: any) =>
-            eb.bxp(
-              "mean_output_tokens",
-              "+",
-              eb
-                .bxp(
-                  eb.val(completionTokens),
-                  "-",
-                  eb.ref("mean_output_tokens"),
-                )
-                .div(eb.bxp("call_count", "+", 1)),
-            ),
-          call_count: (eb: any) => eb.bxp("call_count", "+", 1),
+          total_input_tokens: sql`total_input_tokens + ${promptTokens}`,
+          total_output_tokens: sql`total_output_tokens + ${completionTokens}`,
+          total_duration_ms: sql`total_duration_ms + ${durationMs}`,
+          // Welford's Algorithm (Online Variance):
+          // delta = x - mean
+          // mean += delta / n
+          // m2 += delta * (x - mean)
+          mean_input_tokens: sql`mean_input_tokens + (${promptTokens} - mean_input_tokens) / (call_count + 1)`,
+          m2_input_tokens: sql`m2_input_tokens + (${promptTokens} - mean_input_tokens) * (${promptTokens} - (mean_input_tokens + (${promptTokens} - mean_input_tokens) / (call_count + 1)))`,
+          mean_output_tokens: sql`mean_output_tokens + (${completionTokens} - mean_output_tokens) / (call_count + 1)`,
+          m2_output_tokens: sql`m2_output_tokens + (${completionTokens} - mean_output_tokens) * (${completionTokens} - (mean_output_tokens + (${completionTokens} - mean_output_tokens) / (call_count + 1)))`,
+          call_count: sql`call_count + 1`,
           updated_at: now,
         }),
     )

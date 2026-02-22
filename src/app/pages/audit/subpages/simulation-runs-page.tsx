@@ -397,7 +397,15 @@ async function SimulationRunsContent({
             </div>
             <div className="mt-2 pt-2 border-t">
               <div className="font-semibold text-slate-700">
-                Estimated Total AI Usage Cost: ${costs.totalCostUsd.toFixed(4)}
+                Mean Total AI Cost: ${costs.totalCostUsd.toFixed(4)}{" "}
+                {costs.totalCostStdDev > 0 && (
+                  <span
+                    title="Standard Deviation of total cost"
+                    className="text-xs font-normal text-slate-400"
+                  >
+                    (σ=${costs.totalCostStdDev.toFixed(4)})
+                  </span>
+                )}
               </div>
               <div className="text-xs text-gray-600">
                 {costs.totalCallCount} API calls |{" "}
@@ -407,9 +415,55 @@ async function SimulationRunsContent({
               {totalDocs > 0 && (
                 <>
                   <div className="text-xs font-semibold text-gray-700 mt-1">
-                    Cost per document: $
-                    {(costs.totalCostUsd / totalDocs).toFixed(4)} ({totalDocs}{" "}
-                    docs)
+                    Mean cost per document: $
+                    {(costs.totalCostUsd / totalDocs).toFixed(4)}{" "}
+                    {costs.totalCostStdDev > 0 && (
+                      <span className="font-normal text-slate-400">
+                        (±$
+                        {(
+                          (1.96 *
+                            ((costs.totalCostStdDev || 0) /
+                              Math.sqrt(costs.totalCallCount || 1))) /
+                          totalDocs
+                        ).toFixed(4)}{" "}
+                        MoE)
+                      </span>
+                    )}
+                    {" • "}
+                    {totalDocs} docs
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1 flex gap-2 items-center">
+                    <span className="bg-slate-100 px-1 rounded text-slate-500 font-mono">
+                      Z=1.96
+                    </span>
+                    <span>95% CI:</span>
+                    <span className="text-slate-600 font-medium">
+                      $
+                      {(
+                        (costs.totalCostUsd -
+                          1.96 *
+                            ((costs.totalCostStdDev || 0) /
+                              Math.sqrt(costs.totalCallCount || 1))) /
+                        totalDocs
+                      ).toFixed(5)}{" "}
+                      - $
+                      {(
+                        (costs.totalCostUsd +
+                          1.96 *
+                            ((costs.totalCostStdDev || 0) /
+                              Math.sqrt(costs.totalCallCount || 1))) /
+                        totalDocs
+                      ).toFixed(5)}
+                    </span>
+                    {costs.totalCallCount >= 30 ? (
+                      <span className="text-blue-500 font-bold ml-1">
+                        ✓ Statistically Significant (n={costs.totalCallCount})
+                      </span>
+                    ) : (
+                      <span className="text-amber-500 font-medium ml-1">
+                        ⚠ Low Sample Size (n={costs.totalCallCount})
+                      </span>
+                    )}
                   </div>
                   <div className="mt-2">
                     <div className="text-[9px] text-slate-400 uppercase tracking-tight font-bold mb-1">

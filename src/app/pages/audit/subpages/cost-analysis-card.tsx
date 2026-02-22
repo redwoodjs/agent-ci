@@ -217,6 +217,12 @@ export function CostAnalysisCard({
                     Avg Tokens (In / Out)
                   </th>
                   <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
+                    Avg Call Cost
+                  </th>
+                  <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
+                    Sig.
+                  </th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">
                     Total Cost
                   </th>
                 </tr>
@@ -230,6 +236,10 @@ export function CostAnalysisCard({
                       n > 1 ? 1.96 * (b.stdDevInputTokens / Math.sqrt(n)) : 0;
                     const outCi =
                       n > 1 ? 1.96 * (b.stdDevOutputTokens / Math.sqrt(n)) : 0;
+                    const costCi =
+                      n > 1 ? 1.96 * (b.stdDevCostUsd / Math.sqrt(n)) : 0;
+                    const moePercent =
+                      b.avgCostUsd > 0 ? (costCi / b.avgCostUsd) * 100 : 0;
 
                     return (
                       <tr key={i} className="hover:bg-gray-50">
@@ -250,7 +260,10 @@ export function CostAnalysisCard({
                             <span>
                               {Math.round(b.avgInputTokens).toLocaleString()}
                               {inCi > 0 && (
-                                <span className="text-gray-400 text-[10px] ml-1">
+                                <span
+                                  title="95% CI (Z=1.96)"
+                                  className="text-gray-400 text-[10px] ml-1"
+                                >
                                   ±{Math.round(inCi)}
                                 </span>
                               )}
@@ -258,12 +271,43 @@ export function CostAnalysisCard({
                             <span>
                               {Math.round(b.avgOutputTokens).toLocaleString()}
                               {outCi > 0 && (
-                                <span className="text-gray-400 text-[10px] ml-1">
+                                <span
+                                  title="95% CI (Z=1.96)"
+                                  className="text-gray-400 text-[10px] ml-1"
+                                >
                                   ±{Math.round(outCi)}
                                 </span>
                               )}
                             </span>
                           </div>
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap text-xs text-right text-slate-600 font-mono">
+                          ${(b.avgCostUsd || 0).toFixed(5)}
+                          {costCi > 0 && (
+                            <span
+                              title={`95% Confidence (Z=1.96, MoE=${moePercent.toFixed(1)}%)`}
+                              className="text-[10px] text-slate-400 block font-sans"
+                            >
+                              ±${costCi.toFixed(6)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 whitespace-nowrap text-center">
+                          {n >= 30 ? (
+                            <span
+                              title={`Statistically significant (n=${n})`}
+                              className="text-blue-500 text-xs font-bold"
+                            >
+                              Z
+                            </span>
+                          ) : (
+                            <span
+                              title={`Low sample size (n=${n})`}
+                              className="text-gray-300 text-xs"
+                            >
+                              ?
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-2 whitespace-nowrap text-xs text-right text-slate-700">
                           ${b.totalCostUsd.toFixed(4)}

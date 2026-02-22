@@ -1,6 +1,6 @@
 import { getSimulationDb } from "./db";
 import { SimulationDbContext } from "./types";
-import { calculateCost } from "../utils/pricing";
+import { getPricingForAlias } from "../utils/pricing";
 import { LLMAlias } from "../utils/llm";
 
 export interface SimulationRunCostSummary {
@@ -9,6 +9,7 @@ export interface SimulationRunCostSummary {
   totalInputTokens: number;
   totalOutputTokens: number;
   totalCallCount: number;
+  totalCostStdDev: number;
   models: Array<{
     model: string;
     costUsd: number;
@@ -28,6 +29,8 @@ export interface SimulationRunCostSummary {
     avgOutputTokens: number;
     stdDevOutputTokens: number;
     totalCostUsd: number;
+    avgCostUsd: number;
+    stdDevCostUsd: number;
   }>;
 }
 
@@ -47,6 +50,7 @@ export async function getSimulationRunCosts(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let totalCallCount = 0;
+  let totalCostVar = 0;
 
   const modelMap = new Map<
     string,
@@ -65,11 +69,12 @@ export async function getSimulationRunCosts(
   const buckets: SimulationRunCostSummary["buckets"] = [];
 
   for (const row of costs as any[]) {
-    const cost = await calculateCost(
-      row.model_alias as LLMAlias,
-      row.total_input_tokens,
-      row.total_output_tokens,
-    );
+    const alias = row.model_alias as LLMAlias;
+    const pricing = await getPricingForAlias(alias);
+    const pIn = pricing.inputCostPer1M / 1_000_000;
+    const pOut = pricing.outputCostPer1M / 1_000_000;
+
+    const cost = row.total_input_tokens * pIn + row.total_output_tokens * pOut;
 
     totalCostUsd += cost;
     totalInputTokens += row.total_input_tokens;
@@ -77,6 +82,17 @@ export async function getSimulationRunCosts(
     totalCallCount += row.call_count;
 
     const nB = row.call_count;
+
+    // Variance of the cost for a single call in this bucket
+    // Var(aX + bY) = a^2Var(X) + b^2Var(Y) + 2abCov(X,Y)
+    // Assuming independence for simplicity in variance estimation
+    const varIn = nB > 1 ? row.m2_input_tokens / (nB - 1) : 0;
+    const varOut = nB > 1 ? row.m2_output_tokens / (nB - 1) : 0;
+    const bucketVarCost = pIn * pIn * varIn + pOut * pOut * varOut;
+
+    // Total variance contribution of this bucket (sum of variances of all calls in it)
+    totalCostVar += nB * bucketVarCost;
+
     const existingModel = modelMap.get(row.model_alias) || {
       costUsd: 0,
       callCount: 0,
@@ -129,6 +145,8 @@ export async function getSimulationRunCosts(
         Math.max(0, nB > 1 ? row.m2_output_tokens / (nB - 1) : 0),
       ),
       totalCostUsd: cost,
+      avgCostUsd: cost / nB,
+      stdDevCostUsd: Math.sqrt(Math.max(0, bucketVarCost)),
     });
   }
 
@@ -156,6 +174,7 @@ export async function getSimulationRunCosts(
     totalInputTokens,
     totalOutputTokens,
     totalCallCount,
+    totalCostStdDev: Math.sqrt(totalCostVar),
     models,
     buckets,
   };

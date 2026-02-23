@@ -1,8 +1,22 @@
-name: Smoke tests
+name: Smoke Tests
 on: [push]
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
+      - name: Caching is natively supported
+        id: cache-smoke
+        uses: actions/cache@v4
+        with:
+          path: smoke-cache-file.txt
+          key: smoke-test-cache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            smoke-test-cache-${{ runner.os }}-
+      - name: Write Cache File
+        if: steps.cache-smoke.outputs.cache-hit != 'true'
+        run: echo "Hello from cache" > smoke-cache-file.txt
+      - name: Verify Cache File
+        run: grep "Hello from cache" smoke-cache-file.txt
+
       - name: Say Hello
         run: echo "Hello from E2E"

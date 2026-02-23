@@ -16,7 +16,7 @@ export async function generateTitleForText(
 
     const titleResponse = await callLLM(
       titlePrompt,
-      "cloudflare-llama-3.1-8b",
+      "cerebras-llama-3.1-8b",
       {
         pipelineContext: options?.pipelineContext,
       },

@@ -14,27 +14,22 @@ let CACHE_EXPIRY: number = 0;
 
 const PRICING_MAPPING: Record<LLMAlias, string> = {
   "cerebras-gpt-oss-120b": "gpt-oss-120b",
-  "cloudflare-gpt-oss-20b": "gpt-oss-20b",
-  "cloudflare-llama-3.1-8b": "llama-3.1-8b",
+  "cerebras-llama-3.1-8b": "llama-3.1-8b",
   "google-gemini-3-flash": "gemini-3-flash",
 };
 
 export const DEFAULT_PRICING: Record<LLMAlias, ModelPricing> = {
   "cerebras-gpt-oss-120b": {
-    inputCostPer1M: 0.15,
-    outputCostPer1M: 0.6,
+    inputCostPer1M: 0.35,
+    outputCostPer1M: 0.75,
   },
-  "cloudflare-gpt-oss-20b": {
-    inputCostPer1M: 0.05,
-    outputCostPer1M: 0.15,
-  },
-  "cloudflare-llama-3.1-8b": {
-    inputCostPer1M: 0.05,
-    outputCostPer1M: 0.15,
+  "cerebras-llama-3.1-8b": {
+    inputCostPer1M: 0.1,
+    outputCostPer1M: 0.1,
   },
   "google-gemini-3-flash": {
-    inputCostPer1M: 0.3,
-    outputCostPer1M: 0.9,
+    inputCostPer1M: 0.5,
+    outputCostPer1M: 3.0,
   },
 };
 

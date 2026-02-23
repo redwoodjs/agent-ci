@@ -10,13 +10,9 @@ import { sql } from "rwsdk/db";
 
 const MODELS = {
   "cerebras-gpt-oss-120b": { provider: "cerebras", id: "gpt-oss-120b" },
-  "cloudflare-gpt-oss-20b": {
-    provider: "cloudflare",
-    id: "@cf/openai/gpt-oss-20b",
-  },
-  "cloudflare-llama-3.1-8b": {
-    provider: "cloudflare",
-    id: "@cf/meta/llama-3.1-8b-instruct",
+  "cerebras-llama-3.1-8b": {
+    provider: "cerebras",
+    id: "llama-3.1-8b-instruct",
   },
   "google-gemini-3-flash": { provider: "google", id: "gemini-3-flash-preview" },
 } as const;
@@ -181,33 +177,9 @@ export async function callLLM(
           textResult = text;
           usageResult = usage;
         } else {
-          // 3. Handle Cloudflare AI models (AI-SDK Workers AI)
-          const cfModelId = modelId;
-
-          logInfo(
-            `Calling Cloudflare alias '${alias}' (${cfModelId}) with AI-SDK and prompt length: ${promptLength} chars. Preview: ${promptPreview}...`,
+          throw new Error(
+            `Unsupported model provider '${(modelConfig as any).provider}' for alias '${alias}'`,
           );
-
-          const { createWorkersAI } = await import("workers-ai-provider");
-          const workersai = createWorkersAI({
-            binding: env.AI,
-          });
-
-          const { text, usage } = await generateText({
-            model: workersai(cfModelId as any),
-            prompt: prompt,
-            providerOptions: {
-              "workers-ai": {
-                // Workers AI doesn't have a direct reasoning effort flag yet in the provider,
-                // but we map it if they support it in the future.
-              },
-            },
-            temperature: options?.temperature,
-            maxTokens: options?.max_tokens,
-          } as any);
-
-          textResult = text;
-          usageResult = usage;
         }
 
         const duration = Date.now() - start;

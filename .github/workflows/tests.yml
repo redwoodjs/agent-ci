@@ -20,7 +20,7 @@ jobs:
 
   test:
     needs: get-runner
-    runs-on: ${{ needs.oa.outputs.target_runner }}
+    runs-on: ${{ needs.get-runner.outputs.target_runner }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup pnpm

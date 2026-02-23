@@ -6,5 +6,6 @@ export default defineConfig({
     // racing on the shared _/logs/404.log file path.
     maxConcurrency: 1,
     fileParallelism: false,
+    exclude: ["dist/**", "node_modules/**"],
   },
 });

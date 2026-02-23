@@ -3,7 +3,7 @@ name: Tests
 on: [push]
 
 jobs:
-  oa:
+  get-runner:
     runs-on: ubuntu-latest
     outputs:
       target_runner: ${{ steps.status.outputs.label }}
@@ -19,16 +19,22 @@ jobs:
           fi
 
   test:
-    needs: oa
-    runs-on: ${{ needs.oa.outputs.target_runner }}
+    needs: get-runner
+    runs-on: ${{ needs.get-runner.outputs.target_runner }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: "pnpm"
       - run: pnpm install
       - run: pnpm check
-      - run: pnpm test
+      - name: Test DTU
+        run: pnpm --filter dtu-github-actions test
+      - name: Test Supervisor
+        run: pnpm --filter supervisor test

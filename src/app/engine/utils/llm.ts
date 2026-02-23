@@ -10,13 +10,9 @@ import { sql } from "rwsdk/db";
 
 const MODELS = {
   "cerebras-gpt-oss-120b": { provider: "cerebras", id: "gpt-oss-120b" },
-  "cloudflare-gpt-oss-20b": {
-    provider: "cloudflare",
-    id: "@cf/openai/gpt-oss-20b",
-  },
-  "cloudflare-llama-3.1-8b": {
-    provider: "cloudflare",
-    id: "@cf/meta/llama-3.1-8b-instruct",
+  "cerebras-llama-3.1-8b": {
+    provider: "cerebras",
+    id: "llama-3.1-8b-instruct",
   },
   "google-gemini-3-flash": { provider: "google", id: "gemini-3-flash-preview" },
 } as const;

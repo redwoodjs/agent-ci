@@ -3,7 +3,7 @@ name: Tests
 on: [push]
 
 jobs:
-  get-runs-on:
+  get-runner:
     runs-on: ubuntu-latest
     outputs:
       target_runner: ${{ steps.status.outputs.label }}
@@ -19,7 +19,7 @@ jobs:
           fi
 
   test:
-    needs: oa
+    needs: get-runner
     runs-on: ${{ needs.oa.outputs.target_runner }}
     steps:
       - uses: actions/checkout@v4

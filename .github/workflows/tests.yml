@@ -1,13 +1,9 @@
 name: Tests
 
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+on: [push]
 
 jobs:
-  oa:
+  get-runs-on:
     runs-on: ubuntu-latest
     outputs:
       target_runner: ${{ steps.status.outputs.label }}

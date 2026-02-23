@@ -1,4 +1,4 @@
-name: E2E Test
+name: Smoke Tests
 on: [push]
 jobs:
   test:

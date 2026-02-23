@@ -177,33 +177,9 @@ export async function callLLM(
           textResult = text;
           usageResult = usage;
         } else {
-          // 3. Handle Cloudflare AI models (AI-SDK Workers AI)
-          const cfModelId = modelId;
-
-          logInfo(
-            `Calling Cloudflare alias '${alias}' (${cfModelId}) with AI-SDK and prompt length: ${promptLength} chars. Preview: ${promptPreview}...`,
+          throw new Error(
+            `Unsupported model provider '${(modelConfig as any).provider}' for alias '${alias}'`,
           );
-
-          const { createWorkersAI } = await import("workers-ai-provider");
-          const workersai = createWorkersAI({
-            binding: env.AI,
-          });
-
-          const { text, usage } = await generateText({
-            model: workersai(cfModelId as any),
-            prompt: prompt,
-            providerOptions: {
-              "workers-ai": {
-                // Workers AI doesn't have a direct reasoning effort flag yet in the provider,
-                // but we map it if they support it in the future.
-              },
-            },
-            temperature: options?.temperature,
-            maxTokens: options?.max_tokens,
-          } as any);
-
-          textResult = text;
-          usageResult = usage;
         }
 
         const duration = Date.now() - start;

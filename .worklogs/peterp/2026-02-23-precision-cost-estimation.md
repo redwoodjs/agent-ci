@@ -1,10 +1,10 @@
-# Worklog: High-Precision LLM Cost Tracking & Statistical Guardrails
+# Worklog: LLM Token Tracking & Budget Projections
 
 **Date:** 2026-02-23  
 **Author:** Gitub Copilot (AI)
 
 ## Objective
-Implement a production-grade AI cost-tracking system for the Machinen Engine simulation suite. The goal was to move from "zero usage" visibility to a high-fidelity dashboard capable of predicting scaling impacts with 95% statistical confidence.
+Implement token usage tracking and budget projections for the Machinen Engine simulation suite. The goal was to provide better visibility into LLM costs and provide estimated scaling projections with basic statistical confidence intervals.
 
 ## Key Accomplishments
 
@@ -33,3 +33,19 @@ Implement a production-grade AI cost-tracking system for the Machinen Engine sim
 
 ## Impact
 Researchers can now run a "small sample" simulation (e.g., 5-10 docs) and receive a mathematically sound prediction of exactly what a 10,000 document production run will cost, including the specific statistical uncertainty of that estimate.
+
+## PR Summary
+
+### Title
+Feat: LLM Token Tracking & Estimated Scaling Projections
+
+### Description
+This PR adds token usage tracking and budget projections for the Machinen Engine, designed to help developers and researchers estimate the costs for larger AI simulation runs.
+
+**Key Changes:**
+- **Statistical Visibility**: Implemented **Welford's Algorithm** for $O(1)$ online variance tracking, enabling 95% Confidence Intervals ($Z=1.96$) and Margin of Error (MoE) reporting.
+- **Sampling Markers**: Integrated **Central Limit Theorem** thresholds ($n \ge 30$) to visually distinguish runs with sufficient sample sizes from initial estimates.
+- **Linear Extrapolation**: Added automated linear extrapolation for scale-points (up to 50K documents) to help estimate future infrastructure costs.
+- **Provider Normalization**: Robustified token usage extraction to handle schema variations across AI providers (OpenAI, Cerebras, Google).
+- **UI Refinement**: Built a dedicated **Cost Analysis Card** featuring compact token formatting (K/M notation) and detailed bucket-level standard deviation reporting.
+- **Architectural Cleanup**: Centralized cost-tracking logic into the root simulation database and extracted high-level service functions for document and cost retrieval.

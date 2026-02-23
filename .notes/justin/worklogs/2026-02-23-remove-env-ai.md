@@ -63,3 +63,18 @@ We have successfully removed the Cloudflare Workers AI fallback from `src/app/en
 - `pnpm tsc --noEmit` confirmed no errors in `src/app/engine/utils/llm.ts`.
 - Codespace search shows other files still use `env.AI` (e.g., for embeddings), but per instructions, we focused on the LLM helper specifically.
 
+
+## Draft PR
+
+### Title
+feat: Remove env.AI support from LLM utility
+
+### Narrative Description
+#### Context
+We are simplifying our LLM provider configurations and moving away from the Cloudflare Workers AI (`env.AI`) fallback in our core LLM utility.
+
+#### Problem
+Currently, `src/app/engine/utils/llm.ts` contains a fallback block that attempts to use `workers-ai-provider` and `env.AI` if a model provider doesn't match our primary providers (`google` or `cerebras`). Since our current model configurations only target these two providers, this fallback is unused and adds unnecessary complexity and potential runtime confusion.
+
+#### Solution
+We removed the `env.AI` fallback from the `callLLM` function and replaced it with an explicit error handler that fails fast if an unsupported provider is encountered. We also updated the TypeScript types to handle the exhaustive check fallout.

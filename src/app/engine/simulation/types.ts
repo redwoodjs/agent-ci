@@ -43,12 +43,30 @@ export interface SimulationRunEventsTable {
   created_at: string;
 }
 
+export interface SimulationRunLlmCostsTable {
+  run_id: string;
+  model_alias: string;
+  input_bucket: string;
+  output_bucket: string;
+  call_count: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_duration_ms: number;
+  mean_input_tokens: number;
+  mean_output_tokens: number;
+  m2_input_tokens: number;
+  m2_output_tokens: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export type SimulationDatabase = Override<
   InferredDb,
   {
     simulation_runs: SimulationRunsTable;
     simulation_run_documents: SimulationRunDocumentsTable;
     simulation_run_events: SimulationRunEventsTable;
+    simulation_run_llm_costs: SimulationRunLlmCostsTable;
   }
 >;
 

@@ -1,6 +1,7 @@
 import type { MomentDescription, MicroMomentDescription } from "../types";
 import type { MicroMoment } from "../databases/momentGraph";
 import { callLLM } from "../utils/llm";
+import type { PipelineContext } from "../runtime/types";
 
 export type MacroMoment = MomentDescription & {
   summary: string;
@@ -31,7 +32,9 @@ async function hashText16(input: string): Promise<string> {
   const data = encoder.encode(input);
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
   const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hashHex = hashArray
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
   return hashHex.slice(0, 16);
 }
 
@@ -52,7 +55,8 @@ export async function synthesizeMicroMoments(
     macroSynthesisPromptContext?: string | null;
     auditSink?: (event: SynthesisAuditEvent) => void;
     logger?: (message: string, data?: any) => void;
-  }
+    pipelineContext?: PipelineContext;
+  },
 ): Promise<
   Array<
     MomentDescription & {
@@ -71,7 +75,7 @@ export async function synthesizeMicroMoments(
       (moment, idx) =>
         `Index: ${idx + 1}\nPath: ${moment.path}\nSummary: ${
           moment.summary || "No summary"
-        }\n`
+        }\n`,
     )
     .join("\n---\n\n");
 
@@ -80,19 +84,19 @@ export async function synthesizeMicroMoments(
   const titleLabel =
     typeof macroSynthesisPromptContext === "string"
       ? macroSynthesisPromptContext.match(
-          /^\s*-\s*title_label:\s*(.+)\s*$/m
+          /^\s*-\s*title_label:\s*(.+)\s*$/m,
         )?.[1]
       : undefined;
   const summaryDescriptor =
     typeof macroSynthesisPromptContext === "string"
       ? macroSynthesisPromptContext.match(
-          /^\s*-\s*summary_descriptor:\s*(.+)\s*$/m
+          /^\s*-\s*summary_descriptor:\s*(.+)\s*$/m,
         )?.[1]
       : undefined;
   const documentRef =
     typeof macroSynthesisPromptContext === "string"
       ? macroSynthesisPromptContext.match(
-          /^\s*-\s*document_ref:\s*([^\s]+)\s*$/m
+          /^\s*-\s*document_ref:\s*([^\s]+)\s*$/m,
         )?.[1]
       : undefined;
 
@@ -189,6 +193,7 @@ ${formattedMoments}
         effort: "low",
       },
       logger: options?.logger,
+      pipelineContext: options?.pipelineContext,
     });
 
     const momentRegex =
@@ -233,7 +238,7 @@ ${formattedMoments}
         .filter((n) => !isNaN(n) && n >= 1 && n <= microMoments.length);
 
       const uniqueIndices = Array.from(new Set(parsedIndices)).sort(
-        (a, b) => a - b
+        (a, b) => a - b,
       );
 
       if (uniqueIndices.length === 0) {
@@ -272,8 +277,8 @@ ${formattedMoments}
         typeof baseSourceMetadata === "object"
           ? { ...(baseSourceMetadata as any), timeRange }
           : timeRange
-          ? { timeRange }
-          : baseSourceMetadata;
+            ? { timeRange }
+            : baseSourceMetadata;
 
       macroMoments.push({
         title: title.trim(),
@@ -289,7 +294,7 @@ ${formattedMoments}
 
     if (macroMoments.length === 0) {
       console.error(
-        `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`
+        `[engine] Failed to parse any macro-moments from response. Full response:\n${response}`,
       );
       options?.auditSink?.({
         kind: "macro-synthesis-parse-failure",
@@ -313,7 +318,7 @@ ${formattedMoments}
   } catch (error) {
     console.error(
       `[engine] Error during synthesis:`,
-      error instanceof Error ? error.message : String(error)
+      error instanceof Error ? error.message : String(error),
     );
     options?.auditSink?.({
       kind: "macro-synthesis-error",
@@ -332,7 +337,8 @@ export async function synthesizeMicroMomentsIntoStreams(
     macroSynthesisPromptContext?: string | null;
     auditSink?: (event: SynthesisAuditEvent) => void;
     logger?: (message: string, data?: any) => void;
-  }
+    pipelineContext?: PipelineContext;
+  },
 ): Promise<MacroMomentStream[]> {
   if (microMoments.length === 0) {
     return [];
@@ -343,7 +349,7 @@ export async function synthesizeMicroMomentsIntoStreams(
       (moment, idx) =>
         `Index: ${idx + 1}\nPath: ${moment.path}\nSummary: ${
           moment.summary || "No summary"
-        }\n`
+        }\n`,
     )
     .join("\n---\n\n");
 
@@ -352,19 +358,19 @@ export async function synthesizeMicroMomentsIntoStreams(
   const titleLabel =
     typeof macroSynthesisPromptContext === "string"
       ? macroSynthesisPromptContext.match(
-          /^\s*-\s*title_label:\s*(.+)\s*$/m
+          /^\s*-\s*title_label:\s*(.+)\s*$/m,
         )?.[1]
       : undefined;
   const summaryDescriptor =
     typeof macroSynthesisPromptContext === "string"
       ? macroSynthesisPromptContext.match(
-          /^\s*-\s*summary_descriptor:\s*(.+)\s*$/m
+          /^\s*-\s*summary_descriptor:\s*(.+)\s*$/m,
         )?.[1]
       : undefined;
   const documentRef =
     typeof macroSynthesisPromptContext === "string"
       ? macroSynthesisPromptContext.match(
-          /^\s*-\s*document_ref:\s*([^\s]+)\s*$/m
+          /^\s*-\s*document_ref:\s*([^\s]+)\s*$/m,
         )?.[1]
       : undefined;
 
@@ -390,7 +396,7 @@ export async function synthesizeMicroMomentsIntoStreams(
 - required_summary_prefix: ${summaryDescriptor ?? "(none)"}
 - required_document_ref_token: ${documentRef ?? "(none)"}
 - If required_document_ref_token is not "(none)", SUMMARY must contain it in brackets exactly once: [${
-      documentRef ?? ""
+          documentRef ?? ""
         }]
 `
       : "";
@@ -523,7 +529,7 @@ ${formattedMoments}
           .filter((n) => !usedIndices.has(n));
 
         const uniqueIndices = Array.from(new Set(parsedIndices)).sort(
-          (a, b) => a - b
+          (a, b) => a - b,
         );
 
         if (uniqueIndices.length === 0) {
@@ -565,10 +571,10 @@ ${formattedMoments}
           typeof baseSourceMetadata === "object"
             ? { ...(baseSourceMetadata as any), timeRange, streamId }
             : timeRange
-            ? { timeRange, streamId }
-            : baseSourceMetadata
-            ? { ...(baseSourceMetadata as any), streamId }
-            : { streamId };
+              ? { timeRange, streamId }
+              : baseSourceMetadata
+                ? { ...(baseSourceMetadata as any), streamId }
+                : { streamId };
 
         macroMoments.push({
           title: title.trim(),
@@ -606,7 +612,7 @@ ${formattedMoments}
   } catch (error) {
     console.error(
       `[engine] Error during stream synthesis:`,
-      error instanceof Error ? error.message : String(error)
+      error instanceof Error ? error.message : String(error),
     );
     options?.auditSink?.({
       kind: "macro-stream-synthesis-error",

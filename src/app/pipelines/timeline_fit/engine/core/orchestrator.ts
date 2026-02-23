@@ -45,10 +45,10 @@ export async function computeTimelineFitProposalDeep(input: {
   llmSelector?: (input: {
     childText: string;
     childTimestamp: string;
-    candidates: Array<{ 
-      id: string; 
-      title: string | null; 
-      summary: string | null; 
+    candidates: Array<{
+      id: string;
+      title: string | null;
+      summary: string | null;
       relativeTime: string;
       ancestry: Array<{ title: string; summary: string }>;
     }>;
@@ -64,12 +64,17 @@ export async function computeTimelineFitProposalDeep(input: {
   const candidates = Array.isArray(input.candidates) ? input.candidates : [];
   const candidateCount = candidates.length;
   if (candidateCount === 0) {
-    return { candidateCount, chosenParentId: null, decisions: [], selectorResult: null };
+    return {
+      candidateCount,
+      chosenParentId: null,
+      decisions: [],
+      selectorResult: null,
+    };
   }
 
   const childTokens = input.extractAnchorTokens(
     input.childText,
-    input.maxAnchorTokens
+    input.maxAnchorTokens,
   );
   const childSet = new Set(childTokens);
   const childTimeMs = Date.parse(input.childTimestamp);
@@ -79,7 +84,7 @@ export async function computeTimelineFitProposalDeep(input: {
       const parentText = `${c.title ?? ""}\n${c.summary ?? ""}`.trim();
       const parentTokens = input.extractAnchorTokens(
         parentText,
-        input.maxAnchorTokens
+        input.maxAnchorTokens,
       );
       const shared: string[] = [];
       for (const t of parentTokens) {
@@ -92,9 +97,13 @@ export async function computeTimelineFitProposalDeep(input: {
       }
 
       // Check for time inversion
-      const parentCreatedAt = (c as any).createdAt || (c as any).sourceMetadata?.createdAt; // Fallback if not in row
+      const parentCreatedAt =
+        (c as any).createdAt || (c as any).sourceMetadata?.createdAt; // Fallback if not in row
       const parentTimeMs = parentCreatedAt ? Date.parse(parentCreatedAt) : null;
-      const inverted = parentTimeMs !== null && !isNaN(childTimeMs) && parentTimeMs > childTimeMs;
+      const inverted =
+        parentTimeMs !== null &&
+        !isNaN(childTimeMs) &&
+        parentTimeMs > childTimeMs;
 
       return { c, shared, inverted, parentTimeMs };
     })
@@ -119,41 +128,60 @@ export async function computeTimelineFitProposalDeep(input: {
     });
 
   // Shortlist top 10 non-inverted candidates
-  const shortlist = ranked.filter(r => !r.inverted).slice(0, 10);
+  const shortlist = ranked.filter((r) => !r.inverted).slice(0, 10);
 
   // Fetch Ancestry for shortlist
-  const ancestryMap = new Map<string, Array<{ title: string; summary: string }>>();
+  const ancestryMap = new Map<
+    string,
+    Array<{ title: string; summary: string }>
+  >();
   if (input.findAncestors) {
     for (const r of shortlist) {
       try {
         const ancestors = await input.findAncestors(r.c.id);
-        ancestryMap.set(r.c.id, ancestors
-          .filter(a => a.id !== input.childMomentId) // Prevent circularity: child cannot be its own ancestor
-          .slice(0, 5)
-          .map(m => ({
-            title: m.title,
-            summary: m.summary
-          })));
+        ancestryMap.set(
+          r.c.id,
+          ancestors
+            .filter((a) => a.id !== input.childMomentId) // Prevent circularity: child cannot be its own ancestor
+            .slice(0, 5)
+            .map((m) => ({
+              title: m.title,
+              summary: m.summary,
+            })),
+        );
       } catch (err) {
-        if (input.logger) input.logger.warn("timeline-fit:ancestry-fail", { id: r.c.id, error: err });
+        if (input.logger)
+          input.logger.warn("timeline-fit:ancestry-fail", {
+            id: r.c.id,
+            error: err,
+          });
       }
     }
   }
 
-  let selectorResult: { selectedId: string | null; note?: string | null } | null = null;
+  let selectorResult: {
+    selectedId: string | null;
+    note?: string | null;
+  } | null = null;
   if (shortlist.length > 0 && input.llmSelector) {
     selectorResult = await input.llmSelector({
       childText: input.childText,
       childTimestamp: input.childTimestamp,
       candidates: shortlist.map((r) => {
-        const timeGapMs = !isNaN(childTimeMs) && r.parentTimeMs !== null ? childTimeMs - r.parentTimeMs : null;
-        const relativeTime = timeGapMs !== null ? `${Math.floor(timeGapMs / 60000)} mins` : "unknown time";
+        const timeGapMs =
+          !isNaN(childTimeMs) && r.parentTimeMs !== null
+            ? childTimeMs - r.parentTimeMs
+            : null;
+        const relativeTime =
+          timeGapMs !== null
+            ? `${Math.floor(timeGapMs / 60000)} mins`
+            : "unknown time";
         return {
           id: r.c.id,
           title: r.c.title ?? null,
           summary: r.c.summary ?? null,
           relativeTime,
-          ancestry: ancestryMap.get(r.c.id) || []
+          ancestry: ancestryMap.get(r.c.id) || [],
         };
       }),
     });
@@ -167,20 +195,27 @@ export async function computeTimelineFitProposalDeep(input: {
     const id = entry.c.id;
     const isSelf = id === input.childMomentId;
     const isSelected = id === chosenParentId;
-    const isRejected = entry.inverted || (!isSelected && chosenParentId !== null) || (chosenParentId === null && !isSelf);
-    
+    const isRejected =
+      entry.inverted ||
+      (!isSelected && chosenParentId !== null) ||
+      (chosenParentId === null && !isSelf);
+
     decisions.push({
       candidateId: id,
       score: typeof entry.c.score === "number" ? entry.c.score : null,
       selected: isSelected,
       rejected: isRejected,
-      rejectReason: entry.inverted ? "time-inversion" : isSelf ? "self" : undefined,
+      rejectReason: entry.inverted
+        ? "time-inversion"
+        : isSelf
+          ? "self"
+          : undefined,
       rank: i + 1,
       details: {
         sharedAnchorTokens: entry.shared,
         isPredecessor: entry.c.isPredecessor,
         reasoning: isSelected ? selectorResult?.note || undefined : undefined,
-        ancestry: ancestryMap.get(id)
+        ancestry: ancestryMap.get(id),
       },
       title: entry.c.title ?? null,
       summary: entry.c.summary ?? null,
@@ -268,9 +303,12 @@ export async function computeTimelineFitDecision(input: {
                   `TIME: ${c.relativeTime} earlier\n\n` +
                   `#### ANCESTRY\n` +
                   (c.ancestry.length > 0
-                    ? c.ancestry.map(a => `- ${a.title}: ${a.summary}`).join("\n")
-                    : "- No history available") + "\n" +
-                  `---------------------------------`
+                    ? c.ancestry
+                        .map((a) => `- ${a.title}: ${a.summary}`)
+                        .join("\n")
+                    : "- No history available") +
+                  "\n" +
+                  `---------------------------------`,
               )
               .join("\n\n") +
             `\n\n### OUTPUT\n` +
@@ -282,19 +320,33 @@ export async function computeTimelineFitDecision(input: {
 
           try {
             if (input.logger) {
-              input.logger.info("timeline-fit:diagnostic:llm-selector-start", { childMomentId: input.childMomentId, candidateIds: llmInput.candidates.map(c => c.id) });
+              input.logger.info("timeline-fit:diagnostic:llm-selector-start", {
+                childMomentId: input.childMomentId,
+                candidateIds: llmInput.candidates.map((c) => c.id),
+              });
             }
             const raw = await input.ports.callLLM!(prompt);
-            const parsed = parseLLMJson<{ selectedId: string | null; note?: string | null }>(raw);
-            const selectedId = typeof parsed?.selectedId === "string" ? parsed.selectedId : null;
+            const parsed = parseLLMJson<{
+              selectedId: string | null;
+              note?: string | null;
+            }>(raw);
+            const selectedId =
+              typeof parsed?.selectedId === "string" ? parsed.selectedId : null;
             const note = typeof parsed?.note === "string" ? parsed.note : null;
             if (input.logger) {
-              input.logger.info("timeline-fit:diagnostic:llm-selector-result", { childMomentId: input.childMomentId, selectedId, note });
+              input.logger.info("timeline-fit:diagnostic:llm-selector-result", {
+                childMomentId: input.childMomentId,
+                selectedId,
+                note,
+              });
             }
             return { selectedId, note };
           } catch (err) {
             if (input.logger) {
-              input.logger.warn("timeline-fit:diagnostic:llm-selector-fail", { childMomentId: input.childMomentId, error: err instanceof Error ? err.message : String(err) });
+              input.logger.warn("timeline-fit:diagnostic:llm-selector-fail", {
+                childMomentId: input.childMomentId,
+                error: err instanceof Error ? err.message : String(err),
+              });
             }
             return { selectedId: null, note: null };
           }
@@ -347,35 +399,39 @@ export async function runTimelineFitForDocument(input: {
   audit: any;
 }> {
   const { context, childMoment, candidates } = input;
-  
-  const childText = `${childMoment.title || ""}\n${childMoment.summary || ""}`.trim();
+
+  const childText =
+    `${childMoment.title || ""}\n${childMoment.summary || ""}`.trim();
 
   const proposal = await computeTimelineFitDecision({
-    ports: { 
-      callLLM: (prompt) => context.llm.call(prompt, "cerebras-gpt-oss-120b", { 
-        temperature: 0,
-        logger: context.logger?.info,
-      }) 
+    ports: {
+      callLLM: (prompt) =>
+        context.llm.call(prompt, "cerebras-gpt-oss-120b", {
+          temperature: 0,
+          logger: context.logger?.info,
+          pipelineContext: context,
+        }),
     },
     childMomentId: childMoment.id,
     childText,
     childTimestamp: childMoment.createdAt,
-    candidates: candidates.map(c => ({
+    candidates: candidates.map((c) => ({
       ...c,
       documentId: (c as any).documentId || null,
     })),
     useLlmSelector: true,
     maxAnchorTokens: 24,
     maxSharedAnchorTokens: 12,
-    findAncestors: (momentId) => findAncestors(momentId, {
-      env: context.env,
-      momentGraphNamespace: context.momentGraphNamespace || null
-    }),
+    findAncestors: (momentId) =>
+      findAncestors(momentId, {
+        env: context.env,
+        momentGraphNamespace: context.momentGraphNamespace || null,
+      }),
     logger: context.logger,
   });
 
-  const chosenParent = proposal.chosenParentId 
-    ? candidates.find(c => c.id === proposal.chosenParentId) 
+  const chosenParent = proposal.chosenParentId
+    ? candidates.find((c) => c.id === proposal.chosenParentId)
     : null;
 
   const audit = {

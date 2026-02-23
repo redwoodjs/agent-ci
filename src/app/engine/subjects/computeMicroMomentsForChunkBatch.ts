@@ -1,12 +1,14 @@
 import type { Chunk } from "../types";
 import { callLLM } from "../utils/llm";
+import type { PipelineContext } from "../runtime/types";
 
 export async function computeMicroMomentsForChunkBatch(
   chunks: Chunk[],
   options: {
     promptContext: string;
     logger?: (message: string, data?: any) => void;
-  }
+    pipelineContext?: PipelineContext;
+  },
 ): Promise<string[] | null> {
   if (chunks.length === 0) {
     return [];
@@ -56,13 +58,14 @@ export async function computeMicroMomentsForChunkBatch(
         summary: "concise",
       },
       logger: options.logger,
+      pipelineContext: options.pipelineContext,
     });
 
     return parseMicroMomentLines(response);
   } catch (error) {
     console.error(
       `[engine] Failed to compute micro moments from chunk batch:`,
-      error
+      error,
     );
     return null;
   }

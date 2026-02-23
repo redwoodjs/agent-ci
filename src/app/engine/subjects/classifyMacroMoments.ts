@@ -1,5 +1,6 @@
 import type { MacroMomentDescription, MomentKind, SubjectKind } from "../types";
 import { callLLM } from "../utils/llm";
+import type { PipelineContext } from "../runtime/types";
 
 export type MacroMomentClassification = {
   index: number;
@@ -77,6 +78,7 @@ function safeConfidence(value: unknown): "high" | "medium" | "low" {
 export async function classifyMacroMoments(input: {
   documentId: string;
   macroMoments: MacroMomentDescription[];
+  pipelineContext?: PipelineContext;
 }): Promise<MacroMomentClassification[] | null> {
   if (input.macroMoments.length === 0) {
     return [];
@@ -119,6 +121,7 @@ ${momentsText}
   const raw = await callLLM(prompt, "cerebras-gpt-oss-120b", {
     temperature: 0,
     reasoning: { effort: "low" },
+    pipelineContext: input.pipelineContext,
   });
 
   let parsed: unknown;
@@ -139,9 +142,13 @@ ${momentsText}
       typeof indexRaw === "number" && Number.isFinite(indexRaw)
         ? Math.floor(indexRaw)
         : typeof indexRaw === "string"
-        ? Number.parseInt(indexRaw, 10)
-        : NaN;
-    if (!Number.isFinite(index) || index < 1 || index > input.macroMoments.length) {
+          ? Number.parseInt(indexRaw, 10)
+          : NaN;
+    if (
+      !Number.isFinite(index) ||
+      index < 1 ||
+      index > input.macroMoments.length
+    ) {
       continue;
     }
 
@@ -166,7 +173,7 @@ ${momentsText}
       index,
       momentKind,
       isSubject,
-      subjectKind: isSubject ? subjectKind ?? (momentKind as any) : null,
+      subjectKind: isSubject ? (subjectKind ?? (momentKind as any)) : null,
       subjectReason: isSubject ? subjectReason : null,
       subjectEvidence: isSubject ? subjectEvidence : [],
       momentEvidence,
@@ -177,4 +184,3 @@ ${momentsText}
   out.sort((a, b) => a.index - b.index);
   return out;
 }
-

@@ -5,7 +5,7 @@ import { execSync } from "child_process";
 import { createInterface } from "readline";
 import { config } from "./config.js";
 import { Job } from "./types.js";
-import { createLogContext, finalizeLog } from "./logger.js";
+import { createLogContext, finalizeLog, PROJECT_ROOT } from "./logger.js";
 import { minimatch } from "minimatch";
 
 // ─── ANSI / log-level patterns ────────────────────────────────────────────────
@@ -206,10 +206,10 @@ export async function executeLocalJob(job: Job): Promise<void> {
 
   // Move workspace prep BEFORE seed to pass localPath
   const workspaceId = Date.now();
-  const workspaceDir = path.resolve(process.cwd(), "_/work", `workspace-${workspaceId}`);
-  const containerWorkDir = path.resolve(process.cwd(), "_/work", containerName);
-  const shimsDir = path.resolve(process.cwd(), "_/shims", containerName);
-  const diagDir = path.resolve(process.cwd(), "_/diag", containerName);
+  const workspaceDir = path.resolve(PROJECT_ROOT, "_/work", `workspace-${workspaceId}`);
+  const containerWorkDir = path.resolve(PROJECT_ROOT, "_/work", containerName);
+  const shimsDir = path.resolve(PROJECT_ROOT, "_/shims", containerName);
+  const diagDir = path.resolve(PROJECT_ROOT, "_/diag", containerName);
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });
@@ -429,7 +429,7 @@ exit $EXIT_CODE
     ],
     HostConfig: {
       Binds: [
-        `${path.resolve(process.cwd(), "_/work", containerName)}:/home/runner/_work`,
+        `${path.resolve(PROJECT_ROOT, "_/work", containerName)}:/home/runner/_work`,
         "/var/run/docker.sock:/var/run/docker.sock",
         `${shimsDir}:/tmp/oa-shims`,
         `${diagDir}:/home/runner/_diag`,

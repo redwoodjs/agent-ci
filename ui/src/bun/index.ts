@@ -410,7 +410,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
       },
       getRunCommits: async ({ projectPath: _projectPath }) => {
         const fs = await import("node:fs/promises");
-        const logsDir = path.join(getWorkspaceRoot(), "supervisor", "_", "logs");
+        const logsDir = path.join(getWorkspaceRoot(), "_", "logs");
         try {
           const files = await fs.readdir(logsDir, { withFileTypes: true });
           const commitsMap = new Map<string, { id: string; label: string; date: number }>();
@@ -453,7 +453,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
       },
       getWorkflowsForCommit: async ({ projectPath: _projectPath, commitId }) => {
         const fs = await import("node:fs/promises");
-        const logsDir = path.join(getWorkspaceRoot(), "supervisor", "_", "logs");
+        const logsDir = path.join(getWorkspaceRoot(), "_", "logs");
         const results: {
           runId: string;
           workflowName: string;
@@ -513,14 +513,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
       },
       getRunDetails: async ({ runId }) => {
         const fs = await import("node:fs/promises");
-        const outputLogPath = path.join(
-          getWorkspaceRoot(),
-          "supervisor",
-          "_",
-          "logs",
-          runId,
-          "output.log",
-        );
+        const outputLogPath = path.join(getWorkspaceRoot(), "_", "logs", runId, "output.log");
         try {
           const logs = await fs.readFile(outputLogPath, "utf-8");
           let status: "Passed" | "Failed" | "Running" | "Unknown" = "Unknown";

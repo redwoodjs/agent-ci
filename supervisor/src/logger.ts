@@ -2,9 +2,9 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
-// Pinned to the runner package root regardless of cwd
-const RUNNER_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..");
-export const LOGS_DIR = path.join(RUNNER_ROOT, "_", "logs");
+// Pinned to the monorepo root (project root), not the supervisor package
+export const PROJECT_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
+export const LOGS_DIR = path.join(PROJECT_ROOT, "_", "logs");
 
 export function ensureLogDirs(): void {
   fs.mkdirSync(LOGS_DIR, { recursive: true });

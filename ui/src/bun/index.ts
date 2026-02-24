@@ -25,6 +25,31 @@ let activeSupervisorCommitId: string | null = null;
 let activeSupervisorWorkflowName: string | null = null;
 import type { FSWatcher } from "node:fs";
 
+let trayInstance: Tray | null = null;
+let currentTrayStatus: "Idle" | "Running" | "Passed" | "Failed" = "Idle";
+function updateTrayStatus(status: "Idle" | "Running" | "Passed" | "Failed") {
+  if (!trayInstance || currentTrayStatus === status) {
+    return;
+  }
+  currentTrayStatus = status;
+  const basePath = path.join(import.meta.dirname, "../assets");
+  let imgPath = path.join(basePath, "tray-idle.png");
+  if (status === "Running") {
+    imgPath = path.join(basePath, "tray-running.png");
+  } else if (status === "Passed") {
+    imgPath = path.join(basePath, "tray-passed.png");
+  } else if (status === "Failed") {
+    imgPath = path.join(basePath, "tray-failed.png");
+  }
+  if (trayInstance) {
+    try {
+      trayInstance.setImage(imgPath);
+    } catch (e) {
+      console.error("Failed to set tray image", e);
+    }
+  }
+}
+
 let appState = {
   repoPath: "",
   branchName: "",
@@ -170,6 +195,8 @@ async function handleRunWorkflow(
     activeSupervisorRunId = runnerName;
     spawnArgs.push("--runner-name", runnerName);
 
+    updateTrayStatus("Running");
+
     supervisorProc = Bun.spawn(spawnArgs, {
       cwd: getWorkspaceRoot(),
       env: process.env,
@@ -180,10 +207,25 @@ async function handleRunWorkflow(
     procs.push(supervisorProc);
 
     currentProc.exited
-      .then(() => {
+      .then(async () => {
         if (supervisorProc === currentProc) {
           supervisorProc = null;
           activeSupervisorRunId = null;
+
+          try {
+            const fsPromises = await import("node:fs/promises");
+            const outputLogPath = path.join(getLogsDir(), runnerName, "output.log");
+            const logs = await fsPromises.readFile(outputLogPath, "utf-8");
+            if (logs.includes("Job succeeded")) {
+              updateTrayStatus("Passed");
+            } else if (logs.includes("Job failed") || !!logs.match(/✖ Job /)) {
+              updateTrayStatus("Failed");
+            } else {
+              updateTrayStatus("Idle");
+            }
+          } catch {
+            updateTrayStatus("Failed");
+          }
         }
       })
       .catch(() => {});
@@ -464,6 +506,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
           procs = procs.filter((p) => p !== supervisorProc);
           supervisorProc = null;
           activeSupervisorRunId = null;
+          updateTrayStatus("Idle");
           return true;
         }
         return false;
@@ -632,7 +675,7 @@ startBackgroundProcesses();
 
 // In electrobun, main.js runs in Contents/MacOS/../Resources
 // Our asset config copies the image to the app/assets folder.
-const trayIconPath = path.join(import.meta.dirname, "../assets/tray.png");
+const trayIconPath = path.join(import.meta.dirname, "../assets/tray-idle.png");
 console.log("Resolved tray icon path: ", trayIconPath);
 
 // import { type MenuItemConfig } from "electrobun/bun";
@@ -648,8 +691,10 @@ console.log("Resolved tray icon path: ", trayIconPath);
 const tray = new Tray({
   title: "OA",
   image: trayIconPath,
-  template: true, // Turn off template mode to allow standard colored PNGs
+  template: false, // Turn off template mode to allow standard colored PNGs
 });
+
+trayInstance = tray;
 
 // The setMenu must be called explicitly to map the config into the native layer
 // (some versions of electrobun drop the menu arg from the Tray constructor)

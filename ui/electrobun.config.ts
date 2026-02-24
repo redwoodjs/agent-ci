@@ -36,6 +36,10 @@ export default {
       "src/mainview/branches.css": "views/branches/branches.css",
       "src/mainview/runs.css": "views/runs/runs.css",
       "src/assets/tray.png": "assets/tray.png",
+      "src/assets/tray-idle.png": "assets/tray-idle.png",
+      "src/assets/tray-running.png": "assets/tray-running.png",
+      "src/assets/tray-passed.png": "assets/tray-passed.png",
+      "src/assets/tray-failed.png": "assets/tray-failed.png",
     },
     mac: {
       bundleCEF: false,

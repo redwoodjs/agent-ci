@@ -11,9 +11,134 @@ new ElectrobunView.Electroview({ rpc });
 let repoPath = "";
 let branchName = "";
 
-async function goToWorkflows(commitId: string) {
+let selectedCommitId: string | null = null;
+let runsPollInterval: any = null;
+
+async function selectCommit(commitId: string, label: string) {
+  selectedCommitId = commitId;
   await rpc.request.setAppState({ commitId });
-  window.location.href = "views://workflows/index.html";
+
+  const header = document.getElementById("selected-commit-header");
+  if (header) {
+    header.innerText = label;
+  }
+
+  const container = document.getElementById("commit-details-container");
+  if (container) {
+    container.style.display = "block";
+  }
+
+  await loadWorkflows();
+  await loadRuns();
+
+  if (runsPollInterval) {
+    clearInterval(runsPollInterval);
+  }
+  runsPollInterval = setInterval(loadRuns, 3000);
+}
+
+async function loadWorkflows() {
+  const workflowsList = document.getElementById("workflows-list");
+  if (!workflowsList || !repoPath) {
+    return;
+  }
+
+  const workflows = await rpc.request.getWorkflows({ repoPath });
+  workflowsList.innerHTML = "";
+
+  if (workflows.length === 0) {
+    workflowsList.innerHTML = `<div style="color: var(--text-secondary); font-style: italic">No workflows found.</div>`;
+    return;
+  }
+
+  workflows.forEach((wf, idx) => {
+    const item = document.createElement("div");
+    item.className = "list-item animate-fade-in";
+    item.style.animationDelay = `${idx * 0.05}s`;
+    item.style.cursor = "default";
+
+    item.innerHTML = `
+      <div>
+        <div class="list-item-title">${wf.name}</div>
+        <div class="list-item-subtitle">${wf.id}</div>
+      </div>
+      <button class="btn btn-primary run-wf-btn" data-id="${wf.id}" style="height: 28px; padding: 0 12px; font-size: 12px">Run</button>
+    `;
+
+    const btn = item.querySelector(".run-wf-btn");
+    if (btn) {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        btn.setAttribute("disabled", "true");
+        btn.innerHTML = "Starting...";
+        try {
+          await rpc.request.runWorkflow({
+            repoPath,
+            workflowId: wf.id,
+            commitId: selectedCommitId!,
+          });
+          await loadRuns();
+        } finally {
+          btn.removeAttribute("disabled");
+          btn.innerHTML = "Run";
+        }
+      });
+    }
+
+    workflowsList.appendChild(item);
+  });
+}
+
+function getStatusBadge(status: string) {
+  let cls = "status-Unknown";
+  if (status === "Passed") {
+    cls = "status-Passed";
+  } else if (status === "Failed") {
+    cls = "status-Failed";
+  } else if (status === "Running") {
+    cls = "status-Running";
+  }
+  return `<span class="status-badge ${cls}">${status}</span>`;
+}
+
+async function loadRuns() {
+  if (!selectedCommitId || !repoPath) {
+    return;
+  }
+  const runsList = document.getElementById("runs-list");
+  if (!runsList) {
+    return;
+  }
+
+  const history = await rpc.request.getWorkflowsForCommit({ repoPath, commitId: selectedCommitId });
+  runsList.innerHTML = "";
+
+  if (history.length === 0) {
+    runsList.innerHTML = `<div style="color: var(--text-secondary); font-style: italic">No runs for this commit.</div>`;
+    return;
+  }
+
+  history.forEach((run, idx) => {
+    const item = document.createElement("div");
+    item.className = "list-item animate-fade-in";
+    item.style.animationDelay = `${idx * 0.05}s`;
+    item.style.cursor = "pointer";
+
+    item.innerHTML = `
+      <div>
+        <div class="list-item-title">${run.workflowName}</div>
+        <div class="list-item-subtitle">${new Date(run.date).toLocaleString()}</div>
+      </div>
+      <div>
+        ${getStatusBadge(run.status)}
+      </div>
+    `;
+    item.addEventListener("click", async () => {
+      await rpc.request.setAppState({ runId: run.runId });
+      window.location.href = "views://runs/index.html";
+    });
+    runsList.appendChild(item);
+  });
 }
 
 async function loadCommits() {
@@ -46,7 +171,7 @@ async function loadCommits() {
         <div class="list-item-subtitle">${hasChanges ? "Has uncommitted changes" : "Clean"}</div>
       </div>
     `;
-    wtItem.addEventListener("click", () => goToWorkflows("WORKING_TREE"));
+    wtItem.addEventListener("click", () => selectCommit("WORKING_TREE", "Current Working Tree"));
     list.appendChild(wtItem);
   }
 
@@ -68,7 +193,7 @@ async function loadCommits() {
       textWrapper.appendChild(sub);
       item.appendChild(textWrapper);
 
-      item.addEventListener("click", () => goToWorkflows(commit.id));
+      item.addEventListener("click", () => selectCommit(commit.id, commit.label));
       list.appendChild(item);
     });
   } else {

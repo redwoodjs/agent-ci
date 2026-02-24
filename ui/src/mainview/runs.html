@@ -27,44 +27,49 @@
       </div>
     </div>
 
-    <div class="pane-container animate-fade-in">
-      <div class="pane-left">
-        <div
-          class="pane-header"
-          style="display: flex; justify-content: space-between; align-items: center"
-        >
-          <h2 style="font-size: 16px; margin: 0">Run History</h2>
+    <div
+      class="content animate-fade-in"
+      style="
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 40px);
+        padding: 0;
+        max-width: 100%;
+      "
+    >
+      <div
+        style="
+          padding: 16px 24px;
+          border-bottom: 1px solid var(--panel-border);
+          background: var(--panel-bg);
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        "
+      >
+        <div>
+          <h2 id="run-title" style="margin: 0; font-size: 16px">Run Logs</h2>
+        </div>
+        <div style="display: flex; gap: 8px">
+          <span id="run-status" class="status-badge" style="display: none"></span>
           <button
-            id="run-now-btn"
-            class="btn btn-primary"
-            style="height: 24px; padding: 0 8px; font-size: 12px"
+            id="stop-run-btn"
+            class="btn"
+            style="
+              display: none;
+              height: 24px;
+              padding: 0 8px;
+              font-size: 12px;
+              color: var(--danger);
+              border-color: var(--danger);
+            "
           >
-            Run Now
+            Stop Run
           </button>
         </div>
-        <div id="runs-list" style="padding: 16px; display: flex; flex-direction: column; gap: 8px">
-          <!-- JS Output for getWorkflowsForCommit (filtered by workflowId in JS) -->
-        </div>
       </div>
-
-      <div class="pane-right">
-        <div
-          class="pane-header"
-          style="display: flex; justify-content: space-between; align-items: center"
-        >
-          <h2 id="run-title" style="font-size: 16px; margin: 0">Select a Run</h2>
-          <div style="display: flex; gap: 8px">
-            <span id="run-status" class="status-badge" style="display: none"></span>
-            <button
-              id="stop-run-btn"
-              class="btn"
-              style="display: none; height: 24px; padding: 0 8px; font-size: 12px"
-            >
-              Stop Run
-            </button>
-          </div>
-        </div>
-        <div id="logs-viewer" class="log-viewer">Select a run from the left to view logs...</div>
+      <div id="logs-viewer" class="log-viewer" style="flex: 1; border-radius: 0">
+        Loading logs...
       </div>
     </div>
     <script src="runs.js"></script>

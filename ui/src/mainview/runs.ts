@@ -8,111 +8,58 @@ const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
 
 new ElectrobunView.Electroview({ rpc });
 
-let repoPath = "";
-let commitId = "";
-let workflowId = "";
-
 let activeRunId: string | null = null;
 let isStreamingLogs = false;
 
 // UI Elements
 const backBtn = document.getElementById("back-btn");
 const workflowLabel = document.getElementById("workflow-label");
-const runsList = document.getElementById("runs-list");
 const logsViewer = document.getElementById("logs-viewer");
 const runTitle = document.getElementById("run-title");
 const runStatus = document.getElementById("run-status");
 const stopRunBtn = document.getElementById("stop-run-btn");
-const runNowBtn = document.getElementById("run-now-btn");
 
-async function loadHistory() {
-  if (!runsList) {
+async function loadLogs() {
+  if (!activeRunId) {
     return;
   }
-  const history = await rpc.request.getWorkflowsForCommit({ repoPath, commitId });
-
-  // Filter history by the current workflowId
-  // The current API filters by commitId, but we want runs for THIS workflow specifically.
-  // Note: getWorkflowsForCommit returns workflowName, but we might need workflowId.
-  // Assuming workflowName in history matches workflowId's name or we can filter by it.
-
-  const filteredHistory = history.filter((run) => {
-    const cleanWfId = workflowId.replace(/\.yml|\.yaml/, "");
-    return run.workflowName === cleanWfId || run.workflowName === workflowId;
-  });
-
-  if (filteredHistory.length > 0) {
-    runsList.innerHTML = "";
-    filteredHistory.forEach((run) => {
-      const item = document.createElement("div");
-      item.className = "list-item";
-
-      const titleWrapper = document.createElement("div");
-      const title = document.createElement("div");
-      title.className = "list-item-title";
-      title.innerText = run.runId;
-
-      const sub = document.createElement("div");
-      sub.className = "list-item-subtitle";
-      sub.innerText = new Date(run.date).toLocaleString();
-
-      titleWrapper.appendChild(title);
-      titleWrapper.appendChild(sub);
-
-      const statusBadge = document.createElement("div");
-      statusBadge.className = `status-badge status-${run.status}`;
-      statusBadge.innerText = run.status;
-
-      item.appendChild(titleWrapper);
-      item.appendChild(statusBadge);
-
-      item.addEventListener("click", () => selectRun(run.runId, run.workflowName));
-      runsList.appendChild(item);
-    });
-  } else {
-    runsList.innerHTML = `<div style="color: var(--text-secondary); padding: 8px;">No previous runs for this workflow. Click "Run Now" to start one.</div>`;
-  }
-}
-
-async function selectRun(runId: string, workflowName: string) {
-  activeRunId = runId;
-  isStreamingLogs = false;
 
   if (runTitle) {
-    runTitle.innerText = `${workflowName} (${runId})`;
-  }
-  if (logsViewer) {
-    logsViewer.innerText = "Loading logs...";
+    runTitle.innerText = `Logs for ${activeRunId}`;
   }
 
-  const details = await rpc.request.getRunDetails({ runId });
+  const details = await rpc.request.getRunDetails({ runId: activeRunId });
   if (details && logsViewer && runStatus) {
-    logsViewer.innerText = details.logs;
-    runStatus.innerText = details.status;
-    runStatus.className = `status-badge status-${details.status}`;
-    runStatus.style.display = "inline-block";
+    // Only update logs if not actively streaming (otherwise it fights with the stream)
+    if (!isStreamingLogs) {
+      logsViewer.innerText = details.logs;
+      logsViewer.scrollTop = logsViewer.scrollHeight;
+    }
+
+    if (runStatus.innerText !== details.status) {
+      runStatus.innerText = details.status;
+      runStatus.className = `status-badge status-${details.status}`;
+      runStatus.style.display = "inline-block";
+    }
 
     if (details.status === "Running" && stopRunBtn) {
       stopRunBtn.style.display = "inline-flex";
     } else if (stopRunBtn) {
       stopRunBtn.style.display = "none";
     }
-
-    logsViewer.scrollTop = logsViewer.scrollHeight;
   }
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   const state = await rpc.request.getAppState();
-  repoPath = state.repoPath;
-  commitId = state.commitId;
-  workflowId = state.workflowId;
+  activeRunId = state.runId;
 
   if (backBtn) {
     backBtn.addEventListener("click", () => window.history.back());
   }
+
   if (workflowLabel) {
-    workflowLabel.innerText = `${workflowId} @ ${commitId === "WORKING_TREE" ? "Working Tree" : commitId.substring(0, 7)}`;
+    workflowLabel.innerText = `Run ${activeRunId || "Unknown"}`;
   }
 
   if (stopRunBtn) {
@@ -121,50 +68,24 @@ document.addEventListener("DOMContentLoaded", async () => {
       await rpc.request.stopWorkflow();
       stopRunBtn.style.display = "none";
       stopRunBtn.removeAttribute("disabled");
+      await loadLogs();
     });
   }
 
-  if (runNowBtn) {
-    runNowBtn.addEventListener("click", async () => {
-      runNowBtn.setAttribute("disabled", "true");
-      if (logsViewer) {
-        logsViewer.innerText = "Starting workflow run...\n";
-        runTitle!.innerText = workflowId;
-        runStatus!.innerText = "Running";
-        runStatus!.className = "status-badge status-Running";
-        runStatus!.style.display = "inline-block";
-        stopRunBtn!.style.display = "inline-flex";
-      }
-
-      isStreamingLogs = true;
-      const newRunId = await rpc.request.runWorkflow({ repoPath, workflowId, commitId });
-      runNowBtn.removeAttribute("disabled");
-
-      if (newRunId) {
-        activeRunId = newRunId;
-      }
-      await loadHistory();
-    });
+  const details = await rpc.request.getRunDetails({ runId: activeRunId });
+  if (details?.status === "Running") {
+    isStreamingLogs = true;
   }
 
-  loadHistory();
+  await loadLogs();
 
-  setInterval(() => {
-    if (repoPath && commitId && workflowId) {
-      loadHistory();
-      if (activeRunId && !isStreamingLogs) {
-        rpc.request.getRunDetails({ runId: activeRunId }).then((details) => {
-          if (details && runStatus) {
-            if (runStatus.innerText !== details.status) {
-              runStatus.innerText = details.status;
-              runStatus.className = `status-badge status-${details.status}`;
-            }
-            if (details.status !== "Running" && stopRunBtn) {
-              stopRunBtn.style.display = "none";
-            }
-          }
-        });
+  setInterval(async () => {
+    if (activeRunId) {
+      const currentDetails = await rpc.request.getRunDetails({ runId: activeRunId });
+      if (currentDetails?.status !== "Running") {
+        isStreamingLogs = false; // It stopped, so we can poll the full file
       }
+      await loadLogs();
     }
   }, 3000);
 
@@ -207,7 +128,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 });
 
 rpc.addMessageListener("dtuLog", (log: string) => {
-  if (isStreamingLogs && logsViewer) {
+  if (isStreamingLogs && logsViewer && activeRunId) {
+    // Only append if it's the active run (assumes the backend is sending logs for the active run)
     logsViewer.innerText += log;
     logsViewer.scrollTop = logsViewer.scrollHeight;
   }

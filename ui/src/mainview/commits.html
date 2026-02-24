@@ -48,19 +48,45 @@
         </div>
       </div>
     </div>
-    <div class="content animate-fade-in">
-      <div
-        style="
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 24px;
-        "
-      >
-        <h1 id="current-branch-header">Commits</h1>
+    <div class="pane-container animate-fade-in">
+      <div class="pane-left">
+        <div class="pane-header">
+          <h2 id="current-branch-header" style="font-size: 16px; margin: 0">Commits</h2>
+        </div>
+        <div
+          id="commits-list"
+          style="padding: 16px; display: flex; flex-direction: column; gap: 8px"
+        >
+          <!-- Populated by JS -->
+        </div>
       </div>
-      <div id="commits-list" style="display: flex; flex-direction: column; gap: 8px">
-        <!-- Populated by JS -->
+      <div class="pane-right" style="padding: 24px; position: relative">
+        <h2 id="selected-commit-header" style="margin-top: 0; margin-bottom: 24px">
+          Select a commit
+        </h2>
+
+        <div id="commit-details-container" style="display: none">
+          <h3
+            style="margin-top: 0; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border)"
+          >
+            Available Workflows
+          </h3>
+          <div
+            id="workflows-list"
+            style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 32px"
+          >
+            <!-- Populated by JS -->
+          </div>
+
+          <h3
+            style="margin-top: 0; padding-bottom: 8px; border-bottom: 1px solid var(--panel-border)"
+          >
+            Runs
+          </h3>
+          <div id="runs-list" style="display: flex; flex-direction: column; gap: 8px">
+            <!-- Populated by JS -->
+          </div>
+        </div>
       </div>
     </div>
     <script src="commits.js"></script>

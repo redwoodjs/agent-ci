@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import path from "path";
 import fs from "fs";
-import { ensureLogDirs, getNextLogNum, createLogContext, finalizeLog, LOGS_DIR } from "./logger.js";
+import {
+  ensureLogDirs,
+  getNextLogNum,
+  createLogContext,
+  finalizeLog,
+  getLogsDir,
+} from "./logger.js";
 
 vi.mock("fs", () => {
   return {
@@ -21,7 +27,7 @@ describe("logger", () => {
   describe("ensureLogDirs", () => {
     it("should recursively create the logs directory", () => {
       ensureLogDirs();
-      expect(fs.mkdirSync).toHaveBeenCalledWith(LOGS_DIR, { recursive: true });
+      expect(fs.mkdirSync).toHaveBeenCalledWith(getLogsDir(), { recursive: true });
     });
   });
 
@@ -30,7 +36,7 @@ describe("logger", () => {
       vi.mocked(fs.existsSync).mockReturnValue(false);
       const num = getNextLogNum("test-prefix");
       expect(num).toBe(1);
-      expect(fs.existsSync).toHaveBeenCalledWith(LOGS_DIR);
+      expect(fs.existsSync).toHaveBeenCalledWith(getLogsDir());
     });
 
     it("should return 1 when logs directory is empty", () => {
@@ -77,11 +83,11 @@ describe("logger", () => {
 
       expect(context.num).toBe(2);
       expect(context.name).toBe("runner-2");
-      expect(context.logDir).toBe(path.join(LOGS_DIR, "runner-2"));
-      expect(context.outputLogPath).toBe(path.join(LOGS_DIR, "runner-2", "output.log"));
-      expect(context.debugLogPath).toBe(path.join(LOGS_DIR, "runner-2", "debug.log"));
+      expect(context.logDir).toBe(path.join(getLogsDir(), "runner-2"));
+      expect(context.outputLogPath).toBe(path.join(getLogsDir(), "runner-2", "output.log"));
+      expect(context.debugLogPath).toBe(path.join(getLogsDir(), "runner-2", "debug.log"));
 
-      expect(fs.mkdirSync).toHaveBeenCalledWith(LOGS_DIR, { recursive: true });
+      expect(fs.mkdirSync).toHaveBeenCalledWith(getLogsDir(), { recursive: true });
       expect(fs.mkdirSync).toHaveBeenCalledWith(context.logDir, { recursive: true });
     });
   });

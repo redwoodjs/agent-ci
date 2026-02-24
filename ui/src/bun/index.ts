@@ -3,6 +3,55 @@ import path from "node:path";
 import net from "node:net";
 import fsSync from "node:fs";
 import type { MyRPCSchema } from "../shared/rpc.ts";
+import os from "node:os";
+
+export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".config", "oa", "config.jsonc");
+
+export function parseJsonc(fileContent: string): any {
+  let stripped = fileContent.replace(/\/\*[\s\S]*?\*\//g, "");
+  stripped = stripped.replace(/\/\/.*/g, "");
+  try {
+    return JSON.parse(stripped);
+  } catch (e) {
+    throw new Error(`Failed to parse JSONC config: ${(e as Error).message}`);
+  }
+}
+
+export function loadOaConfig(configPath?: string): { workingDirectory?: string } {
+  const resolvedPath = configPath ? path.resolve(configPath) : DEFAULT_CONFIG_PATH;
+  if (!fsSync.existsSync(resolvedPath)) {
+    return {};
+  }
+  const content = fsSync.readFileSync(resolvedPath, "utf-8");
+  return parseJsonc(content);
+}
+
+function getWorkspaceRoot() {
+  if (parsedConfig?.workingDirectory) {
+    return parsedConfig.workingDirectory;
+  }
+  let current = import.meta.dirname;
+  while (current !== "/" && !fsSync.existsSync(path.join(current, "pnpm-workspace.yaml"))) {
+    current = path.dirname(current);
+  }
+  return current === "/" ? process.cwd() : current;
+}
+
+const args = process.argv.slice(2);
+let uiConfigPath: string | undefined;
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === "--config" && args[i + 1]) {
+    uiConfigPath = args[i + 1];
+    i++;
+  }
+}
+
+const parsedConfig = loadOaConfig(uiConfigPath);
+const workingDirectory = parsedConfig.workingDirectory || path.join(getWorkspaceRoot(), "_");
+
+function getLogsDir() {
+  return path.join(workingDirectory, "logs");
+}
 
 // Spawn background processes for the OA app
 let procs: any[] = [];
@@ -117,15 +166,26 @@ async function handleRunWorkflow(
   sendLog(`\n[OA] Starting workflow run: ${workflowId} in ${projectPath}\n`);
 
   try {
-    supervisorProc = Bun.spawn(
-      ["pnpm", "--filter", "supervisor", "run", "oa", "run", "--workflow", fullPath],
-      {
-        cwd: getWorkspaceRoot(),
-        env: process.env,
-        stdout: "pipe",
-        stderr: "pipe",
-      },
-    );
+    const spawnArgs = [
+      "pnpm",
+      "--filter",
+      "supervisor",
+      "run",
+      "oa",
+      "run",
+      "--workflow",
+      fullPath,
+    ];
+    if (uiConfigPath) {
+      spawnArgs.push("--config", uiConfigPath);
+    }
+
+    supervisorProc = Bun.spawn(spawnArgs, {
+      cwd: getWorkspaceRoot(),
+      env: process.env,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
     const currentProc = supervisorProc;
     procs.push(supervisorProc);
 
@@ -185,21 +245,18 @@ async function handleRunWorkflow(
   }
 }
 
-function getWorkspaceRoot() {
-  let current = import.meta.dirname;
-  while (current !== "/" && !fsSync.existsSync(path.join(current, "pnpm-workspace.yaml"))) {
-    current = path.dirname(current);
-  }
-  return current === "/" ? process.cwd() : current;
-}
-
 async function doLaunchDTU() {
   if (dtuProc) {
     return true;
   }
   console.log("Starting DTU server...");
   try {
-    dtuProc = Bun.spawn(["pnpm", "--filter", "dtu-github-actions", "dev"], {
+    const spawnArgs = ["pnpm", "--filter", "dtu-github-actions", "dev"];
+    if (uiConfigPath) {
+      spawnArgs.push("--config", uiConfigPath);
+    }
+
+    dtuProc = Bun.spawn(spawnArgs, {
       cwd: getWorkspaceRoot(),
       env: process.env,
       stdout: "pipe",
@@ -410,7 +467,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
       },
       getRunCommits: async ({ projectPath: _projectPath }) => {
         const fs = await import("node:fs/promises");
-        const logsDir = path.join(getWorkspaceRoot(), "_", "logs");
+        const logsDir = getLogsDir();
         try {
           const files = await fs.readdir(logsDir, { withFileTypes: true });
           const commitsMap = new Map<string, { id: string; label: string; date: number }>();
@@ -453,7 +510,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
       },
       getWorkflowsForCommit: async ({ projectPath: _projectPath, commitId }) => {
         const fs = await import("node:fs/promises");
-        const logsDir = path.join(getWorkspaceRoot(), "_", "logs");
+        const logsDir = getLogsDir();
         const results: {
           runId: string;
           workflowName: string;
@@ -513,7 +570,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
       },
       getRunDetails: async ({ runId }) => {
         const fs = await import("node:fs/promises");
-        const outputLogPath = path.join(getWorkspaceRoot(), "_", "logs", runId, "output.log");
+        const outputLogPath = path.join(getLogsDir(), runId, "output.log");
         try {
           const logs = await fs.readFile(outputLogPath, "utf-8");
           let status: "Passed" | "Failed" | "Running" | "Unknown" = "Unknown";

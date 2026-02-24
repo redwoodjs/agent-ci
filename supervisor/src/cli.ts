@@ -1,7 +1,8 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config } from "./config.js";
+import { config, loadOaConfig } from "./config.js";
+import { setWorkingDirectory } from "./logger.js";
 
 import { executeLocalJob } from "./localJob.js";
 import { getWorkflowTemplate, parseWorkflowSteps, isWorkflowRelevant } from "./workflowParser.js";
@@ -18,6 +19,7 @@ async function run() {
     let taskName: string | undefined;
     let runAll = false;
     let branch: string | undefined;
+    let configPath: string | undefined;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -34,9 +36,17 @@ async function run() {
       } else if (args[i] === "--branch" && args[i + 1]) {
         branch = args[i + 1];
         i++;
+      } else if (args[i] === "--config" && args[i + 1]) {
+        configPath = args[i + 1];
+        i++;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
+    }
+
+    const parsedConfig = loadOaConfig(configPath);
+    if (parsedConfig.workingDirectory) {
+      setWorkingDirectory(parsedConfig.workingDirectory);
     }
 
     if (!runAll && !workflow) {
@@ -75,6 +85,7 @@ function printUsage() {
   console.log(
     "  --branch <name>        Branch name for relevance check (defaults to current branch)",
   );
+  console.log("  --config <path>        Path to the shared JSONC configuration file");
 }
 
 function resolveRepoRoot() {

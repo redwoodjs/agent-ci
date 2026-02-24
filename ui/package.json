@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "A simple Electrobun app showcasing core features",
   "scripts": {
-    "dev": "bun run build && electrobun dev",
+    "dev": "bun run build && electrobun dev --config .oa-dev.jsonc",
     "build": "electrobun build",
     "start": "bun run build && bun run dev"
   },

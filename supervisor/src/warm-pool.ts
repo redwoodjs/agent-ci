@@ -3,7 +3,13 @@ import path from "path";
 import fs from "fs";
 import { pollJobs, fetchRegistrationToken } from "./bridge.js";
 import { config } from "./config.js";
-import { ensureLogDirs, getNextLogNum, finalizeLog, LOGS_DIR, PROJECT_ROOT } from "./logger.js";
+import {
+  ensureLogDirs,
+  getNextLogNum,
+  finalizeLog,
+  getLogsDir,
+  getWorkingDirectory,
+} from "./logger.js";
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const IMAGE = "ghcr.io/actions/actions-runner:latest";
@@ -108,7 +114,7 @@ export class WarmPool {
     const num = getNextLogNum("oa-runner");
     const containerName = `oa-runner-${num}`;
 
-    const workDir = path.resolve(PROJECT_ROOT, "_/work", containerName); // Unique work dir per runner name
+    const workDir = path.resolve(getWorkingDirectory(), "work", containerName); // Unique work dir per runner name
 
     // Ensure directories exist
     if (!fs.existsSync(workDir)) {
@@ -173,7 +179,7 @@ export class WarmPool {
       });
 
       // Container created successfully — now create the log directory
-      const logDir = path.join(LOGS_DIR, containerName);
+      const logDir = path.join(getLogsDir(), containerName);
       fs.mkdirSync(logDir, { recursive: true });
       const outputLogPath = path.join(logDir, "output.log");
 
@@ -397,7 +403,7 @@ export class WarmPool {
   }
 
   private async prepareShims(containerName: string): Promise<string[]> {
-    const shimsDir = path.resolve(PROJECT_ROOT, "_/shims", containerName);
+    const shimsDir = path.resolve(getWorkingDirectory(), "shims", containerName);
     if (!fs.existsSync(shimsDir)) {
       fs.mkdirSync(shimsDir, { recursive: true });
     }

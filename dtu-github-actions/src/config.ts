@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import path from "node:path";
 import os from "node:os";
+import fs from "node:fs";
 
 const configSchema = z.object({
   /**
@@ -42,3 +43,26 @@ export const config = configSchema.parse({
   DTU_PORT: process.env.DTU_PORT,
   DTU_CACHE_DIR: process.env.DTU_CACHE_DIR,
 });
+
+export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".config", "oa", "config.jsonc");
+
+export function parseJsonc(fileContent: string): any {
+  // Strip block comments
+  let stripped = fileContent.replace(/\/\*[\s\S]*?\*\//g, "");
+  // Strip line comments
+  stripped = stripped.replace(/\/\/.*/g, "");
+  try {
+    return JSON.parse(stripped);
+  } catch (e) {
+    throw new Error(`Failed to parse JSONC config: ${(e as Error).message}`);
+  }
+}
+
+export function loadOaConfig(configPath?: string): { workingDirectory?: string } {
+  const resolvedPath = configPath ? path.resolve(configPath) : DEFAULT_CONFIG_PATH;
+  if (!fs.existsSync(resolvedPath)) {
+    return {};
+  }
+  const content = fs.readFileSync(resolvedPath, "utf-8");
+  return parseJsonc(content);
+}

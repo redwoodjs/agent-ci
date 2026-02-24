@@ -8,7 +8,7 @@
   "type": "module",
   "scripts": {
     "build": "tsgo",
-    "dev": "node --env-file=.env dist/index.js",
+    "dev": "node --env-file=.env dist/index.js --config .oa-dev.jsonc",
     "oa": "tsx --env-file=.env src/cli.ts",
     "test": "vitest run"
   },

@@ -417,6 +417,7 @@ exit $EXIT_CODE
       `GITHUB_REPOSITORY=${config.GITHUB_REPO}`,
       `OA_LOCAL_SYNC=true`,
       `OA_HEAD_SHA=${job.headSha || "HEAD"}`,
+      `OA_DTU_HOST=${dtuHost}`,
       `ACTIONS_CACHE_URL=${dockerApiUrl}`,
       `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
       `PATH=/tmp/oa-shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,

@@ -3,55 +3,16 @@ import path from "node:path";
 import net from "node:net";
 import fsSync from "node:fs";
 import type { MyRPCSchema } from "../shared/rpc.ts";
-import os from "node:os";
-
-export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".config", "oa", "config.jsonc");
-
-export function parseJsonc(fileContent: string): any {
-  let stripped = fileContent.replace(/\/\*[\s\S]*?\*\//g, "");
-  stripped = stripped.replace(/\/\/.*/g, "");
-  try {
-    return JSON.parse(stripped);
-  } catch (e) {
-    throw new Error(`Failed to parse JSONC config: ${(e as Error).message}`);
-  }
-}
-
-export function loadOaConfig(configPath?: string): { workingDirectory?: string } {
-  const resolvedPath = configPath ? path.resolve(configPath) : DEFAULT_CONFIG_PATH;
-  if (!fsSync.existsSync(resolvedPath)) {
-    return {};
-  }
-  const content = fsSync.readFileSync(resolvedPath, "utf-8");
-  return parseJsonc(content);
-}
-
-function getWorkspaceRoot() {
-  if (parsedConfig?.workingDirectory) {
-    return parsedConfig.workingDirectory;
-  }
-  let current = import.meta.dirname;
-  while (current !== "/" && !fsSync.existsSync(path.join(current, "pnpm-workspace.yaml"))) {
-    current = path.dirname(current);
-  }
-  return current === "/" ? process.cwd() : current;
-}
-
-const args = process.argv.slice(2);
-let uiConfigPath: string | undefined;
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--config" && args[i + 1]) {
-    uiConfigPath = args[i + 1];
-    i++;
-  }
-}
-
-const parsedConfig = loadOaConfig(uiConfigPath);
-const workingDirectory = parsedConfig.workingDirectory || path.join(getWorkspaceRoot(), "_");
-
-function getLogsDir() {
-  return path.join(workingDirectory, "logs");
-}
+import {
+  uiConfigPath,
+  parsedConfig,
+  workingDirectory,
+  getWorkspaceRoot,
+  getLogsDir,
+  getUserDataDir,
+  getWatchedProjectsPath,
+  getRecentProjectsPath,
+} from "./config.ts";
 
 // Spawn background processes for the OA app
 let procs: any[] = [];
@@ -65,10 +26,10 @@ const watchedProjects = new Map<string, { watcher: FSWatcher | null; lastCommit:
 
 async function saveWatchedProjects() {
   const fs = await import("node:fs/promises");
-  const configPath = path.join(Utils.paths.userData, "watched_projects.json");
+  const configPath = await getWatchedProjectsPath();
   const projects = Array.from(watchedProjects.keys());
   try {
-    await fs.mkdir(Utils.paths.userData, { recursive: true });
+    await fs.mkdir(await getUserDataDir(), { recursive: true });
     await fs.writeFile(configPath, JSON.stringify(projects, null, 2));
   } catch (e) {
     console.error("Failed to save watched projects:", e);
@@ -328,7 +289,7 @@ async function doLaunchDTU() {
 
 async function loadWatchedProjects() {
   const fs = await import("node:fs/promises");
-  const configPath = path.join(Utils.paths.userData, "watched_projects.json");
+  const configPath = await getWatchedProjectsPath();
   try {
     const content = await fs.readFile(configPath, "utf-8");
     const projects = JSON.parse(content) as string[];
@@ -376,7 +337,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
       },
       getRecentProjects: async () => {
         const fs = await import("node:fs/promises");
-        const configPath = path.join(Utils.paths.userData, "recent_projects.json");
+        const configPath = await getRecentProjectsPath();
         try {
           const content = await fs.readFile(configPath, "utf-8");
           return JSON.parse(content) as string[];
@@ -395,8 +356,8 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
 
           // Add to recent projects
           const fs = await import("node:fs/promises");
-          const configDir = Utils.paths.userData;
-          const configPath = path.join(configDir, "recent_projects.json");
+          const configDir = await getUserDataDir();
+          const configPath = await getRecentProjectsPath();
 
           let recent: string[] = [];
           try {
@@ -503,8 +464,10 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
           }
 
           return Array.from(commitsMap.values()).sort((a, b) => b.date - a.date);
-        } catch (e) {
-          console.error("Failed to read runs logs dir", e);
+        } catch (e: any) {
+          if (e.code !== "ENOENT") {
+            console.error("Failed to read runs logs dir", e);
+          }
           return [];
         }
       },
@@ -642,4 +605,23 @@ mainWindow.on("close", () => {
   Utils.quit();
 });
 
-console.log("OA Electrobun app started!");
+// Note: We cannot await top-level async functions directly unless we enclose them or top-level await is enabled.
+// Thus, using a self-executing async function or promising handling.
+Promise.all([getUserDataDir(), import("node:fs/promises")])
+  .then(([userDataDir, fs]) => {
+    // Pre-emptively create logs directory to avoid ENOENT scandir errors
+    const logsDir = getLogsDir();
+    fs.mkdir(logsDir, { recursive: true }).catch((e) => {
+      console.error("Failed to pre-create logs dir:", e);
+    });
+
+    console.log("process.argv is: ", process.argv);
+    console.log("OA Electrobun app started with config:", {
+      uiConfigPath,
+      workingDirectory,
+      parsedConfig,
+      logsDir,
+      userDataDir,
+    });
+  })
+  .catch(console.error);

@@ -4,8 +4,8 @@ import fs from "fs";
 import { config, loadOaConfig } from "./config.js";
 import { setWorkingDirectory } from "./logger.js";
 
-import { executeLocalJob } from "./localJob.js";
-import { getWorkflowTemplate, parseWorkflowSteps, isWorkflowRelevant } from "./workflowParser.js";
+import { executeLocalJob } from "./local-job.js";
+import { getWorkflowTemplate, parseWorkflowSteps, isWorkflowRelevant } from "./workflow-parser.js";
 import { Job } from "./types.js";
 
 async function run() {

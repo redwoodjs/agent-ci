@@ -13,6 +13,7 @@ import {
   getWatchedReposPath,
   getRecentReposPath,
 } from "./config.ts";
+import { getBranches, getWorkingTreeStatus, getGitCommits } from "./branches.ts";
 
 // Spawn background processes for the OA app
 let procs: any[] = [];
@@ -479,6 +480,15 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
           }
           return [];
         }
+      },
+      getBranches: async ({ repoPath }) => {
+        return await getBranches(repoPath);
+      },
+      getGitCommits: async ({ repoPath, branch }) => {
+        return await getGitCommits(repoPath, branch);
+      },
+      getWorkingTreeStatus: async ({ repoPath }) => {
+        return await getWorkingTreeStatus(repoPath);
       },
       getWorkflowsForCommit: async ({ repoPath: _repoPath, commitId }) => {
         const fs = await import("node:fs/promises");

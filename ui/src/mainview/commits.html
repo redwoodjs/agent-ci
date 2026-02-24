@@ -16,32 +16,10 @@
         >
           ← Back
         </button>
-        <span>OA - Runs (Commits)</span>
+        <span id="repo-name-display">Repository Name</span>
       </div>
-      <div
-        id="dtu-status"
-        class="status-badge status-Unknown"
-        style="cursor: pointer; user-select: none"
-      >
-        DTU: Checking...
-      </div>
-    </div>
-    <div class="content animate-fade-in">
-      <div
-        style="
-          margin-bottom: 24px;
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-        "
-      >
-        <div>
-          <h1 id="repo-name-display">Repository Name</h1>
-          <div style="color: var(--text-secondary); margin-top: 4px">
-            Select a run context below
-          </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 8px; margin-top: 6px">
+      <div style="display: flex; align-items: center; gap: 16px">
+        <div style="display: flex; align-items: center; gap: 8px">
           <span style="font-size: 13px; color: var(--text-secondary); font-weight: bold"
             >Run on commit:</span
           >
@@ -61,9 +39,33 @@
             Off
           </button>
         </div>
+        <div
+          id="dtu-status"
+          class="status-badge status-Unknown"
+          style="cursor: pointer; user-select: none"
+        >
+          DTU: Checking...
+        </div>
       </div>
-      <div id="commits-list" style="display: flex; flex-direction: column; gap: 8px">
-        <!-- Populated by JS -->
+    </div>
+    <div class="pane-container animate-fade-in">
+      <div class="pane-left">
+        <div class="pane-header">Branches</div>
+        <div
+          id="branches-list"
+          style="padding: 16px; display: flex; flex-direction: column; gap: 8px"
+        >
+          <!-- Populated by JS -->
+        </div>
+      </div>
+      <div class="pane-right">
+        <div class="pane-header" id="current-branch-header">Commits</div>
+        <div
+          id="commits-list"
+          style="padding: 16px; display: flex; flex-direction: column; gap: 8px"
+        >
+          <!-- Populated by JS -->
+        </div>
       </div>
     </div>
     <script src="commits.js"></script>

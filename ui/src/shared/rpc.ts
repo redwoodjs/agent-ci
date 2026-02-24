@@ -42,6 +42,18 @@ export type MyRPCSchema = {
           date: number;
         }[];
       };
+      getBranches: {
+        params: { repoPath: string };
+        response: { name: string; isCurrent: boolean }[];
+      };
+      getGitCommits: {
+        params: { repoPath: string; branch: string };
+        response: { id: string; label: string; date: number; author: string }[];
+      };
+      getWorkingTreeStatus: {
+        params: { repoPath: string };
+        response: boolean;
+      };
       getRunDetails: {
         params: { runId: string };
         response: { logs: string; status: "Passed" | "Failed" | "Running" | "Unknown" } | null;

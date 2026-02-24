@@ -23,9 +23,9 @@ unset CI
 Create the three main indexes with 768 dimensions and cosine metric:
 
 ```bash
-npx wrangler vectorize create moment-index-v7 --dimensions=768 --metric=cosine
-npx wrangler vectorize create subject-index-v7 --dimensions=768 --metric=cosine
-npx wrangler vectorize create rag-index-v7 --dimensions=768 --metric=cosine
+npx wrangler vectorize create moment-index-v8 --dimensions=768 --metric=cosine
+npx wrangler vectorize create subject-index-v8 --dimensions=768 --metric=cosine
+npx wrangler vectorize create rag-index-v8 --dimensions=768 --metric=cosine
 ```
 
 ### 3. Create Metadata Indexes

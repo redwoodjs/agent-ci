@@ -5,7 +5,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { config, loadOaConfig } from "../config.js";
 import { state } from "./store.js";
-import { setupDtuLogging, getDtuLogPath, setWorkingDirectory } from "./logger.js";
+import { setupDtuLogging, getDtuLogPath, setWorkingDirectory, DTU_ROOT } from "./logger.js";
 
 // Routes
 import { registerDtuRoutes } from "./routes/dtu.js";
@@ -294,8 +294,12 @@ if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== 
   }
 
   const parsedConfig = loadOaConfig(configPath);
-  if (parsedConfig.workingDirectory) {
-    setWorkingDirectory(parsedConfig.workingDirectory);
+  let workingDir = parsedConfig.workingDirectory;
+  if (workingDir) {
+    if (!path.isAbsolute(workingDir)) {
+      workingDir = path.resolve(DTU_ROOT, workingDir);
+    }
+    setWorkingDirectory(workingDir);
   }
 
   bootstrapAndReturnApp()

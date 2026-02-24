@@ -17,14 +17,24 @@ export default {
       workflows: {
         entrypoint: "src/mainview/workflows.ts",
       },
+      branches: {
+        entrypoint: "src/mainview/branches.ts",
+      },
+      runs: {
+        entrypoint: "src/mainview/runs.ts",
+      },
     },
     copy: {
       "src/mainview/repos.html": "views/repos/index.html",
       "src/mainview/commits.html": "views/commits/index.html",
       "src/mainview/workflows.html": "views/workflows/index.html",
+      "src/mainview/branches.html": "views/branches/index.html",
+      "src/mainview/runs.html": "views/runs/index.html",
       "src/mainview/repos.css": "views/repos/repos.css",
       "src/mainview/commits.css": "views/commits/commits.css",
       "src/mainview/workflows.css": "views/workflows/workflows.css",
+      "src/mainview/branches.css": "views/branches/branches.css",
+      "src/mainview/runs.css": "views/runs/runs.css",
       "src/assets/tray.png": "assets/tray.png",
     },
     mac: {

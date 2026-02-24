@@ -155,7 +155,11 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const filterLine = makeFilter(debug);
 
   // 3. Prepare directories (done first so containerName is available for the header)
-  const { name: containerName, outputLogPath, debugLogPath } = createLogContext("oa-runner");
+  const {
+    name: containerName,
+    outputLogPath,
+    debugLogPath,
+  } = createLogContext("oa-runner", job.runnerName);
 
   // Tell the DTU which log directory to write step output into — do this as early as
   // possible so it's ready before the runner container boots and sends feed lines.

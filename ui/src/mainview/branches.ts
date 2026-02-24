@@ -9,46 +9,47 @@ const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
 new ElectrobunView.Electroview({ rpc });
 
 let repoPath = "";
-let commitId = "";
 
-async function goToRuns(workflowId: string) {
-  await rpc.request.setAppState({ workflowId });
-  window.location.href = "views://runs/index.html";
+async function goToCommits(branchName: string) {
+  await rpc.request.setAppState({ branchName });
+  window.location.href = "views://commits/index.html";
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
   const state = await rpc.request.getAppState();
   repoPath = state.repoPath;
-  commitId = state.commitId;
 
   const backBtn = document.getElementById("back-btn");
   if (backBtn) {
     backBtn.addEventListener("click", () => window.history.back());
   }
 
-  const commitLabel = document.getElementById("commit-label");
-  if (commitLabel) {
-    commitLabel.innerText =
-      commitId === "WORKING_TREE" ? "Working Tree" : `Commit ${commitId.substring(0, 7)}`;
+  const projName = document.getElementById("repo-name-display");
+  if (projName && repoPath) {
+    projName.innerText = repoPath.split("/").pop() || repoPath;
   }
 
-  const workflowsList = document.getElementById("workflows-list");
-  if (workflowsList && repoPath) {
-    const workflows = await rpc.request.getWorkflows({ repoPath });
-    workflowsList.innerHTML = "";
-    workflows.forEach((wf, idx) => {
+  const branchesList = document.getElementById("branches-list");
+  if (branchesList && repoPath) {
+    const branches = await rpc.request.getBranches({ repoPath });
+    branchesList.innerHTML = "";
+    branches.forEach((b, idx) => {
       const item = document.createElement("div");
       item.className = "list-item animate-fade-in";
       item.style.animationDelay = `${idx * 0.05}s`;
+      if (b.isCurrent) {
+        item.style.borderColor = "var(--accent)";
+      }
 
       item.innerHTML = `
         <div>
-          <div class="list-item-title">${wf.name}</div>
-          <div class="list-item-subtitle">${wf.id}</div>
+          <div class="list-item-title" style="${b.isCurrent ? "font-weight: bold; color: var(--accent);" : ""}">
+            ${b.name} ${b.isCurrent ? "(Current)" : ""}
+          </div>
         </div>
       `;
-      item.addEventListener("click", () => goToRuns(wf.id));
-      workflowsList.appendChild(item);
+      item.addEventListener("click", () => goToCommits(b.name));
+      branchesList.appendChild(item);
     });
   }
 

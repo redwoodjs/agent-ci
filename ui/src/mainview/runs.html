@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OA - Runs</title>
+    <link rel="stylesheet" href="runs.css" />
+  </head>
+  <body style="overflow: hidden">
+    <div class="titlebar" style="justify-content: space-between">
+      <div style="display: flex; align-items: center">
+        <button
+          class="btn"
+          id="back-btn"
+          style="height: 24px; padding: 0 8px; margin-right: 12px; font-size: 12px"
+        >
+          ← Back
+        </button>
+        <span id="workflow-label">Loading workflow...</span>
+      </div>
+      <div
+        id="dtu-status"
+        class="status-badge status-Unknown"
+        style="cursor: pointer; user-select: none"
+      >
+        DTU: Checking...
+      </div>
+    </div>
+
+    <div class="pane-container animate-fade-in">
+      <div class="pane-left">
+        <div
+          class="pane-header"
+          style="display: flex; justify-content: space-between; align-items: center"
+        >
+          <h2 style="font-size: 16px; margin: 0">Run History</h2>
+          <button
+            id="run-now-btn"
+            class="btn btn-primary"
+            style="height: 24px; padding: 0 8px; font-size: 12px"
+          >
+            Run Now
+          </button>
+        </div>
+        <div id="runs-list" style="padding: 16px; display: flex; flex-direction: column; gap: 8px">
+          <!-- JS Output for getWorkflowsForCommit (filtered by workflowId in JS) -->
+        </div>
+      </div>
+
+      <div class="pane-right">
+        <div
+          class="pane-header"
+          style="display: flex; justify-content: space-between; align-items: center"
+        >
+          <h2 id="run-title" style="font-size: 16px; margin: 0">Select a Run</h2>
+          <div style="display: flex; gap: 8px">
+            <span id="run-status" class="status-badge" style="display: none"></span>
+            <button
+              id="stop-run-btn"
+              class="btn"
+              style="display: none; height: 24px; padding: 0 8px; font-size: 12px"
+            >
+              Stop Run
+            </button>
+          </div>
+        </div>
+        <div id="logs-viewer" class="log-viewer">Select a run from the left to view logs...</div>
+      </div>
+    </div>
+    <script src="runs.js"></script>
+  </body>
+</html>

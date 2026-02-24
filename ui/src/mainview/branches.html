@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>OA - Workflows</title>
-    <link rel="stylesheet" href="workflows.css" />
+    <title>OA - Branches</title>
+    <link rel="stylesheet" href="branches.css" />
   </head>
   <body>
     <div class="titlebar" style="justify-content: space-between">
@@ -16,7 +16,7 @@
         >
           ← Back
         </button>
-        <span>OA - <span id="commit-label">Loading context...</span></span>
+        <span>OA - <span id="repo-name-display">Loading repo...</span></span>
       </div>
       <div
         id="dtu-status"
@@ -26,7 +26,6 @@
         DTU: Checking...
       </div>
     </div>
-
     <div class="content animate-fade-in">
       <div
         style="
@@ -36,12 +35,12 @@
           margin-bottom: 24px;
         "
       >
-        <h1>Workflows</h1>
+        <h1>Branches</h1>
       </div>
-      <div id="workflows-list" style="display: flex; flex-direction: column; gap: 8px">
+      <div id="branches-list" style="display: flex; flex-direction: column; gap: 8px">
         <!-- Populated by JS -->
       </div>
     </div>
-    <script src="workflows.js"></script>
+    <script src="branches.js"></script>
   </body>
 </html>

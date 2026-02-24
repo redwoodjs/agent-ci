@@ -2,7 +2,7 @@ import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { config, loadOaConfig } from "./config.js";
-import { setWorkingDirectory } from "./logger.js";
+import { setWorkingDirectory, PROJECT_ROOT } from "./logger.js";
 
 import { executeLocalJob } from "./local-job.js";
 import { getWorkflowTemplate, parseWorkflowSteps, isWorkflowRelevant } from "./workflow-parser.js";
@@ -20,6 +20,7 @@ async function run() {
     let runAll = false;
     let branch: string | undefined;
     let configPath: string | undefined;
+    let runnerName: string | undefined;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -39,14 +40,21 @@ async function run() {
       } else if (args[i] === "--config" && args[i + 1]) {
         configPath = args[i + 1];
         i++;
+      } else if (args[i] === "--runner-name" && args[i + 1]) {
+        runnerName = args[i + 1];
+        i++;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
     }
 
     const parsedConfig = loadOaConfig(configPath);
-    if (parsedConfig.workingDirectory) {
-      setWorkingDirectory(parsedConfig.workingDirectory);
+    let workingDir = parsedConfig.workingDirectory;
+    if (workingDir) {
+      if (!path.isAbsolute(workingDir)) {
+        workingDir = path.resolve(PROJECT_ROOT, workingDir);
+      }
+      setWorkingDirectory(workingDir);
     }
 
     if (!runAll && !workflow) {
@@ -57,9 +65,9 @@ async function run() {
     }
 
     if (runAll) {
-      await handleRunAll({ sha, branch, taskName });
+      await handleRunAll({ sha, branch, taskName, runnerName });
     } else {
-      await handleRun({ sha, workflow, taskName });
+      await handleRun({ sha, workflow, taskName, runnerName });
     }
   } else {
     printUsage();
@@ -129,8 +137,13 @@ function getCurrentBranch(repoRoot: string) {
   }
 }
 
-async function handleRun(options: { sha?: string; workflow?: string; taskName?: string }) {
-  const { sha } = options;
+async function handleRun(options: {
+  sha?: string;
+  workflow?: string;
+  taskName?: string;
+  runnerName?: string;
+}) {
+  const { sha, runnerName } = options;
   let workflow = options.workflow;
   let taskName = options.taskName;
 
@@ -217,6 +230,7 @@ async function handleRun(options: { sha?: string; workflow?: string; taskName?: 
         owner: { login: owner },
         default_branch: "main",
       },
+      runnerName,
       steps,
       workflowPath,
     };
@@ -229,7 +243,12 @@ async function handleRun(options: { sha?: string; workflow?: string; taskName?: 
   }
 }
 
-async function handleRunAll(options: { sha?: string; branch?: string; taskName?: string }) {
+async function handleRunAll(options: {
+  sha?: string;
+  branch?: string;
+  taskName?: string;
+  runnerName?: string;
+}) {
   console.log("[OA] Scanning for relevant workflows...");
 
   try {
@@ -298,6 +317,7 @@ async function handleRunAll(options: { sha?: string; branch?: string; taskName?:
           owner: { login: owner },
           default_branch: "main",
         },
+        runnerName: options.runnerName,
         steps,
         workflowPath,
       };

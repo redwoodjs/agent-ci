@@ -207,6 +207,10 @@ a:hover {
   background: rgba(88, 166, 255, 0.15);
   color: var(--accent);
 }
+.status-Unknown {
+  background: rgba(139, 148, 158, 0.15);
+  color: var(--text-secondary);
+}
 
 .log-viewer {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;

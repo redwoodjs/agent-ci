@@ -48,24 +48,19 @@
         </div>
       </div>
     </div>
-    <div class="pane-container animate-fade-in">
-      <div class="pane-left">
-        <div class="pane-header">Branches</div>
-        <div
-          id="branches-list"
-          style="padding: 16px; display: flex; flex-direction: column; gap: 8px"
-        >
-          <!-- Populated by JS -->
-        </div>
+    <div class="content animate-fade-in">
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 24px;
+        "
+      >
+        <h1 id="current-branch-header">Commits</h1>
       </div>
-      <div class="pane-right">
-        <div class="pane-header" id="current-branch-header">Commits</div>
-        <div
-          id="commits-list"
-          style="padding: 16px; display: flex; flex-direction: column; gap: 8px"
-        >
-          <!-- Populated by JS -->
-        </div>
+      <div id="commits-list" style="display: flex; flex-direction: column; gap: 8px">
+        <!-- Populated by JS -->
       </div>
     </div>
     <script src="commits.js"></script>

@@ -40,10 +40,17 @@ export function getNextLogNum(prefix: string): number {
   return nums.length > 0 ? Math.max(...nums) + 1 : 1;
 }
 
-export function createLogContext(prefix: string) {
+export function createLogContext(prefix: string, preferredName?: string) {
   ensureLogDirs();
-  const num = getNextLogNum(prefix);
-  const name = `${prefix}-${num}`;
+
+  let num = 0;
+  let name = preferredName;
+
+  if (!name) {
+    num = getNextLogNum(prefix);
+    name = `${prefix}-${num}`;
+  }
+
   const logDir = path.join(getLogsDir(), name);
   fs.mkdirSync(logDir, { recursive: true });
 

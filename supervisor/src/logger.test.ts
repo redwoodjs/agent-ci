@@ -90,6 +90,24 @@ describe("logger", () => {
       expect(fs.mkdirSync).toHaveBeenCalledWith(getLogsDir(), { recursive: true });
       expect(fs.mkdirSync).toHaveBeenCalledWith(context.logDir, { recursive: true });
     });
+
+    it("should use preferredName and skip incrementing if provided", () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+
+      const context = createLogContext("runner", "custom-runner-name");
+
+      expect(context.num).toBe(0);
+      expect(context.name).toBe("custom-runner-name");
+      expect(context.logDir).toBe(path.join(getLogsDir(), "custom-runner-name"));
+      expect(context.outputLogPath).toBe(
+        path.join(getLogsDir(), "custom-runner-name", "output.log"),
+      );
+      expect(context.debugLogPath).toBe(path.join(getLogsDir(), "custom-runner-name", "debug.log"));
+
+      // Also ensure it didn't call readdirSync to find the next number
+      expect(fs.readdirSync).not.toHaveBeenCalled();
+      expect(fs.mkdirSync).toHaveBeenCalledWith(context.logDir, { recursive: true });
+    });
   });
 
   describe("finalizeLog", () => {

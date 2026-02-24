@@ -21,9 +21,17 @@ let dtuProc: any = null;
 let isDtuStarting: boolean = false;
 let supervisorProc: any = null;
 let activeSupervisorRunId: string | null = null;
+let activeSupervisorCommitId: string | null = null;
+let activeSupervisorWorkflowName: string | null = null;
 import type { FSWatcher } from "node:fs";
 
-let appState = { repoPath: "", commitId: "WORKING_TREE" };
+let appState = {
+  repoPath: "",
+  branchName: "",
+  commitId: "WORKING_TREE",
+  workflowId: "",
+  runId: "",
+};
 const watchedRepos = new Map<string, { watcher: FSWatcher | null; lastCommit: string }>();
 
 async function saveWatchedRepos() {
@@ -85,7 +93,9 @@ async function enableWatchModeForRepo(repoPath: string) {
               rpc.send.dtuLog(
                 `\n[OA] Auto-Run: New commit ${currentCommit.substring(0, 7)} detected. Running workflow ${workflowId}\n`,
               );
-              handleRunWorkflow({ repoPath, workflowId }, (msg) => rpc.send.dtuLog(msg));
+              handleRunWorkflow({ repoPath, workflowId, commitId: currentCommit }, (msg) =>
+                rpc.send.dtuLog(msg),
+              );
             }
           }
         } catch {}
@@ -114,7 +124,7 @@ async function disableWatchModeForRepo(repoPath: string) {
 }
 
 async function handleRunWorkflow(
-  { repoPath, workflowId }: { repoPath: string; workflowId: string },
+  { repoPath, workflowId, commitId }: { repoPath: string; workflowId: string; commitId?: string },
   sendLog: (msg: string) => void,
 ) {
   if (supervisorProc) {
@@ -128,20 +138,37 @@ async function handleRunWorkflow(
 
   sendLog(`\n[OA] Starting workflow run: ${workflowId} in ${repoPath}\n`);
 
+  activeSupervisorCommitId = commitId && commitId !== "WORKING_TREE" ? commitId : "WORKING_TREE";
+  activeSupervisorWorkflowName = workflowId.replace(/\.yml|\.yaml/, "");
+
   try {
-    const spawnArgs = [
-      "pnpm",
-      "--filter",
-      "supervisor",
-      "run",
-      "oa",
-      "run",
-      "--workflow",
-      fullPath,
-    ];
+    const spawnArgs = ["pnpm", "--filter", "supervisor", "run", "oa", "run"];
+    if (commitId && commitId !== "WORKING_TREE") {
+      spawnArgs.push(commitId);
+    }
+    spawnArgs.push("--workflow", fullPath);
     if (uiConfigPath) {
       spawnArgs.push("--config", uiConfigPath);
     }
+
+    // Generate the unique incremental runner name right now so we don't have to guess from stdout!
+    const fsPromises = await import("node:fs/promises");
+    let nextNum = 1;
+    try {
+      const items = await fsPromises.readdir(getLogsDir(), { withFileTypes: true });
+      const nums = items
+        .filter((item) => item.isDirectory() && item.name.startsWith("oa-runner-"))
+        .map((item) => {
+          const match = item.name.match(/-(\d+)$/);
+          return match ? parseInt(match[1], 10) : 0;
+        });
+      if (nums.length > 0) {
+        nextNum = Math.max(...nums) + 1;
+      }
+    } catch {}
+    const runnerName = `oa-runner-${nextNum}`;
+    activeSupervisorRunId = runnerName;
+    spawnArgs.push("--runner-name", runnerName);
 
     supervisorProc = Bun.spawn(spawnArgs, {
       cwd: getWorkspaceRoot(),
@@ -162,8 +189,12 @@ async function handleRunWorkflow(
       .catch(() => {});
 
     let runIdResolved = false;
-    let resolveRunId: (id: string | null) => void;
+    let resolveRunId!: (id: string | null) => void;
     const runIdPromise = new Promise<string | null>((r) => (resolveRunId = r));
+
+    // Resolve immediately since we pre-generated it
+    runIdResolved = true;
+    resolveRunId(runnerName);
 
     const readOutput = async (stream: ReadableStream | null) => {
       if (!stream) {
@@ -177,16 +208,6 @@ async function handleRunWorkflow(
           break;
         }
         const text = decoder.decode(value);
-
-        if (!runIdResolved) {
-          const match = text.match(/(oa-runner-\d+)/);
-          if (match) {
-            runIdResolved = true;
-            activeSupervisorRunId = match[1];
-            resolveRunId(match[1]);
-          }
-        }
-
         sendLog(text);
       }
     };
@@ -242,7 +263,7 @@ async function doLaunchDTU() {
         const text = decoder.decode(value);
         console.log("[DTU Output] ", text);
         // Use the global rpc object directly to send to attached webviews
-        rpc.send.dtuLog(text);
+        // rpc.send.dtuLog(text);
       }
     };
 
@@ -341,8 +362,17 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
         if (params.repoPath !== undefined) {
           appState.repoPath = params.repoPath;
         }
+        if (params.branchName !== undefined) {
+          appState.branchName = params.branchName;
+        }
         if (params.commitId !== undefined) {
           appState.commitId = params.commitId;
+        }
+        if (params.workflowId !== undefined) {
+          appState.workflowId = params.workflowId;
+        }
+        if (params.runId !== undefined) {
+          appState.runId = params.runId;
         }
       },
       getRecentRepos: async () => {
@@ -422,8 +452,10 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
           await disableWatchModeForRepo(repoPath);
         }
       },
-      runWorkflow: async ({ repoPath, workflowId }) => {
-        return await handleRunWorkflow({ repoPath, workflowId }, (msg) => rpc.send.dtuLog(msg));
+      runWorkflow: async ({ repoPath, workflowId, commitId }) => {
+        return await handleRunWorkflow({ repoPath, workflowId, commitId }, (msg) =>
+          rpc.send.dtuLog(msg),
+        );
       },
       stopWorkflow: async () => {
         if (supervisorProc) {
@@ -514,10 +546,18 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
                 const isWorkingTree = content.includes("working directory");
                 const shaMatch = content.match(/Using: SHA ([a-f0-9]+)/);
 
-                const fileCommitId = shaMatch ? shaMatch[1] : isWorkingTree ? "WORKING_TREE" : null;
+                let fileCommitId = shaMatch ? shaMatch[1] : isWorkingTree ? "WORKING_TREE" : null;
+
+                // Fallback for currently active run if logs haven't flushed yet
+                if (file.name === activeSupervisorRunId && activeSupervisorCommitId) {
+                  fileCommitId = activeSupervisorCommitId;
+                }
 
                 if (fileCommitId === commitId) {
                   let workflowName = "Unknown Workflow";
+                  if (file.name === activeSupervisorRunId && activeSupervisorWorkflowName) {
+                    workflowName = activeSupervisorWorkflowName;
+                  }
                   try {
                     const metaContent = await fs.readFile(metadataPath, "utf-8");
                     const meta = JSON.parse(metaContent);
@@ -545,6 +585,21 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
               } catch {}
             }
           }
+
+          // If the active run isn't in the filesystem yet (it was just requested), inject it manually
+          if (
+            activeSupervisorRunId &&
+            activeSupervisorCommitId === commitId &&
+            !results.some((r) => r.runId === activeSupervisorRunId)
+          ) {
+            results.push({
+              runId: activeSupervisorRunId,
+              workflowName: activeSupervisorWorkflowName || "Unknown Workflow",
+              status: "Running",
+              date: Date.now(),
+            });
+          }
+
           return results.sort((a, b) => b.date - a.date);
         } catch {
           return [];

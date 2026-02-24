@@ -22,7 +22,7 @@ export type MyRPCSchema = {
         response: { id: string; name: string }[];
       };
       runWorkflow: {
-        params: { repoPath: string; workflowId: string };
+        params: { repoPath: string; workflowId: string; commitId?: string };
         response: string | null;
       };
       stopWorkflow: {
@@ -60,10 +60,22 @@ export type MyRPCSchema = {
       };
       getAppState: {
         params: void;
-        response: { repoPath: string; commitId: string };
+        response: {
+          repoPath: string;
+          branchName: string;
+          commitId: string;
+          workflowId: string;
+          runId: string;
+        };
       };
       setAppState: {
-        params: { repoPath?: string; commitId?: string };
+        params: {
+          repoPath?: string;
+          branchName?: string;
+          commitId?: string;
+          workflowId?: string;
+          runId?: string;
+        };
         response: void;
       };
       getDtuStatus: {

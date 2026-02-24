@@ -8,9 +8,9 @@ const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
 
 new ElectrobunView.Electroview({ rpc });
 
-async function goToCommits(repoPath: string) {
+async function goToBranches(repoPath: string) {
   await rpc.request.setAppState({ repoPath });
-  window.location.href = "views://commits/index.html";
+  window.location.href = "views://branches/index.html";
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -28,7 +28,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         text.innerText = repoPath;
         item.appendChild(text);
 
-        item.addEventListener("click", () => goToCommits(repoPath));
+        item.addEventListener("click", () => goToBranches(repoPath));
         recentList.appendChild(item);
       });
     } else {
@@ -43,7 +43,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       try {
         const selectedPath = await rpc.request.selectRepo();
         if (selectedPath) {
-          goToCommits(selectedPath);
+          goToBranches(selectedPath);
         }
       } catch (e) {
         console.error(e);

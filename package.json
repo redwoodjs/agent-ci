@@ -23,12 +23,21 @@
     "concurrently": "^9.2.1",
     "execa": "^9.6.1",
     "husky": "^9.1.7",
+    "lint-staged": "^16.2.7",
     "npm-run-all2": "8.0.4",
     "oxfmt": "0.33.0",
     "oxlint": "1.48.0",
     "tsx": "^4.21.0",
     "vitest": "^4.0.18",
     "wait-on": "^9.0.3"
+  },
+  "lint-staged": {
+    "*.{js,ts,jsx,tsx,json,md,yml,yaml,css,html}": [
+      "oxfmt --check"
+    ],
+    "*.{js,ts,jsx,tsx}": [
+      "oxlint --deny-warnings"
+    ]
   },
   "packageManager": "pnpm@10.30.1",
   "pnpm": {

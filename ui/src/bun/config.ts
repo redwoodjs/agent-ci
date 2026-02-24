@@ -1,3 +1,4 @@
+import { parse } from "jsonc-parser";
 import path from "node:path";
 import os from "node:os";
 import fsSync from "node:fs";
@@ -5,13 +6,12 @@ import fsSync from "node:fs";
 export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".config", "oa", "config.jsonc");
 
 export function parseJsonc(fileContent: string): any {
-  let stripped = fileContent.replace(/\/\*[\s\S]*?\*\//g, "");
-  stripped = stripped.replace(/\/\/.*/g, "");
-  try {
-    return JSON.parse(stripped);
-  } catch (e) {
-    throw new Error(`Failed to parse JSONC config: ${(e as Error).message}`);
+  const errors: any[] = [];
+  const result = parse(fileContent, errors, { allowTrailingComma: true });
+  if (errors.length > 0) {
+    throw new Error(`Failed to parse JSONC config with ${errors.length} error(s)`);
   }
+  return result;
 }
 
 export function getWorkspaceRoot(workingDirectory?: string) {

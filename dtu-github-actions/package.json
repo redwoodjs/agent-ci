@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "body-parser": "^2.2.2",
+    "jsonc-parser": "^3.3.1",
     "polka": "^0.5.2",
     "zod": "^3.24.1"
   },

@@ -8,7 +8,8 @@
     "start": "bun run build && bun run dev"
   },
   "dependencies": {
-    "electrobun": "1.13.1"
+    "electrobun": "1.13.1",
+    "jsonc-parser": "^3.3.1"
   },
   "devDependencies": {
     "@types/bun": "latest"

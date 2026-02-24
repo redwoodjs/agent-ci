@@ -1,3 +1,4 @@
+import { parse } from "jsonc-parser";
 import { z } from "zod";
 import fs from "fs";
 import path from "path";
@@ -22,15 +23,12 @@ export const config = configSchema.parse(process.env);
 export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".config", "oa", "config.jsonc");
 
 export function parseJsonc(fileContent: string): any {
-  // Strip block comments
-  let stripped = fileContent.replace(/\/\*[\s\S]*?\*\//g, "");
-  // Strip line comments
-  stripped = stripped.replace(/\/\/.*/g, "");
-  try {
-    return JSON.parse(stripped);
-  } catch (e) {
-    throw new Error(`Failed to parse JSONC config: ${(e as Error).message}`);
+  const errors: any[] = [];
+  const result = parse(fileContent, errors, { allowTrailingComma: true });
+  if (errors.length > 0) {
+    throw new Error(`Failed to parse JSONC config with ${errors.length} error(s)`);
   }
+  return result;
 }
 
 export function loadOaConfig(configPath?: string): { workingDirectory?: string } {

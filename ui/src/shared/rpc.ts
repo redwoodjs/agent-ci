@@ -9,20 +9,20 @@ export type MyRPCSchema = {
         params: void;
         response: boolean;
       };
-      selectProject: {
+      selectRepo: {
         params: void;
         response: string | null;
       };
-      getRecentProjects: {
+      getRecentRepos: {
         params: void;
         response: string[];
       };
       getWorkflows: {
-        params: { projectPath: string };
+        params: { repoPath: string };
         response: { id: string; name: string }[];
       };
       runWorkflow: {
-        params: { projectPath: string; workflowId: string };
+        params: { repoPath: string; workflowId: string };
         response: string | null;
       };
       stopWorkflow: {
@@ -30,11 +30,11 @@ export type MyRPCSchema = {
         response: boolean;
       };
       getRunCommits: {
-        params: { projectPath: string };
+        params: { repoPath: string };
         response: { id: string; label: string; date: number }[];
       };
       getWorkflowsForCommit: {
-        params: { projectPath: string; commitId: string };
+        params: { repoPath: string; commitId: string };
         response: {
           runId: string;
           workflowName: string;
@@ -48,22 +48,22 @@ export type MyRPCSchema = {
       };
       getAppState: {
         params: void;
-        response: { projectPath: string; commitId: string };
+        response: { repoPath: string; commitId: string };
       };
       setAppState: {
-        params: { projectPath?: string; commitId?: string };
+        params: { repoPath?: string; commitId?: string };
         response: void;
       };
       getDtuStatus: {
         params: void;
-        response: boolean;
+        response: "Stopped" | "Starting" | "Running";
       };
       getRunOnCommitEnabled: {
-        params: { projectPath: string };
+        params: { repoPath: string };
         response: boolean;
       };
       toggleRunOnCommit: {
-        params: { projectPath: string; enabled: boolean };
+        params: { repoPath: string; enabled: boolean };
         response: void;
       };
     };

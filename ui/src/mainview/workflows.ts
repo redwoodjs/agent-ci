@@ -8,7 +8,7 @@ const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
 
 new ElectrobunView.Electroview({ rpc });
 
-let projectPath = "";
+let repoPath = "";
 let commitId = "WORKING_TREE";
 
 let activeRunId: string | null = null;
@@ -36,7 +36,7 @@ async function loadHistory() {
   if (!workflowsList) {
     return;
   }
-  const history = await rpc.request.getWorkflowsForCommit({ projectPath, commitId });
+  const history = await rpc.request.getWorkflowsForCommit({ repoPath, commitId });
 
   if (history.length > 0) {
     workflowsList.innerHTML = "";
@@ -105,7 +105,7 @@ async function loadAvailableWorkflows() {
   if (!availableWorkflowsList) {
     return;
   }
-  const workflows = await rpc.request.getWorkflows({ projectPath });
+  const workflows = await rpc.request.getWorkflows({ repoPath });
   if (workflows.length > 0) {
     availableWorkflowsList.innerHTML = "";
     workflows.forEach((wf) => {
@@ -126,7 +126,7 @@ async function loadAvailableWorkflows() {
         }
 
         isStreamingLogs = true;
-        const newRunId = await rpc.request.runWorkflow({ projectPath, workflowId: wf.id });
+        const newRunId = await rpc.request.runWorkflow({ repoPath, workflowId: wf.id });
         button.removeAttribute("disabled");
 
         if (newRunId) {
@@ -145,7 +145,7 @@ async function loadAvailableWorkflows() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   const state = await rpc.request.getAppState();
-  projectPath = state.projectPath;
+  repoPath = state.repoPath;
   commitId = state.commitId;
 
   if (backBtn) {
@@ -169,7 +169,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Refresh history every few seconds to see runs from elsewhere or status updates
   setInterval(() => {
-    if (projectPath && commitId) {
+    if (repoPath && commitId) {
       loadHistory();
       // Also poll the current run if it's running
       if (activeRunId && !isStreamingLogs) {
@@ -193,10 +193,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!dtuStatusEl) {
       return;
     }
-    const isUp = await rpc.request.getDtuStatus();
-    if (isUp) {
+    const status = await rpc.request.getDtuStatus();
+    if (status === "Running") {
       dtuStatusEl.innerText = "DTU: Running";
       dtuStatusEl.className = "status-badge status-Passed";
+    } else if (status === "Starting") {
+      dtuStatusEl.innerText = "DTU: Starting...";
+      dtuStatusEl.className = "status-badge status-Running";
     } else {
       dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
       dtuStatusEl.className = "status-badge status-Failed";
@@ -205,13 +208,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (dtuStatusEl) {
     dtuStatusEl.addEventListener("click", async () => {
-      const isUp = await rpc.request.getDtuStatus();
-      if (!isUp) {
+      const status = await rpc.request.getDtuStatus();
+      if (status === "Stopped") {
         dtuStatusEl.innerText = "DTU: Starting...";
         dtuStatusEl.className = "status-badge status-Running";
         await rpc.request.launchDTU();
         await pollDtuStatus();
-      } else {
+      } else if (status === "Running") {
         dtuStatusEl.innerText = "DTU: Stopping...";
         dtuStatusEl.className = "status-badge status-Running";
         await rpc.request.stopDTU();

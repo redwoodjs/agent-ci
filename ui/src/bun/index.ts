@@ -10,46 +10,47 @@ import {
   getWorkspaceRoot,
   getLogsDir,
   getUserDataDir,
-  getWatchedProjectsPath,
-  getRecentProjectsPath,
+  getWatchedReposPath,
+  getRecentReposPath,
 } from "./config.ts";
 
 // Spawn background processes for the OA app
 let procs: any[] = [];
 let dtuProc: any = null;
+let isDtuStarting: boolean = false;
 let supervisorProc: any = null;
 let activeSupervisorRunId: string | null = null;
 import type { FSWatcher } from "node:fs";
 
-let appState = { projectPath: "", commitId: "WORKING_TREE" };
-const watchedProjects = new Map<string, { watcher: FSWatcher | null; lastCommit: string }>();
+let appState = { repoPath: "", commitId: "WORKING_TREE" };
+const watchedRepos = new Map<string, { watcher: FSWatcher | null; lastCommit: string }>();
 
-async function saveWatchedProjects() {
+async function saveWatchedRepos() {
   const fs = await import("node:fs/promises");
-  const configPath = await getWatchedProjectsPath();
-  const projects = Array.from(watchedProjects.keys());
+  const configPath = await getWatchedReposPath();
+  const repos = Array.from(watchedRepos.keys());
   try {
     await fs.mkdir(await getUserDataDir(), { recursive: true });
-    await fs.writeFile(configPath, JSON.stringify(projects, null, 2));
+    await fs.writeFile(configPath, JSON.stringify(repos, null, 2));
   } catch (e) {
-    console.error("Failed to save watched projects:", e);
+    console.error("Failed to save watched repos:", e);
   }
 }
 
-async function enableWatchModeForProject(projectPath: string) {
-  if (watchedProjects.has(projectPath)) {
+async function enableWatchModeForRepo(repoPath: string) {
+  if (watchedRepos.has(repoPath)) {
     return;
   }
 
   let lastCommit = "";
   try {
-    const gitProc = Bun.spawn(["git", "log", "-1", "--format=%H"], { cwd: projectPath });
+    const gitProc = Bun.spawn(["git", "log", "-1", "--format=%H"], { cwd: repoPath });
     const output = await new Response(gitProc.stdout).text();
     lastCommit = output.trim();
   } catch {}
 
   try {
-    const gitDir = path.join(projectPath, ".git");
+    const gitDir = path.join(repoPath, ".git");
     const watcher = fsSync.watch(gitDir, { recursive: true }, async (_eventType, filename) => {
       if (
         filename &&
@@ -57,17 +58,17 @@ async function enableWatchModeForProject(projectPath: string) {
       ) {
         try {
           const gitProc = Bun.spawn(["git", "log", "-1", "--format=%H"], {
-            cwd: projectPath,
+            cwd: repoPath,
           });
           const output = await new Response(gitProc.stdout).text();
           const currentCommit = output.trim();
-          const watchData = watchedProjects.get(projectPath);
+          const watchData = watchedRepos.get(repoPath);
 
           if (watchData && currentCommit && currentCommit !== watchData.lastCommit) {
             watchData.lastCommit = currentCommit;
 
             const fsPromises = await import("node:fs/promises");
-            const workflowsPath = path.join(projectPath, ".github", "workflows");
+            const workflowsPath = path.join(repoPath, ".github", "workflows");
             const files = await fsPromises.readdir(workflowsPath, {
               withFileTypes: true,
             });
@@ -83,36 +84,36 @@ async function enableWatchModeForProject(projectPath: string) {
               rpc.send.dtuLog(
                 `\n[OA] Auto-Run: New commit ${currentCommit.substring(0, 7)} detected. Running workflow ${workflowId}\n`,
               );
-              handleRunWorkflow({ projectPath, workflowId }, (msg) => rpc.send.dtuLog(msg));
+              handleRunWorkflow({ repoPath, workflowId }, (msg) => rpc.send.dtuLog(msg));
             }
           }
         } catch {}
       }
     });
 
-    watchedProjects.set(projectPath, { watcher, lastCommit });
+    watchedRepos.set(repoPath, { watcher, lastCommit });
   } catch (e) {
     console.error("Failed to watch .git directory", e);
     // Fallback to null watcher but keep state
-    watchedProjects.set(projectPath, { watcher: null, lastCommit });
+    watchedRepos.set(repoPath, { watcher: null, lastCommit });
   }
 
-  await saveWatchedProjects();
+  await saveWatchedRepos();
 }
 
-async function disableWatchModeForProject(projectPath: string) {
-  const watchData = watchedProjects.get(projectPath);
+async function disableWatchModeForRepo(repoPath: string) {
+  const watchData = watchedRepos.get(repoPath);
   if (watchData) {
     if (watchData.watcher) {
       watchData.watcher.close();
     }
-    watchedProjects.delete(projectPath);
-    await saveWatchedProjects();
+    watchedRepos.delete(repoPath);
+    await saveWatchedRepos();
   }
 }
 
 async function handleRunWorkflow(
-  { projectPath, workflowId }: { projectPath: string; workflowId: string },
+  { repoPath, workflowId }: { repoPath: string; workflowId: string },
   sendLog: (msg: string) => void,
 ) {
   if (supervisorProc) {
@@ -121,10 +122,10 @@ async function handleRunWorkflow(
     activeSupervisorRunId = null;
   }
 
-  const workflowsPath = path.join(projectPath, ".github", "workflows");
+  const workflowsPath = path.join(repoPath, ".github", "workflows");
   const fullPath = path.join(workflowsPath, workflowId);
 
-  sendLog(`\n[OA] Starting workflow run: ${workflowId} in ${projectPath}\n`);
+  sendLog(`\n[OA] Starting workflow run: ${workflowId} in ${repoPath}\n`);
 
   try {
     const spawnArgs = [
@@ -211,6 +212,7 @@ async function doLaunchDTU() {
     return true;
   }
   console.log("Starting DTU server...");
+  isDtuStarting = true;
   try {
     const spawnArgs = ["pnpm", "--filter", "dtu-github-actions", "dev"];
     if (uiConfigPath) {
@@ -237,6 +239,7 @@ async function doLaunchDTU() {
           break;
         }
         const text = decoder.decode(value);
+        console.log("[DTU Output] ", text);
         // Use the global rpc object directly to send to attached webviews
         rpc.send.dtuLog(text);
       }
@@ -277,24 +280,27 @@ async function doLaunchDTU() {
     if (!isOnline) {
       dtuProc.kill();
       dtuProc = null;
+      isDtuStarting = false;
       return false;
     }
 
+    isDtuStarting = false;
     return true;
   } catch (e) {
     console.error("Failed to start DTU:", e);
+    isDtuStarting = false;
     return false;
   }
 }
 
-async function loadWatchedProjects() {
+async function loadWatchedRepos() {
   const fs = await import("node:fs/promises");
-  const configPath = await getWatchedProjectsPath();
+  const configPath = await getWatchedReposPath();
   try {
     const content = await fs.readFile(configPath, "utf-8");
-    const projects = JSON.parse(content) as string[];
-    for (const projectPath of projects) {
-      await enableWatchModeForProject(projectPath);
+    const repos = JSON.parse(content) as string[];
+    for (const repoPath of repos) {
+      await enableWatchModeForRepo(repoPath);
     }
   } catch {
     // file doesn't exist
@@ -304,10 +310,10 @@ async function loadWatchedProjects() {
 async function startBackgroundProcesses() {
   // Supervisor can be started here or later through similar buttons if needed
   await doLaunchDTU();
-  await loadWatchedProjects();
+  await loadWatchedRepos();
 }
 
-startBackgroundProcesses();
+// startBackgroundProcesses() moved below rpc
 
 const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
   handlers: {
@@ -324,20 +330,23 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
         return true;
       },
       getDtuStatus: async () => {
-        return dtuProc !== null;
+        if (isDtuStarting) {
+          return "Starting";
+        }
+        return dtuProc !== null ? "Running" : "Stopped";
       },
       getAppState: async () => appState,
       setAppState: async (params) => {
-        if (params.projectPath !== undefined) {
-          appState.projectPath = params.projectPath;
+        if (params.repoPath !== undefined) {
+          appState.repoPath = params.repoPath;
         }
         if (params.commitId !== undefined) {
           appState.commitId = params.commitId;
         }
       },
-      getRecentProjects: async () => {
+      getRecentRepos: async () => {
         const fs = await import("node:fs/promises");
-        const configPath = await getRecentProjectsPath();
+        const configPath = await getRecentReposPath();
         try {
           const content = await fs.readFile(configPath, "utf-8");
           return JSON.parse(content) as string[];
@@ -345,7 +354,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
           return [];
         }
       },
-      selectProject: async () => {
+      selectRepo: async () => {
         const paths = await Utils.openFileDialog({
           canChooseFiles: false,
           canChooseDirectory: true,
@@ -354,10 +363,10 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
         if (paths && paths.length > 0) {
           const selectedPath = paths[0];
 
-          // Add to recent projects
+          // Add to recent repos
           const fs = await import("node:fs/promises");
           const configDir = await getUserDataDir();
-          const configPath = await getRecentProjectsPath();
+          const configPath = await getRecentReposPath();
 
           let recent: string[] = [];
           try {
@@ -373,16 +382,16 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
             recent = [selectedPath, ...recent.filter((p) => p !== selectedPath)].slice(0, 10);
             await fs.writeFile(configPath, JSON.stringify(recent, null, 2));
           } catch (e) {
-            console.error("Failed to save recent projects:", e);
+            console.error("Failed to save recent repos:", e);
           }
 
           return selectedPath;
         }
         return null;
       },
-      getWorkflows: async ({ projectPath }) => {
+      getWorkflows: async ({ repoPath }) => {
         const fs = await import("node:fs/promises");
-        const workflowsPath = path.join(projectPath, ".github", "workflows");
+        const workflowsPath = path.join(repoPath, ".github", "workflows");
         const workflows: { id: string; name: string }[] = [];
 
         try {
@@ -402,18 +411,18 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
 
         return workflows;
       },
-      getRunOnCommitEnabled: async ({ projectPath }) => {
-        return watchedProjects.has(projectPath);
+      getRunOnCommitEnabled: async ({ repoPath }) => {
+        return watchedRepos.has(repoPath);
       },
-      toggleRunOnCommit: async ({ projectPath, enabled }) => {
+      toggleRunOnCommit: async ({ repoPath, enabled }) => {
         if (enabled) {
-          await enableWatchModeForProject(projectPath);
+          await enableWatchModeForRepo(repoPath);
         } else {
-          await disableWatchModeForProject(projectPath);
+          await disableWatchModeForRepo(repoPath);
         }
       },
-      runWorkflow: async ({ projectPath, workflowId }) => {
-        return await handleRunWorkflow({ projectPath, workflowId }, (msg) => rpc.send.dtuLog(msg));
+      runWorkflow: async ({ repoPath, workflowId }) => {
+        return await handleRunWorkflow({ repoPath, workflowId }, (msg) => rpc.send.dtuLog(msg));
       },
       stopWorkflow: async () => {
         if (supervisorProc) {
@@ -426,7 +435,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
         }
         return false;
       },
-      getRunCommits: async ({ projectPath: _projectPath }) => {
+      getRunCommits: async ({ repoPath: _repoPath }) => {
         const fs = await import("node:fs/promises");
         const logsDir = getLogsDir();
         try {
@@ -471,7 +480,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
           return [];
         }
       },
-      getWorkflowsForCommit: async ({ projectPath: _projectPath, commitId }) => {
+      getWorkflowsForCommit: async ({ repoPath: _repoPath, commitId }) => {
         const fs = await import("node:fs/promises");
         const logsDir = getLogsDir();
         const results: {
@@ -553,6 +562,9 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
   },
 });
 
+// Now that RPC is defined, safely start background processes.
+startBackgroundProcesses();
+
 // In electrobun, main.js runs in Contents/MacOS/../Resources
 // Our asset config copies the image to the app/assets folder.
 const trayIconPath = path.join(import.meta.dirname, "../assets/tray.png");
@@ -589,7 +601,7 @@ tray.on("tray-clicked", (e: any) => {
 // Create the main application window
 const mainWindow = new BrowserWindow({
   title: "OA Desktop",
-  url: "views://projects/index.html",
+  url: "views://repos/index.html",
   rpc,
   frame: {
     width: 800,

@@ -70,10 +70,10 @@ export async function getUserDataDir() {
   return Utils.paths.userData;
 }
 
-export async function getWatchedProjectsPath() {
-  return path.join(await getUserDataDir(), "watched_projects.json");
+export async function getWatchedReposPath() {
+  return path.join(await getUserDataDir(), "watched_repos.json");
 }
 
-export async function getRecentProjectsPath() {
-  return path.join(await getUserDataDir(), "recent_projects.json");
+export async function getRecentReposPath() {
+  return path.join(await getUserDataDir(), "recent_repos.json");
 }

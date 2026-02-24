@@ -8,27 +8,27 @@ const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
 
 new ElectrobunView.Electroview({ rpc });
 
-async function goToCommits(projectPath: string) {
-  await rpc.request.setAppState({ projectPath });
+async function goToCommits(repoPath: string) {
+  await rpc.request.setAppState({ repoPath });
   window.location.href = "views://commits/index.html";
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const recentList = document.getElementById("recent-projects-list");
+  const recentList = document.getElementById("recent-repos-list");
   if (recentList) {
-    const recent = await rpc.request.getRecentProjects();
+    const recent = await rpc.request.getRecentRepos();
     if (recent.length > 0) {
-      recent.forEach((projectPath, idx) => {
+      recent.forEach((repoPath, idx) => {
         const item = document.createElement("div");
         item.className = "list-item animate-fade-in";
         item.style.animationDelay = `${idx * 0.05}s`;
 
         const text = document.createElement("div");
         text.className = "list-item-title";
-        text.innerText = projectPath;
+        text.innerText = repoPath;
         item.appendChild(text);
 
-        item.addEventListener("click", () => goToCommits(projectPath));
+        item.addEventListener("click", () => goToCommits(repoPath));
         recentList.appendChild(item);
       });
     } else {
@@ -36,12 +36,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   }
 
-  const selectBtn = document.getElementById("select-project-btn");
+  const selectBtn = document.getElementById("select-repo-btn");
   if (selectBtn) {
     selectBtn.addEventListener("click", async () => {
       selectBtn.setAttribute("disabled", "true");
       try {
-        const selectedPath = await rpc.request.selectProject();
+        const selectedPath = await rpc.request.selectRepo();
         if (selectedPath) {
           goToCommits(selectedPath);
         }
@@ -58,10 +58,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!dtuStatusEl) {
       return;
     }
-    const isUp = await rpc.request.getDtuStatus();
-    if (isUp) {
+    const status = await rpc.request.getDtuStatus();
+    if (status === "Running") {
       dtuStatusEl.innerText = "DTU: Running";
       dtuStatusEl.className = "status-badge status-Passed";
+    } else if (status === "Starting") {
+      dtuStatusEl.innerText = "DTU: Starting...";
+      dtuStatusEl.className = "status-badge status-Running";
     } else {
       dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
       dtuStatusEl.className = "status-badge status-Failed";
@@ -70,13 +73,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (dtuStatusEl) {
     dtuStatusEl.addEventListener("click", async () => {
-      const isUp = await rpc.request.getDtuStatus();
-      if (!isUp) {
+      const status = await rpc.request.getDtuStatus();
+      if (status === "Stopped") {
         dtuStatusEl.innerText = "DTU: Starting...";
         dtuStatusEl.className = "status-badge status-Running";
         await rpc.request.launchDTU();
         await pollDtuStatus();
-      } else {
+      } else if (status === "Running") {
         dtuStatusEl.innerText = "DTU: Stopping...";
         dtuStatusEl.className = "status-badge status-Running";
         await rpc.request.stopDTU();

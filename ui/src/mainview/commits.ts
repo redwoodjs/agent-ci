@@ -8,7 +8,7 @@ const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
 
 new ElectrobunView.Electroview({ rpc });
 
-let projectPath = "";
+let repoPath = "";
 
 async function goToWorkflows(commitId: string) {
   await rpc.request.setAppState({ commitId });
@@ -17,20 +17,20 @@ async function goToWorkflows(commitId: string) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   const state = await rpc.request.getAppState();
-  projectPath = state.projectPath;
+  repoPath = state.repoPath;
 
   const backBtn = document.getElementById("back-btn");
   if (backBtn) {
     backBtn.addEventListener("click", () => window.history.back());
   }
 
-  const projName = document.getElementById("project-name-display");
-  if (projName && projectPath) {
-    projName.innerText = projectPath;
+  const projName = document.getElementById("repo-name-display");
+  if (projName && repoPath) {
+    projName.innerText = repoPath;
   }
 
   const runOnCommitToggle = document.getElementById("watch-mode-toggle");
-  if (runOnCommitToggle && projectPath) {
+  if (runOnCommitToggle && repoPath) {
     const updateWatchUI = (enabled: boolean) => {
       if (enabled) {
         runOnCommitToggle.innerText = "On";
@@ -43,15 +43,15 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     };
 
-    const isWatchEnabled = await rpc.request.getRunOnCommitEnabled({ projectPath });
+    const isWatchEnabled = await rpc.request.getRunOnCommitEnabled({ repoPath });
     updateWatchUI(isWatchEnabled);
 
     runOnCommitToggle.addEventListener("click", async () => {
       runOnCommitToggle.setAttribute("disabled", "true");
       try {
-        const currentState = await rpc.request.getRunOnCommitEnabled({ projectPath });
+        const currentState = await rpc.request.getRunOnCommitEnabled({ repoPath });
         const newState = !currentState;
-        await rpc.request.toggleRunOnCommit({ projectPath, enabled: newState });
+        await rpc.request.toggleRunOnCommit({ repoPath, enabled: newState });
         updateWatchUI(newState);
       } catch (e) {
         console.error("Failed to toggle run on commit", e);
@@ -62,8 +62,8 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 
   const list = document.getElementById("commits-list");
-  if (list && projectPath) {
-    const commits = await rpc.request.getRunCommits({ projectPath });
+  if (list && repoPath) {
+    const commits = await rpc.request.getRunCommits({ repoPath });
     if (commits.length > 0) {
       commits.forEach((commit, idx) => {
         const item = document.createElement("div");
@@ -106,10 +106,13 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!dtuStatusEl) {
       return;
     }
-    const isUp = await rpc.request.getDtuStatus();
-    if (isUp) {
+    const status = await rpc.request.getDtuStatus();
+    if (status === "Running") {
       dtuStatusEl.innerText = "DTU: Running";
       dtuStatusEl.className = "status-badge status-Passed";
+    } else if (status === "Starting") {
+      dtuStatusEl.innerText = "DTU: Starting...";
+      dtuStatusEl.className = "status-badge status-Running";
     } else {
       dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
       dtuStatusEl.className = "status-badge status-Failed";
@@ -118,13 +121,13 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (dtuStatusEl) {
     dtuStatusEl.addEventListener("click", async () => {
-      const isUp = await rpc.request.getDtuStatus();
-      if (!isUp) {
+      const status = await rpc.request.getDtuStatus();
+      if (status === "Stopped") {
         dtuStatusEl.innerText = "DTU: Starting...";
         dtuStatusEl.className = "status-badge status-Running";
         await rpc.request.launchDTU();
         await pollDtuStatus();
-      } else {
+      } else if (status === "Running") {
         dtuStatusEl.innerText = "DTU: Stopping...";
         dtuStatusEl.className = "status-badge status-Running";
         await rpc.request.stopDTU();

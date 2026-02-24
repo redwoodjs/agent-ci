@@ -93,10 +93,10 @@ if (launchBtn && statusEl) {
   performLaunch();
 }
 
-const selectProjectBtn = document.getElementById("select-project-btn");
-const projectPathDisplay = document.getElementById("project-path-display");
+const selectRepoBtn = document.getElementById("select-repo-btn");
+const repoPathDisplay = document.getElementById("repo-path-display");
 const workflowsList = document.getElementById("workflows-list");
-const recentProjectsList = document.getElementById("recent-projects-list");
+const recentReposList = document.getElementById("recent-repos-list");
 const stopWorkflowBtn = document.getElementById("stop-workflow-btn");
 
 // Helper to manage the Stop Workflow button state
@@ -134,16 +134,16 @@ if (stopWorkflowBtn) {
 }
 
 // Helper to load workflows directly
-async function loadWorkflows(projectPath: string) {
-  if (!projectPathDisplay || !workflowsList) {
+async function loadWorkflows(repoPath: string) {
+  if (!repoPathDisplay || !workflowsList) {
     return;
   }
 
-  projectPathDisplay.innerText = projectPath;
-  projectPathDisplay.style.color = "lightgreen";
+  repoPathDisplay.innerText = repoPath;
+  repoPathDisplay.style.color = "lightgreen";
 
   workflowsList.innerHTML = `<div style="color: #888;">Loading workflows...</div>`;
-  const workflows = await rpc.request.getWorkflows({ projectPath });
+  const workflows = await rpc.request.getWorkflows({ repoPath });
 
   if (workflows.length > 0) {
     workflowsList.innerHTML = "";
@@ -170,7 +170,7 @@ async function loadWorkflows(projectPath: string) {
         }
         setStopButtonState(true);
         try {
-          const success = await rpc.request.runWorkflow({ projectPath, workflowId: wf.id });
+          const success = await rpc.request.runWorkflow({ repoPath, workflowId: wf.id });
           if (!success) {
             setStopButtonState(false);
             if (logsEl) {
@@ -190,24 +190,24 @@ async function loadWorkflows(projectPath: string) {
   }
 }
 
-// Helper to load and render the recent projects list
-async function loadRecentProjects() {
-  if (!recentProjectsList) {
+// Helper to load and render the recent repos list
+async function loadRecentRepos() {
+  if (!recentReposList) {
     return;
   }
 
-  // Get recent projects
-  const recent = await rpc.request.getRecentProjects();
+  // Get recent repos
+  const recent = await rpc.request.getRecentRepos();
   if (recent.length > 0) {
-    recentProjectsList.innerHTML = "";
-    recent.forEach((projectPath) => {
+    recentReposList.innerHTML = "";
+    recent.forEach((repoPath) => {
       const projEl = document.createElement("div");
       projEl.style.padding = "10px";
       projEl.style.background = "#2a2a2a";
       projEl.style.borderRadius = "4px";
       projEl.style.cursor = "pointer";
       projEl.style.wordBreak = "break-all";
-      projEl.innerText = projectPath;
+      projEl.innerText = repoPath;
 
       // On hover styling
       projEl.addEventListener("mouseenter", () => {
@@ -217,35 +217,35 @@ async function loadRecentProjects() {
         projEl.style.background = "#2a2a2a";
       });
 
-      // Click to load project
+      // Click to load repo
       projEl.addEventListener("click", () => {
-        loadWorkflows(projectPath);
+        loadWorkflows(repoPath);
       });
 
-      recentProjectsList.appendChild(projEl);
+      recentReposList.appendChild(projEl);
     });
   } else {
-    recentProjectsList.innerHTML = `<div style="color: #666; font-style: italic">No recent repos</div>`;
+    recentReposList.innerHTML = `<div style="color: #666; font-style: italic">No recent repos</div>`;
   }
 }
 
 // Initial load
-loadRecentProjects();
+loadRecentRepos();
 
-if (selectProjectBtn && projectPathDisplay && workflowsList) {
-  selectProjectBtn.addEventListener("click", async () => {
-    selectProjectBtn.setAttribute("disabled", "true");
+if (selectRepoBtn && repoPathDisplay && workflowsList) {
+  selectRepoBtn.addEventListener("click", async () => {
+    selectRepoBtn.setAttribute("disabled", "true");
     try {
-      const selectedPath = await rpc.request.selectProject();
+      const selectedPath = await rpc.request.selectRepo();
       if (selectedPath) {
         await loadWorkflows(selectedPath);
-        // Refresh the recent projects list
-        await loadRecentProjects();
+        // Refresh the recent repos list
+        await loadRecentRepos();
       }
     } catch (e) {
-      console.error("Error selecting project:", e);
+      console.error("Error selecting repo:", e);
     } finally {
-      selectProjectBtn.removeAttribute("disabled");
+      selectRepoBtn.removeAttribute("disabled");
     }
   });
 }

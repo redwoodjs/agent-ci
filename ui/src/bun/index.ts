@@ -19,10 +19,7 @@ import { getBranches, getWorkingTreeStatus, getGitCommits } from "./branches.ts"
 let procs: any[] = [];
 let dtuProc: any = null;
 let isDtuStarting: boolean = false;
-let supervisorProc: any = null;
-let activeSupervisorRunId: string | null = null;
-let activeSupervisorCommitId: string | null = null;
-let activeSupervisorWorkflowName: string | null = null;
+let supervisorProcs: any[] = [];
 import type { FSWatcher } from "node:fs";
 
 let trayInstance: Tray | null = null;
@@ -106,21 +103,23 @@ async function enableWatchModeForRepo(repoPath: string) {
             const files = await fsPromises.readdir(workflowsPath, {
               withFileTypes: true,
             });
-            let workflowId: string | null = null;
+            const workflowsToRun: string[] = [];
             for (const file of files) {
               if (file.isFile() && (file.name.endsWith(".yml") || file.name.endsWith(".yaml"))) {
-                workflowId = file.name;
-                break;
+                workflowsToRun.push(file.name);
               }
             }
 
-            if (workflowId) {
+            if (workflowsToRun.length > 0) {
               rpc.send.dtuLog(
-                `\n[OA] Auto-Run: New commit ${currentCommit.substring(0, 7)} detected. Running workflow ${workflowId}\n`,
+                `\n[OA] Auto-Run: New commit ${currentCommit.substring(0, 7)} detected. Running ${workflowsToRun.length} workflow(s)\n`,
               );
-              handleRunWorkflow({ repoPath, workflowId, commitId: currentCommit }, (msg) =>
-                rpc.send.dtuLog(msg),
-              );
+              for (const flowId of workflowsToRun) {
+                handleRunWorkflow(
+                  { repoPath, workflowId: flowId, commitId: currentCommit },
+                  (msg) => rpc.send.dtuLog(msg),
+                );
+              }
             }
           }
         } catch {}
@@ -152,19 +151,10 @@ async function handleRunWorkflow(
   { repoPath, workflowId, commitId }: { repoPath: string; workflowId: string; commitId?: string },
   sendLog: (msg: string) => void,
 ) {
-  if (supervisorProc) {
-    supervisorProc.kill();
-    supervisorProc = null;
-    activeSupervisorRunId = null;
-  }
-
   const workflowsPath = path.join(repoPath, ".github", "workflows");
   const fullPath = path.join(workflowsPath, workflowId);
 
   sendLog(`\n[OA] Starting workflow run: ${workflowId} in ${repoPath}\n`);
-
-  activeSupervisorCommitId = commitId && commitId !== "WORKING_TREE" ? commitId : "WORKING_TREE";
-  activeSupervisorWorkflowName = workflowId.replace(/\.yml|\.yaml/, "");
 
   try {
     const spawnArgs = ["pnpm", "--filter", "supervisor", "run", "oa", "run"];
@@ -192,40 +182,50 @@ async function handleRunWorkflow(
       }
     } catch {}
     const runnerName = `oa-runner-${nextNum}`;
-    activeSupervisorRunId = runnerName;
     spawnArgs.push("--runner-name", runnerName);
+
+    // Pre-create metadata.json so UI sees it instantly
+    const runDir = path.join(getLogsDir(), runnerName);
+    await fsPromises.mkdir(runDir, { recursive: true });
+    await fsPromises.writeFile(
+      path.join(runDir, "metadata.json"),
+      JSON.stringify(
+        { workflowPath: fullPath, workflowName: workflowId.replace(/\.yml|\.yaml/, "") },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
 
     updateTrayStatus("Running");
 
-    supervisorProc = Bun.spawn(spawnArgs, {
+    const supervisorProc = Bun.spawn(spawnArgs, {
       cwd: getWorkspaceRoot(),
       env: process.env,
       stdout: "pipe",
       stderr: "pipe",
     });
     const currentProc = supervisorProc;
+    supervisorProcs.push(supervisorProc);
     procs.push(supervisorProc);
 
     currentProc.exited
       .then(async () => {
-        if (supervisorProc === currentProc) {
-          supervisorProc = null;
-          activeSupervisorRunId = null;
+        supervisorProcs = supervisorProcs.filter((p) => p !== currentProc);
 
-          try {
-            const fsPromises = await import("node:fs/promises");
-            const outputLogPath = path.join(getLogsDir(), runnerName, "output.log");
-            const logs = await fsPromises.readFile(outputLogPath, "utf-8");
-            if (logs.includes("Job succeeded")) {
-              updateTrayStatus("Passed");
-            } else if (logs.includes("Job failed") || !!logs.match(/✖ Job /)) {
-              updateTrayStatus("Failed");
-            } else {
-              updateTrayStatus("Idle");
-            }
-          } catch {
+        try {
+          const fsPromises = await import("node:fs/promises");
+          const outputLogPath = path.join(getLogsDir(), runnerName, "output.log");
+          const logs = await fsPromises.readFile(outputLogPath, "utf-8");
+          if (logs.includes("Job succeeded")) {
+            updateTrayStatus("Passed");
+          } else if (logs.includes("Job failed") || !!logs.match(/✖ Job /)) {
             updateTrayStatus("Failed");
+          } else {
+            updateTrayStatus("Idle");
           }
+        } catch {
+          updateTrayStatus("Failed");
         }
       })
       .catch(() => {});
@@ -500,14 +500,16 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
         );
       },
       stopWorkflow: async () => {
-        if (supervisorProc) {
+        if (appState.runId) {
           rpc.send.dtuLog(`\n[OA] Stopping workflow run...\n`);
-          supervisorProc.kill();
-          procs = procs.filter((p) => p !== supervisorProc);
-          supervisorProc = null;
-          activeSupervisorRunId = null;
-          updateTrayStatus("Idle");
-          return true;
+          try {
+            const stopProc = Bun.spawn(["docker", "rm", "-f", appState.runId]);
+            await stopProc.exited;
+            updateTrayStatus("Idle");
+            return true;
+          } catch (e) {
+            console.error("Failed to stop docker container", e);
+          }
         }
         return false;
       },
@@ -577,30 +579,54 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
 
         try {
           const files = await fs.readdir(logsDir, { withFileTypes: true });
+
+          let activeContainers: string[] = [];
+          try {
+            const dockerProc = Bun.spawn([
+              "docker",
+              "ps",
+              "--format",
+              "{{.Names}}",
+              "--filter",
+              "name=oa-runner-",
+            ]);
+            const dockerOutput = await new Response(dockerProc.stdout).text();
+            activeContainers = dockerOutput
+              .split("\n")
+              .map((n) => n.trim())
+              .filter(Boolean);
+          } catch (e) {
+            console.error("Failed to list active docker containers", e);
+          }
+
           for (const file of files) {
             if (file.isDirectory() && file.name.startsWith("oa-runner-")) {
               const runDir = path.join(logsDir, file.name);
               const outputLogPath = path.join(runDir, "output.log");
               const metadataPath = path.join(runDir, "metadata.json");
               try {
-                const content = await fs.readFile(outputLogPath, "utf-8");
-                const stat = await fs.stat(outputLogPath);
+                let content = "";
+                let fileCommitId: string | null = null;
+                try {
+                  content = await fs.readFile(outputLogPath, "utf-8");
+                  const isWorkingTree = content.includes("working directory");
+                  const shaMatch = content.match(/Using: SHA ([a-f0-9]+)/);
+                  fileCommitId = shaMatch ? shaMatch[1] : isWorkingTree ? "WORKING_TREE" : null;
+                } catch {
+                  // if output log missing we still try and figure out if it's currently running
+                }
 
-                const isWorkingTree = content.includes("working directory");
-                const shaMatch = content.match(/Using: SHA ([a-f0-9]+)/);
+                // If no file but there's a running container and the commit ID matches, this requires more context
+                // Local UI only tracks HEAD basically from metadata but we lost memory proc!
+                // For now, if no output.log exists, we can't reliably map fileCommitId so we map based on file existences
 
-                let fileCommitId = shaMatch ? shaMatch[1] : isWorkingTree ? "WORKING_TREE" : null;
-
-                // Fallback for currently active run if logs haven't flushed yet
-                if (file.name === activeSupervisorRunId && activeSupervisorCommitId) {
-                  fileCommitId = activeSupervisorCommitId;
+                if (!fileCommitId && activeContainers.includes(file.name)) {
+                  // Since we dispatch immediately, if the file hasn't flushed yet, we assume it's for requested appState
+                  fileCommitId = appState.commitId;
                 }
 
                 if (fileCommitId === commitId) {
                   let workflowName = "Unknown Workflow";
-                  if (file.name === activeSupervisorRunId && activeSupervisorWorkflowName) {
-                    workflowName = activeSupervisorWorkflowName;
-                  }
                   try {
                     const metaContent = await fs.readFile(metadataPath, "utf-8");
                     const meta = JSON.parse(metaContent);
@@ -610,7 +636,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
                   }
 
                   let status: "Passed" | "Failed" | "Running" | "Unknown" = "Unknown";
-                  if (activeSupervisorRunId === file.name) {
+                  if (activeContainers.includes(file.name)) {
                     status = "Running";
                   } else if (content.includes("Job succeeded")) {
                     status = "Passed";
@@ -618,29 +644,21 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
                     status = "Failed";
                   }
 
+                  let mTimeMs = Date.now();
+                  try {
+                    const stat = await fs.stat(outputLogPath);
+                    mTimeMs = stat.mtimeMs;
+                  } catch {}
+
                   results.push({
                     runId: file.name,
                     workflowName,
                     status,
-                    date: stat.mtimeMs,
+                    date: mTimeMs,
                   });
                 }
               } catch {}
             }
-          }
-
-          // If the active run isn't in the filesystem yet (it was just requested), inject it manually
-          if (
-            activeSupervisorRunId &&
-            activeSupervisorCommitId === commitId &&
-            !results.some((r) => r.runId === activeSupervisorRunId)
-          ) {
-            results.push({
-              runId: activeSupervisorRunId,
-              workflowName: activeSupervisorWorkflowName || "Unknown Workflow",
-              status: "Running",
-              date: Date.now(),
-            });
           }
 
           return results.sort((a, b) => b.date - a.date);
@@ -652,9 +670,24 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
         const fs = await import("node:fs/promises");
         const outputLogPath = path.join(getLogsDir(), runId, "output.log");
         try {
-          const logs = await fs.readFile(outputLogPath, "utf-8");
+          const logs = await fs.readFile(outputLogPath, "utf-8").catch(() => "");
           let status: "Passed" | "Failed" | "Running" | "Unknown" = "Unknown";
-          if (activeSupervisorRunId === runId) {
+
+          let isActive = false;
+          try {
+            const dockerProc = Bun.spawn([
+              "docker",
+              "ps",
+              "--format",
+              "{{.Names}}",
+              "--filter",
+              `name=${runId}`,
+            ]);
+            const output = await new Response(dockerProc.stdout).text();
+            isActive = output.trim() === runId;
+          } catch {}
+
+          if (isActive) {
             status = "Running";
           } else if (logs.includes("Job succeeded")) {
             status = "Passed";

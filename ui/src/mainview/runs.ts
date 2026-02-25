@@ -1,5 +1,8 @@
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
+import { AnsiUp } from "ansi_up";
+
+const ansiUp = new AnsiUp();
 
 const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
   maxRequestTime: 15000,
@@ -34,7 +37,7 @@ async function loadLogs() {
     if (!isStreamingLogs) {
       const isAtBottom =
         logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
-      logsViewer.innerText = details.logs;
+      logsViewer.innerHTML = ansiUp.ansi_to_html(details.logs);
       if (isAtBottom) {
         logsViewer.scrollTop = logsViewer.scrollHeight;
       }
@@ -136,7 +139,7 @@ rpc.addMessageListener("dtuLog", (log: string) => {
     // Only append if it's the active run (assumes the backend is sending logs for the active run)
     const isAtBottom =
       logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
-    logsViewer.innerText += log;
+    logsViewer.insertAdjacentHTML("beforeend", ansiUp.ansi_to_html(log));
     if (isAtBottom) {
       logsViewer.scrollTop = logsViewer.scrollHeight;
     }

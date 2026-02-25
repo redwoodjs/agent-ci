@@ -201,6 +201,11 @@ export interface Plugin {
       chunks: ChunkMetadata[],
       context: QueryHookContext,
     ) => Promise<string>;
+    timeTravel?: (
+      evidence: any,
+      timestamp: string,
+      context: IndexingHookContext
+    ) => Promise<any | null>;
   };
 }
 
@@ -208,6 +213,7 @@ export interface ReconstructedContext {
   content: string;
   source: string;
   primaryMetadata: ChunkMetadata;
+  diff?: string;
 }
 
 export interface EngineContext {

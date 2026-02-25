@@ -1,0 +1,143 @@
+# Worklog: Refining Speccing Engine & CLI Refactor
+
+## 2026-02-13: Refactoring CLI to TypeScript (RFC)
+
+### 2000ft View Narrative
+The current Bash implementation of the Speccing Engine driver (`mchn-spec.sh`) has reached its complexity limit. Handling streaming HTTP responses, Base64 decoding of headers, and robust exponential backoff retries for transient errors (like LLM quota limits) is brittle in shell script.
+
+We are refactoring this into a TypeScript-based script (`mchn-spec.ts`) to be executed via `tsx`. This will provide:
+1.  **Type-Safe Persistence**: More reliable handling of the local specification file lifecycle.
+2.  **Native Streaming**: Using the Web Streams API (`fetch`) for true unbuffered output.
+3.  **Resilient Retries**: Sophisticated retry logic for 429/500 errors.
+4.  **Better Diagnostics**: Clearer logging of turn state and LLM progress.
+
+### Behavior Spec
+- **GIVEN** a user prompt and environment variables (API_KEY, MACHINEN_ENGINE_URL).
+- **WHEN** the script is executed.
+- **THEN** it should:
+    1.  Discover a relevant subject (or fallback to global search).
+    2.  Initialize a speccing session (optionally fuzzy-matching if needed).
+    3.  Enter an autonomous loop that streams refinements.
+    4.  Update the local `.md` file incrementally as tokens arrive.
+    5.  Automatically retry on quota limits (429) or transient server errors (500).
+    6.  Exit gracefully when the server signals completion.
+
+### API Reference (CLI)
+- **Usage**: `tsx scripts/mchn-spec.ts "<PROMPT>"`
+- **Inputs**:
+    - `API_KEY`: Auth token.
+    - `MACHINEN_ENGINE_URL`: Backend worker URL.
+    - `NAMESPACE_PREFIX`: Optional simulation namespace.
+    - `REPOSITORY`: Optional repo override (defaults to local git origin).
+
+### Implementation Breakdown
+#### [NEW] [mchn-spec.ts](file:///Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts)
+- Use `fetch` for all API calls.
+- Implement a `requestWithRetry` wrapper using exponential backoff.
+- Implement `streamToStream` helper to pipe the HTTP response body to both `stdout` and the target file using `TransformStream`.
+- Use `git` commands via `node:child_process` for environment detection.
+
+#### [DELETE] [mchn-spec.sh](file:///Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.sh)
+- Remove the legacy bash script.
+
+### Types & Data Structures
+```typescript
+interface SpeccingMetadata {
+  status: "active" | "completed";
+  moment?: {
+    id: string;
+    title: string;
+    summary: string;
+    createdAt: string;
+  };
+  isFirstTurn: boolean;
+}
+```
+
+### Invariants & Constraints
+- The local specification file must NEVER be partially overwritten by a JSON error response; it should only contain the streamed markdown contents.
+- The script must respect the `retry-after` header if provided by the server.
+
+### Suggested Verification
+1.  Run the **Definitive Execution Example** below from the SDK directory.
+2.  Observe live streaming output in the terminal and verify the file `docs/specs/*.md` is updated incrementally.
+3.  Check server logs for `[speccing:stream] Chunk X sent (+Yms)` to confirm per-token streaming.
+4.  Run with `VERBOSE=true` to see `[debug]` timing diagnostics in the CLI.
+
+### Execution Example (Definitive)
+
+Run the following command from the project root or the SDK directory to trigger the autonomous speccing loop with diagnostics:
+
+```bash
+VERBOSE=true \
+API_KEY=dev \
+MACHINEN_ENGINE_URL=http://localhost:5174/ \
+NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
+npx tsx /Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts \
+"Identified full‑page reload issue for client‑side filters"
+```
+
+> [!NOTE]
+> `VERBOSE=true` enables timing diagnostics (`[debug]` logs) to measure chunk arrival latency.
+
+### Tasks
+- [x] Implement `mchn-spec.ts` boilerplate and environment detection.
+- [x] Implement `requestWithRetry` logic.
+- [x] Implement subject discovery and session initialization.
+- [x] Implement the autonomous streaming loop with live file updates.
+- [x] Add `VERBOSE` logging and anti-buffering headers.
+- [x] Fix session continuity (infinite loop) by advancing state atomically.
+- [ ] Verify functionality and delete `mchn-spec.sh`.
+
+### Test Snippet: Prefetching Feature Replication
+
+```bash
+# Workflow Example: Prefetching for client navigation
+# Subject: Identified full‑page reload issue for client‑side filters
+
+VERBOSE=true \
+API_KEY=dev \
+MACHINEN_ENGINE_URL=http://localhost:5174/ \
+NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
+npx tsx /Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts \
+"Identified full‑page reload issue for client‑side filters"
+```
+## 2026-02-13: Auditing Speccing Resiliency and CLI Silence
+
+### Investigated: Premature Session Completion
+We discovered that the speccing loop terminates prematurely because the `tickSpeccingSessionStream` function in `runner.ts` incorrectly manages the Priority Queue (PQ). 
+- **Finding**: The logic correctly pops the latest moment from the PQ (`pq.shift()`) but **never fetches or pushes the descendants of that moment back into the queue**.
+- **Evidence**: `runner.ts:356` and `runner.ts:380` show state updates using the *popped* version of the queue, with no intermediary "tree walk" to find children.
+- **Impact**: The engine only processes the root subject and stops, missing the entire historical narrative tree.
+
+### Investigated: CLI Output Leakage
+We audited `mchn-spec.ts` to identify why non-essential output is still appearing in the terminal by default.
+- **Finding**: The `isVerbose` guard is implemented on token streaming and detailed diagnostics, but the turn-level headers and completion signals were still visible or inconsistent. 
+- **Action**: We will enforce strict silence by default, ensuring only the "Thinking..." spinner (the wait indicator) and the final save path are visible unless `VERBOSE=true` is set.
+
+### Implemented: Shared Speccing Logic (Refactor)
+To address the premature completion and code duplication issues, we refactored `runner.ts` to extract the core turn-preparation logic into a shared helper: `prepareSpeccingTurn`.
+- **Change**: `tickSpeccingSession` and `tickSpeccingSessionStream` now both delegate to this helper for:
+    1.  Session hydration and validation.
+    2.  Priority Queue popping and **Atomic Descendant Discovery** (the fix for the bug).
+    3.  Early state persistence (resilience).
+    4.  Moment and Evidence fetching.
+- **Benefit**: This guarantees that both the streaming and non-streaming execution paths share the exact same robust tree-walking behavior.
+
+### Fixed: Single-Turn Execution (Priority Queue Serialization)
+We resolved a critical bug where the speccing session would terminate after exactly one turn, despite having valid descendants.
+- **Root Cause**: The SQL update for `priority_queue_json` and `processed_ids_json` was injecting raw string arrays (`['a', 'b']`). The database driver coerced these into comma-separated strings (`"a,b"`), which were invalid JSON when read back, effectively looking like a single ID or corrupt data.
+- **Fix**: Explicitly wrapped these fields in `JSON.stringify(...)` within `updateSession` and `updateSessionProgress` in `runner.ts`.
+
+### Fixed: Namespace Propagation (Cross-Namespace Speccing)
+We resolved an issue where subjects found via Fuzzy Search in a non-default namespace (e.g., `redwood:rwsdk`) would "disappear" in subsequent turns.
+- **Root Cause**: The CLI correctly found the subject, but the `start` command initialized the session in the default namespace (`redwood:machinen`). Subsequent `getMoment` calls failed to find child nodes because they were looking in the wrong database partition.
+- **Fix**: 
+    1.  Updated `mchn-spec.ts` to capture the `momentGraphNamespace` from the discovery result.
+    2.  Updated `speccing.ts` to accept and respect this namespace during session initialization.
+
+### Refined: CLI UX
+- **Verbose vs Default**: We refined `mchn-spec.ts` to be informative but not noisy.
+    - **Default**: Shows turn progress ("Turn X") and the target filename, but hides raw content streaming.
+    - **Verbose**: Shows raw token streaming and debug timing.
+- **Target File Visibility**: Ensured the target filename is logged on every turn header for clarity.

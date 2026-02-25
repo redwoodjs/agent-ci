@@ -79,4 +79,3 @@ We identified a total stall in the simulation run during the `micro_batches` pha
 We introduced a document-level resiliency layer to ensure simulation runs can advance even in the presence of problematic data.
 - **Visibility Protection**: We updated all JSON path queries and updates to use `COALESCE` patterns, ensuring that newly discovered documents are always visible to the orchestrator regardless of their initial state.
 - **Zombie Ditcher**: We added an `attempts_json` column to track retries per phase. If a document fails to progress after 3 attempts, the system now automatically "ditches" it—marking it as skipped in the phase history and logging a warning event.
-- **Eventual Advancement**: By skipping high-failure documents, the simulation runner can now reach the "advance" state and move on to subsequent phases, preserving the overall progress of the run.

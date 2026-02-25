@@ -7,6 +7,7 @@ import type {
   QueryHookContext,
   ReconstructedContext,
 } from "../types";
+import { fetchPullRequestDiff } from "../../ingestors/github/utils/github-api";
 
 interface GitHubLatestJson {
   github_id: number;
@@ -426,27 +427,55 @@ export const githubPlugin: Plugin = {
         docSections.push(`**Author:** @${prIssueDoc.author}`);
         docSections.push(`**State:** ${prIssueDoc.state}`);
 
-        for (const chunk of documentChunks) {
-          if (!chunk.jsonPath) {
-            continue;
-          }
-          const content = extractJsonPath(sourceDocument, chunk.jsonPath);
-          if (content) {
-            if (
-              chunk.type === "pull-request-body" ||
-              chunk.type === "issue-body"
-            ) {
-              docSections.push(`\n**Description:**\n${content}`);
-            } else if (
-              chunk.type === "pull-request-comment" ||
-              chunk.type === "issue-comment"
-            ) {
-              const commentAuthor = chunk.author || "unknown";
-              docSections.push(
-                `\n**Comment by @${commentAuthor}:**\n${content}`
-              );
+        // Filter chunks that are specific parts of the PR/Issue
+        const relevantChunks = documentChunks.filter(c =>
+            c.type === "pull-request-body" ||
+            c.type === "issue-body" ||
+            c.type === "pull-request-comment" ||
+            c.type === "issue-comment"
+        );
+
+        console.log(`[github:reconstruct] Processing ${documentChunks.length} chunks. Relevant: ${relevantChunks.length}. Types: ${documentChunks.map(c => c.type).join(', ')}`);
+
+        if (relevantChunks.length > 0) {
+          for (const chunk of relevantChunks) {
+            if (!chunk.jsonPath) {
+              console.warn(`[github:reconstruct] Chunk ${chunk.id} missing jsonPath.`);
+              continue;
+            }
+            const content = extractJsonPath(sourceDocument, chunk.jsonPath);
+            if (content) {
+              if (
+                chunk.type === "pull-request-body" ||
+                chunk.type === "issue-body"
+              ) {
+                docSections.push(`\n**Description:**\n${content}`);
+              } else if (
+                chunk.type === "pull-request-comment" ||
+                chunk.type === "issue-comment"
+              ) {
+                const commentAuthor = chunk.author || "unknown";
+                docSections.push(
+                  `\n**Comment by @${commentAuthor}:**\n${content}`
+                );
+              }
+            } else {
+              console.warn(`[github:reconstruct] Could not extract content for chunk ${chunk.id} at jsonPath ${chunk.jsonPath}`);
             }
           }
+        } else {
+            // Fallback: render full body and comments if no specific chunks are found
+            if (prIssueDoc.body) {
+                docSections.push(`\n**Description:**\n${prIssueDoc.body}`);
+            }
+            if (prIssueDoc.comments && prIssueDoc.comments.length > 0) {
+                docSections.push(`\n**Comments:**`);
+                for (const comment of prIssueDoc.comments) {
+                    const commentAuthor = normalizeGitHubHandle(comment.author);
+                    const commentDate = new Date(comment.created_at).toLocaleString();
+                    docSections.push(`\n---\n**@${commentAuthor} [${commentDate}]:**\n${comment.body}`);
+                }
+            }
         }
       } else if (sourceMetadata.type === "github-project") {
         const projectDoc = sourceDocument as GitHubProjectLatestJson;
@@ -478,11 +507,9 @@ export const githubPlugin: Plugin = {
                   item.title ||
                   `${item.content_type}${
                     item.content_id ? ` #${item.content_id}` : ""
-                  }`;
+                  }${fieldValuesText ? ` - ${fieldValuesText}` : ""}`;
                 docSections.push(
-                  `\n**Project Item:** ${itemTitle}${
-                    fieldValuesText ? ` (${fieldValuesText})` : ""
-                  }`
+                  `\n**Project Item:** ${itemTitle}`
                 );
               } catch {
                 docSections.push(`\n**Project Item:**\n${content}`);
@@ -494,10 +521,23 @@ export const githubPlugin: Plugin = {
 
       const content = docSections.join("\n");
 
+      let diff: string | undefined;
+      if (sourceMetadata.type === "github-pr-issue" && sourceMetadata.owner && sourceMetadata.repo && sourceMetadata.number) {
+        const rawDoc = sourceDocument as GitHubLatestJson;
+        if (rawDoc.pull_request_url || rawDoc.url?.includes("/pulls/")) {
+            try {
+                diff = await fetchPullRequestDiff(sourceMetadata.owner, sourceMetadata.repo, sourceMetadata.number);
+            } catch (error) {
+                console.warn(`[github:reconstruct] Failed to fetch PR diff for #${sourceMetadata.number}:`, error);
+            }
+        }
+      }
+
       return {
         content,
         source: "github",
         primaryMetadata: firstChunk,
+        diff
       };
     },
 
@@ -516,6 +556,22 @@ export const githubPlugin: Plugin = {
         .join("\n\n---\n\n");
 
       return `## GitHub Context\n\n${contextSection}`;
+    },
+    async timeTravel(evidence: any, timestamp: string, context: IndexingHookContext) {
+      const data = evidence as any;
+      const targetTime = Date.parse(timestamp);
+      if (isNaN(targetTime)) {
+        return data;
+      }
+
+      if (Array.isArray(data.comments)) {
+        data.comments = data.comments.filter((c: any) => {
+          const ct = Date.parse(c.created_at);
+          return isNaN(ct) || ct <= targetTime;
+        });
+      }
+
+      return data;
     },
   },
 };

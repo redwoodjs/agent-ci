@@ -3,7 +3,7 @@ import { env } from "cloudflare:workers";
 import { getHeuristicResponse } from "./heuristicLlm";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createCerebras } from "@ai-sdk/cerebras";
-import { generateText } from "ai";
+import { generateText, streamText } from "ai";
 import type { PipelineContext } from "../runtime/types";
 import { getSimulationDb } from "../simulation/db";
 import { sql } from "rwsdk/db";
@@ -29,6 +29,7 @@ export interface LLMOptions {
   };
   logger?: (message: string, data?: any) => void;
   timeoutMs?: number;
+  onFinish?: (text: string) => void | Promise<void>;
   pipelineContext?: PipelineContext;
 }
 
@@ -249,6 +250,58 @@ export async function callLLM(
   }
 
   throw new Error("Unexpected end of LLM call loop");
+}
+
+export async function streamLLM(
+  prompt: string,
+  alias: LLMAlias = "cerebras-gpt-oss-120b",
+  options?: LLMOptions
+) {
+  const modelConfig = MODELS[alias] as ModelConfig;
+  const modelId = modelConfig.id;
+
+  console.log(`[llm:stream] Starting stream for alias='${alias}' (${modelId}). Prompt length: ${prompt.length}`);
+
+  if (modelConfig.provider === "google") {
+    const apiKey = SECRETS.AI_GOOGLE_KEY;
+    if (!apiKey) throw new Error(`Missing AI_GOOGLE_KEY for alias '${alias}'`);
+    const google = createGoogleGenerativeAI({ apiKey });
+    return streamText({
+      model: google(modelId),
+      prompt: prompt,
+      temperature: options?.temperature,
+      maxTokens: options?.max_tokens,
+      onFinish: async (result: any) => {
+        console.log(`[llm:stream] Google stream finished. Length: ${result.text.length}`);
+        if (options?.onFinish) {
+          await options.onFinish(result.text);
+        }
+      }
+    } as any);
+  }
+
+  if (modelConfig.provider === "cerebras") {
+    const apiKey = SECRETS.AI_CEREBRAS_KEY;
+    if (!apiKey) throw new Error(`Missing AI_CEREBRAS_KEY for alias '${alias}'`);
+    const cerebras = createCerebras({ apiKey });
+    return streamText({
+      model: cerebras(modelId),
+      prompt: prompt,
+      providerOptions: {
+        cerebras: {
+          reasoningEffort: options?.reasoning?.effort ?? "medium",
+        },
+      },
+      temperature: options?.temperature,
+      maxTokens: options?.max_tokens,
+      onFinish: async (result: any) => {
+        console.log(`[llm:stream] Cerebras stream finished. Length: ${result.text.length}`);
+        if (options?.onFinish) {
+          await options.onFinish(result.text);
+        }
+      }
+    } as any);
+  }
 }
 
 function getTokenBucket(tokens: number): string {

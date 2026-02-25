@@ -233,6 +233,33 @@ export const redwoodScopeRouterPlugin: Plugin = {
       return namespace;
     },
     computeMomentGraphNamespaceForQuery(context: QueryHookContext) {
+      // 1. Check for explicit repository context (e.g. from Speccing Engine)
+      const repository = (context.clientContext as any)?.repository;
+      if (typeof repository === "string") {
+        const [owner, repo] = repository.split("/");
+        if (owner && repo) {
+           // Reuse the logic from GitHub document inference
+           // We mock a minimal document structure to reuse inferProjectFromGithubDocument
+           // or just inline the logic since it's simple.
+           let project: "rwsdk" | "machinen" | null = null;
+           if (owner.toLowerCase() === "redwoodjs") {
+             if (repo.toLowerCase() === "sdk") {
+               project = "rwsdk";
+             } else if (repo.toLowerCase() === "machinen") {
+               project = "machinen";
+             }
+           }
+           const namespace = namespaceForProject(project);
+           console.log("[scope-router] query (repository context)", {
+             repository,
+             project,
+             namespace
+           });
+           return namespace;
+        }
+      }
+
+      // 2. Fallback to workspace paths (VS Code / Cursor context)
       const paths = getClientWorkspacePaths(context);
       const project = inferProjectFromPaths(paths);
       const namespace = namespaceForProject(project);

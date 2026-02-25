@@ -455,17 +455,30 @@ export const discordPlugin: Plugin = {
           `**Guild ID:** ${channelData.parsed.guildID} | **Channel ID:** ${channelData.parsed.channelID}`
         );
 
-        for (const chunk of documentChunks) {
-          if (!chunk.jsonPath) {
-            continue;
+        // Filter chunks that are specific messages
+        const messageChunks = documentChunks.filter(c => c.type === 'channel-message');
+
+        if (messageChunks.length > 0) {
+          for (const chunk of messageChunks) {
+            if (!chunk.jsonPath) {
+              continue;
+            }
+            const content = extractJsonPath(parsedDocument, chunk.jsonPath);
+            if (content) {
+              const timestamp = chunk.timestamp
+                ? new Date(chunk.timestamp as string).toLocaleString()
+                : "unknown time";
+              const author = chunk.author || "unknown";
+              docSections.push(`\n**[${timestamp}] ${author}:**\n${content}`);
+            }
           }
-          const content = extractJsonPath(parsedDocument, chunk.jsonPath);
-          if (content) {
-            const timestamp = chunk.timestamp
-              ? new Date(chunk.timestamp as string).toLocaleString()
-              : "unknown time";
-            const author = chunk.author || "unknown";
-            docSections.push(`\n**[${timestamp}] ${author}:**\n${content}`);
+        } else {
+          // Fallback: render all messages if no specific message chunks are found
+          for (const msg of channelData.messages) {
+            if (!msg.content) continue;
+            const timestamp = new Date(msg.timestamp).toLocaleString();
+            const author = getAuthorName(msg);
+            docSections.push(`\n**[${timestamp}] ${author}:**\n${msg.content}`);
           }
         }
       } else if (sourceMetadata.type === "discord-thread") {
@@ -500,23 +513,44 @@ export const discordPlugin: Plugin = {
               `\n**Starter Message [${timestamp}] ${author}:**\n${content}`
             );
           }
+        } else {
+          // Fallback: if no starter chunk is found, try to render the starter message directly
+          const starter = threadDoc.starter_message;
+          if (starter && starter.content) {
+             const timestamp = new Date(starter.timestamp).toLocaleString();
+             const author = getAuthorName(starter);
+             docSections.push(
+              `\n**Starter Message [${timestamp}] ${author}:**\n${starter.content}`
+            );
+          }
         }
 
         // Add thread messages
         const messageChunks = documentChunks.filter(
           (c) => c.type === "thread-message"
         );
-        for (const chunk of messageChunks) {
-          if (!chunk.jsonPath) {
-            continue;
+
+        if (messageChunks.length > 0) {
+          for (const chunk of messageChunks) {
+            if (!chunk.jsonPath) {
+              continue;
+            }
+            const content = extractJsonPath(parsedDocument, chunk.jsonPath);
+            if (content) {
+              const timestamp = chunk.timestamp
+                ? new Date(chunk.timestamp as string).toLocaleString()
+                : "unknown time";
+              const author = chunk.author || "unknown";
+              docSections.push(`\n**[${timestamp}] ${author}:**\n${content}`);
+            }
           }
-          const content = extractJsonPath(parsedDocument, chunk.jsonPath);
-          if (content) {
-            const timestamp = chunk.timestamp
-              ? new Date(chunk.timestamp as string).toLocaleString()
-              : "unknown time";
-            const author = chunk.author || "unknown";
-            docSections.push(`\n**[${timestamp}] ${author}:**\n${content}`);
+        } else {
+          // Fallback: render all messages if no specific message chunks are found
+          for (const msg of threadDoc.messages) {
+            if (!msg.content) continue;
+            const timestamp = new Date(msg.timestamp).toLocaleString();
+            const author = getAuthorName(msg);
+            docSections.push(`\n**[${timestamp}] ${author}:**\n${msg.content}`);
           }
         }
       }
@@ -547,6 +581,30 @@ export const discordPlugin: Plugin = {
         .join("\n\n---\n\n");
 
       return `## Discord Context\n\n${contextSection}`;
+    },
+    async timeTravel(evidence: any, timestamp: string, context: IndexingHookContext) {
+      const targetTime = Date.parse(timestamp);
+      if (isNaN(targetTime)) {
+        return evidence;
+      }
+
+      const data = evidence as any;
+
+      if (Array.isArray(data.messages)) {
+        data.messages = data.messages.filter((msg: any) => {
+          const mt = Date.parse(msg.timestamp);
+          return isNaN(mt) || mt <= targetTime;
+        });
+      }
+
+      if (data.starter_message) {
+        const st = Date.parse(data.starter_message.timestamp);
+        if (!isNaN(st) && st > targetTime) {
+          return null;
+        }
+      }
+
+      return data;
     },
   },
 };

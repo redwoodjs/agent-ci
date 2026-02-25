@@ -59,12 +59,7 @@ function getWorkerUrl() {
     return process.env.WORKER_URL;
   }
 
-  const envMap = {
-    "dev-justin": "https://machinen-dev-justin.redwoodjs.workers.dev",
-    production: "https://machinen.redwoodjs.workers.dev",
-  };
-
-  return envMap[CLOUDFLARE_ENV] || envMap["dev-justin"];
+  return "https://machinen.redwoodjs.workers.dev"
 }
 
 const WORKER_URL = getWorkerUrl();

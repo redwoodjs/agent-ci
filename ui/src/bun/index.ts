@@ -20,6 +20,7 @@ let procs: any[] = [];
 let dtuProc: any = null;
 let isDtuStarting: boolean = false;
 let supervisorProcs: any[] = [];
+let nextRunnerNum: number | null = null;
 import type { FSWatcher } from "node:fs";
 
 let trayInstance: Tray | null = null;
@@ -115,7 +116,7 @@ async function enableWatchModeForRepo(repoPath: string) {
                 `\n[OA] Auto-Run: New commit ${currentCommit.substring(0, 7)} detected. Running ${workflowsToRun.length} workflow(s)\n`,
               );
               for (const flowId of workflowsToRun) {
-                handleRunWorkflow(
+                await handleRunWorkflow(
                   { repoPath, workflowId: flowId, commitId: currentCommit },
                   (msg) => rpc.send.dtuLog(msg),
                 );
@@ -166,22 +167,26 @@ async function handleRunWorkflow(
       spawnArgs.push("--config", uiConfigPath);
     }
 
-    // Generate the unique incremental runner name right now so we don't have to guess from stdout!
+    // Generate a unique runner name using a module-level counter to avoid race conditions
+    // when multiple workflows fire concurrently.
     const fsPromises = await import("node:fs/promises");
-    let nextNum = 1;
-    try {
-      const items = await fsPromises.readdir(getLogsDir(), { withFileTypes: true });
-      const nums = items
-        .filter((item) => item.isDirectory() && item.name.startsWith("oa-runner-"))
-        .map((item) => {
-          const match = item.name.match(/-(\d+)$/);
-          return match ? parseInt(match[1], 10) : 0;
-        });
-      if (nums.length > 0) {
-        nextNum = Math.max(...nums) + 1;
-      }
-    } catch {}
-    const runnerName = `oa-runner-${nextNum}`;
+    if (nextRunnerNum === null) {
+      nextRunnerNum = 1;
+      try {
+        const items = await fsPromises.readdir(getLogsDir(), { withFileTypes: true });
+        const nums = items
+          .filter((item) => item.isDirectory() && item.name.startsWith("oa-runner-"))
+          .map((item) => {
+            const match = item.name.match(/-(\d+)$/);
+            return match ? parseInt(match[1], 10) : 0;
+          });
+        if (nums.length > 0) {
+          nextRunnerNum = Math.max(...nums) + 1;
+        }
+      } catch {}
+    }
+    const runnerName = `oa-runner-${nextRunnerNum}`;
+    nextRunnerNum++;
     spawnArgs.push("--runner-name", runnerName);
 
     // Pre-create metadata.json so UI sees it instantly
@@ -230,14 +235,6 @@ async function handleRunWorkflow(
       })
       .catch(() => {});
 
-    let runIdResolved = false;
-    let resolveRunId!: (id: string | null) => void;
-    const runIdPromise = new Promise<string | null>((r) => (resolveRunId = r));
-
-    // Resolve immediately since we pre-generated it
-    runIdResolved = true;
-    resolveRunId(runnerName);
-
     const readOutput = async (stream: ReadableStream | null) => {
       if (!stream) {
         return;
@@ -257,13 +254,10 @@ async function handleRunWorkflow(
     readOutput(supervisorProc.stdout);
     readOutput(supervisorProc.stderr);
 
-    setTimeout(() => {
-      if (!runIdResolved) {
-        resolveRunId(null);
-      }
-    }, 5000);
+    // Wait for the process to exit so sequential dispatch works
+    await currentProc.exited;
 
-    return await runIdPromise;
+    return runnerName;
   } catch (e) {
     console.error("Failed to run workflow:", e);
     sendLog(`[OA] Failed to run workflow: ${(e as Error).message}\n`);

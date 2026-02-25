@@ -198,3 +198,17 @@ We addressed the "long wait" for the specification file by moving the session ID
 - **Startup Latency**: Reduced from ~5s to <1s (from user perspective).
 - **Streaming Reliability**: Raw text streams are stable and stay within Cloudflare CPU limits.
 - **Search Robustness**: Global fallback successfully finds subjects regardless of namespace prefix alignment.
+
+## Draft PR
+
+### Title
+Refining Speccing Engine Actor Model
+
+### Context
+The Speccing Engine previously relied on an IDE-agent-driven execution model where the agent handled the complexity of iterating through the narrative replay loop. This approach proved brittle, making it difficult to maintain state and reliability.
+
+### Problem
+Relying on the IDE agent to correctly follow a complex set of instructions for narrative replay is fragile. The execution model needed to be more robust, transitioning from forcing the agent to orchestrate the replay to a model where the backend manages the intelligence and state.
+
+### Solution
+We have pivoted the Speccing Engine to a "Self-Instructing API" model. In this setup, the Machinen backend handles the heavy reasoning of revising the specification based on historical evidence. We introduced an autonomous driver script that automates the speccing process, discovering relevance, initializing sessions, and orchestrating the revision loop while streaming output back to the client. This reduces the client's role to a pure driver and output viewer, significantly increasing the reliability of the specification generation protocol.

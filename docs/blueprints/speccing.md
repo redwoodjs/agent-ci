@@ -10,7 +10,7 @@ The engine follows a **Hybrid Actor/Agent Model**:
 - **Revision Modes**:
     - **Server Mode (The Actor)**: Machinen performs the specification revision on the server side using a high-reasoning LLM (Cerebras), returning the updated spec draft.
     - **Client Mode (The Agent)**: Machinen provides raw evidence and turn-by-turn instructions for an external agent (Cursor, Antigravity) to perform the revision locally.
-- **Local Driver**: A lightweight script (`mchn-spec.sh`) orchestrates the autonomous loop, discovery, and file persistence.
+- **Local Driver**: A lightweight script (`mchn-spec.ts`) orchestrates the autonomous loop, discovery, and file persistence.
 
 ## High-Level Structure
 The engine consists of three main layers:

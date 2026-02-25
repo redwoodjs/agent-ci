@@ -434,7 +434,22 @@ exit $EXIT_CODE
     Cmd: [
       "bash",
       "-c",
-      `export DEBIAN_FRONTEND=noninteractive && sudo -n chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && sudo -n apt-get update >/dev/null 2>&1 && sudo -n apt-get install -y nginx >/dev/null 2>&1 && echo "server { listen 80 default_server; location / { proxy_pass http://$OA_DTU_HOST:${dtuPort}; proxy_set_header Host 127.0.0.1:80; } }" | sudo tee /etc/nginx/sites-available/default > /dev/null && sudo ln -sf /etc/nginx/sites-available/default /etc/nginx/sites-enabled/default && (sudo service nginx start >/dev/null 2>&1 || sudo nginx >/dev/null 2>&1) && sudo chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="$RESOLVED_URL" && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -a /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
+      `sudo -n chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && sudo -n python3 -c "
+import socket, threading, sys
+def fwd(src,dst):
+ try:
+  while True:
+   d=src.recv(65536)
+   if not d: break
+   dst.sendall(d)
+ except: pass
+ finally: src.close(); dst.close()
+def handle(c):
+ s=socket.socket(); s.connect(('$OA_DTU_HOST',${dtuPort})); threading.Thread(target=fwd,args=(c,s),daemon=True).start(); fwd(s,c)
+srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('127.0.0.1',80)); srv.listen(32)
+while True:
+ c,_=srv.accept(); threading.Thread(target=handle,args=(c,),daemon=True).start()
+" & sleep 0.2 && sudo chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="$RESOLVED_URL" && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -a /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
     ],
     HostConfig: {
       Binds: [

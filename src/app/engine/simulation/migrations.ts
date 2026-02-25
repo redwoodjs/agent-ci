@@ -26,7 +26,7 @@ export const simulationStateMigrations = {
           .createTable("simulation_run_events")
           .addColumn("id", "text", (col) => col.primaryKey())
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("level", "text", (col) => col.notNull())
           .addColumn("kind", "text", (col) => col.notNull())
@@ -51,7 +51,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_documents")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("r2_key", "text", (col) => col.notNull())
           .addColumn("etag", "text")
@@ -82,7 +82,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_micro_batches")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("r2_key", "text", (col) => col.notNull())
           .addColumn("batch_index", "integer", (col) => col.notNull())
@@ -128,7 +128,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_macro_outputs")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("r2_key", "text", (col) => col.notNull())
           .addColumn("micro_stream_hash", "text", (col) => col.notNull())
@@ -161,7 +161,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_materialized_moments")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("r2_key", "text", (col) => col.notNull())
           .addColumn("stream_id", "text", (col) => col.notNull())
@@ -184,7 +184,9 @@ export const simulationStateMigrations = {
       ];
     },
     async down(db) {
-      await db.schema.dropTable("simulation_run_materialized_moments").execute();
+      await db.schema
+        .dropTable("simulation_run_materialized_moments")
+        .execute();
     },
   },
   "006_add_deterministic_linking": {
@@ -193,7 +195,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_link_decisions")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("child_moment_id", "text", (col) => col.notNull())
           .addColumn("r2_key", "text", (col) => col.notNull())
@@ -228,7 +230,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_candidate_sets")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("child_moment_id", "text", (col) => col.notNull())
           .addColumn("r2_key", "text", (col) => col.notNull())
@@ -260,7 +262,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_timeline_fit_decisions")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("child_moment_id", "text", (col) => col.notNull())
           .addColumn("r2_key", "text", (col) => col.notNull())
@@ -296,7 +298,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_macro_classified_outputs")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("r2_key", "text", (col) => col.notNull())
           .addColumn("streams_json", "text", (col) => col.notNull())
@@ -304,10 +306,10 @@ export const simulationStateMigrations = {
           .addColumn("classification_json", "text")
           .addColumn("created_at", "text", (col) => col.notNull())
           .addColumn("updated_at", "text", (col) => col.notNull())
-          .addPrimaryKeyConstraint("simulation_run_macro_classified_outputs_pk", [
-            "run_id",
-            "r2_key",
-          ])
+          .addPrimaryKeyConstraint(
+            "simulation_run_macro_classified_outputs_pk",
+            ["run_id", "r2_key"],
+          )
           .execute(),
         await db.schema
           .createIndex("simulation_run_macro_classified_outputs_run_idx")
@@ -367,19 +369,21 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_participating_namespaces")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("namespace", "text", (col) => col.notNull())
           .addColumn("created_at", "text", (col) => col.notNull())
-          .addPrimaryKeyConstraint("simulation_run_participating_namespaces_pk", [
-            "run_id",
-            "namespace",
-          ])
+          .addPrimaryKeyConstraint(
+            "simulation_run_participating_namespaces_pk",
+            ["run_id", "namespace"],
+          )
           .execute(),
       ];
     },
     async down(db) {
-      await db.schema.dropTable("simulation_run_participating_namespaces").execute();
+      await db.schema
+        .dropTable("simulation_run_participating_namespaces")
+        .execute();
     },
   },
   "013_add_r2_batches": {
@@ -388,7 +392,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_r2_batches")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("batch_index", "integer", (col) => col.notNull())
           .addColumn("keys_json", "text", (col) => col.notNull())
@@ -417,7 +421,7 @@ export const simulationStateMigrations = {
         await db.schema
           .createTable("simulation_run_artifacts")
           .addColumn("run_id", "text", (col) =>
-            col.references("simulation_runs.run_id").onDelete("cascade")
+            col.references("simulation_runs.run_id").onDelete("cascade"),
           )
           .addColumn("phase", "text", (col) => col.notNull())
           .addColumn("artifact_key", "text", (col) => col.notNull())
@@ -449,5 +453,38 @@ export const simulationStateMigrations = {
       // Alter table drop column not supported in some DBs
     },
   },
+  "016_add_llm_costs": {
+    async up(db) {
+      return [
+        await db.schema
+          .createTable("simulation_run_llm_costs")
+          .addColumn("run_id", "text", (col) =>
+            col.references("simulation_runs.run_id").onDelete("cascade"),
+          )
+          .addColumn("model_alias", "text", (col) => col.notNull())
+          .addColumn("input_bucket", "text", (col) => col.notNull())
+          .addColumn("output_bucket", "text", (col) => col.notNull())
+          .addColumn("call_count", "integer", (col) => col.notNull())
+          .addColumn("total_input_tokens", "integer", (col) => col.notNull())
+          .addColumn("total_output_tokens", "integer", (col) => col.notNull())
+          .addColumn("total_duration_ms", "integer", (col) => col.notNull())
+          .addColumn("mean_input_tokens", "real", (col) => col.notNull())
+          .addColumn("mean_output_tokens", "real", (col) => col.notNull())
+          .addColumn("m2_input_tokens", "real", (col) => col.notNull())
+          .addColumn("m2_output_tokens", "real", (col) => col.notNull())
+          .addColumn("created_at", "text", (col) => col.notNull())
+          .addColumn("updated_at", "text", (col) => col.notNull())
+          .addPrimaryKeyConstraint("simulation_run_llm_costs_pk", [
+            "run_id",
+            "model_alias",
+            "input_bucket",
+            "output_bucket",
+          ])
+          .execute(),
+      ];
+    },
+    async down(db) {
+      await db.schema.dropTable("simulation_run_llm_costs").execute();
+    },
+  },
 } satisfies Migrations;
-

@@ -8,7 +8,11 @@ export type Source =
   | "discord"
   | "unknown";
 
-export type SubjectKind = "problem" | "challenge" | "opportunity" | "initiative";
+export type SubjectKind =
+  | "problem"
+  | "challenge"
+  | "opportunity"
+  | "initiative";
 
 export interface Logger {
   info: (message: string, data?: any) => void;
@@ -148,54 +152,54 @@ export interface Plugin {
   scoping?: {
     computeMomentGraphNamespaceForIndexing?: (
       document: Document,
-      context: IndexingHookContext
+      context: IndexingHookContext,
     ) => Promise<string | null> | string | null;
     computeMomentGraphNamespaceForQuery?: (
-      context: QueryHookContext
+      context: QueryHookContext,
     ) => Promise<string | null> | string | null;
   };
   prepareSourceDocument?: (
-    context: IndexingHookContext
+    context: IndexingHookContext,
   ) => Promise<Document | null>;
   splitDocumentIntoChunks?: (
     document: Document,
-    context: IndexingHookContext
+    context: IndexingHookContext,
   ) => Promise<Chunk[] | null>;
   evidence?: {
     enrichChunk?: (
       chunk: Chunk,
-      context: IndexingHookContext
+      context: IndexingHookContext,
     ) => Promise<Chunk>;
     prepareSearchQuery?: (
       query: string,
-      context: QueryHookContext
+      context: QueryHookContext,
     ) => Promise<string>;
     buildVectorSearchFilter?: (
-      context: QueryHookContext
+      context: QueryHookContext,
     ) => Promise<Record<string, unknown> | null>;
     rerankSearchResults?: (
       results: ChunkMetadata[],
-      context: QueryHookContext
+      context: QueryHookContext,
     ) => Promise<ChunkMetadata[]>;
     reconstructContext?: (
       documentChunks: ChunkMetadata[],
       sourceDocument: any,
-      context: QueryHookContext
+      context: QueryHookContext,
     ) => Promise<ReconstructedContext | null>;
     optimizeContext?: (
       contexts: ReconstructedContext[],
       query: string,
-      context: QueryHookContext
+      context: QueryHookContext,
     ) => Promise<ReconstructedContext[]>;
     composeLlmPrompt?: (
       contexts: ReconstructedContext[],
       query: string,
-      context: QueryHookContext
+      context: QueryHookContext,
     ) => Promise<string>;
     formatFinalResponse?: (
       response: string,
       chunks: ChunkMetadata[],
-      context: QueryHookContext
+      context: QueryHookContext,
     ) => Promise<string>;
     timeTravel?: (
       evidence: any,
@@ -217,7 +221,7 @@ export interface EngineContext {
   env: Cloudflare.Env;
   llm?: LLMProvider;
   vector?: VectorizeIndex;
-  db?: MomentDatabase; 
+  db?: any;
 }
 
 export interface VectorizeIndex {
@@ -227,7 +231,7 @@ export interface VectorizeIndex {
       topK?: number;
       returnMetadata?: boolean;
       filter?: Record<string, unknown>;
-    }
+    },
   ): Promise<{
     matches: Array<{
       id: string;
@@ -236,7 +240,7 @@ export interface VectorizeIndex {
     }>;
   }>;
   insert(
-    vectors: Array<{ id: string; values: number[]; metadata: ChunkMetadata }>
+    vectors: Array<{ id: string; values: number[]; metadata: ChunkMetadata }>,
   ): Promise<void>;
 }
 

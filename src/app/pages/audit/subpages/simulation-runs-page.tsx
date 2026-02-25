@@ -20,6 +20,8 @@ import {
   getSimulationRunCandidateSets,
   getSimulationRunTimelineFitDecisions,
   getSimulationRunMaterializedMoments,
+  getSimulationRunCosts,
+  getSimulationRunDocumentCount,
 } from "@/app/engine/databases/simulationState";
 import {
   simulationPhasesOrdered,
@@ -27,9 +29,11 @@ import {
 } from "@/app/pipelines/registry";
 import { getSimulationRunProgressSummary } from "@/app/engine/simulation/runProgress";
 import { getMoments } from "@/app/engine/databases/momentGraph";
+import { formatCompactNumber } from "@/lib/utils";
 import { SimulationRunControls } from "./simulation-run-controls";
 import { CopyTextButton } from "./copy-text-button";
 import { SimulationLogsViewer } from "./simulation-logs-viewer";
+import { CostAnalysisCard } from "./cost-analysis-card";
 
 function safeStringify(value: unknown): string {
   try {
@@ -75,10 +79,10 @@ function momentPreviewFrom(m: any, id: string): MomentPreview {
 
 async function loadMomentPreviews(
   ids: string[],
-  context: { env: Cloudflare.Env; momentGraphNamespace: string | null }
+  context: { env: Cloudflare.Env; momentGraphNamespace: string | null },
 ): Promise<Map<string, MomentPreview>> {
   const deduped = Array.from(
-    new Set(ids.filter((id) => typeof id === "string" && id.trim().length > 0))
+    new Set(ids.filter((id) => typeof id === "string" && id.trim().length > 0)),
   );
   const out = new Map<string, MomentPreview>();
   if (deduped.length === 0) {
@@ -100,7 +104,7 @@ function formatEventsAsText(
     level: string;
     kind: string;
     payload: any;
-  }>
+  }>,
 ): string {
   const chronological = [...events].reverse();
   const lines: string[] = [];
@@ -118,7 +122,9 @@ function formatEventsAsText(
   return lines.join("\n");
 }
 
-export function isSimulationRunViewId(id: string | null | undefined): id is string {
+export function isSimulationRunViewId(
+  id: string | null | undefined,
+): id is string {
   if (!id) {
     return false;
   }
@@ -132,7 +138,7 @@ function findLatestPhaseEndPayload(
     kind: string;
     payload: any;
   }>,
-  phase: string
+  phase: string,
 ): any | null {
   for (const e of events) {
     if (e.kind !== "phase.end") {
@@ -247,6 +253,15 @@ async function SimulationRunsContent({
                         updated=
                         {r.updatedAt}
                       </div>
+                      {typeof r.estimatedCostUsd === "number" && (
+                        <div className="text-xs font-semibold text-slate-700 mt-1">
+                          Est. AI Cost: ${r.estimatedCostUsd.toFixed(4)}
+                          {r.config?.r2Keys?.length > 0 &&
+                            ` ($${(
+                              r.estimatedCostUsd / r.config.r2Keys.length
+                            ).toFixed(4)}/doc)`}
+                        </div>
+                      )}
                       <div className="text-xs text-gray-600 mt-1 font-mono">
                         ns={r.momentGraphNamespace ?? "null"} prefix=
                         {r.momentGraphNamespacePrefix ?? "null"}
@@ -255,7 +270,7 @@ async function SimulationRunsContent({
                     <a
                       className="text-sm text-blue-600 hover:underline"
                       href={`/audit/simulation?runId=${encodeURIComponent(
-                        r.runId
+                        r.runId,
                       )}`}
                     >
                       View
@@ -270,9 +285,11 @@ async function SimulationRunsContent({
     );
   }
 
-  const [run, eventsRes] = await Promise.all([
+  const [run, eventsRes, costs, docCountResult] = await Promise.all([
     getSimulationRunById(context, { runId }),
     getSimulationRunEvents(context, { runId, limit: 10000 }),
+    getSimulationRunCosts(context, { runId }),
+    getSimulationRunDocumentCount(context, { runId }),
   ]);
 
   if (!run) {
@@ -302,19 +319,22 @@ async function SimulationRunsContent({
   const lastEvent = eventsRes[0] ?? null;
   const phaseEndPayload = findLatestPhaseEndPayload(
     eventsRes,
-    String(run.currentPhase)
+    String(run.currentPhase),
   );
 
   const baseNamespace = run.momentGraphNamespace;
   const namespacePrefix = run.momentGraphNamespacePrefix ?? null;
   const effectiveNamespace = applyMomentGraphNamespacePrefixValue(
     baseNamespace,
-    namespacePrefix
+    namespacePrefix,
   );
 
-  const totalDocs = Array.isArray((run as any)?.config?.r2Keys)
-    ? (run as any).config.r2Keys.length
-    : 0;
+  const totalDocs =
+    docCountResult > 0
+      ? docCountResult
+      : Array.isArray((run as any)?.config?.r2Keys)
+        ? (run as any).config.r2Keys.length
+        : 0;
   const progress = await getSimulationRunProgressSummary(context, {
     runId,
     totalDocs,
@@ -322,7 +342,7 @@ async function SimulationRunsContent({
 
   const viewLink = (id: string) =>
     `/audit/simulation?runId=${encodeURIComponent(
-      runId
+      runId,
     )}&view=${encodeURIComponent(id)}`;
 
   const viewDef = view ? simulationRunViews.find((v) => v.id === view) : null;
@@ -339,14 +359,30 @@ async function SimulationRunsContent({
     return `/audit/simulation?${params.toString()}`;
   };
 
+  const isCostView = view === "costs";
+
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Run</CardTitle>
-          <CardDescription className="font-mono text-xs">
-            {runId}
-          </CardDescription>
+          <div className="flex justify-between items-start">
+            <div>
+              <CardTitle className="text-lg">Run</CardTitle>
+              <CardDescription className="font-mono text-xs">
+                {runId}
+              </CardDescription>
+            </div>
+            <a
+              href={viewLink("costs")}
+              className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                isCostView
+                  ? "bg-slate-100 text-slate-800 border border-slate-200"
+                  : "bg-gray-100 text-gray-800 border border-gray-200 hover:bg-gray-200"
+              }`}
+            >
+              AI Cost Analysis: ${costs.totalCostUsd.toFixed(3)}
+            </a>
+          </div>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="text-sm">
@@ -359,6 +395,104 @@ async function SimulationRunsContent({
             </div>
             <div>
               updated=<span className="font-mono">{run.updatedAt}</span>
+            </div>
+            <div className="mt-2 pt-2 border-t">
+              <div className="font-semibold text-slate-700">
+                Mean Total AI Cost: ${costs.totalCostUsd.toFixed(4)}{" "}
+                {costs.totalCostStdDev > 0 && (
+                  <span
+                    title="Standard Deviation of total cost"
+                    className="text-xs font-normal text-slate-400"
+                  >
+                    (σ=${costs.totalCostStdDev.toFixed(4)})
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-gray-600">
+                {costs.totalCallCount} API calls |{" "}
+                {formatCompactNumber(costs.totalInputTokens)} tokens in |{" "}
+                {formatCompactNumber(costs.totalOutputTokens)} tokens out
+              </div>
+              {totalDocs > 0 && (
+                <>
+                  <div className="text-xs font-semibold text-gray-700 mt-1">
+                    Mean cost per document: $
+                    {(costs.totalCostUsd / totalDocs).toFixed(4)}{" "}
+                    {costs.totalCostStdDev > 0 && (
+                      <span className="font-normal text-slate-400">
+                        (±$
+                        {(
+                          (1.96 *
+                            ((costs.totalCostStdDev || 0) /
+                              Math.sqrt(costs.totalCallCount || 1))) /
+                          totalDocs
+                        ).toFixed(4)}{" "}
+                        MoE)
+                      </span>
+                    )}
+                    {" • "}
+                    {totalDocs} docs
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1 flex gap-2 items-center">
+                    <span className="bg-slate-100 px-1 rounded text-slate-500 font-mono">
+                      Z=1.96
+                    </span>
+                    <span>95% CI:</span>
+                    <span className="text-slate-600 font-medium">
+                      $
+                      {(
+                        (costs.totalCostUsd -
+                          1.96 *
+                            ((costs.totalCostStdDev || 0) /
+                              Math.sqrt(costs.totalCallCount || 1))) /
+                        totalDocs
+                      ).toFixed(5)}{" "}
+                      - $
+                      {(
+                        (costs.totalCostUsd +
+                          1.96 *
+                            ((costs.totalCostStdDev || 0) /
+                              Math.sqrt(costs.totalCallCount || 1))) /
+                        totalDocs
+                      ).toFixed(5)}
+                    </span>
+                    {costs.totalCallCount >= 30 ? (
+                      <span className="text-blue-500 font-bold ml-1">
+                        ✓ Statistically Significant (n={costs.totalCallCount})
+                      </span>
+                    ) : (
+                      <span className="text-amber-500 font-medium ml-1">
+                        ⚠ Low Sample Size (n={costs.totalCallCount})
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-[9px] text-slate-400 uppercase tracking-tight font-bold mb-1">
+                      Extrapolated Cost Projections
+                    </div>
+                    <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+                      {[
+                        100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000,
+                      ].map((count) => (
+                        <div
+                          key={count}
+                          className="bg-slate-50 border border-slate-100 px-2 py-1 rounded text-[10px] whitespace-nowrap"
+                        >
+                          <span className="text-slate-500">
+                            {formatCompactNumber(count)} docs:
+                          </span>
+                          <span className="ml-1 font-bold text-slate-700">
+                            $
+                            {((costs.totalCostUsd / totalDocs) * count).toFixed(
+                              2,
+                            )}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
             {lastEvent ? (
               <div>
@@ -435,7 +569,7 @@ async function SimulationRunsContent({
                 const params = new URLSearchParams();
                 const baseNs = run.momentGraphNamespace;
                 const prefix = run.momentGraphNamespacePrefix ?? null;
-                
+
                 if (baseNs) {
                   params.set("namespace", baseNs);
                 }
@@ -467,6 +601,12 @@ async function SimulationRunsContent({
                 {v.label}
               </a>
             ))}
+            <a
+              className="text-sm text-blue-600 hover:underline font-semibold"
+              href={viewLink("costs")}
+            >
+              AI Cost Analysis
+            </a>
           </div>
         </CardContent>
       </Card>
@@ -491,7 +631,14 @@ async function SimulationRunsContent({
         </Card>
       ) : null}
 
-      {viewDef ? <viewDef.component runId={runId} effectiveNamespace={effectiveNamespace} /> : null}
+      {isCostView ? (
+        <CostAnalysisCard costs={costs} totalDocs={totalDocs} />
+      ) : viewDef ? (
+        <viewDef.component
+          runId={runId}
+          effectiveNamespace={effectiveNamespace}
+        />
+      ) : null}
 
       <SimulationLogsViewer
         runId={runId}
@@ -503,5 +650,3 @@ async function SimulationRunsContent({
     </div>
   );
 }
-
-

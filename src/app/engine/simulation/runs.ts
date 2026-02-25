@@ -8,6 +8,8 @@ import { simulationPhases } from "./types";
 import { getSimulationDb } from "./db";
 import { addSimulationRunEvent } from "./runEvents";
 import { computeSimulationRunPrefixBase } from "../utils/simulationRunPrefix";
+import { calculateCost } from "../utils/pricing";
+import { LLMAlias } from "../utils/llm";
 
 const legacyPhaseMap: Record<string, SimulationPhase> = {
   A_ingest_diff: "ingest_diff",
@@ -19,7 +21,9 @@ const legacyPhaseMap: Record<string, SimulationPhase> = {
   G_timeline_fit: "timeline_fit",
 };
 
-export function normalizePhase(phase: string | null | undefined): SimulationPhase {
+export function normalizePhase(
+  phase: string | null | undefined,
+): SimulationPhase {
   const raw = typeof phase === "string" ? phase : "";
   if (simulationPhases.includes(raw as SimulationPhase)) {
     return raw as SimulationPhase;
@@ -38,7 +42,7 @@ export async function createSimulationRun(
     momentGraphNamespace: string | null;
     momentGraphNamespacePrefix: string | null;
     config?: Record<string, any> | null;
-  }
+  },
 ): Promise<void> {
   const db = getSimulationDb(context);
   const nowDate = new Date();
@@ -54,7 +58,10 @@ export async function createSimulationRun(
     if (inputPrefix) {
       return inputPrefix;
     }
-    const base = computeSimulationRunPrefixBase({ env: context.env, now: nowDate });
+    const base = computeSimulationRunPrefixBase({
+      env: context.env,
+      now: nowDate,
+    });
     const row = (await db
       .selectFrom("simulation_runs")
       .select([(db.fn as any).countAll().as("count")])
@@ -64,8 +71,8 @@ export async function createSimulationRun(
       typeof row?.count === "number"
         ? row.count
         : typeof row?.count === "string" && Number.isFinite(Number(row.count))
-        ? Number(row.count)
-        : 0;
+          ? Number(row.count)
+          : 0;
     return count > 0 ? `${base}-${count + 1}` : base;
   })();
 
@@ -88,7 +95,7 @@ export async function createSimulationRun(
 
 export async function getSimulationRunById(
   context: SimulationDbContext,
-  input: { runId: string }
+  input: { runId: string },
 ): Promise<{
   runId: string;
   status: SimulationRunStatus | string;
@@ -134,9 +141,31 @@ export async function getSimulationRunById(
   };
 }
 
+export async function getSimulationRunDocumentCount(
+  context: SimulationDbContext,
+  input: { runId: string },
+): Promise<number> {
+  const db = getSimulationDb(context);
+  const runId =
+    typeof input.runId === "string" && input.runId.trim().length > 0
+      ? input.runId.trim()
+      : "";
+  if (!runId) {
+    return 0;
+  }
+
+  const row = (await db
+    .selectFrom("simulation_run_documents")
+    .select([db.fn.count<number>("r2_key").as("count")])
+    .where("run_id", "=", runId)
+    .executeTakeFirst()) as any;
+
+  return typeof row?.count === "number" ? row.count : 0;
+}
+
 export async function getRecentSimulationRuns(
   context: SimulationDbContext,
-  input: { limit?: number }
+  input: { limit?: number },
 ): Promise<
   Array<{
     runId: string;
@@ -149,6 +178,7 @@ export async function getRecentSimulationRuns(
     momentGraphNamespacePrefix: string | null;
     config: any;
     lastError: any | null;
+    estimatedCostUsd?: number;
   }>
 > {
   const db = getSimulationDb(context);
@@ -165,6 +195,36 @@ export async function getRecentSimulationRuns(
     .limit(limit)
     .execute()) as unknown as SimulationRunRow[];
 
+  if (rows.length === 0) {
+    return [];
+  }
+
+  // Fetch costs for all these runs
+  const costRows = await db
+    .selectFrom("simulation_run_llm_costs")
+    .select([
+      "run_id",
+      "model_alias",
+      "total_input_tokens",
+      "total_output_tokens",
+    ])
+    .where(
+      "run_id",
+      "in",
+      rows.map((r) => r.run_id),
+    )
+    .execute();
+
+  const costMap = new Map<string, number>();
+  for (const c of costRows) {
+    const cost = await calculateCost(
+      c.model_alias as LLMAlias,
+      c.total_input_tokens,
+      c.total_output_tokens,
+    );
+    costMap.set(c.run_id, (costMap.get(c.run_id) ?? 0) + cost);
+  }
+
   return rows.map((row) => ({
     runId: row.run_id,
     status: row.status,
@@ -176,12 +236,13 @@ export async function getRecentSimulationRuns(
     momentGraphNamespacePrefix: row.moment_graph_namespace_prefix ?? null,
     config: row.config_json ?? {},
     lastError: row.last_error_json ?? null,
+    estimatedCostUsd: costMap.get(row.run_id) ?? 0,
   }));
 }
 
 export async function setSimulationRunStatus(
   context: SimulationDbContext,
-  input: { runId: string; status: SimulationRunStatus }
+  input: { runId: string; status: SimulationRunStatus },
 ): Promise<void> {
   const db = getSimulationDb(context);
   await db
@@ -196,7 +257,7 @@ export async function setSimulationRunStatus(
 
 export async function pauseSimulationRunManual(
   context: SimulationDbContext,
-  input: { runId: string }
+  input: { runId: string },
 ): Promise<boolean> {
   const db = getSimulationDb(context);
   const runId =
@@ -244,7 +305,7 @@ export async function pauseSimulationRunManual(
 
 export async function resumeSimulationRun(
   context: SimulationDbContext,
-  input: { runId: string }
+  input: { runId: string },
 ): Promise<boolean> {
   const db = getSimulationDb(context);
   const runId =
@@ -292,7 +353,7 @@ export async function resumeSimulationRun(
 
 export async function restartSimulationRunFromPhase(
   context: SimulationDbContext,
-  input: { runId: string; phase: SimulationPhase }
+  input: { runId: string; phase: SimulationPhase },
 ): Promise<boolean> {
   const db = getSimulationDb(context);
   const runId =
@@ -347,83 +408,101 @@ export async function restartSimulationRunFromPhase(
   const phasesToClear = new Set(simulationPhases.slice(phaseIdx));
 
   if (phase === "ingest_diff") {
-     await db.updateTable("simulation_run_documents")
-      .set({ 
-        processed_at: "pending", 
-        dispatched_phases_json: null, 
-        processed_phases_json: null, 
-        updated_at: now, 
-        changed: 0, 
-        error_json: null 
+    await db
+      .updateTable("simulation_run_documents")
+      .set({
+        processed_at: "pending",
+        dispatched_phases_json: null,
+        processed_phases_json: null,
+        updated_at: now,
+        changed: 0,
+        error_json: null,
       } as any)
       .where("run_id", "=", runId)
       .execute();
   } else {
-     // For other phases, we need to carefully remove only the cleared phases from the JSON
-     // to preserve history of earlier phases. This requires a batched read-modify-write.
-     
-     let cursor: string | undefined = undefined;
-     const batchSize = 500;
-     
-     while (true) {
-        const query = db.selectFrom("simulation_run_documents")
-          .select(["r2_key", "dispatched_phases_json", "processed_phases_json"])
-          .where("run_id", "=", runId)
-          .limit(batchSize);
-          
-        if (cursor) {
-          // @ts-ignore
-          query.where("r2_key", ">", cursor);
-        }
-        
+    // For other phases, we need to carefully remove only the cleared phases from the JSON
+    // to preserve history of earlier phases. This requires a batched read-modify-write.
+
+    let cursor: string | undefined = undefined;
+    const batchSize = 500;
+
+    while (true) {
+      const query = db
+        .selectFrom("simulation_run_documents")
+        .select(["r2_key", "dispatched_phases_json", "processed_phases_json"])
+        .where("run_id", "=", runId)
+        .limit(batchSize);
+
+      if (cursor) {
         // @ts-ignore
-        const docs = await query.orderBy("r2_key").execute();
-        
-        if (docs.length === 0) break;
-        
-        const updates: { r2Key: string, dispatched: string[], processed: string[] }[] = [];
-        
-        for (const doc of docs) {
-            let dispatched: string[] = [];
-            try {
-                dispatched = JSON.parse(doc.dispatched_phases_json as string || "[]");
-            } catch {}
-            
-            let processed: string[] = [];
-            try {
-                processed = JSON.parse(doc.processed_phases_json as string || "[]");
-            } catch {}
-            
-            const newDispatched = dispatched.filter(p => !phasesToClear.has(p as any));
-            const newProcessed = processed.filter(p => !phasesToClear.has(p as any));
-            
-            if (newDispatched.length !== dispatched.length || newProcessed.length !== processed.length) {
-                updates.push({
-                    r2Key: doc.r2_key,
-                    dispatched: newDispatched,
-                    processed: newProcessed
-                });
-            }
+        query.where("r2_key", ">", cursor);
+      }
+
+      // @ts-ignore
+      const docs = await query.orderBy("r2_key").execute();
+
+      if (docs.length === 0) break;
+
+      const updates: {
+        r2Key: string;
+        dispatched: string[];
+        processed: string[];
+      }[] = [];
+
+      for (const doc of docs) {
+        let dispatched: string[] = [];
+        try {
+          dispatched = JSON.parse(
+            (doc.dispatched_phases_json as string) || "[]",
+          );
+        } catch {}
+
+        let processed: string[] = [];
+        try {
+          processed = JSON.parse((doc.processed_phases_json as string) || "[]");
+        } catch {}
+
+        const newDispatched = dispatched.filter(
+          (p) => !phasesToClear.has(p as any),
+        );
+        const newProcessed = processed.filter(
+          (p) => !phasesToClear.has(p as any),
+        );
+
+        if (
+          newDispatched.length !== dispatched.length ||
+          newProcessed.length !== processed.length
+        ) {
+          updates.push({
+            r2Key: doc.r2_key,
+            dispatched: newDispatched,
+            processed: newProcessed,
+          });
         }
-        
-        // Perform updates in parallel promise batches
-        // Note: In a real heavy-load scenario, we might want to use a bulk update statement or temp table,
-        // but for now this is safer than wiping everything.
-        await Promise.all(updates.map(u => 
-            db.updateTable("simulation_run_documents")
-              .set({
-                  dispatched_phases_json: JSON.stringify(u.dispatched),
-                  processed_phases_json: JSON.stringify(u.processed),
-                  updated_at: new Date().toISOString(),
-                  error_json: null // Clear errors on restart
-              } as any)
-              .where("run_id", "=", runId)
-              .where("r2_key", "=", u.r2Key)
-              .execute()
-        ));
-        
-        cursor = docs[docs.length - 1].r2_key;
-     }
+      }
+
+      // Perform updates in parallel promise batches
+      // Note: In a real heavy-load scenario, we might want to use a bulk update statement or temp table,
+      // but for now this is safer than wiping everything.
+      await Promise.all(
+        updates.map((u) =>
+          db
+            .updateTable("simulation_run_documents")
+            .set({
+              dispatched_phases_json: JSON.stringify(u.dispatched),
+              processed_phases_json: JSON.stringify(u.processed),
+              updated_at: new Date().toISOString(),
+              error_json: null, // Clear errors on restart
+            } as any)
+            .where("run_id", "=", runId)
+            .where("r2_key", "=", u.r2Key)
+            .execute(),
+        ),
+      );
+
+      cursor = docs[docs.length - 1].r2_key;
+    }
   }
 
   // Clear artifact tables
@@ -434,18 +513,20 @@ export async function restartSimulationRunFromPhase(
     "simulation_run_materialized_moments",
     "simulation_run_link_decisions",
     "simulation_run_candidate_sets",
-    "simulation_run_timeline_fit_decisions"
+    "simulation_run_timeline_fit_decisions",
   ];
 
   // We only clear tables that correspond to the restarted phase and LATER.
-  // This is a bit mapping-heavy, so let's just clear all of them for now to be safe, 
+  // This is a bit mapping-heavy, so let's just clear all of them for now to be safe,
   // or use the phase index to filter.
   const tablesToClear = artifactTables.slice(Math.max(0, phaseIdx - 1)); // -1 because ingest_diff doesn't have a table in this list
 
   for (const table of tablesToClear) {
-    await db.deleteFrom(table as any).where("run_id", "=", runId).execute();
+    await db
+      .deleteFrom(table as any)
+      .where("run_id", "=", runId)
+      .execute();
   }
 
   return true;
 }
-

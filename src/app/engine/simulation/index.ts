@@ -5,4 +5,5 @@ export * from "./runEvents";
 export * from "./runs";
 export * from "./runArtifacts";
 export * from "./runProgress";
+export * from "./runCosts";
 export * from "./runNamespaces";

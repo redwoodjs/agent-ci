@@ -116,3 +116,11 @@ jobs:
           # Your standard test commands
           pnpm test
 ```
+
+---
+
+## Tool Cache & Setup Actions
+
+Unlike GitHub-hosted `ubuntu-latest` runners that come pre-populated with gigabytes of tools (like Node.js, Python, Go, etc.), the `opposite-actions` self-hosted runner starts with an empty cache.
+
+This means the _very first time_ a workflow uses an action like `actions/setup-node`, it will need to download the tool from the internet, taking slightly longer. However, the downloaded tools are saved to a persistent `toolcache` directory on your host machine. All subsequent runs and containers will instantly mount and find the tools in the cache, skipping the download step.

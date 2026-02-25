@@ -215,11 +215,13 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const containerWorkDir = path.resolve(workDir, "work", containerName);
   const shimsDir = path.resolve(workDir, "shims", containerName);
   const diagDir = path.resolve(workDir, "diag", containerName);
+  const toolCacheDir = path.resolve(workDir, "toolcache");
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(shimsDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(diagDir, { recursive: true, mode: 0o777 });
+  fs.mkdirSync(toolCacheDir, { recursive: true, mode: 0o777 });
   // Ensure all intermediate dirs are world-writable for DinD scenarios where
   // the supervisor runs as root but nested containers use runner user (UID 1001)
   try {
@@ -227,6 +229,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     fs.chmodSync(containerWorkDir, 0o777);
     fs.chmodSync(shimsDir, 0o777);
     fs.chmodSync(diagDir, 0o777);
+    fs.chmodSync(toolCacheDir, 0o777);
   } catch {
     // Ignore chmod errors (non-critical)
   }
@@ -425,6 +428,7 @@ exit $EXIT_CODE
       `OA_DTU_HOST=${dtuHost}`,
       `ACTIONS_CACHE_URL=${dockerApiUrl}`,
       `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
+      `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
       `PATH=/tmp/oa-shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
     ],
     Cmd: [
@@ -439,6 +443,7 @@ exit $EXIT_CODE
         `${shimsDir}:/tmp/oa-shims`,
         `${diagDir}:/home/runner/_diag`,
         `${workspaceDir}:/tmp/oa-workspace`,
+        `${path.resolve(getWorkingDirectory(), "toolcache")}:/opt/hostedtoolcache`,
       ],
       AutoRemove: false,
     },

@@ -13,7 +13,7 @@ if (!fs.existsSync(CACHE_DIR)) {
 
 export function registerCacheRoutes(app: Polka) {
   // 1. Check if cache exists
-  app.get("/_apis/artifactcache/caches", (req: any, res) => {
+  const checkCacheHandler = (req: any, res: any) => {
     const keys = (req.query.keys || "").split(",").map((k: string) => k.trim());
     const version = req.query.version;
 
@@ -42,7 +42,10 @@ export function registerCacheRoutes(app: Polka) {
     console.log(`[DTU] Cache miss for keys: ${keys.join(", ")}`);
     res.writeHead(204);
     res.end();
-  });
+  };
+
+  app.get("/_apis/artifactcache/caches", checkCacheHandler);
+  app.get("/_apis/artifactcache/cache", checkCacheHandler);
 
   // 2. Reserve cache space (create pending cache)
   app.post("/_apis/artifactcache/caches", (req: any, res) => {
@@ -54,6 +57,7 @@ export function registerCacheRoutes(app: Polka) {
     const cacheId = Math.floor(Math.random() * 1000000);
     const tempPath = path.join(CACHE_DIR, `temp_${cacheId}.tar.gz`);
 
+    fs.writeFileSync(tempPath, ""); // create an empty file
     state.pendingCaches.set(cacheId, { tempPath, key, version });
 
     res.writeHead(201, { "Content-Type": "application/json" });
@@ -74,14 +78,26 @@ export function registerCacheRoutes(app: Polka) {
     const contentRange = req.headers["content-range"];
     console.log(`[DTU] Uploading cache chunk to ID ${cacheId}, Content-Range: ${contentRange}`);
 
-    // Read raw body stream
+    let startOffset = -1;
+    if (contentRange && typeof contentRange === "string") {
+      const match = contentRange.match(/bytes (\d+)-/);
+      if (match) {
+        startOffset = parseInt(match[1], 10);
+      }
+    }
+
     try {
-      if (typeof req.body === "string" || Buffer.isBuffer(req.body)) {
-        fs.appendFileSync(pending.tempPath, req.body);
+      if (Buffer.isBuffer(req.body) || typeof req.body === "string") {
+        const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body);
+
+        if (startOffset >= 0) {
+          const fd = fs.openSync(pending.tempPath, "r+");
+          fs.writeSync(fd, buffer, 0, buffer.length, startOffset);
+          fs.closeSync(fd);
+        } else {
+          fs.appendFileSync(pending.tempPath, buffer);
+        }
       } else {
-        // body could be parsed JSON, but for octet-stream we need raw body.
-        // Polk's body-parser needs to allow application/octet-stream for this route.
-        // But for strings we append them.
         res.writeHead(500, { "Content-Type": "text/plain" });
         return res.end("Expected raw buffer/string body");
       }
@@ -120,6 +136,7 @@ export function registerCacheRoutes(app: Polka) {
       archiveLocation,
       size,
     });
+    state.saveCachesToDisk();
     state.pendingCaches.delete(cacheId);
 
     res.writeHead(200);

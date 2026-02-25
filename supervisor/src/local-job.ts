@@ -426,7 +426,7 @@ exit $EXIT_CODE
       `OA_LOCAL_SYNC=true`,
       `OA_HEAD_SHA=${job.headSha || "HEAD"}`,
       `OA_DTU_HOST=${dtuHost}`,
-      `ACTIONS_CACHE_URL=${dockerApiUrl}`,
+      `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
       `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
       `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
       `PATH=/tmp/oa-shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,

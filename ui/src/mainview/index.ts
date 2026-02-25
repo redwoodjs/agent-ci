@@ -17,11 +17,14 @@ const logsEl = document.getElementById("dtu-logs");
 
 rpc.addMessageListener("dtuLog", (log: string) => {
   if (logsEl) {
+    const isAtBottom = logsEl.scrollHeight - logsEl.scrollTop - logsEl.clientHeight < 10;
     if (logsEl.innerText === "Waiting for DTU logs...\n") {
       logsEl.innerText = "";
     }
     logsEl.innerText += log;
-    logsEl.scrollTop = logsEl.scrollHeight;
+    if (isAtBottom) {
+      logsEl.scrollTop = logsEl.scrollHeight;
+    }
   }
 });
 

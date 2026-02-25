@@ -32,8 +32,12 @@ async function loadLogs() {
   if (details && logsViewer && runStatus) {
     // Only update logs if not actively streaming (otherwise it fights with the stream)
     if (!isStreamingLogs) {
+      const isAtBottom =
+        logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
       logsViewer.innerText = details.logs;
-      logsViewer.scrollTop = logsViewer.scrollHeight;
+      if (isAtBottom) {
+        logsViewer.scrollTop = logsViewer.scrollHeight;
+      }
     }
 
     if (runStatus.innerText !== details.status) {
@@ -130,8 +134,12 @@ document.addEventListener("DOMContentLoaded", async () => {
 rpc.addMessageListener("dtuLog", (log: string) => {
   if (isStreamingLogs && logsViewer && activeRunId) {
     // Only append if it's the active run (assumes the backend is sending logs for the active run)
+    const isAtBottom =
+      logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
     logsViewer.innerText += log;
-    logsViewer.scrollTop = logsViewer.scrollHeight;
+    if (isAtBottom) {
+      logsViewer.scrollTop = logsViewer.scrollHeight;
+    }
   }
 });
 

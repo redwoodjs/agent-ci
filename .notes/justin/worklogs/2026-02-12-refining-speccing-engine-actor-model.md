@@ -172,12 +172,10 @@ We've updated the HEREDOC example to use a more natural phrasing that matches ou
 
 ```bash
 ➜  machinen_specs git:(specs) API_KEY=dev \
-MACHINEN_ENGINE_URL=http://localhost:5173 \
+MACHINEN_ENGINE_URL=http://localhost:5174/ \
 NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
-~/rw/worktrees/machinen_specs/scripts/mchn-spec.sh - <<EOF
-Add a programmatic 'prefetch' function to RedwoodSDK's client-side navigation.
-It should wrap 'preloadNavigationUrl' and be exported from 'rwsdk/client'.
-EOF
+npx tsx /Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts \
+"Identified full‑page reload issue for client‑side filters"       
 ```
 
 You can use these docs as the "needles in the haystack" when running the simulation:

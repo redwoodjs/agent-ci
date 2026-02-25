@@ -172,7 +172,7 @@ We've updated the HEREDOC example to use a more natural phrasing that matches ou
 
 ```bash
 ➜  machinen_specs git:(specs) API_KEY=dev \
-MACHINEN_ENGINE_URL=http://localhost:5174/ \
+MACHINEN_ENGINE_URL=http://localhost:5173/ \
 NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
 npx tsx /Users/justin/rw/worktrees/machinen_specs/scripts/mchn-spec.ts \
 "Identified full‑page reload issue for client‑side filters"       

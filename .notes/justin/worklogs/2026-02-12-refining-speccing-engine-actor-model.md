@@ -179,6 +179,15 @@ Add a programmatic 'prefetch' function to RedwoodSDK's client-side navigation.
 It should wrap 'preloadNavigationUrl' and be exported from 'rwsdk/client'.
 EOF
 ```
+
+You can use these docs as the "needles in the haystack" when running the simulation:
+```
+github/redwoodjs/sdk/issues/552/latest.json
+github/redwoodjs/sdk/pull-requests/933/latest.json
+github/redwoodjs/sdk/pull-requests/530/latest.json
+discord/679514959968993311/1435702216315899948/threads/1373759907605516408/latest.json
+```
+
 ## Final Optimization: Instant Spec File Availability
 We addressed the "long wait" for the specification file by moving the session ID logic to the client.
 - **Client-Side ID Generation**: The `mchn-spec.sh` script now slugifies the subject title locally and appends a random suffix. 

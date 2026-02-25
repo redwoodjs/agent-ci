@@ -171,7 +171,7 @@ The user hit "No matching subject found" for a very relevant prompt.
 We've updated the HEREDOC example to use a more natural phrasing that matches our refined search logic:
 
 ```bash
-API_KEY=dev \
+➜  machinen_specs git:(specs) API_KEY=dev \
 MACHINEN_ENGINE_URL=http://localhost:5173 \
 NAMESPACE_PREFIX="local-2026-02-11-11-20-gentle-panda" \
 ~/rw/worktrees/machinen_specs/scripts/mchn-spec.sh - <<EOF

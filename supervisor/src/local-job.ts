@@ -255,13 +255,20 @@ export async function executeLocalJob(job: Job): Promise<void> {
 
   // 4. Prepare workspace (checkout emulation)
   try {
+    // Resolve repo root first — needed for both archive and rsync paths.
+    // Without this, git archive from a subdirectory (e.g. supervisor/) would
+    // only include that subdirectory's files instead of the full monorepo.
+    const repoRoot = execSync(`git rev-parse --show-toplevel`).toString().trim();
+
     if (job.headSha && job.headSha !== "HEAD") {
       // Specific SHA requested — use git archive (clean snapshot)
-      execSync(`git archive ${job.headSha} | tar -x -C ${workspaceDir}`, { stdio: "pipe" });
+      execSync(`git archive ${job.headSha} | tar -x -C ${workspaceDir}`, {
+        stdio: "pipe",
+        cwd: repoRoot,
+      });
     } else {
       // Default: copy the working directory as-is, including dirty/untracked files.
       // rsync excludes .git to keep the workspace clean for the runner.
-      const repoRoot = execSync(`git rev-parse --show-toplevel`).toString().trim();
       try {
         // Preferred: rsync (fast, honours gitignore via git ls-files)
         execSync(

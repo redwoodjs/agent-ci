@@ -1,6 +1,9 @@
 # Opposite-Actions
 
-**Opposite-Actions** is a local-first CI runner system. It allows GitHub Actions to execute on your own hardware (your MacBook) while providing a seamless fallback to GitHub-hosted runners when you are offline.
+**Opposite-Actions**
+
+!!!
+is a local-first CI runner system. It allows GitHub Actions to execute on your own hardware (your MacBook) while providing a seamless fallback to GitHub-hosted runners when you are offline.
 
 Unlike standard ephemeral runners, **Opposite-Actions** is designed to **freeze on failure**, preserving the Docker container and local filesystem for immediate, interactive debugging.
 

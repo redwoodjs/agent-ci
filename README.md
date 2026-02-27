@@ -11,7 +11,7 @@ Unlike standard ephemeral runners, **Opposite-Actions** is designed to **freeze 
 
 ## Project Structure
 
-This project is organized as a `pnpm` workspace:
+This project is organized as a `pnpm` workspace: !!!!!!!!!!!
 
 - [bridge/](./bridge): A Cloudflare Worker that orchestrates jobs and presence.
 - [supervisor/](./supervisor): A Node.js agent that polls the bridge and runs Docker jobs.

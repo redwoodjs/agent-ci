@@ -46,6 +46,7 @@ export function clearEventLog() {
 const OA_DIR = path.join(PROJECT_ROOT, "_");
 const getRecentReposPath = () => path.join(OA_DIR, "recent_repos.json");
 const getWatchedReposPath = () => path.join(OA_DIR, "watched_repos.json");
+const getWorkflowOverridesPath = () => path.join(OA_DIR, "workflows.json");
 
 async function ensureOaDir() {
   await fs.mkdir(OA_DIR, { recursive: true });
@@ -92,6 +93,7 @@ const watchedRepos = new Map<
 >();
 
 export async function loadWatchedRepos() {
+  await loadWorkflowOverrides();
   try {
     const data = await fs.readFile(getWatchedReposPath(), "utf-8");
     const repos: string[] = JSON.parse(data);
@@ -165,17 +167,22 @@ export async function enableWatchMode(repoPath: string) {
             watchData.lastCommit = currentCommit;
             broadcastEvent("commitDetected", { repoPath, commitId: currentCommit });
 
-            // Auto-run logic
+            // Auto-run logic — only run workflows that are enabled
             const workflows = await getWorkflows(repoPath);
             for (const { id } of workflows) {
-              await runWorkflow(repoPath, id, currentCommit);
+              if (await getWorkflowEnabledState(repoPath, id)) {
+                await runWorkflow(repoPath, id, currentCommit);
+              }
             }
           }
         } catch {}
       }
     });
-  } catch (e) {
-    console.error(`Failed to watch ${gitDir}`, e);
+  } catch (e: any) {
+    // Silently ignore missing directories (e.g. non-existent repos in tests)
+    if (e?.code !== "ENOENT") {
+      console.error(`Failed to watch ${gitDir}`, e);
+    }
   }
 
   // Also watch .github/workflows for changes
@@ -203,10 +210,124 @@ export async function disableWatchMode(repoPath: string) {
   }
 }
 
-// Workflows
-export async function getWorkflows(repoPath: string): Promise<{ id: string; name: string }[]> {
+// ─── Workflow enabled/disabled overrides ─────────────────────────────────────
+// Map<repoPath, Map<workflowId, enabled>> — user-set overrides only.
+// If no override is present, default is derived from triggers.
+const workflowEnabledOverrides = new Map<string, Map<string, boolean>>();
+
+async function loadWorkflowOverrides() {
+  try {
+    const data = await fs.readFile(getWorkflowOverridesPath(), "utf-8");
+    const parsed: Record<string, Record<string, boolean>> = JSON.parse(data);
+    for (const [repo, overrides] of Object.entries(parsed)) {
+      workflowEnabledOverrides.set(repo, new Map(Object.entries(overrides)));
+    }
+  } catch {
+    // file doesn't exist yet
+  }
+}
+
+async function saveWorkflowOverrides() {
+  await ensureOaDir();
+  const out: Record<string, Record<string, boolean>> = {};
+  for (const [repo, overrides] of workflowEnabledOverrides.entries()) {
+    out[repo] = Object.fromEntries(overrides.entries());
+  }
+  await fs.writeFile(getWorkflowOverridesPath(), JSON.stringify(out, null, 2));
+}
+
+/**
+ * Parse the `on:` triggers from a workflow YAML file.
+ * Returns an array of trigger event names, e.g. ["push", "pull_request"].
+ */
+export function getWorkflowTriggers(content: string): string[] {
+  try {
+    // Quick regex-based extraction of the top-level `on:` key
+    // Handles both `on: push` and `on:\n  push:` forms
+    const onMatch = content.match(/^on:\s*(.+)$/m);
+    if (!onMatch) {
+      return [];
+    }
+    const rest = onMatch[1].trim();
+    // Inline form: `on: [push, pull_request]` or `on: push`
+    if (rest.startsWith("[")) {
+      return rest
+        .replace(/\[|\]/g, "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    if (rest && rest !== "") {
+      return [rest];
+    }
+    // Block form: parse subsequent indented keys
+    const blockMatch = content.match(/^on:\s*\n((?:^  \S[^\n]*\n?)+)/m);
+    if (blockMatch) {
+      return blockMatch[1]
+        .split("\n")
+        .map((l) => l.match(/^  (\S+):/)?.[1])
+        .filter((s): s is string => !!s);
+    }
+  } catch {}
+  return [];
+}
+
+/** Returns true if a workflow should be auto-run by default based on its triggers. */
+export function isEnabledByDefault(triggers: string[]): boolean {
+  return triggers.some((t) => t === "push" || t === "pull_request");
+}
+
+/** Get the effective enabled state for a workflow (override wins, else trigger-based default). */
+export async function getWorkflowEnabledState(
+  repoPath: string,
+  workflowId: string,
+): Promise<boolean> {
+  const repoOverrides = workflowEnabledOverrides.get(repoPath);
+  if (repoOverrides && repoOverrides.has(workflowId)) {
+    return repoOverrides.get(workflowId)!;
+  }
+  // Fall back to trigger-based default
   const workflowsPath = path.join(repoPath, ".github", "workflows");
-  const workflows: { id: string; name: string }[] = [];
+  try {
+    const content = await fs.readFile(path.join(workflowsPath, workflowId), "utf-8");
+    return isEnabledByDefault(getWorkflowTriggers(content));
+  } catch {
+    return true; // default to enabled if file can't be read
+  }
+}
+
+/** Get a map of workflowId -> effective enabled state for all workflows in a repo. */
+export async function getWorkflowEnabledMap(
+  repoPath: string,
+  workflows: { id: string }[],
+): Promise<Record<string, boolean>> {
+  const result: Record<string, boolean> = {};
+  for (const wf of workflows) {
+    result[wf.id] = await getWorkflowEnabledState(repoPath, wf.id);
+  }
+  return result;
+}
+
+/** Set an explicit override for a workflow's enabled state. */
+export async function setWorkflowEnabled(
+  repoPath: string,
+  workflowId: string,
+  enabled: boolean,
+): Promise<void> {
+  if (!workflowEnabledOverrides.has(repoPath)) {
+    workflowEnabledOverrides.set(repoPath, new Map());
+  }
+  workflowEnabledOverrides.get(repoPath)!.set(workflowId, enabled);
+  await saveWorkflowOverrides();
+}
+
+// Workflows
+export async function getWorkflows(
+  repoPath: string,
+): Promise<{ id: string; name: string; triggers: string[]; enabledByDefault: boolean }[]> {
+  const workflowsPath = path.join(repoPath, ".github", "workflows");
+  const workflows: { id: string; name: string; triggers: string[]; enabledByDefault: boolean }[] =
+    [];
   try {
     const files = await fs.readdir(workflowsPath, { withFileTypes: true });
     for (const file of files) {
@@ -214,7 +335,13 @@ export async function getWorkflows(repoPath: string): Promise<{ id: string; name
         const fullPath = path.join(workflowsPath, file.name);
         const content = await fs.readFile(fullPath, "utf-8");
         const nameMatch = content.match(/^name:\s*(.+)$/m);
-        workflows.push({ id: file.name, name: nameMatch ? nameMatch[1].trim() : file.name });
+        const triggers = getWorkflowTriggers(content);
+        workflows.push({
+          id: file.name,
+          name: nameMatch ? nameMatch[1].trim() : file.name,
+          triggers,
+          enabledByDefault: isEnabledByDefault(triggers),
+        });
       }
     }
   } catch {}
@@ -276,9 +403,25 @@ function deriveRunStatus(
 export async function getRunsForCommit(
   repoPath: string,
   commitId: string,
-): Promise<{ runId: string; workflowName: string; status: string; date: number }[]> {
+): Promise<
+  {
+    runId: string;
+    runnerName: string;
+    workflowName: string;
+    status: string;
+    date: number;
+    endDate?: number;
+  }[]
+> {
   const logsDir = getLogsDir();
-  const results: { runId: string; workflowName: string; status: string; date: number }[] = [];
+  const results: {
+    runId: string;
+    runnerName: string;
+    workflowName: string;
+    status: string;
+    date: number;
+    endDate?: number;
+  }[] = [];
 
   try {
     const entries = await fs.readdir(logsDir, { withFileTypes: true });
@@ -296,9 +439,11 @@ export async function getRunsForCommit(
         const status = deriveRunStatus(entry.name, docker, meta.status);
         results.push({
           runId: entry.name,
+          runnerName: entry.name,
           workflowName: meta.workflowName || entry.name,
           status,
           date: meta.date || 0,
+          endDate: meta.endDate,
         });
       } catch {
         // Skip entries with missing/invalid metadata
@@ -311,9 +456,14 @@ export async function getRunsForCommit(
   return results.sort((a, b) => b.date - a.date);
 }
 
-export async function getRunDetail(
-  runId: string,
-): Promise<{ runId: string; workflowName: string; status: string; date: number } | null> {
+export async function getRunDetail(runId: string): Promise<{
+  runId: string;
+  runnerName: string;
+  workflowName: string;
+  status: string;
+  date: number;
+  endDate?: number;
+} | null> {
   const logsDir = getLogsDir();
   const metaPath = path.join(logsDir, runId, "metadata.json");
   try {
@@ -322,9 +472,11 @@ export async function getRunDetail(
     const status = deriveRunStatus(runId, docker, meta.status);
     return {
       runId,
+      runnerName: runId,
       workflowName: meta.workflowName || runId,
       status,
       date: meta.date || 0,
+      endDate: meta.endDate,
     };
   } catch {
     return null;
@@ -393,15 +545,72 @@ export async function runWorkflow(repoPath: string, workflowId: string, commitId
     stdoutLog.end();
     stderrLog.end();
     const status = code === 0 ? "Passed" : "Failed";
-    // Persist status to metadata so it survives even without Docker
+    const endDate = Date.now();
+    // Persist status and endDate to metadata so it survives even without Docker
     try {
       const metaPath = path.join(runDir, "metadata.json");
       const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
       meta.status = status;
+      meta.endDate = endDate;
       await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
     } catch {}
     broadcastEvent("runFinished", { runId: runnerName, status });
   });
+
+  // Sample container stats (CPU / memory) every 5s while the run is active.
+  // Persist peak values into metadata so they survive after the container exits.
+  (async () => {
+    while (activeRuns.has(runnerName)) {
+      try {
+        const { stdout } = await execAsync(
+          "docker",
+          ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", runnerName],
+          { timeout: 5000 },
+        );
+        const [cpuStr, memStr] = stdout.trim().split("|");
+        // CPUPerc: "3.14%" → 3.14
+        const cpu = parseFloat(cpuStr?.replace("%", "") ?? "0");
+        // MemUsage: "123MiB / 7.77GiB" → take left side in MiB
+        const memMatch = memStr?.match(/^([\d.]+)(\w+)/);
+        let memMB = 0;
+        if (memMatch) {
+          const val = parseFloat(memMatch[1]);
+          const unit = memMatch[2].toUpperCase();
+          if (unit.startsWith("GIB") || unit.startsWith("GB")) {
+            memMB = val * 1024;
+          } else if (unit.startsWith("MIB") || unit.startsWith("MB")) {
+            memMB = val;
+          } else if (unit.startsWith("KIB") || unit.startsWith("KB")) {
+            memMB = val / 1024;
+          }
+        }
+        if (!isNaN(cpu) || memMB > 0) {
+          const metaPath = path.join(runDir, "metadata.json");
+          const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+          if (!meta.peakCpu || cpu > meta.peakCpu) {
+            meta.peakCpu = Math.round(cpu * 10) / 10;
+          }
+          if (!meta.peakMemMB || memMB > meta.peakMemMB) {
+            meta.peakMemMB = Math.round(memMB);
+          }
+          if (!meta.statsHistory) {
+            meta.statsHistory = [];
+          }
+          const sample = {
+            ts: Date.now(),
+            cpu: Math.round(cpu * 10) / 10,
+            memMB: Math.round(memMB),
+          };
+          meta.statsHistory.push(sample);
+          await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
+          broadcastEvent("runStatsSample", { runId: runnerName, ...sample });
+        }
+      } catch {
+        // Container not running yet or already gone
+      }
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  })();
 
   return runnerName;
 }
@@ -412,6 +621,87 @@ export async function stopWorkflow(runId: string) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/** Returns live stats for a running container, or persisted peak stats for a finished one. */
+export async function getRunStats(runId: string): Promise<{
+  cpu?: number;
+  memMB?: number;
+  peakCpu?: number;
+  peakMemMB?: number;
+  imageSizeMB?: number;
+  live: boolean;
+}> {
+  // Try live docker stats first
+  let live = false;
+  let cpu: number | undefined;
+  let memMB: number | undefined;
+
+  try {
+    const { stdout } = await execAsync(
+      "docker",
+      ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", runId],
+      { timeout: 5000 },
+    );
+    const [cpuStr, memStr] = stdout.trim().split("|");
+    const parsedCpu = parseFloat(cpuStr?.replace("%", "") ?? "");
+    if (!isNaN(parsedCpu)) {
+      cpu = Math.round(parsedCpu * 10) / 10;
+      live = true;
+    }
+    const memMatch = memStr?.match(/^([\d.]+)(\w+)/);
+    if (memMatch) {
+      const val = parseFloat(memMatch[1]);
+      const unit = memMatch[2].toUpperCase();
+      if (unit.startsWith("GIB") || unit.startsWith("GB")) {
+        memMB = Math.round(val * 1024);
+      } else if (unit.startsWith("MIB") || unit.startsWith("MB")) {
+        memMB = Math.round(val);
+      } else if (unit.startsWith("KIB") || unit.startsWith("KB")) {
+        memMB = Math.round(val / 1024);
+      }
+    }
+  } catch {
+    // Container not running
+  }
+
+  // Try image size via docker image inspect
+  let imageSizeMB: number | undefined;
+  try {
+    const { stdout } = await execAsync(
+      "docker",
+      ["image", "inspect", "--format", "{{.Size}}", "ghcr.io/actions/actions-runner:latest"],
+      { timeout: 5000 },
+    );
+    const bytes = parseInt(stdout.trim(), 10);
+    if (!isNaN(bytes)) {
+      imageSizeMB = Math.round(bytes / 1024 / 1024);
+    }
+  } catch {}
+
+  // Also pull persisted peak stats from metadata
+  let peakCpu: number | undefined;
+  let peakMemMB: number | undefined;
+  try {
+    const metaPath = path.join(getLogsDir(), runId, "metadata.json");
+    const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+    peakCpu = meta.peakCpu;
+    peakMemMB = meta.peakMemMB;
+  } catch {}
+
+  return { cpu, memMB, peakCpu, peakMemMB, imageSizeMB, live };
+}
+
+export async function getStatsHistory(
+  runId: string,
+): Promise<Array<{ ts: number; cpu: number; memMB: number }>> {
+  try {
+    const metaPath = path.join(getLogsDir(), runId, "metadata.json");
+    const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+    return meta.statsHistory || [];
+  } catch {
+    return [];
   }
 }
 
@@ -438,12 +728,36 @@ function setDtuStatus(newStatus: typeof dtuStatus) {
   }
 }
 
+/**
+ * Override the readiness check used by startDtu().
+ * In tests, inject a function that resolves immediately (or after a short delay)
+ * so the test doesn't need an actual service running on port 8910.
+ *
+ * @example
+ *   // In a vitest test:
+ *   setDtuReadinessCheck(() => Promise.resolve(true));
+ */
+let dtuReadinessCheck: () => Promise<boolean> = async () => {
+  try {
+    const res = await fetch("http://localhost:8910").catch(() => null);
+    return !!(res && res.ok);
+  } catch {
+    return false;
+  }
+};
+
+export function setDtuReadinessCheck(fn: () => Promise<boolean>) {
+  dtuReadinessCheck = fn;
+}
+
 export async function getDtuStatus() {
-  // If it claims to be running, verify it's reachable on 8910
-  if (dtuStatus === "Running") {
+  // Only verify reachability when we believe Running but have no live process
+  // (i.e. the process reference has been lost but status wasn't updated).
+  // When dtuProcess is non-null the process is authoritative.
+  if (dtuStatus === "Running" && !dtuProcess) {
     try {
-      const res = await fetch("http://localhost:8910").catch(() => null);
-      if (!res) {
+      const reachable = await dtuReadinessCheck();
+      if (!reachable) {
         setDtuStatus("Failed");
       }
     } catch {
@@ -453,20 +767,59 @@ export async function getDtuStatus() {
   return dtuStatus;
 }
 
+type SpawnFn = typeof spawn;
+
+function defaultDtuSpawner(): ReturnType<SpawnFn> {
+  const rootCwd = PROJECT_ROOT;
+  console.log(`[DTU] Starting dtu-github-actions from ${rootCwd}`);
+  return spawn("pnpm", ["--filter", "dtu-github-actions", "dev"], {
+    cwd: rootCwd,
+    env: process.env,
+    stdio: "pipe",
+  });
+}
+
+let dtuSpawner: () => ReturnType<SpawnFn> = defaultDtuSpawner;
+
+/**
+ * Override the process spawner used by startDtu().
+ * In tests, inject a factory that returns a controllable mock process.
+ *
+ * @example
+ *   // In a vitest test:
+ *   const { EventEmitter } = await import("node:events");
+ *   setDtuSpawner(() => { const p = new EventEmitter(); p.stdout = new EventEmitter(); p.stderr = new EventEmitter(); return p as any; });
+ */
+export function setDtuSpawner(fn: () => ReturnType<SpawnFn>) {
+  dtuSpawner = fn;
+}
+
+/** Reset DTU state for use in tests. Clears any live process reference and resets status to Stopped. */
+export function resetDtuStateForTest() {
+  if (dtuProcess) {
+    try {
+      dtuProcess.kill();
+    } catch {}
+  }
+  dtuProcess = null;
+  dtuStatus = "Stopped";
+  dtuReadinessCheck = async () => {
+    try {
+      const res = await fetch("http://localhost:8910").catch(() => null);
+      return !!(res && res.ok);
+    } catch {
+      return false;
+    }
+  };
+  dtuSpawner = defaultDtuSpawner;
+}
 export async function startDtu() {
   if (dtuProcess || dtuStatus === "Running" || dtuStatus === "Starting") {
     return;
   }
   setDtuStatus("Starting");
 
-  const rootCwd = PROJECT_ROOT;
-  console.log(`[DTU] Starting dtu-github-actions from ${rootCwd}`);
-
-  dtuProcess = spawn("pnpm", ["--filter", "dtu-github-actions", "dev"], {
-    cwd: rootCwd,
-    env: process.env,
-    stdio: "pipe",
-  });
+  dtuProcess = dtuSpawner();
 
   dtuProcess.stdout?.on("data", (data: Buffer) => {
     process.stdout.write(`[DTU] ${data.toString()}`);
@@ -492,7 +845,7 @@ export async function startDtu() {
     }
   });
 
-  // Poll for port 8910 to become reachable instead of a fixed timeout
+  // Poll using the (potentially overridden) readiness check instead of a fixed timeout
   const maxAttempts = 20;
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -501,9 +854,9 @@ export async function startDtu() {
       return;
     }
     try {
-      const res = await fetch("http://localhost:8910").catch(() => null);
-      if (res && res.ok) {
-        console.log(`[DTU] Port 8910 is reachable, DTU is running`);
+      const ready = await dtuReadinessCheck();
+      if (ready) {
+        console.log(`[DTU] Readiness check passed, DTU is running`);
         setDtuStatus("Running");
         return;
       }
@@ -512,7 +865,7 @@ export async function startDtu() {
 
   // If we get here, the DTU didn't respond in time
   if (dtuProcess) {
-    console.error(`[DTU] Port 8910 not reachable after ${maxAttempts * 500}ms`);
+    console.error(`[DTU] Readiness check failed after ${maxAttempts * 500}ms`);
     setDtuStatus("Failed");
   }
 }

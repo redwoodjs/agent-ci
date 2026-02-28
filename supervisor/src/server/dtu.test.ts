@@ -1,12 +1,42 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
+import { EventEmitter } from "node:events";
 import request from "supertest";
 import { app } from "./index.js";
-import { getEventLog, clearEventLog } from "./orchestrator.js";
+import {
+  getEventLog,
+  clearEventLog,
+  setDtuReadinessCheck,
+  setDtuSpawner,
+  resetDtuStateForTest,
+} from "./orchestrator.js";
+
+// Create a controllable fake child process
+function makeFakeProcess() {
+  const proc = new EventEmitter() as any;
+  proc.stdout = new EventEmitter();
+  proc.stderr = new EventEmitter();
+  proc.pid = 99999;
+  proc.kill = () => {
+    // Simulate a graceful shutdown (code 0) when killed
+    proc.emit("close", 0, null);
+  };
+  return proc;
+}
 
 describe("DTU Lifecycle", () => {
-  it("full lifecycle: start → SSE events → stop → SSE events", async () => {
+  beforeEach(() => {
+    // Reset DTU state and inject test doubles
+    resetDtuStateForTest();
     clearEventLog();
 
+    // Readiness check resolves immediately (no real port needed)
+    setDtuReadinessCheck(() => Promise.resolve(true));
+
+    // Spawner returns a fake process that stays alive until killed
+    setDtuSpawner(() => makeFakeProcess());
+  });
+
+  it("full lifecycle: start → SSE events → stop → SSE events", async () => {
     // 1. Initial state should be Stopped
     const initialRes = await request(app.handler as any).get("/dtu");
     expect(initialRes.status).toBe(200);
@@ -38,8 +68,8 @@ describe("DTU Lifecycle", () => {
     const stopRes = await request(app.handler as any).delete("/dtu");
     expect(stopRes.status).toBe(200);
 
-    // Wait for process to fully exit
-    await new Promise((resolve) => setTimeout(resolve, 5000));
+    // Wait for process close event to propagate
+    await new Promise((resolve) => setTimeout(resolve, 100));
 
     // 6. Verify status is Stopped
     const stoppedRes = await request(app.handler as any).get("/dtu");

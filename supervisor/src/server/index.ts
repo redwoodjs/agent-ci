@@ -9,6 +9,8 @@ import {
   enableWatchMode,
   disableWatchMode,
   getWorkflows,
+  getWorkflowEnabledMap,
+  setWorkflowEnabled,
   runWorkflow,
   stopWorkflow,
   addSSEClient,
@@ -19,6 +21,8 @@ import {
   getRunsForCommit,
   getRunDetail,
   getRunLogs,
+  getRunStats,
+  getStatsHistory,
 } from "./orchestrator.js";
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
@@ -115,6 +119,26 @@ app.get("/workflows", async (req, res) => {
   res.end(JSON.stringify(workflows));
 });
 
+app.get("/workflows/enabled", async (req, res) => {
+  const repoPath = req.query.repoPath as string;
+  if (!repoPath) {
+    return res.writeHead(400).end();
+  }
+  const workflows = await getWorkflows(repoPath);
+  const enabledMap = await getWorkflowEnabledMap(repoPath, workflows);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(enabledMap));
+});
+
+app.put("/workflows/enabled", async (req, res) => {
+  const { repoPath, workflowId, enabled } = (req as any).body || {};
+  if (!repoPath || !workflowId || typeof enabled !== "boolean") {
+    return res.writeHead(400).end();
+  }
+  await setWorkflowEnabled(repoPath, workflowId, enabled);
+  res.writeHead(200).end();
+});
+
 app.post("/workflows/run", async (req, res) => {
   const { repoPath, workflowId, commitId } = (req as any).body || {};
   if (!repoPath || !workflowId) {
@@ -159,6 +183,26 @@ app.get("/runs", async (req, res) => {
   }
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify(detail));
+});
+
+app.get("/runs/stats", async (req, res) => {
+  const runId = req.query.runId as string;
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const stats = await getRunStats(runId);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(stats));
+});
+
+app.get("/runs/stats/history", async (req, res) => {
+  const runId = req.query.runId as string;
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const history = await getStatsHistory(runId);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(history));
 });
 
 app.get("/runs/logs", async (req, res) => {

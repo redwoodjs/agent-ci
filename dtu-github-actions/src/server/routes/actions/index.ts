@@ -333,7 +333,10 @@ export function registerActionRoutes(app: Polka) {
         nameWithOwner: action.nameWithOwner,
         resolvedNameWithOwner: action.nameWithOwner,
         ref: action.ref,
-        resolvedSha: "fake-sha",
+        resolvedSha: crypto
+          .createHash("sha1")
+          .update(`${action.nameWithOwner}@${action.ref}`)
+          .digest("hex"),
         tarballUrl: downloadUrl,
         zipballUrl: downloadUrl.replace("tarball", "zipball"),
         authentication: null,

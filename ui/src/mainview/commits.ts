@@ -41,9 +41,18 @@ async function loadWorkflows() {
     return;
   }
 
-  const workflows = await fetch(
-    "http://localhost:8912/workflows?repoPath=" + encodeURIComponent(repoPath),
-  ).then((r) => r.json());
+  const [workflows, enabledMap]: [
+    { id: string; name: string; triggers: string[]; enabledByDefault: boolean }[],
+    Record<string, boolean>,
+  ] = await Promise.all([
+    fetch("http://localhost:8912/workflows?repoPath=" + encodeURIComponent(repoPath)).then((r) =>
+      r.json(),
+    ),
+    fetch("http://localhost:8912/workflows/enabled?repoPath=" + encodeURIComponent(repoPath)).then(
+      (r) => r.json(),
+    ),
+  ]);
+
   workflowsList.innerHTML = "";
 
   if (workflows.length === 0) {
@@ -51,19 +60,63 @@ async function loadWorkflows() {
     return;
   }
 
-  workflows.forEach((wf: any, idx: number) => {
+  workflows.forEach((wf, idx: number) => {
+    const isEnabled = enabledMap[wf.id] ?? wf.enabledByDefault;
+    const runsOnText =
+      wf.triggers && wf.triggers.length > 0 ? wf.triggers.join(", ") : "manual only";
+
     const item = document.createElement("div");
     item.className = "list-item animate-fade-in";
     item.style.animationDelay = `${idx * 0.05}s`;
     item.style.cursor = "default";
 
     item.innerHTML = `
-      <div>
+      <div style="flex: 1; min-width: 0">
         <div class="list-item-title">${wf.name}</div>
         <div class="list-item-subtitle">${wf.id}</div>
+        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px">
+          runs on: <span style="color: var(--text-primary)">${runsOnText}</span>
+        </div>
       </div>
-      <button class="btn btn-primary run-wf-btn" data-id="${wf.id}" style="height: 28px; padding: 0 12px; font-size: 12px">Run</button>
+      <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0">
+        <button class="auto-toggle-btn" data-id="${wf.id}" data-enabled="${isEnabled}" style="
+          height: 24px;
+          padding: 0 10px;
+          font-size: 11px;
+          font-weight: 600;
+          border: none;
+          border-radius: 12px;
+          cursor: pointer;
+          transition: background 0.2s, color 0.2s;
+          background: ${isEnabled ? "#28a745" : "#444"};
+          color: ${isEnabled ? "#fff" : "#aaa"};
+        ">Auto ${isEnabled ? "On" : "Off"}</button>
+        <button class="btn btn-primary run-wf-btn" data-id="${wf.id}" style="height: 28px; padding: 0 12px; font-size: 12px">Run</button>
+      </div>
     `;
+
+    const autoBtn = item.querySelector(".auto-toggle-btn") as HTMLButtonElement;
+    if (autoBtn) {
+      autoBtn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const currentEnabled = autoBtn.dataset["enabled"] === "true";
+        const newEnabled = !currentEnabled;
+        autoBtn.setAttribute("disabled", "true");
+        try {
+          await fetch("http://localhost:8912/workflows/enabled", {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ repoPath, workflowId: wf.id, enabled: newEnabled }),
+          });
+          autoBtn.dataset["enabled"] = String(newEnabled);
+          autoBtn.textContent = `Auto ${newEnabled ? "On" : "Off"}`;
+          autoBtn.style.background = newEnabled ? "#28a745" : "#444";
+          autoBtn.style.color = newEnabled ? "#fff" : "#aaa";
+        } finally {
+          autoBtn.removeAttribute("disabled");
+        }
+      });
+    }
 
     const btn = item.querySelector(".run-wf-btn");
     if (btn) {
@@ -87,6 +140,16 @@ async function loadWorkflows() {
 
     workflowsList.appendChild(item);
   });
+}
+
+function formatElapsed(startMs: number, endMs?: number): string {
+  const elapsed = Math.max(0, ((endMs ?? Date.now()) - startMs) / 1000);
+  if (elapsed < 60) {
+    return `${Math.round(elapsed)}s`;
+  }
+  const mins = Math.floor(elapsed / 60);
+  const secs = Math.round(elapsed % 60);
+  return `${mins}m ${secs}s`;
 }
 
 function getStatusBadge(status: string) {
@@ -137,10 +200,11 @@ async function loadRuns() {
     item.style.animationDelay = `${idx * 0.05}s`;
     item.style.cursor = "pointer";
 
+    const elapsed = formatElapsed(run.date, run.endDate);
     item.innerHTML = `
       <div>
         <div class="list-item-title">${run.workflowName}</div>
-        <div class="list-item-subtitle">${new Date(run.date).toLocaleString()}</div>
+        <div class="list-item-subtitle">${run.runnerName} &middot; ${new Date(run.date).toLocaleString()} &middot; ${elapsed}</div>
       </div>
       <div>
         ${getStatusBadge(run.status)}
@@ -288,6 +352,24 @@ document.addEventListener("DOMContentLoaded", async () => {
         runOnCommitToggle.removeAttribute("disabled");
       }
     });
+  }
+
+  // If a commit was previously selected (e.g. navigating back from a run),
+  // restore its selection and refresh the runs list so stale statuses are updated.
+  if (state.commitId) {
+    selectedCommitId = state.commitId;
+    const container = document.getElementById("commit-details-container");
+    if (container) {
+      container.style.display = "block";
+    }
+    const header = document.getElementById("selected-commit-header");
+    if (header) {
+      header.innerText =
+        state.commitId === "WORKING_TREE"
+          ? "Current Working Tree"
+          : `Commit ${state.commitId.substring(0, 7)}`;
+    }
+    loadRuns();
   }
 
   loadCommits();

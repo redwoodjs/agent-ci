@@ -22,11 +22,26 @@ document.addEventListener("DOMContentLoaded", async () => {
         const item = document.createElement("div");
         item.className = "list-item animate-fade-in";
         item.style.animationDelay = `${idx * 0.05}s`;
+        item.style.display = "flex";
+        item.style.justifyContent = "space-between";
+        item.style.alignItems = "center";
 
         const text = document.createElement("div");
         text.className = "list-item-title";
         text.innerText = repoPath;
         item.appendChild(text);
+
+        const removeBtn = document.createElement("button");
+        removeBtn.innerText = "Remove";
+        removeBtn.className = "btn";
+        removeBtn.style.padding = "4px 8px";
+        removeBtn.style.fontSize = "12px";
+        removeBtn.addEventListener("click", async (e) => {
+          e.stopPropagation();
+          await rpc.request.removeRepo({ repoPath });
+          window.location.reload();
+        });
+        item.appendChild(removeBtn);
 
         item.addEventListener("click", () => goToBranches(repoPath));
         recentList.appendChild(item);

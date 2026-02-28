@@ -421,6 +421,18 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
           return [];
         }
       },
+      removeRepo: async ({ repoPath }) => {
+        const fs = await import("node:fs/promises");
+        const configPath = await getRecentReposPath();
+        try {
+          const content = await fs.readFile(configPath, "utf-8");
+          const recent = JSON.parse(content) as string[];
+          const newRecent = recent.filter((p) => p !== repoPath);
+          await fs.writeFile(configPath, JSON.stringify(newRecent, null, 2));
+        } catch (e) {
+          console.error("Failed to remove repo:", e);
+        }
+      },
       selectRepo: async () => {
         const paths = await Utils.openFileDialog({
           canChooseFiles: false,

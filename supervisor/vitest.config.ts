@@ -3,5 +3,13 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   test: {
     exclude: ["_/**", "dist/**", "node_modules/**"],
+    server: {
+      deps: {
+        // @actions/workflow-parser imports a JSON file without `with { type: "json" }`,
+        // which Node 22+ rejects in native ESM. Inlining forces Vite to bundle it,
+        // and Vite handles JSON imports transparently.
+        inline: ["@actions/workflow-parser"],
+      },
+    },
   },
 });

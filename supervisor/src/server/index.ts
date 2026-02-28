@@ -144,9 +144,9 @@ app.post("/workflows/run", async (req, res) => {
   if (!repoPath || !workflowId) {
     return res.writeHead(400).end();
   }
-  const runnerName = await runWorkflow(repoPath, workflowId, commitId);
+  const runnerNames = await runWorkflow(repoPath, workflowId, commitId);
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ runnerName }));
+  res.end(JSON.stringify({ runnerName: runnerNames[0], runnerNames }));
 });
 
 app.post("/workflows/stop", async (req, res) => {

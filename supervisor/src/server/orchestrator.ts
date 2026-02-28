@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import type { ServerResponse } from "node:http";
 import { PROJECT_ROOT, getLogsDir, getNextLogNum } from "../logger.js";
+import { getWorkflowTemplate } from "../workflow-parser.js";
 
 const execAsync = promisify(execFile);
 
@@ -408,6 +409,8 @@ export async function getRunsForCommit(
     runId: string;
     runnerName: string;
     workflowName: string;
+    jobName: string | null;
+    workflowRunId: string;
     status: string;
     date: number;
     endDate?: number;
@@ -418,6 +421,8 @@ export async function getRunsForCommit(
     runId: string;
     runnerName: string;
     workflowName: string;
+    jobName: string | null;
+    workflowRunId: string;
     status: string;
     date: number;
     endDate?: number;
@@ -441,6 +446,8 @@ export async function getRunsForCommit(
           runId: entry.name,
           runnerName: entry.name,
           workflowName: meta.workflowName || entry.name,
+          jobName: meta.jobName ?? null,
+          workflowRunId: meta.workflowRunId ?? entry.name,
           status,
           date: meta.date || 0,
           endDate: meta.endDate,
@@ -483,25 +490,24 @@ export async function getRunDetail(runId: string): Promise<{
   }
 }
 
-export async function runWorkflow(repoPath: string, workflowId: string, commitId: string) {
-  const fullPath = path.join(repoPath, ".github", "workflows", workflowId);
-  const runnerName = `oa-runner-${nextRunnerNum++}`;
-  const runDir = path.join(getLogsDir(), runnerName);
-  const workflowName = workflowId.replace(/\.ya?ml$/, "");
-
-  await fs.mkdir(runDir, { recursive: true });
-  await fs.writeFile(
-    path.join(runDir, "metadata.json"),
-    JSON.stringify(
-      { workflowPath: fullPath, workflowName, repoPath, commitId, date: Date.now() },
-      null,
-      2,
-    ),
-  );
-
-  activeRuns.add(runnerName);
-  broadcastEvent("runStarted", { runId: runnerName, repoPath, workflowId, commitId });
-
+/** Spawn a single runner process for a given workflow+task and return its runnerName. */
+function spawnRunner({
+  fullPath,
+  runnerName,
+  runDir,
+  commitId,
+  taskId,
+  repoPath: _repoPath,
+  workflowId: _workflowId,
+}: {
+  fullPath: string;
+  runnerName: string;
+  runDir: string;
+  commitId: string;
+  taskId?: string;
+  repoPath: string;
+  workflowId: string;
+}): void {
   const supervisorDir = path.join(PROJECT_ROOT, "supervisor");
   const spawnArgs = ["npx", "tsx", "--env-file=.env", "src/cli.ts", "run"];
   if (commitId && commitId !== "WORKING_TREE") {
@@ -509,6 +515,9 @@ export async function runWorkflow(repoPath: string, workflowId: string, commitId
   }
   spawnArgs.push("--workflow", fullPath);
   spawnArgs.push("--runner-name", runnerName);
+  if (taskId) {
+    spawnArgs.push("--task", taskId);
+  }
 
   const stdoutLog = fsSync.createWriteStream(path.join(runDir, "process-stdout.log"));
   const stderrLog = fsSync.createWriteStream(path.join(runDir, "process-stderr.log"));
@@ -611,8 +620,80 @@ export async function runWorkflow(repoPath: string, workflowId: string, commitId
       await new Promise((r) => setTimeout(r, 5000));
     }
   })();
+}
 
-  return runnerName;
+export async function runWorkflow(
+  repoPath: string,
+  workflowId: string,
+  commitId: string,
+): Promise<string[]> {
+  const fullPath = path.join(repoPath, ".github", "workflows", workflowId);
+  const workflowName = workflowId.replace(/\.ya?ml$/, "");
+
+  // Determine which job(s) to run. If the workflow has multiple jobs we
+  // spawn one runner per job rather than erroring with "Multiple tasks found".
+  let jobIds: string[] = [];
+  try {
+    const template = await getWorkflowTemplate(fullPath);
+    jobIds = template.jobs.filter((j) => j.type === "job").map((j) => j.id.toString());
+  } catch {
+    // If we can't parse the workflow, fall back to single-runner (cli will handle it)
+  }
+
+  // Common entry-point heuristic (mirrors cli.ts logic)
+  const COMMON_ENTRY_POINTS = ["test", "ci", "run", "build"];
+  if (jobIds.length > 1) {
+    const found = COMMON_ENTRY_POINTS.find((n) => jobIds.includes(n));
+    if (found) {
+      // Single obvious entry point — no need to fan out
+      jobIds = [found];
+    }
+  }
+
+  // Claim the base runner number now (before the loop) so all jobs share it
+  const baseNum = nextRunnerNum++;
+  const baseRunnerName = `oa-runner-${baseNum}`;
+  const isMultiJob = jobIds.length > 1;
+
+  // Fan out: one runner per job (or one runner with no --task for single-job workflows)
+  const tasksToRun: (string | undefined)[] = isMultiJob ? jobIds : [undefined];
+  const runnerNames: string[] = [];
+
+  for (let i = 0; i < tasksToRun.length; i++) {
+    const taskId = tasksToRun[i];
+    // Multi-job: oa-runner-N-001, oa-runner-N-002; single-job: oa-runner-N
+    const runnerName = isMultiJob
+      ? `${baseRunnerName}-${String(i + 1).padStart(3, "0")}`
+      : baseRunnerName;
+    const runDir = path.join(getLogsDir(), runnerName);
+
+    await fs.mkdir(runDir, { recursive: true });
+    await fs.writeFile(
+      path.join(runDir, "metadata.json"),
+      JSON.stringify(
+        {
+          workflowPath: fullPath,
+          workflowName,
+          jobName: taskId ?? null, // null for single-job runs
+          workflowRunId: baseRunnerName, // groups jobs that belong to the same run
+          repoPath,
+          commitId,
+          date: Date.now(),
+          taskId,
+        },
+        null,
+        2,
+      ),
+    );
+
+    activeRuns.add(runnerName);
+    broadcastEvent("runStarted", { runId: runnerName, repoPath, workflowId, commitId, taskId });
+
+    spawnRunner({ fullPath, runnerName, runDir, commitId, taskId, repoPath, workflowId });
+    runnerNames.push(runnerName);
+  }
+
+  return runnerNames;
 }
 
 export async function stopWorkflow(runId: string) {
@@ -711,9 +792,20 @@ export async function getRunLogs(runId: string): Promise<string> {
   for (const filename of ["process-stdout.log", "output.log"]) {
     const logPath = path.join(logsDir, runId, filename);
     try {
-      return await fs.readFile(logPath, "utf-8");
+      const content = await fs.readFile(logPath, "utf-8");
+      if (content.trim()) {
+        return content;
+      }
     } catch {}
   }
+  // Fall back to stderr so errors like "Multiple tasks found" are surfaced in the UI
+  try {
+    const stderrPath = path.join(logsDir, runId, "process-stderr.log");
+    const stderr = await fs.readFile(stderrPath, "utf-8");
+    if (stderr.trim()) {
+      return stderr;
+    }
+  } catch {}
   return "";
 }
 

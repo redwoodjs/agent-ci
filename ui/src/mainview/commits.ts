@@ -173,7 +173,16 @@ async function loadRuns() {
     return;
   }
 
-  const history = await fetch(
+  const history: {
+    runId: string;
+    runnerName: string;
+    workflowName: string;
+    jobName: string | null;
+    workflowRunId: string;
+    status: string;
+    date: number;
+    endDate?: number;
+  }[] = await fetch(
     "http://localhost:8912/workflows/commits?repoPath=" +
       encodeURIComponent(repoPath) +
       "&commitId=" +
@@ -194,27 +203,114 @@ async function loadRuns() {
     return;
   }
 
-  history.forEach((run: any, idx: number) => {
-    const item = document.createElement("div");
-    item.className = "list-item animate-fade-in";
-    item.style.animationDelay = `${idx * 0.05}s`;
-    item.style.cursor = "pointer";
+  // Group by workflowRunId — preserving order of first appearance (history is newest-first)
+  const groupOrder: string[] = [];
+  const groups = new Map<string, typeof history>();
+  for (const run of history) {
+    const gid = run.workflowRunId;
+    if (!groups.has(gid)) {
+      groups.set(gid, []);
+      groupOrder.push(gid);
+    }
+    groups.get(gid)!.push(run);
+  }
 
-    const elapsed = formatElapsed(run.date, run.endDate);
-    item.innerHTML = `
+  groupOrder.forEach((workflowRunId, idx) => {
+    const jobs = groups.get(workflowRunId)!;
+    const isMultiJob = jobs.some((j) => j.jobName !== null);
+
+    // Derive overall status for the group
+    let overallStatus = jobs[0].status;
+    if (jobs.some((j) => j.status === "Failed")) {
+      overallStatus = "Failed";
+    } else if (jobs.some((j) => j.status === "Running")) {
+      overallStatus = "Running";
+    } else if (jobs.every((j) => j.status === "Passed")) {
+      overallStatus = "Passed";
+    }
+
+    const firstJob = jobs[0];
+    const elapsed = formatElapsed(firstJob.date, firstJob.endDate);
+
+    if (!isMultiJob) {
+      // Single-job run — render exactly as before
+      const item = document.createElement("div");
+      item.className = "list-item animate-fade-in";
+      item.style.animationDelay = `${idx * 0.05}s`;
+      item.style.cursor = "pointer";
+      item.innerHTML = `
+        <div>
+          <div class="list-item-title">${firstJob.workflowName}</div>
+          <div class="list-item-subtitle">${firstJob.runnerName} · ${new Date(firstJob.date).toLocaleString()} · ${elapsed}</div>
+        </div>
+        <div>${getStatusBadge(overallStatus)}</div>
+      `;
+      item.addEventListener("click", async () => {
+        await setAppState({ runId: firstJob.runId });
+        window.location.href = "views://runs/index.html";
+      });
+      runsList.appendChild(item);
+      return;
+    }
+
+    // Multi-job run — header row (not clickable directly) + indented job rows
+    const group = document.createElement("div");
+    group.className = "animate-fade-in";
+    group.style.animationDelay = `${idx * 0.05}s`;
+    group.style.marginBottom = "4px";
+
+    const header = document.createElement("div");
+    header.className = "list-item";
+    header.style.cursor = "default";
+    header.style.borderBottomLeftRadius = "0";
+    header.style.borderBottomRightRadius = "0";
+    header.innerHTML = `
       <div>
-        <div class="list-item-title">${run.workflowName}</div>
-        <div class="list-item-subtitle">${run.runnerName} &middot; ${new Date(run.date).toLocaleString()} &middot; ${elapsed}</div>
+        <div class="list-item-title">${firstJob.workflowName}</div>
+        <div class="list-item-subtitle">${workflowRunId} · ${new Date(firstJob.date).toLocaleString()} · ${elapsed}</div>
       </div>
-      <div>
-        ${getStatusBadge(run.status)}
-      </div>
+      <div>${getStatusBadge(overallStatus)}</div>
     `;
-    item.addEventListener("click", async () => {
-      await setAppState({ runId: run.runId });
-      window.location.href = "views://runs/index.html";
+    group.appendChild(header);
+
+    // Job rows
+    jobs.forEach((job, ji) => {
+      const isLast = ji === jobs.length - 1;
+      const jobRow = document.createElement("div");
+      jobRow.style.cssText = `
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 12px 6px 28px;
+        cursor: pointer;
+        background: var(--panel-bg);
+        border: 1px solid var(--panel-border);
+        border-top: none;
+        border-bottom-left-radius: ${isLast ? "6px" : "0"};
+        border-bottom-right-radius: ${isLast ? "6px" : "0"};
+        transition: background 0.15s;
+      `;
+      jobRow.innerHTML = `
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="color:var(--text-secondary);font-size:11px">└</span>
+          <span style="font-size:13px;color:var(--text-primary)">${job.jobName}</span>
+        </div>
+        <div>${getStatusBadge(job.status)}</div>
+      `;
+      jobRow.addEventListener("mouseenter", () => {
+        jobRow.style.background = "var(--item-hover, rgba(255,255,255,0.05))";
+      });
+      jobRow.addEventListener("mouseleave", () => {
+        jobRow.style.background = "var(--panel-bg)";
+      });
+      jobRow.addEventListener("click", async () => {
+        await setAppState({ runId: job.runId });
+        window.location.href = "views://runs/index.html";
+      });
+      group.appendChild(jobRow);
     });
-    runsList.appendChild(item);
+
+    runsList.appendChild(group);
   });
 }
 

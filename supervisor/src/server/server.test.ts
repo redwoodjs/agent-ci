@@ -1,6 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import request from "supertest";
 import { app } from "./index.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { runWorkflow } from "./orchestrator.js";
 
 describe("Supervisor Server API", () => {
   it("GET /status returns Idle by default", async () => {
@@ -52,5 +56,101 @@ describe("Supervisor Server API", () => {
   it("GET /workflows fails without repoPath", async () => {
     const res = await request(app.handler as any).get("/workflows");
     expect(res.status).toBe(400);
+  });
+});
+
+// ── Multi-job workflow fan-out ─────────────────────────────────────────────────
+
+const MULTI_JOB_WORKFLOW = `
+name: Multi Job Test
+on: [push]
+jobs:
+  job-alpha:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo alpha
+  job-beta:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo beta
+`.trimStart();
+
+describe("Multi-job workflow fan-out", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("spawns one runner per job with shared base number and workflowRunId", async () => {
+    // Set up a minimal fake repo with a two-job workflow
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-test-"));
+    const workflowsDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowsDir, { recursive: true });
+    const workflowFile = path.join(workflowsDir, "multi.yml");
+    fs.writeFileSync(workflowFile, MULTI_JOB_WORKFLOW);
+
+    // Run — child processes will fail quickly (no Docker/DTU) but metadata is
+    // written synchronously before spawn so we can inspect it immediately.
+    const runnerNames = await runWorkflow(tmpDir, "multi.yml", "WORKING_TREE");
+
+    // Should have spawned exactly 2 runners (one per job)
+    expect(runnerNames).toHaveLength(2);
+
+    const [first, second] = runnerNames;
+
+    // Both should share the same base number: oa-runner-N-001 / oa-runner-N-002
+    expect(first).toMatch(/^oa-runner-\d+-001$/);
+    expect(second).toMatch(/^oa-runner-\d+-002$/);
+
+    // Base numbers must be identical
+    const baseFirst = first.replace(/-\d{3}$/, "");
+    const baseSecond = second.replace(/-\d{3}$/, "");
+    expect(baseFirst).toBe(baseSecond);
+
+    // Read the metadata files to verify grouping fields
+    const { getLogsDir } = await import("../logger.js");
+    const logsDir = getLogsDir();
+
+    const meta1 = JSON.parse(fs.readFileSync(path.join(logsDir, first, "metadata.json"), "utf-8"));
+    const meta2 = JSON.parse(fs.readFileSync(path.join(logsDir, second, "metadata.json"), "utf-8"));
+
+    // workflowRunId is the shared base (oa-runner-N) for both jobs
+    expect(meta1.workflowRunId).toBe(baseFirst);
+    expect(meta2.workflowRunId).toBe(baseFirst);
+
+    // workflowName is the bare workflow name (no job appended)
+    expect(meta1.workflowName).toBe("multi");
+    expect(meta2.workflowName).toBe("multi");
+
+    // jobName is the individual job ID
+    expect(meta1.jobName).toBe("job-alpha");
+    expect(meta2.jobName).toBe("job-beta");
+  });
+
+  it("single-job workflow gets plain oa-runner-N name with null jobName", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-test-"));
+    const workflowsDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowsDir, { recursive: true });
+    const workflowFile = path.join(workflowsDir, "single.yml");
+    fs.writeFileSync(
+      workflowFile,
+      `name: Single Job\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n`,
+    );
+
+    const runnerNames = await runWorkflow(tmpDir, "single.yml", "WORKING_TREE");
+
+    expect(runnerNames).toHaveLength(1);
+    expect(runnerNames[0]).toMatch(/^oa-runner-\d+$/); // no -001 suffix
+
+    const { getLogsDir } = await import("../logger.js");
+    const logsDir = getLogsDir();
+    const meta = JSON.parse(
+      fs.readFileSync(path.join(logsDir, runnerNames[0], "metadata.json"), "utf-8"),
+    );
+    expect(meta.jobName).toBeNull();
+    expect(meta.workflowRunId).toBe(runnerNames[0]); // self-referential for single-job
   });
 });

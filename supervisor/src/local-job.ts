@@ -216,12 +216,14 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const shimsDir = path.resolve(workDir, "shims", containerName);
   const diagDir = path.resolve(workDir, "diag", containerName);
   const toolCacheDir = path.resolve(workDir, "toolcache");
+  const pnpmStoreDir = path.resolve(workDir, "pnpm-store");
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(shimsDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(diagDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(toolCacheDir, { recursive: true, mode: 0o777 });
+  fs.mkdirSync(pnpmStoreDir, { recursive: true, mode: 0o777 });
   // Ensure all intermediate dirs are world-writable for DinD scenarios where
   // the supervisor runs as root but nested containers use runner user (UID 1001)
   try {
@@ -230,6 +232,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     fs.chmodSync(shimsDir, 0o777);
     fs.chmodSync(diagDir, 0o777);
     fs.chmodSync(toolCacheDir, 0o777);
+    fs.chmodSync(pnpmStoreDir, 0o777);
   } catch {
     // Ignore chmod errors (non-critical)
   }
@@ -466,6 +469,7 @@ while True:
         `${diagDir}:/home/runner/_diag`,
         `${workspaceDir}:/tmp/oa-workspace`,
         `${path.resolve(getWorkingDirectory(), "toolcache")}:/opt/hostedtoolcache`,
+        `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
       ],
       AutoRemove: false,
     },
@@ -585,5 +589,10 @@ while True:
   }
   if (fs.existsSync(diagDir)) {
     fs.rmSync(diagDir, { recursive: true, force: true });
+  }
+
+  // Propagate failure so the orchestrator (which checks our exit code) sees it
+  if (!jobSucceeded) {
+    process.exit(1);
   }
 }

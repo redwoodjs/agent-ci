@@ -6,7 +6,6 @@ import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import type { ServerResponse } from "node:http";
 import { PROJECT_ROOT, getLogsDir, getNextLogNum } from "../logger.js";
-import { getWorkflowTemplate } from "../workflow-parser.js";
 
 const execAsync = promisify(execFile);
 
@@ -634,6 +633,7 @@ export async function runWorkflow(
   // spawn one runner per job rather than erroring with "Multiple tasks found".
   let jobIds: string[] = [];
   try {
+    const { getWorkflowTemplate } = await import("../workflow-parser.js");
     const template = await getWorkflowTemplate(fullPath);
     jobIds = template.jobs.filter((j) => j.type === "job").map((j) => j.id.toString());
   } catch {

@@ -17,6 +17,10 @@ export type MyRPCSchema = {
         params: void;
         response: string[];
       };
+      removeRepo: {
+        params: { repoPath: string };
+        response: void;
+      };
       getWorkflows: {
         params: { repoPath: string };
         response: { id: string; name: string }[];

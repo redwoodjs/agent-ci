@@ -46,7 +46,17 @@
         >
           DTU: Checking...
         </div>
+        <button id="sse-audit-btn" class="sse-audit-btn">
+          Events <span id="sse-audit-count">0</span>
+        </button>
       </div>
+    </div>
+    <div id="sse-audit-panel" class="sse-audit-panel" style="display: none">
+      <div class="sse-audit-header">
+        <span>SSE Event Log</span>
+        <button id="sse-audit-clear" class="sse-audit-clear">Clear</button>
+      </div>
+      <div id="sse-audit-list" class="sse-audit-list"></div>
     </div>
     <div class="pane-container animate-fade-in">
       <div class="pane-left">

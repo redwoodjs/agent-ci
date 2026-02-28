@@ -1,5 +1,7 @@
+import { getAppStateAsync, setAppState } from "./state.ts";
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
+import { initSseAuditLog, recordSseEvent } from "./sse-audit-log.ts";
 
 const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
   maxRequestTime: 15000,
@@ -12,11 +14,12 @@ let repoPath = "";
 let branchName = "";
 
 let selectedCommitId: string | null = null;
-let runsPollInterval: any = null;
+let lastRunsJson: string | null = null;
 
 async function selectCommit(commitId: string, label: string) {
   selectedCommitId = commitId;
-  await rpc.request.setAppState({ commitId });
+  lastRunsJson = null;
+  await setAppState({ commitId });
 
   const header = document.getElementById("selected-commit-header");
   if (header) {
@@ -30,11 +33,6 @@ async function selectCommit(commitId: string, label: string) {
 
   await loadWorkflows();
   await loadRuns();
-
-  if (runsPollInterval) {
-    clearInterval(runsPollInterval);
-  }
-  runsPollInterval = setInterval(loadRuns, 3000);
 }
 
 async function loadWorkflows() {
@@ -43,7 +41,9 @@ async function loadWorkflows() {
     return;
   }
 
-  const workflows = await rpc.request.getWorkflows({ repoPath });
+  const workflows = await fetch(
+    "http://localhost:8912/workflows?repoPath=" + encodeURIComponent(repoPath),
+  ).then((r) => r.json());
   workflowsList.innerHTML = "";
 
   if (workflows.length === 0) {
@@ -51,7 +51,7 @@ async function loadWorkflows() {
     return;
   }
 
-  workflows.forEach((wf, idx) => {
+  workflows.forEach((wf: any, idx: number) => {
     const item = document.createElement("div");
     item.className = "list-item animate-fade-in";
     item.style.animationDelay = `${idx * 0.05}s`;
@@ -72,11 +72,11 @@ async function loadWorkflows() {
         btn.setAttribute("disabled", "true");
         btn.innerHTML = "Starting...";
         try {
-          await rpc.request.runWorkflow({
-            repoPath,
-            workflowId: wf.id,
-            commitId: selectedCommitId!,
-          });
+          await fetch("http://localhost:8912/workflows/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ repoPath, workflowId: wf.id, commitId: selectedCommitId }),
+          }).then((r) => r.json());
           await loadRuns();
         } finally {
           btn.removeAttribute("disabled");
@@ -110,7 +110,20 @@ async function loadRuns() {
     return;
   }
 
-  const history = await rpc.request.getWorkflowsForCommit({ repoPath, commitId: selectedCommitId });
+  const history = await fetch(
+    "http://localhost:8912/workflows/commits?repoPath=" +
+      encodeURIComponent(repoPath) +
+      "&commitId=" +
+      encodeURIComponent(selectedCommitId),
+  ).then((r) => r.json());
+
+  // Skip DOM rebuild if data hasn't changed
+  const newJson = JSON.stringify(history);
+  if (newJson === lastRunsJson) {
+    return;
+  }
+  lastRunsJson = newJson;
+
   runsList.innerHTML = "";
 
   if (history.length === 0) {
@@ -118,7 +131,7 @@ async function loadRuns() {
     return;
   }
 
-  history.forEach((run, idx) => {
+  history.forEach((run: any, idx: number) => {
     const item = document.createElement("div");
     item.className = "list-item animate-fade-in";
     item.style.animationDelay = `${idx * 0.05}s`;
@@ -134,7 +147,7 @@ async function loadRuns() {
       </div>
     `;
     item.addEventListener("click", async () => {
-      await rpc.request.setAppState({ runId: run.runId });
+      await setAppState({ runId: run.runId });
       window.location.href = "views://runs/index.html";
     });
     runsList.appendChild(item);
@@ -154,14 +167,27 @@ async function loadCommits() {
 
   list.innerHTML = `<div style="color: var(--text-secondary); text-align: center; padding: 32px">Loading...</div>`;
 
-  const commits = await rpc.request.getGitCommits({ repoPath, branch: branchName });
+  const commits = await fetch(
+    "http://localhost:8912/git/commits?repoPath=" +
+      encodeURIComponent(repoPath) +
+      "&branch=" +
+      encodeURIComponent(branchName),
+  ).then((r) => r.json());
   list.innerHTML = "";
 
-  const branches = await rpc.request.getBranches({ repoPath });
-  const isCurrentBranch = branches.find((b) => b.name === branchName)?.isCurrent ?? false;
+  const branches = await fetch(
+    "http://localhost:8912/git/branches?repoPath=" + encodeURIComponent(repoPath),
+  ).then((r) => r.json());
+  const isCurrentBranch =
+    branches.find((b: { name: string; isCurrent: boolean }) => b.name === branchName)?.isCurrent ??
+    false;
 
   if (isCurrentBranch) {
-    const hasChanges = await rpc.request.getWorkingTreeStatus({ repoPath });
+    const hasChanges = await fetch(
+      "http://localhost:8912/git/working-tree?repoPath=" + encodeURIComponent(repoPath),
+    )
+      .then((r) => r.json())
+      .then((r) => r.dirty);
     const wtItem = document.createElement("div");
     wtItem.className = "list-item animate-fade-in";
     wtItem.style.borderColor = hasChanges ? "var(--accent)" : "var(--panel-border)";
@@ -176,7 +202,7 @@ async function loadCommits() {
   }
 
   if (commits.length > 0) {
-    commits.forEach((commit, idx) => {
+    commits.forEach((commit: any, idx: number) => {
       const item = document.createElement("div");
       item.className = "list-item animate-fade-in";
       item.style.animationDelay = `${idx * 0.02}s`;
@@ -202,9 +228,19 @@ async function loadCommits() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const state = await rpc.request.getAppState();
+  initSseAuditLog();
+  const state = await getAppStateAsync();
   repoPath = state.repoPath;
   branchName = state.branchName;
+
+  // Auto-enable watching so we get SSE events for branch switches and new commits
+  if (repoPath) {
+    fetch("http://localhost:8912/repos/watched", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ repoPath }),
+    }).catch(() => {});
+  }
 
   const backBtn = document.getElementById("back-btn");
   if (backBtn) {
@@ -228,15 +264,23 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     };
 
-    const isWatchEnabled = await rpc.request.getRunOnCommitEnabled({ repoPath });
+    const isWatchEnabled = await fetch("http://localhost:8912/repos/watched")
+      .then((r) => r.json())
+      .then((r) => r.includes(repoPath));
     updateWatchUI(isWatchEnabled);
 
     runOnCommitToggle.addEventListener("click", async () => {
       runOnCommitToggle.setAttribute("disabled", "true");
       try {
-        const currentState = await rpc.request.getRunOnCommitEnabled({ repoPath });
+        const currentState = await fetch("http://localhost:8912/repos/watched")
+          .then((r) => r.json())
+          .then((r) => r.includes(repoPath));
         const newState = !currentState;
-        await rpc.request.toggleRunOnCommit({ repoPath, enabled: newState });
+        await fetch("http://localhost:8912/repos/watched", {
+          method: newState ? "POST" : "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ repoPath }),
+        });
         updateWatchUI(newState);
       } catch (e) {
         console.error("Failed to toggle run on commit", e);
@@ -253,13 +297,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!dtuStatusEl) {
       return;
     }
-    const status = await rpc.request.getDtuStatus();
-    if (status === "Running") {
+
+    let dtuStatus = "Stopped";
+    try {
+      const res = await fetch("http://localhost:8912/dtu");
+      if (res.ok) {
+        const data = await res.json();
+        dtuStatus = data.status;
+      }
+    } catch {
+      dtuStatus = "Error";
+    }
+
+    if (dtuStatus === "Running") {
       dtuStatusEl.innerText = "DTU: Running";
       dtuStatusEl.className = "status-badge status-Passed";
-    } else if (status === "Starting") {
+    } else if (dtuStatus === "Starting") {
       dtuStatusEl.innerText = "DTU: Starting...";
       dtuStatusEl.className = "status-badge status-Running";
+    } else if (dtuStatus === "Failed" || dtuStatus === "Error") {
+      dtuStatusEl.innerText = "DTU: Error (Click to Retry)";
+      dtuStatusEl.className = "status-badge status-Failed";
     } else {
       dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
       dtuStatusEl.className = "status-badge status-Failed";
@@ -268,21 +326,41 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (dtuStatusEl) {
     dtuStatusEl.addEventListener("click", async () => {
-      const status = await rpc.request.getDtuStatus();
-      if (status === "Stopped") {
-        dtuStatusEl.innerText = "DTU: Starting...";
-        dtuStatusEl.className = "status-badge status-Running";
-        await rpc.request.launchDTU();
-        await pollDtuStatus();
-      } else if (status === "Running") {
-        dtuStatusEl.innerText = "DTU: Stopping...";
-        dtuStatusEl.className = "status-badge status-Running";
-        await rpc.request.stopDTU();
-        await pollDtuStatus();
+      if (
+        dtuStatusEl.innerText.includes("Starting") ||
+        dtuStatusEl.innerText.includes("Stopping")
+      ) {
+        return;
       }
+      const isCurrentlyRunning = dtuStatusEl.innerText.includes("Running");
+      dtuStatusEl.innerText = isCurrentlyRunning ? "DTU: Stopping..." : "DTU: Starting...";
+      dtuStatusEl.className = "status-badge status-Running";
+      try {
+        await fetch("http://localhost:8912/dtu", {
+          method: isCurrentlyRunning ? "DELETE" : "POST",
+        });
+      } catch {}
+      await pollDtuStatus();
     });
     pollDtuStatus();
-    setInterval(pollDtuStatus, 3000);
+    try {
+      const evtSource = new EventSource("http://localhost:8912/events");
+      evtSource.addEventListener("message", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          recordSseEvent(data);
+          if (data.type === "dtuStatusChanged") {
+            pollDtuStatus();
+          }
+          if (data.type === "branchChanged" || data.type === "commitDetected") {
+            loadCommits();
+          }
+          if (data.type === "runStarted" || data.type === "runFinished") {
+            loadRuns();
+          }
+        } catch {}
+      });
+    } catch {}
   }
 });
 

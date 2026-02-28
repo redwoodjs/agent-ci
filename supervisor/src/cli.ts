@@ -12,6 +12,12 @@ async function run() {
   const args = process.argv.slice(2);
   const command = args[0];
 
+  if (command === "server") {
+    const { startServer } = await import("./server/index.js");
+    startServer();
+    return;
+  }
+
   if (command === "run") {
     // Basic argument parsing
     let sha: string | undefined;
@@ -79,6 +85,7 @@ function printUsage() {
   console.log("Usage: oa <command> [args]");
   console.log("");
   console.log("Commands:");
+  console.log("  server: Start the long-running continuous integration daemon for the UI");
   console.log(
     "  run [sha] --workflow <path> [--task <name>]: Run a specific workflow (defaults to HEAD)",
   );

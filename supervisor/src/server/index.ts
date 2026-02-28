@@ -1,0 +1,230 @@
+import polka from "polka";
+import cors from "cors";
+import bodyParser from "body-parser";
+import {
+  getRecentRepos,
+  addRecentRepo,
+  removeRecentRepo,
+  getWatchedRepos,
+  enableWatchMode,
+  disableWatchMode,
+  getWorkflows,
+  runWorkflow,
+  stopWorkflow,
+  addSSEClient,
+  loadWatchedRepos,
+  getDtuStatus,
+  startDtu,
+  stopDtu,
+  getRunsForCommit,
+  getRunDetail,
+  getRunLogs,
+} from "./orchestrator.js";
+import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
+
+const PORT = 8912;
+export const app = polka();
+
+app.use(cors());
+app.use(bodyParser.json());
+
+// Repos
+app.get("/repos", async (req, res) => {
+  const repos = await getRecentRepos();
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(repos));
+});
+
+app.post("/repos", async (req, res) => {
+  const { repoPath } = (req as any).body || {};
+  if (repoPath) {
+    await addRecentRepo(repoPath);
+  }
+  res.writeHead(200).end();
+});
+
+app.delete("/repos", async (req, res) => {
+  const { repoPath } = (req as any).body || {};
+  if (repoPath) {
+    await removeRecentRepo(repoPath);
+  }
+  res.writeHead(200).end();
+});
+
+// UI Navigation State (in-memory, shared across all views)
+let uiState: Record<string, string> = {};
+
+app.get("/ui-state", (req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(uiState));
+});
+
+app.post("/ui-state", (req, res) => {
+  const body = (req as any).body || {};
+  uiState = { ...uiState, ...body };
+  res.writeHead(200).end();
+});
+
+// Watched Repos
+app.get("/repos/watched", async (req, res) => {
+  const repos = await getWatchedRepos();
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(repos));
+});
+
+app.post("/repos/watched", async (req, res) => {
+  const { repoPath } = (req as any).body || {};
+  if (repoPath) {
+    await enableWatchMode(repoPath);
+  }
+  res.writeHead(200).end();
+});
+
+app.delete("/repos/watched", async (req, res) => {
+  const { repoPath } = (req as any).body || {};
+  if (repoPath) {
+    await disableWatchMode(repoPath);
+  }
+  res.writeHead(200).end();
+});
+
+// Status & Events
+app.get("/status", (req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ status: "Idle", activeContainers: [], recentJobs: [] }));
+});
+
+app.get("/events", (req, res) => {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+  });
+  res.write(`data: ${JSON.stringify({ type: "connected" })}\n\n`);
+  addSSEClient(res);
+});
+
+// Workflows
+app.get("/workflows", async (req, res) => {
+  const repoPath = req.query.repoPath as string;
+  if (!repoPath) {
+    return res.writeHead(400).end();
+  }
+  const workflows = await getWorkflows(repoPath);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(workflows));
+});
+
+app.post("/workflows/run", async (req, res) => {
+  const { repoPath, workflowId, commitId } = (req as any).body || {};
+  if (!repoPath || !workflowId) {
+    return res.writeHead(400).end();
+  }
+  const runnerName = await runWorkflow(repoPath, workflowId, commitId);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ runnerName }));
+});
+
+app.post("/workflows/stop", async (req, res) => {
+  const { runId } = (req as any).body || {};
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const success = await stopWorkflow(runId);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ success }));
+});
+
+app.get("/workflows/commits", async (req, res) => {
+  const repoPath = req.query.repoPath as string;
+  const commitId = req.query.commitId as string;
+  if (!repoPath || !commitId) {
+    return res.writeHead(400).end();
+  }
+  const runs = await getRunsForCommit(repoPath, commitId);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(runs));
+});
+
+app.get("/runs", async (req, res) => {
+  const runId = req.query.runId as string;
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const detail = await getRunDetail(runId);
+  if (!detail) {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ runId, status: "Unknown", workflowName: runId }));
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(detail));
+});
+
+app.get("/runs/logs", async (req, res) => {
+  const runId = req.query.runId as string;
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const logs = await getRunLogs(runId);
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end(logs);
+});
+
+// Git
+app.get("/git/branches", async (req, res) => {
+  const repoPath = req.query.repoPath as string;
+  if (!repoPath) {
+    return res.writeHead(400).end();
+  }
+  const branches = await getBranches(repoPath);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(branches));
+});
+
+app.get("/git/commits", async (req, res) => {
+  const repoPath = req.query.repoPath as string;
+  const branch = req.query.branch as string;
+  if (!repoPath || !branch) {
+    return res.writeHead(400).end();
+  }
+  const commits = await getGitCommits(repoPath, branch);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(commits));
+});
+
+app.get("/git/working-tree", async (req, res) => {
+  const repoPath = req.query.repoPath as string;
+  if (!repoPath) {
+    return res.writeHead(400).end();
+  }
+  const dirty = await getWorkingTreeStatus(repoPath);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ dirty }));
+});
+
+// DTU
+app.get("/dtu", async (req, res) => {
+  const status = await getDtuStatus();
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ status }));
+});
+
+app.post("/dtu", async (req, res) => {
+  await startDtu();
+  res.writeHead(200).end();
+});
+
+app.delete("/dtu", async (req, res) => {
+  await stopDtu();
+  res.writeHead(200).end();
+});
+
+export async function startServer() {
+  await loadWatchedRepos();
+  app.listen(PORT, () => {
+    console.log(`[OA Supervisor] Server listening on http://localhost:${PORT}`);
+  });
+  // Auto-start DTU at runtime
+  startDtu();
+}

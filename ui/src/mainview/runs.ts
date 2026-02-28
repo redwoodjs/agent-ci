@@ -1,6 +1,8 @@
+import { getAppState, getAppStateAsync } from "./state.ts";
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
 import { AnsiUp } from "ansi_up";
+import { initSseAuditLog, recordSseEvent } from "./sse-audit-log.ts";
 
 const ansiUp = new AnsiUp();
 
@@ -31,25 +33,39 @@ async function loadLogs() {
     runTitle.innerText = `Logs for ${activeRunId}`;
   }
 
-  const details = await rpc.request.getRunDetails({ runId: activeRunId });
+  const details = await fetch(
+    "http://localhost:8912/runs?runId=" + encodeURIComponent(activeRunId),
+  ).then((r) => r.json());
+  const status = details.status || "Unknown";
   if (details && logsViewer && runStatus) {
-    // Only update logs if not actively streaming (otherwise it fights with the stream)
+    // Fetch log content when not actively streaming
     if (!isStreamingLogs) {
-      const isAtBottom =
-        logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
-      logsViewer.innerHTML = ansiUp.ansi_to_html(details.logs);
-      if (isAtBottom) {
-        logsViewer.scrollTop = logsViewer.scrollHeight;
+      try {
+        const logs = await fetch(
+          "http://localhost:8912/runs/logs?runId=" + encodeURIComponent(activeRunId),
+        ).then((r) => r.text());
+        if (logs) {
+          const isAtBottom =
+            logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
+          logsViewer.innerHTML = "<pre>" + ansiUp.ansi_to_html(logs) + "</pre>";
+          if (isAtBottom) {
+            logsViewer.scrollTop = logsViewer.scrollHeight;
+          }
+        } else {
+          logsViewer.innerHTML = `<span style="color: var(--text-secondary)">Waiting for logs...</span>`;
+        }
+      } catch {
+        logsViewer.innerHTML = `<span style="color: var(--text-secondary)">No logs available</span>`;
       }
     }
 
-    if (runStatus.innerText !== details.status) {
-      runStatus.innerText = details.status;
-      runStatus.className = `status-badge status-${details.status}`;
+    if (runStatus.innerText !== status) {
+      runStatus.innerText = status;
+      runStatus.className = `status-badge status-${status}`;
       runStatus.style.display = "inline-block";
     }
 
-    if (details.status === "Running" && stopRunBtn) {
+    if (status === "Running" && stopRunBtn) {
       stopRunBtn.style.display = "inline-flex";
     } else if (stopRunBtn) {
       stopRunBtn.style.display = "none";
@@ -58,7 +74,8 @@ async function loadLogs() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const state = await rpc.request.getAppState();
+  initSseAuditLog();
+  const state = await getAppStateAsync();
   activeRunId = state.runId;
 
   if (backBtn) {
@@ -72,42 +89,52 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (stopRunBtn) {
     stopRunBtn.addEventListener("click", async () => {
       stopRunBtn.setAttribute("disabled", "true");
-      await rpc.request.stopWorkflow();
+      await fetch("http://localhost:8912/workflows/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: getAppState().runId }),
+      });
       stopRunBtn.style.display = "none";
       stopRunBtn.removeAttribute("disabled");
       await loadLogs();
     });
   }
 
-  const details = await rpc.request.getRunDetails({ runId: activeRunId });
-  if (details?.status === "Running") {
+  const initDetails = await fetch(
+    "http://localhost:8912/runs?runId=" + encodeURIComponent(activeRunId || ""),
+  ).then((r) => r.json());
+  if (initDetails?.status === "Running") {
     isStreamingLogs = true;
   }
 
   await loadLogs();
-
-  setInterval(async () => {
-    if (activeRunId) {
-      const currentDetails = await rpc.request.getRunDetails({ runId: activeRunId });
-      if (currentDetails?.status !== "Running") {
-        isStreamingLogs = false; // It stopped, so we can poll the full file
-      }
-      await loadLogs();
-    }
-  }, 3000);
 
   const dtuStatusEl = document.getElementById("dtu-status");
   const pollDtuStatus = async () => {
     if (!dtuStatusEl) {
       return;
     }
-    const status = await rpc.request.getDtuStatus();
-    if (status === "Running") {
+
+    let dtuStatus = "Stopped";
+    try {
+      const res = await fetch("http://localhost:8912/dtu");
+      if (res.ok) {
+        const data = await res.json();
+        dtuStatus = data.status;
+      }
+    } catch {
+      dtuStatus = "Error";
+    }
+
+    if (dtuStatus === "Running") {
       dtuStatusEl.innerText = "DTU: Running";
       dtuStatusEl.className = "status-badge status-Passed";
-    } else if (status === "Starting") {
+    } else if (dtuStatus === "Starting") {
       dtuStatusEl.innerText = "DTU: Starting...";
       dtuStatusEl.className = "status-badge status-Running";
+    } else if (dtuStatus === "Failed" || dtuStatus === "Error") {
+      dtuStatusEl.innerText = "DTU: Error (Click to Retry)";
+      dtuStatusEl.className = "status-badge status-Failed";
     } else {
       dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
       dtuStatusEl.className = "status-badge status-Failed";
@@ -116,34 +143,56 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (dtuStatusEl) {
     dtuStatusEl.addEventListener("click", async () => {
-      const status = await rpc.request.getDtuStatus();
-      if (status === "Stopped") {
-        dtuStatusEl.innerText = "DTU: Starting...";
-        dtuStatusEl.className = "status-badge status-Running";
-        await rpc.request.launchDTU();
-        await pollDtuStatus();
-      } else if (status === "Running") {
-        dtuStatusEl.innerText = "DTU: Stopping...";
-        dtuStatusEl.className = "status-badge status-Running";
-        await rpc.request.stopDTU();
-        await pollDtuStatus();
+      if (
+        dtuStatusEl.innerText.includes("Starting") ||
+        dtuStatusEl.innerText.includes("Stopping")
+      ) {
+        return;
       }
+      const isCurrentlyRunning = dtuStatusEl.innerText.includes("Running");
+      dtuStatusEl.innerText = isCurrentlyRunning ? "DTU: Stopping..." : "DTU: Starting...";
+      dtuStatusEl.className = "status-badge status-Running";
+      try {
+        await fetch("http://localhost:8912/dtu", {
+          method: isCurrentlyRunning ? "DELETE" : "POST",
+        });
+      } catch {}
+      await pollDtuStatus();
     });
     pollDtuStatus();
-    setInterval(pollDtuStatus, 3000);
   }
-});
 
-rpc.addMessageListener("dtuLog", (log: string) => {
-  if (isStreamingLogs && logsViewer && activeRunId) {
-    // Only append if it's the active run (assumes the backend is sending logs for the active run)
-    const isAtBottom =
-      logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
-    logsViewer.insertAdjacentHTML("beforeend", ansiUp.ansi_to_html(log));
-    if (isAtBottom) {
-      logsViewer.scrollTop = logsViewer.scrollHeight;
-    }
-  }
+  try {
+    const evtSource = new EventSource("http://localhost:8912/events");
+    evtSource.addEventListener("message", (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        recordSseEvent(data);
+        if (data.type === "dtuStatusChanged") {
+          pollDtuStatus();
+        }
+        if (data.type === "runFinished") {
+          isStreamingLogs = false;
+          loadLogs();
+        }
+        if (data.type === "runStarted") {
+          loadLogs();
+        }
+        // Live log streaming via SSE
+        if (data.type === "runLog" && data.runId === activeRunId && logsViewer) {
+          isStreamingLogs = true;
+          const isAtBottom =
+            logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
+          const line = document.createElement("div");
+          line.innerHTML = ansiUp.ansi_to_html(data.line);
+          logsViewer.appendChild(line);
+          if (isAtBottom) {
+            logsViewer.scrollTop = logsViewer.scrollHeight;
+          }
+        }
+      } catch {}
+    });
+  } catch {}
 });
 
 window.addEventListener("keydown", (e) => {

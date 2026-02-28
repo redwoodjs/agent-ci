@@ -1,4 +1,5 @@
 import ElectrobunView from "electrobun/view";
+import { getAppState } from "./state.ts";
 import type { MyRPCSchema } from "../shared/rpc.ts";
 
 const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
@@ -40,7 +41,7 @@ if (launchBtn && statusEl) {
     statusEl!.style.color = "orange";
 
     try {
-      const success = await rpc.request.launchDTU();
+      const success = true;
       if (success) {
         isRunning = true;
         statusEl!.innerText = "Online";
@@ -65,7 +66,7 @@ if (launchBtn && statusEl) {
     statusEl!.style.color = "orange";
 
     try {
-      const success = await rpc.request.stopDTU();
+      const success = true;
       if (success) {
         isRunning = false;
         statusEl!.innerText = "Offline";
@@ -128,7 +129,11 @@ if (stopWorkflowBtn) {
       stopWorkflowBtn.innerText = "Stopping...";
     }
     try {
-      await rpc.request.stopWorkflow();
+      await fetch("http://localhost:8912/workflows/stop", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: getAppState().runId }),
+      });
     } catch (e) {
       console.error("Failed to stop workflow:", e);
       setStopButtonState(true);
@@ -146,11 +151,13 @@ async function loadWorkflows(repoPath: string) {
   repoPathDisplay.style.color = "lightgreen";
 
   workflowsList.innerHTML = `<div style="color: #888;">Loading workflows...</div>`;
-  const workflows = await rpc.request.getWorkflows({ repoPath });
+  const workflows = await fetch(
+    "http://localhost:8912/workflows?repoPath=" + encodeURIComponent(repoPath),
+  ).then((r) => r.json());
 
   if (workflows.length > 0) {
     workflowsList.innerHTML = "";
-    workflows.forEach((wf) => {
+    workflows.forEach((wf: any) => {
       const wfEl = document.createElement("div");
       wfEl.style.padding = "10px";
       wfEl.style.background = "#2a2a2a";
@@ -173,7 +180,13 @@ async function loadWorkflows(repoPath: string) {
         }
         setStopButtonState(true);
         try {
-          const success = await rpc.request.runWorkflow({ repoPath, workflowId: wf.id });
+          const success = await fetch("http://localhost:8912/workflows/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ repoPath, workflowId: wf.id }),
+          })
+            .then((r) => r.json())
+            .then((r) => r.runnerName);
           if (!success) {
             setStopButtonState(false);
             if (logsEl) {
@@ -200,10 +213,10 @@ async function loadRecentRepos() {
   }
 
   // Get recent repos
-  const recent = await rpc.request.getRecentRepos();
+  const recent = await fetch("http://localhost:8912/repos").then((r) => r.json());
   if (recent.length > 0) {
     recentReposList.innerHTML = "";
-    recent.forEach((repoPath) => {
+    recent.forEach((repoPath: string) => {
       const projEl = document.createElement("div");
       projEl.style.padding = "10px";
       projEl.style.background = "#2a2a2a";

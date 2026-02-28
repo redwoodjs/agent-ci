@@ -1,5 +1,7 @@
+import { getAppStateAsync, setAppState } from "./state.ts";
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
+import { initSseAuditLog, recordSseEvent } from "./sse-audit-log.ts";
 
 const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
   maxRequestTime: 15000,
@@ -12,12 +14,13 @@ let repoPath = "";
 let commitId = "";
 
 async function goToRuns(workflowId: string) {
-  await rpc.request.setAppState({ workflowId });
+  await setAppState({ workflowId });
   window.location.href = "views://runs/index.html";
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const state = await rpc.request.getAppState();
+  initSseAuditLog();
+  const state = await getAppStateAsync();
   repoPath = state.repoPath;
   commitId = state.commitId;
 
@@ -34,9 +37,11 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const workflowsList = document.getElementById("workflows-list");
   if (workflowsList && repoPath) {
-    const workflows = await rpc.request.getWorkflows({ repoPath });
+    const workflows = await fetch(
+      "http://localhost:8912/workflows?repoPath=" + encodeURIComponent(repoPath),
+    ).then((r) => r.json());
     workflowsList.innerHTML = "";
-    workflows.forEach((wf, idx) => {
+    workflows.forEach((wf: any, idx: number) => {
       const item = document.createElement("div");
       item.className = "list-item animate-fade-in";
       item.style.animationDelay = `${idx * 0.05}s`;
@@ -57,13 +62,27 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!dtuStatusEl) {
       return;
     }
-    const status = await rpc.request.getDtuStatus();
-    if (status === "Running") {
+
+    let dtuStatus = "Stopped";
+    try {
+      const res = await fetch("http://localhost:8912/dtu");
+      if (res.ok) {
+        const data = await res.json();
+        dtuStatus = data.status;
+      }
+    } catch {
+      dtuStatus = "Error";
+    }
+
+    if (dtuStatus === "Running") {
       dtuStatusEl.innerText = "DTU: Running";
       dtuStatusEl.className = "status-badge status-Passed";
-    } else if (status === "Starting") {
+    } else if (dtuStatus === "Starting") {
       dtuStatusEl.innerText = "DTU: Starting...";
       dtuStatusEl.className = "status-badge status-Running";
+    } else if (dtuStatus === "Failed" || dtuStatus === "Error") {
+      dtuStatusEl.innerText = "DTU: Error (Click to Retry)";
+      dtuStatusEl.className = "status-badge status-Failed";
     } else {
       dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
       dtuStatusEl.className = "status-badge status-Failed";
@@ -72,21 +91,35 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   if (dtuStatusEl) {
     dtuStatusEl.addEventListener("click", async () => {
-      const status = await rpc.request.getDtuStatus();
-      if (status === "Stopped") {
-        dtuStatusEl.innerText = "DTU: Starting...";
-        dtuStatusEl.className = "status-badge status-Running";
-        await rpc.request.launchDTU();
-        await pollDtuStatus();
-      } else if (status === "Running") {
-        dtuStatusEl.innerText = "DTU: Stopping...";
-        dtuStatusEl.className = "status-badge status-Running";
-        await rpc.request.stopDTU();
-        await pollDtuStatus();
+      if (
+        dtuStatusEl.innerText.includes("Starting") ||
+        dtuStatusEl.innerText.includes("Stopping")
+      ) {
+        return;
       }
+      const isCurrentlyRunning = dtuStatusEl.innerText.includes("Running");
+      dtuStatusEl.innerText = isCurrentlyRunning ? "DTU: Stopping..." : "DTU: Starting...";
+      dtuStatusEl.className = "status-badge status-Running";
+      try {
+        await fetch("http://localhost:8912/dtu", {
+          method: isCurrentlyRunning ? "DELETE" : "POST",
+        });
+      } catch {}
+      await pollDtuStatus();
     });
     pollDtuStatus();
-    setInterval(pollDtuStatus, 3000);
+    try {
+      const evtSource = new EventSource("http://localhost:8912/events");
+      evtSource.addEventListener("message", (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          recordSseEvent(data);
+          if (data.type === "dtuStatusChanged") {
+            pollDtuStatus();
+          }
+        } catch {}
+      });
+    } catch {}
   }
 });
 

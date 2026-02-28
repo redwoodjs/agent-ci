@@ -18,13 +18,25 @@
         </button>
         <span>OA - <span id="repo-name-display">Loading repo...</span></span>
       </div>
-      <div
-        id="dtu-status"
-        class="status-badge status-Unknown"
-        style="cursor: pointer; user-select: none"
-      >
-        DTU: Checking...
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div
+          id="dtu-status"
+          class="status-badge status-Unknown"
+          style="cursor: pointer; user-select: none"
+        >
+          DTU: Checking...
+        </div>
+        <button id="sse-audit-btn" class="sse-audit-btn">
+          Events <span id="sse-audit-count">0</span>
+        </button>
       </div>
+    </div>
+    <div id="sse-audit-panel" class="sse-audit-panel" style="display: none">
+      <div class="sse-audit-header">
+        <span>SSE Event Log</span>
+        <button id="sse-audit-clear" class="sse-audit-clear">Clear</button>
+      </div>
+      <div id="sse-audit-list" class="sse-audit-list"></div>
     </div>
     <div class="content animate-fade-in">
       <div

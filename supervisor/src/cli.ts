@@ -5,7 +5,12 @@ import { config, loadOaConfig } from "./config.js";
 import { setWorkingDirectory, PROJECT_ROOT } from "./logger.js";
 
 import { executeLocalJob } from "./local-job.js";
-import { getWorkflowTemplate, parseWorkflowSteps, isWorkflowRelevant } from "./workflow-parser.js";
+import {
+  getWorkflowTemplate,
+  parseWorkflowSteps,
+  parseWorkflowServices,
+  isWorkflowRelevant,
+} from "./workflow-parser.js";
 import { Job } from "./types.js";
 
 async function run() {
@@ -249,6 +254,7 @@ async function handleRun(options: {
     }
 
     const steps = await parseWorkflowSteps(workflowPath, taskName);
+    const services = await parseWorkflowServices(workflowPath, taskName);
 
     // 6. Construct Job
     const job: Job = {
@@ -270,6 +276,7 @@ async function handleRun(options: {
       },
       runnerName,
       steps,
+      services,
       workflowPath,
       taskId: taskName,
     };
@@ -338,6 +345,7 @@ async function handleRunAll(options: {
         `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName} ---`,
       );
       const steps = await parseWorkflowSteps(workflowPath, taskName);
+      const services = await parseWorkflowServices(workflowPath, taskName);
 
       const job: Job = {
         deliveryId: `local-run-${Date.now()}`,
@@ -358,6 +366,7 @@ async function handleRunAll(options: {
         },
         runnerName: options.runnerName,
         steps,
+        services,
         workflowPath,
       };
 

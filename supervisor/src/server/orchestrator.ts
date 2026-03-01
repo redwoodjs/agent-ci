@@ -593,10 +593,10 @@ function spawnRunner({
       try {
         const { stdout } = await execAsync(
           "docker",
-          ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", runnerName],
+          ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}|{{.NetIO}}", runnerName],
           { timeout: 5000 },
         );
-        const [cpuStr, memStr] = stdout.trim().split("|");
+        const [cpuStr, memStr, netStr] = stdout.trim().split("|");
         // CPUPerc: "3.14%" → 3.14
         const cpu = parseFloat(cpuStr?.replace("%", "") ?? "0");
         // MemUsage: "123MiB / 7.77GiB" → take left side in MiB
@@ -613,6 +613,34 @@ function spawnRunner({
             memMB = val / 1024;
           }
         }
+        // NetIO: "1.2MB / 3.4MB" → parse rx / tx
+        let netRxMB = 0;
+        let netTxMB = 0;
+        if (netStr) {
+          const netParts = netStr.split("/").map((s) => s.trim());
+          for (let ni = 0; ni < netParts.length; ni++) {
+            const m = netParts[ni].match(/^([\d.]+)(\w+)/);
+            if (m) {
+              const v = parseFloat(m[1]);
+              const u = m[2].toUpperCase();
+              let mb = 0;
+              if (u.startsWith("GB") || u.startsWith("GIB")) {
+                mb = v * 1024;
+              } else if (u.startsWith("MB") || u.startsWith("MIB")) {
+                mb = v;
+              } else if (u.startsWith("KB") || u.startsWith("KIB")) {
+                mb = v / 1024;
+              } else if (u === "B") {
+                mb = v / (1024 * 1024);
+              }
+              if (ni === 0) {
+                netRxMB = mb;
+              } else {
+                netTxMB = mb;
+              }
+            }
+          }
+        }
         if (!isNaN(cpu) || memMB > 0) {
           const metaPath = path.join(runDir, "metadata.json");
           const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
@@ -622,6 +650,12 @@ function spawnRunner({
           if (!meta.peakMemMB || memMB > meta.peakMemMB) {
             meta.peakMemMB = Math.round(memMB);
           }
+          if (!meta.peakNetRxMB || netRxMB > meta.peakNetRxMB) {
+            meta.peakNetRxMB = Math.round(netRxMB * 10) / 10;
+          }
+          if (!meta.peakNetTxMB || netTxMB > meta.peakNetTxMB) {
+            meta.peakNetTxMB = Math.round(netTxMB * 10) / 10;
+          }
           if (!meta.statsHistory) {
             meta.statsHistory = [];
           }
@@ -629,6 +663,8 @@ function spawnRunner({
             ts: Date.now(),
             cpu: Math.round(cpu * 10) / 10,
             memMB: Math.round(memMB),
+            netRxMB: Math.round(netRxMB * 10) / 10,
+            netTxMB: Math.round(netTxMB * 10) / 10,
           };
           meta.statsHistory.push(sample);
           await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
@@ -795,8 +831,12 @@ export async function stopWorkflow(runId: string) {
 export async function getRunStats(runId: string): Promise<{
   cpu?: number;
   memMB?: number;
+  netRxMB?: number;
+  netTxMB?: number;
   peakCpu?: number;
   peakMemMB?: number;
+  peakNetRxMB?: number;
+  peakNetTxMB?: number;
   imageSizeMB?: number;
   live: boolean;
 }> {
@@ -804,14 +844,16 @@ export async function getRunStats(runId: string): Promise<{
   let live = false;
   let cpu: number | undefined;
   let memMB: number | undefined;
+  let netRxMB: number | undefined;
+  let netTxMB: number | undefined;
 
   try {
     const { stdout } = await execAsync(
       "docker",
-      ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}", runId],
+      ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}|{{.NetIO}}", runId],
       { timeout: 5000 },
     );
-    const [cpuStr, memStr] = stdout.trim().split("|");
+    const [cpuStr, memStr, netStr] = stdout.trim().split("|");
     const parsedCpu = parseFloat(cpuStr?.replace("%", "") ?? "");
     if (!isNaN(parsedCpu)) {
       cpu = Math.round(parsedCpu * 10) / 10;
@@ -827,6 +869,32 @@ export async function getRunStats(runId: string): Promise<{
         memMB = Math.round(val);
       } else if (unit.startsWith("KIB") || unit.startsWith("KB")) {
         memMB = Math.round(val / 1024);
+      }
+    }
+    // NetIO: "1.2MB / 3.4MB"
+    if (netStr) {
+      const netParts = netStr.split("/").map((s) => s.trim());
+      for (let ni = 0; ni < netParts.length; ni++) {
+        const m = netParts[ni].match(/^([\d.]+)(\w+)/);
+        if (m) {
+          const v = parseFloat(m[1]);
+          const u = m[2].toUpperCase();
+          let mb = 0;
+          if (u.startsWith("GB") || u.startsWith("GIB")) {
+            mb = v * 1024;
+          } else if (u.startsWith("MB") || u.startsWith("MIB")) {
+            mb = v;
+          } else if (u.startsWith("KB") || u.startsWith("KIB")) {
+            mb = v / 1024;
+          } else if (u === "B") {
+            mb = v / (1024 * 1024);
+          }
+          if (ni === 0) {
+            netRxMB = Math.round(mb * 10) / 10;
+          } else {
+            netTxMB = Math.round(mb * 10) / 10;
+          }
+        }
       }
     }
   } catch {
@@ -850,19 +918,34 @@ export async function getRunStats(runId: string): Promise<{
   // Also pull persisted peak stats from metadata
   let peakCpu: number | undefined;
   let peakMemMB: number | undefined;
+  let peakNetRxMB: number | undefined;
+  let peakNetTxMB: number | undefined;
   try {
     const metaPath = path.join(getLogsDir(), runId, "metadata.json");
     const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
     peakCpu = meta.peakCpu;
     peakMemMB = meta.peakMemMB;
+    peakNetRxMB = meta.peakNetRxMB;
+    peakNetTxMB = meta.peakNetTxMB;
   } catch {}
 
-  return { cpu, memMB, peakCpu, peakMemMB, imageSizeMB, live };
+  return {
+    cpu,
+    memMB,
+    netRxMB,
+    netTxMB,
+    peakCpu,
+    peakMemMB,
+    peakNetRxMB,
+    peakNetTxMB,
+    imageSizeMB,
+    live,
+  };
 }
 
 export async function getStatsHistory(
   runId: string,
-): Promise<Array<{ ts: number; cpu: number; memMB: number }>> {
+): Promise<Array<{ ts: number; cpu: number; memMB: number; netRxMB?: number; netTxMB?: number }>> {
   try {
     const metaPath = path.join(getLogsDir(), runId, "metadata.json");
     const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));

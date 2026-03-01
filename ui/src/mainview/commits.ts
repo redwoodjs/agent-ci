@@ -542,9 +542,25 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
-// Global escape listener
+// Refresh commits list when navigating back (bfcache restore won't fire DOMContentLoaded)
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) {
+    loadCommits();
+    if (selectedCommitId) {
+      loadRuns();
+    }
+  }
+});
+
+// Global back navigation (Escape key + mouse back button)
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    window.history.back();
+  }
+});
+window.addEventListener("pointerdown", (e) => {
+  if (e.button === 3) {
+    e.preventDefault();
     window.history.back();
   }
 });

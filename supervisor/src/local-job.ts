@@ -240,7 +240,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const shimsDir = path.resolve(workDir, "shims", containerName);
   const diagDir = path.resolve(workDir, "diag", containerName);
   const toolCacheDir = path.resolve(workDir, "toolcache");
-  const pnpmStoreDir = path.resolve(workDir, "pnpm-store");
+  const pnpmStoreDir = path.resolve(workDir, "pnpm-store", containerName);
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });

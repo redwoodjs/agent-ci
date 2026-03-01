@@ -23,6 +23,7 @@ import {
   getRunLogs,
   getRunStats,
   getStatsHistory,
+  getRunTimeline,
 } from "./orchestrator.js";
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
@@ -203,6 +204,16 @@ app.get("/runs/stats/history", async (req, res) => {
   const history = await getStatsHistory(runId);
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify(history));
+});
+
+app.get("/runs/timeline", async (req, res) => {
+  const runId = req.query.runId as string;
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const records = await getRunTimeline(runId);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(records));
 });
 
 app.get("/runs/logs", async (req, res) => {

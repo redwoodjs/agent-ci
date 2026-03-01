@@ -44,10 +44,22 @@ export function registerDtuRoutes(app: Polka) {
             }
           }
 
+          const jobResponse = createJobResponse(jobId, payload, runnerBaseUrl || baseUrl, planId);
+
+          // Map timelineId → runner's timeline dir (supervisor logs dir)
+          try {
+            const jobBody = JSON.parse(jobResponse.Body);
+            const timelineId = jobBody?.Timeline?.Id;
+            const tDir = runnerName ? state.runnerTimelineDirs.get(runnerName) : undefined;
+            if (timelineId && tDir) {
+              state.timelineToLogDir.set(timelineId, tDir);
+            }
+          } catch {
+            /* best-effort */
+          }
+
           pollRes.writeHead(200, { "Content-Type": "application/json" });
-          pollRes.end(
-            JSON.stringify(createJobResponse(jobId, payload, runnerBaseUrl || baseUrl, planId)),
-          );
+          pollRes.end(JSON.stringify(jobResponse));
           state.pendingPolls.delete(sessionId);
         }
 
@@ -68,7 +80,7 @@ export function registerDtuRoutes(app: Polka) {
   // Called by localJob.ts when spawning a runner container
   app.post("/_dtu/start-runner", (req: any, res) => {
     try {
-      const { runnerName, logDir } = req.body;
+      const { runnerName, logDir, timelineDir } = req.body;
       if (runnerName && logDir) {
         fs.mkdirSync(logDir, { recursive: true });
         const stepOutputPath = path.join(logDir, "step-output.log");
@@ -76,7 +88,13 @@ export function registerDtuRoutes(app: Polka) {
 
         // Register this runner mapping so we can route logs later
         state.runnerLogs.set(runnerName, logDir);
-        console.log(`[DTU] Registered runner ${runnerName} with logs at ${logDir}`);
+        // Also store the timeline dir (supervisor's logs dir) for this runner
+        if (timelineDir) {
+          state.runnerTimelineDirs.set(runnerName, timelineDir);
+        }
+        console.log(
+          `[DTU] Registered runner ${runnerName} with logs at ${logDir}${timelineDir ? `, timeline at ${timelineDir}` : ""}`,
+        );
       }
     } catch (e) {
       console.warn("[DTU] start-runner parse error:", e);
@@ -89,11 +107,12 @@ export function registerDtuRoutes(app: Polka) {
   app.get("/_dtu/dump", (req, res) => {
     const dump = {
       jobs: Object.fromEntries(state.jobs),
-      timelines: Object.fromEntries(state.timelines),
       logs: Object.fromEntries(state.logs),
       runnerLogs: Object.fromEntries(state.runnerLogs),
+      runnerTimelineDirs: Object.fromEntries(state.runnerTimelineDirs),
       sessionToRunner: Object.fromEntries(state.sessionToRunner),
       planToLogPath: Object.fromEntries(state.planToLogPath),
+      timelineToLogDir: Object.fromEntries(state.timelineToLogDir),
     };
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(dump));

@@ -168,7 +168,11 @@ export async function executeLocalJob(job: Job): Promise<void> {
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ runnerName: containerName, logDir: path.dirname(outputLogPath) }),
+    body: JSON.stringify({
+      runnerName: containerName,
+      logDir: path.dirname(outputLogPath),
+      timelineDir: path.dirname(outputLogPath), // write timeline.json alongside process-stdout.log
+    }),
   }).catch(() => {
     /* non-fatal */
   });

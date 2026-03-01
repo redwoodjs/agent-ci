@@ -237,6 +237,18 @@ export function registerActionRoutes(app: Polka) {
         }
 
         const response = createJobResponse(jobId, jobData, baseUrl, planId);
+        // Map timelineId → runner's timeline dir (supervisor's _/logs/<runnerName>/)
+        try {
+          const jobBody = JSON.parse(response.Body);
+          const timelineId = jobBody?.Timeline?.Id;
+          const tDir = runnerName ? state.runnerTimelineDirs.get(runnerName) : undefined;
+          if (timelineId && tDir) {
+            state.timelineToLogDir.set(timelineId, tDir);
+          }
+        } catch {
+          /* best-effort */
+        }
+
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(response));
         state.jobs.delete(jobId);
@@ -287,16 +299,29 @@ export function registerActionRoutes(app: Polka) {
     res.end(JSON.stringify(payload));
   });
 
-  // 15. Timeline Records Handler
+  // 15. Timeline Records Handler — disk-only, no in-memory storage
   const timelineHandler = (req: any, res: any) => {
     const timelineId = req.params.timelineId;
     const payload = req.body || {};
-    const newRecords = payload.value || [];
+    const newRecords: any[] = payload.value || [];
 
-    let existing = state.timelines.get(timelineId) || [];
+    // Resolve the file to write to
+    const logDir = state.timelineToLogDir.get(timelineId);
+    const filePath = logDir ? path.join(logDir, "timeline.json") : null;
 
+    // Read existing records from disk (if any)
+    let existing: any[] = [];
+    if (filePath) {
+      try {
+        existing = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      } catch {
+        /* file doesn't exist yet or is empty */
+      }
+    }
+
+    // Merge: update existing record by id or append
     for (const record of newRecords) {
-      const idx = existing.findIndex((r) => r.id === record.id);
+      const idx = existing.findIndex((r: any) => r.id === record.id);
       if (idx >= 0) {
         existing[idx] = { ...existing[idx], ...record };
       } else {
@@ -304,7 +329,16 @@ export function registerActionRoutes(app: Polka) {
       }
     }
 
-    state.timelines.set(timelineId, existing);
+    // Persist to disk
+    if (filePath) {
+      try {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
+      } catch {
+        /* best-effort */
+      }
+    }
+
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ count: existing.length, value: existing }));
   };

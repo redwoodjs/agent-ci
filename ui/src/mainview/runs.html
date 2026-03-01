@@ -49,18 +49,20 @@
         max-width: 100%;
       "
     >
+      <!-- Header bar -->
       <div
         style="
-          padding: 16px 24px;
+          padding: 12px 20px;
           border-bottom: 1px solid var(--panel-border);
           background: var(--panel-bg);
           display: flex;
           justify-content: space-between;
           align-items: center;
+          flex-shrink: 0;
         "
       >
         <div>
-          <h2 id="run-title" style="margin: 0; font-size: 16px">Loading run...</h2>
+          <h2 id="run-title" style="margin: 0; font-size: 15px">Loading run...</h2>
         </div>
         <div style="display: flex; gap: 8px">
           <span id="run-status" class="status-badge" style="display: none"></span>
@@ -80,6 +82,8 @@
           </button>
         </div>
       </div>
+
+      <!-- Stats panel -->
       <div
         id="run-stats-panel"
         style="
@@ -87,9 +91,9 @@
           flex-direction: column;
           background: var(--bg);
           border-bottom: 1px solid var(--panel-border);
+          flex-shrink: 0;
         "
       >
-        <!-- Summary pills row -->
         <div
           id="run-stats-bar"
           style="
@@ -102,7 +106,6 @@
             flex-wrap: wrap;
           "
         ></div>
-        <!-- Charts row -->
         <div style="display: flex; gap: 0; padding: 4px 20px 10px; gap: 16px">
           <div style="flex: 1; min-width: 0">
             <div
@@ -140,8 +143,15 @@
           </div>
         </div>
       </div>
-      <div id="logs-viewer" class="log-viewer" style="flex: 1; border-radius: 0">
-        Loading logs...
+
+      <!-- Two-pane: step list + log viewer -->
+      <div style="display: flex; flex: 1; overflow: hidden">
+        <!-- Left: step list -->
+        <div id="step-list" class="step-list"></div>
+        <!-- Right: log viewer -->
+        <div id="logs-viewer" class="log-viewer" style="flex: 1; border-radius: 0">
+          Loading logs...
+        </div>
       </div>
     </div>
     <script src="runs.js"></script>

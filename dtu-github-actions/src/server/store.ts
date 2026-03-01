@@ -11,16 +11,19 @@ export const state = {
   sessions: new Map<string, any>(),
   messageQueues: new Map<string, any[]>(),
   pendingPolls: new Map<string, { res: http.ServerResponse; baseUrl: string }>(),
-  timelines: new Map<string, any[]>(),
   logs: new Map<string, string[]>(),
 
   // Concurrency Maps
   // runnerName -> logDirectory
   runnerLogs: new Map<string, string>(),
+  // runnerName -> timeline directory (supervisor's _/logs/<runnerName>/)
+  runnerTimelineDirs: new Map<string, string>(),
   // sessionId -> runnerName
   sessionToRunner: new Map<string, string>(),
   // planId -> step-output.log path
   planToLogPath: new Map<string, string>(),
+  // timelineId -> runner log directory (for persisting timeline.json)
+  timelineToLogDir: new Map<string, string>(),
 
   // cacheKey -> { version: string, archiveLocation: string, size: number }
   caches: new Map<string, { version: string; archiveLocation: string; size: number }>(),
@@ -56,11 +59,12 @@ export const state = {
     this.sessions.clear();
     this.messageQueues.clear();
     this.pendingPolls.clear();
-    this.timelines.clear();
     this.logs.clear();
     this.runnerLogs.clear();
+    this.runnerTimelineDirs.clear();
     this.sessionToRunner.clear();
     this.planToLogPath.clear();
+    this.timelineToLogDir.clear();
     this.pendingCaches.clear();
   },
 };

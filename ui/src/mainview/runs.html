@@ -47,6 +47,7 @@
         height: calc(100vh - 40px);
         padding: 0;
         max-width: 100%;
+        overflow: hidden;
       "
     >
       <!-- Header bar -->
@@ -145,7 +146,7 @@
       </div>
 
       <!-- Two-pane: step list + log viewer -->
-      <div style="display: flex; flex: 1; overflow: hidden">
+      <div style="display: flex; flex: 1; min-height: 0; overflow: hidden">
         <!-- Left: step list -->
         <div id="step-list" class="step-list"></div>
         <!-- Right: log viewer -->

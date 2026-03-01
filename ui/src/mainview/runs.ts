@@ -14,7 +14,6 @@ const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
 new ElectrobunView.Electroview({ rpc });
 
 let activeRunId: string | null = null;
-let isStreamingLogs = false;
 let runStartDate: number = 0;
 let runEndDate: number | undefined;
 let activeStepId: string | null = null;
@@ -390,8 +389,8 @@ async function loadLogs() {
   loadStats();
 
   if (details && logsViewer && runStatus) {
-    // Fetch log content when not actively streaming
-    if (!isStreamingLogs) {
+    // Fetch log content from the API
+    {
       try {
         const logs = await fetch(
           "http://localhost:8912/runs/logs?runId=" + encodeURIComponent(activeRunId),
@@ -475,8 +474,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     "http://localhost:8912/runs?runId=" + encodeURIComponent(activeRunId || ""),
   ).then((r) => r.json());
   // Always do the initial full log load regardless of status.
-  // isStreamingLogs will be set to true only once SSE runLog events arrive,
-  // so we don't miss historical content when navigating to an already-running run.
 
   await loadLogs();
 
@@ -559,7 +556,6 @@ document.addEventListener("DOMContentLoaded", async () => {
           pollDtuStatus();
         }
         if (data.type === "runFinished") {
-          isStreamingLogs = false;
           if (statusPollTimer !== null) {
             clearInterval(statusPollTimer);
             statusPollTimer = null;
@@ -579,20 +575,6 @@ document.addEventListener("DOMContentLoaded", async () => {
         // Live stats sample via SSE
         if (data.type === "runStatsSample" && data.runId === activeRunId) {
           appendStatSample({ ts: data.ts, cpu: data.cpu, memMB: data.memMB });
-        }
-        // Live log streaming via SSE
-        if (data.type === "runLog" && data.runId === activeRunId && logsViewer) {
-          isStreamingLogs = true;
-          const isAtBottom =
-            logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
-          const line = document.createElement("div");
-          const lineIndex = logsViewer.querySelectorAll("[data-log-line]").length;
-          line.setAttribute("data-log-line", String(lineIndex));
-          line.innerHTML = ansiUp.ansi_to_html(data.line);
-          logsViewer.appendChild(line);
-          if (isAtBottom) {
-            logsViewer.scrollTop = logsViewer.scrollHeight;
-          }
         }
       } catch {}
     });

@@ -219,6 +219,7 @@ a:hover {
   background: #0d1117;
   color: #e6edf3;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;

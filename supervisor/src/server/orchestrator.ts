@@ -557,7 +557,6 @@ function spawnRunner({
     const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
     rl.on("line", (line) => {
       stdoutLog.write(line + "\n");
-      broadcastEvent("runLog", { runId: runnerName, line });
     });
   }
 

@@ -147,9 +147,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
-// Global escape listener
+// Global back navigation (Escape key + mouse back button)
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    window.history.back();
+  }
+});
+window.addEventListener("pointerdown", (e) => {
+  if (e.button === 3) {
+    e.preventDefault();
     window.history.back();
   }
 });

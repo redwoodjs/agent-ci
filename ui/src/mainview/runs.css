@@ -224,6 +224,104 @@ a:hover {
   word-break: break-all;
 }
 
+/* Step list */
+.step-list {
+  width: 260px;
+  min-width: 260px;
+  border-right: 1px solid var(--panel-border);
+  background: var(--panel-bg);
+  overflow-y: auto;
+  flex-shrink: 0;
+  display: none; /* shown once timeline data loads */
+}
+
+.step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--panel-border);
+  cursor: pointer;
+  transition: background 0.12s ease;
+  font-size: 12px;
+  min-height: 38px;
+  user-select: none;
+}
+
+.step-row:hover {
+  background: rgba(88, 166, 255, 0.06);
+}
+
+.step-row.active {
+  background: rgba(88, 166, 255, 0.1);
+  border-left: 2px solid var(--accent);
+  padding-left: 12px;
+}
+
+.step-icon {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.step-icon-success {
+  background: rgba(46, 160, 67, 0.2);
+  color: var(--success);
+}
+
+.step-icon-failure {
+  background: rgba(248, 81, 73, 0.2);
+  color: var(--danger);
+}
+
+.step-icon-skipped {
+  background: rgba(139, 148, 158, 0.15);
+  color: var(--text-secondary);
+}
+
+.step-icon-running {
+  background: rgba(88, 166, 255, 0.15);
+  color: var(--accent);
+}
+
+.step-icon-pending {
+  background: rgba(139, 148, 158, 0.1);
+  color: var(--text-secondary);
+}
+
+.step-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+.step-elapsed {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.step-spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
 /* Animations */
 @keyframes fadeIn {
   from {

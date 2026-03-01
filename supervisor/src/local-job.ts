@@ -168,7 +168,11 @@ export async function executeLocalJob(job: Job): Promise<void> {
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ runnerName: containerName, logDir: path.dirname(outputLogPath) }),
+    body: JSON.stringify({
+      runnerName: containerName,
+      logDir: path.dirname(outputLogPath),
+      timelineDir: path.dirname(outputLogPath), // write timeline.json alongside process-stdout.log
+    }),
   }).catch(() => {
     /* non-fatal */
   });
@@ -176,10 +180,30 @@ export async function executeLocalJob(job: Job): Promise<void> {
   // Write metadata if available (to help the UI map logs to workflows)
   if (job.workflowPath) {
     const metadataPath = path.join(path.dirname(outputLogPath), "metadata.json");
+    // Derive repoPath from the workflow file (walk up to find .git)
+    let repoPath = "";
+    {
+      let dir = path.dirname(job.workflowPath);
+      while (dir !== "/" && !fs.existsSync(path.join(dir, ".git"))) {
+        dir = path.dirname(dir);
+      }
+      repoPath = dir !== "/" ? dir : "";
+    }
+    // Derive workflowRunId (group key) by stripping -NNN suffix if present
+    const workflowRunId = containerName.replace(/-\d{3}$/, "");
     fs.writeFileSync(
       metadataPath,
       JSON.stringify(
-        { workflowPath: job.workflowPath, workflowName: path.basename(job.workflowPath) },
+        {
+          workflowPath: job.workflowPath,
+          workflowName: path.basename(job.workflowPath, path.extname(job.workflowPath)),
+          jobName: job.taskId ?? null,
+          workflowRunId,
+          repoPath,
+          commitId: job.headSha || "WORKING_TREE",
+          date: Date.now(),
+          taskId: job.taskId,
+        },
         null,
         2,
       ),
@@ -238,6 +262,19 @@ export async function executeLocalJob(job: Job): Promise<void> {
   }
 
   // 1. Seed the job to Local DTU
+  // Build a corrected repository object from job.githubRepo (which is resolved from the git
+  // remote — e.g. "redwoodjs/sdk") so generators.ts uses the right repo name for checkout /
+  // workspace paths, rather than the webhook event repo that may point to opposite-actions.
+  const [githubOwner, githubRepoName] = (job.githubRepo || "").split("/");
+  const overriddenRepository = job.githubRepo
+    ? {
+        full_name: job.githubRepo,
+        name: githubRepoName,
+        owner: { login: githubOwner },
+        default_branch: job.repository?.default_branch || "main",
+      }
+    : job.repository;
+
   const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -247,6 +284,8 @@ export async function executeLocalJob(job: Job): Promise<void> {
       status: "queued",
       localPath: workspaceDir,
       ...job,
+      // Override repository with the git-remote-resolved repo (takes precedence over ...job spread)
+      repository: overriddenRepository,
     }),
   });
   if (!seedResponse.ok) {
@@ -258,10 +297,22 @@ export async function executeLocalJob(job: Job): Promise<void> {
 
   // 4. Prepare workspace (checkout emulation)
   try {
-    // Resolve repo root first — needed for both archive and rsync paths.
-    // Without this, git archive from a subdirectory (e.g. supervisor/) would
-    // only include that subdirectory's files instead of the full monorepo.
-    const repoRoot = execSync(`git rev-parse --show-toplevel`).toString().trim();
+    // Resolve repo root — needed for both archive and rsync paths.
+    // Derive from the workflow path (which lives inside the target repo) so we copy
+    // from the correct repo, not from the supervisor's CWD (which is oa-1).
+    let repoRoot: string | undefined;
+    if (job.workflowPath) {
+      let dir = path.dirname(job.workflowPath);
+      while (dir !== "/" && !fs.existsSync(path.join(dir, ".git"))) {
+        dir = path.dirname(dir);
+      }
+      if (dir !== "/") {
+        repoRoot = dir;
+      }
+    }
+    if (!repoRoot) {
+      repoRoot = execSync(`git rev-parse --show-toplevel`).toString().trim();
+    }
 
     if (job.headSha && job.headSha !== "HEAD") {
       // Specific SHA requested — use git archive (clean snapshot)
@@ -300,17 +351,21 @@ export async function executeLocalJob(job: Job): Promise<void> {
       }
     }
 
-    // Add fake git repo so actions/checkout uses fast-path (no delete+reclone)
+    // Add fake git repo so actions/checkout can use the existing workspace.
     // The remote URL must exactly match what actions/checkout computes via URL.origin.
     // Node.js URL.origin strips the default port (80), so we must NOT include :80.
-    // Use -b main so the default branch is 'main', matching what actions/checkout expects.
-    execSync(`git init -b main`, { cwd: workspaceDir });
+    execSync(`git init`, { cwd: workspaceDir });
     execSync(`git config user.name "oa"`, { cwd: workspaceDir });
     execSync(`git config user.email "oa@example.com"`, { cwd: workspaceDir });
-    execSync(`git remote add origin http://127.0.0.1/${config.GITHUB_REPO}`, {
+    execSync(`git remote add origin http://127.0.0.1/${job.githubRepo || config.GITHUB_REPO}`, {
       cwd: workspaceDir,
     });
-    execSync(`git add . && git commit -m "Initial dummy commit" || true`, { cwd: workspaceDir });
+    execSync(`git add . && git commit -m "workspace" || true`, { cwd: workspaceDir });
+    // Create main and refs/remotes/origin/main pointing to this commit
+    execSync(`git branch -M main`, { cwd: workspaceDir });
+    execSync(`git update-ref refs/remotes/origin/main HEAD`, { cwd: workspaceDir });
+    // Detach HEAD so checkout can freely delete ALL branches (it can't delete the current branch)
+    execSync(`git checkout --detach HEAD`, { cwd: workspaceDir });
   } catch (err) {
     if (debug) {
       console.warn(`[LocalJob] Failed to prepare workspace: ${err}. Using host fallback.`);
@@ -318,14 +373,13 @@ export async function executeLocalJob(job: Job): Promise<void> {
   }
 
   // 5. Git shim
-  // The workspace SHA must match what ls-remote returns so actions/checkout skips re-cloning.
-  // Read the SHA from the workspace git repo (created just above), not from the host repo.
-  let workspaceSha: string;
-  try {
-    workspaceSha = execSync(`git rev-parse HEAD`, { cwd: workspaceDir }).toString().trim();
-  } catch {
-    workspaceSha = "0000000000000000000000000000000000000000";
-  }
+  // The SHA returned by ls-remote must match github.sha in the job definition
+  // so actions/checkout's SHA validation passes. Use the same SHA that the DTU
+  // will use in the job definition (OA_HEAD_SHA env var or the deterministic fake).
+  const fakeSha =
+    job.headSha && job.headSha !== "HEAD"
+      ? job.headSha
+      : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
   const gitShimPath = path.join(shimsDir, "git");
   fs.writeFileSync(
@@ -344,19 +398,18 @@ if [[ "$*" == *"config --local --get remote.origin.url"* || "$*" == *"config --g
 fi
 
 # actions/checkout probes ls-remote to find the target SHA.
-# Return the workspace's own commit SHA so checkout thinks the workspace is current.
+# Return the same SHA that github.sha uses in the job definition.
 if [[ "$*" == *"ls-remote"* ]]; then
-  echo "${workspaceSha}\tHEAD"
-  echo "${workspaceSha}\trefs/heads/main"
+  echo "${fakeSha}\tHEAD"
+  echo "${fakeSha}\trefs/heads/main"
   exit 0
 fi
 
 # Intercept fetch - we don't have a real git server, so fetch is a no-op.
-# After fetch, actions/checkout will try: git checkout -B main refs/remotes/origin/main
-# which fails because fetch returned nothing. We intercept that too, and redirect
-# it to the local 'main' branch (which was created by the workspace git init).
+# But we must create refs/remotes/origin/main so checkout's post-fetch validation passes.
 if [[ "$*" == *"fetch"* ]]; then
   echo "[OA Shim] Intercepted 'fetch' - workspace is pre-populated."
+  /usr/bin/git.real update-ref refs/remotes/origin/main HEAD 2>/dev/null || true
   exit 0
 fi
 
@@ -365,7 +418,7 @@ fi
 # checkout the local branch - instead we recreate it from the current HEAD commit.
 if [[ "$*" == *"checkout"* && "$*" == *"refs/remotes/origin/"* ]]; then
   echo "[OA Shim] Redirecting remote checkout - recreating main from HEAD."
-  /usr/bin/git checkout -B main HEAD
+  /usr/bin/git.real checkout -B main HEAD
   exit $?
 fi
 
@@ -375,9 +428,21 @@ if [[ "$1" == "clean" || "$1" == "rm" ]]; then
   exit 0
 fi
 
+# Intercept rev-parse for HEAD/refs/heads/main so the SHA matches github.sha
+# actions/checkout validates that refs/heads/main == github.sha after checkout
+if [[ "$1" == "rev-parse" ]]; then
+  for arg in "$@"; do
+    if [[ "$arg" == "HEAD" || "$arg" == "refs/heads/main" || "$arg" == "refs/remotes/origin/main" ]]; then
+      echo "${fakeSha}"
+      exit 0
+    fi
+  done
+  # Fall through for other rev-parse calls (e.g. rev-parse --show-toplevel)
+fi
+
 # Pass through all other git commands (checkout, reset, log, init, config, etc.)
 echo "git $@ (pass-through)" >> /home/runner/_diag/oa-git-calls.log
-/usr/bin/git "$@"
+/usr/bin/git.real "$@"
 EXIT_CODE=$?
 echo "git $@ exited with $EXIT_CODE" >> /home/runner/_diag/oa-git-calls.log
 exit $EXIT_CODE
@@ -409,7 +474,7 @@ exit $EXIT_CODE
     "127.0.0.1",
     dtuHost,
   );
-  const repoUrl = `${dockerApiUrl}/${config.GITHUB_REPO}`;
+  const repoUrl = `${dockerApiUrl}/${job.githubRepo || config.GITHUB_REPO}`;
 
   if (debug) {
     console.log(`[debug] Spawning container ${containerName}...`);
@@ -432,19 +497,19 @@ exit $EXIT_CODE
       `RUNNER_REPOSITORY_URL=${repoUrl}`,
       `GITHUB_API_URL=${dockerApiUrl}`,
       `GITHUB_SERVER_URL=${repoUrl}`,
-      `GITHUB_REPOSITORY=${config.GITHUB_REPO}`,
+      `GITHUB_REPOSITORY=${job.githubRepo || config.GITHUB_REPO}`,
       `OA_LOCAL_SYNC=true`,
       `OA_HEAD_SHA=${job.headSha || "HEAD"}`,
       `OA_DTU_HOST=${dtuHost}`,
       `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
       `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
       `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
-      `PATH=/tmp/oa-shims:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+      `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
     ],
     Cmd: [
       "bash",
       "-c",
-      `sudo -n chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && sudo -n python3 -c "
+      `sudo -n chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && sudo -n mv /usr/bin/git /usr/bin/git.real && sudo -n cp /tmp/oa-shims/git /usr/bin/git && sudo -n python3 -c "
 import socket, threading, sys
 def fwd(src,dst):
  try:
@@ -459,7 +524,7 @@ def handle(c):
 srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('127.0.0.1',80)); srv.listen(32)
 while True:
  c,_=srv.accept(); threading.Thread(target=handle,args=(c,),daemon=True).start()
-" & sleep 0.2 && sudo chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="$RESOLVED_URL" && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -a /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
+" & sleep 0.2 && sudo chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="$RESOLVED_URL" && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -r /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && sudo -n chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
     ],
     HostConfig: {
       Binds: [

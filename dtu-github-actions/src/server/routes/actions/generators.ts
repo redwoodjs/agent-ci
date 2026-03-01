@@ -94,8 +94,10 @@ export function createJobResponse(
     return s;
   });
 
-  const repoFullName = payload.repository?.full_name || "redwoodjs/opposite-actions";
+  const repoFullName = payload.repository?.full_name || payload.githubRepo || "";
   const ownerName = payload.repository?.owner?.login || "redwoodjs";
+  const repoName = payload.repository?.name || repoFullName.split("/")[1] || "";
+  const workspacePath = `/home/runner/_work/${repoName}/${repoName}`;
 
   const Variables: { [key: string]: JobVariable } = {
     "system.github.token": { Value: "fake-token", IsSecret: true },
@@ -104,7 +106,10 @@ export function createJobResponse(
     "github.repository": { Value: repoFullName, IsSecret: false },
     "github.actor": { Value: ownerName, IsSecret: false },
     "github.sha": {
-      Value: payload.headSha || "0000000000000000000000000000000000000000",
+      Value:
+        payload.headSha && payload.headSha !== "HEAD"
+          ? payload.headSha
+          : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       IsSecret: false,
     },
     "github.ref": { Value: "refs/heads/main", IsSecret: false },
@@ -118,12 +123,15 @@ export function createJobResponse(
   const githubContext: any = {
     repository: repoFullName,
     actor: ownerName,
-    sha: "0000000000000000000000000000000000000000",
+    sha:
+      payload.headSha && payload.headSha !== "HEAD"
+        ? payload.headSha
+        : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     ref: "refs/heads/main",
     server_url: baseUrl,
     api_url: `${baseUrl}/_apis`,
     graphql_url: `${baseUrl}/_graphql`,
-    workspace: "/home/runner/_work/opposite-actions/opposite-actions",
+    workspace: workspacePath,
     action: "__run",
     token: "fake-token",
     job: "local-job",
@@ -137,7 +145,7 @@ export function createJobResponse(
     githubContext.event = {
       repository: {
         full_name: repoFullName,
-        name: payload.repository?.name || "opposite-actions",
+        name: repoName,
         owner: { login: ownerName },
       },
     };
@@ -179,7 +187,7 @@ export function createJobResponse(
           Url: `https://github.com/${repoFullName}`,
           Properties: {
             id: "repo-1",
-            name: payload.repository?.name || "opposite-actions",
+            name: repoName,
             fullName: repoFullName, // Required by types
             repoFullName: repoFullName, // camelCase
             owner: ownerName,
@@ -203,7 +211,7 @@ export function createJobResponse(
       ],
     },
     Workspace: {
-      Path: "/home/runner/_work/opposite-actions/opposite-actions",
+      Path: workspacePath,
     },
     SystemVssConnection: {
       Url: baseUrl,

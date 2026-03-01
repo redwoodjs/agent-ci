@@ -17,6 +17,7 @@ let activeRunId: string | null = null;
 let isStreamingLogs = false;
 let runStartDate: number = 0;
 let runEndDate: number | undefined;
+let activeStepId: string | null = null;
 
 function formatElapsed(startMs: number, endMs?: number): string {
   const elapsed = Math.max(0, ((endMs ?? Date.now()) - startMs) / 1000);
@@ -40,6 +41,152 @@ const runStatsBar = document.getElementById("run-stats-bar");
 const runStatsPanel = document.getElementById("run-stats-panel") as HTMLElement | null;
 const cpuCanvas = document.getElementById("chart-cpu") as HTMLCanvasElement | null;
 const memCanvas = document.getElementById("chart-mem") as HTMLCanvasElement | null;
+const stepListEl = document.getElementById("step-list") as HTMLElement | null;
+
+interface TimelineRecord {
+  id: string;
+  name: string;
+  type: string;
+  order: number;
+  state: string;
+  result: string | null;
+  startTime: string | null;
+  finishTime: string | null;
+  refName: string | null;
+  parentId: string | null;
+}
+
+function formatElapsedMs(startTime: string | null, finishTime: string | null): string {
+  if (!startTime) {
+    return "";
+  }
+  const start = new Date(startTime).getTime();
+  const end = finishTime ? new Date(finishTime).getTime() : Date.now();
+  const secs = Math.round(Math.max(0, end - start) / 1000);
+  if (secs < 60) {
+    return `${secs}s`;
+  }
+  const mins = Math.floor(secs / 60);
+  return `${mins}m ${secs % 60}s`;
+}
+
+function stepIcon(record: TimelineRecord): string {
+  if (record.state !== "completed") {
+    // In progress
+    return `<span class="step-icon step-icon-running"><span class="step-spinner">⟳</span></span>`;
+  }
+  if (record.result === "succeeded") {
+    return `<span class="step-icon step-icon-success">✓</span>`;
+  }
+  if (record.result === "failed") {
+    return `<span class="step-icon step-icon-failure">✗</span>`;
+  }
+  if (record.result === "skipped") {
+    return `<span class="step-icon step-icon-skipped">—</span>`;
+  }
+  return `<span class="step-icon step-icon-pending">·</span>`;
+}
+
+function scrollToStep(stepName: string) {
+  if (!logsViewer) {
+    return;
+  }
+
+  const children = Array.from(logsViewer.querySelectorAll("[data-log-line]"));
+  console.log(`[scrollToStep] searching "${stepName}" in ${children.length} lines`);
+
+  // Build candidate strings to try (in priority order):
+  //  1. The exact timeline step name (e.g. "Run pnpm install")
+  //  2. Without the "Run " prefix (e.g. "pnpm install") — GitHub Actions emits
+  //     just the command text in logs, not the full step name.
+  const candidates: string[] = [stepName];
+  if (stepName.startsWith("Run ")) {
+    candidates.push(stepName.slice(4)); // strip "Run "
+  }
+
+  for (const candidate of candidates) {
+    for (const el of children) {
+      const text = el.textContent || "";
+      if (text.includes(candidate)) {
+        // offsetTop is relative to offsetParent (likely body), not the scroll container.
+        // Subtract the container's own offsetTop to get the position within the scroll container.
+        logsViewer.scrollTop = (el as HTMLElement).offsetTop - logsViewer.offsetTop;
+        console.log(`[scrollToStep] matched "${candidate}" scrollTop=${logsViewer.scrollTop}`);
+        return;
+      }
+    }
+  }
+  console.log(
+    `[scrollToStep] no match found for "${stepName}" (candidates: ${candidates.join(", ")})`,
+  );
+}
+
+function setActiveStep(stepId: string, stepName: string) {
+  activeStepId = stepId;
+  // Update active class
+  if (stepListEl) {
+    stepListEl.querySelectorAll(".step-row").forEach((row) => {
+      if ((row as HTMLElement).dataset["stepId"] === stepId) {
+        row.classList.add("active");
+      } else {
+        row.classList.remove("active");
+      }
+    });
+  }
+  scrollToStep(stepName);
+}
+
+function renderStepList(records: TimelineRecord[]) {
+  if (!stepListEl) {
+    return;
+  }
+  // Only show Task-type records, ordered
+  const tasks = records
+    .filter((r) => r.type === "Task")
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  if (tasks.length === 0) {
+    stepListEl.style.display = "none";
+    return;
+  }
+  stepListEl.style.display = "block";
+
+  // Preserve active selection across re-renders
+  stepListEl.innerHTML = tasks
+    .map((r) => {
+      const elapsed = formatElapsedMs(r.startTime, r.finishTime);
+      const isActive = r.id === activeStepId ? " active" : "";
+      return `<div class="step-row${isActive}" data-step-id="${r.id}" data-step-name="${r.name.replace(/"/g, "&quot;")}">
+        ${stepIcon(r)}
+        <span class="step-name" title="${r.name}">${r.name}</span>
+        ${elapsed ? `<span class="step-elapsed">${elapsed}</span>` : ""}
+      </div>`;
+    })
+    .join("");
+
+  // Attach click handlers
+  stepListEl.querySelectorAll(".step-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const el = row as HTMLElement;
+      const stepId = el.dataset["stepId"] || "";
+      const stepName = el.dataset["stepName"] || "";
+      setActiveStep(stepId, stepName);
+    });
+  });
+}
+
+async function loadTimeline() {
+  if (!activeRunId) {
+    return;
+  }
+  try {
+    const records: TimelineRecord[] = await fetch(
+      "http://localhost:8912/runs/timeline?runId=" + encodeURIComponent(activeRunId),
+    ).then((r) => r.json());
+    renderStepList(records);
+  } catch {
+    // timeline not available yet
+  }
+}
 
 let statsPollTimer: ReturnType<typeof setInterval> | null = null;
 let statsHistory: Array<{ ts: number; cpu: number; memMB: number }> = [];
@@ -252,7 +399,11 @@ async function loadLogs() {
         if (logs) {
           const isAtBottom =
             logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
-          logsViewer.innerHTML = "<pre>" + ansiUp.ansi_to_html(logs) + "</pre>";
+          // Render each line as a separate element with data-log-line so steps can scroll to them
+          const lines = ansiUp.ansi_to_html(logs).split("\n");
+          logsViewer.innerHTML = lines
+            .map((l, i) => `<div data-log-line="${i}">${l || "&nbsp;"}</div>`)
+            .join("");
           if (isAtBottom) {
             logsViewer.scrollTop = logsViewer.scrollHeight;
           }
@@ -288,6 +439,8 @@ async function loadLogs() {
       // Load stats one final time to show peak values
       loadStats();
     }
+    // Always refresh timeline when loading logs
+    loadTimeline();
   }
 }
 
@@ -321,9 +474,9 @@ document.addEventListener("DOMContentLoaded", async () => {
   const initDetails = await fetch(
     "http://localhost:8912/runs?runId=" + encodeURIComponent(activeRunId || ""),
   ).then((r) => r.json());
-  if (initDetails?.status === "Running") {
-    isStreamingLogs = true;
-  }
+  // Always do the initial full log load regardless of status.
+  // isStreamingLogs will be set to true only once SSE runLog events arrive,
+  // so we don't miss historical content when navigating to an already-running run.
 
   await loadLogs();
 
@@ -416,8 +569,9 @@ document.addEventListener("DOMContentLoaded", async () => {
             statsPollTimer = null;
           }
           loadLogs();
-          // Final stats fetch to show peak values after run completes
+          // Final stats + timeline fetch after run completes
           setTimeout(() => loadStats(), 1000);
+          setTimeout(() => loadTimeline(), 1500);
         }
         if (data.type === "runStarted") {
           loadLogs();
@@ -432,6 +586,8 @@ document.addEventListener("DOMContentLoaded", async () => {
           const isAtBottom =
             logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
           const line = document.createElement("div");
+          const lineIndex = logsViewer.querySelectorAll("[data-log-line]").length;
+          line.setAttribute("data-log-line", String(lineIndex));
           line.innerHTML = ansiUp.ansi_to_html(data.line);
           logsViewer.appendChild(line);
           if (isAtBottom) {
@@ -443,8 +599,15 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch {}
 });
 
+// Global back navigation (Escape key + mouse back button)
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
+    window.history.back();
+  }
+});
+window.addEventListener("pointerdown", (e) => {
+  if (e.button === 3) {
+    e.preventDefault();
     window.history.back();
   }
 });

@@ -221,14 +221,23 @@ export function registerActionRoutes(app: Polka) {
     }
     state.pendingPolls.set(sessionId, { res, baseUrl });
 
-    if (state.jobs.size > 0) {
-      const [[jobId, jobData]] = Array.from(state.jobs.entries());
+    const runnerName = state.sessionToRunner.get(sessionId);
 
+    // First check for a job seeded specifically for this runner, then fall back to the generic pool.
+    const runnerSpecificJob = runnerName ? state.runnerJobs.get(runnerName) : undefined;
+    const genericJobEntry =
+      !runnerSpecificJob && state.jobs.size > 0 ? Array.from(state.jobs.entries())[0] : undefined;
+
+    const jobId = runnerSpecificJob
+      ? (runnerName as string) // use runnerName as synthetic key for runner-specific jobs
+      : genericJobEntry?.[0];
+    const jobData = runnerSpecificJob ?? genericJobEntry?.[1];
+
+    if (jobId && jobData) {
       try {
         const planId = crypto.randomUUID();
 
         // Concurrency mapping
-        const runnerName = state.sessionToRunner.get(sessionId);
         if (runnerName) {
           const logDir = state.runnerLogs.get(runnerName);
           if (logDir) {
@@ -237,9 +246,26 @@ export function registerActionRoutes(app: Polka) {
         }
 
         const response = createJobResponse(jobId, jobData, baseUrl, planId);
+        // Map timelineId → runner's timeline dir (supervisor's _/logs/<runnerName>/)
+        try {
+          const jobBody = JSON.parse(response.Body);
+          const timelineId = jobBody?.Timeline?.Id;
+          const tDir = runnerName ? state.runnerTimelineDirs.get(runnerName) : undefined;
+          if (timelineId && tDir) {
+            state.timelineToLogDir.set(timelineId, tDir);
+          }
+        } catch {
+          /* best-effort */
+        }
+
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify(response));
-        state.jobs.delete(jobId);
+        // Clean up whichever job store we used
+        if (runnerSpecificJob && runnerName) {
+          state.runnerJobs.delete(runnerName);
+        } else if (genericJobEntry) {
+          state.jobs.delete(genericJobEntry[0]);
+        }
         state.pendingPolls.delete(sessionId);
         return;
       } catch (e) {
@@ -287,24 +313,86 @@ export function registerActionRoutes(app: Polka) {
     res.end(JSON.stringify(payload));
   });
 
-  // 15. Timeline Records Handler
+  // 15. Timeline Records Handler — disk-only, no in-memory storage
   const timelineHandler = (req: any, res: any) => {
     const timelineId = req.params.timelineId;
     const payload = req.body || {};
-    const newRecords = payload.value || [];
+    const newRecords: any[] = payload.value || [];
 
-    let existing = state.timelines.get(timelineId) || [];
+    // Resolve the file to write to
+    const logDir = state.timelineToLogDir.get(timelineId);
+    const filePath = logDir ? path.join(logDir, "timeline.json") : null;
 
-    for (const record of newRecords) {
-      const idx = existing.findIndex((r) => r.id === record.id);
-      if (idx >= 0) {
-        existing[idx] = { ...existing[idx], ...record };
-      } else {
-        existing.push(record);
+    // Read existing records from disk (if any)
+    let existing: any[] = [];
+    if (filePath) {
+      try {
+        existing = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      } catch {
+        /* file doesn't exist yet or is empty */
       }
     }
 
-    state.timelines.set(timelineId, existing);
+    // Merge: update existing record by id, or by order for pre-populated records.
+    // Pre-populated records have friendly names from the YAML (e.g., "Build SDK")
+    // while DTU records have runner names (e.g., "Run pnpm build"). We want to
+    // preserve the friendly name when merging.
+    // The runner sends updates with name: null (uses refName instead), so we must
+    // strip null values to avoid overwriting existing data.
+    for (const record of newRecords) {
+      // Strip null values so they don't overwrite existing data
+      const nonNull: any = {};
+      for (const [k, v] of Object.entries(record)) {
+        if (v != null) {
+          nonNull[k] = v;
+        }
+      }
+
+      let mergedIdx = -1;
+      const idxById = existing.findIndex((r: any) => r.id === record.id);
+      if (idxById >= 0) {
+        existing[idxById] = { ...existing[idxById], ...nonNull };
+        mergedIdx = idxById;
+      } else if (record.order != null) {
+        // Try to match by order against pre-populated pending records
+        const idxByOrder = existing.findIndex(
+          (r: any) => r.order === record.order && r.type === "Task" && r.state === "pending",
+        );
+        if (idxByOrder >= 0) {
+          // Preserve the friendly name from the pre-populated record
+          const friendlyName = existing[idxByOrder].name;
+          existing[idxByOrder] = { ...existing[idxByOrder], ...nonNull, name: friendlyName };
+          mergedIdx = idxByOrder;
+        } else {
+          existing.push(record);
+          mergedIdx = existing.length - 1;
+        }
+      } else {
+        existing.push(record);
+        mergedIdx = existing.length - 1;
+      }
+
+      // Ensure name is populated: fall back to refName if name is still null
+      if (
+        mergedIdx >= 0 &&
+        existing[mergedIdx] &&
+        !existing[mergedIdx].name &&
+        existing[mergedIdx].refName
+      ) {
+        existing[mergedIdx].name = existing[mergedIdx].refName;
+      }
+    }
+
+    // Persist to disk
+    if (filePath) {
+      try {
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+        fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
+      } catch {
+        /* best-effort */
+      }
+    }
+
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ count: existing.length, value: existing }));
   };
@@ -358,7 +446,14 @@ export function registerActionRoutes(app: Polka) {
     const logId = Math.floor(Math.random() * 10000).toString();
     state.logs.set(logId, []);
     res.writeHead(201, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ id: logId, state: "Created" }));
+    // The runner's TaskLog class requires 'path' — null causes ArgumentNullException
+    res.end(
+      JSON.stringify({
+        id: parseInt(logId),
+        path: `logs/${logId}`,
+        createdOn: new Date().toISOString(),
+      }),
+    );
   });
 
   // 17. Log Line Appending Handler (POST .../logs/:logId/lines)
@@ -437,4 +532,13 @@ export function registerActionRoutes(app: Polka) {
       res.end(JSON.stringify({ count: 0, value: [] }));
     },
   );
+
+  // Catch-all: log unhandled requests for debugging
+  app.all("(.*)", (req: any, res: any) => {
+    console.log(`[DTU] ⚠ Unhandled ${req.method} ${req.url}`);
+    if (!res.writableEnded) {
+      res.writeHead(404);
+      res.end("Not Found");
+    }
+  });
 }

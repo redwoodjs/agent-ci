@@ -5,6 +5,7 @@ import { spawn, execFile } from "node:child_process";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import type { ServerResponse } from "node:http";
+import crypto from "node:crypto";
 import { PROJECT_ROOT, getLogsDir, getNextLogNum } from "../logger.js";
 
 const execAsync = promisify(execFile);
@@ -133,49 +134,61 @@ export async function enableWatchMode(repoPath: string) {
     lastBranch = stdout.trim();
   } catch {}
 
+  // Per-repo debounce to prevent multiple rapid watcher events (logs/HEAD, HEAD,
+  // refs/heads/…) for the same commit from spawning duplicate runners.
+  let commitDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
   const gitDir = path.join(repoPath, ".git");
   let watcher: fsSync.FSWatcher | null = null;
   try {
-    watcher = fsSync.watch(gitDir, { recursive: true }, async (_eventType, filename) => {
+    watcher = fsSync.watch(gitDir, { recursive: true }, (_eventType, filename) => {
       if (
         filename &&
         (filename === "logs/HEAD" || filename === "HEAD" || filename.startsWith("refs/heads/"))
       ) {
-        try {
-          const { stdout } = await execAsync("git", ["log", "-1", "--format=%H"], {
-            cwd: repoPath,
-          });
-          const currentCommit = stdout.trim();
-          const watchData = watchedRepos.get(repoPath);
-
-          // Detect branch switch
+        // Debounce: cancel any pending handler and re-schedule so only the last
+        // event in a rapid burst triggers the actual work.
+        if (commitDebounceTimer !== null) {
+          clearTimeout(commitDebounceTimer);
+        }
+        commitDebounceTimer = setTimeout(async () => {
+          commitDebounceTimer = null;
           try {
-            const { stdout: branchOut } = await execAsync(
-              "git",
-              ["rev-parse", "--abbrev-ref", "HEAD"],
-              { cwd: repoPath },
-            );
-            const currentBranch = branchOut.trim();
-            if (watchData && currentBranch && currentBranch !== watchData.lastBranch) {
-              watchData.lastBranch = currentBranch;
-              broadcastEvent("branchChanged", { repoPath, branch: currentBranch });
-            }
-          } catch {}
+            const { stdout } = await execAsync("git", ["log", "-1", "--format=%H"], {
+              cwd: repoPath,
+            });
+            const currentCommit = stdout.trim();
+            const watchData = watchedRepos.get(repoPath);
 
-          // Detect new commits
-          if (watchData && currentCommit && currentCommit !== watchData.lastCommit) {
-            watchData.lastCommit = currentCommit;
-            broadcastEvent("commitDetected", { repoPath, commitId: currentCommit });
+            // Detect branch switch
+            try {
+              const { stdout: branchOut } = await execAsync(
+                "git",
+                ["rev-parse", "--abbrev-ref", "HEAD"],
+                { cwd: repoPath },
+              );
+              const currentBranch = branchOut.trim();
+              if (watchData && currentBranch && currentBranch !== watchData.lastBranch) {
+                watchData.lastBranch = currentBranch;
+                broadcastEvent("branchChanged", { repoPath, branch: currentBranch });
+              }
+            } catch {}
 
-            // Auto-run logic — only run workflows that are enabled
-            const workflows = await getWorkflows(repoPath);
-            for (const { id } of workflows) {
-              if (await getWorkflowEnabledState(repoPath, id)) {
-                await runWorkflow(repoPath, id, currentCommit);
+            // Detect new commits
+            if (watchData && currentCommit && currentCommit !== watchData.lastCommit) {
+              watchData.lastCommit = currentCommit;
+              broadcastEvent("commitDetected", { repoPath, commitId: currentCommit });
+
+              // Auto-run logic — only run workflows that are enabled
+              const workflows = await getWorkflows(repoPath);
+              for (const { id } of workflows) {
+                if (await getWorkflowEnabledState(repoPath, id)) {
+                  await runWorkflow(repoPath, id, currentCommit);
+                }
               }
             }
-          }
-        } catch {}
+          } catch {}
+        }, 300);
       }
     });
   } catch (e: any) {
@@ -689,6 +702,71 @@ export async function runWorkflow(
     activeRuns.add(runnerName);
     broadcastEvent("runStarted", { runId: runnerName, repoPath, workflowId, commitId, taskId });
 
+    // Write an initial timeline.json with all steps in 'pending' state so the UI
+    // can show the step list immediately, before the runner even starts.
+    try {
+      const { parseWorkflowSteps, getWorkflowTemplate } = await import("../workflow-parser.js");
+      const jobIdForSteps = taskId ?? jobIds[0];
+      let steps: any[] = [];
+      if (jobIdForSteps) {
+        steps = (await parseWorkflowSteps(fullPath, jobIdForSteps)) as any[];
+      } else {
+        // Single-job workflow with no explicit taskId — grab steps from first job
+        const tmpl = await getWorkflowTemplate(fullPath);
+        const firstJob = tmpl.jobs.find((j) => j.type === "job");
+        if (firstJob && firstJob.type === "job") {
+          steps = firstJob.steps.map((s, idx) => {
+            // For run: steps with no explicit name, derive "Run <first-line-of-command>"
+            // This matches the display name that the GitHub Actions runner will assign.
+            const script = "run" in s ? ((s as any).run?.toString() ?? "") : "";
+            const firstLine = script.split("\n").find((l: string) => l.trim()) ?? "";
+            const derivedName =
+              s.name?.toString() ??
+              ("uses" in s
+                ? (s as any).uses?.toString()
+                : firstLine
+                  ? `Run ${firstLine.trim()}`
+                  : `Step ${idx + 1}`);
+            return { Name: derivedName };
+          });
+        }
+      }
+      if (steps.length > 0) {
+        await fs.mkdir(runDir, { recursive: true });
+        // For run: steps from parseWorkflowSteps, derive a proper display name.
+        // If Name is an internal ID like __run, __run_2, reconstruct from the Inputs.script.
+        const pendingRecords = steps.map((s: any, idx: number) => {
+          let name = s.DisplayName || s.Name || `Step ${idx + 1}`;
+          // Internal IDs generated by workflow-parser for unnamed run: steps
+          if (/^__run(_\d+)?$/.test(name) && s.Inputs?.script) {
+            const firstLine =
+              (s.Inputs.script as string).split("\n").find((l: string) => l.trim()) ?? "";
+            if (firstLine) {
+              name = `Run ${firstLine.trim()}`;
+            }
+          }
+          return {
+            id: crypto.randomUUID(),
+            parentId: null,
+            type: "Task",
+            name,
+            order: idx + 2, // start at 2; order 1 is typically the "Set up job" pre-step
+            state: "pending",
+            result: null,
+            startTime: null,
+            finishTime: null,
+            refName: null,
+          };
+        });
+        await fs.writeFile(
+          path.join(runDir, "timeline.json"),
+          JSON.stringify(pendingRecords, null, 2),
+        );
+      }
+    } catch {
+      // Best-effort: don't let step pre-population break the run
+    }
+
     spawnRunner({ fullPath, runnerName, runDir, commitId, taskId, repoPath, workflowId });
     runnerNames.push(runnerName);
   }
@@ -786,9 +864,84 @@ export async function getStatsHistory(
   }
 }
 
+export async function getRunTimeline(runId: string): Promise<
+  Array<{
+    id: string;
+    name: string;
+    type: string;
+    order: number;
+    state: string;
+    result: string | null;
+    startTime: string | null;
+    finishTime: string | null;
+    refName: string | null;
+    parentId: string | null;
+  }>
+> {
+  // Prefer the DTU's authoritative timeline (written after execution completes)
+  // over the pre-populated pending timeline written before the run starts.
+  const dtuTimelinePath = path.join(PROJECT_ROOT, "_", "configs", "logs", runId, "timeline.json");
+  const pendingTimelinePath = path.join(getLogsDir(), runId, "timeline.json");
+  // Merge strategy: DTU records are authoritative for steps that have started;
+  // pre-populated pending records fill in steps the DTU hasn't reached yet.
+  // This ensures the step list is always complete, even mid-run.
+  let dtuRecords: any[] = [];
+  let pendingRecords: any[] = [];
+
+  try {
+    const raw = await fs.readFile(dtuTimelinePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      dtuRecords = parsed;
+    }
+  } catch {}
+
+  try {
+    const raw = await fs.readFile(pendingTimelinePath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      pendingRecords = parsed;
+    }
+  } catch {}
+
+  if (dtuRecords.length === 0 && pendingRecords.length === 0) {
+    return [];
+  }
+  if (dtuRecords.length === 0) {
+    return pendingRecords;
+  }
+
+  const dtuByOrder = new Map<number, any>();
+  for (const r of dtuRecords) {
+    if (r.order != null) {
+      dtuByOrder.set(r.order, r);
+    }
+  }
+
+  // Only include Task-type pending records (not infrastructure steps)
+  // Check if the pending record's order is already covered by the DTU timeline
+  const merged = [...dtuRecords];
+  for (const pending of pendingRecords) {
+    if (pending.type === "Task" && !dtuByOrder.has(pending.order)) {
+      merged.push(pending);
+    }
+  }
+
+  return merged;
+}
+
 export async function getRunLogs(runId: string): Promise<string> {
+  // Prefer the DTU's step-output.log (clean, no ##[group] noise)
+  const stepOutputPath = path.join(PROJECT_ROOT, "_", "configs", "logs", runId, "step-output.log");
+  try {
+    const content = await fs.readFile(stepOutputPath, "utf-8");
+    if (content.trim()) {
+      return content;
+    }
+  } catch {}
+
   const logsDir = getLogsDir();
-  // Try process-stdout.log first (from orchestrator spawn), then output.log (from executeLocalJob)
+  // Fall back to process-stdout.log (from orchestrator spawn), then output.log
   for (const filename of ["process-stdout.log", "output.log"]) {
     const logPath = path.join(logsDir, runId, filename);
     try {

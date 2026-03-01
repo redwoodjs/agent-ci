@@ -33,7 +33,10 @@ export function getNextLogNum(prefix: string): number {
   const nums = items
     .filter((item) => item.isDirectory() && item.name.startsWith(`${prefix}-`))
     .map((item) => {
-      const match = item.name.match(/-(\d+)$/);
+      // Strip any trailing -NNN job-suffix (e.g. oa-runner-50-001 → oa-runner-50)
+      // before extracting the base run number so multi-job names don't skew the counter.
+      const baseName = item.name.replace(/-\d{3}$/, "");
+      const match = baseName.match(/-(\d+)$/);
       return match ? parseInt(match[1], 10) : 0;
     });
 

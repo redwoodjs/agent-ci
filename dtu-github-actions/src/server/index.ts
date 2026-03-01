@@ -41,10 +41,14 @@ export async function bootstrapAndReturnApp() {
   registerActionRoutes(app);
   registerCacheRoutes(app);
 
-  // Raw plain text log uploads via stream / catchall logs endpoint
   app.post("/_apis/distributedtask/hubs/:hub/plans/:planId/logs/:logId", (req: any, res) => {
-    const text = req.body;
-    if (typeof text === "string") {
+    let text = "";
+    if (typeof req.body === "string") {
+      text = req.body;
+    } else if (Buffer.isBuffer(req.body)) {
+      text = req.body.toString("utf-8");
+    }
+    if (text) {
       const planId = req.params.planId;
       const logPath = state.planToLogPath.get(planId);
       if (logPath) {
@@ -64,21 +68,27 @@ export async function bootstrapAndReturnApp() {
           }
         }
       }
-
-      const lineCount = text.split("\n").filter((l: string) => l.trim()).length;
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({ id: req.params.logId, lineCount, createdOn: new Date().toISOString() }),
-      );
-    } else {
-      res.writeHead(500);
-      res.end();
     }
+    const lineCount = text ? text.split("\n").filter((l: string) => l.trim()).length : 0;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        id: parseInt(req.params.logId),
+        path: `logs/${req.params.logId}`,
+        lineCount,
+        createdOn: new Date().toISOString(),
+      }),
+    );
   });
 
   app.put("/_apis/distributedtask/hubs/:hub/plans/:planId/logs/:logId", (req: any, res) => {
-    const text = req.body;
-    if (typeof text === "string") {
+    let text = "";
+    if (typeof req.body === "string") {
+      text = req.body;
+    } else if (Buffer.isBuffer(req.body)) {
+      text = req.body.toString("utf-8");
+    }
+    if (text) {
       const planId = req.params.planId;
       const logPath = state.planToLogPath.get(planId);
       if (logPath) {
@@ -98,16 +108,17 @@ export async function bootstrapAndReturnApp() {
           }
         }
       }
-
-      const lineCount = text.split("\n").filter((l: string) => l.trim()).length;
-      res.writeHead(200, { "Content-Type": "application/json" });
-      res.end(
-        JSON.stringify({ id: req.params.logId, lineCount, createdOn: new Date().toISOString() }),
-      );
-    } else {
-      res.writeHead(500);
-      res.end();
     }
+    const lineCount = text ? text.split("\n").filter((l: string) => l.trim()).length : 0;
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        id: parseInt(req.params.logId),
+        path: `logs/${req.params.logId}`,
+        lineCount,
+        createdOn: new Date().toISOString(),
+      }),
+    );
   });
 
   // Global OPTIONS (CORS & Discovery)

@@ -1,6 +1,9 @@
 # Opposite-Actions
 
-**Opposite-Actions** is a local-first CI runner system. It allows GitHub Actions to execute on your own hardware (your MacBook) while providing a seamless fallback to GitHub-hosted runners when you are offline.
+**Opposite-Actions**
+
+!!!
+is a local-first CI runner system. It allows GitHub Actions to execute on your own hardware (your MacBook) while providing a seamless fallback to GitHub-hosted runners when you are offline.
 
 Unlike standard ephemeral runners, **Opposite-Actions** is designed to **freeze on failure**, preserving the Docker container and local filesystem for immediate, interactive debugging.
 
@@ -8,7 +11,7 @@ Unlike standard ephemeral runners, **Opposite-Actions** is designed to **freeze 
 
 ## Project Structure
 
-This project is organized as a `pnpm` workspace:
+This project is organized as a `pnpm` workspace: !!!!!!!!!!!
 
 - [bridge/](./bridge): A Cloudflare Worker that orchestrates jobs and presence.
 - [supervisor/](./supervisor): A Node.js agent that polls the bridge and runs Docker jobs.
@@ -116,3 +119,11 @@ jobs:
           # Your standard test commands
           pnpm test
 ```
+
+---
+
+## Tool Cache & Setup Actions
+
+Unlike GitHub-hosted `ubuntu-latest` runners that come pre-populated with gigabytes of tools (like Node.js, Python, Go, etc.), the `opposite-actions` self-hosted runner starts with an empty cache.
+
+This means the _very first time_ a workflow uses an action like `actions/setup-node`, it will need to download the tool from the internet, taking slightly longer. However, the downloaded tools are saved to a persistent `toolcache` directory on your host machine. All subsequent runs and containers will instantly mount and find the tools in the cache, skipping the download step.

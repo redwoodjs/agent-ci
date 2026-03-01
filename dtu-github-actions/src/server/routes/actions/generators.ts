@@ -65,8 +65,25 @@ export function createJobResponse(
       id: step.Id || step.id || crypto.randomUUID(),
       name: step.Name || step.DisplayName || step.name || `step-${index}`,
       type: (step.Type || "Action").toLowerCase(),
-      // ActionSourceType.Script = 3
-      reference: { type: 3 },
+      reference: (() => {
+        const refTypeSource = step.Reference?.Type || "Script";
+        const refTypeString = refTypeSource.toLowerCase();
+        let typeInt = 3;
+        if (refTypeString === "repository") {
+          typeInt = 1;
+        } else if (refTypeString === "container") {
+          typeInt = 2;
+        }
+
+        const reference: any = { type: typeInt };
+        if (typeInt === 1 && step.Reference) {
+          reference.name = step.Reference.Name;
+          reference.ref = step.Reference.Ref;
+          reference.repositoryType = step.Reference.RepositoryType || "GitHub";
+          reference.path = step.Reference.Path || "";
+        }
+        return reference;
+      })(),
       // inputs is TemplateToken (MappingToken). Must use {"type": 2, "map": [...]} format.
       inputs: toTemplateTokenMapping(inputsObj),
       contextData: step.ContextData || toContextData({}),
@@ -106,7 +123,7 @@ export function createJobResponse(
     server_url: baseUrl,
     api_url: `${baseUrl}/_apis`,
     graphql_url: `${baseUrl}/_graphql`,
-    workspace: "/home/runner/work/opposite-actions/opposite-actions",
+    workspace: "/home/runner/_work/opposite-actions/opposite-actions",
     action: "__run",
     token: "fake-token",
     job: "local-job",
@@ -186,7 +203,7 @@ export function createJobResponse(
       ],
     },
     Workspace: {
-      Path: "/home/runner/work/opposite-actions/opposite-actions",
+      Path: "/home/runner/_work/opposite-actions/opposite-actions",
     },
     SystemVssConnection: {
       Url: baseUrl,

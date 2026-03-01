@@ -25,6 +25,7 @@ export async function getWorkflowTemplate(filePath: string) {
 
 export async function parseWorkflowSteps(filePath: string, taskName: string) {
   const template = await getWorkflowTemplate(filePath);
+  const rawYaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
 
   // Find the job by ID or Name
   const job = template.jobs.find((j) => {
@@ -38,10 +39,14 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
     throw new Error(`Task "${taskName}" not found in workflow "${filePath}"`);
   }
 
+  const rawJob = rawYaml.jobs?.[taskName] || {};
+  const rawSteps = rawJob.steps || [];
+
   return job.steps
     .map((step, index) => {
       const stepId = step.id || `step-${index + 1}`;
       let stepName = step.name ? step.name.toString() : stepId;
+      const rawStep = rawSteps[index] || {};
 
       // Fix for __actions_checkout issue
       // If a step uses an action but has no name, @actions/workflow-parser might auto-generate a name like __actions_checkout
@@ -77,6 +82,9 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
           ref = parts[1];
         }
 
+        const isCheckout = name.trim().toLowerCase() === "actions/checkout";
+        const stepWith = rawStep.with || {};
+
         return {
           Type: "Action",
           Name: stepName,
@@ -90,7 +98,23 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
             Path: "",
           },
           Inputs: {
-            ...(step as any).with, // If we want to support 'with' inputs
+            // with: values from @actions/workflow-parser are expression objects; call toString() on each.
+            ...((step as any).with
+              ? Object.fromEntries(
+                  Object.entries((step as any).with).map(([k, v]) => [k, String(v)]),
+                )
+              : {}),
+            // Merge from raw YAML
+            ...Object.fromEntries(Object.entries(stepWith).map(([k, v]) => [k, String(v)])),
+            ...(isCheckout
+              ? {
+                  clean: "false",
+                  "fetch-depth": "0",
+                  lfs: "false",
+                  submodules: "false",
+                  ...Object.fromEntries(Object.entries(stepWith).map(([k, v]) => [k, String(v)])),
+                }
+              : {}), // Prevent actions/checkout from wiping the rsynced workspace
           },
         };
       }

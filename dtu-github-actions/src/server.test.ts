@@ -6,7 +6,7 @@ import type { AddressInfo } from "node:net";
 import type { Polka } from "polka";
 import fs from "node:fs";
 import path from "node:path";
-import { DTU_LOG_PATH } from "./server/logger.js";
+import { getDtuLogPath } from "./server/logger.js";
 
 let PORT: number;
 
@@ -163,7 +163,7 @@ describe("DTU Server", () => {
   });
 
   it("should log unhandled requests to 404.log", async () => {
-    const logDir = path.dirname(DTU_LOG_PATH);
+    const logDir = path.dirname(getDtuLogPath());
     const logFile = path.join(logDir, "404.log");
 
     // Clean up any existing 404.log

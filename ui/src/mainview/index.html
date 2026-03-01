@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hello Electrobun!</title>
+    <link rel="stylesheet" href="index.css" />
+  </head>
+  <body>
+    <div class="container">
+      <h1>Hello Electrobun! 🎉</h1>
+      <p class="subtitle">A fast, cross-platform desktop app framework</p>
+
+      <div class="welcome-section">
+        <div
+          style="
+            background-color: var(--card-bg, #1e1e1e);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+          "
+        >
+          <div style="display: flex; align-items: center; justify-content: space-between">
+            <div>
+              <h3 style="margin: 0 0 8px 0">DTU Server</h3>
+              <div>
+                Status: <span id="dtu-status" style="color: #888; font-weight: bold">Offline</span>
+              </div>
+            </div>
+            <button
+              id="launch-dtu-btn"
+              style="
+                padding: 10px 20px;
+                font-weight: bold;
+                background: #007bff;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+              "
+            >
+              Launch DTU
+            </button>
+          </div>
+        </div>
+        <div
+          style="
+            background-color: var(--card-bg, #1e1e1e);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+          "
+        >
+          <div
+            style="
+              display: flex;
+              align-items: flex-start;
+              justify-content: space-between;
+              flex-wrap: wrap;
+              margin-bottom: 12px;
+            "
+          >
+            <div>
+              <h3 style="margin: 0 0 8px 0">Repository Workflows</h3>
+              <div>
+                Selected:
+                <span id="repo-path-display" style="color: #888; font-weight: bold">None</span>
+              </div>
+            </div>
+            <button
+              id="select-repo-btn"
+              style="
+                padding: 10px 20px;
+                font-weight: bold;
+                background: #007bff;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+              "
+            >
+              Select Repo
+            </button>
+          </div>
+          <div id="workflows-list" style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #666; font-style: italic">No workflows loaded</div>
+          </div>
+        </div>
+
+        <div
+          style="
+            background-color: var(--card-bg, #1e1e1e);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+          "
+        >
+          <div style="margin-bottom: 12px">
+            <h3 style="margin: 0 0 8px 0">Recent Repos</h3>
+          </div>
+          <div id="recent-repos-list" style="display: flex; flex-direction: column; gap: 8px">
+            <div style="color: #666; font-style: italic">No recent repos</div>
+          </div>
+        </div>
+
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+          "
+        >
+          <h3 style="margin: 0">Execution Logs</h3>
+          <button
+            id="stop-workflow-btn"
+            disabled
+            style="
+              padding: 6px 12px;
+              font-weight: bold;
+              background: #dc3545;
+              color: white;
+              border: none;
+              border-radius: 4px;
+              cursor: not-allowed;
+              opacity: 0.5;
+            "
+          >
+            Stop Workflow
+          </button>
+        </div>
+
+        <div
+          style="
+            background-color: #000;
+            color: #0f0;
+            padding: 10px;
+            border-radius: 6px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+            margin-bottom: 24px;
+            white-space: pre-wrap;
+          "
+          id="dtu-logs"
+        >
+          Waiting for DTU logs...
+        </div>
+      </div>
+    </div>
+
+    <script src="index.js"></script>
+  </body>
+</html>

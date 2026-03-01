@@ -2,20 +2,34 @@ import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 
-// Pinned to the runner package root regardless of cwd
-const RUNNER_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..");
-export const LOGS_DIR = path.join(RUNNER_ROOT, "_", "logs");
+// Pinned to the monorepo root (project root), not the supervisor package
+export const PROJECT_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
+
+let workingDirectory = path.join(PROJECT_ROOT, "_");
+
+export function setWorkingDirectory(dir: string): void {
+  workingDirectory = dir;
+}
+
+export function getWorkingDirectory(): string {
+  return workingDirectory;
+}
+
+export function getLogsDir(): string {
+  return path.join(workingDirectory, "logs");
+}
 
 export function ensureLogDirs(): void {
-  fs.mkdirSync(LOGS_DIR, { recursive: true });
+  fs.mkdirSync(getLogsDir(), { recursive: true });
 }
 
 export function getNextLogNum(prefix: string): number {
-  if (!fs.existsSync(LOGS_DIR)) {
+  const logsDir = getLogsDir();
+  if (!fs.existsSync(logsDir)) {
     return 1;
   }
 
-  const items = fs.readdirSync(LOGS_DIR, { withFileTypes: true });
+  const items = fs.readdirSync(logsDir, { withFileTypes: true });
   const nums = items
     .filter((item) => item.isDirectory() && item.name.startsWith(`${prefix}-`))
     .map((item) => {
@@ -26,11 +40,18 @@ export function getNextLogNum(prefix: string): number {
   return nums.length > 0 ? Math.max(...nums) + 1 : 1;
 }
 
-export function createLogContext(prefix: string) {
+export function createLogContext(prefix: string, preferredName?: string) {
   ensureLogDirs();
-  const num = getNextLogNum(prefix);
-  const name = `${prefix}-${num}`;
-  const logDir = path.join(LOGS_DIR, name);
+
+  let num = 0;
+  let name = preferredName;
+
+  if (!name) {
+    num = getNextLogNum(prefix);
+    name = `${prefix}-${num}`;
+  }
+
+  const logDir = path.join(getLogsDir(), name);
   fs.mkdirSync(logDir, { recursive: true });
 
   return {

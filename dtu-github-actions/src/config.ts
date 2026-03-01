@@ -1,7 +1,9 @@
+import { parse } from "jsonc-parser";
 import { z } from "zod";
 
 import path from "node:path";
 import os from "node:os";
+import fs from "node:fs";
 
 const configSchema = z.object({
   /**
@@ -42,3 +44,23 @@ export const config = configSchema.parse({
   DTU_PORT: process.env.DTU_PORT,
   DTU_CACHE_DIR: process.env.DTU_CACHE_DIR,
 });
+
+export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".config", "oa", "config.jsonc");
+
+export function parseJsonc(fileContent: string): any {
+  const errors: any[] = [];
+  const result = parse(fileContent, errors, { allowTrailingComma: true });
+  if (errors.length > 0) {
+    throw new Error(`Failed to parse JSONC config with ${errors.length} error(s)`);
+  }
+  return result;
+}
+
+export function loadOaConfig(configPath?: string): { workingDirectory?: string } {
+  const resolvedPath = configPath ? path.resolve(configPath) : DEFAULT_CONFIG_PATH;
+  if (!fs.existsSync(resolvedPath)) {
+    return {};
+  }
+  const content = fs.readFileSync(resolvedPath, "utf-8");
+  return parseJsonc(content);
+}

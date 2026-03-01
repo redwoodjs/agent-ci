@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OA - Repos</title>
+    <link rel="stylesheet" href="repos.css" />
+  </head>
+  <body>
+    <div class="titlebar" style="justify-content: space-between">
+      <span>OA - Select Repo</span>
+      <div style="display: flex; align-items: center; gap: 8px">
+        <div
+          id="dtu-status"
+          class="status-badge status-Unknown"
+          style="cursor: pointer; user-select: none"
+        >
+          DTU: Checking...
+        </div>
+        <button id="sse-audit-btn" class="sse-audit-btn">
+          Events <span id="sse-audit-count">0</span>
+        </button>
+      </div>
+    </div>
+    <div id="sse-audit-panel" class="sse-audit-panel" style="display: none">
+      <div class="sse-audit-header">
+        <span>SSE Event Log</span>
+        <button id="sse-audit-clear" class="sse-audit-clear">Clear</button>
+      </div>
+      <div id="sse-audit-list" class="sse-audit-list"></div>
+    </div>
+    <div class="content animate-fade-in">
+      <div
+        style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 24px;
+        "
+      >
+        <h1>Recent Repos</h1>
+        <button id="select-repo-btn" class="btn btn-primary">Open Repo...</button>
+      </div>
+      <div id="recent-repos-list" style="display: flex; flex-direction: column; gap: 8px">
+        <!-- Populated by JS -->
+      </div>
+    </div>
+    <script src="repos.js"></script>
+  </body>
+</html>

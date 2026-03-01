@@ -1,0 +1,20 @@
+{
+  "name": "ui",
+  "version": "1.0.0",
+  "description": "A simple Electrobun app showcasing core features",
+  "scripts": {
+    "dev": "OA_CONFIG=../config-dev.jsonc bun run build && OA_CONFIG=../config-dev.jsonc electrobun dev",
+    "build": "electrobun build",
+    "start": "bun run build && bun run dev"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "ansi_up": "^6.0.6",
+    "electrobun": "1.13.1",
+    "jsonc-parser": "^3.3.1",
+    "xterm": "^5.3.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  }
+}

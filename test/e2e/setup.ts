@@ -11,16 +11,20 @@ export class E2ETestHarness {
 
   async startDTU() {
     console.log("[E2E] Starting DTU...");
-    this.dtuProcess = execa("pnpm", ["tsx", "dtu-github-actions/src/server/index.ts"], {
-      cwd: PROJECT_ROOT,
-      env: {
-        ...process.env,
-        DTU_PORT: this.dtuPort.toString(),
-        BRIDGE_URL: "http://localhost:8911",
-        GITHUB_WEBHOOK_SECRET: "e2e-secret",
+    this.dtuProcess = execa(
+      "pnpm",
+      ["tsx", "dtu-github-actions/src/server/index.ts", "--config", ".oa-dev.jsonc"],
+      {
+        cwd: PROJECT_ROOT,
+        env: {
+          ...process.env,
+          DTU_PORT: this.dtuPort.toString(),
+          BRIDGE_URL: "http://localhost:8911",
+          GITHUB_WEBHOOK_SECRET: "e2e-secret",
+        },
+        stdio: "inherit", // Useful for debugging
       },
-      stdio: "inherit", // Useful for debugging
-    });
+    );
 
     // Wait for DTU to be ready
     let attempts = 0;
@@ -68,9 +72,11 @@ export class E2ETestHarness {
         "supervisor/src/cli.ts",
         "run",
         "--workflow",
-        ".github/workflows/tests.yml",
+        ".github/workflows/smoke-tests.yml",
         "--task",
         "test",
+        "--config",
+        ".oa-dev.jsonc",
       ],
       {
         cwd: PROJECT_ROOT,

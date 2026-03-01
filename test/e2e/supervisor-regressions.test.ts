@@ -2,8 +2,12 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { E2ETestHarness } from "./setup.js";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = path.resolve(__dirname, "../../");
 
 describe("Supervisor E2E Regressions", () => {
+  const actualLogsDir = path.resolve(PROJECT_ROOT, "_", "logs");
   const harness = new E2ETestHarness();
 
   beforeAll(async () => {
@@ -31,21 +35,12 @@ describe("Supervisor E2E Regressions", () => {
     const match = result.stdout.match(/oa-runner-\d+/);
     expect(match).toBeTruthy();
     const runnerName = match![0];
-    const stepOutputLogPath = path.resolve(
-      process.cwd(),
-      "supervisor",
-      "_",
-      "logs",
-      runnerName,
-      "step-output.log",
-    );
+    const stepOutputLogPath = path.resolve(actualLogsDir, runnerName, "step-output.log");
     const allLogs = fs.readFileSync(stepOutputLogPath, "utf8");
     expect(allLogs).toContain("Hello from E2E");
   }, 60000);
 
   it("should place logs in a flat file structure", async () => {
-    const logsDir = path.resolve(process.cwd(), "supervisor", "_", "logs");
-
     const countLogFiles = (dir: string) => {
       if (!fs.existsSync(dir)) {
         return 0;
@@ -66,13 +61,13 @@ describe("Supervisor E2E Regressions", () => {
       return scanDir(dir).filter((f) => f.includes("oa-runner-")).length;
     };
 
-    const initialCount = countLogFiles(logsDir);
+    const initialCount = countLogFiles(actualLogsDir);
 
     const jobId = "log-test-" + Date.now();
     await harness.seedJob({ id: jobId, name: "log-test" });
     await harness.runSupervisor(jobId);
 
-    const finalCount = countLogFiles(logsDir);
+    const finalCount = countLogFiles(actualLogsDir);
     expect(finalCount).toBeGreaterThan(initialCount);
   }, 60000);
 
@@ -142,14 +137,7 @@ describe("Supervisor E2E Regressions", () => {
     const match = result.stdout.match(/oa-runner-\d+/);
     expect(match).toBeTruthy();
     const runnerName = match![0];
-    const stepOutputLogPath = path.resolve(
-      process.cwd(),
-      "supervisor",
-      "_",
-      "logs",
-      runnerName,
-      "step-output.log",
-    );
+    const stepOutputLogPath = path.resolve(actualLogsDir, runnerName, "step-output.log");
     const allLogs = fs.readFileSync(stepOutputLogPath, "utf8");
 
     // Verify the sequence

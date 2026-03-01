@@ -1,15 +1,22 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config } from "./config.js";
+import { config, loadOaConfig } from "./config.js";
+import { setWorkingDirectory, PROJECT_ROOT } from "./logger.js";
 
-import { executeLocalJob } from "./localJob.js";
-import { getWorkflowTemplate, parseWorkflowSteps, isWorkflowRelevant } from "./workflowParser.js";
+import { executeLocalJob } from "./local-job.js";
+import { getWorkflowTemplate, parseWorkflowSteps, isWorkflowRelevant } from "./workflow-parser.js";
 import { Job } from "./types.js";
 
 async function run() {
   const args = process.argv.slice(2);
   const command = args[0];
+
+  if (command === "server") {
+    const { startServer } = await import("./server/index.js");
+    startServer();
+    return;
+  }
 
   if (command === "run") {
     // Basic argument parsing
@@ -18,6 +25,8 @@ async function run() {
     let taskName: string | undefined;
     let runAll = false;
     let branch: string | undefined;
+    let configPath: string | undefined;
+    let runnerName: string | undefined;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -34,9 +43,24 @@ async function run() {
       } else if (args[i] === "--branch" && args[i + 1]) {
         branch = args[i + 1];
         i++;
+      } else if (args[i] === "--config" && args[i + 1]) {
+        configPath = args[i + 1];
+        i++;
+      } else if (args[i] === "--runner-name" && args[i + 1]) {
+        runnerName = args[i + 1];
+        i++;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
+    }
+
+    const parsedConfig = loadOaConfig(configPath);
+    let workingDir = parsedConfig.workingDirectory;
+    if (workingDir) {
+      if (!path.isAbsolute(workingDir)) {
+        workingDir = path.resolve(PROJECT_ROOT, workingDir);
+      }
+      setWorkingDirectory(workingDir);
     }
 
     if (!runAll && !workflow) {
@@ -47,9 +71,9 @@ async function run() {
     }
 
     if (runAll) {
-      await handleRunAll({ sha, branch, taskName });
+      await handleRunAll({ sha, branch, taskName, runnerName });
     } else {
-      await handleRun({ sha, workflow, taskName });
+      await handleRun({ sha, workflow, taskName, runnerName });
     }
   } else {
     printUsage();
@@ -61,6 +85,7 @@ function printUsage() {
   console.log("Usage: oa <command> [args]");
   console.log("");
   console.log("Commands:");
+  console.log("  server: Start the long-running continuous integration daemon for the UI");
   console.log(
     "  run [sha] --workflow <path> [--task <name>]: Run a specific workflow (defaults to HEAD)",
   );
@@ -75,6 +100,7 @@ function printUsage() {
   console.log(
     "  --branch <name>        Branch name for relevance check (defaults to current branch)",
   );
+  console.log("  --config <path>        Path to the shared JSONC configuration file");
 }
 
 function resolveRepoRoot() {
@@ -118,8 +144,13 @@ function getCurrentBranch(repoRoot: string) {
   }
 }
 
-async function handleRun(options: { sha?: string; workflow?: string; taskName?: string }) {
-  const { sha } = options;
+async function handleRun(options: {
+  sha?: string;
+  workflow?: string;
+  taskName?: string;
+  runnerName?: string;
+}) {
+  const { sha, runnerName } = options;
   let workflow = options.workflow;
   let taskName = options.taskName;
 
@@ -206,18 +237,25 @@ async function handleRun(options: { sha?: string; workflow?: string; taskName?: 
         owner: { login: owner },
         default_branch: "main",
       },
+      runnerName,
       steps,
+      workflowPath,
     };
 
     // 7. Execute
     await executeLocalJob(job);
-  } catch (error: any) {
-    console.error(`[OA] Failed to trigger run: ${error.message}`);
+  } catch (error) {
+    console.error(`[OA] Failed to trigger run: ${(error as Error).message}`);
     process.exit(1);
   }
 }
 
-async function handleRunAll(options: { sha?: string; branch?: string; taskName?: string }) {
+async function handleRunAll(options: {
+  sha?: string;
+  branch?: string;
+  taskName?: string;
+  runnerName?: string;
+}) {
   console.log("[OA] Scanning for relevant workflows...");
 
   try {
@@ -286,13 +324,15 @@ async function handleRunAll(options: { sha?: string; branch?: string; taskName?:
           owner: { login: owner },
           default_branch: "main",
         },
+        runnerName: options.runnerName,
         steps,
+        workflowPath,
       };
 
       await executeLocalJob(job);
     }
-  } catch (error: any) {
-    console.error(`[OA] Failed to run all: ${error.message}`);
+  } catch (error) {
+    console.error(`[OA] Failed to run all: ${(error as Error).message}`);
     process.exit(1);
   }
 }

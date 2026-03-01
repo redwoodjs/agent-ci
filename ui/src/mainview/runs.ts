@@ -40,6 +40,7 @@ const runStatsBar = document.getElementById("run-stats-bar");
 const runStatsPanel = document.getElementById("run-stats-panel") as HTMLElement | null;
 const cpuCanvas = document.getElementById("chart-cpu") as HTMLCanvasElement | null;
 const memCanvas = document.getElementById("chart-mem") as HTMLCanvasElement | null;
+const netCanvas = document.getElementById("chart-net") as HTMLCanvasElement | null;
 const stepListEl = document.getElementById("step-list") as HTMLElement | null;
 
 interface TimelineRecord {
@@ -191,7 +192,13 @@ async function loadTimeline() {
 }
 
 let statsPollTimer: ReturnType<typeof setInterval> | null = null;
-let statsHistory: Array<{ ts: number; cpu: number; memMB: number }> = [];
+let statsHistory: Array<{
+  ts: number;
+  cpu: number;
+  memMB: number;
+  netRxMB?: number;
+  netTxMB?: number;
+}> = [];
 
 function formatMB(mb: number): string {
   if (mb >= 1024) {
@@ -215,7 +222,7 @@ function drawSparkline(
 ) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.offsetWidth || 200;
-  const h = 60;
+  const h = 36;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
   const ctx = canvas.getContext("2d");
@@ -311,6 +318,17 @@ function redrawCharts() {
       (v) => formatMB(Math.round(v)),
     );
   }
+  const netData = statsHistory.map((s) => (s.netRxMB ?? 0) + (s.netTxMB ?? 0));
+  if (netCanvas && netData.some((v) => v > 0)) {
+    drawSparkline(
+      netCanvas,
+      netData,
+      Math.max(...netData),
+      "#34d399",
+      "rgba(52,211,153,0.15)",
+      (v) => formatMB(Math.round(v)),
+    );
+  }
 }
 
 async function loadStats() {
@@ -343,13 +361,22 @@ async function loadStats() {
     if (stats.imageSizeMB !== undefined) {
       pills.push(statPill("📦", "image", formatMB(stats.imageSizeMB)));
     }
+    if (stats.live && stats.netRxMB !== undefined && stats.netTxMB !== undefined) {
+      pills.push(
+        statPill("📡", "net", `↓${formatMB(stats.netRxMB)} ↑${formatMB(stats.netTxMB)}`, true),
+      );
+    } else if (stats.peakNetRxMB !== undefined && stats.peakNetTxMB !== undefined) {
+      pills.push(
+        statPill("📡", "net", `↓${formatMB(stats.peakNetRxMB)} ↑${formatMB(stats.peakNetTxMB)}`),
+      );
+    }
 
     if (runStatsBar && pills.length > 0) {
       runStatsBar.innerHTML = pills.join("");
     }
 
     if (runStatsPanel && (statsHistory.length > 0 || pills.length > 0)) {
-      runStatsPanel.style.display = "flex";
+      runStatsPanel.style.display = "block";
       redrawCharts();
     }
   } catch {
@@ -358,7 +385,13 @@ async function loadStats() {
 }
 
 /** Called from SSE handler to append a live sample without a full fetch. */
-function appendStatSample(sample: { ts: number; cpu: number; memMB: number }) {
+function appendStatSample(sample: {
+  ts: number;
+  cpu: number;
+  memMB: number;
+  netRxMB?: number;
+  netTxMB?: number;
+}) {
   if (statsHistory.length > 0 && statsHistory[statsHistory.length - 1].ts === sample.ts) {
     return;
   }
@@ -577,7 +610,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
         // Live stats sample via SSE
         if (data.type === "runStatsSample" && data.runId === activeRunId) {
-          appendStatSample({ ts: data.ts, cpu: data.cpu, memMB: data.memMB });
+          appendStatSample({
+            ts: data.ts,
+            cpu: data.cpu,
+            memMB: data.memMB,
+            netRxMB: data.netRxMB,
+            netTxMB: data.netTxMB,
+          });
         }
       } catch {}
     });

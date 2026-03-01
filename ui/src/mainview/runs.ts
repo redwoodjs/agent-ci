@@ -70,6 +70,9 @@ function formatElapsedMs(startTime: string | null, finishTime: string | null): s
 }
 
 function stepIcon(record: TimelineRecord): string {
+  if (record.state === "pending") {
+    return `<span class="step-icon step-icon-pending">○</span>`;
+  }
   if (record.state !== "completed") {
     // In progress
     return `<span class="step-icon step-icon-running"><span class="step-spinner">⟳</span></span>`;

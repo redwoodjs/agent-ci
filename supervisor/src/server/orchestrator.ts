@@ -983,6 +983,20 @@ export async function getRunTimeline(runId: string): Promise<
   return [];
 }
 
+export async function getRunCacheEvents(
+  runId: string,
+): Promise<Array<{ key: string; result: "hit" | "miss"; ts: number }>> {
+  const eventsPath = path.join(getLogsDir(), runId, "cache-events.json");
+  try {
+    const raw = await fs.readFile(eventsPath, "utf-8");
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {}
+  return [];
+}
+
 export async function getRunLogs(runId: string): Promise<string> {
   // Prefer the DTU's step-output.log (clean, no ##[group] noise)
   const stepOutputPath = path.join(getLogsDir(), runId, "step-output.log");

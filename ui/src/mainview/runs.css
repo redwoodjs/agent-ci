@@ -312,6 +312,24 @@ a:hover {
   font-variant-numeric: tabular-nums;
 }
 
+.step-cache-badge {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.step-cache-hit {
+  background: rgba(46, 160, 67, 0.15);
+  color: var(--success);
+}
+.step-cache-miss {
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

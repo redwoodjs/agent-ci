@@ -24,6 +24,7 @@ import {
   getRunStats,
   getStatsHistory,
   getRunTimeline,
+  getRunCacheEvents,
 } from "./orchestrator.js";
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
@@ -214,6 +215,16 @@ app.get("/runs/timeline", async (req, res) => {
   const records = await getRunTimeline(runId);
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify(records));
+});
+
+app.get("/runs/cache-events", async (req, res) => {
+  const runId = req.query.runId as string;
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const events = await getRunCacheEvents(runId);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(events));
 });
 
 app.get("/runs/logs", async (req, res) => {

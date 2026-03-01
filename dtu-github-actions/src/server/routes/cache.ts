@@ -11,6 +11,27 @@ if (!fs.existsSync(CACHE_DIR)) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
 }
 
+/** Append a cache event to cache-events.json in every active runner's log dir. */
+function recordCacheEvent(result: "hit" | "miss", key: string) {
+  const event = { key, result, ts: Date.now() };
+  for (const dir of state.runnerTimelineDirs.values()) {
+    const filePath = path.join(dir, "cache-events.json");
+    try {
+      let existing: any[] = [];
+      try {
+        existing = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      } catch {
+        /* file doesn't exist yet */
+      }
+      existing.push(event);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(filePath, JSON.stringify(existing, null, 2));
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
 export function registerCacheRoutes(app: Polka) {
   // 1. Check if cache exists
   const checkCacheHandler = (req: any, res: any) => {
@@ -39,6 +60,7 @@ export function registerCacheRoutes(app: Polka) {
         }
 
         console.log(`[DTU] Cache hit for key: ${key}`);
+        recordCacheEvent("hit", key);
 
         // Construct archiveLocation dynamically from the current request so stale
         // hostnames persisted in caches.json don't cause download failures.
@@ -58,6 +80,7 @@ export function registerCacheRoutes(app: Polka) {
     }
 
     console.log(`[DTU] Cache miss for keys: ${keys.join(", ")}`);
+    recordCacheEvent("miss", keys.filter(Boolean).join(","));
     res.writeHead(204);
     res.end();
   };

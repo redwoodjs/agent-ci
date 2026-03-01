@@ -17,6 +17,7 @@ let activeRunId: string | null = null;
 let runStartDate: number = 0;
 let runEndDate: number | undefined;
 let activeStepId: string | null = null;
+let cacheEvents: Array<{ key: string; result: "hit" | "miss"; ts: number }> = [];
 
 function formatElapsed(startMs: number, endMs?: number): string {
   const elapsed = Math.max(0, ((endMs ?? Date.now()) - startMs) / 1000);
@@ -54,6 +55,35 @@ interface TimelineRecord {
   finishTime: string | null;
   refName: string | null;
   parentId: string | null;
+}
+
+/** Check if a step name looks cache-related */
+function isCacheStep(name: string): boolean {
+  const lower = name.toLowerCase();
+  return (
+    lower.includes("cache") ||
+    lower.includes("setup-node") ||
+    lower.includes("setup-python") ||
+    lower.includes("setup-java") ||
+    lower.includes("setup-go")
+  );
+}
+
+/** Match cache events to cache-related steps chronologically */
+function getCacheResultForStep(
+  stepIndex: number,
+  allSteps: TimelineRecord[],
+): "hit" | "miss" | null {
+  if (cacheEvents.length === 0) {
+    return null;
+  }
+  // Count which cache-related step this is (0-indexed)
+  const cacheSteps = allSteps.filter((r) => r.type === "Task" && isCacheStep(r.name));
+  const idx = cacheSteps.findIndex((r) => r.id === allSteps[stepIndex]?.id);
+  if (idx < 0 || idx >= cacheEvents.length) {
+    return null;
+  }
+  return cacheEvents[idx].result;
 }
 
 function formatElapsedMs(startTime: string | null, finishTime: string | null): string {
@@ -158,9 +188,17 @@ function renderStepList(records: TimelineRecord[]) {
     .map((r) => {
       const elapsed = formatElapsedMs(r.startTime, r.finishTime);
       const isActive = r.id === activeStepId ? " active" : "";
+      // Cache badge for cache-related steps
+      const cacheResult = isCacheStep(r.name)
+        ? getCacheResultForStep(tasks.indexOf(r), tasks)
+        : null;
+      const cacheBadge = cacheResult
+        ? `<span class="step-cache-badge step-cache-${cacheResult}">${cacheResult}</span>`
+        : "";
       return `<div class="step-row${isActive}" data-step-id="${r.id}" data-step-name="${r.name.replace(/"/g, "&quot;")}">
         ${stepIcon(r)}
         <span class="step-name" title="${r.name}">${r.name}</span>
+        ${cacheBadge}
         ${elapsed ? `<span class="step-elapsed">${elapsed}</span>` : ""}
       </div>`;
     })
@@ -182,9 +220,15 @@ async function loadTimeline() {
     return;
   }
   try {
-    const records: TimelineRecord[] = await fetch(
-      "http://localhost:8912/runs/timeline?runId=" + encodeURIComponent(activeRunId),
-    ).then((r) => r.json());
+    const [records, events]: [TimelineRecord[], typeof cacheEvents] = await Promise.all([
+      fetch("http://localhost:8912/runs/timeline?runId=" + encodeURIComponent(activeRunId)).then(
+        (r) => r.json(),
+      ),
+      fetch("http://localhost:8912/runs/cache-events?runId=" + encodeURIComponent(activeRunId))
+        .then((r) => r.json())
+        .catch(() => []),
+    ]);
+    cacheEvents = events;
     renderStepList(records);
   } catch {
     // timeline not available yet

@@ -605,8 +605,9 @@ window.addEventListener("keydown", (e) => {
     window.history.back();
   }
 });
-window.addEventListener("mouseup", (e) => {
+window.addEventListener("pointerdown", (e) => {
   if (e.button === 3) {
+    e.preventDefault();
     window.history.back();
   }
 });

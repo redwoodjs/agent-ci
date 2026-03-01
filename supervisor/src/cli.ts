@@ -13,6 +13,27 @@ async function run() {
   const command = args[0];
 
   if (command === "server") {
+    // Parse --config from server args to forward to spawned runners
+    let serverConfigPath: string | undefined;
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === "--config" && args[i + 1]) {
+        serverConfigPath = args[i + 1];
+        i++;
+      }
+    }
+    // Apply working directory from config so the server uses the right log paths
+    const parsedServerConfig = loadOaConfig(serverConfigPath);
+    if (parsedServerConfig.workingDirectory) {
+      let wd = parsedServerConfig.workingDirectory;
+      if (!path.isAbsolute(wd)) {
+        wd = path.resolve(PROJECT_ROOT, wd);
+      }
+      setWorkingDirectory(wd);
+    }
+    const { setOrchestratorConfigPath } = await import("./server/orchestrator.js");
+    if (serverConfigPath) {
+      setOrchestratorConfigPath(serverConfigPath);
+    }
     const { startServer } = await import("./server/index.js");
     startServer();
     return;
@@ -155,36 +176,46 @@ async function handleRun(options: {
   let taskName = options.taskName;
 
   try {
-    const repoRoot = resolveRepoRoot();
-    const { headSha, shaRef } = sha
-      ? resolveHeadSha(repoRoot, sha)
-      : { headSha: undefined, shaRef: undefined };
-    const githubRepo = resolveRepoInfo(repoRoot);
-    const [owner, name] = githubRepo.split("/");
-
-    // 4. Resolve Workflow
-    const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
+    // Resolve the workflow path first so we can derive the correct repo root.
+    let workflowPath: string;
     if (!workflow) {
-      // This should be caught by the run() check now, but keeping for safety
       throw new Error("Workflow path is required when not using --all");
     }
-
-    let workflowPath: string;
     if (path.isAbsolute(workflow)) {
       workflowPath = workflow;
     } else {
-      // Try relative to cwd, then repoRoot, then workflowsDir
+      const cwd = process.cwd();
+      const repoRootFallback = resolveRepoRoot();
+      const workflowsDir = path.resolve(repoRootFallback, ".github", "workflows");
       const pathsToTry = [
-        path.resolve(workflow),
-        path.resolve(repoRoot, workflow),
+        path.resolve(cwd, workflow),
+        path.resolve(repoRootFallback, workflow),
         path.resolve(workflowsDir, workflow),
       ];
-      workflowPath = pathsToTry.find((p) => fs.existsSync(p)) || pathsToTry[1]; // fallback to repoRoot relative
+      workflowPath = pathsToTry.find((p) => fs.existsSync(p)) || pathsToTry[1];
     }
 
     if (!fs.existsSync(workflowPath)) {
       throw new Error(`Workflow file not found: ${workflowPath}`);
     }
+
+    // Derive the repo root by walking UP from the workflow file's directory.
+    // This correctly resolves external repos (e.g. sdk) even when the supervisor
+    // CWD is inside oa-1.
+    let repoRoot = path.dirname(workflowPath);
+    while (repoRoot !== "/" && !fs.existsSync(path.join(repoRoot, ".git"))) {
+      repoRoot = path.dirname(repoRoot);
+    }
+    if (repoRoot === "/") {
+      // Fallback: use process.cwd()-based resolution
+      repoRoot = resolveRepoRoot();
+    }
+
+    const { headSha, shaRef } = sha
+      ? resolveHeadSha(repoRoot, sha)
+      : { headSha: undefined, shaRef: undefined };
+    const githubRepo = resolveRepoInfo(repoRoot);
+    const [owner, name] = githubRepo.split("/");
 
     // 5. Resolve Job
     const template = await getWorkflowTemplate(workflowPath);
@@ -240,6 +271,7 @@ async function handleRun(options: {
       runnerName,
       steps,
       workflowPath,
+      taskId: taskName,
     };
 
     // 7. Execute

@@ -8,6 +8,8 @@ const CACHES_FILE = path.join(CACHE_DIR, "caches.json");
 
 export const state = {
   jobs: new Map<string, any>(),
+  // Per-runner job queue: runnerName → job payload (for multi-job concurrency)
+  runnerJobs: new Map<string, any>(),
   sessions: new Map<string, any>(),
   messageQueues: new Map<string, any[]>(),
   pendingPolls: new Map<string, { res: http.ServerResponse; baseUrl: string }>(),
@@ -56,6 +58,7 @@ export const state = {
 
   reset() {
     this.jobs.clear();
+    this.runnerJobs.clear();
     this.sessions.clear();
     this.messageQueues.clear();
     this.pendingPolls.clear();
@@ -65,6 +68,7 @@ export const state = {
     this.sessionToRunner.clear();
     this.planToLogPath.clear();
     this.timelineToLogDir.clear();
+    this.caches.clear();
     this.pendingCaches.clear();
   },
 };

@@ -43,6 +43,12 @@ export function clearEventLog() {
   eventLog.length = 0;
 }
 
+// Config path forwarded from the server startup (so spawned runners inherit the same --config)
+let _configPath: string | undefined;
+export function setOrchestratorConfigPath(p: string) {
+  _configPath = p;
+}
+
 // Config Paths
 const OA_DIR = path.join(PROJECT_ROOT, "_");
 const getRecentReposPath = () => path.join(OA_DIR, "recent_repos.json");
@@ -522,6 +528,9 @@ function spawnRunner({
 }): void {
   const supervisorDir = path.join(PROJECT_ROOT, "supervisor");
   const spawnArgs = ["npx", "tsx", "--env-file=.env", "src/cli.ts", "run"];
+  if (_configPath) {
+    spawnArgs.push("--config", _configPath);
+  }
   if (commitId && commitId !== "WORKING_TREE") {
     spawnArgs.push(commitId);
   }
@@ -878,61 +887,23 @@ export async function getRunTimeline(runId: string): Promise<
     parentId: string | null;
   }>
 > {
-  // Prefer the DTU's authoritative timeline (written after execution completes)
-  // over the pre-populated pending timeline written before the run starts.
-  const dtuTimelinePath = path.join(PROJECT_ROOT, "_", "configs", "logs", runId, "timeline.json");
-  const pendingTimelinePath = path.join(getLogsDir(), runId, "timeline.json");
-  // Merge strategy: DTU records are authoritative for steps that have started;
-  // pre-populated pending records fill in steps the DTU hasn't reached yet.
-  // This ensures the step list is always complete, even mid-run.
-  let dtuRecords: any[] = [];
-  let pendingRecords: any[] = [];
-
+  // The DTU timeline handler merges pre-populated records with runner updates,
+  // preserving friendly names. Just read the file directly.
+  const timelinePath = path.join(getLogsDir(), runId, "timeline.json");
   try {
-    const raw = await fs.readFile(dtuTimelinePath, "utf-8");
+    const raw = await fs.readFile(timelinePath, "utf-8");
     const parsed = JSON.parse(raw);
     if (Array.isArray(parsed)) {
-      dtuRecords = parsed;
+      return parsed;
     }
   } catch {}
 
-  try {
-    const raw = await fs.readFile(pendingTimelinePath, "utf-8");
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) {
-      pendingRecords = parsed;
-    }
-  } catch {}
-
-  if (dtuRecords.length === 0 && pendingRecords.length === 0) {
-    return [];
-  }
-  if (dtuRecords.length === 0) {
-    return pendingRecords;
-  }
-
-  const dtuByOrder = new Map<number, any>();
-  for (const r of dtuRecords) {
-    if (r.order != null) {
-      dtuByOrder.set(r.order, r);
-    }
-  }
-
-  // Only include Task-type pending records (not infrastructure steps)
-  // Check if the pending record's order is already covered by the DTU timeline
-  const merged = [...dtuRecords];
-  for (const pending of pendingRecords) {
-    if (pending.type === "Task" && !dtuByOrder.has(pending.order)) {
-      merged.push(pending);
-    }
-  }
-
-  return merged;
+  return [];
 }
 
 export async function getRunLogs(runId: string): Promise<string> {
   // Prefer the DTU's step-output.log (clean, no ##[group] noise)
-  const stepOutputPath = path.join(PROJECT_ROOT, "_", "configs", "logs", runId, "step-output.log");
+  const stepOutputPath = path.join(getLogsDir(), runId, "step-output.log");
   try {
     const content = await fs.readFile(stepOutputPath, "utf-8");
     if (content.trim()) {

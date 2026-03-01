@@ -25,32 +25,51 @@ export function registerDtuRoutes(app: Polka) {
           Id: crypto.randomUUID(),
         }));
 
-        state.jobs.set(jobId, { ...payload, steps: mappedSteps });
-        console.log(`[DTU] Seeded job: ${jobId}`);
+        const jobPayload = { ...payload, steps: mappedSteps };
 
-        // Notify any pending polls immediately
+        // Store job both in the generic map AND keyed by runner name for per-runner dispatch.
+        // The runnerName is passed in the body (from local-job.ts which spreads the Job object).
+        const runnerName: string | undefined = payload.runnerName;
+        state.jobs.set(jobId, jobPayload);
+        if (runnerName) {
+          state.runnerJobs.set(runnerName, jobPayload);
+        }
+        console.log(`[DTU] Seeded job: ${jobId}${runnerName ? ` for runner ${runnerName}` : ""}`);
+
+        // Notify only the pending poll that belongs to this runner (if any already waiting).
         const baseUrl = getBaseUrl(req);
+        let notified = false;
         for (const [sessionId, { res: pollRes, baseUrl: runnerBaseUrl }] of state.pendingPolls) {
+          const sessRunner = state.sessionToRunner.get(sessionId);
+          // Only dispatch to the runner this job was seeded for (or any runner if no runnerName)
+          if (runnerName && sessRunner !== runnerName) {
+            continue;
+          }
+
           console.log(`[DTU] Notifying session ${sessionId} of new job ${jobId}`);
 
           const planId = crypto.randomUUID();
 
           // Map this planId to this specific runner's log path
-          const runnerName = state.sessionToRunner.get(sessionId);
-          if (runnerName) {
-            const logDir = state.runnerLogs.get(runnerName);
+          if (sessRunner) {
+            const logDir = state.runnerLogs.get(sessRunner);
             if (logDir) {
               state.planToLogPath.set(planId, path.join(logDir, "step-output.log"));
             }
           }
 
-          const jobResponse = createJobResponse(jobId, payload, runnerBaseUrl || baseUrl, planId);
+          const jobResponse = createJobResponse(
+            jobId,
+            jobPayload,
+            runnerBaseUrl || baseUrl,
+            planId,
+          );
 
           // Map timelineId → runner's timeline dir (supervisor logs dir)
           try {
             const jobBody = JSON.parse(jobResponse.Body);
             const timelineId = jobBody?.Timeline?.Id;
-            const tDir = runnerName ? state.runnerTimelineDirs.get(runnerName) : undefined;
+            const tDir = sessRunner ? state.runnerTimelineDirs.get(sessRunner) : undefined;
             if (timelineId && tDir) {
               state.timelineToLogDir.set(timelineId, tDir);
             }
@@ -61,6 +80,19 @@ export function registerDtuRoutes(app: Polka) {
           pollRes.writeHead(200, { "Content-Type": "application/json" });
           pollRes.end(JSON.stringify(jobResponse));
           state.pendingPolls.delete(sessionId);
+          // Remove from runnerJobs since it was dispatched
+          if (sessRunner) {
+            state.runnerJobs.delete(sessRunner);
+          }
+          state.jobs.delete(jobId);
+          notified = true;
+          break;
+        }
+
+        if (!notified) {
+          console.log(
+            `[DTU] No pending poll for job ${jobId} (runner: ${runnerName || "any"}) - job queued`,
+          );
         }
 
         res.writeHead(201, { "Content-Type": "application/json" });

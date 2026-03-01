@@ -57,6 +57,12 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
       }
 
       if ("run" in step) {
+        const inputs: Record<string, string> = {
+          script: step.run.toString(),
+        };
+        if (rawStep["working-directory"]) {
+          inputs.workingDirectory = rawStep["working-directory"];
+        }
         return {
           Type: "Action",
           Name: stepName,
@@ -65,9 +71,7 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
           Reference: {
             Type: "Script",
           },
-          Inputs: {
-            script: step.run.toString(),
-          },
+          Inputs: inputs,
         };
       } else if ("uses" in step) {
         // Basic support for 'uses' steps

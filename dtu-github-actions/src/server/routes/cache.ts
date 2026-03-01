@@ -26,13 +26,31 @@ export function registerCacheRoutes(app: Polka) {
 
       const entry = state.caches.get(key);
       if (entry && entry.version === version) {
+        // Validate archive file still exists on disk
+        const cacheIdMatch = entry.archiveLocation.match(/artifacts\/(\d+)/);
+        if (cacheIdMatch) {
+          const filePath = path.join(CACHE_DIR, `cache_${cacheIdMatch[1]}.tar.gz`);
+          if (!fs.existsSync(filePath)) {
+            console.warn(`[DTU] Evicting stale cache "${key}" — file missing: ${filePath}`);
+            state.caches.delete(key);
+            state.saveCachesToDisk();
+            continue;
+          }
+        }
+
         console.log(`[DTU] Cache hit for key: ${key}`);
+
+        // Construct archiveLocation dynamically from the current request so stale
+        // hostnames persisted in caches.json don't cause download failures.
+        const archiveLocation = cacheIdMatch
+          ? `${getBaseUrl(req)}/_apis/artifactcache/artifacts/${cacheIdMatch[1]}`
+          : entry.archiveLocation;
 
         res.writeHead(200, { "Content-Type": "application/json" });
         return res.end(
           JSON.stringify({
             result: "hit",
-            archiveLocation: entry.archiveLocation,
+            archiveLocation,
             cacheKey: key,
           }),
         );
@@ -52,6 +70,14 @@ export function registerCacheRoutes(app: Polka) {
     const { key, version } = req.body;
 
     console.log(`[DTU] Reserving cache for key: ${key} (version: ${version})`);
+
+    // Immutable: reject if this key+version is already cached
+    const existing = state.caches.get(key);
+    if (existing && existing.version === version) {
+      console.log(`[DTU] Cache already exists for key: ${key} — skipping reservation`);
+      res.writeHead(409, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ message: "Cache already exists" }));
+    }
 
     // Assign a unique cache ID
     const cacheId = Math.floor(Math.random() * 1000000);
@@ -124,6 +150,21 @@ export function registerCacheRoutes(app: Polka) {
     }
 
     console.log(`[DTU] Committing cache ID ${cacheId} (key: ${pending.key})`);
+
+    // Delete old archive if this key already existed (prevents orphaned files)
+    const oldEntry = state.caches.get(pending.key);
+    if (oldEntry) {
+      const oldMatch = oldEntry.archiveLocation.match(/artifacts\/(\d+)/);
+      if (oldMatch) {
+        const oldPath = path.join(CACHE_DIR, `cache_${oldMatch[1]}.tar.gz`);
+        try {
+          fs.unlinkSync(oldPath);
+          console.log(`[DTU] Deleted old cache file: ${oldPath}`);
+        } catch {
+          // File may already be gone
+        }
+      }
+    }
 
     const finalPath = path.join(CACHE_DIR, `cache_${cacheId}.tar.gz`);
     fs.renameSync(pending.tempPath, finalPath);

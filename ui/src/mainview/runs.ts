@@ -719,10 +719,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch {}
 });
 
-// Global back navigation (Escape key + mouse back button)
+// Global keyboard shortcuts
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     window.history.back();
+  }
+  // Cmd+C / Ctrl+C — copy selected text to clipboard
+  if ((e.metaKey || e.ctrlKey) && e.key === "c") {
+    const selection = window.getSelection();
+    const text = selection?.toString();
+    if (text) {
+      navigator.clipboard.writeText(text);
+    }
   }
 });
 window.addEventListener("pointerdown", (e) => {

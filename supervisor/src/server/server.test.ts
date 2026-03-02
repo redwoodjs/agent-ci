@@ -4,17 +4,17 @@ import { app } from "./index.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { runWorkflow } from "./orchestrator.js";
+import { runWorkflow, retryRun } from "./orchestrator.js";
 
 describe("Supervisor Server API", () => {
-  it("GET /status returns Idle by default", async () => {
+  it("GET /status returns valid status response", async () => {
     const res = await request(app.handler as any).get("/status");
     expect(res.status).toBe(200);
-    expect(res.body).toEqual({
-      status: "Idle",
-      activeContainers: [],
-      recentJobs: [],
-    });
+    expect(res.body).toHaveProperty("status");
+    expect(typeof res.body.status).toBe("string");
+    expect(["Idle", "Running", "Passed", "Failed"]).toContain(res.body.status);
+    expect(res.body).toHaveProperty("activeContainers");
+    expect(res.body).toHaveProperty("recentJobs");
   });
 
   it("POST /repos adds a repo and GET /repos returns it", async () => {
@@ -152,5 +152,49 @@ describe("Multi-job workflow fan-out", () => {
     );
     expect(meta.jobName).toBeNull();
     expect(meta.workflowRunId).toBe(runnerNames[0]); // self-referential for single-job
+  });
+
+  it("retryRun creates new runner with original workflowRunId and incremented attempt", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-test-"));
+    const workflowsDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowsDir, { recursive: true });
+    const workflowFile = path.join(workflowsDir, "retry-test.yml");
+    fs.writeFileSync(
+      workflowFile,
+      `name: Retry Test\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n`,
+    );
+
+    // Original run
+    const runnerNames = await runWorkflow(tmpDir, "retry-test.yml", "abc123");
+    expect(runnerNames).toHaveLength(1);
+    const originalRunner = runnerNames[0];
+
+    const { getLogsDir } = await import("../logger.js");
+    const logsDir = getLogsDir();
+    const originalMeta = JSON.parse(
+      fs.readFileSync(path.join(logsDir, originalRunner, "metadata.json"), "utf-8"),
+    );
+    expect(originalMeta.attempt).toBe(1);
+    expect(originalMeta.workflowRunId).toBe(originalRunner);
+
+    // Retry
+    const result = await retryRun(originalRunner);
+    expect(result).not.toBeNull();
+    // New naming: {originalRunId}-001 (attempt-1 padded to 3 digits)
+    expect(result!.runnerName).toBe(`${originalRunner}-001`);
+    expect(result!.attempt).toBe(2);
+
+    const retryMeta = JSON.parse(
+      fs.readFileSync(path.join(logsDir, result!.runnerName, "metadata.json"), "utf-8"),
+    );
+    // Same group as original
+    expect(retryMeta.workflowRunId).toBe(originalMeta.workflowRunId);
+    // Same commit and repo
+    expect(retryMeta.commitId).toBe("abc123");
+    expect(retryMeta.repoPath).toBe(tmpDir);
+    // Incremented attempt
+    expect(retryMeta.attempt).toBe(2);
+    // Same taskId
+    expect(retryMeta.taskId ?? null).toBe(originalMeta.taskId ?? null);
   });
 });

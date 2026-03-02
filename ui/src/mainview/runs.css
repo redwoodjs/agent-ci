@@ -559,3 +559,215 @@ a:hover {
   font-style: italic;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 }
+
+/* Error / warning log line highlighting */
+.log-line-error {
+  background: rgba(248, 81, 73, 0.08);
+  border-left: 3px solid var(--danger);
+  margin-left: -3px;
+  padding-left: 3px;
+  border-radius: 2px;
+  position: relative;
+}
+
+.log-line-warning {
+  background: rgba(210, 153, 34, 0.08);
+  border-left: 3px solid #d29922;
+  margin-left: -3px;
+  padding-left: 3px;
+  border-radius: 2px;
+  position: relative;
+}
+
+.log-line-error .log-line-content,
+.log-line-warning .log-line-content {
+  font-weight: 600;
+}
+
+.log-line-error .log-line-content {
+  color: var(--danger);
+}
+
+.log-line-warning .log-line-content {
+  color: #d29922;
+}
+
+/* Per-line copy button (visible on hover) */
+.log-line-copy {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  user-select: none;
+  z-index: 2;
+}
+
+.log-line-error:hover .log-line-copy,
+.log-line-warning:hover .log-line-copy {
+  opacity: 1;
+}
+
+.log-line-copy:hover {
+  background: var(--panel-border);
+  color: var(--text-primary);
+}
+
+/* Error summary panel */
+.error-summary {
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+}
+
+.error-summary.collapsed {
+  max-height: 36px;
+}
+
+.error-summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.error-summary-header:hover {
+  background: rgba(248, 81, 73, 0.05);
+}
+
+.error-summary-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--danger);
+}
+
+.error-summary-count {
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--danger);
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.warning-summary-count {
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+  padding: 1px 7px;
+  border-radius: 8px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.error-summary-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.error-summary-copy {
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--panel-border);
+  transition: all 0.15s ease;
+}
+
+.error-summary-copy:hover {
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.error-summary-toggle {
+  font-size: 8px;
+  color: var(--text-secondary);
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+
+.error-summary.collapsed .error-summary-toggle {
+  transform: rotate(0deg);
+}
+
+.error-summary:not(.collapsed) .error-summary-toggle {
+  transform: rotate(90deg);
+}
+
+.error-summary-list {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 0 16px 8px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+  font-size: 12px;
+}
+
+.error-summary-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 4px 8px;
+  margin-bottom: 2px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.error-summary-item:hover {
+  background: rgba(248, 81, 73, 0.08);
+}
+
+.error-summary-item-warning:hover {
+  background: rgba(210, 153, 34, 0.08);
+}
+
+.error-summary-severity {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  line-height: 16px;
+}
+
+.error-summary-severity-error {
+  background: rgba(248, 81, 73, 0.15);
+  color: var(--danger);
+}
+
+.error-summary-severity-warning {
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+}
+
+.error-summary-message {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+.error-summary-line {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+}

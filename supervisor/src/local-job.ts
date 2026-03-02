@@ -159,6 +159,24 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const debug = isDebug();
   const filterLine = makeFilter(debug);
 
+  // ── Pre-flight: verify Docker is reachable ────────────────────────────────
+  try {
+    await docker.ping();
+  } catch (err: any) {
+    const isSocket = err?.code === "ECONNREFUSED" || err?.code === "ENOENT";
+    const hint = isSocket
+      ? "Docker does not appear to be running."
+      : `Docker is not reachable: ${err?.message || err}`;
+    throw new Error(
+      `${hint}\n` +
+        "\n" +
+        "  To fix this:\n" +
+        "    1. Start your Docker runtime (OrbStack, Docker Desktop, etc.)\n" +
+        "    2. Wait for the engine to be ready\n" +
+        "    3. Re-run the workflow\n",
+    );
+  }
+
   // 3. Prepare directories (done first so containerName is available for the header)
   const {
     name: containerName,
@@ -194,8 +212,28 @@ export async function executeLocalJob(job: Job): Promise<void> {
       }
       repoPath = dir !== "/" ? dir : "";
     }
-    // Derive workflowRunId (group key) by stripping -NNN suffix if present
-    const workflowRunId = containerName.replace(/-\d{3}$/, "");
+    // If the orchestrator (or retryRun) already wrote a metadata.json with the
+    // correct workflowRunId, honour it. This is critical for retries of multi-job
+    // runs (e.g. oa-runner-125-001-001) where a naive regex would strip only a
+    // single suffix and produce the wrong group key.
+    let workflowRunId: string | undefined;
+    let attempt: number | undefined;
+    if (fs.existsSync(metadataPath)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
+        workflowRunId = existing.workflowRunId;
+        attempt = existing.attempt;
+      } catch {
+        // Fall through to derivation
+      }
+    }
+    if (!workflowRunId) {
+      // Derive workflowRunId (group key) by stripping the multi-job -NNN suffix
+      // (e.g. oa-runner-95-001 → oa-runner-95). The suffix is always zero-padded 3
+      // digits that follow another numeric segment, so we must NOT strip the runner
+      // number itself (e.g. oa-runner-107 must stay as-is, not become oa-runner).
+      workflowRunId = containerName.replace(/(?<=-\d+)-\d{3}$/, "");
+    }
     fs.writeFileSync(
       metadataPath,
       JSON.stringify(
@@ -208,6 +246,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
           commitId: job.headSha || "WORKING_TREE",
           date: Date.now(),
           taskId: job.taskId,
+          attempt: attempt ?? 1,
         },
         null,
         2,
@@ -245,7 +284,8 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const shimsDir = path.resolve(workDir, "shims", containerName);
   const diagDir = path.resolve(workDir, "diag", containerName);
   const toolCacheDir = path.resolve(workDir, "toolcache");
-  const pnpmStoreDir = path.resolve(workDir, "pnpm-store", containerName);
+  const repoSlug = (job.githubRepo || config.GITHUB_REPO).replace("/", "-");
+  const pnpmStoreDir = path.resolve(workDir, "pnpm-store", repoSlug);
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });

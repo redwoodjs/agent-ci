@@ -13,14 +13,17 @@ import {
   setWorkflowEnabled,
   runWorkflow,
   stopWorkflow,
+  retryRun,
   addSSEClient,
   loadWatchedRepos,
   getDtuStatus,
   startDtu,
   stopDtu,
   getRunsForCommit,
+  getRecentRuns,
   getRunDetail,
   getRunLogs,
+  getRunErrors,
   getRunStats,
   getStatsHistory,
   getRunTimeline,
@@ -94,9 +97,24 @@ app.delete("/repos/watched", async (req, res) => {
 });
 
 // Status & Events
-app.get("/status", (req, res) => {
+app.get("/status", async (req, res) => {
+  // Derive real status from recent runs
+  let status = "Idle";
+  try {
+    const recent = await getRecentRuns(5);
+    if (recent.some((r) => r.status === "Running")) {
+      status = "Running";
+    } else if (recent.length > 0) {
+      const latest = recent[0];
+      if (latest.status === "Failed") {
+        status = "Failed";
+      } else if (latest.status === "Passed") {
+        status = "Passed";
+      }
+    }
+  } catch {}
   res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ status: "Idle", activeContainers: [], recentJobs: [] }));
+  res.end(JSON.stringify({ status, activeContainers: [], recentJobs: [] }));
 });
 
 app.get("/events", (req, res) => {
@@ -158,6 +176,21 @@ app.post("/workflows/stop", async (req, res) => {
   const success = await stopWorkflow(runId);
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ success }));
+});
+
+app.post("/workflows/retry", async (req, res) => {
+  const { runId } = (req as any).body || {};
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const result = await retryRun(runId);
+  if (!result) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Run not found" }));
+    return;
+  }
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(result));
 });
 
 app.get("/workflows/commits", async (req, res) => {
@@ -224,6 +257,23 @@ app.get("/runs/logs", async (req, res) => {
   const logs = await getRunLogs(runId);
   res.writeHead(200, { "Content-Type": "text/plain" });
   res.end(logs);
+});
+
+app.get("/runs/errors", async (req, res) => {
+  const runId = req.query.runId as string;
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const errors = await getRunErrors(runId);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(errors));
+});
+
+app.get("/runs/recent", async (req, res) => {
+  const limit = parseInt(req.query.limit as string, 10) || 10;
+  const runs = await getRecentRuns(limit);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(runs));
 });
 
 // Git

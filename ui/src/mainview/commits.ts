@@ -2,6 +2,8 @@ import { getAppStateAsync, setAppState } from "./state.ts";
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
 import { initSseAuditLog, recordSseEvent } from "./sse-audit-log.ts";
+import { api, apiPost, apiPut, apiDelete } from "./api.ts";
+import { initGlobalErrorHandler } from "./global-error-handler.ts";
 
 const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
   maxRequestTime: 15000,
@@ -45,12 +47,8 @@ async function loadWorkflows() {
     { id: string; name: string; triggers: string[]; enabledByDefault: boolean }[],
     Record<string, boolean>,
   ] = await Promise.all([
-    fetch("http://localhost:8912/workflows?repoPath=" + encodeURIComponent(repoPath)).then((r) =>
-      r.json(),
-    ),
-    fetch("http://localhost:8912/workflows/enabled?repoPath=" + encodeURIComponent(repoPath)).then(
-      (r) => r.json(),
-    ),
+    api("/workflows?repoPath=" + encodeURIComponent(repoPath)),
+    api("/workflows/enabled?repoPath=" + encodeURIComponent(repoPath)),
   ]);
 
   workflowsList.innerHTML = "";
@@ -103,11 +101,7 @@ async function loadWorkflows() {
         const newEnabled = !currentEnabled;
         autoBtn.setAttribute("disabled", "true");
         try {
-          await fetch("http://localhost:8912/workflows/enabled", {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ repoPath, workflowId: wf.id, enabled: newEnabled }),
-          });
+          await apiPut("/workflows/enabled", { repoPath, workflowId: wf.id, enabled: newEnabled });
           autoBtn.dataset["enabled"] = String(newEnabled);
           autoBtn.textContent = `Auto ${newEnabled ? "On" : "Off"}`;
           autoBtn.style.background = newEnabled ? "#28a745" : "#444";
@@ -125,12 +119,14 @@ async function loadWorkflows() {
         btn.setAttribute("disabled", "true");
         btn.innerHTML = "Starting...";
         try {
-          await fetch("http://localhost:8912/workflows/run", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ repoPath, workflowId: wf.id, commitId: selectedCommitId }),
-          }).then((r) => r.json());
+          await apiPost("/workflows/run", {
+            repoPath,
+            workflowId: wf.id,
+            commitId: selectedCommitId,
+          });
           await loadRuns();
+        } catch {
+          // error already logged by api wrapper
         } finally {
           btn.removeAttribute("disabled");
           btn.innerHTML = "Run";
@@ -173,7 +169,7 @@ async function loadRuns() {
     return;
   }
 
-  const history: {
+  let history: {
     runId: string;
     runnerName: string;
     workflowName: string;
@@ -182,12 +178,18 @@ async function loadRuns() {
     status: string;
     date: number;
     endDate?: number;
-  }[] = await fetch(
-    "http://localhost:8912/workflows/commits?repoPath=" +
-      encodeURIComponent(repoPath) +
-      "&commitId=" +
-      encodeURIComponent(selectedCommitId),
-  ).then((r) => r.json());
+    attempt: number;
+  }[];
+  try {
+    history = await api(
+      "/workflows/commits?repoPath=" +
+        encodeURIComponent(repoPath) +
+        "&commitId=" +
+        encodeURIComponent(selectedCommitId),
+    );
+  } catch {
+    return;
+  }
 
   // Skip DOM rebuild if data hasn't changed
   const newJson = JSON.stringify(history);
@@ -215,45 +217,189 @@ async function loadRuns() {
     groups.get(gid)!.push(run);
   }
 
+  // Helper: create a retry button for a failed run
+  const makeRetryBtn = (runId: string): HTMLButtonElement => {
+    const btn = document.createElement("button");
+    btn.className = "btn retry-btn";
+    btn.style.cssText = `
+      height: 22px; padding: 0 8px; font-size: 11px;
+      border: 1px solid var(--panel-border); border-radius: 4px;
+      background: transparent; color: var(--text-secondary);
+      cursor: pointer; transition: all 0.15s;
+    `;
+    btn.innerText = "↻ Retry";
+    btn.addEventListener("mouseenter", () => {
+      btn.style.borderColor = "var(--accent, #60a5fa)";
+      btn.style.color = "var(--accent, #60a5fa)";
+    });
+    btn.addEventListener("mouseleave", () => {
+      btn.style.borderColor = "var(--panel-border)";
+      btn.style.color = "var(--text-secondary)";
+    });
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      btn.style.display = "none"; // Hide immediately
+      try {
+        await apiPost("/workflows/retry", { runId });
+        lastRunsJson = null; // force refresh
+        await loadRuns();
+      } catch (err) {
+        console.error("Retry failed:", err);
+        btn.style.display = ""; // Show again on error
+      }
+    });
+    return btn;
+  };
+
   groupOrder.forEach((workflowRunId, idx) => {
     const jobs = groups.get(workflowRunId)!;
     const isMultiJob = jobs.some((j) => j.jobName !== null);
 
-    // Derive overall status for the group
-    let overallStatus = jobs[0].status;
-    if (jobs.some((j) => j.status === "Failed")) {
+    // Check if any job has multiple attempts
+    const hasMultipleAttempts = jobs.some((j) => (j.attempt ?? 1) > 1);
+
+    // Derive overall status for the group (use latest attempt per job)
+    // First, get the latest attempt of each unique job
+    const latestByJob = new Map<string | null, (typeof history)[0]>();
+    for (const job of jobs) {
+      const key = job.jobName;
+      const existing = latestByJob.get(key);
+      if (!existing || (job.attempt ?? 1) > (existing.attempt ?? 1)) {
+        latestByJob.set(key, job);
+      }
+    }
+    const latestJobs = Array.from(latestByJob.values());
+
+    let overallStatus = latestJobs[0].status;
+    if (latestJobs.some((j) => j.status === "Failed")) {
       overallStatus = "Failed";
-    } else if (jobs.some((j) => j.status === "Running")) {
+    } else if (latestJobs.some((j) => j.status === "Running")) {
       overallStatus = "Running";
-    } else if (jobs.every((j) => j.status === "Passed")) {
+    } else if (latestJobs.every((j) => j.status === "Passed")) {
       overallStatus = "Passed";
     }
 
-    const firstJob = jobs[0];
-    const elapsed = formatElapsed(firstJob.date, firstJob.endDate);
+    const firstJob = jobs.reduce((a, b) => (a.date < b.date ? a : b));
+    const latestJob = latestJobs.reduce((a, b) =>
+      (a.endDate ?? a.date) > (b.endDate ?? b.date) ? a : b,
+    );
+    const elapsed = formatElapsed(firstJob.date, latestJob.endDate);
 
     if (!isMultiJob) {
-      // Single-job run — render exactly as before
-      const item = document.createElement("div");
-      item.className = "list-item animate-fade-in";
-      item.style.animationDelay = `${idx * 0.05}s`;
-      item.style.cursor = "pointer";
-      item.innerHTML = `
-        <div>
-          <div class="list-item-title">${firstJob.workflowName}</div>
-          <div class="list-item-subtitle">${firstJob.runnerName} · ${new Date(firstJob.date).toLocaleString()} · ${elapsed}</div>
+      // Single-job run — may have multiple attempts
+      const sortedAttempts = [...jobs].sort((a, b) => (a.attempt ?? 1) - (b.attempt ?? 1));
+      const latest = sortedAttempts[sortedAttempts.length - 1];
+
+      if (!hasMultipleAttempts) {
+        // Simple case: single attempt, single row
+        const item = document.createElement("div");
+        item.className = "list-item animate-fade-in";
+        item.style.animationDelay = `${idx * 0.05}s`;
+        item.style.cursor = "pointer";
+        item.innerHTML = `
+          <div style="flex:1;min-width:0">
+            <div class="list-item-title">${latest.workflowName}</div>
+            <div class="list-item-subtitle">${latest.runnerName} · ${new Date(latest.date).toLocaleString()} · ${elapsed}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            ${getStatusBadge(latest.status)}
+          </div>
+        `;
+        item.addEventListener("click", async () => {
+          await setAppState({ runId: latest.runId });
+          window.location.href = "views://runs/index.html";
+        });
+        if (latest.status === "Failed") {
+          const actions = item.querySelector("div:last-child");
+          if (actions) {
+            actions.prepend(makeRetryBtn(latest.runId));
+          }
+        }
+        runsList.appendChild(item);
+        return;
+      }
+
+      // Multiple attempts: header (original) + nested retries
+      const singleGroup = document.createElement("div");
+      singleGroup.className = "animate-fade-in";
+      singleGroup.style.animationDelay = `${idx * 0.05}s`;
+      singleGroup.style.marginBottom = "4px";
+
+      // Header row — show overall status based on latest attempt
+      const headerRow = document.createElement("div");
+      headerRow.className = "list-item";
+      headerRow.style.cursor = "pointer";
+      headerRow.style.borderBottomLeftRadius = "0";
+      headerRow.style.borderBottomRightRadius = "0";
+      headerRow.innerHTML = `
+        <div style="flex:1;min-width:0">
+          <div class="list-item-title">${latest.workflowName}</div>
+          <div class="list-item-subtitle">${workflowRunId} · ${new Date(firstJob.date).toLocaleString()} · ${elapsed}</div>
         </div>
-        <div>${getStatusBadge(overallStatus)}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${getStatusBadge(latest.status)}
+        </div>
       `;
-      item.addEventListener("click", async () => {
-        await setAppState({ runId: firstJob.runId });
+      headerRow.addEventListener("click", async () => {
+        await setAppState({ runId: latest.runId });
         window.location.href = "views://runs/index.html";
       });
-      runsList.appendChild(item);
+      if (latest.status === "Failed") {
+        const actions = headerRow.querySelector("div:last-child");
+        if (actions) {
+          actions.prepend(makeRetryBtn(latest.runId));
+        }
+      }
+      singleGroup.appendChild(headerRow);
+
+      // Sub-rows for each attempt (newest first)
+      const reversedAttempts = [...sortedAttempts].reverse();
+      reversedAttempts.forEach((attempt, ai) => {
+        const isLast = ai === reversedAttempts.length - 1;
+        const row = document.createElement("div");
+        const isLatestAttempt = attempt === latest;
+        row.style.cssText = `
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 6px 12px 6px 28px;
+          cursor: pointer;
+          background: var(--panel-bg);
+          border: 1px solid var(--panel-border);
+          border-top: none;
+          border-bottom-left-radius: ${isLast ? "6px" : "0"};
+          border-bottom-right-radius: ${isLast ? "6px" : "0"};
+          transition: background 0.15s;
+          opacity: ${isLatestAttempt ? "1" : "0.6"};
+        `;
+        row.innerHTML = `
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="color:var(--text-secondary);font-size:11px">└</span>
+            <span style="font-size:11px;color:var(--text-secondary)">${attempt.runnerName}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="attempt-badge">Attempt ${attempt.attempt ?? 1}</span>
+            ${getStatusBadge(attempt.status)}
+          </div>
+        `;
+        row.addEventListener("mouseenter", () => {
+          row.style.background = "var(--item-hover, rgba(255,255,255,0.05))";
+        });
+        row.addEventListener("mouseleave", () => {
+          row.style.background = "var(--panel-bg)";
+        });
+        row.addEventListener("click", async () => {
+          await setAppState({ runId: attempt.runId });
+          window.location.href = "views://runs/index.html";
+        });
+        singleGroup.appendChild(row);
+      });
+
+      runsList.appendChild(singleGroup);
       return;
     }
 
-    // Multi-job run — header row (not clickable directly) + indented job rows
+    // Multi-job run — header row + indented job rows with nested retries
     const group = document.createElement("div");
     group.className = "animate-fade-in";
     group.style.animationDelay = `${idx * 0.05}s`;
@@ -273,15 +419,65 @@ async function loadRuns() {
     `;
     group.appendChild(header);
 
-    // Job rows
-    jobs.forEach((job, ji) => {
-      const isLast = ji === jobs.length - 1;
+    // Group jobs by jobName, then sort attempts within each group
+    const jobsByName = new Map<string | null, typeof history>();
+    for (const job of jobs) {
+      const key = job.jobName;
+      if (!jobsByName.has(key)) {
+        jobsByName.set(key, []);
+      }
+      jobsByName.get(key)!.push(job);
+    }
+    // Sort each group by attempt
+    for (const arr of jobsByName.values()) {
+      arr.sort((a, b) => (a.attempt ?? 1) - (b.attempt ?? 1));
+    }
+
+    const jobNames = Array.from(jobsByName.keys());
+    // Flatten: for each job, show latest attempt (top row) first, then older retries nested below
+    type RowInfo = {
+      job: (typeof history)[0];
+      isOldRetry: boolean;
+      isLatest: boolean;
+      isLastInGroup: boolean;
+    };
+    const allRows: RowInfo[] = [];
+    for (const name of jobNames) {
+      const attempts = jobsByName.get(name)!;
+      const latest = attempts[attempts.length - 1];
+      const hasRetries = attempts.length > 1;
+      // Top row: latest attempt
+      allRows.push({
+        job: latest,
+        isOldRetry: false,
+        isLatest: true,
+        isLastInGroup: !hasRetries,
+      });
+      // Nested rows: older attempts (oldest→newest), underneath the top row
+      if (hasRetries) {
+        const olderAttempts = attempts.slice(0, -1).reverse();
+        olderAttempts.forEach((a, i) => {
+          allRows.push({
+            job: a,
+            isOldRetry: true,
+            isLatest: false,
+            isLastInGroup: i === olderAttempts.length - 1,
+          });
+        });
+      }
+    }
+
+    allRows.forEach(({ job, isOldRetry, isLatest, isLastInGroup: _isLastInGroup }, ji) => {
+      const isLast = ji === allRows.length - 1;
       const jobRow = document.createElement("div");
+      const indent = isOldRetry ? "44px" : "28px";
+      const fontSize = isOldRetry ? "12px" : "13px";
+      const opacity = isOldRetry ? "0.6" : "1";
       jobRow.style.cssText = `
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 6px 12px 6px 28px;
+        padding: 6px 12px 6px ${indent};
         cursor: pointer;
         background: var(--panel-bg);
         border: 1px solid var(--panel-border);
@@ -289,13 +485,28 @@ async function loadRuns() {
         border-bottom-left-radius: ${isLast ? "6px" : "0"};
         border-bottom-right-radius: ${isLast ? "6px" : "0"};
         transition: background 0.15s;
+        opacity: ${opacity};
       `;
+
+      const prefix = isOldRetry
+        ? `<span style="color:var(--text-secondary);font-size:11px">└</span>`
+        : `<span style="color:var(--text-secondary);font-size:11px">└</span>`;
+      const nameLabel = `<span style="font-size:${fontSize};color:var(--text-primary)">${job.jobName}</span>`;
+
+      // Attempt badge goes on the right side, next to the status badge
+      const attemptBadge = hasMultipleAttempts
+        ? `<span class="attempt-badge">Attempt ${job.attempt ?? 1}</span>`
+        : "";
+
       jobRow.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px">
-          <span style="color:var(--text-secondary);font-size:11px">└</span>
-          <span style="font-size:13px;color:var(--text-primary)">${job.jobName}</span>
+          ${prefix}
+          ${nameLabel}
         </div>
-        <div>${getStatusBadge(job.status)}</div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${attemptBadge}
+          ${getStatusBadge(job.status)}
+        </div>
       `;
       jobRow.addEventListener("mouseenter", () => {
         jobRow.style.background = "var(--item-hover, rgba(255,255,255,0.05))";
@@ -307,6 +518,13 @@ async function loadRuns() {
         await setAppState({ runId: job.runId });
         window.location.href = "views://runs/index.html";
       });
+      // Add retry button on the top job row (latest attempt) if it failed
+      if (job.status === "Failed" && isLatest) {
+        const actions = jobRow.querySelector("div:last-child");
+        if (actions) {
+          actions.prepend(makeRetryBtn(job.runId));
+        }
+      }
       group.appendChild(jobRow);
     });
 
@@ -393,13 +611,11 @@ document.addEventListener("DOMContentLoaded", async () => {
   repoPath = state.repoPath;
   branchName = state.branchName;
 
+  initGlobalErrorHandler();
+
   // Auto-enable watching so we get SSE events for branch switches and new commits
   if (repoPath) {
-    fetch("http://localhost:8912/repos/watched", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repoPath }),
-    }).catch(() => {});
+    apiPost("/repos/watched", { repoPath }).catch(() => {});
   }
 
   const backBtn = document.getElementById("back-btn");
@@ -424,23 +640,20 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     };
 
-    const isWatchEnabled = await fetch("http://localhost:8912/repos/watched")
-      .then((r) => r.json())
-      .then((r) => r.includes(repoPath));
+    const watchedRepos = await api<string[]>("/repos/watched");
+    const isWatchEnabled = watchedRepos.includes(repoPath);
     updateWatchUI(isWatchEnabled);
 
     runOnCommitToggle.addEventListener("click", async () => {
       runOnCommitToggle.setAttribute("disabled", "true");
       try {
-        const currentState = await fetch("http://localhost:8912/repos/watched")
-          .then((r) => r.json())
-          .then((r) => r.includes(repoPath));
-        const newState = !currentState;
-        await fetch("http://localhost:8912/repos/watched", {
-          method: newState ? "POST" : "DELETE",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ repoPath }),
-        });
+        const current = await api<string[]>("/repos/watched");
+        const newState = !current.includes(repoPath);
+        if (newState) {
+          await apiPost("/repos/watched", { repoPath });
+        } else {
+          await apiDelete("/repos/watched", { repoPath });
+        }
         updateWatchUI(newState);
       } catch (e) {
         console.error("Failed to toggle run on commit", e);
@@ -478,11 +691,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     let dtuStatus = "Stopped";
     try {
-      const res = await fetch("http://localhost:8912/dtu");
-      if (res.ok) {
-        const data = await res.json();
-        dtuStatus = data.status;
-      }
+      const data = await api<{ status: string }>("/dtu");
+      dtuStatus = data.status;
     } catch {
       dtuStatus = "Error";
     }
@@ -514,9 +724,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       dtuStatusEl.innerText = isCurrentlyRunning ? "DTU: Stopping..." : "DTU: Starting...";
       dtuStatusEl.className = "status-badge status-Running";
       try {
-        await fetch("http://localhost:8912/dtu", {
-          method: isCurrentlyRunning ? "DELETE" : "POST",
-        });
+        await api("/dtu", { method: isCurrentlyRunning ? "DELETE" : "POST" });
       } catch {}
       await pollDtuStatus();
     });

@@ -432,6 +432,7 @@ export async function getRunsForCommit(
     status: string;
     date: number;
     endDate?: number;
+    attempt: number;
   }[]
 > {
   const logsDir = getLogsDir();
@@ -444,6 +445,7 @@ export async function getRunsForCommit(
     status: string;
     date: number;
     endDate?: number;
+    attempt: number;
   }[] = [];
 
   try {
@@ -469,6 +471,7 @@ export async function getRunsForCommit(
           status,
           date: meta.date || 0,
           endDate: meta.endDate,
+          attempt: meta.attempt ?? 1,
         });
       } catch {
         // Skip entries with missing/invalid metadata
@@ -481,6 +484,66 @@ export async function getRunsForCommit(
   return results.sort((a, b) => b.date - a.date);
 }
 
+export async function getRecentRuns(limit = 10): Promise<
+  {
+    runId: string;
+    workflowName: string;
+    jobName: string | null;
+    repoPath: string;
+    status: string;
+    date: number;
+    endDate?: number;
+  }[]
+> {
+  const logsDir = getLogsDir();
+  const results: {
+    runId: string;
+    workflowName: string;
+    jobName: string | null;
+    repoPath: string;
+    status: string;
+    date: number;
+    endDate?: number;
+  }[] = [];
+
+  // Only show runs from the user's registered repos (excludes test/temp repos)
+  const allowedRepos = await getRecentRepos();
+
+  try {
+    const entries = await fs.readdir(logsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("oa-runner-")) {
+        continue;
+      }
+      try {
+        const metaPath = path.join(logsDir, entry.name, "metadata.json");
+        const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+        // Skip runs not from a registered repo
+        if (allowedRepos.length > 0 && !allowedRepos.includes(meta.repoPath)) {
+          continue;
+        }
+        const docker = await getDockerContainerStatus(entry.name);
+        const status = deriveRunStatus(entry.name, docker, meta.status);
+        results.push({
+          runId: entry.name,
+          workflowName: meta.workflowName || entry.name,
+          jobName: meta.jobName ?? null,
+          repoPath: meta.repoPath || "",
+          status,
+          date: meta.date || 0,
+          endDate: meta.endDate,
+        });
+      } catch {
+        // Skip entries with missing/invalid metadata
+      }
+    }
+  } catch {
+    // Logs dir doesn't exist yet
+  }
+
+  return results.sort((a, b) => b.date - a.date).slice(0, limit);
+}
+
 export async function getRunDetail(runId: string): Promise<{
   runId: string;
   runnerName: string;
@@ -488,6 +551,12 @@ export async function getRunDetail(runId: string): Promise<{
   status: string;
   date: number;
   endDate?: number;
+  repoPath?: string;
+  workflowPath?: string;
+  commitId?: string;
+  taskId?: string;
+  workflowRunId?: string;
+  attempt?: number;
 } | null> {
   const logsDir = getLogsDir();
   const metaPath = path.join(logsDir, runId, "metadata.json");
@@ -502,10 +571,168 @@ export async function getRunDetail(runId: string): Promise<{
       status,
       date: meta.date || 0,
       endDate: meta.endDate,
+      repoPath: meta.repoPath,
+      workflowPath: meta.workflowPath,
+      commitId: meta.commitId,
+      taskId: meta.taskId ?? null,
+      workflowRunId: meta.workflowRunId ?? runId,
+      attempt: meta.attempt ?? 1,
     };
   } catch {
     return null;
   }
+}
+
+/**
+ * Retry a specific failed run by spawning a new runner for the same job.
+ * The new runner shares the original `workflowRunId` so retries are grouped together.
+ */
+export async function retryRun(
+  runId: string,
+): Promise<{ runnerName: string; attempt: number } | null> {
+  const logsDir = getLogsDir();
+  const metaPath = path.join(logsDir, runId, "metadata.json");
+  let meta: any;
+  try {
+    meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+  } catch {
+    return null;
+  }
+
+  const { workflowPath, workflowName, repoPath, commitId, taskId, workflowRunId } = meta;
+  if (!workflowPath || !repoPath) {
+    return null;
+  }
+
+  // Count existing attempts with the same workflowRunId + taskId to derive next attempt number
+  let maxAttempt = 0;
+  try {
+    const entries = await fs.readdir(logsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("oa-runner-")) {
+        continue;
+      }
+      try {
+        const m = JSON.parse(
+          await fs.readFile(path.join(logsDir, entry.name, "metadata.json"), "utf-8"),
+        );
+        if (m.workflowRunId === workflowRunId && (m.taskId ?? null) === (taskId ?? null)) {
+          maxAttempt = Math.max(maxAttempt, m.attempt ?? 1);
+        }
+      } catch {
+        // skip
+      }
+    }
+  } catch {
+    // logs dir doesn't exist
+  }
+  const attempt = maxAttempt + 1;
+
+  // Derive runner name from the original run ID: oa-runner-114-003 → oa-runner-114-003-001
+  // Strip any existing attempt suffix (digits after a dash at the end that look like attempt nums)
+  // The base is always the original runId itself.
+  const runnerName = `${runId}-${String(attempt - 1).padStart(3, "0")}`;
+  const runDir = path.join(logsDir, runnerName);
+  const jobName = taskId ?? null;
+  const workflowId = path.basename(workflowPath);
+
+  await fs.mkdir(runDir, { recursive: true });
+  await fs.writeFile(
+    path.join(runDir, "metadata.json"),
+    JSON.stringify(
+      {
+        workflowPath,
+        workflowName,
+        jobName,
+        workflowRunId, // same group as original
+        repoPath,
+        commitId,
+        date: Date.now(),
+        taskId,
+        attempt,
+      },
+      null,
+      2,
+    ),
+  );
+
+  activeRuns.add(runnerName);
+  broadcastEvent("runStarted", {
+    runId: runnerName,
+    repoPath,
+    workflowId,
+    commitId,
+    taskId,
+    attempt,
+  });
+
+  // Pre-populate timeline (same logic as runWorkflow)
+  try {
+    const { parseWorkflowSteps, getWorkflowTemplate } = await import("../workflow-parser.js");
+    let steps: any[] = [];
+    if (taskId) {
+      steps = (await parseWorkflowSteps(workflowPath, taskId)) as any[];
+    } else {
+      const tmpl = await getWorkflowTemplate(workflowPath);
+      const firstJob = tmpl.jobs.find((j) => j.type === "job");
+      if (firstJob && firstJob.type === "job") {
+        steps = firstJob.steps.map((s, idx) => {
+          const script = "run" in s ? ((s as any).run?.toString() ?? "") : "";
+          const firstLine = script.split("\n").find((l: string) => l.trim()) ?? "";
+          const derivedName =
+            s.name?.toString() ??
+            ("uses" in s
+              ? (s as any).uses?.toString()
+              : firstLine
+                ? `Run ${firstLine.trim()}`
+                : `Step ${idx + 1}`);
+          return { Name: derivedName };
+        });
+      }
+    }
+    if (steps.length > 0) {
+      const pendingRecords = steps.map((s: any, idx: number) => {
+        let name = s.DisplayName || s.Name || `Step ${idx + 1}`;
+        if (/^__run(_\d+)?$/.test(name) && s.Inputs?.script) {
+          const firstLine =
+            (s.Inputs.script as string).split("\n").find((l: string) => l.trim()) ?? "";
+          if (firstLine) {
+            name = `Run ${firstLine.trim()}`;
+          }
+        }
+        return {
+          id: crypto.randomUUID(),
+          parentId: null,
+          type: "Task",
+          name,
+          order: idx + 2,
+          state: "pending",
+          result: null,
+          startTime: null,
+          finishTime: null,
+          refName: null,
+        };
+      });
+      await fs.writeFile(
+        path.join(runDir, "timeline.json"),
+        JSON.stringify(pendingRecords, null, 2),
+      );
+    }
+  } catch {
+    // Best-effort
+  }
+
+  spawnRunner({
+    fullPath: workflowPath,
+    runnerName,
+    runDir,
+    commitId,
+    taskId,
+    repoPath,
+    workflowId,
+  });
+
+  return { runnerName, attempt };
 }
 
 /** Spawn a single runner process for a given workflow+task and return its runnerName. */
@@ -737,6 +964,7 @@ export async function runWorkflow(
           commitId,
           date: Date.now(),
           taskId,
+          attempt: 1,
         },
         null,
         2,
@@ -1013,6 +1241,73 @@ export async function getRunLogs(runId: string): Promise<string> {
     }
   } catch {}
   return "";
+}
+
+export interface RunAnnotation {
+  /** "error" | "warning" | "notice" */
+  severity: string;
+  /** The message text (with the ##[error] prefix stripped) */
+  message: string;
+  /** 1-based line number in the log file */
+  line: number;
+  /** Surrounding ±3 lines of context from the log */
+  context: string[];
+}
+
+/**
+ * Parse the log file for a given run and extract structured annotations
+ * (##[error], ##[warning], ##[notice]) with line numbers and context.
+ */
+export async function getRunErrors(runId: string): Promise<RunAnnotation[]> {
+  // Read the same log file that getRunLogs uses
+  const logContent = await getRunLogs(runId);
+  if (!logContent) {
+    return [];
+  }
+
+  const lines = logContent.split("\n");
+  const annotations: RunAnnotation[] = [];
+
+  // Timestamp regex matching the ISO timestamps in log lines
+  const tsRegex = /^\uFEFF?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/;
+  // ANSI escape sequence regex (use constructor to avoid no-control-regex lint warning)
+  const ESC = String.fromCharCode(27);
+  const ansiRegex = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    // Strip ANSI and BOM for marker detection
+    const stripped = raw.replace(ansiRegex, "").replace(/\uFEFF/g, "");
+
+    const match = stripped.match(/##\[(error|warning|notice)\](.*)/);
+    if (!match) {
+      continue;
+    }
+
+    const severity = match[1];
+    const message = match[2].trim();
+
+    // Gather ±3 lines of context, stripping timestamps for readability
+    const contextStart = Math.max(0, i - 3);
+    const contextEnd = Math.min(lines.length - 1, i + 3);
+    const context: string[] = [];
+    for (let j = contextStart; j <= contextEnd; j++) {
+      const contextLine = lines[j]
+        .replace(ansiRegex, "")
+        .replace(/\uFEFF/g, "")
+        .replace(tsRegex, "");
+      context.push(contextLine);
+    }
+
+    annotations.push({
+      severity,
+      message,
+      line: i + 1, // 1-based
+      context,
+    });
+  }
+
+  return annotations;
 }
 
 // DTU Management

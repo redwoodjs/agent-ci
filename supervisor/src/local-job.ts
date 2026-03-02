@@ -7,6 +7,11 @@ import { config } from "./config.js";
 import { Job } from "./types.js";
 import { createLogContext, finalizeLog, getWorkingDirectory } from "./logger.js";
 import { minimatch } from "minimatch";
+import {
+  startServiceContainers,
+  cleanupServiceContainers,
+  type ServiceContext,
+} from "./service-containers.js";
 
 // ─── ANSI / log-level patterns ────────────────────────────────────────────────
 
@@ -240,7 +245,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const shimsDir = path.resolve(workDir, "shims", containerName);
   const diagDir = path.resolve(workDir, "diag", containerName);
   const toolCacheDir = path.resolve(workDir, "toolcache");
-  const pnpmStoreDir = path.resolve(workDir, "pnpm-store");
+  const pnpmStoreDir = path.resolve(workDir, "pnpm-store", containerName);
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });
@@ -488,6 +493,20 @@ exit $EXIT_CODE
     // Ignore - container doesn't exist
   }
 
+  // ── Service containers ──────────────────────────────────────────────────────
+  let serviceCtx: ServiceContext | undefined;
+  if (job.services && job.services.length > 0) {
+    emit(`\n  Starting ${job.services.length} service container(s)...`);
+    serviceCtx = await startServiceContainers(docker, job.services, containerName, emit);
+    emit("");
+  }
+
+  // Build port-forward shell snippet for service containers (runs inside the runner container).
+  // Each forwarder binds localhost:<port> and proxies to the service container on the Docker network.
+  const svcPortForwardSnippet = serviceCtx?.portForwards.length
+    ? serviceCtx.portForwards.join(" \n") + " \nsleep 0.3 && "
+    : "";
+
   const container = await docker.createContainer({
     Image: IMAGE,
     name: containerName,
@@ -509,7 +528,7 @@ exit $EXIT_CODE
     Cmd: [
       "bash",
       "-c",
-      `sudo -n chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && sudo -n mv /usr/bin/git /usr/bin/git.real && sudo -n cp /tmp/oa-shims/git /usr/bin/git && sudo -n python3 -c "
+      `sudo -n chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && sudo -n mv /usr/bin/git /usr/bin/git.real && sudo -n cp /tmp/oa-shims/git /usr/bin/git && ${svcPortForwardSnippet}sudo -n python3 -c "
 import socket, threading, sys
 def fwd(src,dst):
  try:
@@ -537,6 +556,7 @@ while True:
         `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
       ],
       AutoRemove: false,
+      ...(serviceCtx ? { NetworkMode: serviceCtx.networkName } : {}),
     },
     Tty: true,
   });
@@ -645,6 +665,10 @@ while True:
     await container.remove({ force: true });
   } catch {
     // Ignore - container may already be removed
+  }
+  // Clean up service containers and shared network
+  if (serviceCtx) {
+    await cleanupServiceContainers(docker, serviceCtx, emit);
   }
   if (fs.existsSync(workspaceDir)) {
     fs.rmSync(workspaceDir, { recursive: true, force: true });

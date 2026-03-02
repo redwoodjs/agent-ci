@@ -127,6 +127,43 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
     .filter(Boolean);
 }
 
+export interface WorkflowService {
+  name: string;
+  image: string;
+  env?: Record<string, string>;
+  ports?: string[];
+  options?: string;
+}
+
+export async function parseWorkflowServices(
+  filePath: string,
+  taskName: string,
+): Promise<WorkflowService[]> {
+  const rawYaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
+  const rawJob = rawYaml.jobs?.[taskName] || {};
+  const rawServices = rawJob.services;
+  if (!rawServices || typeof rawServices !== "object") {
+    return [];
+  }
+
+  return Object.entries(rawServices).map(([name, def]: [string, any]) => {
+    const svc: WorkflowService = {
+      name,
+      image: def.image || "",
+    };
+    if (def.env && typeof def.env === "object") {
+      svc.env = Object.fromEntries(Object.entries(def.env).map(([k, v]) => [k, String(v)]));
+    }
+    if (Array.isArray(def.ports)) {
+      svc.ports = def.ports.map(String);
+    }
+    if (def.options) {
+      svc.options = String(def.options);
+    }
+    return svc;
+  });
+}
+
 export function isWorkflowRelevant(template: any, branch: string) {
   const events = template.events;
   if (!events) {

@@ -14,7 +14,6 @@ const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
 new ElectrobunView.Electroview({ rpc });
 
 let activeRunId: string | null = null;
-let isStreamingLogs = false;
 let runStartDate: number = 0;
 let runEndDate: number | undefined;
 let activeStepId: string | null = null;
@@ -41,6 +40,7 @@ const runStatsBar = document.getElementById("run-stats-bar");
 const runStatsPanel = document.getElementById("run-stats-panel") as HTMLElement | null;
 const cpuCanvas = document.getElementById("chart-cpu") as HTMLCanvasElement | null;
 const memCanvas = document.getElementById("chart-mem") as HTMLCanvasElement | null;
+const netCanvas = document.getElementById("chart-net") as HTMLCanvasElement | null;
 const stepListEl = document.getElementById("step-list") as HTMLElement | null;
 
 interface TimelineRecord {
@@ -71,6 +71,9 @@ function formatElapsedMs(startTime: string | null, finishTime: string | null): s
 }
 
 function stepIcon(record: TimelineRecord): string {
+  if (record.state === "pending") {
+    return `<span class="step-icon step-icon-pending">○</span>`;
+  }
   if (record.state !== "completed") {
     // In progress
     return `<span class="step-icon step-icon-running"><span class="step-spinner">⟳</span></span>`;
@@ -92,33 +95,54 @@ function scrollToStep(stepName: string) {
     return;
   }
 
-  const children = Array.from(logsViewer.querySelectorAll("[data-log-line]"));
-  console.log(`[scrollToStep] searching "${stepName}" in ${children.length} lines`);
-
-  // Build candidate strings to try (in priority order):
-  //  1. The exact timeline step name (e.g. "Run pnpm install")
-  //  2. Without the "Run " prefix (e.g. "pnpm install") — GitHub Actions emits
-  //     just the command text in logs, not the full step name.
-  const candidates: string[] = [stepName];
-  if (stepName.startsWith("Run ")) {
-    candidates.push(stepName.slice(4)); // strip "Run "
+  // Post steps, Complete job, Set up job have no ##[group] in logs — scroll to bottom
+  if (stepName.startsWith("Post ") || stepName === "Complete job" || stepName === "Set up job") {
+    logsViewer.scrollTop = logsViewer.scrollHeight;
+    return;
   }
 
+  // Build candidate names: exact name, and without "Run " prefix
+  const candidates: string[] = [stepName];
+  if (stepName.startsWith("Run ")) {
+    candidates.push(stepName.slice(4));
+  }
+
+  // Find the step divider and read its starting line number
+  const dividers = Array.from(logsViewer.querySelectorAll("[data-step-line]"));
+  for (const candidate of candidates) {
+    for (const el of dividers) {
+      const dividerName = (el as HTMLElement).dataset["stepDivider"] || "";
+      if (
+        dividerName === candidate ||
+        dividerName.includes(candidate) ||
+        candidate.includes(dividerName)
+      ) {
+        const targetLine = (el as HTMLElement).dataset["stepLine"];
+        if (targetLine) {
+          const lineEl = logsViewer.querySelector(`[data-log-line="${targetLine}"]`);
+          if (lineEl) {
+            (lineEl as HTMLElement).scrollIntoView({ block: "start", behavior: "instant" });
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback: text-match on log lines
+  const children = Array.from(logsViewer.querySelectorAll("[data-log-line]"));
   for (const candidate of candidates) {
     for (const el of children) {
       const text = el.textContent || "";
       if (text.includes(candidate)) {
-        // offsetTop is relative to offsetParent (likely body), not the scroll container.
-        // Subtract the container's own offsetTop to get the position within the scroll container.
-        logsViewer.scrollTop = (el as HTMLElement).offsetTop - logsViewer.offsetTop;
-        console.log(`[scrollToStep] matched "${candidate}" scrollTop=${logsViewer.scrollTop}`);
+        (el as HTMLElement).scrollIntoView({ block: "start", behavior: "instant" });
         return;
       }
     }
   }
-  console.log(
-    `[scrollToStep] no match found for "${stepName}" (candidates: ${candidates.join(", ")})`,
-  );
+
+  // No matching logs found (e.g. Post steps, Complete job) — scroll to bottom
+  logsViewer.scrollTop = logsViewer.scrollHeight;
 }
 
 function setActiveStep(stepId: string, stepName: string) {
@@ -189,7 +213,13 @@ async function loadTimeline() {
 }
 
 let statsPollTimer: ReturnType<typeof setInterval> | null = null;
-let statsHistory: Array<{ ts: number; cpu: number; memMB: number }> = [];
+let statsHistory: Array<{
+  ts: number;
+  cpu: number;
+  memMB: number;
+  netRxMB?: number;
+  netTxMB?: number;
+}> = [];
 
 function formatMB(mb: number): string {
   if (mb >= 1024) {
@@ -213,7 +243,7 @@ function drawSparkline(
 ) {
   const dpr = window.devicePixelRatio || 1;
   const w = canvas.offsetWidth || 200;
-  const h = 60;
+  const h = 36;
   canvas.width = w * dpr;
   canvas.height = h * dpr;
   const ctx = canvas.getContext("2d");
@@ -309,6 +339,17 @@ function redrawCharts() {
       (v) => formatMB(Math.round(v)),
     );
   }
+  const netData = statsHistory.map((s) => (s.netRxMB ?? 0) + (s.netTxMB ?? 0));
+  if (netCanvas && netData.some((v) => v > 0)) {
+    drawSparkline(
+      netCanvas,
+      netData,
+      Math.max(...netData),
+      "#34d399",
+      "rgba(52,211,153,0.15)",
+      (v) => formatMB(Math.round(v)),
+    );
+  }
 }
 
 async function loadStats() {
@@ -341,13 +382,22 @@ async function loadStats() {
     if (stats.imageSizeMB !== undefined) {
       pills.push(statPill("📦", "image", formatMB(stats.imageSizeMB)));
     }
+    if (stats.live && stats.netRxMB !== undefined && stats.netTxMB !== undefined) {
+      pills.push(
+        statPill("📡", "net", `↓${formatMB(stats.netRxMB)} ↑${formatMB(stats.netTxMB)}`, true),
+      );
+    } else if (stats.peakNetRxMB !== undefined && stats.peakNetTxMB !== undefined) {
+      pills.push(
+        statPill("📡", "net", `↓${formatMB(stats.peakNetRxMB)} ↑${formatMB(stats.peakNetTxMB)}`),
+      );
+    }
 
     if (runStatsBar && pills.length > 0) {
       runStatsBar.innerHTML = pills.join("");
     }
 
     if (runStatsPanel && (statsHistory.length > 0 || pills.length > 0)) {
-      runStatsPanel.style.display = "flex";
+      runStatsPanel.style.display = "block";
       redrawCharts();
     }
   } catch {
@@ -356,7 +406,13 @@ async function loadStats() {
 }
 
 /** Called from SSE handler to append a live sample without a full fetch. */
-function appendStatSample(sample: { ts: number; cpu: number; memMB: number }) {
+function appendStatSample(sample: {
+  ts: number;
+  cpu: number;
+  memMB: number;
+  netRxMB?: number;
+  netTxMB?: number;
+}) {
   if (statsHistory.length > 0 && statsHistory[statsHistory.length - 1].ts === sample.ts) {
     return;
   }
@@ -390,8 +446,8 @@ async function loadLogs() {
   loadStats();
 
   if (details && logsViewer && runStatus) {
-    // Fetch log content when not actively streaming
-    if (!isStreamingLogs) {
+    // Fetch log content from the API
+    {
       try {
         const logs = await fetch(
           "http://localhost:8912/runs/logs?runId=" + encodeURIComponent(activeRunId),
@@ -399,11 +455,86 @@ async function loadLogs() {
         if (logs) {
           const isAtBottom =
             logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
-          // Render each line as a separate element with data-log-line so steps can scroll to them
-          const lines = ansiUp.ansi_to_html(logs).split("\n");
-          logsViewer.innerHTML = lines
-            .map((l, i) => `<div data-log-line="${i}">${l || "&nbsp;"}</div>`)
-            .join("");
+
+          // Timestamp regex: ISO timestamps like "2026-03-01T16:20:38.2146072Z " or with BOM
+          const tsRegex = /^\uFEFF?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/;
+
+          // Split raw text first, then process each line (preserves ANSI codes)
+          const rawLines = logs.split("\n");
+          const htmlParts: string[] = [];
+          let lineNum = 1;
+          let inStep = false;
+          let groupDepth = 0;
+
+          for (const rawLine of rawLines) {
+            // Check for markers on the raw text (before ANSI conversion)
+            // eslint-disable-next-line no-control-regex
+            const stripped = rawLine.replace(/\x1b\[[0-9;]*m/g, "").replace(/\uFEFF/g, "");
+
+            // Detect ##[group]
+            const groupMatch = stripped.match(/##\[group\](.+)/);
+            if (groupMatch) {
+              const label = groupMatch[1].trim();
+
+              if (!inStep) {
+                // Top-level step group → sticky divider
+                inStep = true;
+                groupDepth = 0;
+                htmlParts.push(
+                  `<div class="log-step-divider" data-step-divider="${label.replace(/"/g, "&quot;")}" data-step-line="${lineNum}">▶ ${label}</div>`,
+                );
+              } else {
+                // Inner group → collapsible section (starts collapsed)
+                groupDepth++;
+                htmlParts.push(
+                  `<div class="log-group-header collapsed" data-group-toggle><span class="log-group-arrow">▶</span>${label}</div><div class="log-group-body collapsed">`,
+                );
+              }
+              continue;
+            }
+
+            // Detect ##[endgroup]
+            if (stripped.includes("##[endgroup]")) {
+              if (groupDepth > 0) {
+                htmlParts.push("</div>"); // close .log-group-body
+                groupDepth--;
+              }
+              // When we hit an endgroup at depth 0, next group will be a new top-level step
+              if (groupDepth === 0) {
+                inStep = false;
+              }
+              continue;
+            }
+
+            // Strip timestamp from raw line, then convert ANSI to HTML
+            const cleaned = rawLine.replace(tsRegex, "");
+            const content = ansiUp.ansi_to_html(cleaned) || "&nbsp;";
+
+            htmlParts.push(
+              `<div class="log-line" data-log-line="${lineNum}"><span class="log-line-number">${lineNum}</span><span class="log-line-content">${content}</span></div>`,
+            );
+            lineNum++;
+          }
+
+          // Close any unclosed groups
+          while (groupDepth > 0) {
+            htmlParts.push("</div>");
+            groupDepth--;
+          }
+
+          logsViewer.innerHTML = htmlParts.join("");
+
+          // Attach toggle handlers for collapsible groups
+          logsViewer.querySelectorAll("[data-group-toggle]").forEach((header) => {
+            header.addEventListener("click", () => {
+              header.classList.toggle("collapsed");
+              const body = header.nextElementSibling;
+              if (body && body.classList.contains("log-group-body")) {
+                body.classList.toggle("collapsed");
+              }
+            });
+          });
+
           if (isAtBottom) {
             logsViewer.scrollTop = logsViewer.scrollHeight;
           }
@@ -475,8 +606,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     "http://localhost:8912/runs?runId=" + encodeURIComponent(activeRunId || ""),
   ).then((r) => r.json());
   // Always do the initial full log load regardless of status.
-  // isStreamingLogs will be set to true only once SSE runLog events arrive,
-  // so we don't miss historical content when navigating to an already-running run.
 
   await loadLogs();
 
@@ -559,7 +688,6 @@ document.addEventListener("DOMContentLoaded", async () => {
           pollDtuStatus();
         }
         if (data.type === "runFinished") {
-          isStreamingLogs = false;
           if (statusPollTimer !== null) {
             clearInterval(statusPollTimer);
             statusPollTimer = null;
@@ -578,21 +706,13 @@ document.addEventListener("DOMContentLoaded", async () => {
         }
         // Live stats sample via SSE
         if (data.type === "runStatsSample" && data.runId === activeRunId) {
-          appendStatSample({ ts: data.ts, cpu: data.cpu, memMB: data.memMB });
-        }
-        // Live log streaming via SSE
-        if (data.type === "runLog" && data.runId === activeRunId && logsViewer) {
-          isStreamingLogs = true;
-          const isAtBottom =
-            logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
-          const line = document.createElement("div");
-          const lineIndex = logsViewer.querySelectorAll("[data-log-line]").length;
-          line.setAttribute("data-log-line", String(lineIndex));
-          line.innerHTML = ansiUp.ansi_to_html(data.line);
-          logsViewer.appendChild(line);
-          if (isAtBottom) {
-            logsViewer.scrollTop = logsViewer.scrollHeight;
-          }
+          appendStatSample({
+            ts: data.ts,
+            cpu: data.cpu,
+            memMB: data.memMB,
+            netRxMB: data.netRxMB,
+            netTxMB: data.netTxMB,
+          });
         }
       } catch {}
     });

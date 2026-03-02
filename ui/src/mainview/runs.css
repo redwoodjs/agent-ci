@@ -219,9 +219,97 @@ a:hover {
   background: #0d1117;
   color: #e6edf3;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+/* Log line numbers */
+.log-line {
+  display: flex;
+  align-items: flex-start;
+}
+
+.log-line-number {
+  flex-shrink: 0;
+  width: 45px;
+  text-align: right;
+  padding-right: 12px;
+  color: rgba(139, 148, 158, 0.45);
+  user-select: none;
+  font-size: 12px;
+  line-height: inherit;
+}
+
+.log-line-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Collapsible group headers (like GitHub Actions) */
+.log-group-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  cursor: pointer;
+  user-select: none;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.log-group-header:hover {
+  text-decoration: underline;
+}
+
+.log-group-arrow {
+  flex-shrink: 0;
+  font-size: 8px;
+  width: 12px;
+  text-align: center;
+  transition: transform 0.15s ease;
+  display: inline-block;
+}
+
+.log-group-header.collapsed .log-group-arrow {
+  transform: rotate(0deg);
+}
+
+.log-group-header:not(.collapsed) .log-group-arrow {
+  transform: rotate(90deg);
+}
+
+.log-group-body {
+  padding-left: 18px;
+}
+
+.log-group-body.collapsed {
+  display: none;
+}
+
+/* Top-level step dividers (for the main ##[group]Run ... headers) */
+.log-step-divider {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 16px;
+  margin: 0 -16px;
+  background: #161b22;
+  border-bottom: 1px solid var(--panel-border);
+  border-left: 3px solid var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.01em;
+  cursor: default;
+}
+
+.log-step-divider:not(:first-child) {
+  margin-top: 8px;
 }
 
 /* Step list */

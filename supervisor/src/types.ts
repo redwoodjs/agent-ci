@@ -1,3 +1,5 @@
+import type { WorkflowService } from "./workflow-parser.js";
+
 export interface Job {
   deliveryId: string;
   eventType: string;
@@ -18,5 +20,6 @@ export interface Job {
   headSha?: string;
   runnerName?: string;
   steps?: any[];
+  services?: WorkflowService[];
   [key: string]: any;
 }

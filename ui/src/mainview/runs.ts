@@ -17,7 +17,6 @@ let activeRunId: string | null = null;
 let runStartDate: number = 0;
 let runEndDate: number | undefined;
 let activeStepId: string | null = null;
-let cacheEvents: Array<{ key: string; result: "hit" | "miss"; ts: number }> = [];
 
 function formatElapsed(startMs: number, endMs?: number): string {
   const elapsed = Math.max(0, ((endMs ?? Date.now()) - startMs) / 1000);
@@ -55,35 +54,6 @@ interface TimelineRecord {
   finishTime: string | null;
   refName: string | null;
   parentId: string | null;
-}
-
-/** Check if a step name looks cache-related */
-function isCacheStep(name: string): boolean {
-  const lower = name.toLowerCase();
-  return (
-    lower.includes("cache") ||
-    lower.includes("setup-node") ||
-    lower.includes("setup-python") ||
-    lower.includes("setup-java") ||
-    lower.includes("setup-go")
-  );
-}
-
-/** Match cache events to cache-related steps chronologically */
-function getCacheResultForStep(
-  stepIndex: number,
-  allSteps: TimelineRecord[],
-): "hit" | "miss" | null {
-  if (cacheEvents.length === 0) {
-    return null;
-  }
-  // Count which cache-related step this is (0-indexed)
-  const cacheSteps = allSteps.filter((r) => r.type === "Task" && isCacheStep(r.name));
-  const idx = cacheSteps.findIndex((r) => r.id === allSteps[stepIndex]?.id);
-  if (idx < 0 || idx >= cacheEvents.length) {
-    return null;
-  }
-  return cacheEvents[idx].result;
 }
 
 function formatElapsedMs(startTime: string | null, finishTime: string | null): string {
@@ -125,33 +95,54 @@ function scrollToStep(stepName: string) {
     return;
   }
 
-  const children = Array.from(logsViewer.querySelectorAll("[data-log-line]"));
-  console.log(`[scrollToStep] searching "${stepName}" in ${children.length} lines`);
-
-  // Build candidate strings to try (in priority order):
-  //  1. The exact timeline step name (e.g. "Run pnpm install")
-  //  2. Without the "Run " prefix (e.g. "pnpm install") — GitHub Actions emits
-  //     just the command text in logs, not the full step name.
-  const candidates: string[] = [stepName];
-  if (stepName.startsWith("Run ")) {
-    candidates.push(stepName.slice(4)); // strip "Run "
+  // Post steps, Complete job, Set up job have no ##[group] in logs — scroll to bottom
+  if (stepName.startsWith("Post ") || stepName === "Complete job" || stepName === "Set up job") {
+    logsViewer.scrollTop = logsViewer.scrollHeight;
+    return;
   }
 
+  // Build candidate names: exact name, and without "Run " prefix
+  const candidates: string[] = [stepName];
+  if (stepName.startsWith("Run ")) {
+    candidates.push(stepName.slice(4));
+  }
+
+  // Find the step divider and read its starting line number
+  const dividers = Array.from(logsViewer.querySelectorAll("[data-step-line]"));
+  for (const candidate of candidates) {
+    for (const el of dividers) {
+      const dividerName = (el as HTMLElement).dataset["stepDivider"] || "";
+      if (
+        dividerName === candidate ||
+        dividerName.includes(candidate) ||
+        candidate.includes(dividerName)
+      ) {
+        const targetLine = (el as HTMLElement).dataset["stepLine"];
+        if (targetLine) {
+          const lineEl = logsViewer.querySelector(`[data-log-line="${targetLine}"]`);
+          if (lineEl) {
+            (lineEl as HTMLElement).scrollIntoView({ block: "start", behavior: "instant" });
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  // Fallback: text-match on log lines
+  const children = Array.from(logsViewer.querySelectorAll("[data-log-line]"));
   for (const candidate of candidates) {
     for (const el of children) {
       const text = el.textContent || "";
       if (text.includes(candidate)) {
-        // offsetTop is relative to offsetParent (likely body), not the scroll container.
-        // Subtract the container's own offsetTop to get the position within the scroll container.
-        logsViewer.scrollTop = (el as HTMLElement).offsetTop - logsViewer.offsetTop;
-        console.log(`[scrollToStep] matched "${candidate}" scrollTop=${logsViewer.scrollTop}`);
+        (el as HTMLElement).scrollIntoView({ block: "start", behavior: "instant" });
         return;
       }
     }
   }
-  console.log(
-    `[scrollToStep] no match found for "${stepName}" (candidates: ${candidates.join(", ")})`,
-  );
+
+  // No matching logs found (e.g. Post steps, Complete job) — scroll to bottom
+  logsViewer.scrollTop = logsViewer.scrollHeight;
 }
 
 function setActiveStep(stepId: string, stepName: string) {
@@ -188,17 +179,9 @@ function renderStepList(records: TimelineRecord[]) {
     .map((r) => {
       const elapsed = formatElapsedMs(r.startTime, r.finishTime);
       const isActive = r.id === activeStepId ? " active" : "";
-      // Cache badge for cache-related steps
-      const cacheResult = isCacheStep(r.name)
-        ? getCacheResultForStep(tasks.indexOf(r), tasks)
-        : null;
-      const cacheBadge = cacheResult
-        ? `<span class="step-cache-badge step-cache-${cacheResult}">${cacheResult}</span>`
-        : "";
       return `<div class="step-row${isActive}" data-step-id="${r.id}" data-step-name="${r.name.replace(/"/g, "&quot;")}">
         ${stepIcon(r)}
         <span class="step-name" title="${r.name}">${r.name}</span>
-        ${cacheBadge}
         ${elapsed ? `<span class="step-elapsed">${elapsed}</span>` : ""}
       </div>`;
     })
@@ -220,15 +203,9 @@ async function loadTimeline() {
     return;
   }
   try {
-    const [records, events]: [TimelineRecord[], typeof cacheEvents] = await Promise.all([
-      fetch("http://localhost:8912/runs/timeline?runId=" + encodeURIComponent(activeRunId)).then(
-        (r) => r.json(),
-      ),
-      fetch("http://localhost:8912/runs/cache-events?runId=" + encodeURIComponent(activeRunId))
-        .then((r) => r.json())
-        .catch(() => []),
-    ]);
-    cacheEvents = events;
+    const records: TimelineRecord[] = await fetch(
+      "http://localhost:8912/runs/timeline?runId=" + encodeURIComponent(activeRunId),
+    ).then((r) => r.json());
     renderStepList(records);
   } catch {
     // timeline not available yet
@@ -478,11 +455,86 @@ async function loadLogs() {
         if (logs) {
           const isAtBottom =
             logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
-          // Render each line as a separate element with data-log-line so steps can scroll to them
-          const lines = ansiUp.ansi_to_html(logs).split("\n");
-          logsViewer.innerHTML = lines
-            .map((l, i) => `<div data-log-line="${i}">${l || "&nbsp;"}</div>`)
-            .join("");
+
+          // Timestamp regex: ISO timestamps like "2026-03-01T16:20:38.2146072Z " or with BOM
+          const tsRegex = /^\uFEFF?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/;
+
+          // Split raw text first, then process each line (preserves ANSI codes)
+          const rawLines = logs.split("\n");
+          const htmlParts: string[] = [];
+          let lineNum = 1;
+          let inStep = false;
+          let groupDepth = 0;
+
+          for (const rawLine of rawLines) {
+            // Check for markers on the raw text (before ANSI conversion)
+            // eslint-disable-next-line no-control-regex
+            const stripped = rawLine.replace(/\x1b\[[0-9;]*m/g, "").replace(/\uFEFF/g, "");
+
+            // Detect ##[group]
+            const groupMatch = stripped.match(/##\[group\](.+)/);
+            if (groupMatch) {
+              const label = groupMatch[1].trim();
+
+              if (!inStep) {
+                // Top-level step group → sticky divider
+                inStep = true;
+                groupDepth = 0;
+                htmlParts.push(
+                  `<div class="log-step-divider" data-step-divider="${label.replace(/"/g, "&quot;")}" data-step-line="${lineNum}">▶ ${label}</div>`,
+                );
+              } else {
+                // Inner group → collapsible section (starts collapsed)
+                groupDepth++;
+                htmlParts.push(
+                  `<div class="log-group-header collapsed" data-group-toggle><span class="log-group-arrow">▶</span>${label}</div><div class="log-group-body collapsed">`,
+                );
+              }
+              continue;
+            }
+
+            // Detect ##[endgroup]
+            if (stripped.includes("##[endgroup]")) {
+              if (groupDepth > 0) {
+                htmlParts.push("</div>"); // close .log-group-body
+                groupDepth--;
+              }
+              // When we hit an endgroup at depth 0, next group will be a new top-level step
+              if (groupDepth === 0) {
+                inStep = false;
+              }
+              continue;
+            }
+
+            // Strip timestamp from raw line, then convert ANSI to HTML
+            const cleaned = rawLine.replace(tsRegex, "");
+            const content = ansiUp.ansi_to_html(cleaned) || "&nbsp;";
+
+            htmlParts.push(
+              `<div class="log-line" data-log-line="${lineNum}"><span class="log-line-number">${lineNum}</span><span class="log-line-content">${content}</span></div>`,
+            );
+            lineNum++;
+          }
+
+          // Close any unclosed groups
+          while (groupDepth > 0) {
+            htmlParts.push("</div>");
+            groupDepth--;
+          }
+
+          logsViewer.innerHTML = htmlParts.join("");
+
+          // Attach toggle handlers for collapsible groups
+          logsViewer.querySelectorAll("[data-group-toggle]").forEach((header) => {
+            header.addEventListener("click", () => {
+              header.classList.toggle("collapsed");
+              const body = header.nextElementSibling;
+              if (body && body.classList.contains("log-group-body")) {
+                body.classList.toggle("collapsed");
+              }
+            });
+          });
+
           if (isAtBottom) {
             logsViewer.scrollTop = logsViewer.scrollHeight;
           }

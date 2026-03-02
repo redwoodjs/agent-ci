@@ -195,6 +195,10 @@ export async function executeLocalJob(job: Job): Promise<void> {
       runnerName: containerName,
       logDir: path.dirname(outputLogPath),
       timelineDir: path.dirname(outputLogPath), // write timeline.json alongside process-stdout.log
+      // The pnpm store is bind-mounted into the container, so there's no need
+      // for the runner to tar/gzip it. Tell the DTU to return a synthetic hit
+      // for any cache key containing "pnpm" — skipping the 60s+ tar entirely.
+      virtualCachePatterns: ["pnpm"],
     }),
   }).catch(() => {
     /* non-fatal */
@@ -438,7 +442,7 @@ echo "git $*" >> /home/runner/_diag/oa-git-calls.log
 # It computes the expected URL using URL.origin, which strips the default port 80.
 # So we must return the URL WITHOUT :80 to match.
 if [[ "$*" == *"config --local --get remote.origin.url"* || "$*" == *"config --get remote.origin.url"* ]]; then
-  echo "http://127.0.0.1/\${GITHUB_REPOSITORY}"
+  echo "https://github.com/\${GITHUB_REPOSITORY}"
   exit 0
 fi
 
@@ -561,6 +565,7 @@ exit $EXIT_CODE
       `OA_HEAD_SHA=${job.headSha || "HEAD"}`,
       `OA_DTU_HOST=${dtuHost}`,
       `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
+      `ACTIONS_RESULTS_URL=${dockerApiUrl}/`,
       `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
       `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
       `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
@@ -583,7 +588,7 @@ def handle(c):
 srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('127.0.0.1',80)); srv.listen(32)
 while True:
  c,_=srv.accept(); threading.Thread(target=handle,args=(c,),daemon=True).start()
-" & sleep 0.2 && sudo chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="$RESOLVED_URL" && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -r /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && sudo -n chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
+" & sleep 0.2 && sudo chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -r /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && sudo -n chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
     ],
     HostConfig: {
       Binds: [

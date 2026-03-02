@@ -1,4 +1,16 @@
 import crypto from "node:crypto";
+
+/** Build a minimal JWT whose `scp` claim satisfies @actions/artifact v2. */
+function createMockJwt(planId: string, jobId: string): string {
+  const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString("base64url");
+  const payload = Buffer.from(
+    JSON.stringify({
+      orchid: "123",
+      scp: `Actions.Results:${planId}:${jobId}`,
+    }),
+  ).toString("base64url");
+  return `${header}.${payload}.mock-signature`;
+}
 import {
   MessageResponse,
   JobStep,
@@ -128,7 +140,7 @@ export function createJobResponse(
         ? payload.headSha
         : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     ref: "refs/heads/main",
-    server_url: baseUrl,
+    server_url: "https://github.com",
     api_url: `${baseUrl}/_apis`,
     graphql_url: `${baseUrl}/_graphql`,
     workspace: workspacePath,
@@ -159,6 +171,9 @@ export function createJobResponse(
     matrix: { t: 2, d: [] }, // Empty matrix context
   };
 
+  const generatedJobId = crypto.randomUUID();
+  const mockToken = createMockJwt(planId, generatedJobId);
+
   const jobRequest: PipelineAgentJobRequest = {
     MessageType: "PipelineAgentJobRequest",
     Plan: {
@@ -170,7 +185,7 @@ export function createJobResponse(
       Id: crypto.randomUUID(),
       ChangeId: 1,
     },
-    JobId: crypto.randomUUID(),
+    JobId: generatedJobId,
     RequestId: parseInt(jobId) || 1,
     JobDisplayName: payload.name || "local-job",
     JobName: payload.name || "local-job",
@@ -202,8 +217,7 @@ export function createJobResponse(
           Url: baseUrl,
           Authorization: {
             Parameters: {
-              AccessToken:
-                "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmNoaWQiOiIxMjMifQ.c2lnbmF0dXJl",
+              AccessToken: mockToken,
             },
             Scheme: "OAuth",
           },
@@ -217,7 +231,7 @@ export function createJobResponse(
       Url: baseUrl,
       Authorization: {
         Parameters: {
-          AccessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJvcmNoaWQiOiIxMjMifQ.c2lnbmF0dXJl",
+          AccessToken: mockToken,
         },
         Scheme: "OAuth",
       },

@@ -12,6 +12,7 @@ import { registerDtuRoutes } from "./routes/dtu.js";
 import { registerGithubRoutes } from "./routes/github.js";
 import { registerActionRoutes } from "./routes/actions/index.js";
 import { registerCacheRoutes } from "./routes/cache.js";
+import { registerArtifactRoutes } from "./routes/artifacts.js";
 
 async function terminateOldProcess() {
   // Kill existing process on DTU port
@@ -29,17 +30,30 @@ export async function bootstrapAndReturnApp() {
 
   const app = polka();
 
-  // Middleware
+  // Polka's listen() does: server.on('request', this.handler). So wrapping app.handler
+  // is the correct place to normalize double-slashes BEFORE polka parses req.url into req.path.
+  // ACTIONS_CACHE_URL ends with '/' and routes start with '/' — producing '//_apis/...' paths.
+  const originalHandler = app.handler.bind(app);
+  (app as any).handler = (req: any, res: any, info?: any) => {
+    if (req.url?.includes("//")) {
+      req.url = req.url.replace(/\/{2,}/g, "/");
+    }
+    originalHandler(req, res, info);
+  };
+
   app.use(bodyParser.json({ limit: "50mb" }));
   // Raw parsers for logs and cache uploads
   app.use(bodyParser.text({ type: ["text/plain"], limit: "50mb" }));
-  app.use(bodyParser.raw({ type: ["application/octet-stream"], limit: "500mb" })); // Cache archives can be large
+  app.use(
+    bodyParser.raw({ type: ["application/octet-stream", "application/zip"], limit: "500mb" }),
+  );
 
   // Routes
   registerDtuRoutes(app);
   registerGithubRoutes(app);
-  registerActionRoutes(app);
   registerCacheRoutes(app);
+  registerArtifactRoutes(app);
+  registerActionRoutes(app);
 
   app.post("/_apis/distributedtask/hubs/:hub/plans/:planId/logs/:logId", (req: any, res) => {
     let text = "";

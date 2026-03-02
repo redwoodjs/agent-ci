@@ -3,7 +3,8 @@ name: Smoke Tests
 on: [push]
 
 jobs:
-  test:
+  # Wave 1: build job — uploads the artifact
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Caching is natively supported
@@ -22,3 +23,29 @@ jobs:
 
       - name: Say Hello
         run: echo "Hello from E2E"
+
+      - name: Create Build Output
+        run: echo "built artifact content" > build-output.txt
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-build
+          path: build-output.txt
+
+  # Wave 2: verify job — needs build, downloads the artifact
+  verify:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: smoke-build
+          path: downloaded-artifacts
+
+      - name: Verify Artifact
+        run: |
+          cat downloaded-artifacts/build-output.txt
+          grep "built artifact content" downloaded-artifacts/build-output.txt
+          echo "Artifact verified successfully"

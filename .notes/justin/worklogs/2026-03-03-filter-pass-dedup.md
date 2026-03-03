@@ -384,3 +384,39 @@ Both extraction and review passes are well-specified text transformations — th
 **`src/spec.ts`**: Added `"--model", "sonnet"` to `runClaude`'s execa args.
 
 Typecheck clean.
+
+---
+
+## Discovered and cleaned up ghost conversations
+
+### Problem
+
+During a `--reset` run, 61 conversations were being processed for the `specs` branch — far more than the ~6–10 real conversations we knew existed. The spec pipeline was processing its own previous outputs as if they were real development conversations.
+
+### Investigation
+
+Inventoried all 86 JSONL files in `~/.claude/projects/-Users-justin-rw-worktrees-opposite-actions-specs/`. Found that ~62 files had only 4–5 lines each (consistent with short `claude -p` calls) despite file sizes up to 624K. These were session files created by `claude -p` during previous derive runs.
+
+This was a **feedback loop**: each `--reset` run spawns multiple `claude -p` calls (extraction + review per conversation). By default, `claude -p` persists session JSONL files in the same slug directory as the parent. On the next `--reset`, those ghost files are discovered as "conversations" and processed, which creates even more ghost files.
+
+### Evidence
+
+- `grep -l "spec-maintenance agent" *.jsonl` found 60 of 86 files containing derive's system prompt preamble.
+- The remaining 26 files (+ 1 current session transcript = 27 total) are real conversations.
+
+### Fix: prevent future accumulation
+
+Added `--no-session-persistence` to the `claude -p` args in `runClaude`. This prevents the spawned process from writing JSONL session files altogether.
+
+### Fix: clean up existing ghost files
+
+1. Removed 60 ghost JSONL files: `grep -l "spec-maintenance agent" *.jsonl | xargs rm`.
+2. Deleted all 227 conversation entries for the `specs` branch from `~/.machinen/machinen.db` — these included stale entries pointing to deleted files. A `--reset` will rebuild the index from the 26 remaining real files.
+
+Post-cleanup state: 27 JSONL files remain (26 real conversations + 1 current session transcript). The one remaining file matching "spec-maintenance agent" is this current conversation session which discusses the preamble text — not a ghost.
+
+### Changes
+
+**`src/spec.ts`**: Added `"--no-session-persistence"` to `runClaude`'s execa args.
+
+Typecheck clean.

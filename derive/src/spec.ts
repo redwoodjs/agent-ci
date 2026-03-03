@@ -183,13 +183,31 @@ async function reviewSpec(gherkin: string): Promise<string> {
   return runClaude(REVIEW_SYSTEM_PROMPT, prompt);
 }
 
+// --GROK--: Standalone review for callers that batch multiple updateSpec calls
+// with skipReview and want to review once at the end (e.g. resetBranch).
+export async function reviewSpecFile(sPath: string): Promise<void> {
+  const content = fs.readFileSync(sPath, "utf8");
+  if (!content.trim()) {
+    return;
+  }
+  const reviewed = await reviewSpec(content);
+  if (!reviewed.trim()) {
+    throw new Error("review pass returned empty result");
+  }
+  fs.writeFileSync(sPath, reviewed, "utf8");
+}
+
 const MAX_EXCERPT_CHARS = 300_000;
 
 // Reads the current spec from disk (if any), combines it with new conversation
 // excerpts, and asks Claude to produce an updated spec. If excerpts exceed
 // MAX_EXCERPT_CHARS, they are split into chunks and processed sequentially —
 // each chunk reads the spec back from disk (as updated by the previous chunk).
-export async function updateSpec(messages: JsonlMessage[], sPath: string): Promise<void> {
+export async function updateSpec(
+  messages: JsonlMessage[],
+  sPath: string,
+  opts: { skipReview?: boolean } = {},
+): Promise<void> {
   const excerptLines = messages
     .map((m) => `[${m.type}]: ${extractText(m)}`)
     .filter((s) => s.trim());
@@ -242,14 +260,17 @@ export async function updateSpec(messages: JsonlMessage[], sPath: string): Promi
       throw new Error("claude CLI returned empty result for spec update");
     }
 
-    const reviewed = await reviewSpec(result);
-
-    if (!reviewed.trim()) {
-      throw new Error("review pass returned empty result");
+    let output = result;
+    if (!opts.skipReview) {
+      const reviewed = await reviewSpec(result);
+      if (!reviewed.trim()) {
+        throw new Error("review pass returned empty result");
+      }
+      output = reviewed;
     }
 
     fs.mkdirSync(path.dirname(sPath), { recursive: true });
-    fs.writeFileSync(sPath, reviewed, "utf8");
+    fs.writeFileSync(sPath, output, "utf8");
   }
 }
 

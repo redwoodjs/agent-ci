@@ -11,7 +11,7 @@ import {
   upsertBranch,
   resetConversationOffsets,
 } from "./db.js";
-import { updateSpec, specFilePath } from "./spec.js";
+import { updateSpec, reviewSpecFile, specFilePath } from "./spec.js";
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
 const WATCH_DEBOUNCE_MS = 5_000;
@@ -191,7 +191,8 @@ async function resetBranch(
     );
 
     if (messages.length > 0) {
-      await updateSpec(messages, sPath);
+      // --GROK--: Skip review on each conversation — review once at the end.
+      await updateSpec(messages, sPath, { skipReview: true });
       totalMessages += messages.length;
       console.log(`[reset] spec updated: ${sPath}`);
     }
@@ -207,6 +208,8 @@ async function resetBranch(
     console.log(`[reset] no user/assistant messages found across conversations`);
     return;
   }
+
+  await reviewSpecFile(sPath);
 
   upsertBranch({
     repoPath: cwd,

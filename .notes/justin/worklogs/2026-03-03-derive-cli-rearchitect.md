@@ -332,3 +332,171 @@ pnpm --filter derive typecheck
 - [ ] Run `derive` from repo root and verify one-shot spec update
 - [ ] Run `derive --reset` and verify full regeneration
 - [ ] Run `derive watch` and verify it triggers on conversation changes
+
+---
+
+## RFC: Move spec files from global directory to project directory
+
+### 2000ft View Narrative
+
+#### The problem: specs live outside the project
+
+Spec files are currently stored in a global directory (`~/.machinen/specs/<repo-slug>/<branch>.md`). This has two drawbacks:
+
+1. **Specs do not travel with the branch.** When switching branches via git, the spec for the previous branch is still on disk in the global directory. There is no connection between the branch's code and its spec — they live in different places and are managed by different tools (git vs. derive).
+
+2. **No natural "init from existing" path.** If a spec already exists for a branch (e.g., committed by a teammate, or carried forward from a prior session), derive has no way to discover it automatically. The global directory is opaque to git.
+
+#### The solution: store specs in `<project>/.machinen/specs/<branch>.gherkin`
+
+Move spec files into the project directory tree at `.machinen/specs/<branch>.gherkin`. This means:
+
+- **Specs travel with the branch.** `git checkout feature-x` brings its spec; `git checkout main` brings (or doesn't bring) main's. The spec is version-controlled alongside the code it describes.
+- **Init from existing works automatically.** `updateSpec` already reads the spec file from disk if it exists (`fs.existsSync(sPath)`). By placing specs in the project, a spec committed on the branch becomes the starting point — no new logic required.
+- **Extension changes from `.md` to `.gherkin`.** The content has always been Gherkin. The filename should reflect that.
+
+#### What changes
+
+- **`spec.ts`**: `specFilePath()` computes `path.join(repoPath, ".machinen", "specs", \`${branch}.gherkin\`)`instead of using`MACHINEN_SPECS_DIR`. The `MACHINEN_SPECS_DIR` constant is removed.
+- **Nothing else.** `updateSpec`, `filterSpec`, `runSpecUpdate`, `resetBranch`, `upsertBranch` — all consume `specFilePath()` output. The path changes, the logic does not.
+
+#### What stays the same
+
+- `updateSpec` reads current spec from disk if present, uses it as context for the Claude call
+- `resetBranch` deletes the spec and regenerates from scratch
+- `upsertBranch` stores the `specPath` in the DB (now a project-local path instead of a global one)
+- The spec pipeline (two-pass Gherkin, chunking, filtering) is unchanged
+
+### Database Changes
+
+None. The `branches.spec_path` column stores whatever `specFilePath()` returns — the value changes but the schema does not.
+
+### Behaviour Spec
+
+```gherkin
+Feature: Project-local spec storage
+
+  Scenario: Spec file is created in the project directory
+    Given the user is in a git repository at "/path/to/project" on branch "feature-x"
+    When the user runs derive and new messages are found
+    Then the spec file is written to "/path/to/project/.machinen/specs/feature-x.gherkin"
+
+  Scenario: Existing spec is used as starting point
+    Given the user is in a git repository on branch "feature-x"
+    And a spec file exists at ".machinen/specs/feature-x.gherkin" in the project
+    When the user runs derive
+    Then the existing spec is read and used as context for the update
+    And the updated spec is written back to the same path
+
+  Scenario: Reset deletes the project-local spec
+    Given the user is in a git repository on branch "feature-x"
+    And a spec file exists at ".machinen/specs/feature-x.gherkin"
+    When the user runs derive --reset
+    Then the spec file is deleted
+    And a fresh spec is regenerated from all conversations
+    And the new spec is written to ".machinen/specs/feature-x.gherkin"
+```
+
+### Implementation Breakdown
+
+```
+[MODIFY]  src/spec.ts    — specFilePath(): compute <repoPath>/.machinen/specs/<branch>.gherkin
+                           remove MACHINEN_SPECS_DIR constant
+                           remove os import (no longer needed for homedir)
+```
+
+No changes to: `index.ts`, `watcher.ts`, `db.ts`, `reader.ts`, `types.ts`.
+
+### Invariants & Constraints
+
+- **Spec path is deterministic from (repoPath, branch)**: `<repoPath>/.machinen/specs/<branch>.gherkin`. No slug computation needed — repoPath is already absolute.
+- **Branch names with `/`**: e.g., `feature/x` produces `.machinen/specs/feature/x.gherkin` (nested directory). `path.join` handles this, and git handles nested paths. Same behaviour as before (the old scheme also did not slugify branch names).
+- **Init from existing is implicit**: no new code path. `updateSpec` already checks `fs.existsSync(sPath)` and reads the file if present.
+
+### Tasks
+
+- [x] Modify `specFilePath()` in `spec.ts`
+- [x] Remove `MACHINEN_SPECS_DIR` constant (`os` import kept — still needed for `CLAUDE_BIN`)
+- [x] Verify typecheck passes
+
+---
+
+## Implemented project-local spec storage
+
+Changed `specFilePath()` in `spec.ts`. Two edits:
+
+1. Removed `MACHINEN_SPECS_DIR` constant (was `~/.machinen/specs`). The `os` import stays — it is still used by `CLAUDE_BIN`.
+2. `specFilePath()` now returns `path.join(repoPath, ".machinen", "specs", \`${branch}.gherkin\`)`. No slug computation — `repoPath`is already absolute. Extension changed from`.md`to`.gherkin`.
+
+Typecheck clean.
+
+---
+
+## Implemented CLI-driven rearchitect
+
+Implemented all code changes from the RFC. Both files modified, typecheck passes.
+
+### Changes to `src/watcher.ts`
+
+Already rewritten in prior session to branch-scoped design:
+
+- Accepts `slugDir` parameter instead of hardcoding `~/.claude/projects/`
+- `ignoreInitial: true` — caller runs explicit discover+update before starting the watcher
+- Filters to `*.jsonl` files only via `ignored` callback
+- `awaitWriteFinish` for partial-write safety
+
+### Changes to `src/index.ts`
+
+Full rewrite from daemon entry point to three-mode CLI:
+
+**Removed:**
+
+- `SPEC_DEBOUNCE_MS` constant (replaced by `WATCH_DEBOUNCE_MS`)
+- `pendingSpecUpdates` map (daemon-era per-key debounce)
+- `scheduleSpecUpdate()` (daemon-era debounce function)
+- `onFileChanged()` (daemon-era file-change handler that did discovery + scheduling)
+- Bottom-level `--reset <branch>` arg parsing (replaced by mode dispatch in `main()`)
+- `startWatcher(callback)` daemon startup (replaced by `main()` flow)
+
+**Added:**
+
+- `getCurrentBranch()`: shells out to `git rev-parse --abbrev-ref HEAD`, rejects detached HEAD
+- `getSlugDir(cwd)`: computes `~/.claude/projects/<slug>/` from cwd
+- `discoverConversations(cwd, branch)`: DB-first reconciliation — queries known conversations, diffs against filesystem, reads truly new files to extract `gitBranch`, indexes all discovered conversations (even for other branches, to avoid re-reading)
+- `main()`: detect context → discover → dispatch to mode (one-shot / reset / watch)
+- Watch mode: initial `runSpecUpdate`, then `startWatcher` with debounced re-run of `discover → update` on changes
+
+**Preserved unchanged:**
+
+- `runSpecUpdate()` — same logic, still queries DB via `getConversationsForBranch`, reads from offsets, batches new messages into one `updateSpec` call
+- `resetBranch()` — same sequential processing, but no longer takes a branch arg (inferred from git). Discovery runs first in `main()` so the DB is complete before reset queries it
+
+### Key design decisions in implementation
+
+1. **`discoverConversations` returns `void`**: It reconciles the DB as a side effect. Downstream functions (`runSpecUpdate`, `resetBranch`) query the now-reconciled DB via `getConversationsForBranch`. This keeps discovery as a shared prerequisite without passing conversation lists through the call chain.
+
+2. **Non-matching branches are indexed too**: When a JSONL file belongs to a different branch, we still `upsertConversation` for its actual branch. This means the `getConversation(id)` primary-key check in step 3a of the discovery flow will skip it on future invocations, avoiding redundant file reads.
+
+3. **Watch mode re-discovers on each trigger**: The debounced callback runs `discoverConversations` before `runSpecUpdate`, so new conversations that appear while watching are picked up.
+
+4. **`process.exit(0)` for non-watch modes**: The SQLite `DatabaseSync` handle may keep the event loop alive after async work completes, so we explicitly exit for one-shot and reset modes. Watch mode stays alive via chokidar.
+
+### Typecheck
+
+```
+$ pnpm --filter derive typecheck
+> tsgo
+(clean — no errors)
+```
+
+### Tasks updated
+
+- [x] Rewrite `src/watcher.ts`: branch-scoped watcher (already done in prior session)
+- [x] Rewrite `src/index.ts`: `main()`, `discoverConversations()`, `getCurrentBranch()`, `getSlugDir()`
+- [x] Add `derive watch` mode: initial update + start watcher with debounced re-run
+- [x] Update `--reset` to infer branch from git (no arg)
+- [x] Remove old daemon code: global watcher wiring, `onFileChanged`, `pendingSpecUpdates` map
+- [x] Verify typecheck passes
+- [ ] Run `derive` from repo root and verify one-shot spec update
+- [ ] Run `derive --reset` and verify full regeneration
+- [ ] Run `derive watch` and verify it triggers on conversation changes

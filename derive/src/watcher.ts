@@ -1,17 +1,15 @@
 import chokidar from "chokidar";
-import path from "node:path";
-import os from "node:os";
-
-const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
 
 export type WatchCallback = (jsonlPath: string) => void;
 
-export function startWatcher(onChange: WatchCallback): void {
-  // --awaitWriteFinish debounces at
-  // the FS level to avoid partial-read races on active writes.
-  const watcher = chokidar.watch(CLAUDE_PROJECTS_DIR, {
+// --GROK--: Branch-scoped watcher. Watches a single slug directory (not all of
+// ~/.claude/projects/). ignoreInitial=true because the caller runs an explicit
+// discover+update cycle before starting the watcher — we only care about
+// changes that happen after that point.
+export function startWatcher(slugDir: string, onChange: WatchCallback): void {
+  const watcher = chokidar.watch(slugDir, {
     persistent: true,
-    ignoreInitial: false,
+    ignoreInitial: true,
     ignored: (filePath: string, stats?: { isFile(): boolean }) =>
       stats?.isFile() === true && !filePath.endsWith(".jsonl"),
     awaitWriteFinish: { stabilityThreshold: 500, pollInterval: 100 },
@@ -23,5 +21,5 @@ export function startWatcher(onChange: WatchCallback): void {
     console.error("[watcher] error:", err);
   });
 
-  console.log(`[watcher] watching ${CLAUDE_PROJECTS_DIR}`);
+  console.log(`[watcher] watching ${slugDir}`);
 }

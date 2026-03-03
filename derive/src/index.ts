@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import os from "node:os";
+import { execSync } from "node:child_process";
 import { startWatcher } from "./watcher.js";
 import { readFromOffset } from "./reader.js";
 import {
@@ -11,27 +13,92 @@ import {
 } from "./db.js";
 import { updateSpec, specFilePath } from "./spec.js";
 
-const SPEC_DEBOUNCE_MS = 5_000;
+const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
+const WATCH_DEBOUNCE_MS = 5_000;
 
-// Keyed by "repoPath:branch". Pending timers are replaced on each
-// new file event so rapid writes coalesce into a single spec update.
-const pendingSpecUpdates = new Map<string, ReturnType<typeof setTimeout>>();
+// --GROK--: Shells out to git to get the current branch name.
+// Rejects detached HEAD since we need a named branch for spec routing.
+function getCurrentBranch(): string {
+  const branch = execSync("git rev-parse --abbrev-ref HEAD", {
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  }).trim();
 
-function scheduleSpecUpdate(repoPath: string, branch: string): void {
-  const key = `${repoPath}:${branch}`;
-  const existing = pendingSpecUpdates.get(key);
-  if (existing) {
-    clearTimeout(existing);
+  if (branch === "HEAD") {
+    console.error("[derive] detached HEAD — a named branch is required");
+    process.exit(1);
   }
 
-  const timer = setTimeout(() => {
-    pendingSpecUpdates.delete(key);
-    runSpecUpdate(repoPath, branch).catch((err) => {
-      console.error(`[spec] update failed for ${key}:`, err);
-    });
-  }, SPEC_DEBOUNCE_MS);
+  return branch;
+}
 
-  pendingSpecUpdates.set(key, timer);
+// --GROK--: Computes the slug directory where Claude Code stores conversations
+// for a given cwd. Mirrors Claude Code's own slugification: replace / with -.
+function getSlugDir(cwd: string): string {
+  const slug = cwd.replace(/\//g, "-");
+  return path.join(CLAUDE_PROJECTS_DIR, slug);
+}
+
+// --GROK--: DB-first reconciliation. Queries the DB for known conversations on
+// this branch, then diffs against the filesystem to find truly new JSONL files.
+// New files are read to extract their gitBranch — matching ones are indexed.
+// Non-matching files are also indexed (for their actual branch) so the
+// primary-key lookup skips them on future invocations.
+async function discoverConversations(cwd: string, branch: string): Promise<void> {
+  const slugDir = getSlugDir(cwd);
+
+  if (!fs.existsSync(slugDir)) {
+    return;
+  }
+
+  const known = getConversationsForBranch(cwd, branch);
+  const knownIds = new Set(known.map((c) => c.conversationId));
+
+  const files = fs.readdirSync(slugDir).filter((f) => f.endsWith(".jsonl"));
+  let discoveredCount = 0;
+
+  for (const file of files) {
+    const conversationId = path.basename(file, ".jsonl");
+
+    if (knownIds.has(conversationId)) {
+      continue;
+    }
+
+    // Already indexed for another branch — skip the file read
+    const existing = getConversation(conversationId);
+    if (existing) {
+      continue;
+    }
+
+    // Truly new — read to discover cwd + gitBranch
+    const jsonlPath = path.join(slugDir, file);
+    const { messages } = await readFromOffset(jsonlPath, 0);
+    const first = messages.find((m) => m.cwd && m.gitBranch);
+
+    if (!first) {
+      continue;
+    }
+
+    upsertConversation({
+      conversationId,
+      repoPath: first.cwd,
+      branch: first.gitBranch,
+      jsonlPath,
+      lastLineOffset: 0,
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (first.gitBranch === branch) {
+      discoveredCount++;
+      console.log(`[discover] new conversation: ${conversationId}`);
+    } else {
+      console.log(`[discover] indexed ${conversationId} (branch: ${first.gitBranch})`);
+    }
+  }
+
+  if (discoveredCount > 0) {
+    console.log(`[discover] found ${discoveredCount} new conversation(s) for ${branch}`);
+  }
 }
 
 async function runSpecUpdate(repoPath: string, branch: string): Promise<void> {
@@ -39,6 +106,7 @@ async function runSpecUpdate(repoPath: string, branch: string): Promise<void> {
 
   const conversations = getConversationsForBranch(repoPath, branch);
   if (conversations.length === 0) {
+    console.log("[derive] no conversations found for this branch");
     return;
   }
 
@@ -62,6 +130,7 @@ async function runSpecUpdate(repoPath: string, branch: string): Promise<void> {
   }
 
   if (allNewMessages.length === 0) {
+    console.log("[derive] no new messages");
     return;
   }
 
@@ -78,66 +147,29 @@ async function runSpecUpdate(repoPath: string, branch: string): Promise<void> {
   console.log(`[spec] spec written to ${sPath}`);
 }
 
-async function onFileChanged(jsonlPath: string): Promise<void> {
-  const conversationId = path.basename(jsonlPath, ".jsonl");
-  const existing = getConversation(conversationId);
+// --GROK--: Reset mode. Discovery has already reconciled the DB, so
+// getConversationsForBranch returns the complete set. We zero offsets and
+// reprocess each conversation sequentially — one updateSpec call per
+// conversation to avoid exceeding the prompt size limit.
+async function resetBranch(cwd: string, branch: string): Promise<void> {
+  console.log(`[reset] resetting spec for ${cwd} @ ${branch}`);
 
-  if (existing) {
-    console.log(`[watch] changed: ${jsonlPath} (${existing.repoPath} @ ${existing.branch})`);
-    scheduleSpecUpdate(existing.repoPath, existing.branch);
-    return;
-  }
-
-  // First time seeing this file — read from start to discover cwd / gitBranch.
-  const { messages } = await readFromOffset(jsonlPath, 0);
-  const first = messages.find((m) => m.cwd && m.gitBranch);
-  if (!first) {
-    return;
-  }
-
-  console.log(`[watch] discovered: ${jsonlPath} (${first.cwd} @ ${first.gitBranch})`);
-
-  // Store offset as 0; runSpecUpdate will read all lines and advance it.
-  upsertConversation({
-    conversationId,
-    repoPath: first.cwd,
-    branch: first.gitBranch,
-    jsonlPath,
-    lastLineOffset: 0,
-    updatedAt: new Date().toISOString(),
-  });
-
-  scheduleSpecUpdate(first.cwd, first.gitBranch);
-}
-
-// Re-read all conversations from offset 0, delete the existing spec, and
-// regenerate from scratch in a single claude -p call. Uses process.cwd() as
-// repoPath so it must be run from within the repo.
-async function resetBranch(branch: string): Promise<void> {
-  const repoPath = process.cwd();
-  console.log(`[reset] resetting spec for ${repoPath} @ ${branch}`);
-
-  const conversations = getConversationsForBranch(repoPath, branch);
+  const conversations = getConversationsForBranch(cwd, branch);
   if (conversations.length === 0) {
-    console.log(`[reset] no conversations found for ${repoPath} @ ${branch}`);
+    console.log(`[reset] no conversations found for ${cwd} @ ${branch}`);
     return;
   }
 
-  const sPath = specFilePath(repoPath, branch);
+  const sPath = specFilePath(cwd, branch);
 
-  // Delete existing spec so updateSpec treats this as a fresh branch
   if (fs.existsSync(sPath)) {
     fs.unlinkSync(sPath);
     console.log(`[reset] deleted existing spec at ${sPath}`);
   }
 
-  // Zero all offsets
-  const resetCount = resetConversationOffsets(repoPath, branch);
+  const resetCount = resetConversationOffsets(cwd, branch);
   console.log(`[reset] zeroed offsets for ${resetCount} conversations`);
 
-  // Process conversations sequentially — each updateSpec call reads the current
-  // spec from disk (written by the previous call) and refines it with the next
-  // conversation's messages. Same pattern as normal incremental operation.
   let totalMessages = 0;
   for (const [i, conv] of conversations.entries()) {
     const { messages, linesRead } = await readFromOffset(conv.jsonlPath, 0);
@@ -151,7 +183,6 @@ async function resetBranch(branch: string): Promise<void> {
       console.log(`[reset] spec updated: ${sPath}`);
     }
 
-    // Advance offset so the daemon won't re-process these
     upsertConversation({
       ...conv,
       lastLineOffset: linesRead,
@@ -165,7 +196,7 @@ async function resetBranch(branch: string): Promise<void> {
   }
 
   upsertBranch({
-    repoPath,
+    repoPath: cwd,
     branch,
     specPath: sPath,
     updatedAt: new Date().toISOString(),
@@ -174,25 +205,60 @@ async function resetBranch(branch: string): Promise<void> {
   console.log(`[reset] spec written to ${sPath}`);
 }
 
-const resetFlag = process.argv.indexOf("--reset");
-if (resetFlag !== -1) {
-  const branch = process.argv[resetFlag + 1];
-  if (!branch) {
-    console.error("Usage: tsx src/index.ts --reset <branch>");
-    process.exit(1);
-  }
-  resetBranch(branch)
-    .then(() => process.exit(0))
-    .catch((err) => {
-      console.error("[reset] failed:", err);
-      process.exit(1);
-    });
-} else {
-  console.log("[machinen] daemon started");
+async function main(): Promise<void> {
+  const cwd = process.cwd();
+  const branch = getCurrentBranch();
+  const args = process.argv.slice(2);
 
-  startWatcher((jsonlPath) => {
-    onFileChanged(jsonlPath).catch((err) => {
-      console.error("[machinen] error processing file:", jsonlPath, err);
+  console.log(`[derive] ${cwd} @ ${branch}`);
+
+  // DB-first discovery: reconcile the DB with the filesystem before any mode
+  await discoverConversations(cwd, branch);
+
+  if (args.includes("--reset")) {
+    await resetBranch(cwd, branch);
+    return;
+  }
+
+  if (args[0] === "watch") {
+    // Initial update, then watch for changes on this branch
+    await runSpecUpdate(cwd, branch);
+
+    const slugDir = getSlugDir(cwd);
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    startWatcher(slugDir, () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+      debounceTimer = setTimeout(() => {
+        debounceTimer = null;
+        discoverConversations(cwd, branch)
+          .then(() => runSpecUpdate(cwd, branch))
+          .catch((err) => {
+            console.error("[watch] spec update failed:", err);
+          });
+      }, WATCH_DEBOUNCE_MS);
     });
-  });
+
+    console.log("[derive] watching for changes...");
+    return;
+  }
+
+  // Default: one-shot update
+  await runSpecUpdate(cwd, branch);
 }
+
+const isWatchMode = process.argv.slice(2)[0] === "watch";
+
+main().then(
+  () => {
+    if (!isWatchMode) {
+      process.exit(0);
+    }
+  },
+  (err) => {
+    console.error("[derive] failed:", err);
+    process.exit(1);
+  },
+);

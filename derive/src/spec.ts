@@ -6,7 +6,6 @@ import type { JsonlMessage } from "./types.js";
 import { extractText } from "./reader.js";
 
 const CLAUDE_BIN = path.join(os.homedir(), ".local", "bin", "claude");
-const MACHINEN_SPECS_DIR = path.join(os.homedir(), ".machinen", "specs");
 
 const SPEC_ROLE_PREAMBLE = `You are the spec-maintenance agent for a git branch. Your role is to extract testable product behaviours from development conversations and maintain them as a Gherkin specification.
 
@@ -143,7 +142,8 @@ export async function updateSpec(messages: JsonlMessage[], sPath: string): Promi
   }
 }
 
+// --GROK--: Spec files live in the project directory so they travel with the
+// branch via git. The extension is .gherkin to reflect the actual content format.
 export function specFilePath(repoPath: string, branch: string): string {
-  const repoSlug = repoPath.replace(/^\//, "").replace(/\//g, "-");
-  return path.join(MACHINEN_SPECS_DIR, repoSlug, `${branch}.md`);
+  return path.join(repoPath, ".machinen", "specs", `${branch}.gherkin`);
 }

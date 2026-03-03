@@ -59,15 +59,16 @@ getConversationsForBranch(cwd, branch)
     → for each chunk:
         read current spec from disk (if any)
         runClaude(SPEC_ROLE_PREAMBLE, prompt) → raw Gherkin
-        filterSpec(raw) → runClaude(FILTER_SYSTEM_PROMPT, ...) → filtered Gherkin
-        write filtered result to disk
+        reviewSpec(raw) → runClaude(REVIEW_SYSTEM_PROMPT, ...) → reviewed Gherkin
+        write reviewed result to disk
   → upsertBranch(repoPath, branch, specPath)
 ```
 
 ### Reset pipeline (resetBranch)
 
 ```
-delete spec file from disk
+if --keep-spec: preserve existing spec file on disk
+else: delete spec file from disk
 resetConversationOffsets(cwd, branch) → zero all offsets in DB
 for each conversation (sequentially):
   readFromOffset(jsonlPath, 0) → all messages
@@ -76,7 +77,7 @@ for each conversation (sequentially):
 upsertBranch(repoPath, branch, specPath)
 ```
 
-Sequential per-conversation processing avoids exceeding the prompt size limit — a lesson from early development where batching all conversations into one call caused "Prompt is too long" failures.
+Sequential per-conversation processing avoids exceeding the prompt size limit — a lesson from early development where batching all conversations into one call caused "Prompt is too long" failures. When `--keep-spec` is used, the existing spec is preserved as starting context for the first conversation's reprocessing — useful when the spec contains hand-written or init-seeded content.
 
 ## Database Schema
 
@@ -147,6 +148,16 @@ Feature: CLI spec update
     And all conversation offsets are zeroed
     And each conversation is processed sequentially from the start
     And the spec is fully regenerated
+    And the process exits
+
+  Scenario: Reset with --keep-spec preserves existing spec
+    Given the user is in a git repository on branch "feature-x"
+    And a spec file exists with user-written content
+    And conversations exist for this branch
+    When the user runs derive --reset --keep-spec
+    Then the existing spec file is not deleted
+    And all conversation offsets are zeroed
+    And each conversation is reprocessed with the existing spec as starting context
     And the process exits
 
   Scenario: Detached HEAD
@@ -248,7 +259,7 @@ The spec pipeline is stateless — each invocation is a fresh `claude -p` call. 
 
 **Pass 1 — Extraction.** Messages are formatted as `[type]: text` excerpts, separated by `---`. If the total exceeds 300K characters, excerpts are split into chunks and processed sequentially (each chunk reads the spec back from disk as updated by the previous chunk). The system prompt (`SPEC_ROLE_PREAMBLE`) instructs the agent to extract testable product behaviours and output Gherkin. It enforces a black-box test: every scenario must be verifiable by someone who can only use the product's external interfaces.
 
-**Pass 2 — Filtering.** The raw Gherkin is reviewed by a second `claude -p` call with a filter system prompt (`FILTER_SYSTEM_PROMPT`). This pass removes scenarios that describe implementation details rather than externally observable behaviour.
+**Pass 2 — Review.** The raw Gherkin is reviewed by a second `claude -p` call with a review system prompt (`REVIEW_SYSTEM_PROMPT`). This pass performs four operations in order: (1) filter — remove scenarios that fail the black-box test, (2) deduplicate — merge scenarios that describe the same observable behaviour under different names, (3) consolidate — when the same invariant appears across multiple Features, keep it in the most natural location and remove duplicates, (4) simplify — remove scenarios whose assertions are already fully encoded in another scenario.
 
 Both passes use `execa` to spawn `claude -p` with `--system-prompt` (replacing the default system prompt), piping the prompt via `stdin` (`input:` option) to avoid OS arg length limits. `extendEnv: false` and `delete env.CLAUDECODE` prevent Claude Code from recursing into itself.
 
@@ -264,12 +275,13 @@ The watcher uses `ignoreInitial: true` (the initial cycle is explicit), `awaitWr
 
 ## API Reference (CLI)
 
-| Command          | Description                                                                                                       |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `derive`         | One-shot update. Discover conversations, read new messages, update spec, exit.                                    |
-| `derive --reset` | Regenerate spec from scratch. Delete spec, zero offsets, reprocess all conversations sequentially, exit.          |
-| `derive watch`   | Run an initial update, then watch for conversation changes on the current branch. Re-runs on changes (debounced). |
-| `derive init`    | Create an empty spec file for the current branch. No discovery, no tokens.                                        |
+| Command                      | Description                                                                                                       |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `derive`                     | One-shot update. Discover conversations, read new messages, update spec, exit.                                    |
+| `derive --reset`             | Regenerate spec from scratch. Delete spec, zero offsets, reprocess all conversations sequentially, exit.          |
+| `derive --reset --keep-spec` | Reprocess all conversations from scratch, but preserve the existing spec file as starting context.                |
+| `derive watch`               | Run an initial update, then watch for conversation changes on the current branch. Re-runs on changes (debounced). |
+| `derive init`                | Create an empty spec file for the current branch. No discovery, no tokens.                                        |
 
 All commands infer the repository path from `process.cwd()` and the branch from `git rev-parse --abbrev-ref HEAD`. The tool is invoked via `pnpm --filter derive start` (or `pnpm --filter derive start -- <args>`).
 
@@ -295,13 +307,13 @@ All commands infer the repository path from `process.cwd()` and the branch from 
 
 Batching all conversations into a single `updateSpec` call can exceed Claude's prompt size limit. Reset mode processes each conversation in its own `updateSpec` call, where each call reads the spec back from disk (as updated by the previous call). This sequential strategy was discovered during the original development when "Prompt is too long" errors occurred.
 
-### Two-pass filtering is necessary
+### Two-pass review is necessary
 
-A single-pass extraction produces Gherkin that often includes implementation-detail scenarios (internal function calls, database schemas, env var handling). The second pass (filter) with a dedicated system prompt reliably removes these. Attempting to prevent them in the extraction prompt alone was insufficient.
+A single-pass extraction produces Gherkin that often includes implementation-detail scenarios (internal function calls, database schemas, env var handling) and redundant scenarios that describe the same behaviour under different names. The second pass (review) with a dedicated system prompt addresses both problems: it filters implementation details via the black-box test, then deduplicates, consolidates cross-feature overlaps, and simplifies subset scenarios. Attempting to handle these concerns in the extraction prompt alone was insufficient.
 
 ### The black-box test is the quality heuristic
 
-Every scenario must pass the black-box test: "Could a QA engineer verify this using only the product's external interfaces?" This is enforced in both system prompts (extraction and filter). It provides a concrete, repeatable standard for what belongs in the spec.
+Every scenario must pass the black-box test: "Could a QA engineer verify this using only the product's external interfaces?" This is enforced in both system prompts (extraction and review). It provides a concrete, repeatable standard for what belongs in the spec.
 
 ### Claude Code slugification
 
@@ -330,7 +342,7 @@ derive/
     watcher.ts          — branch-scoped chokidar watcher (watches single slug dir, *.jsonl filter, awaitWriteFinish)
     db.ts               — SQLite routing index (conversations + branches tables, CRUD operations)
     reader.ts           — JSONL reader (incremental offset-based reading, system tag stripping, text extraction)
-    spec.ts             — spec pipeline (two-pass Gherkin: extraction + filtering, 300K chunking, claude -p via execa)
+    spec.ts             — spec pipeline (two-pass Gherkin: extraction + review, 300K chunking, claude -p via execa)
     types.ts            — shared types (JsonlMessage, ConversationRecord, BranchRecord)
 ```
 

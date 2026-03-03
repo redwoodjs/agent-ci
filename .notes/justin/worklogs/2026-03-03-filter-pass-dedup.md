@@ -166,3 +166,21 @@ All changes in `derive/src/spec.ts`:
 4. **Log prefix**: `[filter]` → `[review]`.
 
 Typecheck clean.
+
+---
+
+## Implemented `--reset --keep-spec`
+
+Added a `--keep-spec` modifier flag for `--reset`. When present, the existing spec file is preserved as starting context for the reprocessing — conversation offsets are still zeroed and all conversations are reprocessed sequentially, but the spec file is not deleted first.
+
+This is useful when the user has hand-edited the spec (or seeded it via `derive init`) and wants to reprocess all conversations without losing their manual additions.
+
+### Changes
+
+**`src/index.ts`**:
+
+1. `resetBranch` signature: added `opts: { keepSpec?: boolean }` parameter (defaults to `{}`).
+2. The `fs.unlinkSync` call is now gated on `!opts.keepSpec`.
+3. `main()` arg parsing: passes `{ keepSpec: args.includes("--keep-spec") }` to `resetBranch`.
+
+Typecheck clean.

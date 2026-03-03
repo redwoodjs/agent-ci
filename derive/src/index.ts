@@ -158,8 +158,14 @@ async function runSpecUpdate(repoPath: string, branch: string): Promise<void> {
 // getConversationsForBranch returns the complete set. We zero offsets and
 // reprocess each conversation sequentially — one updateSpec call per
 // conversation to avoid exceeding the prompt size limit.
-async function resetBranch(cwd: string, branch: string): Promise<void> {
-  console.log(`[reset] resetting spec for ${cwd} @ ${branch}`);
+async function resetBranch(
+  cwd: string,
+  branch: string,
+  opts: { keepSpec?: boolean } = {},
+): Promise<void> {
+  console.log(
+    `[reset] resetting spec for ${cwd} @ ${branch}${opts.keepSpec ? " (keeping existing spec)" : ""}`,
+  );
 
   const conversations = getConversationsForBranch(cwd, branch);
   if (conversations.length === 0) {
@@ -169,7 +175,7 @@ async function resetBranch(cwd: string, branch: string): Promise<void> {
 
   const sPath = specFilePath(cwd, branch);
 
-  if (fs.existsSync(sPath)) {
+  if (!opts.keepSpec && fs.existsSync(sPath)) {
     fs.unlinkSync(sPath);
     console.log(`[reset] deleted existing spec at ${sPath}`);
   }
@@ -237,7 +243,7 @@ async function main(): Promise<void> {
   await discoverConversations(cwd, branch);
 
   if (args.includes("--reset")) {
-    await resetBranch(cwd, branch);
+    await resetBranch(cwd, branch, { keepSpec: args.includes("--keep-spec") });
     return;
   }
 

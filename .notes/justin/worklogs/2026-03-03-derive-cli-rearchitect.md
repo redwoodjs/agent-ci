@@ -500,3 +500,73 @@ $ pnpm --filter derive typecheck
 - [ ] Run `derive` from repo root and verify one-shot spec update
 - [ ] Run `derive --reset` and verify full regeneration
 - [ ] Run `derive watch` and verify it triggers on conversation changes
+
+---
+
+## RFC: `derive init` — create empty spec file for manual seeding
+
+### 2000ft View Narrative
+
+#### The problem: no way to seed a spec before processing conversations
+
+A user may want to write an initial spec by hand — defining expected behaviours before derive processes any conversations. There is no way to do this today. Running `derive` without an existing spec starts from scratch using only conversation content. The user has no entry point to inject their own starting knowledge.
+
+#### The solution: `derive init`
+
+Add a fourth CLI mode: `derive init`. It creates an empty `.machinen/specs/<branch>.gherkin` file (and parent directories) for the current branch. The user fills it in, then runs `derive` — which reads the existing spec from disk and uses it as context for the Claude call.
+
+Behaviour:
+
+- If the spec file does not exist: create it (empty), print the path.
+- If the spec file already exists: print a message, do not overwrite. The user's content is preserved.
+- Does not run discovery or spec updates. No tokens spent.
+
+The empty-file case is handled correctly by the existing pipeline: `fs.readFileSync` on an empty file returns `""`, and `if (currentSpec)` is falsy for `""`, so `updateSpec` falls through to the "new branch" code path. Once the user has written content, it becomes the starting context.
+
+### Behaviour Spec
+
+```gherkin
+Feature: Init mode
+
+  Scenario: Create empty spec file
+    Given the user is in a git repository on branch "feature-x"
+    And no spec file exists at ".machinen/specs/feature-x.gherkin"
+    When the user runs derive init
+    Then an empty file is created at ".machinen/specs/feature-x.gherkin"
+    And the path is printed to stdout
+
+  Scenario: Spec file already exists
+    Given the user is in a git repository on branch "feature-x"
+    And a spec file exists at ".machinen/specs/feature-x.gherkin"
+    When the user runs derive init
+    Then the existing file is not modified
+    And a message indicates the spec already exists
+```
+
+### Implementation Breakdown
+
+```
+[MODIFY]  src/index.ts   — add `init` mode check in main(), before --reset and watch
+                            create empty file via fs.mkdirSync + fs.writeFileSync
+                            no discovery, no spec update, no tokens
+```
+
+No changes to: `spec.ts`, `watcher.ts`, `db.ts`, `reader.ts`, `types.ts`.
+
+### Tasks
+
+- [x] Add `derive init` mode to `main()` in `index.ts`
+- [x] Verify typecheck passes
+
+---
+
+## Implemented `derive init`
+
+Added init mode to `main()` in `index.ts`. Placed before discovery — no DB work, no tokens spent.
+
+- Checks `args[0] === "init"`
+- If spec file does not exist: `mkdirSync` + `writeFileSync` (empty), prints path
+- If spec file already exists: prints message, does not overwrite
+- Returns immediately — no discovery, no spec update
+
+Typecheck clean.

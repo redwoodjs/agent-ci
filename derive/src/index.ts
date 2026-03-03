@@ -212,6 +212,20 @@ async function main(): Promise<void> {
 
   console.log(`[derive] ${cwd} @ ${branch}`);
 
+  // --GROK--: init mode runs before discovery — no DB work, no tokens.
+  // Creates the spec file so the user can fill it in before running derive.
+  if (args[0] === "init") {
+    const sPath = specFilePath(cwd, branch);
+    if (fs.existsSync(sPath)) {
+      console.log(`[init] spec already exists: ${sPath}`);
+    } else {
+      fs.mkdirSync(path.dirname(sPath), { recursive: true });
+      fs.writeFileSync(sPath, "", "utf8");
+      console.log(`[init] created ${sPath}`);
+    }
+    return;
+  }
+
   // DB-first discovery: reconcile the DB with the filesystem before any mode
   await discoverConversations(cwd, branch);
 

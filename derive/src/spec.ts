@@ -62,19 +62,30 @@ async function runClaude(systemPrompt: string, prompt: string): Promise<string> 
   return result.stdout;
 }
 
-const FILTER_SYSTEM_PROMPT = `You are a spec reviewer. Your job is to review a Gherkin specification and remove any scenarios that describe implementation details rather than externally observable product behaviour.
+const REVIEW_SYSTEM_PROMPT = `You are a spec reviewer. Your job is to review a Gherkin specification and produce a clean, non-redundant version that contains only externally observable product behaviours.
 
-Apply the black box test to each scenario: could a QA engineer verify this scenario using only the product's external interfaces (CLI, UI, API, filesystem outputs) without reading source code or inspecting internal state?
+You perform four operations, in order:
 
-- REMOVE scenarios about: internal function calls, database schemas, environment variables, subprocess flags, internal error handling, logging, internal data formats, or how something is implemented.
-- KEEP scenarios about: what a user can do, what they observe, what outputs the system produces, how it responds to user actions.
+1. FILTER — Apply the black box test to each scenario: could a QA engineer verify this scenario using only the product's external interfaces (CLI, UI, API, filesystem outputs) without reading source code or inspecting internal state?
+   - REMOVE scenarios about: internal function calls, database schemas, environment variables, subprocess flags, internal error handling, logging, internal data formats, or how something is implemented.
+   - KEEP scenarios about: what a user can do, what they observe, what outputs the system produces, how it responds to user actions.
 
-Output ONLY the filtered Gherkin — no commentary, no explanations, no markdown. Preserve the exact Feature/Scenario/Given/When/Then structure of kept scenarios. Do not rewrite kept scenarios, output them exactly as they are.`;
+2. DEDUPLICATE — Identify scenarios that describe the same observable behaviour under different names or wording. Merge them into one, keeping the more specific or descriptive version. If two scenarios say the same thing differently, keep one and discard the other.
 
-async function filterSpec(gherkin: string): Promise<string> {
-  console.log(`[filter] reviewing spec | ${gherkin.trim().length} chars`);
-  const prompt = `Here is the Gherkin specification to review:\n\n${gherkin}\n\nRemove any scenarios that fail the black box test. Output only the filtered Gherkin.`;
-  return runClaude(FILTER_SYSTEM_PROMPT, prompt);
+3. CONSOLIDATE — When the same invariant or rule appears in multiple Features (e.g., "other branches are ignored" stated separately for one-shot mode and watch mode), keep it in the most natural location and remove the duplicate. If it applies universally, state it once.
+
+4. SIMPLIFY — Remove scenarios whose assertion is already fully encoded in another scenario. For example, if one scenario states "the spec file is written to .machinen/specs/feature-x.gherkin", a separate scenario stating "the spec file uses the .gherkin extension" adds nothing and should be removed.
+
+Rules:
+- Do NOT invent new scenarios or add behaviours not present in the input.
+- When merging two scenarios, the result must be traceable to the originals — do not introduce new assertions.
+- Preserve Feature groupings unless restructuring is necessary to eliminate a cross-feature duplicate. Prefer removing a duplicate over reorganising.
+- Output ONLY the reviewed Gherkin — no commentary, no explanations, no markdown.`;
+
+async function reviewSpec(gherkin: string): Promise<string> {
+  console.log(`[review] reviewing spec | ${gherkin.trim().length} chars`);
+  const prompt = `Here is the Gherkin specification to review:\n\n${gherkin}\n\nFilter, deduplicate, consolidate, and simplify. Output only the reviewed Gherkin.`;
+  return runClaude(REVIEW_SYSTEM_PROMPT, prompt);
 }
 
 const MAX_EXCERPT_CHARS = 300_000;
@@ -136,14 +147,14 @@ export async function updateSpec(messages: JsonlMessage[], sPath: string): Promi
       throw new Error("claude CLI returned empty result for spec update");
     }
 
-    const filtered = await filterSpec(result);
+    const reviewed = await reviewSpec(result);
 
-    if (!filtered.trim()) {
-      throw new Error("filter pass returned empty result");
+    if (!reviewed.trim()) {
+      throw new Error("review pass returned empty result");
     }
 
     fs.mkdirSync(path.dirname(sPath), { recursive: true });
-    fs.writeFileSync(sPath, filtered, "utf8");
+    fs.writeFileSync(sPath, reviewed, "utf8");
   }
 }
 

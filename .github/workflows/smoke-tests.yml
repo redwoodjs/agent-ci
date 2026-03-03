@@ -37,6 +37,10 @@ jobs:
   verify:
     needs: build
     runs-on: ubuntu-latest
+    # A container block is required for service hostnames (e.g. "cache-db") to be resolvable
+    # via Docker DNS on real GitHub runners. Without it, services are only reachable via localhost.
+    # Our local runner always uses Docker aliasing, so this aligns both environments.
+    container: ubuntu:22.04
     services:
       cache-db:
         image: redis:7-alpine

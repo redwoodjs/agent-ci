@@ -181,11 +181,19 @@ Feature: Incremental spec updates
 Feature: Commit helper (ad)
   Scenario: Stages and commits all changes with an AI-generated message
     Given the user is in a git repository with unstaged changes
+    And the GROQ_API_KEY environment variable is set
     When the user runs ad
     Then all changes are staged
-    And a commit message is generated from the diff
+    And an AI-generated commit message is created from the diff
     And the changes are committed with that message
     And the commit is pushed to the remote
+
+  Scenario: Fallback commit message when AI is disabled
+    Given the user is in a git repository with unstaged changes
+    And the NO_AI environment variable is set to "true"
+    When the user runs ad
+    Then a locally generated commit message is used instead of an AI-generated one
+    And the commit message references the file with the most changes
 
   Scenario: Lockfile-only changes produce a generic message
     Given the user is in a git repository
@@ -198,6 +206,18 @@ Feature: Commit helper (ad)
     When the user runs ad
     Then the commit message is based on the source file changes
     And lockfile changes do not influence the commit message content
+
+  Scenario: oxfmt formats staged files before committing
+    Given the user is in a git repository that has oxfmt installed at node_modules/.bin/oxfmt
+    And staged changes include JavaScript or TypeScript files
+    When the user runs ad
+    Then the staged JS/TS files are formatted with oxfmt before the commit
+    And the formatted versions are included in the commit
+
+  Scenario: oxfmt is skipped when not installed
+    Given the user is in a git repository that does not have oxfmt installed
+    When the user runs ad
+    Then the commit proceeds without formatting
 
   Scenario: No changes to commit
     Given the user is in a git repository with no changes

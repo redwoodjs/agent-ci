@@ -198,3 +198,96 @@ describe("Multi-job workflow fan-out", () => {
     expect(retryMeta.taskId ?? null).toBe(originalMeta.taskId ?? null);
   });
 });
+
+// ── Matrix workflow fan-out ────────────────────────────────────────────────────
+
+const MATRIX_WORKFLOW_3_SHARDS = `
+name: Playwright Matrix
+on: [push]
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - name: Run Playwright tests (Shard \${{ matrix.shard }}/\${{ strategy.job-total }})
+        run: pnpm test:e2e:ci --shard=\${{ matrix.shard }}/\${{ strategy.job-total }}
+`.trimStart();
+
+describe("Matrix workflow fan-out", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("spawns one runner per shard with correct matrixContext in metadata", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-matrix-test-"));
+    const workflowsDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowsDir, { recursive: true });
+    fs.writeFileSync(path.join(workflowsDir, "matrix.yml"), MATRIX_WORKFLOW_3_SHARDS);
+
+    const runnerNames = await runWorkflow(tmpDir, "matrix.yml", "WORKING_TREE");
+
+    // 3 shards → 3 runners
+    expect(runnerNames).toHaveLength(3);
+
+    // All share the same base number, suffixed -001, -002, -003
+    expect(runnerNames[0]).toMatch(/^oa-runner-\d+-001$/);
+    expect(runnerNames[1]).toMatch(/^oa-runner-\d+-002$/);
+    expect(runnerNames[2]).toMatch(/^oa-runner-\d+-003$/);
+
+    const baseFirst = runnerNames[0].replace(/-\d{3}$/, "");
+    const baseSecond = runnerNames[1].replace(/-\d{3}$/, "");
+    const baseThird = runnerNames[2].replace(/-\d{3}$/, "");
+    expect(baseFirst).toBe(baseSecond);
+    expect(baseFirst).toBe(baseThird);
+
+    const { getLogsDir } = await import("../logger.js");
+    const logsDir = getLogsDir();
+
+    const metas = await Promise.all(
+      runnerNames.map((name) =>
+        JSON.parse(fs.readFileSync(path.join(logsDir, name, "metadata.json"), "utf-8")),
+      ),
+    );
+
+    // Each runner should record its shard in matrixContext
+    expect(metas[0].matrixContext?.shard).toBe("1");
+    expect(metas[1].matrixContext?.shard).toBe("2");
+    expect(metas[2].matrixContext?.shard).toBe("3");
+
+    // strategy.job-total should be 3 for all
+    expect(metas[0].matrixContext?.__job_total).toBe("3");
+    expect(metas[1].matrixContext?.__job_total).toBe("3");
+    expect(metas[2].matrixContext?.__job_total).toBe("3");
+
+    // All share the same workflowRunId
+    expect(metas[0].workflowRunId).toBe(metas[1].workflowRunId);
+    expect(metas[0].workflowRunId).toBe(metas[2].workflowRunId);
+
+    // All have the same jobName (same job definition, different shards)
+    expect(metas[0].jobName).toBe("e2e (1/3)");
+    expect(metas[1].jobName).toBe("e2e (2/3)");
+    expect(metas[2].jobName).toBe("e2e (3/3)");
+  });
+
+  it("single-job no-matrix workflow still gets a plain oa-runner-N name", async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-matrix-test-"));
+    const workflowsDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(workflowsDir, "simple.yml"),
+      `name: Simple\non: [push]\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n`,
+    );
+
+    const runnerNames = await runWorkflow(tmpDir, "simple.yml", "WORKING_TREE");
+
+    expect(runnerNames).toHaveLength(1);
+    expect(runnerNames[0]).toMatch(/^oa-runner-\d+$/); // no -001 suffix
+  });
+});

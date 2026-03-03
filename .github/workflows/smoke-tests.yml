@@ -3,6 +3,23 @@ name: Smoke Tests
 on: [push]
 
 jobs:
+  # Wave 1 (parallel): matrix sharding smoke — verifies matrix strategy fan-out
+  matrix-shards:
+    name: Shard
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - name: Verify matrix shard (${{ matrix.shard }}/${{ strategy.job-total }})
+        run: |
+          echo "shard=${{ matrix.shard }}"
+          echo "job-total=${{ strategy.job-total }}"
+          [ "${{ matrix.shard }}" != "" ] || (echo "❌ matrix.shard is empty" && exit 1)
+          [ "${{ strategy.job-total }}" = "3" ] || (echo "❌ strategy.job-total is '${{ strategy.job-total }}', expected '3'" && exit 1)
+          echo "✅ Shard ${{ matrix.shard }} of ${{ strategy.job-total }} resolved correctly"
+
   # Wave 1: build job — uploads the artifact
   build:
     runs-on: ubuntu-latest

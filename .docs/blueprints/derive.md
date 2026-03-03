@@ -72,12 +72,13 @@ else: delete spec file from disk
 resetConversationOffsets(cwd, branch) → zero all offsets in DB
 for each conversation (sequentially):
   readFromOffset(jsonlPath, 0) → all messages
-  updateSpec(messages, specFilePath) → one claude call per conversation
+  updateSpec(messages, specFilePath, { skipReview: true }) → extraction only
   advance offset
+reviewSpecFile(specFilePath) → single review pass on final accumulated spec
 upsertBranch(repoPath, branch, specPath)
 ```
 
-Sequential per-conversation processing avoids exceeding the prompt size limit — a lesson from early development where batching all conversations into one call caused "Prompt is too long" failures. When `--keep-spec` is used, the existing spec is preserved as starting context for the first conversation's reprocessing — useful when the spec contains hand-written or init-seeded content.
+Sequential per-conversation processing avoids exceeding the prompt size limit — a lesson from early development where batching all conversations into one call caused "Prompt is too long" failures. The review pass is deferred to the end: intermediate specs only serve as context for the next extraction, so reviewing them is wasted work. When `--keep-spec` is used, the existing spec is preserved as starting context for the first conversation's reprocessing — useful when the spec contains hand-written or init-seeded content.
 
 ## Database Schema
 
@@ -259,7 +260,7 @@ The spec pipeline is stateless — each invocation is a fresh `claude -p` call. 
 
 **Pass 1 — Extraction.** Messages are formatted as `[type]: text` excerpts, separated by `---`. If the total exceeds 300K characters, excerpts are split into chunks and processed sequentially (each chunk reads the spec back from disk as updated by the previous chunk). The system prompt (`SPEC_ROLE_PREAMBLE`) instructs the agent to extract testable product behaviours and output Gherkin. It enforces a black-box test: every scenario must be verifiable by someone who can only use the product's external interfaces.
 
-**Pass 2 — Review.** The raw Gherkin is reviewed by a second `claude -p` call with a review system prompt (`REVIEW_SYSTEM_PROMPT`). This pass performs four operations in order: (1) filter — remove scenarios that fail the black-box test, (2) deduplicate — merge scenarios that describe the same observable behaviour under different names, (3) consolidate — when the same invariant appears across multiple Features, keep it in the most natural location and remove duplicates, (4) simplify — remove scenarios whose assertions are already fully encoded in another scenario.
+**Pass 2 — Review.** The raw Gherkin is reviewed by a second `claude -p` call with a review system prompt (`REVIEW_SYSTEM_PROMPT`). This pass performs four operations in order: (1) filter — remove scenarios that fail the black-box test, (2) deduplicate — merge scenarios that describe the same observable behaviour under different names, (3) consolidate — when the same invariant appears across multiple Features, keep it in the most natural location and remove duplicates, (4) simplify — remove scenarios whose assertions are already fully encoded in another scenario. The review pass can be skipped via `{ skipReview: true }` — used by reset mode to defer review to the end, since intermediate specs only serve as context for subsequent extractions. `reviewSpecFile(sPath)` provides a standalone entry point for the deferred review.
 
 Both passes use `execa` to spawn `claude -p` with `--output-format stream-json --verbose --include-partial-messages --tools "" --effort low`. Tools are disabled because both passes receive all input via stdin and only produce text. Effort is set to low because these are well-specified text transformations, not open-ended reasoning. The stream-json output provides a structured activity log: `[claude] thinking:` with progress dots for thinking blocks, `[claude] tool_use: ToolName(input)` for tool calls (a safety-net indicator — should not appear with tools disabled), and `[claude] generating text` with dots for text output. A short, fixed `--system-prompt` override replaces the default system prompt (suppressing inherited style instructions). The detailed role instructions (preamble) and the data prompt are both piped via `stdin` (`input:` option) to avoid OS arg length limits on the CLI arg. `extendEnv: false` and `delete env.CLAUDECODE` prevent Claude Code from recursing into itself. When `derive` itself is invoked with `--verbose`, the raw NDJSON events are also dumped to stdout (truncated at 500 chars) for debugging the stream structure.
 

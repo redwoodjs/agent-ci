@@ -324,3 +324,51 @@ Added two flags to the `claude -p` args in `runClaude`:
 The structured activity log (thinking/tool_use/text detection) remains in place — it now serves as a safety net. If either flag were somehow ineffective, we'd still see it in the logs.
 
 Typecheck clean.
+
+---
+
+## Deferred review pass for reset mode
+
+### Problem
+
+Analyzing a `--reset --verbose` run revealed the core performance bottleneck: each conversation triggers both an extraction pass and a review pass, all sequential. For 6 conversations that's 12 `claude -p` calls. The intermediate review results are immediately overwritten by the next conversation's extraction — only the final review actually matters.
+
+### Evidence from logs
+
+```
+Conv 1: extraction (45 msgs) → review → 2 calls
+Conv 2: extraction (53 msgs) → review → 2 calls
+Conv 3: extraction (117 msgs) → review → 2 calls
+Conv 4: extraction (62 msgs) → review → 2 calls
+Conv 5: extraction (137 msgs) → review → 2 calls
+Conv 6: extraction (36 msgs) → review → 2 calls
+Total: 12 sequential calls
+```
+
+Each call also included thinking time despite `--effort low`, compounding the latency. The review pass on intermediate specs is pure waste — those specs exist only as context for the next extraction.
+
+### Solution
+
+Defer the review pass to the end of the reset loop. `resetBranch` now:
+
+1. Calls `updateSpec(messages, sPath, { skipReview: true })` for each conversation — extraction only, writes raw Gherkin to disk.
+2. After all conversations are processed, calls `reviewSpecFile(sPath)` once — reads the accumulated spec, reviews it, writes the result.
+
+This reduces 12 calls to 7 (6 extractions + 1 final review).
+
+### Changes
+
+**`src/spec.ts`**:
+
+1. `updateSpec` accepts `opts: { skipReview?: boolean }`. When `skipReview` is true, the review pass is skipped and raw extraction result is written directly.
+2. New exported function `reviewSpecFile(sPath)` — reads spec from disk, runs `reviewSpec`, writes result. Standalone entry point for callers that batch extractions.
+
+**`src/index.ts`**:
+
+1. `resetBranch` loop passes `{ skipReview: true }` to `updateSpec`.
+2. After the loop, calls `reviewSpecFile(sPath)` once.
+3. Import updated to include `reviewSpecFile`.
+
+One-shot mode (`runSpecUpdate`) is unchanged — it still reviews every update since there's typically only one call.
+
+Typecheck clean.

@@ -420,3 +420,32 @@ Post-cleanup state: 27 JSONL files remain (26 real conversations + 1 current ses
 **`src/spec.ts`**: Added `"--no-session-persistence"` to `runClaude`'s execa args.
 
 Typecheck clean.
+
+---
+
+## PR: Add `derive` — spec extraction from Claude Code conversations
+
+### Title
+
+Add `derive`: maintain living Gherkin specs from Claude Code conversations
+
+### Description
+
+## Problem
+
+Engineers build features on branches using Claude Code. Those conversations implicitly contain the evolving behavioural intent of the feature — but that intent is trapped in JSONL logs, not captured in a structured, testable form.
+
+## Solution
+
+We add `derive`, a CLI tool that reads Claude Code conversation logs and maintains a living Gherkin behaviour spec per git branch. It extracts testable product behaviours from conversations and writes them to `.machinen/specs/<branch>.gherkin` in the project directory, where they travel with the branch via git.
+
+The tool provides four modes — all with explicit token-spend control:
+
+- **`derive`** — one-shot update. Discover conversations, read new messages, update the spec, exit.
+- **`derive --reset`** — regenerate the spec from scratch. Reprocess all conversations sequentially, with a single review pass at the end. Supports `--keep-spec` to preserve hand-written content as starting context.
+- **`derive watch`** — opt-in continuous mode. Run an initial update, then watch for conversation changes on the current branch (debounced, branch-scoped).
+- **`derive init`** — create an empty spec file for manual seeding before any conversations are processed.
+
+Under the hood, `derive` maintains a lightweight SQLite routing index (`~/.machinen/machinen.db`) that maps conversations to repos and branches and tracks read cursors. The spec pipeline is stateless: each update is a fresh `claude -p` call (Sonnet, no tools, low effort) that reads the current spec from disk, combines it with new conversation excerpts, and produces an updated spec. A two-pass architecture — extraction then review — ensures specs contain only externally observable behaviours (the "black-box test") and are deduplicated, consolidated, and simplified.
+
+We have dogfooded `derive` on itself: `.machinen/specs/specs.gherkin` is the tool's own behaviour spec, generated from the conversations that built it. When we add test generation from specs, we will use this generated spec to dogfood further — closing the loop from conversations to specs to tests.

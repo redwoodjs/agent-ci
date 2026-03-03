@@ -1,0 +1,19 @@
+{
+  "name": "derive",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsgo"
+  },
+  "dependencies": {
+    "chokidar": "^4.0.3",
+    "execa": "^9.6.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0"
+  },
+  "engines": {
+    "node": ">=22.5"
+  }
+}

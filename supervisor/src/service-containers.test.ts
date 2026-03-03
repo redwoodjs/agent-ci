@@ -145,11 +145,18 @@ describe("startServiceContainers", () => {
     expect(mysqlCall.HostConfig.PortBindings).toEqual({
       "3306/tcp": [{ HostPort: "3306" }],
     });
+    // Must include a network alias for the short service name so DB_HOST=mysql resolves
+    expect(mysqlCall.NetworkingConfig.EndpointsConfig["oa-net-oa-runner-42"].Aliases).toContain(
+      "mysql",
+    );
 
     // Second call: Redis
     const redisCall = docker.createContainer.mock.calls[1][0];
     expect(redisCall.Image).toBe("redis:7");
     expect(redisCall.name).toBe("oa-runner-42-svc-redis");
+    expect(redisCall.NetworkingConfig.EndpointsConfig["oa-net-oa-runner-42"].Aliases).toContain(
+      "redis",
+    );
   });
 
   it("starts all created containers", async () => {
@@ -238,6 +245,44 @@ describe("startServiceContainers", () => {
     expect(lines.some((l) => l.includes("mysql started"))).toBe(true);
     expect(lines.some((l) => l.includes("Waiting for mysql health check"))).toBe(true);
     expect(lines.some((l) => l.includes("mysql is healthy"))).toBe(true);
+  });
+
+  it("sets short service name as a Docker network alias so DB_HOST=mysql resolves on the bridge", async () => {
+    // Regression test: service container was named `oa-runner-N-svc-mysql` but the
+    // workflow used `DB_HOST: mysql`. On a custom bridge, only container names resolve —
+    // not short names — so we must add an alias. Without it, ECONNREFUSED 127.0.0.1:3306.
+    const docker = makeMockDocker({ healthStatus: "healthy" });
+    await startServiceContainers(docker, [MYSQL_SERVICE], "oa-runner-99");
+
+    const call = docker.createContainer.mock.calls[0][0];
+    const networkName = "oa-net-oa-runner-99";
+
+    // The NetworkingConfig must include an EndpointsConfig entry for the network
+    expect(call.NetworkingConfig).toBeDefined();
+    expect(call.NetworkingConfig.EndpointsConfig).toBeDefined();
+    expect(call.NetworkingConfig.EndpointsConfig[networkName]).toBeDefined();
+
+    // The alias must be the short YAML service key (e.g. "mysql"), not the full container name
+    const aliases: string[] = call.NetworkingConfig.EndpointsConfig[networkName].Aliases;
+    expect(aliases).toContain("mysql");
+    expect(aliases).not.toContain("oa-runner-99-svc-mysql"); // full name is NOT the alias
+  });
+
+  it("aliases differ per service", async () => {
+    const docker = makeMockDocker({ healthStatus: "healthy" });
+    await startServiceContainers(docker, [MYSQL_SERVICE, REDIS_SERVICE], "oa-runner-42");
+
+    const networkName = "oa-net-oa-runner-42";
+    const mysqlAliases =
+      docker.createContainer.mock.calls[0][0].NetworkingConfig.EndpointsConfig[networkName].Aliases;
+    const redisAliases =
+      docker.createContainer.mock.calls[1][0].NetworkingConfig.EndpointsConfig[networkName].Aliases;
+
+    expect(mysqlAliases).toContain("mysql");
+    expect(redisAliases).toContain("redis");
+    // Sanity: aliases don't overlap
+    expect(mysqlAliases).not.toContain("redis");
+    expect(redisAliases).not.toContain("mysql");
   });
 });
 

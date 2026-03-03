@@ -155,11 +155,22 @@ export async function startServiceContainers(
         NetworkMode: networkName,
         PortBindings: portBindings,
       },
+      // Add network aliases so the service is reachable by its short name (e.g. `mysql`)
+      // on the Docker bridge, matching how GitHub Actions exposes service containers.
+      NetworkingConfig: {
+        EndpointsConfig: {
+          [networkName]: {
+            Aliases: [svc.name],
+          },
+        },
+      },
     });
 
     await container.start();
     containerIds.push(container.id);
-    emit?.(`  ✓ Service ${svc.name} started (${container.id.substring(0, 12)})`);
+    emit?.(
+      `  ✓ Service ${svc.name} started (${container.id.substring(0, 12)}) — alias: ${svc.name}`,
+    );
 
     // Build port-forward commands so localhost:<port> inside the runner reaches the service.
     // Uses the service container's Docker-network hostname (its container name).

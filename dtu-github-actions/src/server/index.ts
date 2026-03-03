@@ -45,7 +45,10 @@ export async function bootstrapAndReturnApp() {
   // Raw parsers for logs and cache uploads
   app.use(bodyParser.text({ type: ["text/plain"], limit: "50mb" }));
   app.use(
-    bodyParser.raw({ type: ["application/octet-stream", "application/zip"], limit: "500mb" }),
+    bodyParser.raw({
+      type: ["application/octet-stream", "application/zip", "application/xml", "text/xml"],
+      limit: "500mb",
+    }),
   );
 
   // Routes

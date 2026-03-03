@@ -54,6 +54,7 @@ async function run() {
     let branch: string | undefined;
     let configPath: string | undefined;
     let runnerName: string | undefined;
+    let matrixJson: string | undefined;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -75,6 +76,9 @@ async function run() {
         i++;
       } else if (args[i] === "--runner-name" && args[i + 1]) {
         runnerName = args[i + 1];
+        i++;
+      } else if (args[i] === "--matrix" && args[i + 1]) {
+        matrixJson = args[i + 1];
         i++;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
@@ -100,7 +104,7 @@ async function run() {
     if (runAll) {
       await handleRunAll({ sha, branch, taskName, runnerName });
     } else {
-      await handleRun({ sha, workflow, taskName, runnerName });
+      await handleRun({ sha, workflow, taskName, runnerName, matrixJson });
     }
   } else {
     printUsage();
@@ -176,8 +180,9 @@ async function handleRun(options: {
   workflow?: string;
   taskName?: string;
   runnerName?: string;
+  matrixJson?: string;
 }) {
-  const { sha, runnerName } = options;
+  const { sha, runnerName, matrixJson } = options;
   let workflow = options.workflow;
   let taskName = options.taskName;
 
@@ -257,7 +262,18 @@ async function handleRun(options: {
     const secrets = loadMachineSecrets(repoRoot);
     const secretsFilePath = path.join(repoRoot, ".env.machinen");
     validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
-    const steps = await parseWorkflowSteps(workflowPath, taskName, secrets);
+
+    // Parse matrix context if provided via --matrix flag
+    let matrixContext: Record<string, string> | undefined;
+    if (matrixJson) {
+      try {
+        matrixContext = JSON.parse(matrixJson);
+      } catch {
+        console.warn("[OA] Warning: --matrix value is not valid JSON, ignoring.");
+      }
+    }
+
+    const steps = await parseWorkflowSteps(workflowPath, taskName, secrets, matrixContext);
     const services = await parseWorkflowServices(workflowPath, taskName);
 
     // 6. Construct Job

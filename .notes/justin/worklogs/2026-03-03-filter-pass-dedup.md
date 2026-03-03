@@ -372,3 +372,15 @@ This reduces 12 calls to 7 (6 extractions + 1 final review).
 One-shot mode (`runSpecUpdate`) is unchanged — it still reviews every update since there's typically only one call.
 
 Typecheck clean.
+
+---
+
+## Switched spawned agent model to Sonnet 4.6
+
+Both extraction and review passes are well-specified text transformations — the agent receives all input via stdin and outputs Gherkin. This does not require Opus-level reasoning. Switched to `--model sonnet` for faster generation and lower token cost.
+
+### Changes
+
+**`src/spec.ts`**: Added `"--model", "sonnet"` to `runClaude`'s execa args.
+
+Typecheck clean.

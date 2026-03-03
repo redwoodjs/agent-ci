@@ -570,3 +570,40 @@ Added init mode to `main()` in `index.ts`. Placed before discovery — no DB wor
 - Returns immediately — no discovery, no spec update
 
 Typecheck clean.
+
+---
+
+## Fixed slugification bug — conversations not discovered
+
+### Investigation
+
+We ran `derive` and it reported "no new messages" despite new conversations existing. We investigated the discovery pipeline and found that `getSlugDir` was computing the wrong slug directory.
+
+**Root cause:** Claude Code's slugification replaces both `/` and `_` with `-`. Our `getSlugDir` only replaced `/`. For the cwd `/Users/justin/rw/worktrees/opposite-actions_specs`:
+
+- derive computed slug: `-Users-justin-rw-worktrees-opposite-actions_specs` (underscore preserved)
+- Claude Code actual slug: `-Users-justin-rw-worktrees-opposite-actions-specs` (underscore → dash)
+
+The slug dir derive was looking in did not exist on the filesystem. `discoverConversations` returned immediately (no slug dir → no files), and `runSpecUpdate` queried the DB for conversations on the correct `repo_path` but found only previously-indexed ones (all with offsets already advanced) → "no new messages."
+
+**Evidence:** Verified empirically across multiple project directories in `~/.claude/projects/` — all cwds with underscores had those underscores replaced with dashes in the slug.
+
+### Fix
+
+Changed `getSlugDir` in `src/index.ts`:
+
+```typescript
+// Before:
+const slug = cwd.replace(/\//g, "-");
+
+// After:
+const slug = cwd.replace(/[/_]/g, "-");
+```
+
+Also added debug logging in `discoverConversations` to log the slug dir path, known conversation count, and file count — visibility we should have had from the start.
+
+Typecheck clean. Verified `derive.dev` now discovers conversations and runs spec updates.
+
+### Updated
+
+- Architecture Blueprint: corrected the "Claude Code slugification" learning.

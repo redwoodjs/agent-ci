@@ -35,7 +35,10 @@ function getCurrentBranch(): string {
 // --GROK--: Computes the slug directory where Claude Code stores conversations
 // for a given cwd. Mirrors Claude Code's own slugification: replace / with -.
 function getSlugDir(cwd: string): string {
-  const slug = cwd.replace(/\//g, "-");
+  // --GROK--: Claude Code replaces both / and _ with - when slugifying.
+  // Previously we only replaced /, causing lookups to miss directories
+  // for cwds containing underscores (e.g. opposite-actions_specs).
+  const slug = cwd.replace(/[/_]/g, "-");
   return path.join(CLAUDE_PROJECTS_DIR, slug);
 }
 
@@ -46,15 +49,19 @@ function getSlugDir(cwd: string): string {
 // primary-key lookup skips them on future invocations.
 async function discoverConversations(cwd: string, branch: string): Promise<void> {
   const slugDir = getSlugDir(cwd);
+  console.log(`[discover] slug dir: ${slugDir}`);
 
   if (!fs.existsSync(slugDir)) {
+    console.log(`[discover] slug dir does not exist — no conversations to discover`);
     return;
   }
 
   const known = getConversationsForBranch(cwd, branch);
   const knownIds = new Set(known.map((c) => c.conversationId));
+  console.log(`[discover] ${known.length} conversation(s) already known in DB for ${branch}`);
 
   const files = fs.readdirSync(slugDir).filter((f) => f.endsWith(".jsonl"));
+  console.log(`[discover] ${files.length} jsonl file(s) found in slug dir`);
   let discoveredCount = 0;
 
   for (const file of files) {

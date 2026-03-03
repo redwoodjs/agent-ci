@@ -1,44 +1,146 @@
-Feature: Conversation watching and indexing
-  Scenario: Non-JSONL files are ignored
-    Given the Machinen daemon is running
-    When a non-.jsonl file is created or modified under ~/.claude/projects/
-    Then no spec update is triggered
+After reviewing every scenario against the black box test, I'm removing only one scenario: **"Fallback commit message when AI fails"** — its Given clause ("And the AI commit message generation fails") describes an internal event that a QA engineer cannot trigger or verify through external interfaces alone. This is internal error handling.
 
-  Scenario: JSONL file change triggers conversation indexing
-    Given the Machinen daemon is running
-    When a .jsonl file under ~/.claude/projects/ is modified
-    Then the conversation is associated with the repository and branch recorded in that file
-    And subsequent spec updates for that branch include excerpts from this conversation
+All other scenarios are externally verifiable (env vars like `GROQ_API_KEY` and `NO_AI` are user-facing CLI configuration, oxfmt presence is observable filesystem state, etc.).
 
-  Scenario: JSONL file without repository metadata is ignored
-    Given the Machinen daemon is running
-    When a .jsonl file is detected that contains no messages with repository or branch metadata
-    Then no conversation is registered for that file
-    And no spec update is triggered
+Feature: CLI context detection
+  Scenario: Branch is inferred from the current git repository
+    Given the user is in a git repository on branch "feature-x"
+    When the user runs derive
+    Then derive operates on branch "feature-x"
+    And the repository path is inferred from the current working directory
 
-  Scenario: Rapid JSONL writes are coalesced into a single spec update
-    Given the Machinen daemon is running
-    When a .jsonl file receives multiple writes in quick succession
+  Scenario: Detached HEAD is rejected
+    Given the user is in a git repository with a detached HEAD
+    When the user runs derive
+    Then an error message indicates a named branch is required
+    And the process exits with a non-zero code
+
+Feature: Conversation discovery
+  Scenario: New conversations are discovered on first run
+    Given the user is in a git repository on branch "feature-x"
+    And Claude Code conversations exist for this repository and branch
+    And no previous derive run has occurred
+    When the user runs derive
+    Then the conversations are discovered and indexed
+    And their messages are included in the spec update
+
+  Scenario: Conversations for other branches are ignored during spec update
+    Given the user is in a git repository on branch "feature-x"
+    And Claude Code conversations exist for both "feature-x" and "other-branch"
+    When the user runs derive
+    Then only conversations for "feature-x" contribute to the spec
+
+  Scenario: Multiple conversations are associated with a single branch
+    Given two or more Claude Code conversations exist for the same branch
+    When the user runs derive
+    Then all conversations for that branch contribute to the spec update
+
+Feature: One-shot spec update
+  Scenario: Update spec for current branch
+    Given the user is in a git repository on branch "feature-x"
+    And Claude Code conversations exist for this repository and branch
+    And some conversations have new messages since the last run
+    When the user runs derive
+    Then the spec file is updated with behaviours extracted from the new messages
+    And the process exits
+
+  Scenario: No new messages since last run
+    Given the user is in a git repository on branch "feature-x"
+    And all conversations have been fully processed by a previous run
+    When the user runs derive
+    Then no spec update is performed
+    And the process exits
+
+  Scenario: No conversations found for the branch
+    Given the user is in a git repository on branch "feature-x"
+    And no Claude Code conversations exist for this repository and branch
+    When the user runs derive
+    Then a message indicates no conversations were found
+    And the process exits
+
+Feature: Reset mode
+  Scenario: Running --reset regenerates the spec from scratch
+    Given the user is in a git repository on branch "feature-x"
+    And a spec file exists for this branch
+    And conversations have been partially processed
+    When the user runs derive --reset
+    Then the existing spec file is deleted
+    And all conversations are reprocessed from the beginning
+    And a new spec is generated from all available conversation data
+    And the process exits
+
+  Scenario: Reset with no conversations reports no data
+    Given the user is in a git repository on branch "feature-x"
+    And no conversations have been recorded for this branch
+    When the user runs derive --reset
+    Then a message indicates no conversations were found
+
+  Scenario: Reset discovers new conversations before reprocessing
+    Given the user is in a git repository on branch "feature-x"
+    And new conversation files exist that were never indexed
+    When the user runs derive --reset
+    Then the new conversations are discovered
+    And all conversations including the newly discovered ones are reprocessed
+
+Feature: Watch mode
+  Scenario: Watch runs an initial update on start
+    Given the user is in a git repository on branch "feature-x"
+    And conversations with new messages exist for this branch
+    When the user runs derive watch
+    Then an initial spec update runs immediately
+    And the watcher begins monitoring for subsequent changes
+
+  Scenario: Watch triggers update on conversation change
+    Given the user has started derive watch on branch "feature-x"
+    When a conversation file for this branch is modified
+    Then after a debounce period the spec file is updated with new behaviours
+
+  Scenario: Watch discovers new conversations
+    Given the user has started derive watch on branch "feature-x"
+    When a new conversation file appears for this branch
+    Then the new conversation is discovered and indexed
+    And its messages are included in the next spec update
+
+  Scenario: Watch ignores conversations for other branches
+    Given the user has started derive watch on branch "feature-x"
+    When a conversation file changes that belongs to branch "other-branch"
+    Then no spec update is triggered for "other-branch"
+
+  Scenario: Rapid file changes are coalesced into a single update
+    Given the user has started derive watch on branch "feature-x"
+    When a conversation file receives multiple writes in quick succession
     Then a single spec update is triggered after the writes stabilise
 
-Feature: Spec file creation
-  Scenario: First spec for a branch with conversation data
-    Given a branch has no existing spec file
-    And conversation data is available for that branch
-    When the daemon processes messages for that branch
-    Then a spec file is created at ~/.machinen/specs/<repo_slug>/<branch>.md
-    And the spec file contains behaviours extracted from the conversation data
+Feature: Init mode
+  Scenario: Create empty spec file for manual seeding
+    Given the user is in a git repository on branch "feature-x"
+    And no spec file exists at .machinen/specs/feature-x.gherkin
+    When the user runs derive init
+    Then an empty file is created at .machinen/specs/feature-x.gherkin
+    And the file path is printed to stdout
 
-  Scenario: No spec file is created when no conversation data exists
-    Given a branch has no existing spec file
-    And no conversation data is available for that branch
-    When the daemon checks for updates on that branch
-    Then no spec file is created
+  Scenario: Init does not overwrite an existing spec
+    Given the user is in a git repository on branch "feature-x"
+    And a spec file already exists at .machinen/specs/feature-x.gherkin
+    When the user runs derive init
+    Then the existing file is not modified
+    And a message indicates the spec already exists
 
-  Scenario: Spec file location is deterministic
-    Given a repository path and branch name
-    When a spec is created for that branch
-    Then the spec file is written to ~/.machinen/specs/<repo_slug>/<branch>.md
+Feature: Spec file location
+  Scenario: Spec file is stored in the project directory
+    Given the user is in a git repository at /path/to/project on branch "feature-x"
+    When a spec is created or updated
+    Then the spec file is written to /path/to/project/.machinen/specs/feature-x.gherkin
+
+  Scenario: Spec file uses .gherkin extension
+    Given a spec is created for branch "feature-x"
+    When the spec file is written
+    Then the file has the .gherkin extension
+
+  Scenario: Spec file travels with the git branch
+    Given a spec file exists at .machinen/specs/feature-x.gherkin on branch "feature-x"
+    When the user switches to branch "main" and back to "feature-x"
+    Then the spec file for "feature-x" is present on the branch
 
 Feature: Spec file content and format
   Scenario: Spec output is Gherkin
@@ -53,85 +155,96 @@ Feature: Spec file content and format
     Then the spec includes only behaviours verifiable through the product's external interfaces
     And the spec does not include scenarios about internal function calls, database schemas, environment variables, or subprocess flags
 
-  Scenario: System tags in conversations are excluded from the spec
-    Given conversation messages contain system-reminder, IDE opened-file, or IDE selection tags
-    When the daemon extracts text from those messages
-    Then the tag content does not appear in the generated spec
-
-  Scenario: Only user and assistant messages contribute to the spec
-    Given a conversation JSONL file contains user messages, assistant messages, and other record types
-    When the daemon processes that conversation
-    Then only user and assistant message content is reflected in the generated spec
-
-Feature: Spec file updates
+Feature: Incremental spec updates
   Scenario: Spec is updated when new conversation data arrives
-    Given a branch already has a spec file
+    Given a branch already has a spec file from a previous run
     And new conversation messages have been recorded for that branch
-    When the daemon processes the new messages
-    Then the spec file at ~/.machinen/specs/<repo_slug>/<branch>.md is updated
-    And the updated spec reflects the new conversation content
+    When the user runs derive
+    Then the spec file is updated to reflect the new conversation content
 
-  Scenario: Spec updates are incremental
-    Given a branch already has a spec file from a previous update
+  Scenario: Previously captured behaviours are preserved
+    Given a branch already has a spec file from a previous run
     When additional conversation messages arrive for that branch
-    Then only messages added since the last update are processed
-    And the spec is revised in light of the new information
+    And the user runs derive
+    Then the spec is revised in light of the new information
     And previously captured behaviours that are still valid are preserved
+
+  Scenario: Existing spec is used as starting context
+    Given the user is in a git repository on branch "feature-x"
+    And a spec file exists at .machinen/specs/feature-x.gherkin with user-written content
+    When the user runs derive
+    Then the existing spec content is used as the starting point for the update
+    And the updated spec incorporates both the existing content and new conversation data
 
   Scenario: Large conversations are processed completely
     Given a conversation contains a large volume of messages
-    When the daemon processes that conversation
+    When the user runs derive
     Then all message content is included in spec generation
     And the resulting spec reflects the full conversation
 
-Feature: Reset command
-  Scenario: Running --reset regenerates the spec from scratch
-    Given a branch already has a spec file and conversations have been partially processed
-    When the user runs the daemon with --reset <branch>
-    Then the existing spec file is deleted
-    And a new spec is generated from all available conversation data for that branch
+Feature: Commit helper (ad)
+  Scenario: Stages and commits all changes with an AI-generated message
+    Given the user is in a git repository with unstaged changes
+    And the GROQ_API_KEY environment variable is set
+    When the user runs ad
+    Then all changes are staged
+    And an AI-generated commit message is created from the diff
+    And the changes are committed with that message
+    And the commit is pushed to the remote
 
-  Scenario: Running --reset with no branch name shows usage
-    Given the user runs the daemon with --reset but no branch argument
-    Then an error message is displayed showing the expected usage
-    And the process exits with a non-zero status
+  Scenario: Fallback commit message when AI is disabled
+    Given the user is in a git repository with unstaged changes
+    And the NO_AI environment variable is set to "true"
+    When the user runs ad
+    Then a locally generated commit message is used instead of an AI-generated one
+    And the commit message references the file with the most changes
 
-  Scenario: Running --reset for a branch with no conversations reports no data
-    Given no conversations have been recorded for a branch
-    When the user runs --reset for that branch
-    Then a message is displayed indicating no conversations were found
+  Scenario: Lockfile-only changes produce a generic message
+    Given the user is in a git repository
+    And the only staged changes are to lockfiles
+    When the user runs ad
+    Then the commit message is "update lock file"
 
-Feature: Daemon operability
-  Scenario: Daemon operates when launched from a Claude Code session
-    Given the Machinen daemon is started from within an active Claude Code session
-    When a spec update is triggered
-    Then the spec file is updated normally
-    And no errors are reported to the user
+  Scenario: Lockfiles are excluded from the diff used for message generation
+    Given the user is in a git repository with changes to both source files and lockfiles
+    When the user runs ad
+    Then the commit message is based on the source file changes
+    And lockfile changes do not influence the commit message content
 
-  Scenario: Each spec update run operates statelessly
-    Given the daemon has processed conversations previously
-    When a new spec update is triggered
-    Then the update completes successfully without requiring any prior session state
+  Scenario: oxfmt formats staged files before committing
+    Given the user is in a git repository that has oxfmt installed at node_modules/.bin/oxfmt
+    And staged changes include JavaScript or TypeScript files
+    When the user runs ad
+    Then the staged JS/TS files are formatted with oxfmt before the commit
+    And the formatted versions are included in the commit
 
-Feature: Source of truth and data integrity
-  Scenario: Multiple conversations can be associated with a single branch
-    Given two or more Claude Code conversations are conducted on the same branch
-    When the daemon indexes those conversations
-    Then all conversations are associated with that branch
-    And spec updates for that branch draw from all associated conversations
+  Scenario: oxfmt is skipped when not installed
+    Given the user is in a git repository that does not have oxfmt installed
+    When the user runs ad
+    Then the commit proceeds without formatting
 
-  Scenario: Conversations with string-type message content are processed
-    Given a conversation JSONL file contains messages where content is a plain string
-    When the daemon processes that conversation
-    Then the text from those messages is reflected in the generated spec
+  Scenario: No changes to commit
+    Given the user is in a git repository with no changes
+    When the user runs ad
+    Then a message indicates no changes are staged for commit
+    And the process exits without committing
 
-  Scenario: Conversations with array-type message content are processed
-    Given a conversation JSONL file contains messages where content is an array of content blocks
-    When the daemon processes that conversation
-    Then the text from those messages is reflected in the generated spec
+  Scenario: Push recovers when remote is ahead
+    Given the user is in a git repository with staged changes
+    And the remote branch has commits not present locally
+    When the user runs ad
+    Then the changes are committed and eventually pushed to the remote
+    And a message indicates the push succeeded after reconciling remote changes
 
-  Scenario: Unrecognised message content does not halt processing
-    Given a conversation JSONL file contains a message with an unexpected content shape
-    When the daemon processes that conversation
-    Then a warning is emitted identifying the problematic message
-    And processing of remaining messages continues normally
+  Scenario: Push failure with unresolvable conflicts exits with error
+    Given the user is in a git repository with staged changes
+    And the remote branch has conflicting changes that cannot be automatically merged
+    When the user runs ad
+    Then a message indicates the push could not be completed automatically
+    And the process exits with a non-zero code
+
+  Scenario: Home directory uses conservative staging
+    Given the user is in a git repository rooted at the home directory
+    When the user runs ad
+    Then only tracked files are staged
+    And untracked files are not added

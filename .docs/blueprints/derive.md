@@ -261,7 +261,7 @@ The spec pipeline is stateless — each invocation is a fresh `claude -p` call. 
 
 **Pass 2 — Review.** The raw Gherkin is reviewed by a second `claude -p` call with a review system prompt (`REVIEW_SYSTEM_PROMPT`). This pass performs four operations in order: (1) filter — remove scenarios that fail the black-box test, (2) deduplicate — merge scenarios that describe the same observable behaviour under different names, (3) consolidate — when the same invariant appears across multiple Features, keep it in the most natural location and remove duplicates, (4) simplify — remove scenarios whose assertions are already fully encoded in another scenario.
 
-Both passes use `execa` to spawn `claude -p` with `--system-prompt` (replacing the default system prompt), piping the prompt via `stdin` (`input:` option) to avoid OS arg length limits. `extendEnv: false` and `delete env.CLAUDECODE` prevent Claude Code from recursing into itself.
+Both passes use `execa` to spawn `claude -p`. A short, fixed `--system-prompt` override replaces the default system prompt (suppressing inherited style instructions). The detailed role instructions (preamble) and the data prompt are both piped via `stdin` (`input:` option) to avoid OS arg length limits on the CLI arg. `extendEnv: false` and `delete env.CLAUDECODE` prevent Claude Code from recursing into itself.
 
 ### DB-first discovery
 

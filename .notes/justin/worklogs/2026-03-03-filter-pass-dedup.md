@@ -184,3 +184,126 @@ This is useful when the user has hand-edited the spec (or seeded it via `derive 
 3. `main()` arg parsing: passes `{ keepSpec: args.includes("--keep-spec") }` to `resetBranch`.
 
 Typecheck clean.
+
+---
+
+## Moved detailed instructions from CLI arg to stdin preamble
+
+### Problem
+
+`runClaude` passed the full system prompt (extraction preamble or review prompt) as a `--system-prompt` CLI arg. With `REVIEW_SYSTEM_PROMPT` now longer after the dedup expansion, the arg string was growing toward OS arg length limits. Meanwhile the user prompt was already piped via stdin to avoid exactly this problem — but only the prompt benefited, not the system prompt.
+
+### Solution
+
+Split the `--system-prompt` concern into two parts:
+
+1. **`SYSTEM_PROMPT_OVERRIDE`** — a short, fixed string (`"Output only Gherkin. No commentary, no markdown, no code fences."`) passed as the `--system-prompt` CLI arg. Its only job is to replace the default system prompt and suppress inherited style instructions.
+
+2. **Preamble in stdin** — the detailed role instructions (`SPEC_ROLE_PREAMBLE`, `REVIEW_SYSTEM_PROMPT`) are prepended to the stdin input, separated from the prompt by `---`. Everything goes through stdin; the CLI arg stays short.
+
+### Changes
+
+**`src/spec.ts`**:
+
+1. Added `SYSTEM_PROMPT_OVERRIDE` constant (short, fixed).
+2. `runClaude(preamble, prompt)` — renamed `systemPrompt` param to `preamble`. Now constructs `input = preamble + --- + prompt` and passes that via stdin. The `--system-prompt` arg is always the short override.
+3. Log line changed from `system:` to `preamble:` to reflect the new semantics.
+
+No changes to callers — `SPEC_ROLE_PREAMBLE` and `REVIEW_SYSTEM_PROMPT` are still passed as the first arg to `runClaude`, they just end up in stdin now instead of on the CLI.
+
+Typecheck clean.
+
+---
+
+## Added streaming progress output
+
+### Problem
+
+After moving to the stdin preamble approach, we noticed the process appeared stuck during the review pass — no output at all while `claude -p` was working. In `-p` (print) mode, Claude buffers everything and returns it in one shot. For long-running passes (the review pass processes the full spec), this means silence for 30–60+ seconds.
+
+### Investigation
+
+1. **Tried `.pipe()` and `on('data', ...)` for stderr** — no effect, because `-p` mode does not emit stderr progress.
+2. **Added a heartbeat timer** (printing `waiting... 10s`, `20s`, etc.) — confirmed the process was alive but gave no insight into actual progress.
+3. **Discovered `--output-format stream-json`** — requires `--verbose` flag in `-p` mode, otherwise errors with "stream-json requires --verbose".
+4. **Tested without `--include-partial-messages`** — only emits complete messages at the end. Not useful for progress.
+5. **Tested with `--include-partial-messages`** — emits `content_block_delta` events with token-level text deltas. This is what we need.
+
+### Stream-json event types observed
+
+- `system` — init event, lists available tools and model info
+- `stream_event` with subtypes:
+  - `content_block_start` — beginning of a content block (text or tool_use)
+  - `content_block_delta` — incremental text token
+  - `content_block_stop` — end of a content block
+  - `message_start`, `message_delta`, `message_stop` — message lifecycle
+- `assistant` — full assembled message
+- `result` — final result text (what we extract as the output)
+
+### Solution
+
+Switched `runClaude` from buffered `-p` to streaming via `--output-format stream-json --verbose --include-partial-messages`. The NDJSON stream is parsed line-by-line from stdout:
+
+- `content_block_delta` events increment a chunk counter; every 5th chunk prints a `.` to stderr as a progress indicator.
+- The `result` event at the end of the stream provides the final output text.
+- The heartbeat timer was removed — real streaming progress replaces it.
+
+### Changes
+
+**`src/spec.ts`**:
+
+1. Added `--verbose`, `--output-format stream-json`, `--include-partial-messages` to `execa` args.
+2. Changed from `await proc` with buffered result to `proc.stdout?.on("data", ...)` with line-by-line NDJSON parsing.
+3. `content_block_delta` events drive progress dots; `result` event captures the final output.
+4. Removed heartbeat timer.
+
+Typecheck clean. Confirmed dots appear during both extraction and review passes.
+
+---
+
+## Investigating tool use in spawned agent
+
+### Concern
+
+We can see progress dots now, but the question is: what is the spawned `claude -p` agent actually doing? If it's using tools (reading files, searching the codebase) rather than just generating Gherkin text, that's wasted tokens and time. Both the extraction and review passes receive all their input via stdin — they should not need to access external resources.
+
+### What we know from stream-json
+
+The `system` init event in stream-json lists available tools. If the agent uses tools, they appear as `content_block_start` events with `type: "tool_use"` (instead of `type: "text"`). We can detect these in the existing stream parser.
+
+### Two approaches
+
+1. **Observe first (current plan)**: Extend the stream parser to detect and log tool-use events — `content_block_start` with `type: "tool_use"` would log the tool name. This tells us what the agent is doing without changing its behaviour.
+
+2. **Prevent tool use (future fix)**: `claude -p` accepts `--tools ""` which disables all built-in tools. Since both passes are pure text-in/text-out, this is the clean fix — but we want to observe first to confirm the hypothesis.
+
+### Implementation: structured activity log + verbose mode
+
+We went with option 1 — observe first. Replaced the simple progress-dot logic in `runClaude`'s stream parser with a structured activity log that tracks content block types.
+
+**Normal mode** — structured activity per block type:
+
+- **`thinking`**: prints `[claude] thinking: ` followed by dots as thinking deltas arrive (each delta >80 chars collapses to a single dot).
+- **`tool_use`**: prints `[claude] tool_use: ToolName(` on block start, accumulates `input_json_delta` chunks, then prints the tool input (truncated to 200 chars) and `)` on block stop.
+- **`text`**: prints `[claude] generating text` on block start, then a `.` every 5th `text_delta` chunk.
+
+This gives a clear picture of the agent's activity sequence: is it thinking, calling tools, or generating text?
+
+**`--verbose` mode** (`derive --verbose` or `derive --reset --verbose`):
+
+Dumps every raw NDJSON line (truncated at 500 chars) with `[claude:raw]` prefix, in addition to the structured output. This lets us inspect the full stream event structure for debugging — event types, content block shapes, delta payloads, etc.
+
+### Changes
+
+**`src/spec.ts`**:
+
+1. Added `VERBOSE` constant — `process.argv.includes("--verbose")`.
+2. Stream parser now tracks `currentBlockType`, `currentToolName`, `toolInputBuf` state across `content_block_start` → deltas → `content_block_stop`.
+3. In verbose mode, each parsed NDJSON line is logged raw before structured processing.
+4. Progress counter renamed from `chunks` to `textChunks` (only counts text deltas now, not all deltas).
+
+No changes to callers or other files. Typecheck clean.
+
+### Next step
+
+Run `pnpm --filter derive start -- --reset` and observe whether the agent uses tools or just generates text. If it's using tools, we'll add `--tools ""` to disable them.

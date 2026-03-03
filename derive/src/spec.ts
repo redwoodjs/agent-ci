@@ -7,6 +7,10 @@ import { extractText } from "./reader.js";
 
 const CLAUDE_BIN = path.join(os.homedir(), ".local", "bin", "claude");
 
+// --GROK--: When --verbose is passed to derive itself, we dump raw NDJSON
+// events from the spawned claude process so we can inspect the full stream.
+const VERBOSE = process.argv.includes("--verbose");
+
 const SPEC_ROLE_PREAMBLE = `You are the spec-maintenance agent for a git branch. Your role is to extract testable product behaviours from development conversations and maintain them as a Gherkin specification.
 
 You are writing for a QA engineer who has never seen the source code. They can only interact with the product through its external interfaces — CLI commands, UI, API endpoints, filesystem outputs, or whatever the product exposes. They cannot inspect internals.
@@ -29,37 +33,124 @@ Rules:
 6. When updating an existing spec, preserve scenarios that are still valid, revise those that have changed, and add new ones as needed.
 7. Ignore conversations about debugging, investigation, internal refactoring, or tooling workarounds — these are not product behaviours.`;
 
-async function runClaude(systemPrompt: string, prompt: string): Promise<string> {
+// --GROK--: --system-prompt is a short, fixed override that replaces the
+// default system prompt (stripping inherited style instructions like
+// explanatory output mode). The detailed role instructions (preamble) are
+// prepended to the stdin input alongside the prompt, keeping the CLI arg
+// short and avoiding E2BIG.
+const SYSTEM_PROMPT_OVERRIDE = "Output only Gherkin. No commentary, no markdown, no code fences.";
+
+async function runClaude(preamble: string, prompt: string): Promise<string> {
+  const input = `${preamble}\n\n---\n\n${prompt}`;
   console.log(
-    `[claude] running | system: ${systemPrompt.length} chars | prompt: ${prompt.length} chars`,
+    `[claude] running | preamble: ${preamble.length} chars | prompt: ${prompt.length} chars`,
   );
 
   const env = { ...process.env };
   delete env.CLAUDECODE;
 
-  // --system-prompt replaces the default system prompt entirely, stripping any
-  // inherited style instructions (e.g. explanatory output mode) that would
-  // otherwise cause the agent to emit commentary alongside the Gherkin.
-  //
-  // Prompt is piped via stdin (execa's `input` option) rather than passed as a
-  // CLI arg to avoid E2BIG when the prompt exceeds the OS arg length limit.
-  //
-  // --GROK--: We pipe stderr to the parent process in real time so we can see
-  // progress during long-running claude calls. stdout is still collected into
-  // a buffer since we need the full result as a return value.
-  const proc = execa(CLAUDE_BIN, ["-p", "--system-prompt", systemPrompt], {
-    env,
-    input: prompt,
-    extendEnv: false,
-    stderr: "pipe",
+  // --GROK--: We use stream-json + --include-partial-messages to get
+  // incremental text deltas on stdout. This lets us print a dot per chunk
+  // so the user sees progress instead of silence. The final result is
+  // extracted from the "result" event at the end of the stream.
+  const proc = execa(
+    CLAUDE_BIN,
+    [
+      "-p",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--system-prompt",
+      SYSTEM_PROMPT_OVERRIDE,
+    ],
+    {
+      env,
+      input,
+      extendEnv: false,
+      stdout: "pipe",
+    },
+  );
+
+  let result = "";
+  let textChunks = 0;
+  let buf = "";
+  // --GROK--: Track current content block type so we can log activity per-block.
+  // "thinking" = extended thinking, "tool_use" = tool call, "text" = output text.
+  let currentBlockType: string | null = null;
+  let currentToolName: string | null = null;
+  let toolInputBuf = "";
+
+  proc.stdout?.on("data", (data: Buffer) => {
+    buf += data.toString();
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
+
+    for (const line of lines) {
+      if (!line.trim()) {
+        continue;
+      }
+      try {
+        const obj = JSON.parse(line);
+        if (VERBOSE) {
+          console.log(`[claude:raw] ${line.slice(0, 500)}${line.length > 500 ? "..." : ""}`);
+        }
+        if (obj.type === "stream_event") {
+          const evt = obj.event;
+
+          if (evt?.type === "content_block_start") {
+            const block = evt.content_block;
+            currentBlockType = block?.type ?? null;
+
+            if (block?.type === "thinking") {
+              process.stderr.write("\n[claude] thinking: ");
+            } else if (block?.type === "tool_use") {
+              currentToolName = block.name ?? "unknown";
+              toolInputBuf = "";
+              process.stderr.write(`\n[claude] tool_use: ${currentToolName}(`);
+            } else if (block?.type === "text") {
+              process.stderr.write("\n[claude] generating text");
+            }
+          } else if (evt?.type === "content_block_delta") {
+            const delta = evt.delta;
+
+            if (currentBlockType === "thinking" && delta?.type === "thinking_delta") {
+              // Show first 200 chars of thinking, then dots
+              const text = delta.thinking ?? "";
+              process.stderr.write(text.length > 80 ? "." : text);
+            } else if (currentBlockType === "tool_use" && delta?.type === "input_json_delta") {
+              toolInputBuf += delta.partial_json ?? "";
+            } else if (currentBlockType === "text" && delta?.type === "text_delta") {
+              textChunks++;
+              if (textChunks % 5 === 0) {
+                process.stderr.write(".");
+              }
+            }
+          } else if (evt?.type === "content_block_stop") {
+            if (currentBlockType === "tool_use") {
+              // Log the tool input (truncated for readability)
+              const inputPreview =
+                toolInputBuf.length > 200 ? toolInputBuf.slice(0, 200) + "..." : toolInputBuf;
+              process.stderr.write(`${inputPreview})`);
+              currentToolName = null;
+              toolInputBuf = "";
+            }
+            currentBlockType = null;
+          }
+        } else if (obj.type === "result") {
+          result = obj.result ?? "";
+        }
+      } catch {
+        // skip malformed lines
+      }
+    }
   });
 
-  proc.stderr?.pipe(process.stderr);
+  await proc;
+  process.stderr.write("\n");
 
-  const result = await proc;
-
-  console.log(`[claude] result: ${result.stdout.trim().length} chars`);
-  return result.stdout;
+  console.log(`[claude] result: ${result.trim().length} chars (${textChunks} text chunks)`);
+  return result;
 }
 
 const REVIEW_SYSTEM_PROMPT = `You are a spec reviewer. Your job is to review a Gherkin specification and produce a clean, non-redundant version that contains only externally observable product behaviours.

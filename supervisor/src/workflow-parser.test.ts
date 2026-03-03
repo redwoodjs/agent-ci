@@ -167,3 +167,163 @@ jobs:
     expect(db.env!.DEBUG).toBe("true");
   });
 });
+
+// ─── expandExpressions ────────────────────────────────────────────────────────
+
+import { expandExpressions } from "./workflow-parser.js";
+
+describe("expandExpressions", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function makeRepo(...files: { name: string; content: string }[]): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-expr-test-"));
+    for (const { name, content } of files) {
+      const full = path.join(tmpDir, name);
+      fs.mkdirSync(path.dirname(full), { recursive: true });
+      fs.writeFileSync(full, content);
+    }
+    return tmpDir;
+  }
+
+  // ── passthrough ──────────────────────────────────────────────────────────────
+
+  it("returns plain strings unchanged", () => {
+    expect(expandExpressions("hello-world")).toBe("hello-world");
+    expect(expandExpressions("")).toBe("");
+    expect(expandExpressions("Linux-vite-build-abc123")).toBe("Linux-vite-build-abc123");
+  });
+
+  // ── context variables ────────────────────────────────────────────────────────
+
+  it("expands runner.os to Linux", () => {
+    expect(expandExpressions("${{ runner.os }}-build")).toBe("Linux-build");
+  });
+
+  it("expands runner.arch to X64", () => {
+    expect(expandExpressions("prefix-${{ runner.arch }}")).toBe("prefix-X64");
+  });
+
+  it("expands github.run_id to '1'", () => {
+    expect(expandExpressions("cache-${{ github.run_id }}")).toBe("cache-1");
+  });
+
+  it("expands github.run_number to '1'", () => {
+    expect(expandExpressions("run-${{ github.run_number }}")).toBe("run-1");
+  });
+
+  it("expands github.sha to zeros", () => {
+    expect(expandExpressions("sha-${{ github.sha }}")).toBe(
+      "sha-0000000000000000000000000000000000000000",
+    );
+  });
+
+  it("expands github.ref_name to main", () => {
+    expect(expandExpressions("branch-${{ github.ref_name }}")).toBe("branch-main");
+  });
+
+  it("expands github.repository", () => {
+    expect(expandExpressions("${{ github.repository }}")).toBe("local/repo");
+  });
+
+  it("expands secrets.* to empty string", () => {
+    expect(expandExpressions("token=${{ secrets.MY_TOKEN }}")).toBe("token=");
+  });
+
+  it("expands matrix.* to '1'", () => {
+    expect(expandExpressions("shard-${{ matrix.shard }}")).toBe("shard-1");
+  });
+
+  it("expands steps.* to empty string", () => {
+    expect(expandExpressions("hit-${{ steps.cache.outputs.cache-hit }}")).toBe("hit-");
+    expect(expandExpressions("${{ steps.some-step.outputs.result }}")).toBe("");
+  });
+
+  it("expands needs.* to empty string", () => {
+    expect(expandExpressions("${{ needs.build.result }}")).toBe("");
+  });
+
+  it("expands unknown expressions to empty string (no commas injected)", () => {
+    expect(expandExpressions("${{ some.unknown.expr }}")).toBe("");
+    // Especially important: unknown expressions must NOT contain commas
+    const result = expandExpressions("key-${{ something.weird('a','b') }}");
+    expect(result).not.toContain(",");
+  });
+
+  // ── compound strings ─────────────────────────────────────────────────────────
+
+  it("expands multiple expressions in one string", () => {
+    const result = expandExpressions("${{ runner.os }}-build-${{ github.run_id }}");
+    expect(result).toBe("Linux-build-1");
+  });
+
+  it("produces a cache key with no commas even for multi-arg hashFiles", () => {
+    const repoDir = makeRepo({ name: "package.json", content: "{}" });
+    const result = expandExpressions(
+      "${{ runner.os }}-vite-build-${{ hashFiles('package.json', 'pnpm-lock.yaml') }}",
+      repoDir,
+    );
+    expect(result).not.toContain(",");
+    expect(result).toMatch(/^Linux-vite-build-[0-9a-f]+$/);
+  });
+
+  // ── hashFiles ────────────────────────────────────────────────────────────────
+
+  it("hashFiles with a matching file returns a hex sha256", () => {
+    const repoDir = makeRepo({ name: "pnpm-lock.yaml", content: "lockfile: v6" });
+    const result = expandExpressions("${{ hashFiles('pnpm-lock.yaml') }}", repoDir);
+    expect(result).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("hashFiles is deterministic for the same file content", () => {
+    const repoDir = makeRepo({ name: "pnpm-lock.yaml", content: "lockfile: v6" });
+    const a = expandExpressions("${{ hashFiles('pnpm-lock.yaml') }}", repoDir);
+    const b = expandExpressions("${{ hashFiles('pnpm-lock.yaml') }}", repoDir);
+    expect(a).toBe(b);
+  });
+
+  it("hashFiles changes when file content changes", () => {
+    const repoDir = makeRepo({ name: "lock.yaml", content: "version: 1" });
+    const before = expandExpressions("${{ hashFiles('lock.yaml') }}", repoDir);
+    fs.writeFileSync(path.join(repoDir, "lock.yaml"), "version: 2");
+    const after = expandExpressions("${{ hashFiles('lock.yaml') }}", repoDir);
+    expect(before).not.toBe(after);
+  });
+
+  it("hashFiles with multiple matching patterns combines all files", () => {
+    const repoDir = makeRepo(
+      { name: "package.json", content: "{}" },
+      { name: "pnpm-lock.yaml", content: "lockfile: v6" },
+    );
+    const both = expandExpressions("${{ hashFiles('package.json', 'pnpm-lock.yaml') }}", repoDir);
+    const justPackage = expandExpressions("${{ hashFiles('package.json') }}", repoDir);
+    // Hash of both files is different from hash of just one
+    expect(both).toMatch(/^[0-9a-f]{64}$/);
+    expect(both).not.toBe(justPackage);
+  });
+
+  it("hashFiles with no matching files returns zero hash", () => {
+    const repoDir = makeRepo({ name: "package.json", content: "{}" });
+    const result = expandExpressions("${{ hashFiles('nonexistent.txt') }}", repoDir);
+    expect(result).toBe("0000000000000000000000000000000000000000");
+  });
+
+  it("hashFiles without repoPath returns zero hash", () => {
+    const result = expandExpressions("${{ hashFiles('package.json') }}");
+    expect(result).toBe("0000000000000000000000000000000000000000");
+  });
+
+  it("hashFiles matches glob patterns", () => {
+    const repoDir = makeRepo(
+      { name: "src/foo.ts", content: "const x = 1" },
+      { name: "src/bar.ts", content: "const y = 2" },
+    );
+    const result = expandExpressions("${{ hashFiles('src/**/*.ts') }}", repoDir);
+    expect(result).toMatch(/^[0-9a-f]{64}$/);
+  });
+});

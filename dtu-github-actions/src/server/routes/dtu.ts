@@ -6,9 +6,12 @@ import { state } from "../store.js";
 import { createJobResponse } from "./actions/generators.js";
 
 // Base URL extractor middleware (to handle localhost vs host.docker.internal properly)
+// NOTE: strip \r\n from the Host header — HTTP/1.1 runners can include a trailing \r
+// which, if embedded in a signed URL, causes Node.js to throw
+// "Parse Error: Invalid header value char" when the toolkit uses that URL in a header.
 export function getBaseUrl(req: any) {
-  let host = req.headers.host || `localhost`;
-  const protocol = req.headers["x-forwarded-proto"] || "http";
+  const host = (req.headers.host || "localhost").replace(/[\r\n]/g, "").trim();
+  const protocol = (req.headers["x-forwarded-proto"] || "http").replace(/[\r\n]/g, "").trim();
   return `${protocol}://${host}`;
 }
 

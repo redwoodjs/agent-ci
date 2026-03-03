@@ -261,7 +261,7 @@ The spec pipeline is stateless — each invocation is a fresh `claude -p` call. 
 
 **Pass 2 — Review.** The raw Gherkin is reviewed by a second `claude -p` call with a review system prompt (`REVIEW_SYSTEM_PROMPT`). This pass performs four operations in order: (1) filter — remove scenarios that fail the black-box test, (2) deduplicate — merge scenarios that describe the same observable behaviour under different names, (3) consolidate — when the same invariant appears across multiple Features, keep it in the most natural location and remove duplicates, (4) simplify — remove scenarios whose assertions are already fully encoded in another scenario.
 
-Both passes use `execa` to spawn `claude -p`. A short, fixed `--system-prompt` override replaces the default system prompt (suppressing inherited style instructions). The detailed role instructions (preamble) and the data prompt are both piped via `stdin` (`input:` option) to avoid OS arg length limits on the CLI arg. `extendEnv: false` and `delete env.CLAUDECODE` prevent Claude Code from recursing into itself.
+Both passes use `execa` to spawn `claude -p` with `--output-format stream-json --verbose --include-partial-messages`. This streams NDJSON events on stdout, which the parser uses to provide a structured activity log: `[claude] thinking:` with progress dots for extended thinking blocks, `[claude] tool_use: ToolName(input)` for tool calls (with truncated input preview), and `[claude] generating text` with dots for text output. A short, fixed `--system-prompt` override replaces the default system prompt (suppressing inherited style instructions). The detailed role instructions (preamble) and the data prompt are both piped via `stdin` (`input:` option) to avoid OS arg length limits on the CLI arg. `extendEnv: false` and `delete env.CLAUDECODE` prevent Claude Code from recursing into itself. When `derive` itself is invoked with `--verbose`, the raw NDJSON events are also dumped to stdout (truncated at 500 chars) for debugging the stream structure.
 
 ### DB-first discovery
 
@@ -275,13 +275,14 @@ The watcher uses `ignoreInitial: true` (the initial cycle is explicit), `awaitWr
 
 ## API Reference (CLI)
 
-| Command                      | Description                                                                                                       |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `derive`                     | One-shot update. Discover conversations, read new messages, update spec, exit.                                    |
-| `derive --reset`             | Regenerate spec from scratch. Delete spec, zero offsets, reprocess all conversations sequentially, exit.          |
-| `derive --reset --keep-spec` | Reprocess all conversations from scratch, but preserve the existing spec file as starting context.                |
-| `derive watch`               | Run an initial update, then watch for conversation changes on the current branch. Re-runs on changes (debounced). |
-| `derive init`                | Create an empty spec file for the current branch. No discovery, no tokens.                                        |
+| Command                      | Description                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `derive`                     | One-shot update. Discover conversations, read new messages, update spec, exit.                                           |
+| `derive --reset`             | Regenerate spec from scratch. Delete spec, zero offsets, reprocess all conversations sequentially, exit.                 |
+| `derive --reset --keep-spec` | Reprocess all conversations from scratch, but preserve the existing spec file as starting context.                       |
+| `derive watch`               | Run an initial update, then watch for conversation changes on the current branch. Re-runs on changes (debounced).        |
+| `derive init`                | Create an empty spec file for the current branch. No discovery, no tokens.                                               |
+| `derive --verbose`           | Enable verbose output. Dumps raw NDJSON events from spawned claude processes for debugging. Combinable with other flags. |
 
 All commands infer the repository path from `process.cwd()` and the branch from `git rev-parse --abbrev-ref HEAD`. The tool is invoked via `pnpm --filter derive start` (or `pnpm --filter derive start -- <args>`).
 
@@ -342,7 +343,7 @@ derive/
     watcher.ts          — branch-scoped chokidar watcher (watches single slug dir, *.jsonl filter, awaitWriteFinish)
     db.ts               — SQLite routing index (conversations + branches tables, CRUD operations)
     reader.ts           — JSONL reader (incremental offset-based reading, system tag stripping, text extraction)
-    spec.ts             — spec pipeline (two-pass Gherkin: extraction + review, 300K chunking, claude -p via execa)
+    spec.ts             — spec pipeline (two-pass Gherkin: extraction + review, 300K chunking, claude -p via execa, stream-json activity log)
     types.ts            — shared types (JsonlMessage, ConversationRecord, BranchRecord)
 ```
 

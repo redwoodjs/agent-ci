@@ -222,11 +222,17 @@ export async function executeLocalJob(job: Job): Promise<void> {
     // single suffix and produce the wrong group key.
     let workflowRunId: string | undefined;
     let attempt: number | undefined;
+    // Preserve the jobName written by the orchestrator (e.g. "Shard (1/3)") so
+    // human-readable labels aren't overwritten with the raw taskId on process start.
+    let existingJobName: string | null = null;
     if (fs.existsSync(metadataPath)) {
       try {
         const existing = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
         workflowRunId = existing.workflowRunId;
         attempt = existing.attempt;
+        if (existing.jobName !== undefined) {
+          existingJobName = existing.jobName;
+        }
       } catch {
         // Fall through to derivation
       }
@@ -244,7 +250,8 @@ export async function executeLocalJob(job: Job): Promise<void> {
         {
           workflowPath: job.workflowPath,
           workflowName: path.basename(job.workflowPath, path.extname(job.workflowPath)),
-          jobName: job.taskId ?? null,
+          // Prefer the orchestrator-written label; fall back to raw taskId
+          jobName: existingJobName !== null ? existingJobName : (job.taskId ?? null),
           workflowRunId,
           repoPath,
           commitId: job.headSha || "WORKING_TREE",

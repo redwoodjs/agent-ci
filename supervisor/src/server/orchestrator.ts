@@ -481,7 +481,33 @@ export async function getRunsForCommit(
     // Logs dir doesn't exist yet
   }
 
-  return results.sort((a, b) => b.date - a.date);
+  // Sort by numeric parts of the runner name so the order is stable regardless of
+  // when each container starts (local-job.ts overwrites `date`, making it mutable).
+  // - Between groups (different workflowRunId): higher runner number = newer run = first
+  // - Within a group: ascending by suffix ordinal (001 < 002 < 003)
+  const runnerNums = (name: string) => (name.match(/\d+/g) ?? []).map(Number);
+
+  return results.sort((a, b) => {
+    const aGroup = runnerNums(a.workflowRunId);
+    const bGroup = runnerNums(b.workflowRunId);
+    // Compare group numbers descending (newer first)
+    for (let i = 0; i < Math.max(aGroup.length, bGroup.length); i++) {
+      const diff = (bGroup[i] ?? 0) - (aGroup[i] ?? 0);
+      if (diff !== 0) {
+        return diff;
+      }
+    }
+    // Same group — sort by full runner name ordinal ascending
+    const aNums = runnerNums(a.runnerName);
+    const bNums = runnerNums(b.runnerName);
+    for (let i = 0; i < Math.max(aNums.length, bNums.length); i++) {
+      const diff = (aNums[i] ?? 0) - (bNums[i] ?? 0);
+      if (diff !== 0) {
+        return diff;
+      }
+    }
+    return 0;
+  });
 }
 
 export async function getRecentRuns(limit = 10): Promise<
@@ -797,6 +823,7 @@ function spawnRunner({
   runDir,
   commitId,
   taskId,
+  matrixContext,
   repoPath: _repoPath,
   workflowId: _workflowId,
 }: {
@@ -805,6 +832,7 @@ function spawnRunner({
   runDir: string;
   commitId: string;
   taskId?: string;
+  matrixContext?: Record<string, string>;
   repoPath: string;
   workflowId: string;
 }): Promise<number> {
@@ -821,6 +849,9 @@ function spawnRunner({
     spawnArgs.push("--runner-name", runnerName);
     if (taskId) {
       spawnArgs.push("--task", taskId);
+    }
+    if (matrixContext && Object.keys(matrixContext).length > 0) {
+      spawnArgs.push("--matrix", JSON.stringify(matrixContext));
     }
 
     const stdoutLog = fsSync.createWriteStream(path.join(runDir, "process-stdout.log"));
@@ -977,6 +1008,8 @@ async function setupJob({
   workflowName,
   baseRunnerName,
   taskId,
+  jobDisplayName,
+  matrixContext,
   jobIds,
   repoPath,
   commitId,
@@ -987,6 +1020,9 @@ async function setupJob({
   workflowName: string;
   baseRunnerName: string;
   taskId: string | undefined;
+  /** Human-readable job name from the `name:` field in the workflow YAML, falls back to taskId. */
+  jobDisplayName?: string;
+  matrixContext?: Record<string, string>;
   jobIds: string[];
   repoPath: string;
   commitId: string;
@@ -1000,13 +1036,25 @@ async function setupJob({
       {
         workflowPath: fullPath,
         workflowName,
-        jobName: taskId ?? null,
+        jobName: (() => {
+          if (!taskId) {
+            return null;
+          }
+          const base = jobDisplayName ?? taskId;
+          const idx = matrixContext?.__job_index;
+          const total = matrixContext?.__job_total;
+          if (idx !== undefined && total !== undefined) {
+            return `${base} (${parseInt(idx) + 1}/${total})`;
+          }
+          return base;
+        })(),
         workflowRunId: baseRunnerName,
         repoPath,
         commitId,
         date: Date.now(),
         taskId,
         attempt: 1,
+        ...(matrixContext && Object.keys(matrixContext).length > 0 ? { matrixContext } : {}),
       },
       null,
       2,
@@ -1083,6 +1131,8 @@ async function setupAndSpawnJob(params: {
   workflowName: string;
   baseRunnerName: string;
   taskId: string | undefined;
+  jobDisplayName?: string;
+  matrixContext?: Record<string, string>;
   jobIds: string[];
   repoPath: string;
   commitId: string;
@@ -1095,6 +1145,7 @@ async function setupAndSpawnJob(params: {
     runDir,
     commitId: params.commitId,
     taskId: params.taskId,
+    matrixContext: params.matrixContext,
     repoPath: params.repoPath,
     workflowId: params.workflowId,
   });
@@ -1108,14 +1159,49 @@ export async function runWorkflow(
   const fullPath = path.join(repoPath, ".github", "workflows", workflowId);
   const workflowName = workflowId.replace(/\.ya?ml$/, "");
 
-  // Parse jobs and their needs: dependencies
+  // Parse jobs, their needs: dependencies, and their matrix definitions
   let jobIds: string[] = [];
   let depWaves: string[][] = [];
+  // Map from jobId → array of matrix combinations (each combo is a Record<string,string>)
+  const matrixCombinations = new Map<string, Record<string, string>[]>();
+  // Map from jobId → static display name (from the `name:` key in the workflow YAML)
+  const jobDisplayNames = new Map<string, string>();
   try {
-    const { getWorkflowTemplate } = await import("../workflow-parser.js");
+    const { getWorkflowTemplate, parseMatrixDef, expandMatrixCombinations } =
+      await import("../workflow-parser.js");
     const yaml = (await import("yaml")).parse(await fs.readFile(fullPath, "utf-8"));
     const template = await getWorkflowTemplate(fullPath);
     jobIds = template.jobs.filter((j) => j.type === "job").map((j) => j.id.toString());
+
+    // Collect static job display names from `name:` field in YAML
+    for (const jobId of jobIds) {
+      const yamlName = yaml?.jobs?.[jobId]?.name;
+      if (typeof yamlName === "string" && yamlName.trim()) {
+        jobDisplayNames.set(jobId, yamlName.trim());
+      }
+    }
+
+    // Resolve matrix combinations for each job
+    for (const jobId of jobIds) {
+      const matrixDef = await parseMatrixDef(fullPath, jobId);
+      if (matrixDef) {
+        const combos = expandMatrixCombinations(matrixDef);
+        const total = combos.length;
+        // Inject __job_total and __job_index for strategy.job-total / strategy.job-index
+        matrixCombinations.set(
+          jobId,
+          combos.map((combo, idx) => ({
+            ...combo,
+            __job_total: String(total),
+            __job_index: String(idx),
+          })),
+        );
+      } else {
+        // No matrix → one "empty" combination
+        matrixCombinations.set(jobId, [{}]);
+      }
+    }
+
     const deps = parseJobDependencies(yaml);
     depWaves = topoSort(deps);
     // Filter waves to only include jobs actually in the workflow
@@ -1130,72 +1216,127 @@ export async function runWorkflow(
   // Claim the base runner number so all jobs share it
   const baseNum = nextRunnerNum++;
   const baseRunnerName = `oa-runner-${baseNum}`;
-  const isMultiJob = jobIds.length > 1;
 
-  if (!isMultiJob || depWaves.length === 0) {
-    // Single-job workflow OR couldn't parse deps — write metadata synchronously then
-    // fire-and-forget the spawn so caller gets runner name + metadata immediately.
-    const runnerName = baseRunnerName;
-    const taskId = isMultiJob ? jobIds[0] : undefined;
+  // Count total expanded runners across all waves (one per matrix combination per job)
+  const totalExpandedJobs = depWaves.reduce((sum, wave) => {
+    return sum + wave.reduce((s, jobId) => s + (matrixCombinations.get(jobId)?.length ?? 1), 0);
+  }, 0);
+
+  const isMultiRunner = totalExpandedJobs > 1 || jobIds.length > 1;
+
+  if (!isMultiRunner || depWaves.length === 0) {
+    // Single-job, no-matrix workflow OR couldn't parse deps.
+    // Preserve old behaviour: single runner, no -001 suffix, null jobName in metadata.
+    const matrixContext = jobIds.length === 1 ? (matrixCombinations.get(jobIds[0])?.[0] ?? {}) : {};
+    const hasMatrix = Object.keys(matrixContext).filter((k) => !k.startsWith("__")).length > 0;
+    // For a true single-job+no-matrix workflow: taskId=undefined so jobName=null in UI.
+    // For a single-job+matrix workflow (only 1 combination, unusual): still use taskId.
+    const taskId = hasMatrix || jobIds.length > 1 ? jobIds[0] : undefined;
+    const runnerName = baseRunnerName; // single runner always gets plain name
     const runDir = await setupJob({
       fullPath,
       runnerName,
       workflowName,
       baseRunnerName,
       taskId,
+      jobDisplayName: taskId ? jobDisplayNames.get(taskId) : undefined,
+      matrixContext: hasMatrix ? matrixContext : undefined,
       jobIds,
       repoPath,
       commitId,
       workflowId,
     });
     // Now spawn without awaiting (process may run for minutes)
-    spawnRunner({ fullPath, runnerName, runDir, commitId, taskId, repoPath, workflowId }).catch(
-      () => {},
-    );
+    spawnRunner({
+      fullPath,
+      runnerName,
+      runDir,
+      commitId,
+      taskId,
+      matrixContext: hasMatrix ? matrixContext : undefined,
+      repoPath,
+      workflowId,
+    }).catch(() => {});
     return [runnerName];
   }
 
-  // Multi-job with dependency waves: pre-compute ALL runner names so the caller
-  // gets the full list immediately and metadata.json is written for wave 1 before returning.
-  //
-  // Naming: global sequential index across all waves/jobs.
-  // Wave 0, job 0 → oa-runner-N-001; wave 0, job 1 → oa-runner-N-002; wave 1, job 0 → oa-runner-N-003, etc.
+  // Multi-runner with dependency waves: pre-compute ALL runner names.
+  // Each job is expanded by its matrix combinations.
+  // Global sequential index across all waves/jobs/combinations.
   let globalJobIndex = 0;
-  const waveRunnerPlan: Array<Array<{ taskId: string; runnerName: string }>> = depWaves.map(
-    (wave) =>
-      wave.map((taskId) => {
+  const waveRunnerPlan: Array<
+    Array<{ taskId: string; runnerName: string; matrixContext: Record<string, string> }>
+  > = depWaves.map((wave) =>
+    wave.flatMap((taskId) => {
+      const combos = matrixCombinations.get(taskId) ?? [{}];
+      return combos.map((combo) => {
         globalJobIndex++;
         return {
           taskId,
           runnerName: `${baseRunnerName}-${String(globalJobIndex).padStart(3, "0")}`,
+          matrixContext: combo,
         };
-      }),
+      });
+    }),
   );
   const allRunnerNames = waveRunnerPlan.flat().map(({ runnerName }) => runnerName);
 
-  // Await the first wave's setup so metadata.json is written before we return
-  // (tests and the UI read it synchronously after runWorkflow resolves).
+  // Pre-create minimal Pending metadata for wave-2+ runners so they appear in the UI
+  // immediately rather than being invisible until wave 1 completes.
+  for (const wave of waveRunnerPlan.slice(1)) {
+    for (const { taskId, runnerName, matrixContext } of wave) {
+      const runDir = path.join(getLogsDir(), runnerName);
+      await fs.mkdir(runDir, { recursive: true });
+      const base = jobDisplayNames.get(taskId) ?? taskId;
+      const idx = matrixContext?.__job_index;
+      const total = matrixContext?.__job_total;
+      const jobName =
+        idx !== undefined && total !== undefined ? `${base} (${parseInt(idx) + 1}/${total})` : base;
+      await fs.writeFile(
+        path.join(runDir, "metadata.json"),
+        JSON.stringify(
+          {
+            workflowPath: fullPath,
+            workflowName,
+            jobName,
+            workflowRunId: baseRunnerName,
+            repoPath,
+            commitId,
+            date: Date.now(),
+            taskId,
+            attempt: 1,
+            status: "Pending",
+            ...(Object.keys(matrixContext).filter((k) => !k.startsWith("__")).length > 0
+              ? { matrixContext }
+              : {}),
+          },
+          null,
+          2,
+        ),
+      );
+    }
+  }
+
   const firstWave = waveRunnerPlan[0];
   const remainingWaves = waveRunnerPlan.slice(1);
 
-  // Setup (mkdir + metadata write) first wave eagerly and await
   await Promise.all(
-    firstWave.map(
-      ({ taskId, runnerName }) =>
-        setupAndSpawnJob({
-          fullPath,
-          runnerName,
-          workflowName,
-          baseRunnerName,
-          taskId,
-          jobIds,
-          repoPath,
-          commitId,
-          workflowId,
-        }).then((code) => code), // returns exit code but we handle it in the background loop below
+    firstWave.map(({ taskId, runnerName, matrixContext }) =>
+      setupAndSpawnJob({
+        fullPath,
+        runnerName,
+        workflowName,
+        baseRunnerName,
+        taskId,
+        jobDisplayName: jobDisplayNames.get(taskId),
+        matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
+        jobIds,
+        repoPath,
+        commitId,
+        workflowId,
+      }).then((code) => code),
     ),
   ).then((firstWaveResults) => {
-    // Once first wave finishes, run subsequent waves in the background
     if (remainingWaves.length === 0) {
       return;
     }
@@ -1213,13 +1354,15 @@ export async function runWorkflow(
           `[DEPS] Starting wave ${wi + 2}/${depWaves.length}: [${wave.map((r) => r.taskId).join(", ")}]`,
         );
         const results = await Promise.all(
-          wave.map(({ taskId, runnerName }) =>
+          wave.map(({ taskId, runnerName, matrixContext }) =>
             setupAndSpawnJob({
               fullPath,
               runnerName,
               workflowName,
               baseRunnerName,
               taskId,
+              jobDisplayName: jobDisplayNames.get(taskId),
+              matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
               jobIds,
               repoPath,
               commitId,

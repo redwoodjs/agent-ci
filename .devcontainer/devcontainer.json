@@ -1,0 +1,28 @@
+{
+  "name": "Opposite Actions",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22",
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+
+  "mounts": ["source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"],
+
+  "postCreateCommand": "npm install -g pnpm@10 && pnpm install",
+
+  "forwardPorts": [8910, 8911],
+
+  "portsAttributes": {
+    "8910": { "label": "DTU Mock Server" },
+    "8911": { "label": "Bridge" }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-vscode.vscode-typescript-next", "oxc.oxc-vscode"],
+      "settings": {
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  }
+}

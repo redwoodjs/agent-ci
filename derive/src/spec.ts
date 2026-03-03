@@ -63,6 +63,10 @@ async function runClaude(preamble: string, prompt: string): Promise<string> {
       "--include-partial-messages",
       "--system-prompt",
       SYSTEM_PROMPT_OVERRIDE,
+      "--tools",
+      "",
+      "--effort",
+      "low",
     ],
     {
       env,

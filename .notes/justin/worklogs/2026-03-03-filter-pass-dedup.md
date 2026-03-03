@@ -304,6 +304,23 @@ Dumps every raw NDJSON line (truncated at 500 chars) with `[claude:raw]` prefix,
 
 No changes to callers or other files. Typecheck clean.
 
-### Next step
+---
 
-Run `pnpm --filter derive start -- --reset` and observe whether the agent uses tools or just generates text. If it's using tools, we'll add `--tools ""` to disable them.
+## Disabled tools and set low effort for spawned agent
+
+### Rationale
+
+Rather than just observing tool use and reacting, we decided to prevent it upfront. Both the extraction and review passes receive all their input via stdin and produce Gherkin text — they have no reason to read files, search code, or use any tools. Similarly, these are well-specified text transformation tasks, not open-ended reasoning problems — extended thinking adds latency and token cost without benefit.
+
+### Changes
+
+**`src/spec.ts`**:
+
+Added two flags to the `claude -p` args in `runClaude`:
+
+1. `--tools ""` — disables all built-in tools. The agent can only generate text.
+2. `--effort low` — minimal thinking budget. Reduces latency and token spend for what is essentially a prompted text transformation.
+
+The structured activity log (thinking/tool_use/text detection) remains in place — it now serves as a safety net. If either flag were somehow ineffective, we'd still see it in the logs.
+
+Typecheck clean.

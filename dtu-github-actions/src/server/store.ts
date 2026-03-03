@@ -27,10 +27,28 @@ export const state = {
   // timelineId -> runner log directory (for persisting timeline.json)
   timelineToLogDir: new Map<string, string>(),
 
+  // Substring patterns for cache keys that should always return a synthetic hit
+  // with an empty archive (e.g. "pnpm" for bind-mounted pnpm stores).
+  virtualCachePatterns: new Set<string>(),
+
   // cacheKey -> { version: string, archiveLocation: string, size: number }
   caches: new Map<string, { version: string; archiveLocation: string; size: number }>(),
   // cacheId (number) -> { tempPath: string, key: string, version: string }
   pendingCaches: new Map<number, { tempPath: string; key: string; version: string }>(),
+
+  // artifactName -> { containerId: number, files: Map<itemPath, diskPath> }
+  artifacts: new Map<string, { containerId: number; files: Map<string, string> }>(),
+  // containerId -> { name: string, files: Map<itemPath, diskPath> }
+  pendingArtifacts: new Map<number, { name: string; files: Map<string, string> }>(),
+
+  isVirtualCacheKey(key: string): boolean {
+    for (const pattern of this.virtualCachePatterns) {
+      if (key.includes(pattern)) {
+        return true;
+      }
+    }
+    return false;
+  },
 
   loadCachesFromDisk() {
     if (fs.existsSync(CACHES_FILE)) {
@@ -68,8 +86,11 @@ export const state = {
     this.sessionToRunner.clear();
     this.planToLogPath.clear();
     this.timelineToLogDir.clear();
+    this.virtualCachePatterns.clear();
     this.caches.clear();
     this.pendingCaches.clear();
+    this.artifacts.clear();
+    this.pendingArtifacts.clear();
   },
 };
 

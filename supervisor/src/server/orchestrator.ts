@@ -432,6 +432,7 @@ export async function getRunsForCommit(
     status: string;
     date: number;
     endDate?: number;
+    attempt: number;
   }[]
 > {
   const logsDir = getLogsDir();
@@ -444,6 +445,7 @@ export async function getRunsForCommit(
     status: string;
     date: number;
     endDate?: number;
+    attempt: number;
   }[] = [];
 
   try {
@@ -469,6 +471,7 @@ export async function getRunsForCommit(
           status,
           date: meta.date || 0,
           endDate: meta.endDate,
+          attempt: meta.attempt ?? 1,
         });
       } catch {
         // Skip entries with missing/invalid metadata
@@ -481,6 +484,66 @@ export async function getRunsForCommit(
   return results.sort((a, b) => b.date - a.date);
 }
 
+export async function getRecentRuns(limit = 10): Promise<
+  {
+    runId: string;
+    workflowName: string;
+    jobName: string | null;
+    repoPath: string;
+    status: string;
+    date: number;
+    endDate?: number;
+  }[]
+> {
+  const logsDir = getLogsDir();
+  const results: {
+    runId: string;
+    workflowName: string;
+    jobName: string | null;
+    repoPath: string;
+    status: string;
+    date: number;
+    endDate?: number;
+  }[] = [];
+
+  // Only show runs from the user's registered repos (excludes test/temp repos)
+  const allowedRepos = await getRecentRepos();
+
+  try {
+    const entries = await fs.readdir(logsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("oa-runner-")) {
+        continue;
+      }
+      try {
+        const metaPath = path.join(logsDir, entry.name, "metadata.json");
+        const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+        // Skip runs not from a registered repo
+        if (allowedRepos.length > 0 && !allowedRepos.includes(meta.repoPath)) {
+          continue;
+        }
+        const docker = await getDockerContainerStatus(entry.name);
+        const status = deriveRunStatus(entry.name, docker, meta.status);
+        results.push({
+          runId: entry.name,
+          workflowName: meta.workflowName || entry.name,
+          jobName: meta.jobName ?? null,
+          repoPath: meta.repoPath || "",
+          status,
+          date: meta.date || 0,
+          endDate: meta.endDate,
+        });
+      } catch {
+        // Skip entries with missing/invalid metadata
+      }
+    }
+  } catch {
+    // Logs dir doesn't exist yet
+  }
+
+  return results.sort((a, b) => b.date - a.date).slice(0, limit);
+}
+
 export async function getRunDetail(runId: string): Promise<{
   runId: string;
   runnerName: string;
@@ -488,6 +551,12 @@ export async function getRunDetail(runId: string): Promise<{
   status: string;
   date: number;
   endDate?: number;
+  repoPath?: string;
+  workflowPath?: string;
+  commitId?: string;
+  taskId?: string;
+  workflowRunId?: string;
+  attempt?: number;
 } | null> {
   const logsDir = getLogsDir();
   const metaPath = path.join(logsDir, runId, "metadata.json");
@@ -502,13 +571,226 @@ export async function getRunDetail(runId: string): Promise<{
       status,
       date: meta.date || 0,
       endDate: meta.endDate,
+      repoPath: meta.repoPath,
+      workflowPath: meta.workflowPath,
+      commitId: meta.commitId,
+      taskId: meta.taskId ?? null,
+      workflowRunId: meta.workflowRunId ?? runId,
+      attempt: meta.attempt ?? 1,
     };
   } catch {
     return null;
   }
 }
 
-/** Spawn a single runner process for a given workflow+task and return its runnerName. */
+/**
+ * Retry a specific failed run by spawning a new runner for the same job.
+ * The new runner shares the original `workflowRunId` so retries are grouped together.
+ */
+export async function retryRun(
+  runId: string,
+): Promise<{ runnerName: string; attempt: number } | null> {
+  const logsDir = getLogsDir();
+  const metaPath = path.join(logsDir, runId, "metadata.json");
+  let meta: any;
+  try {
+    meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+  } catch {
+    return null;
+  }
+
+  const { workflowPath, workflowName, repoPath, commitId, taskId, workflowRunId } = meta;
+  if (!workflowPath || !repoPath) {
+    return null;
+  }
+
+  // Count existing attempts with the same workflowRunId + taskId to derive next attempt number
+  let maxAttempt = 0;
+  try {
+    const entries = await fs.readdir(logsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !entry.name.startsWith("oa-runner-")) {
+        continue;
+      }
+      try {
+        const m = JSON.parse(
+          await fs.readFile(path.join(logsDir, entry.name, "metadata.json"), "utf-8"),
+        );
+        if (m.workflowRunId === workflowRunId && (m.taskId ?? null) === (taskId ?? null)) {
+          maxAttempt = Math.max(maxAttempt, m.attempt ?? 1);
+        }
+      } catch {
+        // skip
+      }
+    }
+  } catch {
+    // logs dir doesn't exist
+  }
+  const attempt = maxAttempt + 1;
+
+  // Derive runner name from the original run ID: oa-runner-114-003 → oa-runner-114-003-001
+  // Strip any existing attempt suffix (digits after a dash at the end that look like attempt nums)
+  // The base is always the original runId itself.
+  const runnerName = `${runId}-${String(attempt - 1).padStart(3, "0")}`;
+  const runDir = path.join(logsDir, runnerName);
+  const jobName = taskId ?? null;
+  const workflowId = path.basename(workflowPath);
+
+  await fs.mkdir(runDir, { recursive: true });
+  await fs.writeFile(
+    path.join(runDir, "metadata.json"),
+    JSON.stringify(
+      {
+        workflowPath,
+        workflowName,
+        jobName,
+        workflowRunId, // same group as original
+        repoPath,
+        commitId,
+        date: Date.now(),
+        taskId,
+        attempt,
+      },
+      null,
+      2,
+    ),
+  );
+
+  activeRuns.add(runnerName);
+  broadcastEvent("runStarted", {
+    runId: runnerName,
+    repoPath,
+    workflowId,
+    commitId,
+    taskId,
+    attempt,
+  });
+
+  // Pre-populate timeline (same logic as runWorkflow)
+  try {
+    const { parseWorkflowSteps, getWorkflowTemplate } = await import("../workflow-parser.js");
+    let steps: any[] = [];
+    if (taskId) {
+      steps = (await parseWorkflowSteps(workflowPath, taskId)) as any[];
+    } else {
+      const tmpl = await getWorkflowTemplate(workflowPath);
+      const firstJob = tmpl.jobs.find((j) => j.type === "job");
+      if (firstJob && firstJob.type === "job") {
+        steps = firstJob.steps.map((s, idx) => {
+          const script = "run" in s ? ((s as any).run?.toString() ?? "") : "";
+          const firstLine = script.split("\n").find((l: string) => l.trim()) ?? "";
+          const derivedName =
+            s.name?.toString() ??
+            ("uses" in s
+              ? (s as any).uses?.toString()
+              : firstLine
+                ? `Run ${firstLine.trim()}`
+                : `Step ${idx + 1}`);
+          return { Name: derivedName };
+        });
+      }
+    }
+    if (steps.length > 0) {
+      const pendingRecords = steps.map((s: any, idx: number) => {
+        let name = s.DisplayName || s.Name || `Step ${idx + 1}`;
+        if (/^__run(_\d+)?$/.test(name) && s.Inputs?.script) {
+          const firstLine =
+            (s.Inputs.script as string).split("\n").find((l: string) => l.trim()) ?? "";
+          if (firstLine) {
+            name = `Run ${firstLine.trim()}`;
+          }
+        }
+        return {
+          id: crypto.randomUUID(),
+          parentId: null,
+          type: "Task",
+          name,
+          order: idx + 2,
+          state: "pending",
+          result: null,
+          startTime: null,
+          finishTime: null,
+          refName: null,
+        };
+      });
+      await fs.writeFile(
+        path.join(runDir, "timeline.json"),
+        JSON.stringify(pendingRecords, null, 2),
+      );
+    }
+  } catch {
+    // Best-effort
+  }
+
+  spawnRunner({
+    fullPath: workflowPath,
+    runnerName,
+    runDir,
+    commitId,
+    taskId,
+    repoPath,
+    workflowId,
+  });
+
+  return { runnerName, attempt };
+}
+
+/**
+ * Parse job `needs:` dependencies from raw workflow YAML.
+ * Returns a Map<jobId, string[]> of upstream job IDs each job depends on.
+ */
+function parseJobDependencies(rawYaml: any): Map<string, string[]> {
+  const deps = new Map<string, string[]>();
+  const jobs = rawYaml?.jobs ?? {};
+  for (const [jobId, jobDef] of Object.entries<any>(jobs)) {
+    const needs = jobDef?.needs;
+    if (!needs) {
+      deps.set(jobId, []);
+    } else if (typeof needs === "string") {
+      deps.set(jobId, [needs]);
+    } else if (Array.isArray(needs)) {
+      deps.set(jobId, needs.map(String));
+    } else {
+      deps.set(jobId, []);
+    }
+  }
+  return deps;
+}
+
+/**
+ * Topological sort of job IDs by their dependencies.
+ * Returns an array of waves; each wave is a set of job IDs that can run in parallel.
+ * Throws if there's a cycle.
+ */
+function topoSort(deps: Map<string, string[]>): string[][] {
+  const waves: string[][] = [];
+  const remaining = new Map(deps);
+  const completed = new Set<string>();
+
+  while (remaining.size > 0) {
+    // Find jobs whose all dependencies are already completed
+    const wave: string[] = [];
+    for (const [jobId, needs] of remaining) {
+      if (needs.every((n) => completed.has(n))) {
+        wave.push(jobId);
+      }
+    }
+    if (wave.length === 0) {
+      // Cycle detected or unresolvable dependency — run remaining in one wave
+      supervisorLog(`[DEPS] Cycle or unresolvable dependency, running remaining jobs together`);
+      waves.push(Array.from(remaining.keys()));
+      break;
+    }
+    for (const jobId of wave) {
+      remaining.delete(jobId);
+      completed.add(jobId);
+    }
+    waves.push(wave);
+  }
+  return waves;
+}
+
+/** Spawn a single runner process for a given workflow+task. Returns a Promise that resolves with the exit code. */
 function spawnRunner({
   fullPath,
   runnerName,
@@ -525,157 +807,297 @@ function spawnRunner({
   taskId?: string;
   repoPath: string;
   workflowId: string;
-}): void {
-  const supervisorDir = path.join(PROJECT_ROOT, "supervisor");
-  const spawnArgs = ["npx", "tsx", "--env-file=.env", "src/cli.ts", "run"];
-  if (_configPath) {
-    spawnArgs.push("--config", _configPath);
-  }
-  if (commitId && commitId !== "WORKING_TREE") {
-    spawnArgs.push(commitId);
-  }
-  spawnArgs.push("--workflow", fullPath);
-  spawnArgs.push("--runner-name", runnerName);
-  if (taskId) {
-    spawnArgs.push("--task", taskId);
-  }
+}): Promise<number> {
+  return new Promise((resolve) => {
+    const supervisorDir = path.join(PROJECT_ROOT, "supervisor");
+    const spawnArgs = ["npx", "tsx", "--env-file=.env", "src/cli.ts", "run"];
+    if (_configPath) {
+      spawnArgs.push("--config", _configPath);
+    }
+    if (commitId && commitId !== "WORKING_TREE") {
+      spawnArgs.push(commitId);
+    }
+    spawnArgs.push("--workflow", fullPath);
+    spawnArgs.push("--runner-name", runnerName);
+    if (taskId) {
+      spawnArgs.push("--task", taskId);
+    }
 
-  const stdoutLog = fsSync.createWriteStream(path.join(runDir, "process-stdout.log"));
-  const stderrLog = fsSync.createWriteStream(path.join(runDir, "process-stderr.log"));
+    const stdoutLog = fsSync.createWriteStream(path.join(runDir, "process-stdout.log"));
+    const stderrLog = fsSync.createWriteStream(path.join(runDir, "process-stderr.log"));
 
-  const proc = spawn(spawnArgs[0], spawnArgs.slice(1), {
-    cwd: supervisorDir,
-    env: process.env,
-    stdio: ["ignore", "pipe", "pipe"],
-  });
-
-  // Pipe stderr directly to file
-  proc.stderr?.pipe(stderrLog);
-
-  // Stream stdout line-by-line: write to log file AND broadcast via SSE
-  if (proc.stdout) {
-    const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
-    rl.on("line", (line) => {
-      stdoutLog.write(line + "\n");
+    const proc = spawn(spawnArgs[0], spawnArgs.slice(1), {
+      cwd: supervisorDir,
+      env: process.env,
+      stdio: ["ignore", "pipe", "pipe"],
     });
-  }
 
-  supervisorLog(`[RUN] Spawned ${runnerName}: ${spawnArgs.join(" ")} (cwd=${supervisorDir})`);
+    // Pipe stderr directly to file
+    proc.stderr?.pipe(stderrLog);
 
-  proc.on("error", (err) => {
-    supervisorLog(`[RUN] ${runnerName} spawn error: ${err.message}`);
-  });
+    // Stream stdout line-by-line: write to log file AND broadcast via SSE
+    if (proc.stdout) {
+      const rl = createInterface({ input: proc.stdout, crlfDelay: Infinity });
+      rl.on("line", (line) => {
+        stdoutLog.write(line + "\n");
+      });
+    }
 
-  proc.on("close", async (code, signal) => {
-    activeRuns.delete(runnerName);
-    supervisorLog(
-      `[RUN] ${runnerName} exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`,
-    );
-    stdoutLog.end();
-    stderrLog.end();
-    const status = code === 0 ? "Passed" : "Failed";
-    const endDate = Date.now();
-    // Persist status and endDate to metadata so it survives even without Docker
-    try {
-      const metaPath = path.join(runDir, "metadata.json");
-      const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
-      meta.status = status;
-      meta.endDate = endDate;
-      await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
-    } catch {}
-    broadcastEvent("runFinished", { runId: runnerName, status });
-  });
+    supervisorLog(`[RUN] Spawned ${runnerName}: ${spawnArgs.join(" ")} (cwd=${supervisorDir})`);
 
-  // Sample container stats (CPU / memory) every 5s while the run is active.
-  // Persist peak values into metadata so they survive after the container exits.
-  (async () => {
-    while (activeRuns.has(runnerName)) {
+    proc.on("error", (err) => {
+      supervisorLog(`[RUN] ${runnerName} spawn error: ${err.message}`);
+    });
+
+    proc.on("close", async (code, signal) => {
+      activeRuns.delete(runnerName);
+      supervisorLog(
+        `[RUN] ${runnerName} exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`,
+      );
+      stdoutLog.end();
+      stderrLog.end();
+      const exitCode = code ?? 1;
+      const status = exitCode === 0 ? "Passed" : "Failed";
+      const endDate = Date.now();
+      // Persist status and endDate to metadata so it survives even without Docker
       try {
-        const { stdout } = await execAsync(
-          "docker",
-          ["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}|{{.NetIO}}", runnerName],
-          { timeout: 5000 },
-        );
-        const [cpuStr, memStr, netStr] = stdout.trim().split("|");
-        // CPUPerc: "3.14%" → 3.14
-        const cpu = parseFloat(cpuStr?.replace("%", "") ?? "0");
-        // MemUsage: "123MiB / 7.77GiB" → take left side in MiB
-        const memMatch = memStr?.match(/^([\d.]+)(\w+)/);
-        let memMB = 0;
-        if (memMatch) {
-          const val = parseFloat(memMatch[1]);
-          const unit = memMatch[2].toUpperCase();
-          if (unit.startsWith("GIB") || unit.startsWith("GB")) {
-            memMB = val * 1024;
-          } else if (unit.startsWith("MIB") || unit.startsWith("MB")) {
-            memMB = val;
-          } else if (unit.startsWith("KIB") || unit.startsWith("KB")) {
-            memMB = val / 1024;
+        const metaPath = path.join(runDir, "metadata.json");
+        const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+        meta.status = status;
+        meta.endDate = endDate;
+        await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
+      } catch {}
+      broadcastEvent("runFinished", { runId: runnerName, status });
+      resolve(exitCode);
+    });
+
+    // Sample container stats (CPU / memory) every 5s while the run is active.
+    // Persist peak values into metadata so they survive after the container exits.
+    (async () => {
+      while (activeRuns.has(runnerName)) {
+        try {
+          const { stdout } = await execAsync(
+            "docker",
+            [
+              "stats",
+              "--no-stream",
+              "--format",
+              "{{.CPUPerc}}|{{.MemUsage}}|{{.NetIO}}",
+              runnerName,
+            ],
+            { timeout: 5000 },
+          );
+          const [cpuStr, memStr, netStr] = stdout.trim().split("|");
+          // CPUPerc: "3.14%" → 3.14
+          const cpu = parseFloat(cpuStr?.replace("%", "") ?? "0");
+          // MemUsage: "123MiB / 7.77GiB" → take left side in MiB
+          const memMatch = memStr?.match(/^([\d.]+)(\w+)/);
+          let memMB = 0;
+          if (memMatch) {
+            const val = parseFloat(memMatch[1]);
+            const unit = memMatch[2].toUpperCase();
+            if (unit.startsWith("GIB") || unit.startsWith("GB")) {
+              memMB = val * 1024;
+            } else if (unit.startsWith("MIB") || unit.startsWith("MB")) {
+              memMB = val;
+            } else if (unit.startsWith("KIB") || unit.startsWith("KB")) {
+              memMB = val / 1024;
+            }
           }
-        }
-        // NetIO: "1.2MB / 3.4MB" → parse rx / tx
-        let netRxMB = 0;
-        let netTxMB = 0;
-        if (netStr) {
-          const netParts = netStr.split("/").map((s) => s.trim());
-          for (let ni = 0; ni < netParts.length; ni++) {
-            const m = netParts[ni].match(/^([\d.]+)(\w+)/);
-            if (m) {
-              const v = parseFloat(m[1]);
-              const u = m[2].toUpperCase();
-              let mb = 0;
-              if (u.startsWith("GB") || u.startsWith("GIB")) {
-                mb = v * 1024;
-              } else if (u.startsWith("MB") || u.startsWith("MIB")) {
-                mb = v;
-              } else if (u.startsWith("KB") || u.startsWith("KIB")) {
-                mb = v / 1024;
-              } else if (u === "B") {
-                mb = v / (1024 * 1024);
-              }
-              if (ni === 0) {
-                netRxMB = mb;
-              } else {
-                netTxMB = mb;
+          // NetIO: "1.2MB / 3.4MB" → parse rx / tx
+          let netRxMB = 0;
+          let netTxMB = 0;
+          if (netStr) {
+            const netParts = netStr.split("/").map((s) => s.trim());
+            for (let ni = 0; ni < netParts.length; ni++) {
+              const m = netParts[ni].match(/^([\d.]+)(\w+)/);
+              if (m) {
+                const v = parseFloat(m[1]);
+                const u = m[2].toUpperCase();
+                let mb = 0;
+                if (u.startsWith("GB") || u.startsWith("GIB")) {
+                  mb = v * 1024;
+                } else if (u.startsWith("MB") || u.startsWith("MIB")) {
+                  mb = v;
+                } else if (u.startsWith("KB") || u.startsWith("KIB")) {
+                  mb = v / 1024;
+                } else if (u === "B") {
+                  mb = v / (1024 * 1024);
+                }
+                if (ni === 0) {
+                  netRxMB = mb;
+                } else {
+                  netTxMB = mb;
+                }
               }
             }
           }
+          if (!isNaN(cpu) || memMB > 0) {
+            const metaPath = path.join(runDir, "metadata.json");
+            const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+            if (!meta.peakCpu || cpu > meta.peakCpu) {
+              meta.peakCpu = Math.round(cpu * 10) / 10;
+            }
+            if (!meta.peakMemMB || memMB > meta.peakMemMB) {
+              meta.peakMemMB = Math.round(memMB);
+            }
+            if (!meta.peakNetRxMB || netRxMB > meta.peakNetRxMB) {
+              meta.peakNetRxMB = Math.round(netRxMB * 10) / 10;
+            }
+            if (!meta.peakNetTxMB || netTxMB > meta.peakNetTxMB) {
+              meta.peakNetTxMB = Math.round(netTxMB * 10) / 10;
+            }
+            if (!meta.statsHistory) {
+              meta.statsHistory = [];
+            }
+            const sample = {
+              ts: Date.now(),
+              cpu: Math.round(cpu * 10) / 10,
+              memMB: Math.round(memMB),
+              netRxMB: Math.round(netRxMB * 10) / 10,
+              netTxMB: Math.round(netTxMB * 10) / 10,
+            };
+            meta.statsHistory.push(sample);
+            await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
+            broadcastEvent("runStatsSample", { runId: runnerName, ...sample });
+          }
+        } catch {
+          // Container not running yet or already gone
         }
-        if (!isNaN(cpu) || memMB > 0) {
-          const metaPath = path.join(runDir, "metadata.json");
-          const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
-          if (!meta.peakCpu || cpu > meta.peakCpu) {
-            meta.peakCpu = Math.round(cpu * 10) / 10;
-          }
-          if (!meta.peakMemMB || memMB > meta.peakMemMB) {
-            meta.peakMemMB = Math.round(memMB);
-          }
-          if (!meta.peakNetRxMB || netRxMB > meta.peakNetRxMB) {
-            meta.peakNetRxMB = Math.round(netRxMB * 10) / 10;
-          }
-          if (!meta.peakNetTxMB || netTxMB > meta.peakNetTxMB) {
-            meta.peakNetTxMB = Math.round(netTxMB * 10) / 10;
-          }
-          if (!meta.statsHistory) {
-            meta.statsHistory = [];
-          }
-          const sample = {
-            ts: Date.now(),
-            cpu: Math.round(cpu * 10) / 10,
-            memMB: Math.round(memMB),
-            netRxMB: Math.round(netRxMB * 10) / 10,
-            netTxMB: Math.round(netTxMB * 10) / 10,
-          };
-          meta.statsHistory.push(sample);
-          await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
-          broadcastEvent("runStatsSample", { runId: runnerName, ...sample });
-        }
-      } catch {
-        // Container not running yet or already gone
+        await new Promise((r) => setTimeout(r, 5000));
       }
-      await new Promise((r) => setTimeout(r, 5000));
+    })();
+  });
+}
+
+/** Write metadata.json + initial timeline for a runner. Returns runDir. */
+async function setupJob({
+  fullPath,
+  runnerName,
+  workflowName,
+  baseRunnerName,
+  taskId,
+  jobIds,
+  repoPath,
+  commitId,
+  workflowId,
+}: {
+  fullPath: string;
+  runnerName: string;
+  workflowName: string;
+  baseRunnerName: string;
+  taskId: string | undefined;
+  jobIds: string[];
+  repoPath: string;
+  commitId: string;
+  workflowId: string;
+}): Promise<string> {
+  const runDir = path.join(getLogsDir(), runnerName);
+  await fs.mkdir(runDir, { recursive: true });
+  await fs.writeFile(
+    path.join(runDir, "metadata.json"),
+    JSON.stringify(
+      {
+        workflowPath: fullPath,
+        workflowName,
+        jobName: taskId ?? null,
+        workflowRunId: baseRunnerName,
+        repoPath,
+        commitId,
+        date: Date.now(),
+        taskId,
+        attempt: 1,
+      },
+      null,
+      2,
+    ),
+  );
+
+  activeRuns.add(runnerName);
+  broadcastEvent("runStarted", { runId: runnerName, repoPath, workflowId, commitId, taskId });
+
+  // Write initial timeline.json so the UI can show pending steps immediately.
+  try {
+    const { parseWorkflowSteps, getWorkflowTemplate } = await import("../workflow-parser.js");
+    const jobIdForSteps = taskId ?? jobIds[0];
+    let steps: any[] = [];
+    if (jobIdForSteps) {
+      steps = (await parseWorkflowSteps(fullPath, jobIdForSteps)) as any[];
+    } else {
+      const tmpl = await getWorkflowTemplate(fullPath);
+      const firstJob = tmpl.jobs.find((j) => j.type === "job");
+      if (firstJob && firstJob.type === "job") {
+        steps = firstJob.steps.map((s, idx) => {
+          const script = "run" in s ? ((s as any).run?.toString() ?? "") : "";
+          const firstLine = script.split("\n").find((l: string) => l.trim()) ?? "";
+          const derivedName =
+            s.name?.toString() ??
+            ("uses" in s
+              ? (s as any).uses?.toString()
+              : firstLine
+                ? `Run ${firstLine.trim()}`
+                : `Step ${idx + 1}`);
+          return { Name: derivedName };
+        });
+      }
     }
-  })();
+    if (steps.length > 0) {
+      const pendingRecords = steps.map((s: any, idx: number) => {
+        let name = s.DisplayName || s.Name || `Step ${idx + 1}`;
+        if (/^__run(_\d+)?$/.test(name) && s.Inputs?.script) {
+          const firstLine =
+            (s.Inputs.script as string).split("\n").find((l: string) => l.trim()) ?? "";
+          if (firstLine) {
+            name = `Run ${firstLine.trim()}`;
+          }
+        }
+        return {
+          id: crypto.randomUUID(),
+          parentId: null,
+          type: "Task",
+          name,
+          order: idx + 2,
+          state: "pending",
+          result: null,
+          startTime: null,
+          finishTime: null,
+          refName: null,
+        };
+      });
+      await fs.writeFile(
+        path.join(runDir, "timeline.json"),
+        JSON.stringify(pendingRecords, null, 2),
+      );
+    }
+  } catch {
+    // Best-effort
+  }
+
+  return runDir;
+}
+
+/** Prepare runDir + metadata + initial timeline for a job, then spawn it. Returns the exit code. */
+async function setupAndSpawnJob(params: {
+  fullPath: string;
+  runnerName: string;
+  workflowName: string;
+  baseRunnerName: string;
+  taskId: string | undefined;
+  jobIds: string[];
+  repoPath: string;
+  commitId: string;
+  workflowId: string;
+}): Promise<number> {
+  const runDir = await setupJob(params);
+  return spawnRunner({
+    fullPath: params.fullPath,
+    runnerName: params.runnerName,
+    runDir,
+    commitId: params.commitId,
+    taskId: params.taskId,
+    repoPath: params.repoPath,
+    workflowId: params.workflowId,
+  });
 }
 
 export async function runWorkflow(
@@ -686,136 +1108,134 @@ export async function runWorkflow(
   const fullPath = path.join(repoPath, ".github", "workflows", workflowId);
   const workflowName = workflowId.replace(/\.ya?ml$/, "");
 
-  // Determine which job(s) to run. If the workflow has multiple jobs we
-  // spawn one runner per job rather than erroring with "Multiple tasks found".
+  // Parse jobs and their needs: dependencies
   let jobIds: string[] = [];
+  let depWaves: string[][] = [];
   try {
     const { getWorkflowTemplate } = await import("../workflow-parser.js");
+    const yaml = (await import("yaml")).parse(await fs.readFile(fullPath, "utf-8"));
     const template = await getWorkflowTemplate(fullPath);
     jobIds = template.jobs.filter((j) => j.type === "job").map((j) => j.id.toString());
+    const deps = parseJobDependencies(yaml);
+    depWaves = topoSort(deps);
+    // Filter waves to only include jobs actually in the workflow
+    depWaves = depWaves
+      .map((w) => w.filter((id) => jobIds.includes(id)))
+      .filter((w) => w.length > 0);
   } catch {
-    // If we can't parse the workflow, fall back to single-runner (cli will handle it)
+    // Can't parse — fall back to single-runner for the whole workflow
+    depWaves = [];
   }
 
-  // Common entry-point heuristic (mirrors cli.ts logic)
-  const COMMON_ENTRY_POINTS = ["test", "ci", "run", "build"];
-  if (jobIds.length > 1) {
-    const found = COMMON_ENTRY_POINTS.find((n) => jobIds.includes(n));
-    if (found) {
-      // Single obvious entry point — no need to fan out
-      jobIds = [found];
-    }
-  }
-
-  // Claim the base runner number now (before the loop) so all jobs share it
+  // Claim the base runner number so all jobs share it
   const baseNum = nextRunnerNum++;
   const baseRunnerName = `oa-runner-${baseNum}`;
   const isMultiJob = jobIds.length > 1;
 
-  // Fan out: one runner per job (or one runner with no --task for single-job workflows)
-  const tasksToRun: (string | undefined)[] = isMultiJob ? jobIds : [undefined];
-  const runnerNames: string[] = [];
-
-  for (let i = 0; i < tasksToRun.length; i++) {
-    const taskId = tasksToRun[i];
-    // Multi-job: oa-runner-N-001, oa-runner-N-002; single-job: oa-runner-N
-    const runnerName = isMultiJob
-      ? `${baseRunnerName}-${String(i + 1).padStart(3, "0")}`
-      : baseRunnerName;
-    const runDir = path.join(getLogsDir(), runnerName);
-
-    await fs.mkdir(runDir, { recursive: true });
-    await fs.writeFile(
-      path.join(runDir, "metadata.json"),
-      JSON.stringify(
-        {
-          workflowPath: fullPath,
-          workflowName,
-          jobName: taskId ?? null, // null for single-job runs
-          workflowRunId: baseRunnerName, // groups jobs that belong to the same run
-          repoPath,
-          commitId,
-          date: Date.now(),
-          taskId,
-        },
-        null,
-        2,
-      ),
+  if (!isMultiJob || depWaves.length === 0) {
+    // Single-job workflow OR couldn't parse deps — write metadata synchronously then
+    // fire-and-forget the spawn so caller gets runner name + metadata immediately.
+    const runnerName = baseRunnerName;
+    const taskId = isMultiJob ? jobIds[0] : undefined;
+    const runDir = await setupJob({
+      fullPath,
+      runnerName,
+      workflowName,
+      baseRunnerName,
+      taskId,
+      jobIds,
+      repoPath,
+      commitId,
+      workflowId,
+    });
+    // Now spawn without awaiting (process may run for minutes)
+    spawnRunner({ fullPath, runnerName, runDir, commitId, taskId, repoPath, workflowId }).catch(
+      () => {},
     );
-
-    activeRuns.add(runnerName);
-    broadcastEvent("runStarted", { runId: runnerName, repoPath, workflowId, commitId, taskId });
-
-    // Write an initial timeline.json with all steps in 'pending' state so the UI
-    // can show the step list immediately, before the runner even starts.
-    try {
-      const { parseWorkflowSteps, getWorkflowTemplate } = await import("../workflow-parser.js");
-      const jobIdForSteps = taskId ?? jobIds[0];
-      let steps: any[] = [];
-      if (jobIdForSteps) {
-        steps = (await parseWorkflowSteps(fullPath, jobIdForSteps)) as any[];
-      } else {
-        // Single-job workflow with no explicit taskId — grab steps from first job
-        const tmpl = await getWorkflowTemplate(fullPath);
-        const firstJob = tmpl.jobs.find((j) => j.type === "job");
-        if (firstJob && firstJob.type === "job") {
-          steps = firstJob.steps.map((s, idx) => {
-            // For run: steps with no explicit name, derive "Run <first-line-of-command>"
-            // This matches the display name that the GitHub Actions runner will assign.
-            const script = "run" in s ? ((s as any).run?.toString() ?? "") : "";
-            const firstLine = script.split("\n").find((l: string) => l.trim()) ?? "";
-            const derivedName =
-              s.name?.toString() ??
-              ("uses" in s
-                ? (s as any).uses?.toString()
-                : firstLine
-                  ? `Run ${firstLine.trim()}`
-                  : `Step ${idx + 1}`);
-            return { Name: derivedName };
-          });
-        }
-      }
-      if (steps.length > 0) {
-        await fs.mkdir(runDir, { recursive: true });
-        // For run: steps from parseWorkflowSteps, derive a proper display name.
-        // If Name is an internal ID like __run, __run_2, reconstruct from the Inputs.script.
-        const pendingRecords = steps.map((s: any, idx: number) => {
-          let name = s.DisplayName || s.Name || `Step ${idx + 1}`;
-          // Internal IDs generated by workflow-parser for unnamed run: steps
-          if (/^__run(_\d+)?$/.test(name) && s.Inputs?.script) {
-            const firstLine =
-              (s.Inputs.script as string).split("\n").find((l: string) => l.trim()) ?? "";
-            if (firstLine) {
-              name = `Run ${firstLine.trim()}`;
-            }
-          }
-          return {
-            id: crypto.randomUUID(),
-            parentId: null,
-            type: "Task",
-            name,
-            order: idx + 2, // start at 2; order 1 is typically the "Set up job" pre-step
-            state: "pending",
-            result: null,
-            startTime: null,
-            finishTime: null,
-            refName: null,
-          };
-        });
-        await fs.writeFile(
-          path.join(runDir, "timeline.json"),
-          JSON.stringify(pendingRecords, null, 2),
-        );
-      }
-    } catch {
-      // Best-effort: don't let step pre-population break the run
-    }
-
-    spawnRunner({ fullPath, runnerName, runDir, commitId, taskId, repoPath, workflowId });
-    runnerNames.push(runnerName);
+    return [runnerName];
   }
 
-  return runnerNames;
+  // Multi-job with dependency waves: pre-compute ALL runner names so the caller
+  // gets the full list immediately and metadata.json is written for wave 1 before returning.
+  //
+  // Naming: global sequential index across all waves/jobs.
+  // Wave 0, job 0 → oa-runner-N-001; wave 0, job 1 → oa-runner-N-002; wave 1, job 0 → oa-runner-N-003, etc.
+  let globalJobIndex = 0;
+  const waveRunnerPlan: Array<Array<{ taskId: string; runnerName: string }>> = depWaves.map(
+    (wave) =>
+      wave.map((taskId) => {
+        globalJobIndex++;
+        return {
+          taskId,
+          runnerName: `${baseRunnerName}-${String(globalJobIndex).padStart(3, "0")}`,
+        };
+      }),
+  );
+  const allRunnerNames = waveRunnerPlan.flat().map(({ runnerName }) => runnerName);
+
+  // Await the first wave's setup so metadata.json is written before we return
+  // (tests and the UI read it synchronously after runWorkflow resolves).
+  const firstWave = waveRunnerPlan[0];
+  const remainingWaves = waveRunnerPlan.slice(1);
+
+  // Setup (mkdir + metadata write) first wave eagerly and await
+  await Promise.all(
+    firstWave.map(
+      ({ taskId, runnerName }) =>
+        setupAndSpawnJob({
+          fullPath,
+          runnerName,
+          workflowName,
+          baseRunnerName,
+          taskId,
+          jobIds,
+          repoPath,
+          commitId,
+          workflowId,
+        }).then((code) => code), // returns exit code but we handle it in the background loop below
+    ),
+  ).then((firstWaveResults) => {
+    // Once first wave finishes, run subsequent waves in the background
+    if (remainingWaves.length === 0) {
+      return;
+    }
+    const anyFailed = firstWaveResults.some((code) => code !== 0);
+    if (anyFailed) {
+      supervisorLog(`[DEPS] Wave 1 had failures — aborting remaining waves`);
+      return;
+    }
+
+    // Run remaining waves sequentially in the background
+    (async () => {
+      for (let wi = 0; wi < remainingWaves.length; wi++) {
+        const wave = remainingWaves[wi];
+        supervisorLog(
+          `[DEPS] Starting wave ${wi + 2}/${depWaves.length}: [${wave.map((r) => r.taskId).join(", ")}]`,
+        );
+        const results = await Promise.all(
+          wave.map(({ taskId, runnerName }) =>
+            setupAndSpawnJob({
+              fullPath,
+              runnerName,
+              workflowName,
+              baseRunnerName,
+              taskId,
+              jobIds,
+              repoPath,
+              commitId,
+              workflowId,
+            }),
+          ),
+        );
+        if (results.some((code) => code !== 0)) {
+          supervisorLog(`[DEPS] Wave ${wi + 2} had failures — aborting remaining waves`);
+          break;
+        }
+      }
+    })();
+  });
+
+  return allRunnerNames;
 }
 
 export async function stopWorkflow(runId: string) {
@@ -1013,6 +1433,73 @@ export async function getRunLogs(runId: string): Promise<string> {
     }
   } catch {}
   return "";
+}
+
+export interface RunAnnotation {
+  /** "error" | "warning" | "notice" */
+  severity: string;
+  /** The message text (with the ##[error] prefix stripped) */
+  message: string;
+  /** 1-based line number in the log file */
+  line: number;
+  /** Surrounding ±3 lines of context from the log */
+  context: string[];
+}
+
+/**
+ * Parse the log file for a given run and extract structured annotations
+ * (##[error], ##[warning], ##[notice]) with line numbers and context.
+ */
+export async function getRunErrors(runId: string): Promise<RunAnnotation[]> {
+  // Read the same log file that getRunLogs uses
+  const logContent = await getRunLogs(runId);
+  if (!logContent) {
+    return [];
+  }
+
+  const lines = logContent.split("\n");
+  const annotations: RunAnnotation[] = [];
+
+  // Timestamp regex matching the ISO timestamps in log lines
+  const tsRegex = /^\uFEFF?\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z\s*/;
+  // ANSI escape sequence regex (use constructor to avoid no-control-regex lint warning)
+  const ESC = String.fromCharCode(27);
+  const ansiRegex = new RegExp(`${ESC}\\[[0-9;]*m`, "g");
+
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    // Strip ANSI and BOM for marker detection
+    const stripped = raw.replace(ansiRegex, "").replace(/\uFEFF/g, "");
+
+    const match = stripped.match(/##\[(error|warning|notice)\](.*)/);
+    if (!match) {
+      continue;
+    }
+
+    const severity = match[1];
+    const message = match[2].trim();
+
+    // Gather ±3 lines of context, stripping timestamps for readability
+    const contextStart = Math.max(0, i - 3);
+    const contextEnd = Math.min(lines.length - 1, i + 3);
+    const context: string[] = [];
+    for (let j = contextStart; j <= contextEnd; j++) {
+      const contextLine = lines[j]
+        .replace(ansiRegex, "")
+        .replace(/\uFEFF/g, "")
+        .replace(tsRegex, "");
+      context.push(contextLine);
+    }
+
+    annotations.push({
+      severity,
+      message,
+      line: i + 1, // 1-based
+      context,
+    });
+  }
+
+  return annotations;
 }
 
 // DTU Management

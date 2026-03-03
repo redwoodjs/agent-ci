@@ -1,6 +1,7 @@
 import { Polka } from "polka";
 import fs from "node:fs";
 import path from "node:path";
+import { execSync } from "node:child_process";
 import { state } from "../store.js";
 import { getBaseUrl } from "./dtu.js";
 import { config } from "../../config.js";
@@ -10,6 +11,16 @@ const CACHE_DIR = config.DTU_CACHE_DIR;
 if (!fs.existsSync(CACHE_DIR)) {
   fs.mkdirSync(CACHE_DIR, { recursive: true });
 }
+
+// Pre-built empty tar.gz to serve as a synthetic cache hit for virtual keys.
+// The runner downloads it, extracts nothing, and marks the key as a primary hit
+// (so it skips the save step entirely). This avoids 60+ seconds of unnecessary
+// gzip compression for bind-mounted paths like the pnpm store.
+const EMPTY_TAR_GZ_PATH = path.join(CACHE_DIR, "__empty__.tar.gz");
+if (!fs.existsSync(EMPTY_TAR_GZ_PATH)) {
+  execSync(`tar -czf ${EMPTY_TAR_GZ_PATH} -T /dev/null`);
+}
+const VIRTUAL_CACHE_ID = 0; // sentinel ID for virtual (no-op) caches
 
 export function registerCacheRoutes(app: Polka) {
   // 1. Check if cache exists
@@ -22,6 +33,20 @@ export function registerCacheRoutes(app: Polka) {
     for (const key of keys) {
       if (!key) {
         continue;
+      }
+
+      // Virtual key: bind-mounted path already on disk — return a synthetic hit
+      // so the runner skips both the tar extraction and the tar save.
+      if (state.isVirtualCacheKey(key)) {
+        console.log(`[DTU] Virtual cache hit for key: ${key} (skip tar)`);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        return res.end(
+          JSON.stringify({
+            result: "hit",
+            archiveLocation: `${getBaseUrl(req)}/_apis/artifactcache/artifacts/${VIRTUAL_CACHE_ID}`,
+            cacheKey: key,
+          }),
+        );
       }
 
       const entry = state.caches.get(key);
@@ -71,12 +96,32 @@ export function registerCacheRoutes(app: Polka) {
 
     console.log(`[DTU] Reserving cache for key: ${key} (version: ${version})`);
 
-    // Immutable: reject if this key+version is already cached
+    // Virtual key: acknowledge immediately without touching disk
+    if (state.isVirtualCacheKey(key)) {
+      console.log(`[DTU] Virtual cache reservation for key: ${key} — no-op`);
+      res.writeHead(201, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify({ cacheId: VIRTUAL_CACHE_ID }));
+    }
+
+    // Immutable: reject if this key+version is already cached (committed)
     const existing = state.caches.get(key);
     if (existing && existing.version === version) {
       console.log(`[DTU] Cache already exists for key: ${key} — skipping reservation`);
       res.writeHead(409, { "Content-Type": "application/json" });
       return res.end(JSON.stringify({ message: "Cache already exists" }));
+    }
+
+    // Also reject if another job has already reserved this key+version (in-flight)
+    // This prevents multiple parallel jobs from all winning a reservation for the
+    // same cache key, generating redundant tar processes and orphaned temp files.
+    for (const [, pending] of state.pendingCaches) {
+      if (pending.key === key && pending.version === version) {
+        console.log(
+          `[DTU] Cache reservation in-flight for key: ${key} — another job is already saving it`,
+        );
+        res.writeHead(409, { "Content-Type": "application/json" });
+        return res.end(JSON.stringify({ message: "Cache already exists" }));
+      }
     }
 
     // Assign a unique cache ID
@@ -93,6 +138,13 @@ export function registerCacheRoutes(app: Polka) {
   // 3. Upload cache chunk
   app.patch("/_apis/artifactcache/caches/:cacheId", (req: any, res) => {
     const cacheId = parseInt(req.params.cacheId, 10);
+
+    // Virtual cache ID: discard the upload entirely — we don't need the archive
+    if (cacheId === VIRTUAL_CACHE_ID) {
+      res.writeHead(200);
+      return res.end();
+    }
+
     const pending = state.pendingCaches.get(cacheId);
 
     if (!pending) {
@@ -140,6 +192,13 @@ export function registerCacheRoutes(app: Polka) {
   // 4. Commit cache
   app.post("/_apis/artifactcache/caches/:cacheId", (req: any, res) => {
     const cacheId = parseInt(req.params.cacheId, 10);
+
+    // Virtual cache ID: no-op commit
+    if (cacheId === VIRTUAL_CACHE_ID) {
+      res.writeHead(200);
+      return res.end();
+    }
+
     const { size } = req.body || { size: 0 };
     const pending = state.pendingCaches.get(cacheId);
 
@@ -187,6 +246,17 @@ export function registerCacheRoutes(app: Polka) {
   // 5. Download cache archive
   app.get("/_apis/artifactcache/artifacts/:cacheId", (req: any, res) => {
     const cacheId = parseInt(req.params.cacheId, 10);
+
+    // Virtual sentinel: serve the empty tar.gz
+    if (cacheId === VIRTUAL_CACHE_ID) {
+      res.writeHead(200, {
+        "Content-Type": "application/octet-stream",
+        "Content-Disposition": 'attachment; filename="cache.tar.gz"',
+        "Content-Length": fs.statSync(EMPTY_TAR_GZ_PATH).size,
+      });
+      return fs.createReadStream(EMPTY_TAR_GZ_PATH).pipe(res);
+    }
+
     const filePath = path.join(CACHE_DIR, `cache_${cacheId}.tar.gz`);
 
     if (!fs.existsSync(filePath)) {

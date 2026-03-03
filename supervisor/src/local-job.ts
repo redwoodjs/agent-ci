@@ -159,6 +159,24 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const debug = isDebug();
   const filterLine = makeFilter(debug);
 
+  // ── Pre-flight: verify Docker is reachable ────────────────────────────────
+  try {
+    await docker.ping();
+  } catch (err: any) {
+    const isSocket = err?.code === "ECONNREFUSED" || err?.code === "ENOENT";
+    const hint = isSocket
+      ? "Docker does not appear to be running."
+      : `Docker is not reachable: ${err?.message || err}`;
+    throw new Error(
+      `${hint}\n` +
+        "\n" +
+        "  To fix this:\n" +
+        "    1. Start your Docker runtime (OrbStack, Docker Desktop, etc.)\n" +
+        "    2. Wait for the engine to be ready\n" +
+        "    3. Re-run the workflow\n",
+    );
+  }
+
   // 3. Prepare directories (done first so containerName is available for the header)
   const {
     name: containerName,
@@ -177,6 +195,10 @@ export async function executeLocalJob(job: Job): Promise<void> {
       runnerName: containerName,
       logDir: path.dirname(outputLogPath),
       timelineDir: path.dirname(outputLogPath), // write timeline.json alongside process-stdout.log
+      // The pnpm store is bind-mounted into the container, so there's no need
+      // for the runner to tar/gzip it. Tell the DTU to return a synthetic hit
+      // for any cache key containing "pnpm" — skipping the 60s+ tar entirely.
+      virtualCachePatterns: ["pnpm"],
     }),
   }).catch(() => {
     /* non-fatal */
@@ -194,8 +216,28 @@ export async function executeLocalJob(job: Job): Promise<void> {
       }
       repoPath = dir !== "/" ? dir : "";
     }
-    // Derive workflowRunId (group key) by stripping -NNN suffix if present
-    const workflowRunId = containerName.replace(/-\d{3}$/, "");
+    // If the orchestrator (or retryRun) already wrote a metadata.json with the
+    // correct workflowRunId, honour it. This is critical for retries of multi-job
+    // runs (e.g. oa-runner-125-001-001) where a naive regex would strip only a
+    // single suffix and produce the wrong group key.
+    let workflowRunId: string | undefined;
+    let attempt: number | undefined;
+    if (fs.existsSync(metadataPath)) {
+      try {
+        const existing = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
+        workflowRunId = existing.workflowRunId;
+        attempt = existing.attempt;
+      } catch {
+        // Fall through to derivation
+      }
+    }
+    if (!workflowRunId) {
+      // Derive workflowRunId (group key) by stripping the multi-job -NNN suffix
+      // (e.g. oa-runner-95-001 → oa-runner-95). The suffix is always zero-padded 3
+      // digits that follow another numeric segment, so we must NOT strip the runner
+      // number itself (e.g. oa-runner-107 must stay as-is, not become oa-runner).
+      workflowRunId = containerName.replace(/(?<=-\d+)-\d{3}$/, "");
+    }
     fs.writeFileSync(
       metadataPath,
       JSON.stringify(
@@ -208,6 +250,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
           commitId: job.headSha || "WORKING_TREE",
           date: Date.now(),
           taskId: job.taskId,
+          attempt: attempt ?? 1,
         },
         null,
         2,
@@ -245,7 +288,8 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const shimsDir = path.resolve(workDir, "shims", containerName);
   const diagDir = path.resolve(workDir, "diag", containerName);
   const toolCacheDir = path.resolve(workDir, "toolcache");
-  const pnpmStoreDir = path.resolve(workDir, "pnpm-store", containerName);
+  const repoSlug = (job.githubRepo || config.GITHUB_REPO).replace("/", "-");
+  const pnpmStoreDir = path.resolve(workDir, "pnpm-store", repoSlug);
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });
@@ -398,7 +442,7 @@ echo "git $*" >> /home/runner/_diag/oa-git-calls.log
 # It computes the expected URL using URL.origin, which strips the default port 80.
 # So we must return the URL WITHOUT :80 to match.
 if [[ "$*" == *"config --local --get remote.origin.url"* || "$*" == *"config --get remote.origin.url"* ]]; then
-  echo "http://127.0.0.1/\${GITHUB_REPOSITORY}"
+  echo "https://github.com/\${GITHUB_REPOSITORY}"
   exit 0
 fi
 
@@ -521,6 +565,7 @@ exit $EXIT_CODE
       `OA_HEAD_SHA=${job.headSha || "HEAD"}`,
       `OA_DTU_HOST=${dtuHost}`,
       `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
+      `ACTIONS_RESULTS_URL=${dockerApiUrl}/`,
       `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
       `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
       `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
@@ -543,7 +588,7 @@ def handle(c):
 srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('127.0.0.1',80)); srv.listen(32)
 while True:
  c,_=srv.accept(); threading.Thread(target=handle,args=(c,),daemon=True).start()
-" & sleep 0.2 && sudo chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="$RESOLVED_URL" && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -r /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && sudo -n chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
+" & sleep 0.2 && sudo chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -r /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && sudo -n chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
     ],
     HostConfig: {
       Binds: [

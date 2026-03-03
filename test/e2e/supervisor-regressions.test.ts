@@ -23,6 +23,7 @@ describe("Supervisor E2E Regressions", () => {
     await harness.seedJob({
       id: jobId,
       name: "e2e-test-job",
+      githubRepo: "redwoodjs/opposite-actions",
       steps: [{ id: "step-1", name: "Say Hello", run: 'echo "Hello from E2E"' }],
     });
 
@@ -64,7 +65,11 @@ describe("Supervisor E2E Regressions", () => {
     const initialCount = countLogFiles(actualLogsDir);
 
     const jobId = "log-test-" + Date.now();
-    await harness.seedJob({ id: jobId, name: "log-test" });
+    await harness.seedJob({
+      id: jobId,
+      name: "log-test",
+      githubRepo: "redwoodjs/opposite-actions",
+    });
     await harness.runSupervisor(jobId);
 
     const finalCount = countLogFiles(actualLogsDir);
@@ -86,6 +91,7 @@ describe("Supervisor E2E Regressions", () => {
     await harness.seedJob({
       id: jobId,
       name: "cache-test-job",
+      githubRepo: "redwoodjs/opposite-actions",
       steps: [
         {
           id: "reserve",
@@ -144,5 +150,57 @@ describe("Supervisor E2E Regressions", () => {
     expect(allLogs).toContain("Requesting cache reservation");
     expect(allLogs).toContain("Committing cache");
     expect(allLogs).toContain("hello e2e cache file");
+  }, 90000);
+
+  it("should upload and download artifacts", async () => {
+    const jobId = "artifact-test-" + Date.now();
+    await harness.seedJob({
+      id: jobId,
+      name: "artifact-test-job",
+      githubRepo: "redwoodjs/opposite-actions",
+      steps: [
+        {
+          id: "upload",
+          name: "Upload Artifact",
+          run: `
+            echo "hello artifact" > artifact-test.txt
+            CONTAINER=$(curl -sf -X POST -H "Content-Type: application/json" -H "Authorization: Bearer $ACTIONS_RUNTIME_TOKEN" -d '{"name":"e2e-artifact"}' "$ACTIONS_CACHE_URL/_apis/artifacts")
+            echo "Create Response: $CONTAINER"
+            CONTAINER_ID=$(echo $CONTAINER | python3 -c "import sys, json; print(json.load(sys.stdin)['containerId'])")
+            echo "Container ID: $CONTAINER_ID"
+            curl -sf -X PUT -H "Content-Type: application/octet-stream" -H "Authorization: Bearer $ACTIONS_RUNTIME_TOKEN" --data-binary @artifact-test.txt "$ACTIONS_CACHE_URL/_apis/artifacts/$CONTAINER_ID?itemPath=artifact-test.txt"
+            echo "Finalizing artifact"
+            curl -sf -X PATCH -H "Content-Type: application/json" -H "Authorization: Bearer $ACTIONS_RUNTIME_TOKEN" -d '{"artifactName":"e2e-artifact","size":15}' "$ACTIONS_CACHE_URL/_apis/artifacts"
+            echo "Artifact uploaded"
+          `,
+        },
+        {
+          id: "download",
+          name: "Download Artifact",
+          run: `
+            ARTIFACT=$(curl -sf -H "Authorization: Bearer $ACTIONS_RUNTIME_TOKEN" "$ACTIONS_CACHE_URL/_apis/artifacts?artifactName=e2e-artifact")
+            echo "Artifact response: $ARTIFACT"
+            DOWNLOAD_URL=$(echo $ARTIFACT | python3 -c "import sys, json; print(json.load(sys.stdin)['value'][0]['fileContainerResourceUrl'])")
+            echo "Downloading from: $DOWNLOAD_URL"
+            curl -sf -o downloaded-artifact.txt "$DOWNLOAD_URL"
+            cat downloaded-artifact.txt
+          `,
+        },
+      ],
+    });
+
+    const result = await harness.runSupervisor(jobId);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Job succeeded");
+
+    const match = result.stdout.match(/oa-runner-\d+/);
+    expect(match).toBeTruthy();
+    const runnerName = match![0];
+    const stepOutputLogPath = path.resolve(actualLogsDir, runnerName, "step-output.log");
+    const allLogs = fs.readFileSync(stepOutputLogPath, "utf8");
+
+    expect(allLogs).toContain("Artifact uploaded");
+    expect(allLogs).toContain("hello artifact");
   }, 90000);
 });

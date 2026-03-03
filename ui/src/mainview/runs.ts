@@ -1,8 +1,10 @@
-import { getAppState, getAppStateAsync } from "./state.ts";
+import { getAppState, getAppStateAsync, setAppState } from "./state.ts";
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
 import { AnsiUp } from "ansi_up";
 import { initSseAuditLog, recordSseEvent } from "./sse-audit-log.ts";
+import { api, apiPost } from "./api.ts";
+import { initGlobalErrorHandler } from "./global-error-handler.ts";
 
 const ansiUp = new AnsiUp();
 
@@ -36,12 +38,14 @@ const logsViewer = document.getElementById("logs-viewer");
 const runTitle = document.getElementById("run-title");
 const runStatus = document.getElementById("run-status");
 const stopRunBtn = document.getElementById("stop-run-btn");
+const retryRunBtn = document.getElementById("retry-run-btn");
 const runStatsBar = document.getElementById("run-stats-bar");
 const runStatsPanel = document.getElementById("run-stats-panel") as HTMLElement | null;
 const cpuCanvas = document.getElementById("chart-cpu") as HTMLCanvasElement | null;
 const memCanvas = document.getElementById("chart-mem") as HTMLCanvasElement | null;
 const netCanvas = document.getElementById("chart-net") as HTMLCanvasElement | null;
 const stepListEl = document.getElementById("step-list") as HTMLElement | null;
+const errorSummaryEl = document.getElementById("error-summary") as HTMLElement | null;
 
 interface TimelineRecord {
   id: string;
@@ -203,9 +207,9 @@ async function loadTimeline() {
     return;
   }
   try {
-    const records: TimelineRecord[] = await fetch(
-      "http://localhost:8912/runs/timeline?runId=" + encodeURIComponent(activeRunId),
-    ).then((r) => r.json());
+    const records: TimelineRecord[] = await api(
+      "/runs/timeline?runId=" + encodeURIComponent(activeRunId),
+    );
     renderStepList(records);
   } catch {
     // timeline not available yet
@@ -358,12 +362,8 @@ async function loadStats() {
   }
   try {
     const [stats, history] = await Promise.all([
-      fetch("http://localhost:8912/runs/stats?runId=" + encodeURIComponent(activeRunId)).then((r) =>
-        r.json(),
-      ),
-      fetch(
-        "http://localhost:8912/runs/stats/history?runId=" + encodeURIComponent(activeRunId),
-      ).then((r) => r.json()),
+      api("/runs/stats?runId=" + encodeURIComponent(activeRunId)),
+      api("/runs/stats/history?runId=" + encodeURIComponent(activeRunId)),
     ]);
 
     statsHistory = history;
@@ -425,9 +425,7 @@ async function loadLogs() {
     return;
   }
 
-  const details = await fetch(
-    "http://localhost:8912/runs?runId=" + encodeURIComponent(activeRunId),
-  ).then((r) => r.json());
+  const details = await api("/runs?runId=" + encodeURIComponent(activeRunId));
   const status = details.status || "Unknown";
 
   if (details.date && !runStartDate) {
@@ -449,9 +447,10 @@ async function loadLogs() {
     // Fetch log content from the API
     {
       try {
-        const logs = await fetch(
+        const res = await fetch(
           "http://localhost:8912/runs/logs?runId=" + encodeURIComponent(activeRunId),
-        ).then((r) => r.text());
+        );
+        const logs = await res.text();
         if (logs) {
           const isAtBottom =
             logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
@@ -506,12 +505,34 @@ async function loadLogs() {
               continue;
             }
 
+            // Detect ##[error] / ##[warning] / ##[notice] markers
+            const annotationMatch = stripped.match(/##\[(error|warning|notice)\](.*)/);
+            let extraClass = "";
+            let copyBtn = "";
+
             // Strip timestamp from raw line, then convert ANSI to HTML
-            const cleaned = rawLine.replace(tsRegex, "");
+            let cleaned = rawLine.replace(tsRegex, "");
+
+            if (annotationMatch) {
+              const severity = annotationMatch[1];
+              const errorMsg = annotationMatch[2].trim();
+              if (severity === "error") {
+                extraClass = " log-line-error";
+              } else if (severity === "warning") {
+                extraClass = " log-line-warning";
+              }
+              // Strip the ##[error]/##[warning] marker from displayed text
+              cleaned = cleaned.replace(/##\[(error|warning|notice)\]/, "");
+              // Add a copy button for error/warning lines
+              if (severity === "error" || severity === "warning") {
+                copyBtn = `<button class="log-line-copy" data-copy-text="${errorMsg.replace(/"/g, "&quot;")}">Copy</button>`;
+              }
+            }
+
             const content = ansiUp.ansi_to_html(cleaned) || "&nbsp;";
 
             htmlParts.push(
-              `<div class="log-line" data-log-line="${lineNum}"><span class="log-line-number">${lineNum}</span><span class="log-line-content">${content}</span></div>`,
+              `<div class="log-line${extraClass}" data-log-line="${lineNum}"><span class="log-line-number">${lineNum}</span><span class="log-line-content">${content}</span>${copyBtn}</div>`,
             );
             lineNum++;
           }
@@ -532,6 +553,20 @@ async function loadLogs() {
               if (body && body.classList.contains("log-group-body")) {
                 body.classList.toggle("collapsed");
               }
+            });
+          });
+
+          // Attach copy handlers for per-line copy buttons
+          logsViewer.querySelectorAll(".log-line-copy").forEach((btn) => {
+            btn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              const text = (btn as HTMLElement).dataset["copyText"] || "";
+              navigator.clipboard.writeText(text);
+              const orig = btn.textContent;
+              btn.textContent = "Copied!";
+              setTimeout(() => {
+                btn.textContent = orig;
+              }, 1200);
             });
           });
 
@@ -558,6 +593,13 @@ async function loadLogs() {
       stopRunBtn.style.display = "none";
     }
 
+    // Show retry button only for failed runs
+    if (status === "Failed" && retryRunBtn) {
+      retryRunBtn.style.display = "inline-flex";
+    } else if (retryRunBtn) {
+      retryRunBtn.style.display = "none";
+    }
+
     // Stop polling once we reach a terminal state
     const isTerminal = status === "Passed" || status === "Failed";
     if (isTerminal && statusPollTimer !== null) {
@@ -572,6 +614,115 @@ async function loadLogs() {
     }
     // Always refresh timeline when loading logs
     loadTimeline();
+    // Load error summary from structured API
+    loadErrorSummary();
+  }
+}
+
+/** Fetch structured errors from the server API and render the error summary panel. */
+async function loadErrorSummary() {
+  if (!activeRunId || !errorSummaryEl) {
+    return;
+  }
+  try {
+    const annotations: Array<{
+      severity: string;
+      message: string;
+      line: number;
+      context: string[];
+    }> = await api("/runs/errors?runId=" + encodeURIComponent(activeRunId));
+
+    if (annotations.length === 0) {
+      errorSummaryEl.style.display = "none";
+      return;
+    }
+
+    const errors = annotations.filter((a) => a.severity === "error");
+    const warnings = annotations.filter((a) => a.severity === "warning");
+
+    const countBadges: string[] = [];
+    if (errors.length > 0) {
+      countBadges.push(
+        `<span class="error-summary-count">${errors.length} error${errors.length > 1 ? "s" : ""}</span>`,
+      );
+    }
+    if (warnings.length > 0) {
+      countBadges.push(
+        `<span class="warning-summary-count">${warnings.length} warning${warnings.length > 1 ? "s" : ""}</span>`,
+      );
+    }
+
+    const items = annotations
+      .map((a) => {
+        const severityCls = a.severity === "error" ? "error" : "warning";
+        const itemCls = a.severity === "warning" ? " error-summary-item-warning" : "";
+        return `<div class="error-summary-item${itemCls}" data-error-line="${a.line}">
+          <span class="error-summary-severity error-summary-severity-${severityCls}">${a.severity}</span>
+          <span class="error-summary-message">${a.message.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</span>
+          <span class="error-summary-line">L${a.line}</span>
+        </div>`;
+      })
+      .join("");
+
+    errorSummaryEl.innerHTML = `
+      <div class="error-summary-header">
+        <div class="error-summary-title">
+          <span class="error-summary-toggle">▶</span>
+          Annotations ${countBadges.join(" ")}
+        </div>
+        <div class="error-summary-actions">
+          <button class="error-summary-copy">Copy All</button>
+        </div>
+      </div>
+      <div class="error-summary-list">${items}</div>
+    `;
+    errorSummaryEl.style.display = "block";
+    errorSummaryEl.classList.remove("collapsed");
+
+    // Toggle collapse
+    const header = errorSummaryEl.querySelector(".error-summary-header");
+    header?.addEventListener("click", (e) => {
+      // Don't toggle if clicking the copy button
+      if ((e.target as HTMLElement).classList.contains("error-summary-copy")) {
+        return;
+      }
+      errorSummaryEl!.classList.toggle("collapsed");
+    });
+
+    // Copy all errors
+    const copyBtn = errorSummaryEl.querySelector(".error-summary-copy");
+    copyBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const allMessages = annotations
+        .map((a) => `[${a.severity.toUpperCase()}] ${a.message}`)
+        .join("\n");
+      navigator.clipboard.writeText(allMessages);
+      if (copyBtn) {
+        const orig = copyBtn.textContent;
+        copyBtn.textContent = "Copied!";
+        setTimeout(() => {
+          copyBtn.textContent = orig;
+        }, 1200);
+      }
+    });
+
+    // Click-to-scroll for each error item
+    errorSummaryEl.querySelectorAll(".error-summary-item").forEach((item) => {
+      item.addEventListener("click", () => {
+        const targetLine = (item as HTMLElement).dataset["errorLine"];
+        if (targetLine && logsViewer) {
+          const lineEl = logsViewer.querySelector(`[data-log-line="${targetLine}"]`);
+          if (lineEl) {
+            (lineEl as HTMLElement).scrollIntoView({ block: "center", behavior: "smooth" });
+            // Brief highlight
+            lineEl.classList.add("log-line-error");
+            setTimeout(() => lineEl.classList.remove("log-line-error"), 2000);
+          }
+        }
+      });
+    });
+  } catch {
+    // Errors API not available yet
   }
 }
 
@@ -591,20 +742,33 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (stopRunBtn) {
     stopRunBtn.addEventListener("click", async () => {
       stopRunBtn.setAttribute("disabled", "true");
-      await fetch("http://localhost:8912/workflows/stop", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ runId: getAppState().runId }),
-      });
+      await apiPost("/workflows/stop", { runId: getAppState().runId });
       stopRunBtn.style.display = "none";
       stopRunBtn.removeAttribute("disabled");
       await loadLogs();
     });
   }
 
-  const initDetails = await fetch(
-    "http://localhost:8912/runs?runId=" + encodeURIComponent(activeRunId || ""),
-  ).then((r) => r.json());
+  if (retryRunBtn) {
+    retryRunBtn.addEventListener("click", async () => {
+      retryRunBtn.style.display = "none"; // Hide immediately
+      try {
+        const data = await apiPost<{ runnerName?: string }>("/workflows/retry", {
+          runId: activeRunId,
+        });
+        if (data.runnerName) {
+          await setAppState({ runId: data.runnerName });
+          window.location.reload();
+        }
+      } catch {
+        retryRunBtn.style.display = "inline-flex"; // Show again on error
+      }
+    });
+  }
+
+  initGlobalErrorHandler();
+
+  const initDetails = await api("/runs?runId=" + encodeURIComponent(activeRunId || ""));
   // Always do the initial full log load regardless of status.
 
   await loadLogs();
@@ -633,11 +797,8 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     let dtuStatus = "Stopped";
     try {
-      const res = await fetch("http://localhost:8912/dtu");
-      if (res.ok) {
-        const data = await res.json();
-        dtuStatus = data.status;
-      }
+      const data = await api<{ status: string }>("/dtu");
+      dtuStatus = data.status;
     } catch {
       dtuStatus = "Error";
     }
@@ -669,9 +830,7 @@ document.addEventListener("DOMContentLoaded", async () => {
       dtuStatusEl.innerText = isCurrentlyRunning ? "DTU: Stopping..." : "DTU: Starting...";
       dtuStatusEl.className = "status-badge status-Running";
       try {
-        await fetch("http://localhost:8912/dtu", {
-          method: isCurrentlyRunning ? "DELETE" : "POST",
-        });
+        await api("/dtu", { method: isCurrentlyRunning ? "DELETE" : "POST" });
       } catch {}
       await pollDtuStatus();
     });
@@ -719,10 +878,18 @@ document.addEventListener("DOMContentLoaded", async () => {
   } catch {}
 });
 
-// Global back navigation (Escape key + mouse back button)
+// Global keyboard shortcuts
 window.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     window.history.back();
+  }
+  // Cmd+C / Ctrl+C — copy selected text to clipboard
+  if ((e.metaKey || e.ctrlKey) && e.key === "c") {
+    const selection = window.getSelection();
+    const text = selection?.toString();
+    if (text) {
+      navigator.clipboard.writeText(text);
+    }
   }
 });
 window.addEventListener("pointerdown", (e) => {

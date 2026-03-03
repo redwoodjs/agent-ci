@@ -254,4 +254,33 @@ describe("DTU Cache API", () => {
     const res = await fetch(`${baseUrl}/_apis/artifactcache/artifacts/999999`);
     expect(res.status).toBe(404);
   });
+
+  it("should reject a second reservation while the first is still pending (parallel jobs race)", async () => {
+    const baseUrl = `http://localhost:${PORT}`;
+
+    // First job reserves — should succeed
+    const res1 = await fetch(`${baseUrl}/_apis/artifactcache/caches`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "race-key", version: "1" }),
+    });
+    expect(res1.status).toBe(201);
+
+    // Second job reserves the same key+version while first is still pending (not yet committed)
+    const res2 = await fetch(`${baseUrl}/_apis/artifactcache/caches`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "race-key", version: "1" }),
+    });
+    // Should be rejected — another job already has an in-flight reservation
+    expect(res2.status).toBe(409);
+
+    // Third parallel job also rejected
+    const res3 = await fetch(`${baseUrl}/_apis/artifactcache/caches`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: "race-key", version: "1" }),
+    });
+    expect(res3.status).toBe(409);
+  });
 });

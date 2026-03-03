@@ -373,3 +373,23 @@ a:hover {
   font-style: italic;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
 }
+
+/* Attempt badges */
+.attempt-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  background: rgba(210, 153, 34, 0.15);
+  color: #d29922;
+}
+
+/* Retry button */
+.retry-btn {
+  -webkit-app-region: no-drag;
+}
+.retry-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

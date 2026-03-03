@@ -6,9 +6,12 @@ import { state } from "../store.js";
 import { createJobResponse } from "./actions/generators.js";
 
 // Base URL extractor middleware (to handle localhost vs host.docker.internal properly)
+// NOTE: strip \r\n from the Host header — HTTP/1.1 runners can include a trailing \r
+// which, if embedded in a signed URL, causes Node.js to throw
+// "Parse Error: Invalid header value char" when the toolkit uses that URL in a header.
 export function getBaseUrl(req: any) {
-  let host = req.headers.host || `localhost`;
-  const protocol = req.headers["x-forwarded-proto"] || "http";
+  const host = (req.headers.host || "localhost").replace(/[\r\n]/g, "").trim();
+  const protocol = (req.headers["x-forwarded-proto"] || "http").replace(/[\r\n]/g, "").trim();
   return `${protocol}://${host}`;
 }
 
@@ -112,7 +115,7 @@ export function registerDtuRoutes(app: Polka) {
   // Called by localJob.ts when spawning a runner container
   app.post("/_dtu/start-runner", (req: any, res) => {
     try {
-      const { runnerName, logDir, timelineDir } = req.body;
+      const { runnerName, logDir, timelineDir, virtualCachePatterns } = req.body;
       if (runnerName && logDir) {
         fs.mkdirSync(logDir, { recursive: true });
         const stepOutputPath = path.join(logDir, "step-output.log");
@@ -124,8 +127,23 @@ export function registerDtuRoutes(app: Polka) {
         if (timelineDir) {
           state.runnerTimelineDirs.set(runnerName, timelineDir);
         }
+        // Register virtual cache key patterns (e.g. "pnpm") so bind-mounted paths
+        // skip the tar archive entirely.
+        if (Array.isArray(virtualCachePatterns)) {
+          for (const pattern of virtualCachePatterns) {
+            if (typeof pattern === "string" && pattern.length > 0) {
+              state.virtualCachePatterns.add(pattern);
+            }
+          }
+        }
         console.log(
-          `[DTU] Registered runner ${runnerName} with logs at ${logDir}${timelineDir ? `, timeline at ${timelineDir}` : ""}`,
+          `[DTU] Registered runner ${runnerName} with logs at ${logDir}${
+            timelineDir ? `, timeline at ${timelineDir}` : ""
+          }${
+            virtualCachePatterns?.length
+              ? `, virtual cache patterns: ${virtualCachePatterns.join(", ")}`
+              : ""
+          }`,
         );
       }
     } catch (e) {

@@ -1,7 +1,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, loadOaConfig } from "./config.js";
+import { config, loadOaConfig, loadMachineSecrets } from "./config.js";
 import { setWorkingDirectory, PROJECT_ROOT } from "./logger.js";
 
 import { executeLocalJob } from "./local-job.js";
@@ -10,6 +10,7 @@ import {
   parseWorkflowSteps,
   parseWorkflowServices,
   isWorkflowRelevant,
+  validateSecrets,
 } from "./workflow-parser.js";
 import { Job } from "./types.js";
 
@@ -253,7 +254,10 @@ async function handleRun(options: {
       process.exit(1);
     }
 
-    const steps = await parseWorkflowSteps(workflowPath, taskName);
+    const secrets = loadMachineSecrets(repoRoot);
+    const secretsFilePath = path.join(repoRoot, ".env.machinen");
+    validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
+    const steps = await parseWorkflowSteps(workflowPath, taskName, secrets);
     const services = await parseWorkflowServices(workflowPath, taskName);
 
     // 6. Construct Job
@@ -344,7 +348,10 @@ async function handleRunAll(options: {
       console.log(
         `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName} ---`,
       );
-      const steps = await parseWorkflowSteps(workflowPath, taskName);
+      const secrets = loadMachineSecrets(repoRoot);
+      const secretsFilePath = path.join(repoRoot, ".env.machinen");
+      validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
+      const steps = await parseWorkflowSteps(workflowPath, taskName, secrets);
       const services = await parseWorkflowServices(workflowPath, taskName);
 
       const job: Job = {

@@ -21,6 +21,7 @@ export function expandExpressions(
   value: string,
   repoPath?: string,
   secrets?: Record<string, string>,
+  matrixContext?: Record<string, string>,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const trimmed = expr.trim();
@@ -115,10 +116,14 @@ export function expandExpressions(
       return "";
     }
     if (trimmed === "strategy.job-total") {
-      return "1";
+      return matrixContext?.["__job_total"] ?? "1";
+    }
+    if (trimmed === "strategy.job-index") {
+      return matrixContext?.["__job_index"] ?? "0";
     }
     if (trimmed.startsWith("matrix.")) {
-      return "1";
+      const key = trimmed.slice("matrix.".length);
+      return matrixContext?.[key] ?? "";
     }
     if (trimmed.startsWith("secrets.")) {
       const name = trimmed.slice("secrets.".length);
@@ -187,10 +192,60 @@ export async function getWorkflowTemplate(filePath: string) {
   return await convertWorkflowTemplate(result.context, result.value);
 }
 
+/**
+ * Compute the Cartesian product of a matrix definition.
+ * Values are always coerced to strings.
+ * Returns [{}] for an empty matrix so callers always get at least one combination.
+ */
+export function expandMatrixCombinations(
+  matrixDef: Record<string, any[]>,
+): Record<string, string>[] {
+  const keys = Object.keys(matrixDef);
+  if (keys.length === 0) {
+    return [{}];
+  }
+  let combos: Record<string, string>[] = [{}];
+  for (const key of keys) {
+    const values = matrixDef[key];
+    const next: Record<string, string>[] = [];
+    for (const combo of combos) {
+      for (const val of values) {
+        next.push({ ...combo, [key]: String(val) });
+      }
+    }
+    combos = next;
+  }
+  return combos;
+}
+
+/**
+ * Read the `strategy.matrix` object for a given job from the raw YAML.
+ * Returns null if the job has no matrix.
+ */
+export async function parseMatrixDef(
+  filePath: string,
+  jobId: string,
+): Promise<Record<string, any[]> | null> {
+  const yaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
+  const matrix = yaml?.jobs?.[jobId]?.strategy?.matrix;
+  if (!matrix || typeof matrix !== "object") {
+    return null;
+  }
+  // Only keep keys whose values are arrays
+  const result: Record<string, any[]> = {};
+  for (const [k, v] of Object.entries(matrix)) {
+    if (Array.isArray(v)) {
+      result[k] = v;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null;
+}
+
 export async function parseWorkflowSteps(
   filePath: string,
   taskName: string,
   secrets?: Record<string, string>,
+  matrixContext?: Record<string, string>,
 ) {
   const template = await getWorkflowTemplate(filePath);
   const rawYaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
@@ -216,7 +271,7 @@ export async function parseWorkflowSteps(
     .map((step, index) => {
       const stepId = step.id || `step-${index + 1}`;
       let stepName = step.name
-        ? expandExpressions(step.name.toString(), repoPath, secrets)
+        ? expandExpressions(step.name.toString(), repoPath, secrets, matrixContext)
         : stepId;
       const rawStep = rawSteps[index] || {};
 
@@ -229,8 +284,13 @@ export async function parseWorkflowSteps(
       }
 
       if ("run" in step) {
+        // Prefer the raw YAML value over step.run.toString(): the workflow-parser
+        // stringifies expression trees in ways that can truncate multiline scripts
+        // (e.g. dropping the text after an embedded ${{ }} boundary). The raw YAML
+        // string is always the complete literal block scalar.
+        const rawScript = rawStep.run != null ? String(rawStep.run) : step.run.toString();
         const inputs: Record<string, string> = {
-          script: expandExpressions(step.run.toString(), repoPath, secrets),
+          script: expandExpressions(rawScript, repoPath, secrets, matrixContext),
         };
         if (rawStep["working-directory"]) {
           inputs.workingDirectory = rawStep["working-directory"];
@@ -287,7 +347,7 @@ export async function parseWorkflowSteps(
               ? Object.fromEntries(
                   Object.entries((step as any).with).map(([k, v]) => [
                     k,
-                    expandExpressions(String(v), repoPath, secrets),
+                    expandExpressions(String(v), repoPath, secrets, matrixContext),
                   ]),
                 )
               : {}),
@@ -295,7 +355,7 @@ export async function parseWorkflowSteps(
             ...Object.fromEntries(
               Object.entries(stepWith).map(([k, v]) => [
                 k,
-                expandExpressions(String(v), repoPath, secrets),
+                expandExpressions(String(v), repoPath, secrets, matrixContext),
               ]),
             ),
             ...(isCheckout
@@ -317,7 +377,7 @@ export async function parseWorkflowSteps(
             ? Object.fromEntries(
                 Object.entries(rawStep.env).map(([k, v]) => [
                   k,
-                  expandExpressions(String(v), repoPath, secrets),
+                  expandExpressions(String(v), repoPath, secrets, matrixContext),
                 ]),
               )
             : undefined,

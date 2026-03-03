@@ -254,8 +254,8 @@ describe("expandExpressions", () => {
     ).toBe("tok-xyz:acc-123");
   });
 
-  it("expands matrix.* to '1'", () => {
-    expect(expandExpressions("shard-${{ matrix.shard }}")).toBe("shard-1");
+  it("expands matrix.* to empty string when no matrixContext provided", () => {
+    expect(expandExpressions("shard-${{ matrix.shard }}")).toBe("shard-");
   });
 
   it("expands steps.* to empty string", () => {
@@ -344,6 +344,81 @@ describe("expandExpressions", () => {
     );
     const result = expandExpressions("${{ hashFiles('src/**/*.ts') }}", repoDir);
     expect(result).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+// ─── expandExpressions — matrixContext ────────────────────────────────────────
+
+describe("expandExpressions with matrixContext", () => {
+  it("expands matrix.shard to the provided shard value", () => {
+    expect(
+      expandExpressions("shard-${{ matrix.shard }}", undefined, undefined, { shard: "3" }),
+    ).toBe("shard-3");
+  });
+
+  it("expands strategy.job-total to __job_total from context", () => {
+    expect(
+      expandExpressions("total-${{ strategy.job-total }}", undefined, undefined, {
+        __job_total: "8",
+      }),
+    ).toBe("total-8");
+  });
+
+  it("expands both matrix.shard and strategy.job-total in a real command", () => {
+    const result = expandExpressions(
+      "pnpm test:e2e:ci --shard=${{ matrix.shard }}/${{ strategy.job-total }}",
+      undefined,
+      undefined,
+      { shard: "3", __job_total: "8" },
+    );
+    expect(result).toBe("pnpm test:e2e:ci --shard=3/8");
+  });
+
+  it("returns empty string for matrix.* when matrixContext not provided", () => {
+    expect(expandExpressions("shard-${{ matrix.shard }}")).toBe("shard-");
+  });
+
+  it("returns fallback '1' for strategy.job-total when context not provided", () => {
+    expect(expandExpressions("${{ strategy.job-total }}")).toBe("1");
+  });
+});
+
+// ─── expandMatrixCombinations ─────────────────────────────────────────────────
+
+import { expandMatrixCombinations } from "./workflow-parser.js";
+
+describe("expandMatrixCombinations", () => {
+  it("returns [{}] for an empty matrix", () => {
+    expect(expandMatrixCombinations({})).toEqual([{}]);
+  });
+
+  it("returns one combination per value for a single dimension", () => {
+    const combos = expandMatrixCombinations({ shard: [1, 2, 3] });
+    expect(combos).toHaveLength(3);
+    expect(combos[0]).toEqual({ shard: "1" });
+    expect(combos[1]).toEqual({ shard: "2" });
+    expect(combos[2]).toEqual({ shard: "3" });
+  });
+
+  it("coerces numeric values to strings", () => {
+    const combos = expandMatrixCombinations({ shard: [1, 2] });
+    expect(typeof combos[0].shard).toBe("string");
+  });
+
+  it("returns 8 combinations for shard [1..8]", () => {
+    const combos = expandMatrixCombinations({ shard: [1, 2, 3, 4, 5, 6, 7, 8] });
+    expect(combos).toHaveLength(8);
+    expect(combos[7]).toEqual({ shard: "8" });
+  });
+
+  it("returns Cartesian product for multi-dimensional matrix", () => {
+    const combos = expandMatrixCombinations({ os: ["ubuntu", "windows"], node: [18, 20] });
+    expect(combos).toHaveLength(4);
+    // All four combinations must be present
+    expect(combos).toContainEqual({ os: "ubuntu", node: "18" });
+    expect(combos).toContainEqual({ os: "ubuntu", node: "20" });
+    expect(combos).toContainEqual({ os: "windows", node: "18" });
+    expect(combos).toContainEqual({ os: "windows", node: "20" });
   });
 });
 

@@ -1,0 +1,137 @@
+Feature: Conversation watching and indexing
+  Scenario: Non-JSONL files are ignored
+    Given the Machinen daemon is running
+    When a non-.jsonl file is created or modified under ~/.claude/projects/
+    Then no spec update is triggered
+
+  Scenario: JSONL file change triggers conversation indexing
+    Given the Machinen daemon is running
+    When a .jsonl file under ~/.claude/projects/ is modified
+    Then the conversation is associated with the repository and branch recorded in that file
+    And subsequent spec updates for that branch include excerpts from this conversation
+
+  Scenario: JSONL file without repository metadata is ignored
+    Given the Machinen daemon is running
+    When a .jsonl file is detected that contains no messages with repository or branch metadata
+    Then no conversation is registered for that file
+    And no spec update is triggered
+
+  Scenario: Rapid JSONL writes are coalesced into a single spec update
+    Given the Machinen daemon is running
+    When a .jsonl file receives multiple writes in quick succession
+    Then a single spec update is triggered after the writes stabilise
+
+Feature: Spec file creation
+  Scenario: First spec for a branch with conversation data
+    Given a branch has no existing spec file
+    And conversation data is available for that branch
+    When the daemon processes messages for that branch
+    Then a spec file is created at ~/.machinen/specs/<repo_slug>/<branch>.md
+    And the spec file contains behaviours extracted from the conversation data
+
+  Scenario: No spec file is created when no conversation data exists
+    Given a branch has no existing spec file
+    And no conversation data is available for that branch
+    When the daemon checks for updates on that branch
+    Then no spec file is created
+
+  Scenario: Spec file location is deterministic
+    Given a repository path and branch name
+    When a spec is created for that branch
+    Then the spec file is written to ~/.machinen/specs/<repo_slug>/<branch>.md
+
+Feature: Spec file content and format
+  Scenario: Spec output is Gherkin
+    Given conversation excerpts are available for a branch
+    When the spec file is generated
+    Then the file contains Feature blocks with Scenario entries using Given/When/Then steps
+    And the file does not contain preamble or commentary outside the Gherkin structure
+
+  Scenario: Spec contains only externally observable behaviours
+    Given conversation excerpts reference both internal implementation details and externally observable behaviours
+    When the spec file is generated
+    Then the spec includes only behaviours verifiable through the product's external interfaces
+    And the spec does not include scenarios about internal function calls, database schemas, environment variables, or subprocess flags
+
+  Scenario: System tags in conversations are excluded from the spec
+    Given conversation messages contain system-reminder, IDE opened-file, or IDE selection tags
+    When the daemon extracts text from those messages
+    Then the tag content does not appear in the generated spec
+
+  Scenario: Only user and assistant messages contribute to the spec
+    Given a conversation JSONL file contains user messages, assistant messages, and other record types
+    When the daemon processes that conversation
+    Then only user and assistant message content is reflected in the generated spec
+
+Feature: Spec file updates
+  Scenario: Spec is updated when new conversation data arrives
+    Given a branch already has a spec file
+    And new conversation messages have been recorded for that branch
+    When the daemon processes the new messages
+    Then the spec file at ~/.machinen/specs/<repo_slug>/<branch>.md is updated
+    And the updated spec reflects the new conversation content
+
+  Scenario: Spec updates are incremental
+    Given a branch already has a spec file from a previous update
+    When additional conversation messages arrive for that branch
+    Then only messages added since the last update are processed
+    And the spec is revised in light of the new information
+    And previously captured behaviours that are still valid are preserved
+
+  Scenario: Large conversations are processed completely
+    Given a conversation contains a large volume of messages
+    When the daemon processes that conversation
+    Then all message content is included in spec generation
+    And the resulting spec reflects the full conversation
+
+Feature: Reset command
+  Scenario: Running --reset regenerates the spec from scratch
+    Given a branch already has a spec file and conversations have been partially processed
+    When the user runs the daemon with --reset <branch>
+    Then the existing spec file is deleted
+    And a new spec is generated from all available conversation data for that branch
+
+  Scenario: Running --reset with no branch name shows usage
+    Given the user runs the daemon with --reset but no branch argument
+    Then an error message is displayed showing the expected usage
+    And the process exits with a non-zero status
+
+  Scenario: Running --reset for a branch with no conversations reports no data
+    Given no conversations have been recorded for a branch
+    When the user runs --reset for that branch
+    Then a message is displayed indicating no conversations were found
+
+Feature: Daemon operability
+  Scenario: Daemon operates when launched from a Claude Code session
+    Given the Machinen daemon is started from within an active Claude Code session
+    When a spec update is triggered
+    Then the spec file is updated normally
+    And no errors are reported to the user
+
+  Scenario: Each spec update run operates statelessly
+    Given the daemon has processed conversations previously
+    When a new spec update is triggered
+    Then the update completes successfully without requiring any prior session state
+
+Feature: Source of truth and data integrity
+  Scenario: Multiple conversations can be associated with a single branch
+    Given two or more Claude Code conversations are conducted on the same branch
+    When the daemon indexes those conversations
+    Then all conversations are associated with that branch
+    And spec updates for that branch draw from all associated conversations
+
+  Scenario: Conversations with string-type message content are processed
+    Given a conversation JSONL file contains messages where content is a plain string
+    When the daemon processes that conversation
+    Then the text from those messages is reflected in the generated spec
+
+  Scenario: Conversations with array-type message content are processed
+    Given a conversation JSONL file contains messages where content is an array of content blocks
+    When the daemon processes that conversation
+    Then the text from those messages is reflected in the generated spec
+
+  Scenario: Unrecognised message content does not halt processing
+    Given a conversation JSONL file contains a message with an unexpected content shape
+    When the daemon processes that conversation
+    Then a warning is emitted identifying the problematic message
+    And processing of remaining messages continues normally

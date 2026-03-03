@@ -43,15 +43,20 @@ async function runClaude(systemPrompt: string, prompt: string): Promise<string> 
   //
   // Prompt is piped via stdin (execa's `input` option) rather than passed as a
   // CLI arg to avoid E2BIG when the prompt exceeds the OS arg length limit.
-  const result = await execa(CLAUDE_BIN, ["-p", "--system-prompt", systemPrompt], {
+  //
+  // --GROK--: We pipe stderr to the parent process in real time so we can see
+  // progress during long-running claude calls. stdout is still collected into
+  // a buffer since we need the full result as a return value.
+  const proc = execa(CLAUDE_BIN, ["-p", "--system-prompt", systemPrompt], {
     env,
     input: prompt,
     extendEnv: false,
+    stderr: "pipe",
   });
 
-  if (result.stderr.trim()) {
-    console.warn(`[claude] stderr: ${result.stderr.trim()}`);
-  }
+  proc.stderr?.pipe(process.stderr);
+
+  const result = await proc;
 
   console.log(`[claude] result: ${result.stdout.trim().length} chars`);
   return result.stdout;

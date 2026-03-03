@@ -3,3 +3,4 @@ packages:
   - "supervisor"
   - "dtu-github-actions"
   - "ui"
+  - "derive"

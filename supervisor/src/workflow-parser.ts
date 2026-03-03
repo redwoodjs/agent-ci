@@ -17,7 +17,11 @@ import { minimatch } from "minimatch";
  *  - github.sha → '0000000000000000000000000000000000000000'
  *  - (others) → empty string (safe: no commas injected)
  */
-export function expandExpressions(value: string, repoPath?: string): string {
+export function expandExpressions(
+  value: string,
+  repoPath?: string,
+  secrets?: Record<string, string>,
+): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const trimmed = expr.trim();
 
@@ -117,7 +121,8 @@ export function expandExpressions(value: string, repoPath?: string): string {
       return "1";
     }
     if (trimmed.startsWith("secrets.")) {
-      return "";
+      const name = trimmed.slice("secrets.".length);
+      return secrets?.[name] ?? "";
     }
     if (trimmed.startsWith("steps.") && trimmed.endsWith(".outputs.cache-hit")) {
       return "";
@@ -182,7 +187,11 @@ export async function getWorkflowTemplate(filePath: string) {
   return await convertWorkflowTemplate(result.context, result.value);
 }
 
-export async function parseWorkflowSteps(filePath: string, taskName: string) {
+export async function parseWorkflowSteps(
+  filePath: string,
+  taskName: string,
+  secrets?: Record<string, string>,
+) {
   const template = await getWorkflowTemplate(filePath);
   const rawYaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
 
@@ -206,7 +215,9 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
   return job.steps
     .map((step, index) => {
       const stepId = step.id || `step-${index + 1}`;
-      let stepName = step.name ? expandExpressions(step.name.toString(), repoPath) : stepId;
+      let stepName = step.name
+        ? expandExpressions(step.name.toString(), repoPath, secrets)
+        : stepId;
       const rawStep = rawSteps[index] || {};
 
       // Fix for __actions_checkout issue
@@ -219,7 +230,7 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
 
       if ("run" in step) {
         const inputs: Record<string, string> = {
-          script: expandExpressions(step.run.toString(), repoPath),
+          script: expandExpressions(step.run.toString(), repoPath, secrets),
         };
         if (rawStep["working-directory"]) {
           inputs.workingDirectory = rawStep["working-directory"];
@@ -237,7 +248,7 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
             ? Object.fromEntries(
                 Object.entries(rawStep.env).map(([k, v]) => [
                   k,
-                  expandExpressions(String(v), repoPath),
+                  expandExpressions(String(v), repoPath, secrets),
                 ]),
               )
             : undefined,
@@ -276,13 +287,16 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
               ? Object.fromEntries(
                   Object.entries((step as any).with).map(([k, v]) => [
                     k,
-                    expandExpressions(String(v), repoPath),
+                    expandExpressions(String(v), repoPath, secrets),
                   ]),
                 )
               : {}),
             // Merge from raw YAML (overrides parsed values), expanding expressions
             ...Object.fromEntries(
-              Object.entries(stepWith).map(([k, v]) => [k, expandExpressions(String(v), repoPath)]),
+              Object.entries(stepWith).map(([k, v]) => [
+                k,
+                expandExpressions(String(v), repoPath, secrets),
+              ]),
             ),
             ...(isCheckout
               ? {
@@ -303,7 +317,7 @@ export async function parseWorkflowSteps(filePath: string, taskName: string) {
             ? Object.fromEntries(
                 Object.entries(rawStep.env).map(([k, v]) => [
                   k,
-                  expandExpressions(String(v), repoPath),
+                  expandExpressions(String(v), repoPath, secrets),
                 ]),
               )
             : undefined,

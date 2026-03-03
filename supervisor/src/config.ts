@@ -3,6 +3,7 @@ import { z } from "zod";
 import fs from "fs";
 import path from "path";
 import os from "os";
+import { PROJECT_ROOT } from "./logger.js";
 
 const configSchema = z.object({
   BRIDGE_URL: z.string().url(),
@@ -38,4 +39,41 @@ export function loadOaConfig(configPath?: string): { workingDirectory?: string }
   }
   const content = fs.readFileSync(resolvedPath, "utf-8");
   return parseJsonc(content);
+}
+
+/**
+ * Load machine-local secrets from `.env.machine` at the oa-1 project root.
+ * The file uses KEY=VALUE syntax (lines starting with # are ignored).
+ * Returns an empty object if the file doesn't exist.
+ */
+export function loadMachineSecrets(baseDir?: string): Record<string, string> {
+  const envMachinePath = path.join(baseDir ?? PROJECT_ROOT, ".env.machine");
+  if (!fs.existsSync(envMachinePath)) {
+    return {};
+  }
+  const secrets: Record<string, string> = {};
+  const lines = fs.readFileSync(envMachinePath, "utf-8").split("\n");
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx < 1) {
+      continue;
+    }
+    const key = trimmed.slice(0, eqIdx).trim();
+    let value = trimmed.slice(eqIdx + 1).trim();
+    // Strip optional surrounding quotes
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (key) {
+      secrets[key] = value;
+    }
+  }
+  return secrets;
 }

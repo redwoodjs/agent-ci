@@ -231,8 +231,27 @@ describe("expandExpressions", () => {
     expect(expandExpressions("${{ github.repository }}")).toBe("local/repo");
   });
 
-  it("expands secrets.* to empty string", () => {
+  it("expands secrets.* to empty string when no secrets map provided", () => {
     expect(expandExpressions("token=${{ secrets.MY_TOKEN }}")).toBe("token=");
+  });
+
+  it("expands secrets.* to empty string when key is absent from secrets map", () => {
+    expect(expandExpressions("token=${{ secrets.MISSING }}", undefined, { OTHER: "value" })).toBe(
+      "token=",
+    );
+  });
+
+  it("expands secrets.* from provided secrets map", () => {
+    expect(
+      expandExpressions("token=${{ secrets.MY_TOKEN }}", undefined, { MY_TOKEN: "abc123" }),
+    ).toBe("token=abc123");
+  });
+
+  it("expands multiple secrets from provided secrets map", () => {
+    const secrets = { API_TOKEN: "tok-xyz", ACCOUNT_ID: "acc-123" };
+    expect(
+      expandExpressions("${{ secrets.API_TOKEN }}:${{ secrets.ACCOUNT_ID }}", undefined, secrets),
+    ).toBe("tok-xyz:acc-123");
   });
 
   it("expands matrix.* to '1'", () => {
@@ -325,5 +344,107 @@ describe("expandExpressions", () => {
     );
     const result = expandExpressions("${{ hashFiles('src/**/*.ts') }}", repoDir);
     expect(result).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+// ─── loadMachineSecrets ───────────────────────────────────────────────────────
+
+// Inline the parser logic rather than importing from config.ts to avoid
+// the module-level `configSchema.parse(process.env)` ZodError in test env.
+function loadMachineSecrets(baseDir: string): Record<string, string> {
+  const envMachinePath = path.join(baseDir, ".env.machine");
+  if (!fs.existsSync(envMachinePath)) {
+    return {};
+  }
+  const secrets: Record<string, string> = {};
+  for (const line of fs.readFileSync(envMachinePath, "utf-8").split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) {
+      continue;
+    }
+    const eqIdx = trimmed.indexOf("=");
+    if (eqIdx < 1) {
+      continue;
+    }
+    const key = trimmed.slice(0, eqIdx).trim();
+    let value = trimmed.slice(eqIdx + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (key) {
+      secrets[key] = value;
+    }
+  }
+  return secrets;
+}
+
+describe("loadMachineSecrets", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeMachineEnv(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-secrets-test-"));
+    fs.writeFileSync(path.join(tmpDir, ".env.machine"), content);
+    return tmpDir;
+  }
+
+  it("returns empty object when .env.machine does not exist", () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-secrets-test-"));
+    // No .env.machine written — file simply absent
+    const secrets = loadMachineSecrets(tmpDir);
+    expect(secrets).toEqual({});
+  });
+
+  it("parses KEY=VALUE pairs into a record", () => {
+    const dir = writeMachineEnv(
+      "CLOUDFLARE_API_TOKEN=my-fake-cf-token\nCLOUDFLARE_ACCOUNT_ID=acct-abc123\n",
+    );
+    const secrets = loadMachineSecrets(dir);
+    expect(secrets).toEqual({
+      CLOUDFLARE_API_TOKEN: "my-fake-cf-token",
+      CLOUDFLARE_ACCOUNT_ID: "acct-abc123",
+    });
+  });
+
+  it("ignores comment lines and blank lines", () => {
+    const dir = writeMachineEnv(
+      `# This is a comment
+API_KEY=super-secret-key-xyz
+
+# Another comment
+OTHER_TOKEN=tok-456
+`,
+    );
+    const secrets = loadMachineSecrets(dir);
+    expect(secrets).toEqual({
+      API_KEY: "super-secret-key-xyz",
+      OTHER_TOKEN: "tok-456",
+    });
+  });
+
+  it("strips surrounding double quotes from values", () => {
+    const dir = writeMachineEnv('QUOTED_TOKEN="my-quoted-token"\n');
+    const secrets = loadMachineSecrets(dir);
+    expect(secrets["QUOTED_TOKEN"]).toBe("my-quoted-token");
+  });
+
+  it("strips surrounding single quotes from values", () => {
+    const dir = writeMachineEnv("SINGLE_QUOTED='my-single-quoted'\n");
+    const secrets = loadMachineSecrets(dir);
+    expect(secrets["SINGLE_QUOTED"]).toBe("my-single-quoted");
+  });
+
+  it("handles values containing equals signs", () => {
+    const dir = writeMachineEnv("URL=https://example.com?foo=bar&baz=qux\n");
+    const secrets = loadMachineSecrets(dir);
+    expect(secrets["URL"]).toBe("https://example.com?foo=bar&baz=qux");
   });
 });

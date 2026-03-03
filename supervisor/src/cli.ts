@@ -10,6 +10,7 @@ import {
   parseWorkflowSteps,
   parseWorkflowServices,
   isWorkflowRelevant,
+  validateSecrets,
 } from "./workflow-parser.js";
 import { Job } from "./types.js";
 
@@ -253,7 +254,9 @@ async function handleRun(options: {
       process.exit(1);
     }
 
-    const secrets = loadMachineSecrets();
+    const secrets = loadMachineSecrets(repoRoot);
+    const secretsFilePath = path.join(repoRoot, ".env.machinen");
+    validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
     const steps = await parseWorkflowSteps(workflowPath, taskName, secrets);
     const services = await parseWorkflowServices(workflowPath, taskName);
 
@@ -345,7 +348,9 @@ async function handleRunAll(options: {
       console.log(
         `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName} ---`,
       );
-      const secrets = loadMachineSecrets();
+      const secrets = loadMachineSecrets(repoRoot);
+      const secretsFilePath = path.join(repoRoot, ".env.machinen");
+      validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
       const steps = await parseWorkflowSteps(workflowPath, taskName, secrets);
       const services = await parseWorkflowServices(workflowPath, taskName);
 

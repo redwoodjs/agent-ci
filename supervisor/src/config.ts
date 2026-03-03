@@ -47,7 +47,7 @@ export function loadOaConfig(configPath?: string): { workingDirectory?: string }
  * Returns an empty object if the file doesn't exist.
  */
 export function loadMachineSecrets(baseDir?: string): Record<string, string> {
-  const envMachinePath = path.join(baseDir ?? PROJECT_ROOT, ".env.machine");
+  const envMachinePath = path.join(baseDir ?? PROJECT_ROOT, ".env.machinen");
   if (!fs.existsSync(envMachinePath)) {
     return {};
   }

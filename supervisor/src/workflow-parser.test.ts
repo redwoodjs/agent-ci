@@ -448,3 +448,171 @@ OTHER_TOKEN=tok-456
     expect(secrets["URL"]).toBe("https://example.com?foo=bar&baz=qux");
   });
 });
+
+// ─── extractSecretRefs & validateSecrets ──────────────────────────────────────
+
+import { extractSecretRefs, validateSecrets } from "./workflow-parser.js";
+
+describe("extractSecretRefs", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-secrets-refs-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("returns empty array when workflow has no secrets references", () => {
+    const filePath = writeWorkflow(`
+name: No Secrets
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo hello
+`);
+    expect(extractSecretRefs(filePath)).toEqual([]);
+  });
+
+  it("extracts unique sorted secret names from the whole file", () => {
+    const filePath = writeWorkflow(`
+name: Secrets Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: \${{ secrets.API_TOKEN }}
+      ACCT: \${{ secrets.ACCOUNT_ID }}
+      DUP: \${{ secrets.API_TOKEN }}
+    steps:
+      - run: echo ok
+`);
+    expect(extractSecretRefs(filePath)).toEqual(["ACCOUNT_ID", "API_TOKEN"]);
+  });
+
+  it("scopes to the specified job when taskName is provided", () => {
+    const filePath = writeWorkflow(`
+name: Multi Job
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: \${{ secrets.BUILD_TOKEN }}
+    steps:
+      - run: echo build
+  test:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: \${{ secrets.TEST_TOKEN }}
+    steps:
+      - run: echo test
+`);
+    expect(extractSecretRefs(filePath, "test")).toEqual(["TEST_TOKEN"]);
+    expect(extractSecretRefs(filePath, "build")).toEqual(["BUILD_TOKEN"]);
+  });
+});
+
+describe("validateSecrets", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-validate-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("does not throw when all required secrets are present", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      TOKEN: \${{ secrets.MY_TOKEN }}
+    steps:
+      - run: echo ok
+`);
+    expect(() =>
+      validateSecrets(filePath, "run", { MY_TOKEN: "abc123" }, "/repo/.env.machinen"),
+    ).not.toThrow();
+  });
+
+  it("does not throw when workflow has no secrets", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(() => validateSecrets(filePath, "run", {}, "/repo/.env.machinen")).not.toThrow();
+  });
+
+  it("throws listing missing secrets and the secrets file path", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CF_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CF_ACCT: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - run: echo deploy
+`);
+    expect(() => validateSecrets(filePath, "deploy", {}, "/home/user/repo/.env.machinen")).toThrow(
+      /CLOUDFLARE_ACCOUNT_ID=/,
+    );
+
+    expect(() => validateSecrets(filePath, "deploy", {}, "/home/user/repo/.env.machinen")).toThrow(
+      /CLOUDFLARE_API_TOKEN=/,
+    );
+
+    expect(() => validateSecrets(filePath, "deploy", {}, "/home/user/repo/.env.machinen")).toThrow(
+      /\/home\/user\/repo\/.env.machinen/,
+    );
+  });
+
+  it("only fails for missing secrets, not for ones that are present", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      A: \${{ secrets.PRESENT_SECRET }}
+      B: \${{ secrets.MISSING_SECRET }}
+    steps:
+      - run: echo ok
+`);
+    expect(() =>
+      validateSecrets(filePath, "run", { PRESENT_SECRET: "value" }, "/repo/.env.machinen"),
+    ).toThrow(/MISSING_SECRET/);
+
+    expect(() =>
+      validateSecrets(filePath, "run", { PRESENT_SECRET: "value" }, "/repo/.env.machinen"),
+    ).not.toThrow(/PRESENT_SECRET/);
+  });
+});

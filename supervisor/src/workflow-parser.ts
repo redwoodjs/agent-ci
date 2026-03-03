@@ -415,3 +415,56 @@ export function isWorkflowRelevant(template: any, branch: string) {
 
   return false;
 }
+
+/**
+ * Scan a workflow file for all `${{ secrets.FOO }}` references.
+ * If `taskName` is provided, only the YAML subtree for that job is scanned.
+ * Returns a sorted, de-duplicated list of secret names.
+ */
+export function extractSecretRefs(filePath: string, taskName?: string): string[] {
+  const raw = fs.readFileSync(filePath, "utf8");
+  // Scope to the job subtree when a taskName is given so we don't pick up
+  // secrets from other jobs.
+  let source = raw;
+  if (taskName) {
+    try {
+      const yaml = require("yaml");
+      const parsed = yaml.parse(raw);
+      const jobDef = parsed?.jobs?.[taskName];
+      if (jobDef) {
+        source = JSON.stringify(jobDef);
+      }
+    } catch {
+      // Fall back to scanning the whole file
+    }
+  }
+  const names = new Set<string>();
+  for (const m of source.matchAll(/\$\{\{\s*secrets\.([A-Za-z_][A-Za-z0-9_]*)\s*\}\}/g)) {
+    names.add(m[1]);
+  }
+  return Array.from(names).sort();
+}
+
+/**
+ * Validate that all secrets referenced in a workflow job are present in the
+ * provided secrets map. Throws with a descriptive message listing the missing
+ * secret names and the expected file path if any are absent.
+ */
+export function validateSecrets(
+  filePath: string,
+  taskName: string,
+  secrets: Record<string, string>,
+  secretsFilePath: string,
+): void {
+  const required = extractSecretRefs(filePath, taskName);
+  const missing = required.filter((name) => !secrets[name]);
+  if (missing.length === 0) {
+    return;
+  }
+  throw new Error(
+    `[OA] Missing secrets required by workflow job "${taskName}".\n` +
+      `Add the following to ${secretsFilePath}:\n\n` +
+      missing.map((n) => `${n}=`).join("\n") +
+      "\n",
+  );
+}

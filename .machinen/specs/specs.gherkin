@@ -20,7 +20,7 @@ Feature: Conversation discovery
     Then the conversations are discovered and indexed
     And their messages are included in the spec update
 
-  Scenario: Conversations for other branches are ignored during spec update
+  Scenario: Conversations for other branches are ignored
     Given the user is in a git repository on branch "feature-x"
     And Claude Code conversations exist for both "feature-x" and "other-branch"
     When the user runs derive
@@ -128,11 +128,6 @@ Feature: Spec file location
     When a spec is created or updated
     Then the spec file is written to /path/to/project/.machinen/specs/feature-x.gherkin
 
-  Scenario: Spec file uses .gherkin extension
-    Given a spec is created for branch "feature-x"
-    When the spec file is written
-    Then the file has the .gherkin extension
-
   Scenario: Spec file travels with the git branch
     Given a spec file exists at .machinen/specs/feature-x.gherkin on branch "feature-x"
     When the user switches to branch "main" and back to "feature-x"
@@ -166,8 +161,7 @@ Feature: Incremental spec updates
     And previously captured behaviours that are still valid are preserved
 
   Scenario: Existing spec is used as starting context
-    Given the user is in a git repository on branch "feature-x"
-    And a spec file exists at .machinen/specs/feature-x.gherkin with user-written content
+    Given a spec file exists at .machinen/specs/feature-x.gherkin with user-written content
     When the user runs derive
     Then the existing spec content is used as the starting point for the update
     And the updated spec incorporates both the existing content and new conversation data
@@ -177,70 +171,3 @@ Feature: Incremental spec updates
     When the user runs derive
     Then all message content is included in spec generation
     And the resulting spec reflects the full conversation
-
-Feature: Commit helper (ad)
-  Scenario: Stages and commits all changes with an AI-generated message
-    Given the user is in a git repository with unstaged changes
-    And the GROQ_API_KEY environment variable is set
-    When the user runs ad
-    Then all changes are staged
-    And an AI-generated commit message is created from the diff
-    And the changes are committed with that message
-    And the commit is pushed to the remote
-
-  Scenario: Fallback commit message when AI is disabled
-    Given the user is in a git repository with unstaged changes
-    And the NO_AI environment variable is set to "true"
-    When the user runs ad
-    Then a locally generated commit message is used instead of an AI-generated one
-    And the commit message references the file with the most changes
-
-  Scenario: Lockfile-only changes produce a generic message
-    Given the user is in a git repository
-    And the only staged changes are to lockfiles
-    When the user runs ad
-    Then the commit message is "update lock file"
-
-  Scenario: Lockfiles are excluded from the diff used for message generation
-    Given the user is in a git repository with changes to both source files and lockfiles
-    When the user runs ad
-    Then the commit message is based on the source file changes
-    And lockfile changes do not influence the commit message content
-
-  Scenario: oxfmt formats staged files before committing
-    Given the user is in a git repository that has oxfmt installed at node_modules/.bin/oxfmt
-    And staged changes include JavaScript or TypeScript files
-    When the user runs ad
-    Then the staged JS/TS files are formatted with oxfmt before the commit
-    And the formatted versions are included in the commit
-
-  Scenario: oxfmt is skipped when not installed
-    Given the user is in a git repository that does not have oxfmt installed
-    When the user runs ad
-    Then the commit proceeds without formatting
-
-  Scenario: No changes to commit
-    Given the user is in a git repository with no changes
-    When the user runs ad
-    Then a message indicates no changes are staged for commit
-    And the process exits without committing
-
-  Scenario: Push recovers when remote is ahead
-    Given the user is in a git repository with staged changes
-    And the remote branch has commits not present locally
-    When the user runs ad
-    Then the changes are committed and eventually pushed to the remote
-    And a message indicates the push succeeded after reconciling remote changes
-
-  Scenario: Push failure with unresolvable conflicts exits with error
-    Given the user is in a git repository with staged changes
-    And the remote branch has conflicting changes that cannot be automatically merged
-    When the user runs ad
-    Then a message indicates the push could not be completed automatically
-    And the process exits with a non-zero code
-
-  Scenario: Home directory uses conservative staging
-    Given the user is in a git repository rooted at the home directory
-    When the user runs ad
-    Then only tracked files are staged
-    And untracked files are not added

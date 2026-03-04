@@ -280,6 +280,7 @@ The watcher uses `ignoreInitial: true` (the initial cycle is explicit), `awaitWr
 | `derive --reset`             | Regenerate spec from scratch. Delete .feature files, zero offsets, reprocess all conversations sequentially, exit.       |
 | `derive --reset --keep-spec` | Reprocess all conversations from scratch, but preserve the existing .feature files as starting context.                  |
 | `derive watch`               | Run an initial update, then watch for conversation changes on the current branch. Re-runs on changes (debounced).        |
+| `derive --scope <name>`      | Direct specs to a subdirectory: `.machinen/specs/<name>/*.feature`. Combinable with other flags.                         |
 | `derive --verbose`           | Enable verbose output. Dumps raw NDJSON events from spawned claude processes for debugging. Combinable with other flags. |
 
 All commands infer the repository path from `process.cwd()` and the branch from `git rev-parse --abbrev-ref HEAD`. The tool is invoked via `pnpm --filter derive start` (or `pnpm --filter derive start -- <args>`).
@@ -295,7 +296,8 @@ All commands infer the repository path from `process.cwd()` and the branch from 
 - **Offset semantics.** `lastLineOffset` is the total number of lines read (0-indexed start). Offsets are advanced before the Claude call (crash safety).
 - **Spec pipeline is stateless.** No `--resume`. The spec files on disk are the state. Each `claude -p` call reads the current spec (concatenated from `.feature` files) and produces an updated one.
 - **Sequential reset.** Reset mode processes each conversation in a separate `updateSpec` call to avoid exceeding prompt size limits.
-- **Project-local specs.** Spec files live at `<repoPath>/.machinen/specs/*.feature`, one per `Feature:` block. They travel with the branch via git.
+- **Project-local specs.** Spec files live at `<repoPath>/.machinen/specs/*.feature` (or `<repoPath>/.machinen/specs/<scope>/*.feature` when `--scope` is used), one per `Feature:` block. They travel with the branch via git.
+- **Optional scope.** `--scope <name>` appends a subdirectory to the spec path, allowing specs to be organized by domain (e.g., `--scope derive` → `.machinen/specs/derive/`). When omitted, specs go directly into `.machinen/specs/`.
 - **Virtualized file boundary.** The LLM pipeline operates on a single concatenated string. `readSpec` concatenates all `.feature` files; `writeSpec` splits the output by `Feature:` blocks and writes per-feature files. A `Feature:` block maps 1:1 to a `.feature` file.
 - **Deterministic read order.** `.feature` files are sorted alphabetically by filename when concatenated, ensuring deterministic input to the LLM.
 - **Clean-slate write.** `writeSpec` removes all existing `.feature` files before writing new ones. This is safe because the content was already consumed and re-expressed by the LLM.

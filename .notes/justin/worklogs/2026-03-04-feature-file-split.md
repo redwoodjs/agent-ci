@@ -171,3 +171,61 @@ All changes complete. Summary of what changed:
 **types.ts**: Unchanged — `BranchRecord.specPath` still a string, now semantically a directory path.
 
 **Blueprint**: Updated throughout — 2000ft view, system flow, pipelines, behaviour spec, API reference, invariants, directory mapping. Init mode removed. Multi-file spec storage feature added.
+
+## RFC: --scope flag for spec subdirectory
+
+### 2000ft View
+
+We add an optional `--scope <name>` CLI flag that appends a subdirectory to the spec path. Without it, specs go to `<repoPath>/.machinen/specs/*.feature`. With `--scope derive`, they go to `<repoPath>/.machinen/specs/derive/*.feature`. This lets projects organize specs by domain without any config machinery — just a CLI arg.
+
+### What changes
+
+1. `[MODIFY] spec.ts: specDir(repoPath, scope?)` — if `scope` is provided, append it to the path: `path.join(repoPath, ".machinen", "specs", scope)`. Otherwise, unchanged.
+
+2. `[MODIFY] index.ts: main()` — parse `--scope <value>` from args, pass to `specDir`, `runSpecUpdate`, and `resetBranch`.
+
+3. `[MODIFY] index.ts: runSpecUpdate(repoPath, branch, scope?)` — pass `scope` through to `specDir`.
+
+4. `[MODIFY] index.ts: resetBranch(cwd, branch, opts)` — add `scope?` to opts, pass through to `specDir`.
+
+### What stays the same
+
+- `readSpec`, `writeSpec`, `updateSpec`, `reviewSpecDir` — all take a `dir: string`, unchanged.
+- The LLM pipeline, DB schema, conversation discovery, watch mode.
+- When `--scope` is omitted, behaviour is identical to current.
+
+### Behavior Spec
+
+```gherkin
+Feature: Spec scope
+
+  Scenario: Scope directs specs to a subdirectory
+    Given the user is in a git repository
+    When the user runs derive --scope derive
+    Then spec .feature files are written to .machinen/specs/derive/
+    And spec .feature files are read from .machinen/specs/derive/
+
+  Scenario: No scope uses the default directory
+    Given the user is in a git repository
+    When the user runs derive without --scope
+    Then spec .feature files are written to .machinen/specs/
+```
+
+### Implementation Breakdown
+
+1. `[MODIFY] spec.ts: specDir` — accept optional `scope` param
+2. `[MODIFY] index.ts: main` — parse `--scope` from args
+3. `[MODIFY] index.ts: runSpecUpdate` — accept and forward `scope`
+4. `[MODIFY] index.ts: resetBranch` — accept and forward `scope`
+5. `[MODIFY] blueprints/derive.md` — document `--scope` in API reference and invariants
+
+### Tasks
+
+- [x] Update `specDir` to accept optional `scope`
+- [x] Parse `--scope` in `main()` and thread through `runSpecUpdate` and `resetBranch`
+- [x] Update blueprint and API reference
+- [x] Typecheck passes
+
+## Implemented --scope flag
+
+Three-line change to `specDir`, plus threading through `main` → `runSpecUpdate`/`resetBranch`. The scope value is parsed from `--scope <name>` in args and forwarded as an optional param. Blueprint updated with API reference row and invariant.

@@ -138,12 +138,36 @@ Feature: Multi-file spec storage
 
 ### Tasks
 
-- [ ] Implement `readSpec` and `writeSpec` helpers in spec.ts
-- [ ] Refactor `specFilePath` → `specDir` in spec.ts
-- [ ] Update `updateSpec` to use readSpec/writeSpec
-- [ ] Update `reviewSpecFile` → `reviewSpecDir`
-- [ ] Update `runSpecUpdate` in index.ts
-- [ ] Update `resetBranch` in index.ts
-- [ ] Update init mode in index.ts
-- [ ] Update BranchRecord type
-- [ ] Update architecture blueprint
+- [x] Implement `readSpec` and `writeSpec` helpers in spec.ts
+- [x] Refactor `specFilePath` → `specDir` in spec.ts
+- [x] Update `updateSpec` to use readSpec/writeSpec
+- [x] Update `reviewSpecFile` → `reviewSpecDir`
+- [x] Update `runSpecUpdate` in index.ts
+- [x] Update `resetBranch` in index.ts
+- [x] Remove init mode from index.ts (no longer needed with multi-file)
+- [x] Verify BranchRecord type (specPath field unchanged, semantics shift to directory)
+- [x] Update architecture blueprint
+- [x] Typecheck passes
+
+## Implemented the feature file split
+
+All changes complete. Summary of what changed:
+
+**spec.ts**:
+
+- `specFilePath(repoPath, branch)` → `specDir(repoPath)` — returns `.machinen/specs/` directory (branch removed from path)
+- New `readSpec(dir)` — globs `*.feature`, sorts alphabetically, concatenates
+- New `writeSpec(dir, gherkin)` — parses by `Feature:` blocks, slugifies names, rm+write
+- New `slugify(name)` — lowercase, non-alphanumeric → `-`, trim
+- `updateSpec` uses `readSpec`/`writeSpec` instead of direct `readFileSync`/`writeFileSync`
+- `reviewSpecFile` → `reviewSpecDir` — uses `readSpec`/`writeSpec`
+
+**index.ts**:
+
+- `runSpecUpdate` and `resetBranch` use `specDir` instead of `specFilePath`
+- Reset mode rm's all `*.feature` files instead of unlinking a single file
+- Init mode removed entirely
+
+**types.ts**: Unchanged — `BranchRecord.specPath` still a string, now semantically a directory path.
+
+**Blueprint**: Updated throughout — 2000ft view, system flow, pipelines, behaviour spec, API reference, invariants, directory mapping. Init mode removed. Multi-file spec storage feature added.

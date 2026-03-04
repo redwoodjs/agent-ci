@@ -2,7 +2,7 @@
 
 ## 2000ft View Narrative
 
-`derive` is a CLI tool that maintains living Gherkin behaviour specs per git branch by extracting intent from Claude Code conversations. Engineers build features on branches using Claude Code. Those conversations — stored as JSONL files — implicitly contain the evolving behavioural intent of the feature. `derive` reads those conversations, extracts testable product behaviours, and maintains a structured Gherkin specification alongside the code.
+`derive` is a CLI tool that maintains living Gherkin behaviour specs by extracting intent from Claude Code conversations. Engineers build features on branches using Claude Code. Those conversations — stored as JSONL files — implicitly contain the evolving behavioural intent of the feature. `derive` reads those conversations, extracts testable product behaviours, and maintains structured Gherkin specification files alongside the code. Specs are organized by product feature — each `Feature:` block in the Gherkin output becomes its own `.feature` file, named by slugifying the feature name. The LLM pipeline operates on a single concatenated string; the file split is purely a read/write boundary concern.
 
 The tool does not change how engineers work. It reads Claude Code's existing conversation logs, which contain metadata (cwd, gitBranch, sessionId, timestamps) and the full message stream. It maintains a lightweight SQLite routing index that maps conversations to repos and branches and tracks read cursors. The spec pipeline is stateless: each update is a fresh `claude -p` call that reads the current spec from disk, combines it with new conversation excerpts, and produces an updated spec.
 
@@ -13,15 +13,12 @@ The tool was originally a daemon (global chokidar watcher firing spec updates on
 ### Core flow (shared across all modes)
 
 ```
-derive | derive --reset | derive watch | derive init
+derive | derive --reset | derive watch
   |
   v
 detect context
   - cwd from process.cwd()
   - branch from git rev-parse --abbrev-ref HEAD (rejects detached HEAD)
-  |
-  v
-[init mode exits here — creates empty spec file, no DB or token work]
   |
   v
 discoverConversations(cwd, branch)
@@ -53,32 +50,32 @@ getConversationsForBranch(cwd, branch)
     → advance offset immediately (crash safety)
   → batch all new messages
   → if no new messages: return
-  → updateSpec(messages, specFilePath)
+  → updateSpec(messages, specDir)
     → format messages as [type]: text excerpts
     → chunk excerpts at 300K chars if needed
     → for each chunk:
-        read current spec from disk (if any)
+        readSpec(dir) → concat all .feature files into single string
         runClaude(SPEC_ROLE_PREAMBLE, prompt) → raw Gherkin
         reviewSpec(raw) → runClaude(REVIEW_SYSTEM_PROMPT, ...) → reviewed Gherkin
-        write reviewed result to disk
-  → upsertBranch(repoPath, branch, specPath)
+        writeSpec(dir, output) → rm *.feature, split by Feature: blocks, write per-feature files
+  → upsertBranch(repoPath, branch, specDir)
 ```
 
 ### Reset pipeline (resetBranch)
 
 ```
-if --keep-spec: preserve existing spec file on disk
-else: delete spec file from disk
+if --keep-spec: preserve existing .feature files on disk
+else: rm all *.feature files in specDir
 resetConversationOffsets(cwd, branch) → zero all offsets in DB
 for each conversation (sequentially):
   readFromOffset(jsonlPath, 0) → all messages
-  updateSpec(messages, specFilePath, { skipReview: true }) → extraction only
+  updateSpec(messages, specDir, { skipReview: true }) → extraction only, writeSpec splits output
   advance offset
-reviewSpecFile(specFilePath) → single review pass on final accumulated spec
-upsertBranch(repoPath, branch, specPath)
+reviewSpecDir(specDir) → readSpec + single review pass + writeSpec on final accumulated spec
+upsertBranch(repoPath, branch, specDir)
 ```
 
-Sequential per-conversation processing avoids exceeding the prompt size limit — a lesson from early development where batching all conversations into one call caused "Prompt is too long" failures. The review pass is deferred to the end: intermediate specs only serve as context for the next extraction, so reviewing them is wasted work. When `--keep-spec` is used, the existing spec is preserved as starting context for the first conversation's reprocessing — useful when the spec contains hand-written or init-seeded content.
+Sequential per-conversation processing avoids exceeding the prompt size limit — a lesson from early development where batching all conversations into one call caused "Prompt is too long" failures. The review pass is deferred to the end: intermediate specs only serve as context for the next extraction, so reviewing them is wasted work. When `--keep-spec` is used, the existing `.feature` files are preserved as starting context for the first conversation's reprocessing — useful when the spec contains hand-written content.
 
 ## Database Schema
 
@@ -101,10 +98,10 @@ SQLite database at `~/.machinen/machinen.db`. Uses `node:sqlite` `DatabaseSync` 
 | ---------- | ---- | ------------------------ | -------------------------------------- |
 | repo_path  | TEXT | NOT NULL, PK (composite) | Absolute path to the git repository    |
 | branch     | TEXT | NOT NULL, PK (composite) | Git branch name                        |
-| spec_path  | TEXT | NOT NULL                 | Absolute path to the spec file         |
+| spec_path  | TEXT | NOT NULL                 | Absolute path to the spec directory    |
 | updated_at | TEXT | NOT NULL                 | ISO 8601 timestamp of last spec update |
 
-The `branches` table is a lookup table — it records which spec file belongs to which repo+branch combination. The `specPath` value is deterministic from `(repoPath, branch)`, but storing it provides a single query point for downstream tooling.
+The `branches` table is a lookup table — it records which spec directory belongs to which repo+branch combination. The `specPath` value is deterministic from `repoPath` (always `<repoPath>/.machinen/specs/`), but storing it provides a single query point for downstream tooling.
 
 ## Behaviour Spec
 
@@ -117,7 +114,7 @@ Feature: CLI spec update
     And some conversations have new messages since the last run
     When the user runs derive
     Then new messages are extracted from the conversations
-    And the spec file is updated with new behaviours
+    And the spec .feature files are updated with new behaviours
     And the process exits
 
   Scenario: No new messages
@@ -145,18 +142,18 @@ Feature: CLI spec update
     Given the user is in a git repository on branch "feature-x"
     And conversations exist for this branch
     When the user runs derive --reset
-    Then the existing spec file is deleted
+    Then all existing .feature files are deleted
     And all conversation offsets are zeroed
     And each conversation is processed sequentially from the start
-    And the spec is fully regenerated
+    And the spec is fully regenerated as per-feature .feature files
     And the process exits
 
   Scenario: Reset with --keep-spec preserves existing spec
     Given the user is in a git repository on branch "feature-x"
-    And a spec file exists with user-written content
+    And .feature files exist with user-written content
     And conversations exist for this branch
     When the user runs derive --reset --keep-spec
-    Then the existing spec file is not deleted
+    Then the existing .feature files are not deleted
     And all conversation offsets are zeroed
     And each conversation is reprocessed with the existing spec as starting context
     And the process exits
@@ -174,7 +171,7 @@ Feature: Watch mode
     And the watcher is monitoring the slug directory for this cwd
     When a JSONL file in the slug directory is modified
     Then after a debounce period the discover and update flow runs
-    And the spec file is updated with new behaviours
+    And the spec .feature files are updated with new behaviours
 
   Scenario: Watch discovers new conversations
     Given the user has started derive watch on branch "feature-x"
@@ -193,43 +190,42 @@ Feature: Watch mode
     Then an initial discover and update cycle runs immediately
     And the watcher begins monitoring for subsequent changes
 
-Feature: Project-local spec storage
+Feature: Multi-file spec storage
 
-  Scenario: Spec file is created in the project directory
-    Given the user is in a git repository at "/path/to/project" on branch "feature-x"
-    When the user runs derive and new messages are found
-    Then the spec file is written to "/path/to/project/.machinen/specs/feature-x.gherkin"
+  Scenario: Spec output is split into per-feature files
+    Given a derive run produces Gherkin with multiple Feature blocks
+    When the spec is written to disk
+    Then each Feature block is written to a separate .feature file in .machinen/specs/
+    And each file is named by slugifying the Feature name
+
+  Scenario: Feature files are concatenated on read
+    Given multiple .feature files exist in .machinen/specs/
+    When derive reads the current spec
+    Then all .feature files are concatenated into a single string
+    And this string is used as context for the LLM
+
+  Scenario: Old feature files are removed before writing
+    Given .machinen/specs/ contains feature files from a previous run
+    When a new spec is written
+    Then all existing .feature files are removed
+    And only the new feature files are written
+
+  Scenario: Feature name slugification
+    Given a Feature block named "CLI spec update"
+    When the spec is written to disk
+    Then the file is named "cli-spec-update.feature"
 
   Scenario: Existing spec is used as starting point
-    Given the user is in a git repository on branch "feature-x"
-    And a spec file exists at ".machinen/specs/feature-x.gherkin" in the project
+    Given .feature files exist in .machinen/specs/ in the project
     When the user runs derive
-    Then the existing spec is read and used as context for the update
-    And the updated spec is written back to the same path
+    Then the existing spec content is concatenated and used as context for the update
+    And the updated spec is split back into per-feature files
 
-  Scenario: Reset deletes the project-local spec
-    Given the user is in a git repository on branch "feature-x"
-    And a spec file exists at ".machinen/specs/feature-x.gherkin"
-    When the user runs derive --reset
-    Then the spec file is deleted
-    And a fresh spec is regenerated from all conversations
-    And the new spec is written to ".machinen/specs/feature-x.gherkin"
-
-Feature: Init mode
-
-  Scenario: Create empty spec file
-    Given the user is in a git repository on branch "feature-x"
-    And no spec file exists at ".machinen/specs/feature-x.gherkin"
-    When the user runs derive init
-    Then an empty file is created at ".machinen/specs/feature-x.gherkin"
-    And the path is printed to stdout
-
-  Scenario: Spec file already exists
-    Given the user is in a git repository on branch "feature-x"
-    And a spec file exists at ".machinen/specs/feature-x.gherkin"
-    When the user runs derive init
-    Then the existing file is not modified
-    And a message indicates the spec already exists
+  Scenario: Iterative results are visible on disk
+    Given a spec update involves multiple chunks
+    When a chunk completes
+    Then the intermediate result is written as split feature files
+    And the next chunk reads the concatenated result back from disk
 ```
 
 ## Core Architecture
@@ -258,9 +254,11 @@ Message content may be a plain string (older/simple messages) or an array of con
 
 The spec pipeline is stateless — each invocation is a fresh `claude -p` call. The pipeline consists of two passes:
 
-**Pass 1 — Extraction.** Messages are formatted as `[type]: text` excerpts, separated by `---`. If the total exceeds 300K characters, excerpts are split into chunks and processed sequentially (each chunk reads the spec back from disk as updated by the previous chunk). The system prompt (`SPEC_ROLE_PREAMBLE`) instructs the agent to extract testable product behaviours and output Gherkin. It enforces a black-box test: every scenario must be verifiable by someone who can only use the product's external interfaces.
+**Pass 1 — Extraction.** Messages are formatted as `[type]: text` excerpts, separated by `---`. If the total exceeds 300K characters, excerpts are split into chunks and processed sequentially (each chunk reads the spec back from disk via `readSpec` — which concatenates all `.feature` files — as updated by the previous chunk's `writeSpec`). The system prompt (`SPEC_ROLE_PREAMBLE`) instructs the agent to extract testable product behaviours and output Gherkin. It enforces a black-box test: every scenario must be verifiable by someone who can only use the product's external interfaces.
 
-**Pass 2 — Review.** The raw Gherkin is reviewed by a second `claude -p` call with a review system prompt (`REVIEW_SYSTEM_PROMPT`). This pass performs four operations in order: (1) filter — remove scenarios that fail the black-box test, (2) deduplicate — merge scenarios that describe the same observable behaviour under different names, (3) consolidate — when the same invariant appears across multiple Features, keep it in the most natural location and remove duplicates, (4) simplify — remove scenarios whose assertions are already fully encoded in another scenario. The review pass can be skipped via `{ skipReview: true }` — used by reset mode to defer review to the end, since intermediate specs only serve as context for subsequent extractions. `reviewSpecFile(sPath)` provides a standalone entry point for the deferred review.
+**Pass 2 — Review.** The raw Gherkin is reviewed by a second `claude -p` call with a review system prompt (`REVIEW_SYSTEM_PROMPT`). This pass performs four operations in order: (1) filter — remove scenarios that fail the black-box test, (2) deduplicate — merge scenarios that describe the same observable behaviour under different names, (3) consolidate — when the same invariant appears across multiple Features, keep it in the most natural location and remove duplicates, (4) simplify — remove scenarios whose assertions are already fully encoded in another scenario. The review pass can be skipped via `{ skipReview: true }` — used by reset mode to defer review to the end, since intermediate specs only serve as context for subsequent extractions. `reviewSpecDir(dir)` provides a standalone entry point for the deferred review — it calls `readSpec` to concatenate, reviews, then `writeSpec` to split back.
+
+**Spec I/O virtualization.** The LLM pipeline operates on a single concatenated string — it has no awareness of file boundaries. `readSpec(dir)` globs `*.feature` files in the spec directory, sorts alphabetically, and concatenates their contents. `writeSpec(dir, gherkin)` parses the output by `Feature:` blocks, slugifies each feature name (lowercase, non-alphanumeric runs replaced with `-`, trimmed), removes all existing `.feature` files, and writes each block to `<slug>.feature`. This rm-before-write is safe because the content was already consumed by the LLM and re-expressed in its output.
 
 Both passes use `execa` to spawn `claude -p` with `--model sonnet --output-format stream-json --verbose --include-partial-messages --tools "" --effort low --no-session-persistence`. Tools are disabled because both passes receive all input via stdin and only produce text. Effort is set to low because these are well-specified text transformations, not open-ended reasoning. The stream-json output provides a structured activity log: `[claude] thinking:` with progress dots for thinking blocks, `[claude] tool_use: ToolName(input)` for tool calls (a safety-net indicator — should not appear with tools disabled), and `[claude] generating text` with dots for text output. A short, fixed `--system-prompt` override replaces the default system prompt (suppressing inherited style instructions). The detailed role instructions (preamble) and the data prompt are both piped via `stdin` (`input:` option) to avoid OS arg length limits on the CLI arg. `extendEnv: false` and `delete env.CLAUDECODE` prevent Claude Code from recursing into itself. When `derive` itself is invoked with `--verbose`, the raw NDJSON events are also dumped to stdout (truncated at 500 chars) for debugging the stream structure.
 
@@ -279,10 +277,9 @@ The watcher uses `ignoreInitial: true` (the initial cycle is explicit), `awaitWr
 | Command                      | Description                                                                                                              |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `derive`                     | One-shot update. Discover conversations, read new messages, update spec, exit.                                           |
-| `derive --reset`             | Regenerate spec from scratch. Delete spec, zero offsets, reprocess all conversations sequentially, exit.                 |
-| `derive --reset --keep-spec` | Reprocess all conversations from scratch, but preserve the existing spec file as starting context.                       |
+| `derive --reset`             | Regenerate spec from scratch. Delete .feature files, zero offsets, reprocess all conversations sequentially, exit.       |
+| `derive --reset --keep-spec` | Reprocess all conversations from scratch, but preserve the existing .feature files as starting context.                  |
 | `derive watch`               | Run an initial update, then watch for conversation changes on the current branch. Re-runs on changes (debounced).        |
-| `derive init`                | Create an empty spec file for the current branch. No discovery, no tokens.                                               |
 | `derive --verbose`           | Enable verbose output. Dumps raw NDJSON events from spawned claude processes for debugging. Combinable with other flags. |
 
 All commands infer the repository path from `process.cwd()` and the branch from `git rev-parse --abbrev-ref HEAD`. The tool is invoked via `pnpm --filter derive start` (or `pnpm --filter derive start -- <args>`).
@@ -296,10 +293,13 @@ All commands infer the repository path from `process.cwd()` and the branch from 
 - **cwd is repoPath.** `process.cwd()` serves as the repository path, consistent with Claude Code's own convention.
 - **Exact cwd slug match.** Only conversations in `~/.claude/projects/<slugified_cwd>/` are discovered. Conversations from subdirectories of the same repo (different cwd, different slug) are not included.
 - **Offset semantics.** `lastLineOffset` is the total number of lines read (0-indexed start). Offsets are advanced before the Claude call (crash safety).
-- **Spec pipeline is stateless.** No `--resume`. The spec file on disk is the state. Each `claude -p` call reads the current spec and produces an updated one.
+- **Spec pipeline is stateless.** No `--resume`. The spec files on disk are the state. Each `claude -p` call reads the current spec (concatenated from `.feature` files) and produces an updated one.
 - **Sequential reset.** Reset mode processes each conversation in a separate `updateSpec` call to avoid exceeding prompt size limits.
-- **Project-local specs.** Spec files live at `<repoPath>/.machinen/specs/<branch>.gherkin`. They travel with the branch via git.
-- **Init from existing is implicit.** `updateSpec` reads the spec file from disk if it exists. A spec committed on the branch (or created via `derive init` and filled in by the user) becomes the starting context with no additional logic.
+- **Project-local specs.** Spec files live at `<repoPath>/.machinen/specs/*.feature`, one per `Feature:` block. They travel with the branch via git.
+- **Virtualized file boundary.** The LLM pipeline operates on a single concatenated string. `readSpec` concatenates all `.feature` files; `writeSpec` splits the output by `Feature:` blocks and writes per-feature files. A `Feature:` block maps 1:1 to a `.feature` file.
+- **Deterministic read order.** `.feature` files are sorted alphabetically by filename when concatenated, ensuring deterministic input to the LLM.
+- **Clean-slate write.** `writeSpec` removes all existing `.feature` files before writing new ones. This is safe because the content was already consumed and re-expressed by the LLM.
+- **Existing spec as implicit context.** `updateSpec` reads the spec from disk if it exists. `.feature` files committed on the branch (or created manually by the user) become the starting context with no additional logic.
 - **Claude recursion prevention.** `extendEnv: false` and `delete env.CLAUDECODE` prevent the spawned `claude -p` process from detecting a parent Claude Code session and recursing.
 - **No tools, low effort, Sonnet model.** Spawned `claude -p` calls use `--model sonnet`, `--tools ""` (no built-in tools), and `--effort low` (minimal thinking). Both passes are text-in/text-out transformations that receive all context via stdin — Opus-level reasoning is unnecessary.
 - **No session persistence.** Spawned `claude -p` calls use `--no-session-persistence` to prevent writing JSONL session files. Without this, each spawned call creates a session file in the same slug directory, which gets discovered as a "conversation" on the next run — creating a feedback loop of ghost conversations.
@@ -346,14 +346,14 @@ derive/
   package.json          — package metadata, scripts (start, typecheck), dependencies (chokidar, execa)
   tsconfig.json         — TypeScript config (module: NodeNext, target: ES2022, strict)
   src/
-    index.ts            — CLI entry point: context detection, discovery, mode dispatch (one-shot/reset/watch/init)
+    index.ts            — CLI entry point: context detection, discovery, mode dispatch (one-shot/reset/watch)
     watcher.ts          — branch-scoped chokidar watcher (watches single slug dir, *.jsonl filter, awaitWriteFinish)
     db.ts               — SQLite routing index (conversations + branches tables, CRUD operations)
     reader.ts           — JSONL reader (incremental offset-based reading, system tag stripping, text extraction)
-    spec.ts             — spec pipeline (two-pass Gherkin: extraction + review, 300K chunking, claude -p via execa, stream-json activity log)
+    spec.ts             — spec pipeline (two-pass Gherkin: extraction + review, 300K chunking, claude -p via execa, stream-json activity log, readSpec/writeSpec I/O virtualization)
     types.ts            — shared types (JsonlMessage, ConversationRecord, BranchRecord)
 ```
 
-Spec files are written to `<repoPath>/.machinen/specs/<branch>.gherkin` (project-local, not in the derive package).
+Spec files are written to `<repoPath>/.machinen/specs/<feature-slug>.feature` (project-local, not in the derive package). One file per `Feature:` block, named by slugifying the feature name.
 
 The SQLite database lives at `~/.machinen/machinen.db` (global, shared across projects).

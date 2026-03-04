@@ -323,6 +323,18 @@ export async function executeLocalJob(job: Job): Promise<void> {
     // Ignore chmod errors (non-critical)
   }
 
+  // Signal handler: ensure cleanup runs even when killed
+  const signalCleanup = () => {
+    for (const d of [containerWorkDir, shimsDir, diagDir]) {
+      try {
+        fs.rmSync(d, { recursive: true, force: true });
+      } catch {}
+    }
+    process.exit(1);
+  };
+  process.on("SIGINT", signalCleanup);
+  process.on("SIGTERM", signalCleanup);
+
   // 1. Seed the job to Local DTU
   // Build a corrected repository object from job.githubRepo (which is resolved from the git
   // remote — e.g. "redwoodjs/sdk") so generators.ts uses the right repo name for checkout /
@@ -803,6 +815,10 @@ srv.listen(80,'127.0.0.1');
   if (fs.existsSync(outputLogPath)) {
     finalizeLog(outputLogPath, exitCode, job.headSha, containerName);
   }
+
+  // Deregister signal handlers — normal cleanup is handling it
+  process.removeListener("SIGINT", signalCleanup);
+  process.removeListener("SIGTERM", signalCleanup);
 
   // Cleanup
   try {

@@ -33,7 +33,7 @@ import {
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
 import { getWorkingDirectory } from "../logger.js";
-import { pruneStaleWorkspaces } from "../cleanup.js";
+import { pruneStaleWorkspaces, getDiskUsage } from "../cleanup.js";
 
 const PORT = 8912;
 export const app = polka();
@@ -344,6 +344,36 @@ app.put("/concurrency", (req, res) => {
   setMaxConcurrentJobs(max);
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ max: getMaxConcurrentJobs() }));
+});
+
+// Disk Usage
+app.get("/disk-usage", (req, res) => {
+  const usage = getDiskUsage(getWorkingDirectory());
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(usage));
+});
+
+app.delete("/disk-usage/workspaces", (req, res) => {
+  const { name } = (req as any).body || {};
+  const workDir = getWorkingDirectory();
+  const fs = require("node:fs");
+  const path = require("node:path");
+
+  if (name) {
+    // Delete specific workspace
+    const wsPath = path.join(workDir, "work", name);
+    if (!name.startsWith("oa-runner-") || !fs.existsSync(wsPath)) {
+      return res.writeHead(404).end();
+    }
+    fs.rmSync(wsPath, { recursive: true, force: true });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ deleted: [name] }));
+  } else {
+    // Delete all stale workspaces (24h)
+    const pruned = pruneStaleWorkspaces(workDir, 24 * 60 * 60 * 1000);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ deleted: pruned }));
+  }
 });
 
 export async function startServer() {

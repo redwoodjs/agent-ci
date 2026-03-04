@@ -229,3 +229,27 @@ Feature: Spec scope
 ## Implemented --scope flag
 
 Three-line change to `specDir`, plus threading through `main` → `runSpecUpdate`/`resetBranch`. The scope value is parsed from `--scope <name>` in args and forwarded as an optional param. Blueprint updated with API reference row and invariant.
+
+## PR
+
+**Title:** Organize specs as per-feature .feature files with optional --scope
+
+**Description:**
+
+### Problem
+
+Specs were stored as a single `<branch>.gherkin` file per branch. This coupled specs to branches rather than product features, and made it harder to mentally organize the growing set of behaviours.
+
+### Solution
+
+We split spec storage into multiple `.feature` files — one per `Feature:` block in the Gherkin output, named by slugifying the feature name (e.g., `Feature: CLI spec update` → `cli-spec-update.feature`).
+
+The LLM pipeline is unchanged — it operates on a single concatenated string. We introduce a virtualized I/O boundary: `readSpec` concatenates all `.feature` files on read, `writeSpec` parses the output by `Feature:` blocks and writes per-feature files on write. The rm-before-write is safe because the content was already consumed and re-expressed by the LLM.
+
+We also add `--scope <name>` to direct specs into a subdirectory (e.g., `--scope derive` → `.machinen/specs/derive/*.feature`), and remove `derive init` (no longer needed with multi-file storage).
+
+Changes:
+
+- `spec.ts`: Replace `specFilePath` with `specDir(repoPath, scope?)`, add `readSpec`/`writeSpec`/`slugify`, update `updateSpec` and `reviewSpecDir` to use them
+- `index.ts`: Thread `scope` through `runSpecUpdate`/`resetBranch`, parse `--scope` from args, remove init mode
+- `derive.md`: Update blueprint throughout — system flow, behaviour spec, API reference, invariants, directory mapping

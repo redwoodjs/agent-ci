@@ -238,18 +238,14 @@ Three-line change to `specDir`, plus threading through `main` → `runSpecUpdate
 
 ### Problem
 
-Specs were stored as a single `<branch>.gherkin` file per branch. This coupled specs to branches rather than product features, and made it harder to mentally organize the growing set of behaviours.
+Specs were stored as a single file per branch. This coupled specs to branches rather than product features, and made it harder to mentally organize the growing set of behaviours as a product evolves across branches.
 
 ### Solution
 
-We split spec storage into multiple `.feature` files — one per `Feature:` block in the Gherkin output, named by slugifying the feature name (e.g., `Feature: CLI spec update` → `cli-spec-update.feature`).
+We split spec storage into multiple files — one per Feature block in the Gherkin output, named by slugifying the feature name (e.g., "CLI spec update" becomes cli-spec-update.feature). Specs now describe product features, not branch-scoped work.
 
-The LLM pipeline is unchanged — it operates on a single concatenated string. We introduce a virtualized I/O boundary: `readSpec` concatenates all `.feature` files on read, `writeSpec` parses the output by `Feature:` blocks and writes per-feature files on write. The rm-before-write is safe because the content was already consumed and re-expressed by the LLM.
+The LLM pipeline is unchanged. It continues to operate on a single concatenated string — file boundaries are invisible to it. We introduce a virtualized I/O boundary: on read, all feature files are globbed, sorted, and concatenated. On write, the output is parsed by Feature block, existing files are removed, and each block is written to its own file. The removal before writing is safe because the content was already consumed and re-expressed by the LLM.
 
-We also add `--scope <name>` to direct specs into a subdirectory (e.g., `--scope derive` → `.machinen/specs/derive/*.feature`), and remove `derive init` (no longer needed with multi-file storage).
+We also add a --scope flag to direct specs into a subdirectory (e.g., --scope derive writes to .machinen/specs/derive/), and remove the init command (no longer needed with multi-file storage).
 
-Changes:
-
-- `spec.ts`: Replace `specFilePath` with `specDir(repoPath, scope?)`, add `readSpec`/`writeSpec`/`slugify`, update `updateSpec` and `reviewSpecDir` to use them
-- `index.ts`: Thread `scope` through `runSpecUpdate`/`resetBranch`, parse `--scope` from args, remove init mode
-- `derive.md`: Update blueprint throughout — system flow, behaviour spec, API reference, invariants, directory mapping
+The architecture blueprint is updated throughout — system flow, behaviour spec, API reference, invariants, and directory mapping.

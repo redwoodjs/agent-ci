@@ -288,9 +288,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   emit(`  └─ Delivery: ${job.deliveryId}\n`);
 
   // Move workspace prep BEFORE seed to pass localPath
-  const workspaceId = Date.now();
   const workDir = getWorkingDirectory();
-  const workspaceDir = path.resolve(workDir, "work", `workspace-${workspaceId}`);
   const containerWorkDir = path.resolve(workDir, "work", containerName);
   const shimsDir = path.resolve(workDir, "shims", containerName);
   const diagDir = path.resolve(workDir, "diag", containerName);
@@ -298,6 +296,11 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const repoSlug = (job.githubRepo || config.GITHUB_REPO).replace("/", "-");
   const pnpmStoreDir = path.resolve(workDir, "pnpm-store", repoSlug);
   const playwrightCacheDir = path.resolve(workDir, "playwright-cache", repoSlug);
+  // Place workspace files directly in containerWorkDir/<repo>/<repo>/ so the
+  // runner finds them at /home/runner/_work/<repo>/<repo>/ via bind-mount.
+  // This eliminates the container-side cp -r (Copy 2) entirely.
+  const repoName = (job.githubRepo || config.GITHUB_REPO).split("/").pop() || "repo";
+  const workspaceDir = path.resolve(containerWorkDir, repoName, repoName);
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });
@@ -309,8 +312,8 @@ export async function executeLocalJob(job: Job): Promise<void> {
   // Ensure all intermediate dirs are world-writable for DinD scenarios where
   // the supervisor runs as root but nested containers use runner user (UID 1001)
   try {
-    fs.chmodSync(workspaceDir, 0o777);
     fs.chmodSync(containerWorkDir, 0o777);
+    fs.chmodSync(workspaceDir, 0o777);
     fs.chmodSync(shimsDir, 0o777);
     fs.chmodSync(diagDir, 0o777);
     fs.chmodSync(toolCacheDir, 0o777);
@@ -659,7 +662,7 @@ const srv=net.createServer(c=>{
   s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
 });
 srv.listen(80,'127.0.0.1');
-" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -r /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
+" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
     ],
     HostConfig: {
       Binds: [
@@ -669,7 +672,6 @@ srv.listen(80,'127.0.0.1');
         "/var/run/docker.sock:/var/run/docker.sock",
         `${shimsDir}:/tmp/oa-shims`,
         `${diagDir}:/home/runner/_diag`,
-        `${workspaceDir}:/tmp/oa-workspace`,
         `${hostToolcacheDir}:/opt/hostedtoolcache`,
         `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
         `${playwrightCacheDir}:/home/runner/.cache/ms-playwright`,
@@ -790,9 +792,7 @@ srv.listen(80,'127.0.0.1');
   if (serviceCtx) {
     await cleanupServiceContainers(docker, serviceCtx, emit);
   }
-  if (fs.existsSync(workspaceDir)) {
-    fs.rmSync(workspaceDir, { recursive: true, force: true });
-  }
+  // workspaceDir is now inside containerWorkDir — no separate cleanup needed
   if (fs.existsSync(shimsDir)) {
     fs.rmSync(shimsDir, { recursive: true, force: true });
   }

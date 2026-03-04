@@ -19,11 +19,11 @@ Feature: Multi-file spec storage
   Scenario: Existing spec files are used as starting context
     Given .feature files exist in .machinen/specs/
     When the user runs derive
-    Then the existing spec content is concatenated and used as context for the update
+    Then the existing spec content is used as context for the update
     And the updated spec is split back into per-feature files
 
   Scenario: Iterative results are visible on disk between chunks
     Given a spec update involves multiple chunks of conversation data
     When a chunk completes
     Then the intermediate result is written as split .feature files
-    And the next chunk reads the concatenated result back from disk
+    And the next chunk reads the result back from disk

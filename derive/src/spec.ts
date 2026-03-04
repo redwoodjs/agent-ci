@@ -284,8 +284,9 @@ export async function updateSpec(
 // --GROK--: specDir returns the directory where .feature files live. All
 // branches share the same directory — specs describe product features, not
 // branch-scoped work.
-export function specDir(repoPath: string): string {
-  return path.join(repoPath, ".machinen", "specs");
+export function specDir(repoPath: string, scope?: string): string {
+  const base = path.join(repoPath, ".machinen", "specs");
+  return scope ? path.join(base, scope) : base;
 }
 
 // --GROK--: readSpec globs *.feature files, sorts alphabetically for

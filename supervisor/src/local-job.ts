@@ -384,30 +384,52 @@ export async function executeLocalJob(job: Job): Promise<void> {
       });
     } else {
       // Default: copy the working directory as-is, including dirty/untracked files.
-      // rsync excludes .git to keep the workspace clean for the runner.
-      try {
-        // Preferred: rsync (fast, honours gitignore via git ls-files)
-        execSync(
-          `git ls-files --cached --others --exclude-standard -z | rsync -a --files-from=- --from0 ./ ${workspaceDir}/`,
-          { stdio: "pipe", shell: "/bin/sh", cwd: repoRoot },
-        );
-      } catch {
-        // Fallback: use Node.js fs.cpSync when rsync is not available (e.g. actions-runner image)
-        const files = execSync(`git ls-files --cached --others --exclude-standard -z`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        })
-          .toString()
-          .split("\0")
-          .filter(Boolean);
-        for (const file of files) {
-          const src = path.join(repoRoot, file);
-          const dest = path.join(workspaceDir, file);
-          try {
-            fs.mkdirSync(path.dirname(dest), { recursive: true });
-            fs.cpSync(src, dest, { force: true, recursive: true });
-          } catch {
-            // Skip files that can't be copied (e.g. symlinks broken, etc.)
+
+      let copied = false;
+
+      // On macOS with APFS, use cp -c (CoW clone) for near-instant, zero-disk copies.
+      // The clone shares physical blocks until a file is actually modified.
+      if (process.platform === "darwin") {
+        try {
+          // Clone the entire repo, then remove .git (runner gets its own fake git)
+          execSync(`cp -c -R "${repoRoot}/." "${workspaceDir}/"`, { stdio: "pipe" });
+          // Remove the cloned .git — we'll create a fake one below
+          const clonedGitDir = path.join(workspaceDir, ".git");
+          if (fs.existsSync(clonedGitDir)) {
+            fs.rmSync(clonedGitDir, { recursive: true, force: true });
+          }
+          copied = true;
+        } catch {
+          // CoW not available (non-APFS volume, cross-device, etc.) — fall through to rsync
+        }
+      }
+
+      if (!copied) {
+        // rsync excludes .git to keep the workspace clean for the runner.
+        try {
+          // Preferred: rsync (fast, honours gitignore via git ls-files)
+          execSync(
+            `git ls-files --cached --others --exclude-standard -z | rsync -a --files-from=- --from0 ./ ${workspaceDir}/`,
+            { stdio: "pipe", shell: "/bin/sh", cwd: repoRoot },
+          );
+        } catch {
+          // Fallback: use Node.js fs.cpSync when rsync is not available (e.g. actions-runner image)
+          const files = execSync(`git ls-files --cached --others --exclude-standard -z`, {
+            stdio: "pipe",
+            cwd: repoRoot,
+          })
+            .toString()
+            .split("\0")
+            .filter(Boolean);
+          for (const file of files) {
+            const src = path.join(repoRoot, file);
+            const dest = path.join(workspaceDir, file);
+            try {
+              fs.mkdirSync(path.dirname(dest), { recursive: true });
+              fs.cpSync(src, dest, { force: true, recursive: true });
+            } catch {
+              // Skip files that can't be copied (e.g. symlinks broken, etc.)
+            }
           }
         }
       }

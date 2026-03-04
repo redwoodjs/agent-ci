@@ -108,6 +108,9 @@ export interface PipelineAgentJobRequest {
   Actions: any[];
   MaskHints: any[];
   EnvironmentVariables: any[];
+  // JobContainer is a TemplateToken (MappingToken) when present — opaque at the type level.
+  // The runner deserializes it via TemplateTokenJsonConverter.EvaluateJobContainer().
+  JobContainer?: object;
 }
 
 export interface MessageResponse {

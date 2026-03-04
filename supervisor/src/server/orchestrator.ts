@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import type { ServerResponse } from "node:http";
 import crypto from "node:crypto";
 import { PROJECT_ROOT, getLogsDir, getNextLogNum } from "../logger.js";
+import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./concurrency.js";
 
 const execAsync = promisify(execFile);
 
@@ -47,6 +48,21 @@ export function clearEventLog() {
 let _configPath: string | undefined;
 export function setOrchestratorConfigPath(p: string) {
   _configPath = p;
+}
+
+// Concurrency limiting for parallel job execution within a wave.
+let _maxConcurrentJobs: number | undefined;
+/** Set the maximum number of jobs that can run in parallel within a wave. */
+export function setMaxConcurrentJobs(n: number) {
+  _maxConcurrentJobs = n;
+  supervisorLog(`[CONFIG] maxConcurrentJobs set to ${n}`);
+}
+export function getMaxConcurrentJobs(): number {
+  return _maxConcurrentJobs ?? getDefaultMaxConcurrentJobs();
+}
+function getJobLimiter() {
+  const max = _maxConcurrentJobs ?? getDefaultMaxConcurrentJobs();
+  return createConcurrencyLimiter(max);
 }
 
 // Config Paths
@@ -1320,21 +1336,28 @@ export async function runWorkflow(
   const firstWave = waveRunnerPlan[0];
   const remainingWaves = waveRunnerPlan.slice(1);
 
+  // Use a concurrency limiter so we don't saturate the host when a wave has many jobs.
+  const limiter = getJobLimiter();
+  const effectiveMax = _maxConcurrentJobs ?? getDefaultMaxConcurrentJobs();
+  supervisorLog(`[DEPS] Concurrency limit: ${effectiveMax} parallel jobs per wave`);
+
   await Promise.all(
     firstWave.map(({ taskId, runnerName, matrixContext }) =>
-      setupAndSpawnJob({
-        fullPath,
-        runnerName,
-        workflowName,
-        baseRunnerName,
-        taskId,
-        jobDisplayName: jobDisplayNames.get(taskId),
-        matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
-        jobIds,
-        repoPath,
-        commitId,
-        workflowId,
-      }).then((code) => code),
+      limiter.run(() =>
+        setupAndSpawnJob({
+          fullPath,
+          runnerName,
+          workflowName,
+          baseRunnerName,
+          taskId,
+          jobDisplayName: jobDisplayNames.get(taskId),
+          matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
+          jobIds,
+          repoPath,
+          commitId,
+          workflowId,
+        }),
+      ),
     ),
   ).then((firstWaveResults) => {
     if (remainingWaves.length === 0) {
@@ -1353,21 +1376,24 @@ export async function runWorkflow(
         supervisorLog(
           `[DEPS] Starting wave ${wi + 2}/${depWaves.length}: [${wave.map((r) => r.taskId).join(", ")}]`,
         );
+        const waveLimiter = getJobLimiter();
         const results = await Promise.all(
           wave.map(({ taskId, runnerName, matrixContext }) =>
-            setupAndSpawnJob({
-              fullPath,
-              runnerName,
-              workflowName,
-              baseRunnerName,
-              taskId,
-              jobDisplayName: jobDisplayNames.get(taskId),
-              matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
-              jobIds,
-              repoPath,
-              commitId,
-              workflowId,
-            }),
+            waveLimiter.run(() =>
+              setupAndSpawnJob({
+                fullPath,
+                runnerName,
+                workflowName,
+                baseRunnerName,
+                taskId,
+                jobDisplayName: jobDisplayNames.get(taskId),
+                matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
+                jobIds,
+                repoPath,
+                commitId,
+                workflowId,
+              }),
+            ),
           ),
         );
         if (results.some((code) => code !== 0)) {

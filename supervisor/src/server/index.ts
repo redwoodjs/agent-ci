@@ -32,6 +32,9 @@ import {
 } from "./orchestrator.js";
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
+import { getWorkingDirectory } from "../logger.js";
+import { pruneStaleWorkspaces } from "../cleanup.js";
+
 const PORT = 8912;
 export const app = polka();
 
@@ -344,6 +347,13 @@ app.put("/concurrency", (req, res) => {
 });
 
 export async function startServer() {
+  // Prune stale runner workspaces older than 24 hours (defense in depth)
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+  const pruned = pruneStaleWorkspaces(getWorkingDirectory(), TWENTY_FOUR_HOURS);
+  if (pruned.length > 0) {
+    console.log(`[OA Supervisor] Pruned ${pruned.length} stale workspace(s): ${pruned.join(", ")}`);
+  }
+
   await loadWatchedRepos();
   app.listen(PORT, () => {
     console.log(`[OA Supervisor] Server listening on http://localhost:${PORT}`);

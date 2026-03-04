@@ -401,6 +401,36 @@ export function registerActionRoutes(app: Polka) {
   app.patch("/_apis/distributedtask/timelines/:timelineId/records", timelineHandler);
   app.post("/_apis/distributedtask/timelines/:timelineId/records", timelineHandler); // fallback
 
+  // 15b. Timeline GET — runner calls this during FinalizeJob to compute aggregate result.
+  // Without it, the runner gets 404 and defaults the job result to Failed.
+  app.get("/_apis/distributedtask/timelines/:timelineId", (req: any, res: any) => {
+    const timelineId = req.params.timelineId;
+    const logDir = state.timelineToLogDir.get(timelineId);
+    const filePath = logDir ? path.join(logDir, "timeline.json") : null;
+
+    let records: any[] = [];
+    if (filePath) {
+      try {
+        records = JSON.parse(fs.readFileSync(filePath, "utf-8"));
+      } catch {
+        /* file doesn't exist yet */
+      }
+    }
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        lastChangedBy: "00000000-0000-0000-0000-000000000000",
+        lastChangedOn: new Date().toISOString(),
+        id: timelineId,
+        changeId: 1,
+        location: null,
+        // includeRecords=True → runner expects a "records" array
+        ...(req.query?.includeRecords ? { records } : {}),
+      }),
+    );
+  });
+
   // 18. Generic Step Outputs Handler
   app.post("/_apis/distributedtask/hubs/:hub/plans/:planId/outputs", (req, res) => {
     res.writeHead(200);

@@ -683,6 +683,40 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   loadCommits();
 
+  // Concurrency controls
+  const concurrencyValue = document.getElementById("concurrency-value");
+  const concurrencyDec = document.getElementById("concurrency-dec");
+  const concurrencyInc = document.getElementById("concurrency-inc");
+  if (concurrencyValue && concurrencyDec && concurrencyInc) {
+    let currentMax = 0;
+    const loadConcurrency = async () => {
+      try {
+        const data = await api<{ max: number }>("/concurrency");
+        currentMax = data.max;
+        concurrencyValue.innerText = String(currentMax);
+      } catch {
+        concurrencyValue.innerText = "—";
+      }
+    };
+    const setConcurrency = async (n: number) => {
+      if (n < 1) {
+        return;
+      }
+      try {
+        const data = await api<{ max: number }>("/concurrency", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ max: n }),
+        });
+        currentMax = data.max;
+        concurrencyValue.innerText = String(currentMax);
+      } catch {}
+    };
+    concurrencyDec.addEventListener("click", () => setConcurrency(currentMax - 1));
+    concurrencyInc.addEventListener("click", () => setConcurrency(currentMax + 1));
+    loadConcurrency();
+  }
+
   const dtuStatusEl = document.getElementById("dtu-status");
   const pollDtuStatus = async () => {
     if (!dtuStatusEl) {

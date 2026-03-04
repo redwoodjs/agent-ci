@@ -265,3 +265,44 @@ if (selectRepoBtn && repoPathDisplay && workflowsList) {
     }
   });
 }
+
+// Concurrency controls
+const concurrencyValue = document.getElementById("concurrency-value");
+const concurrencyDec = document.getElementById("concurrency-dec");
+const concurrencyInc = document.getElementById("concurrency-inc");
+
+if (concurrencyValue && concurrencyDec && concurrencyInc) {
+  let currentMax = 0;
+
+  async function loadConcurrency() {
+    try {
+      const data = await fetch("http://localhost:8912/concurrency").then((r) => r.json());
+      currentMax = data.max;
+      concurrencyValue!.innerText = String(currentMax);
+    } catch {
+      concurrencyValue!.innerText = "—";
+    }
+  }
+
+  async function setConcurrency(n: number) {
+    if (n < 1) {
+      return;
+    }
+    try {
+      const data = await fetch("http://localhost:8912/concurrency", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ max: n }),
+      }).then((r) => r.json());
+      currentMax = data.max;
+      concurrencyValue!.innerText = String(currentMax);
+    } catch (e) {
+      console.error("Failed to set concurrency:", e);
+    }
+  }
+
+  concurrencyDec.addEventListener("click", () => setConcurrency(currentMax - 1));
+  concurrencyInc.addEventListener("click", () => setConcurrency(currentMax + 1));
+
+  loadConcurrency();
+}

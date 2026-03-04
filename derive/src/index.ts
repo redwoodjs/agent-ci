@@ -11,7 +11,7 @@ import {
   upsertBranch,
   resetConversationOffsets,
 } from "./db.js";
-import { updateSpec, reviewSpecFile, specFilePath } from "./spec.js";
+import { updateSpec, reviewSpecDir, specDir } from "./spec.js";
 
 const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
 const WATCH_DEBOUNCE_MS = 5_000;
@@ -108,7 +108,7 @@ async function discoverConversations(cwd: string, branch: string): Promise<void>
   }
 }
 
-async function runSpecUpdate(repoPath: string, branch: string): Promise<void> {
+async function runSpecUpdate(repoPath: string, branch: string, scope?: string): Promise<void> {
   console.log(`[spec] updating spec for ${repoPath} @ ${branch}`);
 
   const conversations = getConversationsForBranch(repoPath, branch);
@@ -141,17 +141,17 @@ async function runSpecUpdate(repoPath: string, branch: string): Promise<void> {
     return;
   }
 
-  const sPath = specFilePath(repoPath, branch);
+  const dir = specDir(repoPath, scope);
 
-  await updateSpec(allNewMessages, sPath);
+  await updateSpec(allNewMessages, dir);
   upsertBranch({
     repoPath,
     branch,
-    specPath: sPath,
+    specPath: dir,
     updatedAt: new Date().toISOString(),
   });
 
-  console.log(`[spec] spec written to ${sPath}`);
+  console.log(`[spec] spec written to ${dir}`);
 }
 
 // --GROK--: Reset mode. Discovery has already reconciled the DB, so
@@ -161,7 +161,7 @@ async function runSpecUpdate(repoPath: string, branch: string): Promise<void> {
 async function resetBranch(
   cwd: string,
   branch: string,
-  opts: { keepSpec?: boolean } = {},
+  opts: { keepSpec?: boolean; scope?: string } = {},
 ): Promise<void> {
   console.log(
     `[reset] resetting spec for ${cwd} @ ${branch}${opts.keepSpec ? " (keeping existing spec)" : ""}`,
@@ -173,11 +173,18 @@ async function resetBranch(
     return;
   }
 
-  const sPath = specFilePath(cwd, branch);
+  const dir = specDir(cwd, opts.scope);
 
-  if (!opts.keepSpec && fs.existsSync(sPath)) {
-    fs.unlinkSync(sPath);
-    console.log(`[reset] deleted existing spec at ${sPath}`);
+  if (!opts.keepSpec && fs.existsSync(dir)) {
+    // --GROK--: Remove all existing .feature files (clean slate for regeneration).
+    // The content was already consumed — nothing is lost.
+    const existing = fs.readdirSync(dir).filter((f) => f.endsWith(".feature"));
+    for (const f of existing) {
+      fs.unlinkSync(path.join(dir, f));
+    }
+    if (existing.length > 0) {
+      console.log(`[reset] deleted ${existing.length} existing .feature file(s) in ${dir}`);
+    }
   }
 
   const resetCount = resetConversationOffsets(cwd, branch);
@@ -192,9 +199,9 @@ async function resetBranch(
 
     if (messages.length > 0) {
       // --GROK--: Skip review on each conversation — review once at the end.
-      await updateSpec(messages, sPath, { skipReview: true });
+      await updateSpec(messages, dir, { skipReview: true });
       totalMessages += messages.length;
-      console.log(`[reset] spec updated: ${sPath}`);
+      console.log(`[reset] spec updated: ${dir}`);
     }
 
     upsertConversation({
@@ -209,16 +216,16 @@ async function resetBranch(
     return;
   }
 
-  await reviewSpecFile(sPath);
+  await reviewSpecDir(dir);
 
   upsertBranch({
     repoPath: cwd,
     branch,
-    specPath: sPath,
+    specPath: dir,
     updatedAt: new Date().toISOString(),
   });
 
-  console.log(`[reset] spec written to ${sPath}`);
+  console.log(`[reset] spec written to ${dir}`);
 }
 
 async function main(): Promise<void> {
@@ -226,33 +233,24 @@ async function main(): Promise<void> {
   const branch = getCurrentBranch();
   const args = process.argv.slice(2);
 
-  console.log(`[derive] ${cwd} @ ${branch}`);
+  // --GROK--: Parse --scope <name> to direct specs into a subdirectory.
+  // e.g. --scope derive → .machinen/specs/derive/*.feature
+  const scopeIdx = args.indexOf("--scope");
+  const scope = scopeIdx !== -1 ? args[scopeIdx + 1] : undefined;
 
-  // --GROK--: init mode runs before discovery — no DB work, no tokens.
-  // Creates the spec file so the user can fill it in before running derive.
-  if (args[0] === "init") {
-    const sPath = specFilePath(cwd, branch);
-    if (fs.existsSync(sPath)) {
-      console.log(`[init] spec already exists: ${sPath}`);
-    } else {
-      fs.mkdirSync(path.dirname(sPath), { recursive: true });
-      fs.writeFileSync(sPath, "", "utf8");
-      console.log(`[init] created ${sPath}`);
-    }
-    return;
-  }
+  console.log(`[derive] ${cwd} @ ${branch}${scope ? ` (scope: ${scope})` : ""}`);
 
   // DB-first discovery: reconcile the DB with the filesystem before any mode
   await discoverConversations(cwd, branch);
 
   if (args.includes("--reset")) {
-    await resetBranch(cwd, branch, { keepSpec: args.includes("--keep-spec") });
+    await resetBranch(cwd, branch, { keepSpec: args.includes("--keep-spec"), scope });
     return;
   }
 
   if (args[0] === "watch") {
     // Initial update, then watch for changes on this branch
-    await runSpecUpdate(cwd, branch);
+    await runSpecUpdate(cwd, branch, scope);
 
     const slugDir = getSlugDir(cwd);
     let debounceTimer: ReturnType<typeof setTimeout> | null = null;
@@ -264,7 +262,7 @@ async function main(): Promise<void> {
       debounceTimer = setTimeout(() => {
         debounceTimer = null;
         discoverConversations(cwd, branch)
-          .then(() => runSpecUpdate(cwd, branch))
+          .then(() => runSpecUpdate(cwd, branch, scope))
           .catch((err) => {
             console.error("[watch] spec update failed:", err);
           });
@@ -276,7 +274,7 @@ async function main(): Promise<void> {
   }
 
   // Default: one-shot update
-  await runSpecUpdate(cwd, branch);
+  await runSpecUpdate(cwd, branch, scope);
 }
 
 const isWatchMode = process.argv.slice(2)[0] === "watch";

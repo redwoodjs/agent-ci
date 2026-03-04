@@ -188,16 +188,16 @@ async function reviewSpec(gherkin: string): Promise<string> {
 
 // --GROK--: Standalone review for callers that batch multiple updateSpec calls
 // with skipReview and want to review once at the end (e.g. resetBranch).
-export async function reviewSpecFile(sPath: string): Promise<void> {
-  const content = fs.readFileSync(sPath, "utf8");
-  if (!content.trim()) {
+export async function reviewSpecDir(dir: string): Promise<void> {
+  const content = readSpec(dir);
+  if (!content?.trim()) {
     return;
   }
   const reviewed = await reviewSpec(content);
   if (!reviewed.trim()) {
     throw new Error("review pass returned empty result");
   }
-  fs.writeFileSync(sPath, reviewed, "utf8");
+  writeSpec(dir, reviewed);
 }
 
 const MAX_EXCERPT_CHARS = 300_000;
@@ -208,7 +208,7 @@ const MAX_EXCERPT_CHARS = 300_000;
 // each chunk reads the spec back from disk (as updated by the previous chunk).
 export async function updateSpec(
   messages: JsonlMessage[],
-  sPath: string,
+  dir: string,
   opts: { skipReview?: boolean } = {},
 ): Promise<void> {
   const excerptLines = messages
@@ -248,7 +248,9 @@ export async function updateSpec(
       console.log(`[spec] sending ${chunk.length} messages | ${excerpts.length} chars of excerpts`);
     }
 
-    const currentSpec = fs.existsSync(sPath) ? fs.readFileSync(sPath, "utf8") : null;
+    // --GROK--: readSpec concatenates all .feature files in the directory.
+    // The LLM sees a single string — file boundaries are invisible.
+    const currentSpec = readSpec(dir);
 
     let prompt: string;
     if (currentSpec) {
@@ -272,13 +274,77 @@ export async function updateSpec(
       output = reviewed;
     }
 
-    fs.mkdirSync(path.dirname(sPath), { recursive: true });
-    fs.writeFileSync(sPath, output, "utf8");
+    // --GROK--: writeSpec splits the output by Feature: blocks, slugifies
+    // each name, rm's existing .feature files, and writes the new ones.
+    // Between chunk iterations, the next readSpec call will re-concat.
+    writeSpec(dir, output);
   }
 }
 
-// --GROK--: Spec files live in the project directory so they travel with the
-// branch via git. The extension is .gherkin to reflect the actual content format.
-export function specFilePath(repoPath: string, branch: string): string {
-  return path.join(repoPath, ".machinen", "specs", `${branch}.gherkin`);
+// --GROK--: specDir returns the directory where .feature files live. All
+// branches share the same directory — specs describe product features, not
+// branch-scoped work.
+export function specDir(repoPath: string, scope?: string): string {
+  const base = path.join(repoPath, ".machinen", "specs");
+  return scope ? path.join(base, scope) : base;
+}
+
+// --GROK--: readSpec globs *.feature files, sorts alphabetically for
+// deterministic ordering, and concatenates into a single string. The LLM
+// pipeline only ever sees this concatenated string — file boundaries are
+// invisible to it.
+export function readSpec(dir: string): string | null {
+  if (!fs.existsSync(dir)) {
+    return null;
+  }
+
+  const files = fs
+    .readdirSync(dir)
+    .filter((f) => f.endsWith(".feature"))
+    .sort();
+
+  if (files.length === 0) {
+    return null;
+  }
+
+  const contents = files.map((f) => fs.readFileSync(path.join(dir, f), "utf8"));
+  return contents.join("\n\n");
+}
+
+// --GROK--: slugify turns a Feature name into a filename-safe slug.
+// "CLI spec update" → "cli-spec-update"
+function slugify(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+// --GROK--: writeSpec parses the Gherkin output by Feature: blocks, slugifies
+// each feature name to determine the filename, removes all existing .feature
+// files (clean slate — content was already consumed), and writes the new files.
+export function writeSpec(dir: string, gherkin: string): void {
+  fs.mkdirSync(dir, { recursive: true });
+
+  // Remove existing .feature files
+  const existing = fs.readdirSync(dir).filter((f) => f.endsWith(".feature"));
+  for (const f of existing) {
+    fs.unlinkSync(path.join(dir, f));
+  }
+
+  // Split by Feature: blocks. Each block starts with "Feature:" at the
+  // beginning of a line (possibly with leading whitespace).
+  const blocks = gherkin.split(/(?=^Feature:\s)/m).filter((b) => b.trim());
+
+  for (const block of blocks) {
+    const match = block.match(/^Feature:\s*(.+)/m);
+    if (!match) {
+      continue;
+    }
+    const slug = slugify(match[1].trim());
+    if (!slug) {
+      continue;
+    }
+    fs.writeFileSync(path.join(dir, `${slug}.feature`), block.trimEnd() + "\n", "utf8");
+  }
 }

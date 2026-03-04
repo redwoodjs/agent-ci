@@ -64,7 +64,11 @@ export class E2ETestHarness {
   }
 
   async runSupervisor(jobId: string) {
-    console.log(`[E2E] Running supervisor for job ${jobId}...`);
+    return this.runSupervisorWithWorkflow(jobId, ".github/workflows/smoke-tests.yml", "test");
+  }
+
+  async runSupervisorWithWorkflow(jobId: string, workflow: string, task: string) {
+    console.log(`[E2E] Running supervisor for job ${jobId} (${workflow}:${task})...`);
     const proc = execa(
       "pnpm",
       [
@@ -72,9 +76,9 @@ export class E2ETestHarness {
         "supervisor/src/cli.ts",
         "run",
         "--workflow",
-        ".github/workflows/smoke-tests.yml",
+        workflow,
         "--task",
-        "test",
+        task,
         "--config",
         ".oa-dev.jsonc",
       ],

@@ -1,4 +1,4 @@
-import type { WorkflowService } from "./workflow-parser.js";
+import type { WorkflowService, WorkflowContainer } from "./workflow-parser.js";
 
 export interface Job {
   deliveryId: string;
@@ -21,5 +21,6 @@ export interface Job {
   runnerName?: string;
   steps?: any[];
   services?: WorkflowService[];
+  container?: WorkflowContainer;
   [key: string]: any;
 }

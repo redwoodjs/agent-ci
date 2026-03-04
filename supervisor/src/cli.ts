@@ -9,10 +9,12 @@ import {
   getWorkflowTemplate,
   parseWorkflowSteps,
   parseWorkflowServices,
+  parseWorkflowContainer,
   isWorkflowRelevant,
   validateSecrets,
 } from "./workflow-parser.js";
 import { Job } from "./types.js";
+import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./server/concurrency.js";
 
 async function run() {
   const args = process.argv.slice(2);
@@ -36,9 +38,16 @@ async function run() {
       }
       setWorkingDirectory(wd);
     }
-    const { setOrchestratorConfigPath } = await import("./server/orchestrator.js");
+    const { setOrchestratorConfigPath, setMaxConcurrentJobs } =
+      await import("./server/orchestrator.js");
     if (serverConfigPath) {
       setOrchestratorConfigPath(serverConfigPath);
+    }
+    if (
+      typeof parsedServerConfig.maxConcurrentJobs === "number" &&
+      parsedServerConfig.maxConcurrentJobs > 0
+    ) {
+      setMaxConcurrentJobs(parsedServerConfig.maxConcurrentJobs);
     }
     const { startServer } = await import("./server/index.js");
     startServer();
@@ -55,6 +64,7 @@ async function run() {
     let configPath: string | undefined;
     let runnerName: string | undefined;
     let matrixJson: string | undefined;
+    let concurrency: number | undefined;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -80,6 +90,9 @@ async function run() {
       } else if (args[i] === "--matrix" && args[i + 1]) {
         matrixJson = args[i + 1];
         i++;
+      } else if ((args[i] === "--concurrency" || args[i] === "-c") && args[i + 1]) {
+        concurrency = parseInt(args[i + 1], 10);
+        i++;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
@@ -102,7 +115,9 @@ async function run() {
     }
 
     if (runAll) {
-      await handleRunAll({ sha, branch, taskName, runnerName });
+      const maxJobs =
+        concurrency ?? parsedConfig.maxConcurrentJobs ?? getDefaultMaxConcurrentJobs();
+      await handleRunAll({ sha, branch, taskName, runnerName, concurrency: maxJobs });
     } else {
       await handleRun({ sha, workflow, taskName, runnerName, matrixJson });
     }
@@ -132,6 +147,7 @@ function printUsage() {
     "  --branch <name>        Branch name for relevance check (defaults to current branch)",
   );
   console.log("  --config <path>        Path to the shared JSONC configuration file");
+  console.log("  -c, --concurrency <n>  Max parallel jobs (default: cpuCount/2)");
 }
 
 function resolveRepoRoot() {
@@ -275,6 +291,7 @@ async function handleRun(options: {
 
     const steps = await parseWorkflowSteps(workflowPath, taskName, secrets, matrixContext);
     const services = await parseWorkflowServices(workflowPath, taskName);
+    const container = await parseWorkflowContainer(workflowPath, taskName);
 
     // 6. Construct Job
     const job: Job = {
@@ -297,6 +314,7 @@ async function handleRun(options: {
       runnerName,
       steps,
       services,
+      container: container ?? undefined,
       workflowPath,
       taskId: taskName,
     };
@@ -314,6 +332,7 @@ async function handleRunAll(options: {
   branch?: string;
   taskName?: string;
   runnerName?: string;
+  concurrency?: number;
 }) {
   console.log("[OA] Scanning for relevant workflows...");
 
@@ -358,42 +377,58 @@ async function handleRunAll(options: {
       return;
     }
 
-    console.log(`[OA] Found ${relevantJobs.length} relevant task(s) to run.`);
+    const maxJobs = options.concurrency ?? getDefaultMaxConcurrentJobs();
+    console.log(
+      `[OA] Found ${relevantJobs.length} relevant task(s) to run (concurrency: ${maxJobs}).`,
+    );
 
-    for (const { workflowPath, taskName } of relevantJobs) {
-      console.log(
-        `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName} ---`,
-      );
-      const secrets = loadMachineSecrets(repoRoot);
-      const secretsFilePath = path.join(repoRoot, ".env.machinen");
-      validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
-      const steps = await parseWorkflowSteps(workflowPath, taskName, secrets);
-      const services = await parseWorkflowServices(workflowPath, taskName);
+    const limiter = createConcurrencyLimiter(maxJobs);
+    const results = await Promise.allSettled(
+      relevantJobs.map(({ workflowPath, taskName }) =>
+        limiter.run(async () => {
+          console.log(
+            `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName} ---`,
+          );
+          const secrets = loadMachineSecrets(repoRoot);
+          const secretsFilePath = path.join(repoRoot, ".env.machinen");
+          validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
+          const steps = await parseWorkflowSteps(workflowPath, taskName, secrets);
+          const services = await parseWorkflowServices(workflowPath, taskName);
+          const container = await parseWorkflowContainer(workflowPath, taskName);
 
-      const job: Job = {
-        deliveryId: `local-run-${Date.now()}`,
-        eventType: "workflow_job",
-        githubJobId: Math.floor(Math.random() * 1000000).toString(),
-        githubRepo: githubRepo,
-        githubToken: "mock_token",
-        headSha: headSha,
-        shaRef: shaRef,
-        env: {
-          OA_LOCAL: "true",
-        },
-        repository: {
-          name: name,
-          full_name: githubRepo,
-          owner: { login: owner },
-          default_branch: "main",
-        },
-        runnerName: options.runnerName,
-        steps,
-        services,
-        workflowPath,
-      };
+          const job: Job = {
+            deliveryId: `local-run-${Date.now()}`,
+            eventType: "workflow_job",
+            githubJobId: Math.floor(Math.random() * 1000000).toString(),
+            githubRepo: githubRepo,
+            githubToken: "mock_token",
+            headSha: headSha,
+            shaRef: shaRef,
+            env: {
+              OA_LOCAL: "true",
+            },
+            repository: {
+              name: name,
+              full_name: githubRepo,
+              owner: { login: owner },
+              default_branch: "main",
+            },
+            runnerName: options.runnerName,
+            steps,
+            services,
+            container: container ?? undefined,
+            workflowPath,
+          };
 
-      await executeLocalJob(job);
+          await executeLocalJob(job);
+        }),
+      ),
+    );
+
+    const failures = results.filter((r) => r.status === "rejected");
+    if (failures.length > 0) {
+      console.error(`[OA] ${failures.length}/${results.length} job(s) failed.`);
+      process.exit(1);
     }
   } catch (error) {
     console.error(`[OA] Failed to run all: ${(error as Error).message}`);

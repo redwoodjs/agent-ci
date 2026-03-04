@@ -27,6 +27,8 @@ import {
   getRunStats,
   getStatsHistory,
   getRunTimeline,
+  getMaxConcurrentJobs,
+  setMaxConcurrentJobs,
 } from "./orchestrator.js";
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
@@ -323,6 +325,22 @@ app.post("/dtu", async (req, res) => {
 app.delete("/dtu", async (req, res) => {
   await stopDtu();
   res.writeHead(200).end();
+});
+
+// Concurrency
+app.get("/concurrency", (req, res) => {
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ max: getMaxConcurrentJobs() }));
+});
+
+app.put("/concurrency", (req, res) => {
+  const { max } = (req as any).body || {};
+  if (typeof max !== "number" || max < 1) {
+    return res.writeHead(400).end();
+  }
+  setMaxConcurrentJobs(max);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ max: getMaxConcurrentJobs() }));
 });
 
 export async function startServer() {

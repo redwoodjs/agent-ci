@@ -27,20 +27,68 @@
                 Status: <span id="dtu-status" style="color: #888; font-weight: bold">Offline</span>
               </div>
             </div>
-            <button
-              id="launch-dtu-btn"
-              style="
-                padding: 10px 20px;
-                font-weight: bold;
-                background: #007bff;
-                color: white;
-                border: none;
-                border-radius: 6px;
-                cursor: pointer;
-              "
-            >
-              Launch DTU
-            </button>
+            <div style="display: flex; align-items: center; gap: 16px">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span style="color: #888; font-size: 13px">Concurrency:</span>
+                <button
+                  id="concurrency-dec"
+                  style="
+                    width: 28px;
+                    height: 28px;
+                    font-size: 16px;
+                    font-weight: bold;
+                    background: #333;
+                    color: white;
+                    border: 1px solid #555;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                  "
+                >
+                  −
+                </button>
+                <span
+                  id="concurrency-value"
+                  style="font-weight: bold; min-width: 20px; text-align: center"
+                  >—</span
+                >
+                <button
+                  id="concurrency-inc"
+                  style="
+                    width: 28px;
+                    height: 28px;
+                    font-size: 16px;
+                    font-weight: bold;
+                    background: #333;
+                    color: white;
+                    border: 1px solid #555;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                  "
+                >
+                  +
+                </button>
+              </div>
+              <button
+                id="launch-dtu-btn"
+                style="
+                  padding: 10px 20px;
+                  font-weight: bold;
+                  background: #007bff;
+                  color: white;
+                  border: none;
+                  border-radius: 6px;
+                  cursor: pointer;
+                "
+              >
+                Launch DTU
+              </button>
+            </div>
           </div>
         </div>
         <div

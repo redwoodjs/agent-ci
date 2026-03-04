@@ -64,6 +64,60 @@ export function toTemplateTokenMapping(obj: { [key: string]: string }): object {
   };
 }
 
+/**
+ * Convert a container definition { image, env?, ports?, volumes?, options? }
+ * into a TemplateToken MappingToken that the runner's EvaluateJobContainer expects.
+ *
+ * Format:
+ *   { type: 2, map: [{ Key: "image", Value: "alpine:3.19" }, ...] }
+ *
+ * Nested:
+ *   env → MappingToken (type 2)
+ *   ports/volumes → SequenceToken (type 1) of StringTokens
+ *   options → StringToken (bare string)
+ */
+export function toContainerTemplateToken(container: {
+  image: string;
+  env?: Record<string, string>;
+  ports?: string[];
+  volumes?: string[];
+  options?: string;
+}): object {
+  const map: { Key: string; Value: any }[] = [];
+
+  map.push({ Key: "image", Value: container.image });
+
+  if (container.env && Object.keys(container.env).length > 0) {
+    map.push({
+      Key: "env",
+      Value: {
+        type: 2,
+        map: Object.entries(container.env).map(([k, v]) => ({ Key: k, Value: v })),
+      },
+    });
+  }
+
+  if (container.ports && container.ports.length > 0) {
+    map.push({
+      Key: "ports",
+      Value: { type: 1, seq: container.ports },
+    });
+  }
+
+  if (container.volumes && container.volumes.length > 0) {
+    map.push({
+      Key: "volumes",
+      Value: { type: 1, seq: container.volumes },
+    });
+  }
+
+  if (container.options) {
+    map.push({ Key: "options", Value: container.options });
+  }
+
+  return { type: 2, map };
+}
+
 export function createJobResponse(
   jobId: string,
   payload: any,

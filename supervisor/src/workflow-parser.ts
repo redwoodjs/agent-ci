@@ -425,6 +425,64 @@ export async function parseWorkflowServices(
   });
 }
 
+export interface WorkflowContainer {
+  image: string;
+  env?: Record<string, string>;
+  ports?: string[];
+  volumes?: string[];
+  options?: string;
+}
+
+/**
+ * Parse the `container:` directive from a workflow job.
+ * Returns null if the job doesn't specify a container.
+ *
+ * Supports both short form (`container: node:18`) and
+ * long form (`container: { image: ..., env: ..., ... }`).
+ */
+export async function parseWorkflowContainer(
+  filePath: string,
+  taskName: string,
+): Promise<WorkflowContainer | null> {
+  const rawYaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
+  const rawJob = rawYaml.jobs?.[taskName] || {};
+  const rawContainer = rawJob.container;
+  if (!rawContainer) {
+    return null;
+  }
+
+  // Short form: `container: node:18`
+  if (typeof rawContainer === "string") {
+    return { image: rawContainer };
+  }
+
+  if (typeof rawContainer !== "object") {
+    return null;
+  }
+
+  const result: WorkflowContainer = {
+    image: rawContainer.image || "",
+  };
+  if (!result.image) {
+    return null;
+  }
+  if (rawContainer.env && typeof rawContainer.env === "object") {
+    result.env = Object.fromEntries(
+      Object.entries(rawContainer.env).map(([k, v]) => [k, String(v)]),
+    );
+  }
+  if (Array.isArray(rawContainer.ports)) {
+    result.ports = rawContainer.ports.map(String);
+  }
+  if (Array.isArray(rawContainer.volumes)) {
+    result.volumes = rawContainer.volumes.map(String);
+  }
+  if (rawContainer.options) {
+    result.options = String(rawContainer.options);
+  }
+  return result;
+}
+
 export function isWorkflowRelevant(template: any, branch: string) {
   const events = template.events;
   if (!events) {

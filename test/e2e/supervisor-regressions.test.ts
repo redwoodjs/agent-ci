@@ -203,4 +203,45 @@ describe("Supervisor E2E Regressions", () => {
     expect(allLogs).toContain("Artifact uploaded");
     expect(allLogs).toContain("hello artifact");
   }, 90000);
+
+  it("should run job steps inside the specified container image", async () => {
+    const jobId = "container-test-" + Date.now();
+    await harness.seedJob({
+      id: jobId,
+      name: "container-test-job",
+      githubRepo: "redwoodjs/opposite-actions",
+      container: {
+        image: "ubuntu:24.04",
+      },
+      steps: [
+        {
+          id: "check-os",
+          name: "Check OS",
+          run: `
+            echo "OS_RELEASE_START"
+            cat /etc/os-release
+            echo "OS_RELEASE_END"
+          `,
+        },
+      ],
+    });
+
+    const result = await harness.runSupervisorWithWorkflow(
+      jobId,
+      path.resolve(PROJECT_ROOT, "test/fixtures/container-test.yml"),
+      "test",
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Job succeeded");
+
+    const match = result.stdout.match(/oa-runner-\d+/);
+    expect(match).toBeTruthy();
+    const runnerName = match![0];
+    const stepOutputLogPath = path.resolve(actualLogsDir, runnerName, "step-output.log");
+    const allLogs = fs.readFileSync(stepOutputLogPath, "utf8");
+
+    // Verify the step ran inside Ubuntu 24.04 (noble), not the actions-runner image
+    expect(allLogs).toContain("noble");
+  }, 120000);
 });

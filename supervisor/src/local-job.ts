@@ -297,6 +297,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const toolCacheDir = path.resolve(workDir, "toolcache");
   const repoSlug = (job.githubRepo || config.GITHUB_REPO).replace("/", "-");
   const pnpmStoreDir = path.resolve(workDir, "pnpm-store", repoSlug);
+  const playwrightCacheDir = path.resolve(workDir, "playwright-cache", repoSlug);
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });
@@ -304,6 +305,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   fs.mkdirSync(diagDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(toolCacheDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(pnpmStoreDir, { recursive: true, mode: 0o777 });
+  fs.mkdirSync(playwrightCacheDir, { recursive: true, mode: 0o777 });
   // Ensure all intermediate dirs are world-writable for DinD scenarios where
   // the supervisor runs as root but nested containers use runner user (UID 1001)
   try {
@@ -313,6 +315,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     fs.chmodSync(diagDir, 0o777);
     fs.chmodSync(toolCacheDir, 0o777);
     fs.chmodSync(pnpmStoreDir, 0o777);
+    fs.chmodSync(playwrightCacheDir, 0o777);
   } catch {
     // Ignore chmod errors (non-critical)
   }
@@ -557,9 +560,71 @@ exit $EXIT_CODE
   const svcPortForwardSnippet = serviceCtx?.portForwards.length
     ? serviceCtx.portForwards.join(" \n") + " \nsleep 0.3 && "
     : "";
+  // ── Direct container injection ──────────────────────────────────────────────
+  // When job.container is set, use the specified image directly and inject the
+  // runner binary via bind-mount. This avoids DinD entirely.
+  //
+  // NOTE: The runner is a self-contained .NET app that requires glibc.
+  // musl-based images (Alpine) are NOT supported. See issue #15.
+  const hostWorkDir = path.resolve(getWorkingDirectory(), "work", containerName);
+  const hostToolcacheDir = path.resolve(getWorkingDirectory(), "toolcache");
+  const hostRunnerDir = path.resolve(getWorkingDirectory(), "runner");
+  const useDirectContainer = !!job.container;
+  const containerImage = useDirectContainer ? job.container!.image : IMAGE;
+
+  // When using a custom container, we need the runner binary on the host so we
+  // can bind-mount it in. Extract from the actions-runner image once.
+  if (useDirectContainer) {
+    await fs.promises.mkdir(hostRunnerDir, { recursive: true });
+    const markerFile = path.join(hostRunnerDir, ".seeded");
+    try {
+      await fs.promises.access(markerFile);
+    } catch {
+      emit("  Extracting runner binary to host (one-time)...");
+      const tmpName = `oa-seed-runner-${Date.now()}`;
+      const seedContainer = await docker.createContainer({
+        Image: IMAGE,
+        name: tmpName,
+        Cmd: ["true"],
+      });
+      const { execSync } = await import("node:child_process");
+      execSync(`docker cp ${tmpName}:/home/runner/. "${hostRunnerDir}/"`, { stdio: "pipe" });
+      await seedContainer.remove();
+      // Patch config.sh to skip the dependency checks (ldd/ldconfig for libicu etc.)
+      // These checks fail in minimal containers. The runner binary itself works fine
+      // with DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1.
+      const configShPath = path.join(hostRunnerDir, "config.sh");
+      let configSh = await fs.promises.readFile(configShPath, "utf8");
+      configSh = configSh.replace(
+        /# Check dotnet Core.*?^fi$/ms,
+        "# Dependency checks removed for container injection",
+      );
+      await fs.promises.writeFile(configShPath, configSh);
+      await fs.promises.writeFile(markerFile, new Date().toISOString());
+      emit("  ✔ Runner extracted.");
+    }
+  }
+
+  // Pull the custom container image if needed
+  if (useDirectContainer) {
+    emit(`  Pulling ${containerImage}...`);
+    await new Promise<void>((resolve, reject) => {
+      docker.pull(containerImage, (err: Error | null, stream: NodeJS.ReadableStream) => {
+        if (err) {
+          return reject(err);
+        }
+        docker.modem.followProgress(stream, (err: Error | null) => {
+          if (err) {
+            return reject(err);
+          }
+          resolve();
+        });
+      });
+    });
+  }
 
   const container = await docker.createContainer({
-    Image: IMAGE,
+    Image: containerImage,
     name: containerName,
     Env: [
       `RUNNER_NAME=${containerName}`,
@@ -576,38 +641,41 @@ exit $EXIT_CODE
       `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
       `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
       `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+      // Custom containers may run as root and lack libicu — configure accordingly
+      ...(useDirectContainer
+        ? [`RUNNER_ALLOW_RUNASROOT=1`, `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`]
+        : []),
     ],
+    // When using a custom container, the entrypoint needs to be overridden
+    // since the image's default entrypoint is not the runner.
+    ...(useDirectContainer ? { Entrypoint: ["bash"] } : {}),
     Cmd: [
-      "bash",
-      "-c",
-      `sudo -n chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && sudo -n mv /usr/bin/git /usr/bin/git.real && sudo -n cp /tmp/oa-shims/git /usr/bin/git && ${svcPortForwardSnippet}sudo -n python3 -c "
-import socket, threading, sys
-def fwd(src,dst):
- try:
-  while True:
-   d=src.recv(65536)
-   if not d: break
-   dst.sendall(d)
- except: pass
- finally: src.close(); dst.close()
-def handle(c):
- s=socket.socket(); s.connect(('$OA_DTU_HOST',${dtuPort})); threading.Thread(target=fwd,args=(c,s),daemon=True).start(); fwd(s,c)
-srv=socket.socket(); srv.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1); srv.bind(('127.0.0.1',80)); srv.listen(32)
-while True:
- c,_=srv.accept(); threading.Thread(target=handle,args=(c,),daemon=True).start()
-" & sleep 0.2 && sudo chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -r /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && sudo -n chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
+      ...(useDirectContainer ? ["-c"] : ["bash", "-c"]),
+      // MAYBE_SUDO: use sudo if available, otherwise run directly (custom containers may not have sudo)
+      `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }; MAYBE_SUDO chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp /tmp/oa-shims/git /usr/bin/git 2>/dev/null; fi && ${svcPortForwardSnippet}node -e "
+const net=require('net');
+const srv=net.createServer(c=>{
+  const s=net.connect(${dtuPort},'$OA_DTU_HOST',()=>{c.pipe(s);s.pipe(c)});
+  s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
+});
+srv.listen(80,'127.0.0.1');
+" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -r /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
     ],
     HostConfig: {
       Binds: [
-        `${path.resolve(getWorkingDirectory(), "work", containerName)}:/home/runner/_work`,
+        // When using a custom container, bind-mount the extracted runner
+        ...(useDirectContainer ? [`${hostRunnerDir}:/home/runner`] : []),
+        `${hostWorkDir}:/home/runner/_work`,
         "/var/run/docker.sock:/var/run/docker.sock",
         `${shimsDir}:/tmp/oa-shims`,
         `${diagDir}:/home/runner/_diag`,
         `${workspaceDir}:/tmp/oa-workspace`,
-        `${path.resolve(getWorkingDirectory(), "toolcache")}:/opt/hostedtoolcache`,
+        `${hostToolcacheDir}:/opt/hostedtoolcache`,
         `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
+        `${playwrightCacheDir}:/home/runner/.cache/ms-playwright`,
       ],
       AutoRemove: false,
+      Ulimits: [{ Name: "nofile", Soft: 65536, Hard: 65536 }],
       ...(serviceCtx ? { NetworkMode: serviceCtx.networkName } : {}),
     },
     Tty: true,

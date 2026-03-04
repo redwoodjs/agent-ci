@@ -32,7 +32,10 @@ export function parseJsonc(fileContent: string): any {
   return result;
 }
 
-export function loadOaConfig(configPath?: string): { workingDirectory?: string } {
+export function loadOaConfig(configPath?: string): {
+  workingDirectory?: string;
+  maxConcurrentJobs?: number;
+} {
   const resolvedPath = configPath ? path.resolve(configPath) : DEFAULT_CONFIG_PATH;
   if (!fs.existsSync(resolvedPath)) {
     return {};

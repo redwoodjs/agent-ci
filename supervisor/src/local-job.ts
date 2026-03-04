@@ -6,6 +6,7 @@ import { createInterface } from "readline";
 import { config } from "./config.js";
 import { Job } from "./types.js";
 import { createLogContext, finalizeLog, getWorkingDirectory } from "./logger.js";
+import { copyWorkspace } from "./cleanup.js";
 import { minimatch } from "minimatch";
 import {
   startServiceContainers,
@@ -396,43 +397,9 @@ export async function executeLocalJob(job: Job): Promise<void> {
       });
     } else {
       // Default: copy the working directory as-is, including dirty/untracked files.
-      // Use git ls-files to respect .gitignore (avoids copying node_modules, _/, etc.)
-      try {
-        if (process.platform === "darwin") {
-          // On macOS with APFS, use per-file cp -c (CoW clone) via rsync.
-          // rsync doesn't support CoW natively, so we pipe git ls-files through
-          // xargs cp -c to get per-file APFS clones that share physical blocks.
-          execSync(
-            `git ls-files --cached --others --exclude-standard -z | xargs -0 -I{} sh -c 'mkdir -p "$(dirname "${workspaceDir}/{}")" && cp -c "{}" "${workspaceDir}/{}" 2>/dev/null || cp "{}" "${workspaceDir}/{}"'`,
-            { stdio: "pipe", shell: "/bin/sh", cwd: repoRoot },
-          );
-        } else {
-          // Linux/other: use rsync (fast, honours gitignore via git ls-files)
-          execSync(
-            `git ls-files --cached --others --exclude-standard -z | rsync -a --files-from=- --from0 ./ ${workspaceDir}/`,
-            { stdio: "pipe", shell: "/bin/sh", cwd: repoRoot },
-          );
-        }
-      } catch {
-        // Fallback: use Node.js fs.cpSync when rsync/cp is not available
-        const files = execSync(`git ls-files --cached --others --exclude-standard -z`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        })
-          .toString()
-          .split("\0")
-          .filter(Boolean);
-        for (const file of files) {
-          const src = path.join(repoRoot, file);
-          const dest = path.join(workspaceDir, file);
-          try {
-            fs.mkdirSync(path.dirname(dest), { recursive: true });
-            fs.cpSync(src, dest, { force: true, recursive: true });
-          } catch {
-            // Skip files that can't be copied (e.g. symlinks broken, etc.)
-          }
-        }
-      }
+      // Uses git ls-files to respect .gitignore (avoids copying node_modules, _/, etc.)
+      // On macOS: per-file APFS CoW clones. On Linux: rsync. Fallback: fs.cpSync.
+      copyWorkspace(repoRoot, workspaceDir);
     }
 
     // Add fake git repo so actions/checkout can use the existing workspace.

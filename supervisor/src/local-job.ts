@@ -799,6 +799,10 @@ srv.listen(80,'127.0.0.1');
   if (fs.existsSync(diagDir)) {
     fs.rmSync(diagDir, { recursive: true, force: true });
   }
+  // Clean containerWorkDir only on success (keep failed workspaces for inspection)
+  if (jobSucceeded && fs.existsSync(containerWorkDir)) {
+    fs.rmSync(containerWorkDir, { recursive: true, force: true });
+  }
 
   // Propagate failure so the orchestrator (which checks our exit code) sees it
   if (!jobSucceeded) {

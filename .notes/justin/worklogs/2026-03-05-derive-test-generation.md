@@ -1533,3 +1533,66 @@ Added `derive tests` dispatch in `main()` before `getCurrentBranch()` and `disco
 - [x] Typecheck passes
 - [x] Existing e2e tests pass
 - [ ] Manual verification: run `derive tests --scope derive`, inspect output
+
+## E2e tests for `derive tests`
+
+### fake-claude-gen-tests binary
+
+Created `derive/test/scripts/fake-claude-gen-tests.mts` — a deterministic test double that simulates agentic Claude behavior. Unlike `fake-claude-gen-specs` (which returns Gherkin via NDJSON), this binary's primary output is **side effects**: test files written to disk.
+
+The binary:
+
+1. Parses the spec dir path from the stdin prompt via regex (`/specs at (.+?)\. /`)
+2. Reads all `.feature` files from that directory
+3. Generates one vitest test file per feature (`describe`/`it`/`expect` structure, one `it()` per `Scenario:`)
+4. Writes test files to `<cwd>/test/generated/<feature-slug>.test.ts`
+5. Outputs NDJSON result for contract completeness
+
+Zero external dependencies (only `node:fs` and `node:path`). Deterministic output.
+
+Bug encountered: the initial regex `specs at ([^\s.]+)` stopped at the first `.` character, which occurs in `.machinen`. The spec dir path (e.g. `/tmp/derive-test-xxx/repo/.machinen/specs/derive/`) was truncated to `/tmp/derive-test-xxx/repo/`. Fixed by matching up to `". "` (period + space) instead.
+
+### Harness extensions
+
+Extended `HarnessOptions` with:
+
+- `specs` — pre-populate `.machinen/specs/[<scope>]/` with feature files (used by `derive tests` e2e tests)
+- `claudeBin` — override the fake binary (defaults to `fake-claude-gen-specs`)
+
+Renamed `FAKE_CLAUDE_BIN` to `FAKE_CLAUDE_GEN_SPECS_BIN` and added `FAKE_CLAUDE_GEN_TESTS_BIN`, both exported for use in test files.
+
+### E2e test: derive-tests.test.ts
+
+Four tests:
+
+1. **generates test files from spec files** — single feature file, asserts exit code 0, test files written, valid vitest structure
+2. **generates one test file per feature file** — two feature files, asserts two test files with correct slugified names
+3. **test files contain scenarios from the spec** — asserts Scenario names from specs appear as `it()` descriptions
+4. **does not require git branch or conversations** — no conversations provided, asserts exit code 0
+
+### Verification
+
+All 6 tests pass (2 existing + 4 new):
+
+```
+pnpm --filter derive test
+
+ test/e2e/derive-one-shot.test.ts (2 tests) 1062ms
+ test/e2e/derive-tests.test.ts (4 tests) 1408ms
+
+ Test Files  2 passed (2)
+      Tests  6 passed (6)
+```
+
+### Blueprint updates
+
+Updated `derive-test-infra.md`:
+
+- Added substitute binary section for `fake-claude-gen-tests`
+- Updated harness API with `specs` and `claudeBin` options
+- Added behaviour spec for `derive tests` e2e scenarios
+- Updated directory mapping with new files
+
+Updated `derive-gen-tests.md`:
+
+- Added cross-reference to test infra blueprint

@@ -33,6 +33,18 @@ export interface HarnessOptions {
       content: string;
     }>;
   }>;
+  // --GROK--: Pre-populate .machinen/specs/<scope>/ with feature files. Used by
+  // derive tests e2e tests where we need specs on disk before running the command.
+  specs?: {
+    scope?: string;
+    features: Array<{
+      name: string; // filename (e.g. "reset-mode.feature")
+      content: string; // raw Gherkin content
+    }>;
+  };
+  // --GROK--: Override the fake claude binary. Defaults to fake-claude-gen-specs
+  // (spec pipeline). Set to FAKE_CLAUDE_GEN_TESTS_BIN for derive tests e2e tests.
+  claudeBin?: string;
   deriveArgs?: string[];
 }
 
@@ -55,7 +67,20 @@ function computeSlug(repoPath: string): string {
 // this file: e2e/ -> test/ -> derive/ -> repo root).
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 const DERIVE_ENTRY = path.join(REPO_ROOT, "derive", "src", "index.ts");
-const FAKE_CLAUDE_BIN = path.join(REPO_ROOT, "derive", "test", "scripts", "fake-claude-gen-specs");
+export const FAKE_CLAUDE_GEN_SPECS_BIN = path.join(
+  REPO_ROOT,
+  "derive",
+  "test",
+  "scripts",
+  "fake-claude-gen-specs",
+);
+export const FAKE_CLAUDE_GEN_TESTS_BIN = path.join(
+  REPO_ROOT,
+  "derive",
+  "test",
+  "scripts",
+  "fake-claude-gen-tests",
+);
 
 export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
   repoDir: string;
@@ -115,6 +140,17 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
 
   const specDir = path.join(repoDir, ".machinen", "specs");
 
+  // --GROK--: Pre-populate spec files if opts.specs is provided. This lets
+  // derive tests e2e tests start with specs already on disk (since derive tests
+  // reads specs, not conversations).
+  if (opts.specs) {
+    const scopedSpecDir = opts.specs.scope ? path.join(specDir, opts.specs.scope) : specDir;
+    fs.mkdirSync(scopedSpecDir, { recursive: true });
+    for (const feature of opts.specs.features) {
+      fs.writeFileSync(path.join(scopedSpecDir, feature.name), feature.content, "utf8");
+    }
+  }
+
   async function run(): Promise<HarnessResult> {
     const args = opts.deriveArgs ?? [];
 
@@ -129,7 +165,7 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
         cwd: repoDir,
         env: {
           ...process.env,
-          CLAUDE_BIN: FAKE_CLAUDE_BIN,
+          CLAUDE_BIN: opts.claudeBin ?? FAKE_CLAUDE_GEN_SPECS_BIN,
           CLAUDE_PROJECTS_DIR: projectsDir,
           MACHINEN_DB: dbPath,
         },

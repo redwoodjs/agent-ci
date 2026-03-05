@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# --GROK--: Wrapper that runs fake-claude-gen-tests.mts via tsx. Resolves tsx
+# from the monorepo root's node_modules (three levels up from this script).
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$DIR/../../.." && pwd)"
+
+exec "$REPO_ROOT/node_modules/.bin/tsx" "$DIR/fake-claude-gen-tests.mts" "$@"

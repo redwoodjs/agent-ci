@@ -1,10 +1,12 @@
 # Architecture Blueprint: derive test infrastructure
 
+> Related blueprints: [derive spec pipeline](derive-spec.md), [derive test generation](derive-gen-tests.md)
+
 ## 2000ft View Narrative
 
 derive's e2e test infrastructure enables full-pipeline testing of the derive CLI without calling Anthropic's API, touching the host filesystem, or spending tokens. Tests spawn derive as a subprocess — the same way a user invokes it — in a fully isolated temp directory environment. Three env var overrides (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB`) redirect all I/O to temp paths, and a deterministic substitute binary (`fake-claude-gen-specs`) replaces the real `claude` CLI.
 
-The infrastructure has two layers: the **substitute binary** (a drop-in `claude -p` replacement that produces deterministic Gherkin from keyword extraction) and the **test harness** (a reusable utility that sets up isolated temp directories, initializes a git repo, writes synthetic JSONL fixtures, spawns derive, and cleans up). Tests are black-box — they import nothing from derive's source, interact only through the CLI and filesystem.
+The infrastructure has three layers: the **substitute binaries** (drop-in `claude -p` replacements — one for spec generation that produces deterministic Gherkin, one for test generation that reads spec files and writes test files), the **test harness** (a reusable utility that sets up isolated temp directories, initializes a git repo, writes synthetic JSONL fixtures or pre-populates spec files, spawns derive, and cleans up), and the **e2e tests** that exercise both the spec pipeline and the test generation command. Tests are black-box — they import nothing from derive's source, interact only through the CLI and filesystem.
 
 ## System Flow
 
@@ -182,6 +184,30 @@ Feature: E2e test — one-shot spec update
     And .machinen/specs/*.feature files are created in the repo directory
     And the .feature files contain valid Gherkin with Feature: and Scenario: blocks
     And the process exits with code 0
+
+Feature: E2e test — test generation
+
+  Scenario: derive tests generates test files from specs
+    Given .machinen/specs/derive/ contains Gherkin .feature files
+    And CLAUDE_BIN points to fake-claude-gen-tests
+    When derive tests --scope derive is run
+    Then test files are written to test/generated/ in the repo directory
+    And each test file contains vitest structure (describe, it, expect)
+    And the process exits with code 0
+
+  Scenario: derive tests generates one test file per feature
+    Given .machinen/specs/derive/ contains multiple .feature files
+    And CLAUDE_BIN points to fake-claude-gen-tests
+    When derive tests --scope derive is run
+    Then one test file is generated per feature file
+    And test file names match the slugified feature names
+
+  Scenario: derive tests does not require conversations
+    Given .machinen/specs/derive/ contains .feature files
+    And no synthetic JSONL conversations exist
+    And CLAUDE_BIN points to fake-claude-gen-tests
+    When derive tests --scope derive is run
+    Then the process exits with code 0
 ```
 
 ## Core Architecture
@@ -240,6 +266,14 @@ This matches the `result` event format that derive's `runClaude` parser extracts
 
 `keyword-extractor` (devDependency in derive's `package.json`). Zero transitive dependencies — it's a stopword list and a split/filter function.
 
+### Substitute binary for test generation (`derive/test/scripts/fake-claude-gen-tests`)
+
+A deterministic drop-in replacement for `claude -p` in agentic mode, used by `derive tests` e2e tests. Unlike `fake-claude-gen-specs` (which returns Gherkin via NDJSON result), this binary simulates agentic behavior: it reads spec files from disk, generates deterministic test files, and writes them to disk. The primary output is **side effects** (test files), not the NDJSON result.
+
+The binary reads the spec directory path from the stdin prompt (which `runGenTests` constructs as `"Generate tests for the Gherkin specs at <path>. ..."`), reads all `.feature` files from that directory, generates one vitest test file per feature (with `describe`/`it`/`expect` structure), and writes them to `<cwd>/test/generated/<feature-slug>.test.ts`.
+
+Same bash wrapper + `.mts` TypeScript pattern as `fake-claude-gen-specs`. Same CLI flag acceptance contract. Zero external dependencies (no `keyword-extractor` — just `node:fs` and `node:path`).
+
 ### Env var overrides
 
 Three one-line changes in derive's production code make hardcoded paths configurable:
@@ -268,7 +302,15 @@ interface HarnessOptions {
       content: string;
     }>;
   }>;
-  deriveArgs?: string[]; // extra args (e.g. "--reset", "--scope foo")
+  specs?: {
+    scope?: string; // subdirectory under .machinen/specs/
+    features: Array<{
+      name: string; // filename (e.g. "reset-mode.feature")
+      content: string; // raw Gherkin content
+    }>;
+  };
+  claudeBin?: string; // override fake binary (default: fake-claude-gen-specs)
+  deriveArgs?: string[]; // extra args (e.g. "--reset", "--scope foo", "tests")
 }
 
 interface HarnessResult {
@@ -400,13 +442,17 @@ derive/
   test/
     scripts/
       fake-claude-gen-specs          bash wrapper (executable, invokes tsx)
-      fake-claude-gen-specs.mts      keyword extraction + Gherkin templating (deterministic stub)
+      fake-claude-gen-specs.mts      keyword extraction + Gherkin templating (spec pipeline stub)
+      fake-claude-gen-tests          bash wrapper (executable, invokes tsx)
+      fake-claude-gen-tests.mts      reads specs, writes test files (test generation stub)
     e2e/
       harness.ts                     reusable test setup/teardown/run utility
       derive-one-shot.test.ts        e2e test: synthetic JSONL -> fake-claude -> .feature output
+      derive-tests.test.ts           e2e test: pre-populated specs -> fake-claude -> test file output
   src/
-    spec.ts                          CLAUDE_BIN env var override (one-line change)
-    index.ts                         CLAUDE_PROJECTS_DIR env var override (one-line change)
-    db.ts                            MACHINEN_DB env var override (one-line change)
+    spec.ts                          CLAUDE_BIN env var override, shared NDJSON streaming helper
+    index.ts                         CLAUDE_PROJECTS_DIR env var override, tests dispatch
+    gen-tests.ts                     test generation command (runGenTests)
+    db.ts                            MACHINEN_DB env var override
   package.json                       "test" script, keyword-extractor devDependency
 ```

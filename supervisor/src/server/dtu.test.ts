@@ -2,13 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { EventEmitter } from "node:events";
 import request from "supertest";
 import { app } from "./index.js";
-import {
-  getEventLog,
-  clearEventLog,
-  setDtuReadinessCheck,
-  setDtuSpawner,
-  resetDtuStateForTest,
-} from "./orchestrator.js";
+import { getEventLog, clearEventLog } from "./events.js";
+import { setDtuReadinessCheck, setDtuSpawner, resetDtuStateForTest } from "./dtu.js";
 
 // Create a controllable fake child process
 function makeFakeProcess() {

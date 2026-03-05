@@ -1,6 +1,5 @@
 import Docker from "dockerode";
 import type { WorkflowService } from "./workflow-parser.js";
-import { pruneOrphanedDockerResources } from "./shutdown.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -48,6 +47,8 @@ async function waitForHealth(
   emit?: (line: string) => void,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
+  const start = Date.now();
+  let lastEmit = 0;
 
   while (Date.now() < deadline) {
     try {
@@ -55,6 +56,8 @@ async function waitForHealth(
       const health = (info as any).State?.Health?.Status;
 
       if (health === "healthy") {
+        const elapsed = ((Date.now() - start) / 1000).toFixed(1);
+        emit?.(`  ✓ healthy after ${elapsed}s`);
         return;
       }
       if (health === "unhealthy") {
@@ -62,6 +65,7 @@ async function waitForHealth(
       }
       // If no healthcheck defined, just wait for "running" state
       if (!health && info.State?.Running) {
+        emit?.(`  ✓ running (no healthcheck)`);
         return;
       }
     } catch (err: any) {
@@ -69,7 +73,12 @@ async function waitForHealth(
         throw err;
       }
     }
-    await new Promise((r) => setTimeout(r, 1_000));
+    const elapsed = Math.floor((Date.now() - start) / 1000);
+    if (elapsed > lastEmit) {
+      emit?.(`  ⏳ ${elapsed}s / ${timeoutMs / 1000}s — waiting for healthy...`);
+      lastEmit = elapsed;
+    }
+    await new Promise((r) => setTimeout(r, 500));
   }
 
   emit?.(`  ⚠ Service health-check timed out after ${timeoutMs / 1000}s — proceeding anyway`);
@@ -81,6 +90,10 @@ async function waitForHealth(
  * Create a Docker network, start all service containers, wait for them to be
  * healthy, and return context that `local-job.ts` threads into the runner
  * container config.
+ *
+ * NOTE: Callers must ensure `pruneOrphanedDockerResources()` has been called
+ * *before* launching concurrent runners. Pruning inside this function would
+ * race with sibling runners that have already created their networks.
  */
 export async function startServiceContainers(
   docker: Docker,
@@ -92,10 +105,7 @@ export async function startServiceContainers(
   const containerIds: string[] = [];
   const portForwards: string[] = [];
 
-  // 1. Remove orphaned networks to avoid exhausting Docker's address pool
-  pruneOrphanedDockerResources();
-
-  // 2. Create a bridge network
+  // 1. Create a bridge network
   await docker.createNetwork({ Name: networkName, Driver: "bridge" });
   emit?.(`  🔗 Created network ${networkName}`);
 
@@ -207,9 +217,11 @@ while True:
   for (let i = 0; i < containerIds.length; i++) {
     const svc = services[i];
     if (svc.options?.includes("--health-cmd")) {
-      emit?.(`  ⏳ Waiting for ${svc.name} health check...`);
+      emit?.(`  ⏳ Waiting for ${svc.name} to become healthy (timeout: 60s)...`);
+      const t0 = Date.now();
       await waitForHealth(docker, containerIds[i], 60_000, emit);
-      emit?.(`  ✓ ${svc.name} is healthy`);
+      const took = ((Date.now() - t0) / 1000).toFixed(1);
+      emit?.(`  ✓ ${svc.name} healthy in ${took}s`);
     }
   }
 

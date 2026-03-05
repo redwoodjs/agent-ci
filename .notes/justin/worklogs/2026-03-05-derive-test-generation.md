@@ -1201,7 +1201,7 @@ pnpm --filter derive test
 - [x] Write `derive/test/e2e/derive-one-shot.test.ts`
 - [x] Run the test, verify it passes
 
-## RFC: Task 5 — Test generation command (`derive gen-tests`)
+## RFC: Task 5 — Test generation command (`derive tests`)
 
 ### 2000ft View
 
@@ -1486,3 +1486,50 @@ The existing `runClaude` already handles `content_block_start` with `tool_use` t
 - [ ] Extract shared NDJSON streaming logic from `runClaude` into a reusable helper (or duplicate with simplification)
 - [ ] Write manually-authored tests for gen-tests (command dispatch, spec dir resolution, Claude invocation contract)
 - [ ] Manual verification: run `derive gen-tests --scope derive`, inspect output
+
+## Blueprint revision: split derive.md
+
+Renamed `.docs/blueprints/derive.md` to `.docs/blueprints/derive-spec.md` (title updated to "derive — spec pipeline") and created `.docs/blueprints/derive-gen-tests.md` as a separate blueprint for the test generation command. The split reflects the architectural distinction: the spec pipeline and gen-tests share a CLI entry point and a couple of helpers (`CLAUDE_BIN`, `specDir()`, NDJSON streaming), but have fundamentally different flows — stateless text-in/text-out vs agentic with filesystem tools.
+
+Cross-references added between all three blueprints (derive-spec, derive-gen-tests, derive-test-infra).
+
+## Naming: `derive tests` (not `derive gen-tests`)
+
+Standardized the subcommand name to `derive tests` throughout. The RFC used `gen-tests` in some places and `tests` in others. The CLI subcommand is `tests`, the internal file/function names remain `gen-tests.ts` / `runGenTests` (they describe _what the code does_ — generates tests — rather than the user-facing command name).
+
+## Implementation: Task 5 — `derive tests` command
+
+### NDJSON streaming extraction
+
+Extracted the NDJSON parsing logic from `runClaude` in `spec.ts` into a shared `streamNdjsonProgress` function. The function accepts a `NodeJS.ReadableStream` (stdout from the Claude process) and optional callbacks (`onResult`). It handles all progress logging to stderr (thinking blocks, tool use with input preview, text generation dots) and dispatches the `result` event via callback.
+
+`runClaude` now calls `streamNdjsonProgress(proc.stdout!, { onResult: (r) => { result = r; } })` — same behavior, shared code. `runGenTests` calls it without an `onResult` callback since gen-tests has no result to extract (its value is in files Claude writes).
+
+Exported `CLAUDE_BIN` from `spec.ts` so `gen-tests.ts` can import it. `VERBOSE` stays internal — it's read by `streamNdjsonProgress` which lives in the same file.
+
+### gen-tests.ts
+
+Created `derive/src/gen-tests.ts` with:
+
+- `GEN_TESTS_SYSTEM_PROMPT` — convention-based isolation instruction, directs Claude to read specs + existing tests + config, write tests, avoid implementation source
+- `runGenTests(cwd, scope?)` — resolves spec dir, spawns `claude -p` with tools enabled (no `--tools ""`), default effort (no `--effort low`), NDJSON progress streaming, `CLAUDECODE` stripped, `extendEnv: false`, `--no-session-persistence`
+- cwd set to the repo root so Claude can navigate the project structure
+
+### index.ts dispatch
+
+Added `derive tests` dispatch in `main()` before `getCurrentBranch()` and `discoverConversations()`. The `tests` subcommand is checked as `args[0] === "tests"` and returns early after `runGenTests` completes. This avoids the branch detection call (which errors on detached HEAD) and the DB-first discovery (which requires `CLAUDE_PROJECTS_DIR`).
+
+### Verification
+
+- Typecheck: clean
+- Existing e2e tests: 2 passed (NDJSON refactor didn't break `runClaude`)
+
+### Tasks
+
+- [x] Extract shared NDJSON streaming logic from `runClaude` into `streamNdjsonProgress`
+- [x] Export `CLAUDE_BIN` from `spec.ts`
+- [x] Create `derive/src/gen-tests.ts` — system prompt, `runGenTests` function
+- [x] Modify `derive/src/index.ts` — add `tests` dispatch before `getCurrentBranch()`
+- [x] Typecheck passes
+- [x] Existing e2e tests pass
+- [ ] Manual verification: run `derive tests --scope derive`, inspect output

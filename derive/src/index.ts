@@ -12,6 +12,7 @@ import {
   resetConversationOffsets,
 } from "./db.js";
 import { updateSpec, reviewSpecDir, specDir } from "./spec.js";
+import { runGenTests } from "./gen-tests.js";
 
 const CLAUDE_PROJECTS_DIR =
   process.env.CLAUDE_PROJECTS_DIR ?? path.join(os.homedir(), ".claude", "projects");
@@ -231,7 +232,6 @@ async function resetBranch(
 
 async function main(): Promise<void> {
   const cwd = process.cwd();
-  const branch = getCurrentBranch();
   const args = process.argv.slice(2);
 
   // --GROK--: Parse --scope <name> to direct specs into a subdirectory.
@@ -239,6 +239,15 @@ async function main(): Promise<void> {
   const scopeIdx = args.indexOf("--scope");
   const scope = scopeIdx !== -1 ? args[scopeIdx + 1] : undefined;
 
+  // --GROK--: `derive tests` dispatches before getCurrentBranch() and
+  // discoverConversations() — it operates on spec files, not git state or
+  // conversations. No DB access, no branch detection needed.
+  if (args[0] === "tests") {
+    await runGenTests(cwd, scope);
+    return;
+  }
+
+  const branch = getCurrentBranch();
   console.log(`[derive] ${cwd} @ ${branch}${scope ? ` (scope: ${scope})` : ""}`);
 
   // DB-first discovery: reconcile the DB with the filesystem before any mode

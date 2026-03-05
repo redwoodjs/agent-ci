@@ -5,7 +5,8 @@ import { execa } from "execa";
 import type { JsonlMessage } from "./types.js";
 import { extractText } from "./reader.js";
 
-const CLAUDE_BIN = process.env.CLAUDE_BIN ?? path.join(os.homedir(), ".local", "bin", "claude");
+export const CLAUDE_BIN =
+  process.env.CLAUDE_BIN ?? path.join(os.homedir(), ".local", "bin", "claude");
 
 // --GROK--: When --verbose is passed to derive itself, we dump raw NDJSON
 // events from the spawned claude process so we can inspect the full stream.
@@ -40,55 +41,25 @@ Rules:
 // short and avoiding E2BIG.
 const SYSTEM_PROMPT_OVERRIDE = "Output only Gherkin. No commentary, no markdown, no code fences.";
 
-async function runClaude(preamble: string, prompt: string): Promise<string> {
-  const input = `${preamble}\n\n---\n\n${prompt}`;
-  console.log(
-    `[claude] running | preamble: ${preamble.length} chars | prompt: ${prompt.length} chars`,
-  );
+// --GROK--: Shared NDJSON streaming logic. Parses claude -p stream-json output,
+// logs progress to stderr (thinking, tool_use, text generation), and calls
+// onResult when the final result event arrives. Used by both runClaude (spec
+// pipeline) and runGenTests (test generation).
+export interface StreamNdjsonCallbacks {
+  onResult?: (result: string) => void;
+}
 
-  const env = { ...process.env };
-  delete env.CLAUDECODE;
-
-  // --GROK--: We use stream-json + --include-partial-messages to get
-  // incremental text deltas on stdout. This lets us print a dot per chunk
-  // so the user sees progress instead of silence. The final result is
-  // extracted from the "result" event at the end of the stream.
-  const proc = execa(
-    CLAUDE_BIN,
-    [
-      "-p",
-      "--verbose",
-      "--output-format",
-      "stream-json",
-      "--include-partial-messages",
-      "--system-prompt",
-      SYSTEM_PROMPT_OVERRIDE,
-      "--no-session-persistence",
-      "--model",
-      "sonnet",
-      "--tools",
-      "",
-      "--effort",
-      "low",
-    ],
-    {
-      env,
-      input,
-      extendEnv: false,
-      stdout: "pipe",
-    },
-  );
-
-  let result = "";
+export function streamNdjsonProgress(
+  stdout: NodeJS.ReadableStream,
+  callbacks: StreamNdjsonCallbacks = {},
+): { getTextChunks: () => number } {
   let textChunks = 0;
   let buf = "";
-  // --GROK--: Track current content block type so we can log activity per-block.
-  // "thinking" = extended thinking, "tool_use" = tool call, "text" = output text.
   let currentBlockType: string | null = null;
   let currentToolName: string | null = null;
   let toolInputBuf = "";
 
-  proc.stdout?.on("data", (data: Buffer) => {
+  stdout.on("data", (data: Buffer) => {
     buf += data.toString();
     const lines = buf.split("\n");
     buf = lines.pop() ?? "";
@@ -122,7 +93,6 @@ async function runClaude(preamble: string, prompt: string): Promise<string> {
             const delta = evt.delta;
 
             if (currentBlockType === "thinking" && delta?.type === "thinking_delta") {
-              // Show first 200 chars of thinking, then dots
               const text = delta.thinking ?? "";
               process.stderr.write(text.length > 80 ? "." : text);
             } else if (currentBlockType === "tool_use" && delta?.type === "input_json_delta") {
@@ -135,7 +105,6 @@ async function runClaude(preamble: string, prompt: string): Promise<string> {
             }
           } else if (evt?.type === "content_block_stop") {
             if (currentBlockType === "tool_use") {
-              // Log the tool input (truncated for readability)
               const inputPreview =
                 toolInputBuf.length > 200 ? toolInputBuf.slice(0, 200) + "..." : toolInputBuf;
               process.stderr.write(`${inputPreview})`);
@@ -145,7 +114,7 @@ async function runClaude(preamble: string, prompt: string): Promise<string> {
             currentBlockType = null;
           }
         } else if (obj.type === "result") {
-          result = obj.result ?? "";
+          callbacks.onResult?.(obj.result ?? "");
         }
       } catch {
         // skip malformed lines
@@ -153,10 +122,55 @@ async function runClaude(preamble: string, prompt: string): Promise<string> {
     }
   });
 
+  return { getTextChunks: () => textChunks };
+}
+
+async function runClaude(preamble: string, prompt: string): Promise<string> {
+  const input = `${preamble}\n\n---\n\n${prompt}`;
+  console.log(
+    `[claude] running | preamble: ${preamble.length} chars | prompt: ${prompt.length} chars`,
+  );
+
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+
+  const proc = execa(
+    CLAUDE_BIN,
+    [
+      "-p",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--system-prompt",
+      SYSTEM_PROMPT_OVERRIDE,
+      "--no-session-persistence",
+      "--model",
+      "sonnet",
+      "--tools",
+      "",
+      "--effort",
+      "low",
+    ],
+    {
+      env,
+      input,
+      extendEnv: false,
+      stdout: "pipe",
+    },
+  );
+
+  let result = "";
+  const { getTextChunks } = streamNdjsonProgress(proc.stdout!, {
+    onResult: (r) => {
+      result = r;
+    },
+  });
+
   await proc;
   process.stderr.write("\n");
 
-  console.log(`[claude] result: ${result.trim().length} chars (${textChunks} text chunks)`);
+  console.log(`[claude] result: ${result.trim().length} chars (${getTextChunks()} text chunks)`);
   return result;
 }
 

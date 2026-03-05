@@ -1,4 +1,6 @@
-# Architecture Blueprint: derive
+# Architecture Blueprint: derive — spec pipeline
+
+> Related blueprints: [derive test generation](derive-gen-tests.md), [derive test infrastructure](derive-test-infra.md)
 
 ## 2000ft View Narrative
 

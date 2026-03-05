@@ -181,3 +181,61 @@ Got: `Queue handler is missing` error (code 11001). CF validates that the deploy
 ## Deploy Attempt 3 — Add No-Op Handlers
 
 Added no-op `queue()` and `scheduled()` handlers to the stub worker to satisfy CF's validation. The stub now exports `fetch`, `queue`, and `scheduled` — all no-ops.
+
+## Deploy Attempt 3 — Success
+
+After `pnpm build && wrangler deploy`, the deploy succeeded. The v15 migration ran, deleting all 12 DO classes and their data from the production worker (`machinen`).
+
+## Worker Delete Attempt — Queue Consumer Dependency
+
+Attempted `wrangler delete --name machinen`. Got:
+
+```
+Cannot delete this Worker as it is a consumer for a Queue. Remove it from the Queue's consumers first, then retry. [code: 10064]
+```
+
+CF enforces a dependency graph: queues reference the worker as a consumer, so the worker can't be deleted while queue consumers point to it. This means **queues must be deleted before the worker**, not after.
+
+## Revised Execution Order
+
+The correct teardown order, accounting for CF's dependency enforcement:
+
+1. ~~Delete workers first~~ — **wrong**, workers can't be deleted while queue consumers reference them
+2. **Deploy stub with DO deletion migration** — ✅ done for prod
+3. **Delete queues** — removes the consumer dependency on the worker
+4. **Delete the worker** — now unblocked
+5. **Delete vectorize indexes** — account-level, independent
+6. Repeat for other environments (dev-justin, rag-experiment-1)
+
+### Revised Step-by-Step Plan
+
+#### Phase 1: Production Teardown
+
+- [x] **1.1** Deploy stub worker with v15 DO deletion migration (done)
+- [ ] **1.2** Delete all production queues (12 queues: `*-prod` + DLQs)
+- [ ] **1.3** Delete production worker: `wrangler delete --name machinen`
+- [ ] **1.4** Delete production vectorize indexes (3: `rag-index-v8`, `moment-index-v8`, `subject-index-v8`)
+
+#### Phase 2: dev-justin Teardown
+
+- [ ] **2.1** Deploy stub with DO deletion migration to dev-justin env
+- [ ] **2.2** Delete dev-justin queues (10 queues: `*-dev-justin` + DLQs)
+- [ ] **2.3** Delete dev-justin worker: `wrangler delete --name machinen-dev-justin`
+- [ ] **2.4** Delete dev-justin vectorize indexes (2: `rag-index-dev-justin`, `moment-index-dev-justin-v2`)
+
+#### Phase 3: rag-experiment-1 Teardown
+
+- [ ] **3.1** Deploy stub with DO deletion migration to rag-experiment-1 env
+- [ ] **3.2** Delete experiment queues (11 queues: `*-rag-experiment-1` + DLQs)
+- [ ] **3.3** Delete experiment worker (need to confirm name)
+- [ ] **3.4** Delete experiment vectorize indexes (2: `rag-index-v2`, `moment-index-rag-experiment-1`)
+
+#### Phase 4: Test Environment Queues
+
+- [ ] **4.1** Delete test queues (9 queues: unsuffixed + DLQs) — these may share the prod worker, so they might already be unblocked
+
+#### Phase 5: Verification
+
+- [ ] **5.1** `wrangler queues list` — confirm empty
+- [ ] **5.2** `wrangler vectorize list` — confirm empty
+- [ ] **5.3** Confirm R2 bucket `machinen` still exists

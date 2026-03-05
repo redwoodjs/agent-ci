@@ -1122,3 +1122,17 @@ assertions:
 - [ ] Write `derive/test/e2e/harness.ts` — reusable test setup/teardown/run utility
 - [ ] Write `derive/test/e2e/derive-one-shot.test.ts`
 - [ ] Run the test, verify it passes
+
+## Blueprint split: derive test infrastructure
+
+Split the test infrastructure documentation out of `.docs/blueprints/derive.md` into its own blueprint at `.docs/blueprints/derive-test-infra.md`. The derive blueprint's "Test isolation" section was trimmed to a three-line summary pointing to the new blueprint. The directory mapping was also simplified — `test/` now points to the test infra blueprint rather than listing individual files.
+
+The test infra blueprint covers:
+
+- Substitute binary (`fake-claude-gen-specs`) — CLI contract, keyword extraction strategy, NDJSON output format, determinism guarantees
+- Test harness (`harness.ts`) — `setupDeriveTest()` API, types, temp directory layout, slug computation, JSONL fixture format, git init, cleanup
+- Env var override contract — the three env vars, defaults, invisibility when unset
+- Synthetic JSONL fixture format — minimal valid structure, required fields
+- E2e test conventions — black-box, vitest, structural assertions
+
+The derive blueprint retains a brief "Test isolation" section that names the three env vars and links to the test infra blueprint for details.

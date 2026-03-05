@@ -297,7 +297,7 @@ async function handleRun(options: {
     const job: Job = {
       deliveryId: `local-run-${Date.now()}`,
       eventType: "workflow_job",
-      githubJobId: "123",
+      githubJobId: `local-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
       githubRepo: githubRepo,
       githubToken: "mock_token",
       headSha: headSha,

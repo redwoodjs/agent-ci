@@ -1,6 +1,5 @@
 import { config, loadOaConfig } from "./config.js";
 import { setWorkingDirectory } from "./logger.js";
-import { startWarmPool, stopWarmPool } from "./warm-pool.js";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -21,16 +20,8 @@ async function main() {
   console.log(`[Supervisor] Starting supervisor for user: ${config.GITHUB_USERNAME}`);
   console.log(`[Supervisor] Bridge URL: ${config.BRIDGE_URL}`);
 
-  await startWarmPool();
-
-  const cleanup = async () => {
-    console.log("[Supervisor] Shutting down...");
-    await stopWarmPool();
-    process.exit(0);
-  };
-
-  process.on("SIGINT", cleanup);
-  process.on("SIGTERM", cleanup);
+  // Warm pool removed — the server (server/index.ts) is the entry point for runs.
+  process.exit(0);
 }
 
 main().catch((err) => {

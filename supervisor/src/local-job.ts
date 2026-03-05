@@ -13,6 +13,7 @@ import {
   cleanupServiceContainers,
   type ServiceContext,
 } from "./service-containers.js";
+import { killRunnerContainers } from "./shutdown.js";
 
 // ─── ANSI / log-level patterns ────────────────────────────────────────────────
 
@@ -324,8 +325,12 @@ export async function executeLocalJob(job: Job): Promise<void> {
     // Ignore chmod errors (non-critical)
   }
 
-  // Signal handler: ensure cleanup runs even when killed
+  // Signal handler: ensure cleanup runs even when killed.
+  // Kills the Docker container + any service sidecars + network, then removes temp dirs.
+  // Use process.once so multiple calls to executeLocalJob() don't accumulate listeners.
   const signalCleanup = () => {
+    // Force-kill Docker containers (sync so it works in signal handlers)
+    killRunnerContainers(containerName);
     for (const d of [containerWorkDir, shimsDir, diagDir]) {
       try {
         fs.rmSync(d, { recursive: true, force: true });
@@ -333,109 +338,109 @@ export async function executeLocalJob(job: Job): Promise<void> {
     }
     process.exit(1);
   };
-  process.on("SIGINT", signalCleanup);
-  process.on("SIGTERM", signalCleanup);
-
-  // 1. Seed the job to Local DTU
-  // Build a corrected repository object from job.githubRepo (which is resolved from the git
-  // remote — e.g. "redwoodjs/sdk") so generators.ts uses the right repo name for checkout /
-  // workspace paths, rather than the webhook event repo that may point to opposite-actions.
-  const [githubOwner, githubRepoName] = (job.githubRepo || "").split("/");
-  const overriddenRepository = job.githubRepo
-    ? {
-        full_name: job.githubRepo,
-        name: githubRepoName,
-        owner: { login: githubOwner },
-        default_branch: job.repository?.default_branch || "main",
-      }
-    : job.repository;
-
-  const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      id: job.githubJobId || "1",
-      name: "local-job",
-      status: "queued",
-      localPath: workspaceDir,
-      ...job,
-      // Override repository with the git-remote-resolved repo (takes precedence over ...job spread)
-      repository: overriddenRepository,
-    }),
-  });
-  if (!seedResponse.ok) {
-    throw new Error(`Failed to seed DTU: ${seedResponse.status} ${seedResponse.statusText}`);
-  }
-
-  // 2. Registration token (mock for local)
-  const registrationToken = "mock_local_token";
-
-  // 4. Prepare workspace (checkout emulation)
+  process.once("SIGINT", signalCleanup);
+  process.once("SIGTERM", signalCleanup);
   try {
-    // Resolve repo root — needed for both archive and rsync paths.
-    // Derive from the workflow path (which lives inside the target repo) so we copy
-    // from the correct repo, not from the supervisor's CWD (which is oa-1).
-    let repoRoot: string | undefined;
-    if (job.workflowPath) {
-      let dir = path.dirname(job.workflowPath);
-      while (dir !== "/" && !fs.existsSync(path.join(dir, ".git"))) {
-        dir = path.dirname(dir);
-      }
-      if (dir !== "/") {
-        repoRoot = dir;
-      }
-    }
-    if (!repoRoot) {
-      repoRoot = execSync(`git rev-parse --show-toplevel`).toString().trim();
-    }
+    // 1. Seed the job to Local DTU
+    // Build a corrected repository object from job.githubRepo (which is resolved from the git
+    // remote — e.g. "redwoodjs/sdk") so generators.ts uses the right repo name for checkout /
+    // workspace paths, rather than the webhook event repo that may point to opposite-actions.
+    const [githubOwner, githubRepoName] = (job.githubRepo || "").split("/");
+    const overriddenRepository = job.githubRepo
+      ? {
+          full_name: job.githubRepo,
+          name: githubRepoName,
+          owner: { login: githubOwner },
+          default_branch: job.repository?.default_branch || "main",
+        }
+      : job.repository;
 
-    if (job.headSha && job.headSha !== "HEAD") {
-      // Specific SHA requested — use git archive (clean snapshot)
-      execSync(`git archive ${job.headSha} | tar -x -C ${workspaceDir}`, {
-        stdio: "pipe",
-        cwd: repoRoot,
-      });
-    } else {
-      // Default: copy the working directory as-is, including dirty/untracked files.
-      // Uses git ls-files to respect .gitignore (avoids copying node_modules, _/, etc.)
-      // On macOS: per-file APFS CoW clones. On Linux: rsync. Fallback: fs.cpSync.
-      copyWorkspace(repoRoot, workspaceDir);
-    }
-
-    // Add fake git repo so actions/checkout can use the existing workspace.
-    // The remote URL must exactly match what actions/checkout computes via URL.origin.
-    // Node.js URL.origin strips the default port (80), so we must NOT include :80.
-    execSync(`git init`, { cwd: workspaceDir });
-    execSync(`git config user.name "oa"`, { cwd: workspaceDir });
-    execSync(`git config user.email "oa@example.com"`, { cwd: workspaceDir });
-    execSync(`git remote add origin http://127.0.0.1/${job.githubRepo || config.GITHUB_REPO}`, {
-      cwd: workspaceDir,
+    const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id: job.githubJobId || "1",
+        name: "local-job",
+        status: "queued",
+        localPath: workspaceDir,
+        ...job,
+        // Override repository with the git-remote-resolved repo (takes precedence over ...job spread)
+        repository: overriddenRepository,
+      }),
     });
-    execSync(`git add . && git commit -m "workspace" || true`, { cwd: workspaceDir });
-    // Create main and refs/remotes/origin/main pointing to this commit
-    execSync(`git branch -M main`, { cwd: workspaceDir });
-    execSync(`git update-ref refs/remotes/origin/main HEAD`, { cwd: workspaceDir });
-    // Detach HEAD so checkout can freely delete ALL branches (it can't delete the current branch)
-    execSync(`git checkout --detach HEAD`, { cwd: workspaceDir });
-  } catch (err) {
-    if (debug) {
-      console.warn(`[LocalJob] Failed to prepare workspace: ${err}. Using host fallback.`);
+    if (!seedResponse.ok) {
+      throw new Error(`Failed to seed DTU: ${seedResponse.status} ${seedResponse.statusText}`);
     }
-  }
 
-  // 5. Git shim
-  // The SHA returned by ls-remote must match github.sha in the job definition
-  // so actions/checkout's SHA validation passes. Use the same SHA that the DTU
-  // will use in the job definition (OA_HEAD_SHA env var or the deterministic fake).
-  const fakeSha =
-    job.headSha && job.headSha !== "HEAD"
-      ? job.headSha
-      : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    // 2. Registration token (mock for local)
+    const registrationToken = "mock_local_token";
 
-  const gitShimPath = path.join(shimsDir, "git");
-  fs.writeFileSync(
-    gitShimPath,
-    `#!/bin/bash
+    // 4. Prepare workspace (checkout emulation)
+    try {
+      // Resolve repo root — needed for both archive and rsync paths.
+      // Derive from the workflow path (which lives inside the target repo) so we copy
+      // from the correct repo, not from the supervisor's CWD (which is oa-1).
+      let repoRoot: string | undefined;
+      if (job.workflowPath) {
+        let dir = path.dirname(job.workflowPath);
+        while (dir !== "/" && !fs.existsSync(path.join(dir, ".git"))) {
+          dir = path.dirname(dir);
+        }
+        if (dir !== "/") {
+          repoRoot = dir;
+        }
+      }
+      if (!repoRoot) {
+        repoRoot = execSync(`git rev-parse --show-toplevel`).toString().trim();
+      }
+
+      if (job.headSha && job.headSha !== "HEAD") {
+        // Specific SHA requested — use git archive (clean snapshot)
+        execSync(`git archive ${job.headSha} | tar -x -C ${workspaceDir}`, {
+          stdio: "pipe",
+          cwd: repoRoot,
+        });
+      } else {
+        // Default: copy the working directory as-is, including dirty/untracked files.
+        // Uses git ls-files to respect .gitignore (avoids copying node_modules, _/, etc.)
+        // On macOS: per-file APFS CoW clones. On Linux: rsync. Fallback: fs.cpSync.
+        copyWorkspace(repoRoot, workspaceDir);
+      }
+
+      // Add fake git repo so actions/checkout can use the existing workspace.
+      // The remote URL must exactly match what actions/checkout computes via URL.origin.
+      // Node.js URL.origin strips the default port (80), so we must NOT include :80.
+      execSync(`git init`, { cwd: workspaceDir });
+      execSync(`git config user.name "oa"`, { cwd: workspaceDir });
+      execSync(`git config user.email "oa@example.com"`, { cwd: workspaceDir });
+      execSync(`git remote add origin http://127.0.0.1/${job.githubRepo || config.GITHUB_REPO}`, {
+        cwd: workspaceDir,
+      });
+      execSync(`git add . && git commit -m "workspace" || true`, { cwd: workspaceDir });
+      // Create main and refs/remotes/origin/main pointing to this commit
+      execSync(`git branch -M main`, { cwd: workspaceDir });
+      execSync(`git update-ref refs/remotes/origin/main HEAD`, { cwd: workspaceDir });
+      // Detach HEAD so checkout can freely delete ALL branches (it can't delete the current branch)
+      execSync(`git checkout --detach HEAD`, { cwd: workspaceDir });
+    } catch (err) {
+      if (debug) {
+        console.warn(`[LocalJob] Failed to prepare workspace: ${err}. Using host fallback.`);
+      }
+    }
+
+    // 5. Git shim
+    // The SHA returned by ls-remote must match github.sha in the job definition
+    // so actions/checkout's SHA validation passes. Use the same SHA that the DTU
+    // will use in the job definition (OA_HEAD_SHA env var or the deterministic fake).
+    const fakeSha =
+      job.headSha && job.headSha !== "HEAD"
+        ? job.headSha
+        : "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    const gitShimPath = path.join(shimsDir, "git");
+    fs.writeFileSync(
+      gitShimPath,
+      `#!/bin/bash
 
 # Log every call for debugging
 echo "git $*" >> /home/runner/_diag/oa-git-calls.log
@@ -498,307 +503,329 @@ EXIT_CODE=$?
 echo "git $@ exited with $EXIT_CODE" >> /home/runner/_diag/oa-git-calls.log
 exit $EXIT_CODE
 `,
-    { mode: 0o755 },
-  );
+      { mode: 0o755 },
+    );
 
-  // 6. Spawn container
-  const dtuPort = new URL(config.GITHUB_API_URL).port || "80";
-  // When running inside a Docker container (CI), nested containers can't reach the host via
-  // `host.docker.internal` — that points to the Mac/host, not the CI container. We need the
-  // CI container's own bridge IP so nested containers can reach the DTU running inside it.
-  const isInsideDocker = fs.existsSync("/.dockerenv");
-  let dtuHost = "host.docker.internal";
-  if (isInsideDocker) {
-    try {
-      // Get the CI container's own IP on the Docker bridge network
-      const ip = execSync("hostname -I 2>/dev/null | awk '{print $1}'", {
-        encoding: "utf8",
-      }).trim();
-      if (ip) {
-        dtuHost = ip;
-      }
-    } catch {
-      dtuHost = "172.17.0.1"; // fallback to bridge gateway
-    }
-  }
-  const dockerApiUrl = config.GITHUB_API_URL.replace("localhost", dtuHost).replace(
-    "127.0.0.1",
-    dtuHost,
-  );
-  const repoUrl = `${dockerApiUrl}/${job.githubRepo || config.GITHUB_REPO}`;
-
-  if (debug) {
-    console.log(`[debug] Spawning container ${containerName}...`);
-  }
-
-  // Pre-cleanup: remove any stale container with the same name to prevent 409 conflicts.
-  try {
-    const stale = docker.getContainer(containerName);
-    await stale.remove({ force: true });
-  } catch {
-    // Ignore - container doesn't exist
-  }
-
-  // ── Service containers ──────────────────────────────────────────────────────
-  let serviceCtx: ServiceContext | undefined;
-  if (job.services && job.services.length > 0) {
-    emit(`\n  Starting ${job.services.length} service container(s)...`);
-    serviceCtx = await startServiceContainers(docker, job.services, containerName, emit);
-    emit("");
-  }
-
-  // Build port-forward shell snippet for service containers (runs inside the runner container).
-  // Each forwarder binds localhost:<port> and proxies to the service container on the Docker network.
-  const svcPortForwardSnippet = serviceCtx?.portForwards.length
-    ? serviceCtx.portForwards.join(" \n") + " \nsleep 0.3 && "
-    : "";
-  // ── Direct container injection ──────────────────────────────────────────────
-  // When job.container is set, use the specified image directly and inject the
-  // runner binary via bind-mount. This avoids DinD entirely.
-  //
-  // NOTE: The runner is a self-contained .NET app that requires glibc.
-  // musl-based images (Alpine) are NOT supported. See issue #15.
-  const hostWorkDir = path.resolve(getWorkingDirectory(), "work", containerName);
-  const hostToolcacheDir = path.resolve(getWorkingDirectory(), "toolcache");
-  const hostRunnerDir = path.resolve(getWorkingDirectory(), "runner");
-  const useDirectContainer = !!job.container;
-  const containerImage = useDirectContainer ? job.container!.image : IMAGE;
-
-  // When using a custom container, we need the runner binary on the host so we
-  // can bind-mount it in. Extract from the actions-runner image once.
-  if (useDirectContainer) {
-    await fs.promises.mkdir(hostRunnerDir, { recursive: true });
-    const markerFile = path.join(hostRunnerDir, ".seeded");
-    try {
-      await fs.promises.access(markerFile);
-    } catch {
-      emit("  Extracting runner binary to host (one-time)...");
-      const tmpName = `oa-seed-runner-${Date.now()}`;
-      const seedContainer = await docker.createContainer({
-        Image: IMAGE,
-        name: tmpName,
-        Cmd: ["true"],
-      });
-      const { execSync } = await import("node:child_process");
-      execSync(`docker cp ${tmpName}:/home/runner/. "${hostRunnerDir}/"`, { stdio: "pipe" });
-      await seedContainer.remove();
-      // Patch config.sh to skip the dependency checks (ldd/ldconfig for libicu etc.)
-      // These checks fail in minimal containers. The runner binary itself works fine
-      // with DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1.
-      const configShPath = path.join(hostRunnerDir, "config.sh");
-      let configSh = await fs.promises.readFile(configShPath, "utf8");
-      configSh = configSh.replace(
-        /# Check dotnet Core.*?^fi$/ms,
-        "# Dependency checks removed for container injection",
-      );
-      await fs.promises.writeFile(configShPath, configSh);
-      await fs.promises.writeFile(markerFile, new Date().toISOString());
-      emit("  ✔ Runner extracted.");
-    }
-  }
-
-  // Pull the custom container image if needed
-  if (useDirectContainer) {
-    emit(`  Pulling ${containerImage}...`);
-    await new Promise<void>((resolve, reject) => {
-      docker.pull(containerImage, (err: Error | null, stream: NodeJS.ReadableStream) => {
-        if (err) {
-          return reject(err);
+    // 6. Spawn container
+    const dtuPort = new URL(config.GITHUB_API_URL).port || "80";
+    // When running inside a Docker container (CI), nested containers can't reach the host via
+    // `host.docker.internal` — that points to the Mac/host, not the CI container. We need the
+    // CI container's own bridge IP so nested containers can reach the DTU running inside it.
+    const isInsideDocker = fs.existsSync("/.dockerenv");
+    let dtuHost = "host.docker.internal";
+    if (isInsideDocker) {
+      try {
+        // Get the CI container's own IP on the Docker bridge network
+        const ip = execSync("hostname -I 2>/dev/null | awk '{print $1}'", {
+          encoding: "utf8",
+        }).trim();
+        if (ip) {
+          dtuHost = ip;
         }
-        docker.modem.followProgress(stream, (err: Error | null) => {
+      } catch {
+        dtuHost = "172.17.0.1"; // fallback to bridge gateway
+      }
+    }
+    const dockerApiUrl = config.GITHUB_API_URL.replace("localhost", dtuHost).replace(
+      "127.0.0.1",
+      dtuHost,
+    );
+    const repoUrl = `${dockerApiUrl}/${job.githubRepo || config.GITHUB_REPO}`;
+
+    if (debug) {
+      console.log(`[debug] Spawning container ${containerName}...`);
+    }
+
+    // Pre-cleanup: remove any stale container with the same name to prevent 409 conflicts.
+    try {
+      const stale = docker.getContainer(containerName);
+      await stale.remove({ force: true });
+    } catch {
+      // Ignore - container doesn't exist
+    }
+
+    // ── Service containers ──────────────────────────────────────────────────────
+    let serviceCtx: ServiceContext | undefined;
+    if (job.services && job.services.length > 0) {
+      emit(`\n  Starting ${job.services.length} service container(s)...`);
+      serviceCtx = await startServiceContainers(docker, job.services, containerName, emit);
+      emit("");
+    }
+
+    // Build port-forward shell snippet for service containers (runs inside the runner container).
+    // Each forwarder binds localhost:<port> and proxies to the service container on the Docker network.
+    const svcPortForwardSnippet = serviceCtx?.portForwards.length
+      ? serviceCtx.portForwards.join(" \n") + " \nsleep 0.3 && "
+      : "";
+    // ── Direct container injection ──────────────────────────────────────────────
+    // When job.container is set, use the specified image directly and inject the
+    // runner binary via bind-mount. This avoids DinD entirely.
+    //
+    // NOTE: The runner is a self-contained .NET app that requires glibc.
+    // musl-based images (Alpine) are NOT supported. See issue #15.
+    const hostWorkDir = path.resolve(getWorkingDirectory(), "work", containerName);
+    const hostToolcacheDir = path.resolve(getWorkingDirectory(), "toolcache");
+    const hostRunnerDir = path.resolve(getWorkingDirectory(), "runner");
+    const useDirectContainer = !!job.container;
+    const containerImage = useDirectContainer ? job.container!.image : IMAGE;
+
+    // When using a custom container, we need the runner binary on the host so we
+    // can bind-mount it in. Extract from the actions-runner image once.
+    if (useDirectContainer) {
+      await fs.promises.mkdir(hostRunnerDir, { recursive: true });
+      const markerFile = path.join(hostRunnerDir, ".seeded");
+      try {
+        await fs.promises.access(markerFile);
+      } catch {
+        emit("  Extracting runner binary to host (one-time)...");
+        const tmpName = `oa-seed-runner-${Date.now()}`;
+        const seedContainer = await docker.createContainer({
+          Image: IMAGE,
+          name: tmpName,
+          Cmd: ["true"],
+        });
+        const { execSync } = await import("node:child_process");
+        execSync(`docker cp ${tmpName}:/home/runner/. "${hostRunnerDir}/"`, { stdio: "pipe" });
+        await seedContainer.remove();
+        // Patch config.sh to skip the dependency checks (ldd/ldconfig for libicu etc.)
+        // These checks fail in minimal containers. The runner binary itself works fine
+        // with DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1.
+        const configShPath = path.join(hostRunnerDir, "config.sh");
+        let configSh = await fs.promises.readFile(configShPath, "utf8");
+        configSh = configSh.replace(
+          /# Check dotnet Core.*?^fi$/ms,
+          "# Dependency checks removed for container injection",
+        );
+        await fs.promises.writeFile(configShPath, configSh);
+        await fs.promises.writeFile(markerFile, new Date().toISOString());
+        emit("  ✔ Runner extracted.");
+      }
+    }
+
+    // Pull the custom container image if needed
+    if (useDirectContainer) {
+      emit(`  Pulling ${containerImage}...`);
+      await new Promise<void>((resolve, reject) => {
+        docker.pull(containerImage, (err: Error | null, stream: NodeJS.ReadableStream) => {
           if (err) {
             return reject(err);
           }
-          resolve();
+          docker.modem.followProgress(stream, (err: Error | null) => {
+            if (err) {
+              return reject(err);
+            }
+            resolve();
+          });
         });
       });
-    });
-  }
+    }
 
-  const container = await docker.createContainer({
-    Image: containerImage,
-    name: containerName,
-    Env: [
-      `RUNNER_NAME=${containerName}`,
-      `RUNNER_TOKEN=${registrationToken}`,
-      `RUNNER_REPOSITORY_URL=${repoUrl}`,
-      `GITHUB_API_URL=${dockerApiUrl}`,
-      `GITHUB_SERVER_URL=${repoUrl}`,
-      `GITHUB_REPOSITORY=${job.githubRepo || config.GITHUB_REPO}`,
-      `OA_LOCAL_SYNC=true`,
-      `OA_HEAD_SHA=${job.headSha || "HEAD"}`,
-      `OA_DTU_HOST=${dtuHost}`,
-      `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
-      `ACTIONS_RESULTS_URL=${dockerApiUrl}/`,
-      `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
-      `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
-      `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
-      // Custom containers may run as root and lack libicu — configure accordingly
-      ...(useDirectContainer
-        ? [`RUNNER_ALLOW_RUNASROOT=1`, `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`]
-        : []),
-    ],
-    // When using a custom container, the entrypoint needs to be overridden
-    // since the image's default entrypoint is not the runner.
-    ...(useDirectContainer ? { Entrypoint: ["bash"] } : {}),
-    Cmd: [
-      ...(useDirectContainer ? ["-c"] : ["bash", "-c"]),
-      // MAYBE_SUDO: use sudo if available, otherwise run directly (custom containers may not have sudo)
-      `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }; MAYBE_SUDO chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp /tmp/oa-shims/git /usr/bin/git 2>/dev/null; fi && ${svcPortForwardSnippet}node -e "
+    const container = await docker.createContainer({
+      Image: containerImage,
+      name: containerName,
+      Env: [
+        `RUNNER_NAME=${containerName}`,
+        `RUNNER_TOKEN=${registrationToken}`,
+        `RUNNER_REPOSITORY_URL=${repoUrl}`,
+        `GITHUB_API_URL=${dockerApiUrl}`,
+        `GITHUB_SERVER_URL=${repoUrl}`,
+        `GITHUB_REPOSITORY=${job.githubRepo || config.GITHUB_REPO}`,
+        `OA_LOCAL_SYNC=true`,
+        `OA_HEAD_SHA=${job.headSha || "HEAD"}`,
+        `OA_DTU_HOST=${dtuHost}`,
+        `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
+        `ACTIONS_RESULTS_URL=${dockerApiUrl}/`,
+        `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
+        `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
+        `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+        // Custom containers may run as root and lack libicu — configure accordingly
+        ...(useDirectContainer
+          ? [`RUNNER_ALLOW_RUNASROOT=1`, `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`]
+          : []),
+      ],
+      // When using a custom container, the entrypoint needs to be overridden
+      // since the image's default entrypoint is not the runner.
+      ...(useDirectContainer ? { Entrypoint: ["bash"] } : {}),
+      Cmd: [
+        ...(useDirectContainer ? ["-c"] : ["bash", "-c"]),
+        // MAYBE_SUDO: use sudo if available, otherwise run directly (custom containers may not have sudo)
+        `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }; MAYBE_SUDO chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp /tmp/oa-shims/git /usr/bin/git 2>/dev/null; fi && ${svcPortForwardSnippet}node -e "
 const net=require('net');
 const srv=net.createServer(c=>{
   const s=net.connect(${dtuPort},'$OA_DTU_HOST',()=>{c.pipe(s);s.pipe(c)});
   s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
 });
 srv.listen(80,'127.0.0.1');
-" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
-    ],
-    HostConfig: {
-      Binds: [
-        // When using a custom container, bind-mount the extracted runner
-        ...(useDirectContainer ? [`${hostRunnerDir}:/home/runner`] : []),
-        `${hostWorkDir}:/home/runner/_work`,
-        "/var/run/docker.sock:/var/run/docker.sock",
-        `${shimsDir}:/tmp/oa-shims`,
-        `${diagDir}:/home/runner/_diag`,
-        `${hostToolcacheDir}:/opt/hostedtoolcache`,
-        `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
-        `${playwrightCacheDir}:/home/runner/.cache/ms-playwright`,
+" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
       ],
-      AutoRemove: false,
-      Ulimits: [{ Name: "nofile", Soft: 65536, Hard: 65536 }],
-      ...(serviceCtx ? { NetworkMode: serviceCtx.networkName } : {}),
-    },
-    Tty: true,
-  });
+      HostConfig: {
+        Binds: [
+          // When using a custom container, bind-mount the extracted runner
+          ...(useDirectContainer ? [`${hostRunnerDir}:/home/runner`] : []),
+          `${hostWorkDir}:/home/runner/_work`,
+          "/var/run/docker.sock:/var/run/docker.sock",
+          `${shimsDir}:/tmp/oa-shims`,
+          `${diagDir}:/home/runner/_diag`,
+          `${hostToolcacheDir}:/opt/hostedtoolcache`,
+          `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
+          `${playwrightCacheDir}:/home/runner/.cache/ms-playwright`,
+        ],
+        AutoRemove: false,
+        Ulimits: [{ Name: "nofile", Soft: 65536, Hard: 65536 }],
+        ...(serviceCtx ? { NetworkMode: serviceCtx.networkName } : {}),
+      },
+      Tty: true,
+    });
 
-  await container.start();
+    await container.start();
 
-  // 7. Stream logs ─────────────────────────────────────────────────────────────
-  // Use readline so we process complete lines (no split ANSI sequences).
-  // Write ALL lines to debug.log; write filtered lines to output.log and stdout.
-  const rawStream = (await container.logs({
-    follow: true,
-    stdout: true,
-    stderr: true,
-  })) as NodeJS.ReadableStream;
+    // 7. Stream logs ─────────────────────────────────────────────────────────────
+    // Use readline so we process complete lines (no split ANSI sequences).
+    // Write ALL lines to debug.log; write filtered lines to output.log and stdout.
+    const rawStream = (await container.logs({
+      follow: true,
+      stdout: true,
+      stderr: true,
+    })) as NodeJS.ReadableStream;
 
-  // outputStream + debugStream already open from above
+    // outputStream + debugStream already open from above
 
-  // Tail step-output.log written by the DTU during job execution.
-  // Runs in parallel with container log streaming; stops once container exits.
-  let tailDone = false;
-  const tailPromise = (async () => {
-    let offset = 0;
-    let partial = "";
-    // Wait for file to exist (DTU creates it on start-runner)
-    while (!fs.existsSync(stepOutputPath) && !tailDone) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-    while (!tailDone) {
-      try {
-        const stat = fs.statSync(stepOutputPath);
-        if (stat.size > offset) {
-          const fd = fs.openSync(stepOutputPath, "r");
-          const chunk = Buffer.alloc(stat.size - offset);
-          fs.readSync(fd, chunk, 0, chunk.length, offset);
-          fs.closeSync(fd);
-          offset = stat.size;
-          partial += chunk.toString("utf8");
-          const lines = partial.split("\n");
-          partial = lines.pop() ?? "";
-          for (const line of lines) {
-            emit(line);
+    // Tail step-output.log written by the DTU during job execution.
+    // Runs in parallel with container log streaming; stops once container exits.
+    let tailDone = false;
+    const tailPromise = (async () => {
+      let offset = 0;
+      let partial = "";
+      // Wait for file to exist (DTU creates it on start-runner)
+      while (!fs.existsSync(stepOutputPath) && !tailDone) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      while (!tailDone) {
+        try {
+          const stat = fs.statSync(stepOutputPath);
+          if (stat.size > offset) {
+            const fd = fs.openSync(stepOutputPath, "r");
+            const chunk = Buffer.alloc(stat.size - offset);
+            fs.readSync(fd, chunk, 0, chunk.length, offset);
+            fs.closeSync(fd);
+            offset = stat.size;
+            partial += chunk.toString("utf8");
+            const lines = partial.split("\n");
+            partial = lines.pop() ?? "";
+            for (const line of lines) {
+              emit(line);
+            }
           }
+        } catch {
+          /* file may not exist yet */
         }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+      // Flush any remaining partial line
+      if (partial.trim()) {
+        emit(partial);
+      }
+    })();
+
+    await new Promise<void>((resolve) => {
+      const rl = createInterface({ input: rawStream, crlfDelay: Infinity });
+
+      rl.on("line", (line) => {
+        // Always write raw line to debug.log
+        debugStream.write(line + "\n");
+        // Write filtered lines to output.log and stdout
+        if (filterLine(line)) {
+          outputStream.write(line + "\n");
+          process.stdout.write(line + "\n");
+        }
+      });
+
+      rl.on("close", () => {
+        resolve();
+      });
+    });
+
+    // Stop tail now that container has finished
+    tailDone = true;
+    await tailPromise;
+
+    // 8. Wait for completion (with timeout to handle runner hang in --once mode)
+    const CONTAINER_EXIT_TIMEOUT_MS = 30_000;
+    let waitResult: { StatusCode: number };
+    try {
+      waitResult = await Promise.race([
+        container.wait(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("Container exit timeout")), CONTAINER_EXIT_TIMEOUT_MS),
+        ),
+      ]);
+    } catch {
+      // Container didn't exit in time — force-stop it
+      emit(
+        `  ⚠ Runner did not exit within ${CONTAINER_EXIT_TIMEOUT_MS / 1000}s, force-stopping container…`,
+      );
+      try {
+        await container.stop({ t: 5 });
       } catch {
-        /* file may not exist yet */
+        /* already stopped */
       }
-      await new Promise((r) => setTimeout(r, 100));
+      waitResult = await container.wait();
     }
-    // Flush any remaining partial line
-    if (partial.trim()) {
-      emit(partial);
+    const containerExitCode = waitResult.StatusCode;
+
+    // Trust the result reported in the log over the container exit code.
+    const loggedResult = filterLine.getJobResult(); // e.g. "Succeeded", "Failed", or null
+    const jobSucceeded =
+      loggedResult !== null ? loggedResult === "Succeeded" : containerExitCode === 0;
+    const exitCode = jobSucceeded ? 0 : 1;
+
+    const icon = jobSucceeded ? "✔" : "✖";
+    const label = jobSucceeded
+      ? "succeeded"
+      : `failed${loggedResult ? ` (result: ${loggedResult})` : ` (exit ${containerExitCode})`}`;
+    emit(`\n  ${icon} Job ${label} · ${containerName}`);
+    emit(`  📄 Output: file://${outputLogPath}`);
+    emit(`  📄 Debug:  file://${debugLogPath}\n`);
+
+    // Close streams now that all lines are written
+    await new Promise<void>((resolve) => outputStream.end(resolve));
+    await new Promise<void>((resolve) => debugStream.end(resolve));
+
+    // Finalize log
+    if (fs.existsSync(outputLogPath)) {
+      finalizeLog(outputLogPath, exitCode, job.headSha, containerName);
     }
-  })();
 
-  await new Promise<void>((resolve) => {
-    const rl = createInterface({ input: rawStream, crlfDelay: Infinity });
+    // Cleanup
+    try {
+      await container.remove({ force: true });
+    } catch {
+      // Ignore - container may already be removed
+    }
+    // Clean up service containers and shared network
+    if (serviceCtx) {
+      await cleanupServiceContainers(docker, serviceCtx, emit);
+    }
+    // workspaceDir is now inside containerWorkDir — no separate cleanup needed
+    if (fs.existsSync(shimsDir)) {
+      fs.rmSync(shimsDir, { recursive: true, force: true });
+    }
+    if (fs.existsSync(diagDir)) {
+      fs.rmSync(diagDir, { recursive: true, force: true });
+    }
+    // Clean containerWorkDir only on success (keep failed workspaces for inspection)
+    if (jobSucceeded && fs.existsSync(containerWorkDir)) {
+      fs.rmSync(containerWorkDir, { recursive: true, force: true });
+    }
 
-    rl.on("line", (line) => {
-      // Always write raw line to debug.log
-      debugStream.write(line + "\n");
-      // Write filtered lines to output.log and stdout
-      if (filterLine(line)) {
-        outputStream.write(line + "\n");
-        process.stdout.write(line + "\n");
-      }
-    });
-
-    rl.on("close", () => {
-      resolve();
-    });
-  });
-
-  // Stop tail now that container has finished
-  tailDone = true;
-  await tailPromise;
-
-  // 8. Wait for completion
-  const waitResult = await container.wait();
-  const containerExitCode = waitResult.StatusCode;
-
-  // Trust the result reported in the log over the container exit code.
-  const loggedResult = filterLine.getJobResult(); // e.g. "Succeeded", "Failed", or null
-  const jobSucceeded =
-    loggedResult !== null ? loggedResult === "Succeeded" : containerExitCode === 0;
-  const exitCode = jobSucceeded ? 0 : 1;
-
-  const icon = jobSucceeded ? "✔" : "✖";
-  const label = jobSucceeded
-    ? "succeeded"
-    : `failed${loggedResult ? ` (result: ${loggedResult})` : ` (exit ${containerExitCode})`}`;
-  emit(`\n  ${icon} Job ${label} · ${containerName}`);
-  emit(`  📄 Output: file://${outputLogPath}`);
-  emit(`  📄 Debug:  file://${debugLogPath}\n`);
-
-  // Close streams now that all lines are written
-  await new Promise<void>((resolve) => outputStream.end(resolve));
-  await new Promise<void>((resolve) => debugStream.end(resolve));
-
-  // Finalize log
-  if (fs.existsSync(outputLogPath)) {
-    finalizeLog(outputLogPath, exitCode, job.headSha, containerName);
-  }
-
-  // Deregister signal handlers — normal cleanup is handling it
-  process.removeListener("SIGINT", signalCleanup);
-  process.removeListener("SIGTERM", signalCleanup);
-
-  // Cleanup
-  try {
-    await container.remove({ force: true });
-  } catch {
-    // Ignore - container may already be removed
-  }
-  // Clean up service containers and shared network
-  if (serviceCtx) {
-    await cleanupServiceContainers(docker, serviceCtx, emit);
-  }
-  // workspaceDir is now inside containerWorkDir — no separate cleanup needed
-  if (fs.existsSync(shimsDir)) {
-    fs.rmSync(shimsDir, { recursive: true, force: true });
-  }
-  if (fs.existsSync(diagDir)) {
-    fs.rmSync(diagDir, { recursive: true, force: true });
-  }
-  // Clean containerWorkDir only on success (keep failed workspaces for inspection)
-  if (jobSucceeded && fs.existsSync(containerWorkDir)) {
-    fs.rmSync(containerWorkDir, { recursive: true, force: true });
-  }
-
-  // Propagate failure so the orchestrator (which checks our exit code) sees it
-  if (!jobSucceeded) {
-    process.exit(1);
+    // Propagate failure so the orchestrator (which checks our exit code) sees it
+    if (!jobSucceeded) {
+      process.exit(1);
+    }
+  } finally {
+    // Always deregister signal handlers, even if an error was thrown before the
+    // normal completion path (e.g. seed failure, container start failure).
+    process.removeListener("SIGINT", signalCleanup);
+    process.removeListener("SIGTERM", signalCleanup);
   }
 }

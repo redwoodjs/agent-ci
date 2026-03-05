@@ -14,89 +14,6 @@ new ElectrobunView.Electroview({ rpc });
 
 console.log("Hello Electrobun view loaded!");
 
-const logsEl = document.getElementById("dtu-logs");
-
-rpc.addMessageListener("dtuLog", (log: string) => {
-  if (logsEl) {
-    const isAtBottom = logsEl.scrollHeight - logsEl.scrollTop - logsEl.clientHeight < 10;
-    if (logsEl.innerText === "Waiting for DTU logs...\n") {
-      logsEl.innerText = "";
-    }
-    logsEl.innerText += log;
-    if (isAtBottom) {
-      logsEl.scrollTop = logsEl.scrollHeight;
-    }
-  }
-});
-
-const launchBtn = document.getElementById("launch-dtu-btn");
-const statusEl = document.getElementById("dtu-status");
-
-if (launchBtn && statusEl) {
-  let isRunning = false;
-
-  async function performLaunch() {
-    launchBtn!.setAttribute("disabled", "true");
-    statusEl!.innerText = "Starting...";
-    statusEl!.style.color = "orange";
-
-    try {
-      const success = true;
-      if (success) {
-        isRunning = true;
-        statusEl!.innerText = "Online";
-        statusEl!.style.color = "lightgreen";
-        launchBtn!.innerText = "Stop DTU";
-      } else {
-        statusEl!.innerText = "Failed";
-        statusEl!.style.color = "red";
-      }
-    } catch (e) {
-      console.error("Error launching DTU:", e);
-      statusEl!.innerText = "Error";
-      statusEl!.style.color = "red";
-    } finally {
-      launchBtn!.removeAttribute("disabled");
-    }
-  }
-
-  async function performStop() {
-    launchBtn!.setAttribute("disabled", "true");
-    statusEl!.innerText = "Stopping...";
-    statusEl!.style.color = "orange";
-
-    try {
-      const success = true;
-      if (success) {
-        isRunning = false;
-        statusEl!.innerText = "Offline";
-        statusEl!.style.color = "#888";
-        launchBtn!.innerText = "Launch DTU";
-      } else {
-        statusEl!.innerText = "Error";
-        statusEl!.style.color = "red";
-      }
-    } catch (e) {
-      console.error("Error stopping DTU:", e);
-      statusEl!.innerText = "Error";
-      statusEl!.style.color = "red";
-    } finally {
-      launchBtn!.removeAttribute("disabled");
-    }
-  }
-
-  launchBtn.addEventListener("click", async () => {
-    if (isRunning) {
-      await performStop();
-    } else {
-      await performLaunch();
-    }
-  });
-
-  // Auto-start DTU on load
-  performLaunch();
-}
-
 const selectRepoBtn = document.getElementById("select-repo-btn");
 const repoPathDisplay = document.getElementById("repo-path-display");
 const workflowsList = document.getElementById("workflows-list");
@@ -175,9 +92,6 @@ async function loadWorkflows(repoPath: string) {
 
       // Run workflow on click
       wfEl.addEventListener("click", async () => {
-        if (logsEl) {
-          logsEl.innerText = "Starting workflow...\n";
-        }
         setStopButtonState(true);
         try {
           const success = await fetch("http://localhost:8912/workflows/run", {
@@ -189,9 +103,6 @@ async function loadWorkflows(repoPath: string) {
             .then((r) => r.runnerName);
           if (!success) {
             setStopButtonState(false);
-            if (logsEl) {
-              logsEl.innerText += "\n[OA] Workflow run failed to start.";
-            }
           }
         } catch (e) {
           console.error("Error starting workflow:", e);

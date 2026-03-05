@@ -3,8 +3,14 @@ import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
 
-const CACHE_DIR = config.DTU_CACHE_DIR;
-const CACHES_FILE = path.join(CACHE_DIR, "caches.json");
+let CACHE_DIR = config.DTU_CACHE_DIR;
+let CACHES_FILE = path.join(CACHE_DIR, "caches.json");
+
+/** Override the cache directory at runtime (e.g. for ephemeral per-repo DTU instances). */
+export function setCacheDir(dir: string): void {
+  CACHE_DIR = dir;
+  CACHES_FILE = path.join(dir, "caches.json");
+}
 
 export const state = {
   jobs: new Map<string, any>(),

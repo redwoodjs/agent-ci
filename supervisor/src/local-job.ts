@@ -6,7 +6,7 @@ import { createInterface } from "readline";
 import { config } from "./config.js";
 import { Job } from "./types.js";
 import { createLogContext, finalizeLog, getWorkingDirectory } from "./logger.js";
-import { copyWorkspace } from "./cleanup.js";
+import { copyWorkspace, computeLockfileHash } from "./cleanup.js";
 import { minimatch } from "minimatch";
 import {
   startServiceContainers,
@@ -246,24 +246,35 @@ export async function executeLocalJob(job: Job): Promise<void> {
       // number itself (e.g. oa-runner-107 must stay as-is, not become oa-runner).
       workflowRunId = containerName.replace(/(?<=-\d+)-\d{3}$/, "");
     }
+    // Build our fields; we'll merge them ON TOP of whatever the orchestrator wrote
+    // so that matrixContext, warmCache, repoPath, etc. are preserved.
+    const freshFields: Record<string, any> = {
+      workflowPath: job.workflowPath,
+      workflowName: path.basename(job.workflowPath, path.extname(job.workflowPath)),
+      // Prefer the orchestrator-written label; fall back to raw taskId
+      jobName: existingJobName !== null ? existingJobName : (job.taskId ?? null),
+      workflowRunId,
+      commitId: job.headSha || "WORKING_TREE",
+      date: Date.now(),
+      taskId: job.taskId,
+      attempt: attempt ?? 1,
+    };
+    // Only overwrite repoPath if we actually found a .git root; otherwise keep
+    // the orchestrator's value (which is always correct for temp-dir tests too).
+    if (repoPath) {
+      freshFields.repoPath = repoPath;
+    }
+    // Read back existing metadata (already parsed above) to preserve
+    // orchestrator-written fields like matrixContext, warmCache, etc.
+    let existingMeta: Record<string, any> = {};
+    if (fs.existsSync(metadataPath)) {
+      try {
+        existingMeta = JSON.parse(fs.readFileSync(metadataPath, "utf-8"));
+      } catch {}
+    }
     fs.writeFileSync(
       metadataPath,
-      JSON.stringify(
-        {
-          workflowPath: job.workflowPath,
-          workflowName: path.basename(job.workflowPath, path.extname(job.workflowPath)),
-          // Prefer the orchestrator-written label; fall back to raw taskId
-          jobName: existingJobName !== null ? existingJobName : (job.taskId ?? null),
-          workflowRunId,
-          repoPath,
-          commitId: job.headSha || "WORKING_TREE",
-          date: Date.now(),
-          taskId: job.taskId,
-          attempt: attempt ?? 1,
-        },
-        null,
-        2,
-      ),
+      JSON.stringify({ ...existingMeta, ...freshFields }, null, 2),
       "utf-8",
     );
   }
@@ -298,6 +309,30 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const repoSlug = (job.githubRepo || config.GITHUB_REPO).replace("/", "-");
   const pnpmStoreDir = path.resolve(workDir, "pnpm-store", repoSlug);
   const playwrightCacheDir = path.resolve(workDir, "playwright-cache", repoSlug);
+  // Warm node_modules: a persistent bind-mount keyed by the pnpm lockfile hash.
+  // First run: pnpm install writes into this directory through the bind-mount.
+  // Subsequent runs: pnpm install finds node_modules already populated → NOP.
+  // The wave scheduler serializes the first job when the dir is empty so only
+  // one container runs pnpm install at a time (see runner.ts).
+  let lockfileHash = "no-lockfile";
+  try {
+    let repoRootForHash: string | undefined;
+    if (job.workflowPath) {
+      let dir = path.dirname(job.workflowPath);
+      while (dir !== "/" && !fs.existsSync(path.join(dir, ".git"))) {
+        dir = path.dirname(dir);
+      }
+      if (dir !== "/") {
+        repoRootForHash = dir;
+      }
+    }
+    if (repoRootForHash) {
+      lockfileHash = computeLockfileHash(repoRootForHash);
+    }
+  } catch {
+    // Best-effort; fall back to "no-lockfile"
+  }
+  const warmModulesDir = path.resolve(workDir, "warm-modules", repoSlug, lockfileHash);
   // Place workspace files directly in containerWorkDir/<repo>/<repo>/ so the
   // runner finds them at /home/runner/_work/<repo>/<repo>/ via bind-mount.
   // This eliminates the container-side cp -r (Copy 2) entirely.
@@ -311,6 +346,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   fs.mkdirSync(toolCacheDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(pnpmStoreDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(playwrightCacheDir, { recursive: true, mode: 0o777 });
+  fs.mkdirSync(warmModulesDir, { recursive: true, mode: 0o777 });
   // Ensure all intermediate dirs are world-writable for DinD scenarios where
   // the supervisor runs as root but nested containers use runner user (UID 1001)
   try {
@@ -321,6 +357,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     fs.chmodSync(toolCacheDir, 0o777);
     fs.chmodSync(pnpmStoreDir, 0o777);
     fs.chmodSync(playwrightCacheDir, 0o777);
+    fs.chmodSync(warmModulesDir, 0o777);
   } catch {
     // Ignore chmod errors (non-critical)
   }
@@ -565,15 +602,20 @@ exit $EXIT_CODE
     // musl-based images (Alpine) are NOT supported. See issue #15.
     const hostWorkDir = path.resolve(getWorkingDirectory(), "work", containerName);
     const hostToolcacheDir = path.resolve(getWorkingDirectory(), "toolcache");
-    const hostRunnerDir = path.resolve(getWorkingDirectory(), "runner");
+    // Shared seed directory — extracted once and reused across all containers.
+    const hostRunnerSeedDir = path.resolve(getWorkingDirectory(), "runner");
+    // Per-container copy — each container gets its own writable copy so concurrent
+    // config.sh / run.sh invocations don't race on .runner / .credentials files.
+    const hostRunnerDir = path.resolve(getWorkingDirectory(), `runner-${containerName}`);
     const useDirectContainer = !!job.container;
     const containerImage = useDirectContainer ? job.container!.image : IMAGE;
 
     // When using a custom container, we need the runner binary on the host so we
-    // can bind-mount it in. Extract from the actions-runner image once.
+    // can bind-mount it in. Extract from the actions-runner image once into the
+    // shared seed directory, then copy to a per-container directory.
     if (useDirectContainer) {
-      await fs.promises.mkdir(hostRunnerDir, { recursive: true });
-      const markerFile = path.join(hostRunnerDir, ".seeded");
+      await fs.promises.mkdir(hostRunnerSeedDir, { recursive: true });
+      const markerFile = path.join(hostRunnerSeedDir, ".seeded");
       try {
         await fs.promises.access(markerFile);
       } catch {
@@ -585,12 +627,12 @@ exit $EXIT_CODE
           Cmd: ["true"],
         });
         const { execSync } = await import("node:child_process");
-        execSync(`docker cp ${tmpName}:/home/runner/. "${hostRunnerDir}/"`, { stdio: "pipe" });
+        execSync(`docker cp ${tmpName}:/home/runner/. "${hostRunnerSeedDir}/"`, { stdio: "pipe" });
         await seedContainer.remove();
         // Patch config.sh to skip the dependency checks (ldd/ldconfig for libicu etc.)
         // These checks fail in minimal containers. The runner binary itself works fine
         // with DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1.
-        const configShPath = path.join(hostRunnerDir, "config.sh");
+        const configShPath = path.join(hostRunnerSeedDir, "config.sh");
         let configSh = await fs.promises.readFile(configShPath, "utf8");
         configSh = configSh.replace(
           /# Check dotnet Core.*?^fi$/ms,
@@ -599,6 +641,26 @@ exit $EXIT_CODE
         await fs.promises.writeFile(configShPath, configSh);
         await fs.promises.writeFile(markerFile, new Date().toISOString());
         emit("  ✔ Runner extracted.");
+      }
+      // Clean stale runner auth files from the seed dir itself — they can accumulate
+      // from runs before the per-container runner fix, when this dir was used directly.
+      for (const staleFile of [".runner", ".credentials", ".credentials_rsaparams"]) {
+        try {
+          fs.rmSync(path.join(hostRunnerSeedDir, staleFile));
+        } catch {
+          /* not present */
+        }
+      }
+      // Copy seed to per-container directory so config.sh / run.sh don't race.
+      execSync(`cp -a "${hostRunnerSeedDir}" "${hostRunnerDir}"`, { stdio: "pipe" });
+      // Remove any stale runner auth files from the copy — belt-and-suspenders guard
+      // in case something adds them to the seed dir in the future.
+      for (const staleFile of [".runner", ".credentials", ".credentials_rsaparams"]) {
+        try {
+          fs.rmSync(path.join(hostRunnerDir, staleFile));
+        } catch {
+          /* not present */
+        }
       }
     }
 
@@ -649,14 +711,14 @@ exit $EXIT_CODE
       Cmd: [
         ...(useDirectContainer ? ["-c"] : ["bash", "-c"]),
         // MAYBE_SUDO: use sudo if available, otherwise run directly (custom containers may not have sudo)
-        `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }; MAYBE_SUDO chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp /tmp/oa-shims/git /usr/bin/git 2>/dev/null; fi && ${svcPortForwardSnippet}node -e "
+        `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }; MAYBE_SUDO chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp /tmp/oa-shims/git /usr/bin/git 2>/dev/null; fi && ${svcPortForwardSnippet}echo "[OA] Starting DTU proxy (port 80 -> ${dtuPort})..." && PROXY_T0=$(date +%s%3N) && node -e "
 const net=require('net');
 const srv=net.createServer(c=>{
   const s=net.connect(${dtuPort},'$OA_DTU_HOST',()=>{c.pipe(s);s.pipe(c)});
   s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
 });
-srv.listen(80,'127.0.0.1');
-" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
+srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
+" & PROXY_PID=$! && for i in $(seq 1 100); do nc -z 127.0.0.1 80 2>/dev/null && break; sleep 0.1; done && echo "[OA] DTU proxy ready in $(($(date +%s%3N) - PROXY_T0))ms" && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
       ],
       HostConfig: {
         Binds: [
@@ -669,6 +731,10 @@ srv.listen(80,'127.0.0.1');
           `${hostToolcacheDir}:/opt/hostedtoolcache`,
           `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
           `${playwrightCacheDir}:/home/runner/.cache/ms-playwright`,
+          // Warm node_modules: pre-populated on first run, served from host on subsequent runs.
+          // pnpm install inside the container writes here directly; subsequent runs find
+          // node_modules already in place and exit immediately.
+          `${warmModulesDir}:/home/runner/_work/${repoName}/${repoName}/node_modules`,
         ],
         AutoRemove: false,
         Ulimits: [{ Name: "nofile", Soft: 65536, Hard: 65536 }],
@@ -812,6 +878,10 @@ srv.listen(80,'127.0.0.1');
     }
     if (fs.existsSync(diagDir)) {
       fs.rmSync(diagDir, { recursive: true, force: true });
+    }
+    // Clean per-container runner copy (always safe to remove)
+    if (fs.existsSync(hostRunnerDir)) {
+      fs.rmSync(hostRunnerDir, { recursive: true, force: true });
     }
     // Clean containerWorkDir only on success (keep failed workspaces for inspection)
     if (jobSucceeded && fs.existsSync(containerWorkDir)) {

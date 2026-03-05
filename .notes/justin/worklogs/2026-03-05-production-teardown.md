@@ -171,3 +171,13 @@ R2 binding error for bucket 'machinen': Please enable R2 through the Cloudflare 
 ```
 
 Account has been downgraded to free tier. R2 is not available on free. Need to remove the R2 binding from `wrangler.jsonc` to get past Cloudflare's deploy-time validation. We are keeping the bucket itself (it still exists on the account), just unbinding it from the worker so the deploy can proceed.
+
+## Deploy Attempt 2 — Stub Worker + Stripped Config
+
+Replaced `src/worker.tsx` with a minimal stub (returns 503 "shutting down"). Stripped all bindings from `wrangler.jsonc`: R2, vectorize, AI, queues (producers + consumers), crons, env blocks. Only the migration history and v15 `deleted_classes` remain.
+
+Got: `Queue handler is missing` error (code 11001). CF validates that the deployed code exports a `queue` handler if the *existing* deployment has active queue consumers. Even though our config now has `consumers: []`, the prior deploy still had them registered — CF does a smoke test against the new code before accepting the deploy.
+
+## Deploy Attempt 3 — Add No-Op Handlers
+
+Added no-op `queue()` and `scheduled()` handlers to the stub worker to satisfy CF's validation. The stub now exports `fetch`, `queue`, and `scheduled` — all no-ops.

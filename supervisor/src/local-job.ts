@@ -549,7 +549,8 @@ exit $EXIT_CODE
     );
 
     // 6. Spawn container
-    const dtuPort = new URL(config.GITHUB_API_URL).port || "80";
+    // Use the ephemeral DTU URL (random port) instead of the global config port.
+    const dtuPort = new URL(dtuUrl).port || "80";
     // When running inside a Docker container (CI), nested containers can't reach the host via
     // `host.docker.internal` — that points to the Mac/host, not the CI container. We need the
     // CI container's own bridge IP so nested containers can reach the DTU running inside it.
@@ -568,10 +569,7 @@ exit $EXIT_CODE
         dtuHost = "172.17.0.1"; // fallback to bridge gateway
       }
     }
-    const dockerApiUrl = config.GITHUB_API_URL.replace("localhost", dtuHost).replace(
-      "127.0.0.1",
-      dtuHost,
-    );
+    const dockerApiUrl = dtuUrl.replace("localhost", dtuHost).replace("127.0.0.1", dtuHost);
     const repoUrl = `${dockerApiUrl}/${job.githubRepo || config.GITHUB_REPO}`;
 
     if (debug) {

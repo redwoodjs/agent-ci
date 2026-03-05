@@ -16,9 +16,6 @@ import {
   retryRun,
   addSSEClient,
   loadWatchedRepos,
-  getDtuStatus,
-  startDtu,
-  stopDtu,
   getRunsForCommit,
   getRecentRuns,
   getRunDetail,
@@ -333,23 +330,6 @@ app.get("/git/working-tree", async (req, res) => {
   res.end(JSON.stringify({ dirty }));
 });
 
-// DTU
-app.get("/dtu", async (req, res) => {
-  const status = await getDtuStatus();
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ status }));
-});
-
-app.post("/dtu", async (req, res) => {
-  await startDtu();
-  res.writeHead(200).end();
-});
-
-app.delete("/dtu", async (req, res) => {
-  await stopDtu();
-  res.writeHead(200).end();
-});
-
 // Concurrency
 app.get("/concurrency", (req, res) => {
   res.writeHead(200, { "Content-Type": "application/json" });
@@ -383,14 +363,11 @@ export async function startServer() {
   app.listen(PORT, () => {
     console.log(`[OA Supervisor] Server listening on http://localhost:${PORT}`);
   });
-  // Auto-start DTU at runtime
-  startDtu();
 
   // Aggressive shutdown: kill ALL runner containers when the supervisor exits
   const gracefulShutdown = () => {
     console.log("\n[OA Supervisor] Shutting down — killing all runner containers...");
     killAllRunnerContainers();
-    stopDtu();
     process.exit(0);
   };
   process.on("SIGINT", gracefulShutdown);

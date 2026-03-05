@@ -572,63 +572,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     // Terminal run - nothing extra to poll
   }
 
-  const dtuStatusEl = document.getElementById("dtu-status");
-  const pollDtuStatus = async () => {
-    if (!dtuStatusEl) {
-      return;
-    }
-
-    let dtuStatus = "Stopped";
-    try {
-      const data = await api<{ status: string }>("/dtu");
-      dtuStatus = data.status;
-    } catch {
-      dtuStatus = "Error";
-    }
-
-    if (dtuStatus === "Running") {
-      dtuStatusEl.innerText = "DTU: Running";
-      dtuStatusEl.className = "status-badge status-Passed";
-    } else if (dtuStatus === "Starting") {
-      dtuStatusEl.innerText = "DTU: Starting...";
-      dtuStatusEl.className = "status-badge status-Running";
-    } else if (dtuStatus === "Failed" || dtuStatus === "Error") {
-      dtuStatusEl.innerText = "DTU: Error (Click to Retry)";
-      dtuStatusEl.className = "status-badge status-Failed";
-    } else {
-      dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
-      dtuStatusEl.className = "status-badge status-Failed";
-    }
-  };
-
-  if (dtuStatusEl) {
-    dtuStatusEl.addEventListener("click", async () => {
-      if (
-        dtuStatusEl.innerText.includes("Starting") ||
-        dtuStatusEl.innerText.includes("Stopping")
-      ) {
-        return;
-      }
-      const isCurrentlyRunning = dtuStatusEl.innerText.includes("Running");
-      dtuStatusEl.innerText = isCurrentlyRunning ? "DTU: Stopping..." : "DTU: Starting...";
-      dtuStatusEl.className = "status-badge status-Running";
-      try {
-        await api("/dtu", { method: isCurrentlyRunning ? "DELETE" : "POST" });
-      } catch {}
-      await pollDtuStatus();
-    });
-    pollDtuStatus();
-  }
-
   try {
     const evtSource = new EventSource("http://localhost:8912/events");
     evtSource.addEventListener("message", (event) => {
       try {
         const data = JSON.parse(event.data);
         recordSseEvent(data);
-        if (data.type === "dtuStatusChanged") {
-          pollDtuStatus();
-        }
         if (data.type === "runFinished") {
           if (statusPollTimer !== null) {
             clearInterval(statusPollTimer);

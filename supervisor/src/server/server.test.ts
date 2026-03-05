@@ -57,6 +57,18 @@ describe("Supervisor Server API", () => {
     const res = await request(app.handler as any).get("/workflows");
     expect(res.status).toBe(400);
   });
+
+  it("GET /disk-usage returns valid usage response", async () => {
+    const res = await request(app.handler as any).get("/disk-usage");
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("workspaces");
+    expect(res.body.workspaces).toHaveProperty("count");
+    expect(res.body.workspaces).toHaveProperty("items");
+    expect(typeof res.body.totalBytes).toBe("number");
+    expect(typeof res.body.pnpmStoreBytes).toBe("number");
+    expect(typeof res.body.playwrightCacheBytes).toBe("number");
+    expect(typeof res.body.logsBytes).toBe("number");
+  });
 });
 
 // ── Multi-job workflow fan-out ─────────────────────────────────────────────────

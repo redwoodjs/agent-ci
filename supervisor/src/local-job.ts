@@ -6,6 +6,7 @@ import { createInterface } from "readline";
 import { config } from "./config.js";
 import { Job } from "./types.js";
 import { createLogContext, finalizeLog, getWorkingDirectory } from "./logger.js";
+import { copyWorkspace } from "./cleanup.js";
 import { minimatch } from "minimatch";
 import {
   startServiceContainers,
@@ -288,9 +289,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   emit(`  └─ Delivery: ${job.deliveryId}\n`);
 
   // Move workspace prep BEFORE seed to pass localPath
-  const workspaceId = Date.now();
   const workDir = getWorkingDirectory();
-  const workspaceDir = path.resolve(workDir, "work", `workspace-${workspaceId}`);
   const containerWorkDir = path.resolve(workDir, "work", containerName);
   const shimsDir = path.resolve(workDir, "shims", containerName);
   const diagDir = path.resolve(workDir, "diag", containerName);
@@ -298,6 +297,11 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const repoSlug = (job.githubRepo || config.GITHUB_REPO).replace("/", "-");
   const pnpmStoreDir = path.resolve(workDir, "pnpm-store", repoSlug);
   const playwrightCacheDir = path.resolve(workDir, "playwright-cache", repoSlug);
+  // Place workspace files directly in containerWorkDir/<repo>/<repo>/ so the
+  // runner finds them at /home/runner/_work/<repo>/<repo>/ via bind-mount.
+  // This eliminates the container-side cp -r (Copy 2) entirely.
+  const repoName = (job.githubRepo || config.GITHUB_REPO).split("/").pop() || "repo";
+  const workspaceDir = path.resolve(containerWorkDir, repoName, repoName);
 
   fs.mkdirSync(workspaceDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(containerWorkDir, { recursive: true, mode: 0o777 });
@@ -309,8 +313,8 @@ export async function executeLocalJob(job: Job): Promise<void> {
   // Ensure all intermediate dirs are world-writable for DinD scenarios where
   // the supervisor runs as root but nested containers use runner user (UID 1001)
   try {
-    fs.chmodSync(workspaceDir, 0o777);
     fs.chmodSync(containerWorkDir, 0o777);
+    fs.chmodSync(workspaceDir, 0o777);
     fs.chmodSync(shimsDir, 0o777);
     fs.chmodSync(diagDir, 0o777);
     fs.chmodSync(toolCacheDir, 0o777);
@@ -319,6 +323,18 @@ export async function executeLocalJob(job: Job): Promise<void> {
   } catch {
     // Ignore chmod errors (non-critical)
   }
+
+  // Signal handler: ensure cleanup runs even when killed
+  const signalCleanup = () => {
+    for (const d of [containerWorkDir, shimsDir, diagDir]) {
+      try {
+        fs.rmSync(d, { recursive: true, force: true });
+      } catch {}
+    }
+    process.exit(1);
+  };
+  process.on("SIGINT", signalCleanup);
+  process.on("SIGTERM", signalCleanup);
 
   // 1. Seed the job to Local DTU
   // Build a corrected repository object from job.githubRepo (which is resolved from the git
@@ -381,33 +397,9 @@ export async function executeLocalJob(job: Job): Promise<void> {
       });
     } else {
       // Default: copy the working directory as-is, including dirty/untracked files.
-      // rsync excludes .git to keep the workspace clean for the runner.
-      try {
-        // Preferred: rsync (fast, honours gitignore via git ls-files)
-        execSync(
-          `git ls-files --cached --others --exclude-standard -z | rsync -a --files-from=- --from0 ./ ${workspaceDir}/`,
-          { stdio: "pipe", shell: "/bin/sh", cwd: repoRoot },
-        );
-      } catch {
-        // Fallback: use Node.js fs.cpSync when rsync is not available (e.g. actions-runner image)
-        const files = execSync(`git ls-files --cached --others --exclude-standard -z`, {
-          stdio: "pipe",
-          cwd: repoRoot,
-        })
-          .toString()
-          .split("\0")
-          .filter(Boolean);
-        for (const file of files) {
-          const src = path.join(repoRoot, file);
-          const dest = path.join(workspaceDir, file);
-          try {
-            fs.mkdirSync(path.dirname(dest), { recursive: true });
-            fs.cpSync(src, dest, { force: true, recursive: true });
-          } catch {
-            // Skip files that can't be copied (e.g. symlinks broken, etc.)
-          }
-        }
-      }
+      // Uses git ls-files to respect .gitignore (avoids copying node_modules, _/, etc.)
+      // On macOS: per-file APFS CoW clones. On Linux: rsync. Fallback: fs.cpSync.
+      copyWorkspace(repoRoot, workspaceDir);
     }
 
     // Add fake git repo so actions/checkout can use the existing workspace.
@@ -659,7 +651,7 @@ const srv=net.createServer(c=>{
   s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
 });
 srv.listen(80,'127.0.0.1');
-" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && mkdir -p $WORKSPACE_PATH && (cp -r /tmp/oa-workspace/. $WORKSPACE_PATH/ 2>/dev/null && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready: $(ls $WORKSPACE_PATH | wc -l) files" || echo "Workspace copy skipped - no mounted workspace") && ./run.sh --once`,
+" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
     ],
     HostConfig: {
       Binds: [
@@ -669,7 +661,6 @@ srv.listen(80,'127.0.0.1');
         "/var/run/docker.sock:/var/run/docker.sock",
         `${shimsDir}:/tmp/oa-shims`,
         `${diagDir}:/home/runner/_diag`,
-        `${workspaceDir}:/tmp/oa-workspace`,
         `${hostToolcacheDir}:/opt/hostedtoolcache`,
         `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
         `${playwrightCacheDir}:/home/runner/.cache/ms-playwright`,
@@ -780,6 +771,10 @@ srv.listen(80,'127.0.0.1');
     finalizeLog(outputLogPath, exitCode, job.headSha, containerName);
   }
 
+  // Deregister signal handlers — normal cleanup is handling it
+  process.removeListener("SIGINT", signalCleanup);
+  process.removeListener("SIGTERM", signalCleanup);
+
   // Cleanup
   try {
     await container.remove({ force: true });
@@ -790,14 +785,16 @@ srv.listen(80,'127.0.0.1');
   if (serviceCtx) {
     await cleanupServiceContainers(docker, serviceCtx, emit);
   }
-  if (fs.existsSync(workspaceDir)) {
-    fs.rmSync(workspaceDir, { recursive: true, force: true });
-  }
+  // workspaceDir is now inside containerWorkDir — no separate cleanup needed
   if (fs.existsSync(shimsDir)) {
     fs.rmSync(shimsDir, { recursive: true, force: true });
   }
   if (fs.existsSync(diagDir)) {
     fs.rmSync(diagDir, { recursive: true, force: true });
+  }
+  // Clean containerWorkDir only on success (keep failed workspaces for inspection)
+  if (jobSucceeded && fs.existsSync(containerWorkDir)) {
+    fs.rmSync(containerWorkDir, { recursive: true, force: true });
   }
 
   // Propagate failure so the orchestrator (which checks our exit code) sees it

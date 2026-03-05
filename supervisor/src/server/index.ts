@@ -32,6 +32,9 @@ import {
 } from "./orchestrator.js";
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
+import { getWorkingDirectory } from "../logger.js";
+import { pruneStaleWorkspaces, getDiskUsage } from "../cleanup.js";
+
 const PORT = 8912;
 export const app = polka();
 
@@ -343,7 +346,44 @@ app.put("/concurrency", (req, res) => {
   res.end(JSON.stringify({ max: getMaxConcurrentJobs() }));
 });
 
+// Disk Usage
+app.get("/disk-usage", (req, res) => {
+  const usage = getDiskUsage(getWorkingDirectory());
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify(usage));
+});
+
+app.delete("/disk-usage/workspaces", (req, res) => {
+  const { name } = (req as any).body || {};
+  const workDir = getWorkingDirectory();
+  const fs = require("node:fs");
+  const path = require("node:path");
+
+  if (name) {
+    // Delete specific workspace
+    const wsPath = path.join(workDir, "work", name);
+    if (!name.startsWith("oa-runner-") || !fs.existsSync(wsPath)) {
+      return res.writeHead(404).end();
+    }
+    fs.rmSync(wsPath, { recursive: true, force: true });
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ deleted: [name] }));
+  } else {
+    // Delete all stale workspaces (24h)
+    const pruned = pruneStaleWorkspaces(workDir, 24 * 60 * 60 * 1000);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ deleted: pruned }));
+  }
+});
+
 export async function startServer() {
+  // Prune stale runner workspaces older than 24 hours (defense in depth)
+  const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
+  const pruned = pruneStaleWorkspaces(getWorkingDirectory(), TWENTY_FOUR_HOURS);
+  if (pruned.length > 0) {
+    console.log(`[OA Supervisor] Pruned ${pruned.length} stale workspace(s): ${pruned.join(", ")}`);
+  }
+
   await loadWatchedRepos();
   app.listen(PORT, () => {
     console.log(`[OA Supervisor] Server listening on http://localhost:${PORT}`);

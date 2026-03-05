@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Deterministic test double for `claude -p` that produces Gherkin from stdin keywords.
+# Used in e2e tests via CLAUDE_BIN env var override.
+DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$DIR/../../.." && pwd)"
+exec "$REPO_ROOT/node_modules/.bin/tsx" "$DIR/fake-claude-gen-specs.mts" "$@"

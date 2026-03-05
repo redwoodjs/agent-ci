@@ -24,7 +24,9 @@ This project is organized as a `pnpm` workspace: !!!!!!!!!!!
 ### 1. Prerequisites
 
 - `pnpm` (v10+)
-- `Docker` installed and running.
+- A Docker provider running on your machine:
+  - **macOS:** We highly recommend [OrbStack](https://orbstack.dev/) for its speed, low battery usage, and network integration. Alternatively, you can use Docker Desktop or Colima.
+  - **Linux:** Native Docker Engine.
 
 ### 2. Install Dependencies
 
@@ -55,6 +57,8 @@ Shared environment variables are managed at the root.
 
 ## Run Locally
 
+### Full Services Stack
+
 You can run all services in the required sequence from the root:
 
 ```bash
@@ -63,15 +67,31 @@ pnpm dev
 
 This command uses `concurrently` and `wait-on` to ensure:
 
-1. `dtu/github-actions` (Mock Server) starts first on port 8910.
+1. `dtu-github-actions` (Mock Server) starts first on port 8910.
 2. `bridge` waits for the mock server to be ready and starts on port 8911.
 3. `supervisor` waits for the bridge to be ready.
 
 Or target specific services:
 
 ```bash
-pnpm --filter dtu/github-actions dev
+pnpm --filter dtu-github-actions dev
 pnpm --filter bridge dev
+```
+
+### Headless Mode (This Repository Only)
+
+You can run workflows securely in headless mode without starting the full suite of services. _Note: Running external workflows is not yet supported or tested._
+
+To run a specific workflow:
+
+```bash
+pnpm --filter supervisor run oa run --workflow .github/workflows/tests.yml
+```
+
+To run all relevant PR/Push workflows for your current branch:
+
+```bash
+pnpm --filter supervisor run oa run --all
 ```
 
 ---

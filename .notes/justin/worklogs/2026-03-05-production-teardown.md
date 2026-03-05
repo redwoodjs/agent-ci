@@ -315,7 +315,7 @@ Deleted all 25 machinen-related vectorize indexes, including old rotations (v2�
 
 ## Final State
 
-### Deleted ✅
+### Deleted ✅✅
 - All 3 workers: `machinen`, `test-github`, `rag-experiment-1`
 - All 12 DO classes (via v15 migration deploy)
 - All machinen queues except 2 R2 notification targets

@@ -14,13 +14,7 @@
       "* * * * *", // Heartbeat
     ],
   },
-  "r2_buckets": [
-    {
-      "binding": "MACHINEN_BUCKET",
-      "bucket_name": "machinen",
-      "remote": true,
-    },
-  ],
+  "r2_buckets": [],
   "ai": {
     "binding": "AI",
     "remote": true,
@@ -317,13 +311,7 @@
       },
     },
     "rag-experiment-1": {
-      "r2_buckets": [
-        {
-          "binding": "MACHINEN_BUCKET",
-          "bucket_name": "machinen",
-          "remote": true,
-        },
-      ],
+      "r2_buckets": [],
       "ai": {
         "binding": "AI",
         "remote": true,
@@ -514,13 +502,7 @@
           "new_sqlite_classes": ["MomentGraphDO"],
         },
       ],
-      "r2_buckets": [
-        {
-          "binding": "MACHINEN_BUCKET",
-          "bucket_name": "machinen",
-          "remote": true,
-        },
-      ],
+      "r2_buckets": [],
       "ai": {
         "binding": "AI",
         "remote": true,

@@ -161,3 +161,13 @@ SQLite classes:
 - SpeccingStateDO
 
 Already deleted (v10): DiscordGatewayDO — skip.
+
+## Deploy Attempt 1 — R2 Binding Error
+
+Attempted `wrangler deploy`. Got:
+
+```
+R2 binding error for bucket 'machinen': Please enable R2 through the Cloudflare Dashboard. [code: 10136]
+```
+
+Account has been downgraded to free tier. R2 is not available on free. Need to remove the R2 binding from `wrangler.jsonc` to get past Cloudflare's deploy-time validation. We are keeping the bucket itself (it still exists on the account), just unbinding it from the worker so the deploy can proceed.

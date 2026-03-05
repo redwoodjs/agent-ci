@@ -68,7 +68,7 @@ describe("Supervisor Server API", () => {
     expect(typeof res.body.pnpmStoreBytes).toBe("number");
     expect(typeof res.body.playwrightCacheBytes).toBe("number");
     expect(typeof res.body.logsBytes).toBe("number");
-  });
+  }, 60_000); // getDiskUsage recursively scans pnpm-store / playwright-cache / logs which can be large
 });
 
 // ── Multi-job workflow fan-out ─────────────────────────────────────────────────

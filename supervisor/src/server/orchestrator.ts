@@ -8,6 +8,7 @@ import type { ServerResponse } from "node:http";
 import crypto from "node:crypto";
 import { PROJECT_ROOT, getLogsDir, getNextLogNum } from "../logger.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./concurrency.js";
+import { killRunnerContainers } from "../shutdown.js";
 
 const execAsync = promisify(execFile);
 
@@ -415,6 +416,15 @@ function deriveRunStatus(
   docker: { running: boolean; exitCode: number | null },
   metadataStatus?: string,
 ): string {
+  // Check activeRuns FIRST: while the subprocess is alive the job is always "Running",
+  // regardless of what Docker reports. This prevents a race window where:
+  //   1. container.wait() resolves → container.remove() is called
+  //   2. UI polls: Docker inspect returns null exitCode (container gone)
+  //   3. meta.status not yet written (proc.on("close") hasn't fired)
+  //   → old code returned "Unknown" or a stale status
+  if (activeRuns.has(runId)) {
+    return "Running";
+  }
   if (docker.running) {
     return "Running";
   }
@@ -424,11 +434,7 @@ function deriveRunStatus(
   if (docker.exitCode !== null) {
     return "Failed";
   }
-  // The spawned process is still alive (container may not exist yet or was already removed)
-  if (activeRuns.has(runId)) {
-    return "Running";
-  }
-  // Fall back to status persisted in metadata.json
+  // Fall back to status persisted in metadata.json (written by proc.on("close"))
   if (metadataStatus) {
     return metadataStatus;
   }
@@ -1409,7 +1415,8 @@ export async function runWorkflow(
 
 export async function stopWorkflow(runId: string) {
   try {
-    await execAsync("docker", ["rm", "-f", runId]);
+    // Kill the runner container, its service sidecars, and the bridge network
+    killRunnerContainers(runId);
     return true;
   } catch {
     return false;

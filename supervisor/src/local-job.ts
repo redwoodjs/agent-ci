@@ -13,6 +13,7 @@ import {
   cleanupServiceContainers,
   type ServiceContext,
 } from "./service-containers.js";
+import { killRunnerContainers } from "./shutdown.js";
 
 // ─── ANSI / log-level patterns ────────────────────────────────────────────────
 
@@ -324,8 +325,11 @@ export async function executeLocalJob(job: Job): Promise<void> {
     // Ignore chmod errors (non-critical)
   }
 
-  // Signal handler: ensure cleanup runs even when killed
+  // Signal handler: ensure cleanup runs even when killed.
+  // Kills the Docker container + any service sidecars + network, then removes temp dirs.
   const signalCleanup = () => {
+    // Force-kill Docker containers (sync so it works in signal handlers)
+    killRunnerContainers(containerName);
     for (const d of [containerWorkDir, shimsDir, diagDir]) {
       try {
         fs.rmSync(d, { recursive: true, force: true });
@@ -651,7 +655,7 @@ const srv=net.createServer(c=>{
   s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
 });
 srv.listen(80,'127.0.0.1');
-" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
+" & sleep 0.3 && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
     ],
     HostConfig: {
       Binds: [
@@ -744,8 +748,28 @@ srv.listen(80,'127.0.0.1');
   tailDone = true;
   await tailPromise;
 
-  // 8. Wait for completion
-  const waitResult = await container.wait();
+  // 8. Wait for completion (with timeout to handle runner hang in --once mode)
+  const CONTAINER_EXIT_TIMEOUT_MS = 30_000;
+  let waitResult: { StatusCode: number };
+  try {
+    waitResult = await Promise.race([
+      container.wait(),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Container exit timeout")), CONTAINER_EXIT_TIMEOUT_MS),
+      ),
+    ]);
+  } catch {
+    // Container didn't exit in time — force-stop it
+    emit(
+      `  ⚠ Runner did not exit within ${CONTAINER_EXIT_TIMEOUT_MS / 1000}s, force-stopping container…`,
+    );
+    try {
+      await container.stop({ t: 5 });
+    } catch {
+      /* already stopped */
+    }
+    waitResult = await container.wait();
+  }
   const containerExitCode = waitResult.StatusCode;
 
   // Trust the result reported in the log over the container exit code.

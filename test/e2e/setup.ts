@@ -64,7 +64,7 @@ export class E2ETestHarness {
   }
 
   async runSupervisor(jobId: string) {
-    return this.runSupervisorWithWorkflow(jobId, ".github/workflows/smoke-tests.yml", "test");
+    return this.runSupervisorWithWorkflow(jobId, ".github/workflows/smoke-tests.yml", "build");
   }
 
   async runSupervisorWithWorkflow(jobId: string, workflow: string, task: string) {

@@ -34,30 +34,13 @@ export async function getDockerContainerStatus(
   }
 }
 
-export function deriveRunStatus(
-  runId: string,
-  docker: { running: boolean; exitCode: number | null },
-  metadataStatus?: string,
-): string {
-  // Check activeRuns FIRST: while the subprocess is alive the job is always "Running",
-  // regardless of what Docker reports. This prevents a race window where:
-  //   1. container.wait() resolves → container.remove() is called
-  //   2. UI polls: Docker inspect returns null exitCode (container gone)
-  //   3. meta.status not yet written (proc.on("close") hasn't fired)
-  //   → old code returned "Unknown" or a stale status
+export function deriveRunStatus(runId: string, metadataStatus?: string): string {
+  // activeRuns is the authoritative source for "is this job live right now".
+  // The Set is populated in setupJob() and cleared in proc.on("close").
   if (activeRuns.has(runId)) {
     return "Running";
   }
-  if (docker.running) {
-    return "Running";
-  }
-  if (docker.exitCode === 0) {
-    return "Passed";
-  }
-  if (docker.exitCode !== null) {
-    return "Failed";
-  }
-  // Fall back to status persisted in metadata.json (written by proc.on("close"))
+  // After the process exits, metadata.status is persisted ("Passed" / "Failed" / "Pending").
   if (metadataStatus) {
     return metadataStatus;
   }
@@ -80,6 +63,7 @@ export async function getRunsForCommit(
     date: number;
     endDate?: number;
     attempt: number;
+    warmCache?: boolean;
   }[]
 > {
   const logsDir = getLogsDir();
@@ -93,6 +77,7 @@ export async function getRunsForCommit(
     date: number;
     endDate?: number;
     attempt: number;
+    warmCache?: boolean;
   }[] = [];
 
   try {
@@ -107,8 +92,7 @@ export async function getRunsForCommit(
         if (meta.repoPath !== repoPath || meta.commitId !== commitId) {
           continue;
         }
-        const docker = await getDockerContainerStatus(entry.name);
-        const status = deriveRunStatus(entry.name, docker, meta.status);
+        const status = deriveRunStatus(entry.name, meta.status);
         results.push({
           runId: entry.name,
           runnerName: entry.name,
@@ -119,6 +103,7 @@ export async function getRunsForCommit(
           date: meta.date || 0,
           endDate: meta.endDate,
           attempt: meta.attempt ?? 1,
+          warmCache: meta.warmCache,
         });
       } catch {
         // Skip entries with missing/invalid metadata
@@ -196,8 +181,7 @@ export async function getRecentRuns(limit = 10): Promise<
         if (allowedRepos.length > 0 && !allowedRepos.includes(meta.repoPath)) {
           continue;
         }
-        const docker = await getDockerContainerStatus(entry.name);
-        const status = deriveRunStatus(entry.name, docker, meta.status);
+        const status = deriveRunStatus(entry.name, meta.status);
         results.push({
           runId: entry.name,
           workflowName: meta.workflowName || entry.name,
@@ -231,13 +215,13 @@ export async function getRunDetail(runId: string): Promise<{
   taskId?: string;
   workflowRunId?: string;
   attempt?: number;
+  warmCache?: boolean;
 } | null> {
   const logsDir = getLogsDir();
   const metaPath = path.join(logsDir, runId, "metadata.json");
   try {
     const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
-    const docker = await getDockerContainerStatus(runId);
-    const status = deriveRunStatus(runId, docker, meta.status);
+    const status = deriveRunStatus(runId, meta.status);
     return {
       runId,
       runnerName: runId,
@@ -251,6 +235,7 @@ export async function getRunDetail(runId: string): Promise<{
       taskId: meta.taskId ?? null,
       workflowRunId: meta.workflowRunId ?? runId,
       attempt: meta.attempt ?? 1,
+      warmCache: meta.warmCache,
     };
   } catch {
     return null;

@@ -100,6 +100,12 @@ async function run() {
 
     const parsedConfig = loadOaConfig(configPath);
     let workingDir = parsedConfig.workingDirectory;
+    // OA_WORKING_DIR is injected by the server's spawnRunner so child processes
+    // inherit the server's resolved workingDirectory rather than loading it from
+    // the global ~/.config/oa/config.jsonc (which may point to a different repo).
+    if (process.env.OA_WORKING_DIR) {
+      workingDir = process.env.OA_WORKING_DIR;
+    }
     if (workingDir) {
       if (!path.isAbsolute(workingDir)) {
         workingDir = path.resolve(PROJECT_ROOT, workingDir);

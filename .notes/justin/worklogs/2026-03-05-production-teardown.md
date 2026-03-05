@@ -212,7 +212,7 @@ The correct teardown order, accounting for CF's dependency enforcement:
 #### Phase 1: Production Teardown
 
 - [x] **1.1** Deploy stub worker with v15 DO deletion migration (done)
-- [ ] **1.2** Delete all production queues (12 queues: `*-prod` + DLQs)
+- [x] **1.2** Delete all production queues (12 queues: `*-prod` + DLQs)
 - [ ] **1.3** Delete production worker: `wrangler delete --name machinen`
 - [ ] **1.4** Delete production vectorize indexes (3: `rag-index-v8`, `moment-index-v8`, `subject-index-v8`)
 
@@ -239,3 +239,92 @@ The correct teardown order, accounting for CF's dependency enforcement:
 - [ ] **5.1** `wrangler queues list` — confirm empty
 - [ ] **5.2** `wrangler vectorize list` — confirm empty
 - [ ] **5.3** Confirm R2 bucket `machinen` still exists
+
+## Queue Deletion Attempt — Dependency Cascade
+
+Ran `wrangler queues list` to see remaining machinen queues. Attempted to delete all remaining ones. Results:
+
+### Successes
+- `r2-file-update-queue-rag-experiment-1` — deleted (had 0 producers, no binding)
+
+### Failures — 4 distinct error types
+
+**1. Worker binding references (code 11005)**
+- `github-scheduler-queue` → bound to worker `test-github`
+- `github-processor-queue` → bound to worker `test-github`
+- `engine-indexing-queue-rag-experiment-1` → bound to worker `rag-experiment-1`
+- `github-processor-queue-rag-experiment-1` → bound to worker `rag-experiment-1`
+- `github-scheduler-queue-rag-experiment-1` → bound to worker `rag-experiment-1`
+
+**Discovery**: There are separate workers `test-github` and `rag-experiment-1` deployed on the account that we didn't know about. These are not just wrangler env names — they're actual deployed worker scripts with queue bindings.
+
+**2. DLQ consumer references (code 11005)**
+- `github-processor-queue-dlq` → referenced as DLQ by consumer `d7519a8d-...`
+- `github-processor-queue-rag-experiment-1-dlq` → referenced as DLQ by consumer `e38d54b5-...`
+
+**Discovery**: DLQs can't be deleted while a consumer's `dead_letter_queue` config points to them. The parent queue's consumer must be removed first.
+
+**3. R2 event notification targets (code 11017)**
+- `r2-file-update-queue-prod` → target for R2 event notifications on `machinen` bucket
+- `r2-file-update-queue-dev-justin` → same
+
+**Discovery**: The R2 bucket has event notification rules pointing to these queues. Must remove the event notification config from the bucket before the queue can be deleted.
+
+### Revised Dependency Graph
+
+The full dependency chain is:
+
+```
+R2 event notifications → r2-file-update queues
+Workers (test-github, rag-experiment-1) → queues (as producer/consumer bindings)
+Queue consumers → DLQs (as dead_letter_queue references)
+Queues (as consumer) → machinen worker (blocks worker deletion)
+```
+
+### Corrected Teardown Order
+
+Per environment, the order must be:
+
+1. Remove R2 event notifications from the bucket (unblocks r2-file-update queues)
+2. Delete the environment-specific workers (`test-github`, `rag-experiment-1`) or at minimum unbind their queues — but those workers may also have DO/queue consumer deps, creating the same chicken-and-egg
+3. Delete queues (parent queues first, then DLQs become unblocked)
+4. Delete the main `machinen` worker
+5. Delete vectorize indexes
+
+## Breaking the Dependency Cycle
+
+Discovered `wrangler queues consumer remove <queue> <worker>` — removes a worker's consumer reference from a queue without deleting either. This breaks the chicken-and-egg cycle.
+
+### Executed
+
+1. Removed all consumer references from all machinen queues (test-github, rag-experiment-1, machinen workers)
+2. Deleted workers: `test-github` ✅, `rag-experiment-1` ✅, `machinen` ✅
+3. Deleted remaining queues (test, rag-experiment-1, all DLQs) ✅
+
+### Still blocked
+
+Two R2 event notification queues can't be deleted:
+- `r2-file-update-queue-prod` — R2 event notification target
+- `r2-file-update-queue-dev-justin` — R2 event notification target
+
+The R2 event notification config on the `machinen` bucket references these queues, and the notification can't be removed via CLI because R2 is disabled on the free plan (error 10136). These need to be removed via the Cloudflare dashboard if possible, or we may need to re-enable R2 temporarily.
+
+## Vectorize Index Cleanup
+
+Deleted all 25 machinen-related vectorize indexes, including old rotations (v2–v7) that weren't in the current wrangler config. `wrangler vectorize list` now shows zero indexes on the account.
+
+## Final State
+
+### Deleted ✅
+- All 3 workers: `machinen`, `test-github`, `rag-experiment-1`
+- All 12 DO classes (via v15 migration deploy)
+- All machinen queues except 2 R2 notification targets
+- All 25+ vectorize indexes (current + historical rotations)
+
+### Remaining (blocked by free plan) ⚠️
+- `r2-file-update-queue-prod` — R2 event notification target, can't remove on free plan
+- `r2-file-update-queue-dev-justin` — same
+- R2 bucket `machinen` — intentionally kept
+
+### Invariant held
+- R2 bucket `machinen` still exists (not deleted)

@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { getLogsDir } from "../logger.js";
 
 const execAsync = promisify(execFile);
 
@@ -10,6 +9,33 @@ const execAsync = promisify(execFile);
 // Track runs whose spawned process is still alive so we can report "Running"
 // even before the Docker container exists or after it's been removed.
 export const activeRuns = new Set<string>();
+
+// ─── Per-repo run directory ───────────────────────────────────────────────────
+
+/**
+ * Returns the `runs/` directory for a given repository.
+ * All run state now lives under `<repo>/.machinen/runs/`.
+ */
+function getRunsDirForRepo(repoPath: string): string {
+  return path.join(repoPath, ".machinen", "runs");
+}
+
+/**
+ * Resolve which repo's runs/ directory a runId lives in.
+ * Checks each registered repo's .machinen/runs/ dir.
+ */
+async function resolveRunDir(runId: string, knownRepoPaths: string[]): Promise<string | null> {
+  for (const repoPath of knownRepoPaths) {
+    const candidate = path.join(getRunsDirForRepo(repoPath), runId);
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      // not in this repo
+    }
+  }
+  return null;
+}
 
 // ─── Docker helpers ───────────────────────────────────────────────────────────
 
@@ -66,7 +92,7 @@ export async function getRunsForCommit(
     warmCache?: boolean;
   }[]
 > {
-  const logsDir = getLogsDir();
+  const runsDir = getRunsDirForRepo(repoPath);
   const results: {
     runId: string;
     runnerName: string;
@@ -81,13 +107,13 @@ export async function getRunsForCommit(
   }[] = [];
 
   try {
-    const entries = await fs.readdir(logsDir, { withFileTypes: true });
+    const entries = await fs.readdir(runsDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory() || !entry.name.startsWith("oa-runner-")) {
+      if (!entry.isDirectory() || !entry.name.startsWith("machinen-")) {
         continue;
       }
       try {
-        const metaPath = path.join(logsDir, entry.name, "metadata.json");
+        const metaPath = path.join(runsDir, entry.name, "logs", "metadata.json");
         const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
         if (meta.repoPath !== repoPath || meta.commitId !== commitId) {
           continue;
@@ -110,7 +136,7 @@ export async function getRunsForCommit(
       }
     }
   } catch {
-    // Logs dir doesn't exist yet
+    // .machinen/runs/ dir doesn't exist yet
   }
 
   // Sort by numeric parts of the runner name so the order is stable regardless of
@@ -153,7 +179,6 @@ export async function getRecentRuns(limit = 10): Promise<
     endDate?: number;
   }[]
 > {
-  const logsDir = getLogsDir();
   const results: {
     runId: string;
     workflowName: string;
@@ -168,35 +193,35 @@ export async function getRecentRuns(limit = 10): Promise<
   const { getRecentRepos } = await import("./repos.js");
   const allowedRepos = await getRecentRepos();
 
-  try {
-    const entries = await fs.readdir(logsDir, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory() || !entry.name.startsWith("oa-runner-")) {
-        continue;
-      }
-      try {
-        const metaPath = path.join(logsDir, entry.name, "metadata.json");
-        const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
-        // Skip runs not from a registered repo
-        if (allowedRepos.length > 0 && !allowedRepos.includes(meta.repoPath)) {
+  // Scan each registered repo's own .machinen/runs/ directory
+  for (const repoPath of allowedRepos) {
+    const runsDir = getRunsDirForRepo(repoPath);
+    try {
+      const entries = await fs.readdir(runsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !entry.name.startsWith("machinen-")) {
           continue;
         }
-        const status = deriveRunStatus(entry.name, meta.status);
-        results.push({
-          runId: entry.name,
-          workflowName: meta.workflowName || entry.name,
-          jobName: meta.jobName ?? null,
-          repoPath: meta.repoPath || "",
-          status,
-          date: meta.date || 0,
-          endDate: meta.endDate,
-        });
-      } catch {
-        // Skip entries with missing/invalid metadata
+        try {
+          const metaPath = path.join(runsDir, entry.name, "logs", "metadata.json");
+          const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+          const status = deriveRunStatus(entry.name, meta.status);
+          results.push({
+            runId: entry.name,
+            workflowName: meta.workflowName || entry.name,
+            jobName: meta.jobName ?? null,
+            repoPath: meta.repoPath || repoPath,
+            status,
+            date: meta.date || 0,
+            endDate: meta.endDate,
+          });
+        } catch {
+          // Skip entries with missing/invalid metadata
+        }
       }
+    } catch {
+      // .machinen/runs/ doesn't exist for this repo yet
     }
-  } catch {
-    // Logs dir doesn't exist yet
   }
 
   return results.sort((a, b) => b.date - a.date).slice(0, limit);
@@ -217,8 +242,15 @@ export async function getRunDetail(runId: string): Promise<{
   attempt?: number;
   warmCache?: boolean;
 } | null> {
-  const logsDir = getLogsDir();
-  const metaPath = path.join(logsDir, runId, "metadata.json");
+  const { getRecentRepos } = await import("./repos.js");
+  const allRepos = await getRecentRepos();
+
+  const runDir = await resolveRunDir(runId, allRepos);
+  if (!runDir) {
+    return null;
+  }
+
+  const metaPath = path.join(runDir, "logs", "metadata.json");
   try {
     const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
     const status = deriveRunStatus(runId, meta.status);
@@ -338,12 +370,17 @@ export async function getRunStats(runId: string): Promise<{
   let peakNetRxMB: number | undefined;
   let peakNetTxMB: number | undefined;
   try {
-    const metaPath = path.join(getLogsDir(), runId, "metadata.json");
-    const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
-    peakCpu = meta.peakCpu;
-    peakMemMB = meta.peakMemMB;
-    peakNetRxMB = meta.peakNetRxMB;
-    peakNetTxMB = meta.peakNetTxMB;
+    const { getRecentRepos } = await import("./repos.js");
+    const allRepos = await getRecentRepos();
+    const runDir = await resolveRunDir(runId, allRepos);
+    if (runDir) {
+      const metaPath = path.join(runDir, "logs", "metadata.json");
+      const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+      peakCpu = meta.peakCpu;
+      peakMemMB = meta.peakMemMB;
+      peakNetRxMB = meta.peakNetRxMB;
+      peakNetTxMB = meta.peakNetTxMB;
+    }
   } catch {}
 
   return {
@@ -364,7 +401,13 @@ export async function getStatsHistory(
   runId: string,
 ): Promise<Array<{ ts: number; cpu: number; memMB: number; netRxMB?: number; netTxMB?: number }>> {
   try {
-    const metaPath = path.join(getLogsDir(), runId, "metadata.json");
+    const { getRecentRepos } = await import("./repos.js");
+    const allRepos = await getRecentRepos();
+    const runDir = await resolveRunDir(runId, allRepos);
+    if (!runDir) {
+      return [];
+    }
+    const metaPath = path.join(runDir, "logs", "metadata.json");
     const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
     return meta.statsHistory || [];
   } catch {
@@ -386,9 +429,14 @@ export async function getRunTimeline(runId: string): Promise<
     parentId: string | null;
   }>
 > {
-  // The DTU timeline handler merges pre-populated records with runner updates,
-  // preserving friendly names. Just read the file directly.
-  const timelinePath = path.join(getLogsDir(), runId, "timeline.json");
+  const { getRecentRepos } = await import("./repos.js");
+  const allRepos = await getRecentRepos();
+  const runDir = await resolveRunDir(runId, allRepos);
+  if (!runDir) {
+    return [];
+  }
+
+  const timelinePath = path.join(runDir, "logs", "timeline.json");
   try {
     const raw = await fs.readFile(timelinePath, "utf-8");
     const parsed = JSON.parse(raw);
@@ -401,8 +449,15 @@ export async function getRunTimeline(runId: string): Promise<
 }
 
 export async function getRunLogs(runId: string): Promise<string> {
+  const { getRecentRepos } = await import("./repos.js");
+  const allRepos = await getRecentRepos();
+  const runDir = await resolveRunDir(runId, allRepos);
+  if (!runDir) {
+    return "";
+  }
+
   // Prefer the DTU's step-output.log (clean, no ##[group] noise)
-  const stepOutputPath = path.join(getLogsDir(), runId, "step-output.log");
+  const stepOutputPath = path.join(runDir, "logs", "step-output.log");
   try {
     const content = await fs.readFile(stepOutputPath, "utf-8");
     if (content.trim()) {
@@ -410,10 +465,9 @@ export async function getRunLogs(runId: string): Promise<string> {
     }
   } catch {}
 
-  const logsDir = getLogsDir();
-  // Fall back to process-stdout.log (from orchestrator spawn), then output.log
+  // Fall back to process-stdout.log, then output.log
   for (const filename of ["process-stdout.log", "output.log"]) {
-    const logPath = path.join(logsDir, runId, filename);
+    const logPath = path.join(runDir, "logs", filename);
     try {
       const content = await fs.readFile(logPath, "utf-8");
       if (content.trim()) {
@@ -421,9 +475,10 @@ export async function getRunLogs(runId: string): Promise<string> {
       }
     } catch {}
   }
+
   // Fall back to stderr so errors like "Multiple tasks found" are surfaced in the UI
   try {
-    const stderrPath = path.join(logsDir, runId, "process-stderr.log");
+    const stderrPath = path.join(runDir, "logs", "process-stderr.log");
     const stderr = await fs.readFile(stderrPath, "utf-8");
     if (stderr.trim()) {
       return stderr;

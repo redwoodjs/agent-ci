@@ -17,6 +17,7 @@
     "body-parser": "^2.2.2",
     "cors": "^2.8.6",
     "dockerode": "^4.0.2",
+    "dtu-github-actions": "workspace:*",
     "jsonc-parser": "^3.3.1",
     "minimatch": "^10.2.1",
     "polka": "^0.5.2",

@@ -101,42 +101,26 @@
       "tag": "v14",
       "new_sqlite_classes": ["SpeccingStateDO"],
     },
+    {
+      "tag": "v15",
+      "deleted_classes": [
+        "RealtimeDurableObject",
+        "Database",
+        "CursorEventsDurableObject",
+        "GitHubRepoDurableObject",
+        "GitHubBackfillStateDO",
+        "EngineIndexingStateDO",
+        "DiscordBackfillStateDO",
+        "DiscordWebhookBatcherDO",
+        "SubjectDO",
+        "MomentGraphDO",
+        "EngineSimulationStateDO",
+        "SpeccingStateDO",
+      ],
+    },
   ],
   "durable_objects": {
-    "bindings": [
-      { "name": "REALTIME", "class_name": "RealtimeDurableObject" },
-      { "name": "DB", "class_name": "Database" },
-      { "name": "CURSOR_EVENTS", "class_name": "CursorEventsDurableObject" },
-      { "name": "GITHUB_REPO", "class_name": "GitHubRepoDurableObject" },
-      {
-        "name": "GITHUB_BACKFILL_STATE",
-        "class_name": "GitHubBackfillStateDO",
-      },
-      {
-        "name": "ENGINE_INDEXING_STATE",
-        "class_name": "EngineIndexingStateDO",
-      },
-      {
-        "name": "ENGINE_SIMULATION_STATE",
-        "class_name": "EngineSimulationStateDO",
-      },
-      {
-        "name": "DISCORD_BACKFILL_STATE",
-        "class_name": "DiscordBackfillStateDO",
-      },
-      {
-        "name": "MOMENT_GRAPH_DO",
-        "class_name": "MomentGraphDO",
-      },
-      {
-        "name": "DISCORD_WEBHOOK_BATCHER",
-        "class_name": "DiscordWebhookBatcherDO",
-      },
-      {
-        "name": "SPECCING_STATE_DO",
-        "class_name": "SpeccingStateDO",
-      },
-    ],
+    "bindings": [],
   },
   "queues": {
     "producers": [

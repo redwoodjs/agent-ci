@@ -1,119 +1,88 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import path from "path";
-import fs from "fs";
-import {
-  ensureLogDirs,
-  getNextLogNum,
-  createLogContext,
-  finalizeLog,
-  getLogsDir,
-} from "./logger.js";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
 
-vi.mock("fs", () => {
-  return {
-    default: {
-      mkdirSync: vi.fn(),
-      existsSync: vi.fn(),
-      readdirSync: vi.fn(),
-    },
-  };
-});
+describe("Logger utilities", () => {
+  let tmpDir: string;
 
-describe("logger", () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "machinen-logger-test-"));
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    vi.restoreAllMocks();
   });
 
   describe("ensureLogDirs", () => {
-    it("should recursively create the logs directory", () => {
+    it("creates the runs/ directory", async () => {
+      const { setWorkingDirectory, ensureLogDirs } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
       ensureLogDirs();
-      expect(fs.mkdirSync).toHaveBeenCalledWith(getLogsDir(), { recursive: true });
+      expect(fs.existsSync(path.join(tmpDir, "runs"))).toBe(true);
     });
   });
 
   describe("getNextLogNum", () => {
-    it("should return 1 when logs directory does not exist", () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false);
-      const num = getNextLogNum("test-prefix");
-      expect(num).toBe(1);
-      expect(fs.existsSync).toHaveBeenCalledWith(getLogsDir());
+    it("returns 1 when runs/ dir is empty or absent", async () => {
+      const { setWorkingDirectory, getNextLogNum } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
+      expect(getNextLogNum("machinen")).toBe(1);
     });
 
-    it("should return 1 when logs directory is empty", () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue([] as any);
-
-      const num = getNextLogNum("test-prefix");
-      expect(num).toBe(1);
+    it("returns next number after existing machinen-* entries", async () => {
+      const { setWorkingDirectory, getNextLogNum } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
+      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-1"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-2"), { recursive: true });
+      expect(getNextLogNum("machinen")).toBe(3);
     });
 
-    it("should return incremented number based on existing directories", () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue([
-        { isDirectory: () => true, name: "test-prefix-1" },
-        { isDirectory: () => true, name: "test-prefix-5" },
-        { isDirectory: () => true, name: "test-prefix-2" },
-      ] as any);
-
-      const num = getNextLogNum("test-prefix");
-      expect(num).toBe(6);
-    });
-
-    it("should ignore unrelated directories/files", () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue([
-        { isDirectory: () => true, name: "test-prefix-1" },
-        { isDirectory: () => false, name: "test-prefix-10" }, // not a dir
-        { isDirectory: () => true, name: "other-prefix-20" },
-      ] as any);
-
-      const num = getNextLogNum("test-prefix");
-      expect(num).toBe(2);
+    it("counts only the base run number from multi-job names", async () => {
+      const { setWorkingDirectory, getNextLogNum } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
+      // Multi-job run: machinen-15 with -j1-m2 suffix — base is 15
+      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-redwoodjssdk-14"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-redwoodjssdk-15-j1"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-redwoodjssdk-15-j2-m1"), {
+        recursive: true,
+      });
+      expect(getNextLogNum("machinen")).toBe(16);
     });
   });
 
   describe("createLogContext", () => {
-    it("should create directory for the current prefix and log context", () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readdirSync).mockReturnValue([
-        { isDirectory: () => true, name: "runner-1" },
-      ] as any);
+    it("creates runDir/logs/ and returns correct paths", async () => {
+      const { setWorkingDirectory, createLogContext } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
 
-      const context = createLogContext("runner");
-
-      expect(context.num).toBe(2);
-      expect(context.name).toBe("runner-2");
-      expect(context.logDir).toBe(path.join(getLogsDir(), "runner-2"));
-      expect(context.outputLogPath).toBe(path.join(getLogsDir(), "runner-2", "output.log"));
-      expect(context.debugLogPath).toBe(path.join(getLogsDir(), "runner-2", "debug.log"));
-
-      expect(fs.mkdirSync).toHaveBeenCalledWith(getLogsDir(), { recursive: true });
-      expect(fs.mkdirSync).toHaveBeenCalledWith(context.logDir, { recursive: true });
+      const ctx = createLogContext("machinen");
+      expect(ctx.name).toMatch(/^machinen-\d+$/);
+      expect(fs.existsSync(ctx.runDir)).toBe(true);
+      expect(fs.existsSync(ctx.logDir)).toBe(true);
+      expect(ctx.outputLogPath).toBe(path.join(ctx.logDir, "output.log"));
+      expect(ctx.debugLogPath).toBe(path.join(ctx.logDir, "debug.log"));
     });
 
-    it("should use preferredName and skip incrementing if provided", () => {
-      vi.mocked(fs.existsSync).mockReturnValue(true);
+    it("uses preferredName when provided", async () => {
+      const { setWorkingDirectory, createLogContext } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
 
-      const context = createLogContext("runner", "custom-runner-name");
-
-      expect(context.num).toBe(0);
-      expect(context.name).toBe("custom-runner-name");
-      expect(context.logDir).toBe(path.join(getLogsDir(), "custom-runner-name"));
-      expect(context.outputLogPath).toBe(
-        path.join(getLogsDir(), "custom-runner-name", "output.log"),
-      );
-      expect(context.debugLogPath).toBe(path.join(getLogsDir(), "custom-runner-name", "debug.log"));
-
-      // Also ensure it didn't call readdirSync to find the next number
-      expect(fs.readdirSync).not.toHaveBeenCalled();
-      expect(fs.mkdirSync).toHaveBeenCalledWith(context.logDir, { recursive: true });
+      const ctx = createLogContext("machinen", "machinen-redwoodjssdk-42");
+      expect(ctx.name).toBe("machinen-redwoodjssdk-42");
+      expect(ctx.runDir).toBe(path.join(tmpDir, "runs", "machinen-redwoodjssdk-42"));
+      expect(ctx.logDir).toBe(path.join(tmpDir, "runs", "machinen-redwoodjssdk-42", "logs"));
     });
-  });
 
-  describe("finalizeLog", () => {
-    it("should return the log path unmodified", () => {
-      const result = finalizeLog("/fake/log/path", 0, "commit-sha", "job-name");
-      expect(result).toBe("/fake/log/path");
+    it("auto-increments when no preferredName given", async () => {
+      const { setWorkingDirectory, createLogContext } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
+
+      const first = createLogContext("machinen");
+      const second = createLogContext("machinen");
+      expect(second.num).toBe(first.num + 1);
     });
   });
 });

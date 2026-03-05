@@ -145,6 +145,44 @@ app.get("/workflows", async (req, res) => {
   res.end(JSON.stringify(workflows));
 });
 
+app.get("/workflows/warm-status", async (req, res) => {
+  const repoPath = req.query.repoPath as string;
+  if (!repoPath) {
+    return res.writeHead(400).end();
+  }
+  try {
+    const { execSync } = await import("node:child_process");
+    const { isWarmNodeModules, computeLockfileHash } = await import("../cleanup.js");
+    const { getWorkingDirectory } = await import("../logger.js");
+    const path = await import("node:path");
+
+    // Derive repoSlug from git remote (matching runner.ts and local-job.ts)
+    let repoSlug = repoPath.replace(/.*\//, "").replace("/", "-");
+    try {
+      const remoteUrl = execSync("git remote get-url origin", { cwd: repoPath, stdio: "pipe" })
+        .toString()
+        .trim();
+      const match = remoteUrl.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+      if (match) {
+        repoSlug = match[1].replace("/", "-");
+      }
+    } catch {}
+
+    let lockfileHash = "no-lockfile";
+    try {
+      lockfileHash = computeLockfileHash(repoPath);
+    } catch {}
+
+    const warmModulesDir = path.join(getWorkingDirectory(), "warm-modules", repoSlug, lockfileHash);
+    const warm = isWarmNodeModules(warmModulesDir);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ warm, lockfileHash }));
+  } catch {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ warm: false, lockfileHash: "unknown" }));
+  }
+});
+
 app.get("/workflows/enabled", async (req, res) => {
   const repoPath = req.query.repoPath as string;
   if (!repoPath) {
@@ -318,12 +356,29 @@ app.get("/concurrency", (req, res) => {
   res.end(JSON.stringify({ max: getMaxConcurrentJobs() }));
 });
 
-app.put("/concurrency", (req, res) => {
+app.put("/concurrency", async (req, res) => {
   const { max } = (req as any).body || {};
   if (typeof max !== "number" || max < 1) {
     return res.writeHead(400).end();
   }
   setMaxConcurrentJobs(max);
+
+  // Persist to config file so the setting survives restarts
+  try {
+    const { DEFAULT_CONFIG_PATH, parseJsonc } = await import("../config.js");
+    const fsSync = await import("node:fs");
+    const pathMod = await import("node:path");
+    fsSync.mkdirSync(pathMod.dirname(DEFAULT_CONFIG_PATH), { recursive: true });
+    let existing: Record<string, any> = {};
+    if (fsSync.existsSync(DEFAULT_CONFIG_PATH)) {
+      existing = parseJsonc(fsSync.readFileSync(DEFAULT_CONFIG_PATH, "utf-8"));
+    }
+    existing.maxConcurrentJobs = max;
+    fsSync.writeFileSync(DEFAULT_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
+  } catch (err) {
+    console.error("[OA Supervisor] Failed to persist concurrency to config:", err);
+  }
+
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ max: getMaxConcurrentJobs() }));
 });

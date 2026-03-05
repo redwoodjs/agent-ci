@@ -1,17 +1,44 @@
 import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
-import { spawn, execFile } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { createInterface } from "node:readline";
-import { promisify } from "node:util";
 import crypto from "node:crypto";
-import { PROJECT_ROOT, getLogsDir, getNextLogNum } from "../logger.js";
+import { PROJECT_ROOT, getLogsDir, getNextLogNum, getWorkingDirectory } from "../logger.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./concurrency.js";
-import { killRunnerContainers } from "../shutdown.js";
+import { killRunnerContainers, pruneOrphanedDockerResources } from "../shutdown.js";
 import { broadcastEvent } from "./events.js";
 import { activeRuns } from "./run-store.js";
+import { isWarmNodeModules, computeLockfileHash } from "../cleanup.js";
 
-const execAsync = promisify(execFile);
+// ─── Warm launch plan ─────────────────────────────────────────────────────────
+
+/**
+ * Run a wave of jobs, serializing the first one when the warm node_modules
+ * dir is cold and there are multiple parallel jobs.
+ *
+ * Exported so it can be unit-tested with a spy spawner.
+ *
+ * @param jobs     Array of job descriptors for the wave.
+ * @param warm     Whether the shared node_modules dir is already populated.
+ * @param spawn    Async function to launch a single job; must return its exit code.
+ * @returns        Array of exit codes in wave order.
+ */
+export async function runWaveWithWarmSerialization<T extends { runnerName: string }>(
+  jobs: T[],
+  warm: boolean,
+  spawn: (job: T) => Promise<number>,
+): Promise<number[]> {
+  if (!warm && jobs.length > 1) {
+    // Cold + multi-job: run the first job alone, then the rest in parallel.
+    const [first, ...rest] = jobs;
+    const firstResult = await spawn(first);
+    const restResults = await Promise.all(rest.map(spawn));
+    return [firstResult, ...restResults];
+  }
+  // Warm or single job: launch all in parallel.
+  return Promise.all(jobs.map(spawn));
+}
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -156,7 +183,7 @@ function spawnRunner({
 
     const proc = spawn(spawnArgs[0], spawnArgs.slice(1), {
       cwd: supervisorDir,
-      env: process.env,
+      env: { ...process.env, OA_WORKING_DIR: getWorkingDirectory() },
       stdio: ["ignore", "pipe", "pipe"],
     });
 
@@ -198,103 +225,6 @@ function spawnRunner({
       broadcastEvent("runFinished", { runId: runnerName, status });
       resolve(exitCode);
     });
-
-    // Sample container stats (CPU / memory) every 5s while the run is active.
-    // Persist peak values into metadata so they survive after the container exits.
-    (async () => {
-      while (activeRuns.has(runnerName)) {
-        try {
-          const { stdout } = await execAsync(
-            "docker",
-            [
-              "stats",
-              "--no-stream",
-              "--format",
-              "{{.CPUPerc}}|{{.MemUsage}}|{{.NetIO}}",
-              runnerName,
-            ],
-            { timeout: 5000 },
-          );
-          const [cpuStr, memStr, netStr] = stdout.trim().split("|");
-          // CPUPerc: "3.14%" → 3.14
-          const cpu = parseFloat(cpuStr?.replace("%", "") ?? "0");
-          // MemUsage: "123MiB / 7.77GiB" → take left side in MiB
-          const memMatch = memStr?.match(/^([\d.]+)(\w+)/);
-          let memMB = 0;
-          if (memMatch) {
-            const val = parseFloat(memMatch[1]);
-            const unit = memMatch[2].toUpperCase();
-            if (unit.startsWith("GIB") || unit.startsWith("GB")) {
-              memMB = val * 1024;
-            } else if (unit.startsWith("MIB") || unit.startsWith("MB")) {
-              memMB = val;
-            } else if (unit.startsWith("KIB") || unit.startsWith("KB")) {
-              memMB = val / 1024;
-            }
-          }
-          // NetIO: "1.2MB / 3.4MB" → parse rx / tx
-          let netRxMB = 0;
-          let netTxMB = 0;
-          if (netStr) {
-            const netParts = netStr.split("/").map((s) => s.trim());
-            for (let ni = 0; ni < netParts.length; ni++) {
-              const m = netParts[ni].match(/^([\d.]+)(\w+)/);
-              if (m) {
-                const v = parseFloat(m[1]);
-                const u = m[2].toUpperCase();
-                let mb = 0;
-                if (u.startsWith("GB") || u.startsWith("GIB")) {
-                  mb = v * 1024;
-                } else if (u.startsWith("MB") || u.startsWith("MIB")) {
-                  mb = v;
-                } else if (u.startsWith("KB") || u.startsWith("KIB")) {
-                  mb = v / 1024;
-                } else if (u === "B") {
-                  mb = v / (1024 * 1024);
-                }
-                if (ni === 0) {
-                  netRxMB = mb;
-                } else {
-                  netTxMB = mb;
-                }
-              }
-            }
-          }
-          if (!isNaN(cpu) || memMB > 0) {
-            const metaPath = path.join(runDir, "metadata.json");
-            const meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
-            if (!meta.peakCpu || cpu > meta.peakCpu) {
-              meta.peakCpu = Math.round(cpu * 10) / 10;
-            }
-            if (!meta.peakMemMB || memMB > meta.peakMemMB) {
-              meta.peakMemMB = Math.round(memMB);
-            }
-            if (!meta.peakNetRxMB || netRxMB > meta.peakNetRxMB) {
-              meta.peakNetRxMB = Math.round(netRxMB * 10) / 10;
-            }
-            if (!meta.peakNetTxMB || netTxMB > meta.peakNetTxMB) {
-              meta.peakNetTxMB = Math.round(netTxMB * 10) / 10;
-            }
-            if (!meta.statsHistory) {
-              meta.statsHistory = [];
-            }
-            const sample = {
-              ts: Date.now(),
-              cpu: Math.round(cpu * 10) / 10,
-              memMB: Math.round(memMB),
-              netRxMB: Math.round(netRxMB * 10) / 10,
-              netTxMB: Math.round(netTxMB * 10) / 10,
-            };
-            meta.statsHistory.push(sample);
-            await fs.writeFile(metaPath, JSON.stringify(meta, null, 2));
-            broadcastEvent("runStatsSample", { runId: runnerName, ...sample });
-          }
-        } catch {
-          // Container not running yet or already gone
-        }
-        await new Promise((r) => setTimeout(r, 5000));
-      }
-    })();
   });
 }
 
@@ -313,6 +243,7 @@ async function setupJob({
   repoPath,
   commitId,
   workflowId,
+  warmCache,
 }: {
   fullPath: string;
   runnerName: string;
@@ -326,6 +257,8 @@ async function setupJob({
   repoPath: string;
   commitId: string;
   workflowId: string;
+  /** Whether this job's node_modules dir was pre-populated (warm) or empty (cold) at wave start. */
+  warmCache?: boolean;
 }): Promise<string> {
   const runDir = path.join(getLogsDir(), runnerName);
   await fs.mkdir(runDir, { recursive: true });
@@ -351,8 +284,10 @@ async function setupJob({
         repoPath,
         commitId,
         date: Date.now(),
+        status: "Running",
         taskId,
         attempt: 1,
+        ...(warmCache !== undefined ? { warmCache } : {}),
         ...(matrixContext && Object.keys(matrixContext).length > 0 ? { matrixContext } : {}),
       },
       null,
@@ -436,6 +371,7 @@ async function setupAndSpawnJob(params: {
   repoPath: string;
   commitId: string;
   workflowId: string;
+  warmCache?: boolean;
 }): Promise<number> {
   const runDir = await setupJob(params);
   return spawnRunner({
@@ -517,6 +453,7 @@ export async function retryRun(
         repoPath,
         commitId,
         date: Date.now(),
+        status: "Running",
         taskId,
         attempt,
       },
@@ -736,9 +673,10 @@ export async function runWorkflow(
   );
   const allRunnerNames = waveRunnerPlan.flat().map(({ runnerName }) => runnerName);
 
-  // Pre-create minimal Pending metadata for wave-2+ runners so they appear in the UI
-  // immediately rather than being invisible until wave 1 completes.
-  for (const wave of waveRunnerPlan.slice(1)) {
+  // Pre-create minimal Pending metadata for ALL runners so they appear in the UI
+  // immediately rather than being invisible until actually spawned. This is critical
+  // for cold-path serialization where only the first job starts right away.
+  for (const wave of waveRunnerPlan) {
     for (const { taskId, runnerName, matrixContext } of wave) {
       const runDir = path.join(getLogsDir(), runnerName);
       await fs.mkdir(runDir, { recursive: true });
@@ -775,30 +713,126 @@ export async function runWorkflow(
   const firstWave = waveRunnerPlan[0];
   const remainingWaves = waveRunnerPlan.slice(1);
 
+  // ── Warm node_modules serialization ──────────────────────────────────────────
+  // If the first wave has multiple jobs and the warm node_modules dir is cold
+  // (empty / never populated), run ONE job alone first so it can run pnpm install
+  // and populate the shared bind-mounted node_modules. Subsequent jobs then find
+  // node_modules already in place and pnpm install exits in under a second.
+  // If the dir is already warm (lockfile unchanged from a prior run), skip straight
+  // to the normal parallel launch.
+  // Derive repoSlug the same way local-job.ts does (from githubRepo owner/name)
+  // so the warm-modules path matches between the warm check here and the actual
+  // bind-mount directory created in executeLocalJob.
+  let repoSlug = repoPath.replace(/.*\//, "").replace("/", "-"); // fallback
+  try {
+    const remoteUrl = execSync("git remote get-url origin", { cwd: repoPath, stdio: "pipe" })
+      .toString()
+      .trim();
+    const match = remoteUrl.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (match) {
+      repoSlug = match[1].replace("/", "-");
+    }
+  } catch {
+    // Best-effort — keep the directory basename fallback
+  }
+  let lockfileHash = "no-lockfile";
+  try {
+    lockfileHash = computeLockfileHash(repoPath);
+  } catch {
+    // Best-effort
+  }
+  const warmModulesDir = path.join(getWorkingDirectory(), "warm-modules", repoSlug, lockfileHash);
+  const warm = isWarmNodeModules(warmModulesDir);
+  supervisorLog(
+    `[WARM] node_modules dir: ${warmModulesDir} (${warm ? "warm" : "cold"}, hash=${lockfileHash})`,
+  );
+
+  // Update wave-1 pre-created pending metadata with warmCache so the UI shows
+  // the correct badge immediately (before actual spawn).
+  // Cold path: first job = false (does the install), rest = true (reuse warm cache).
+  // Warm path: all = true.
+  if (waveRunnerPlan.length > 0) {
+    const wave1 = waveRunnerPlan[0];
+    for (let i = 0; i < wave1.length; i++) {
+      const { runnerName } = wave1[i];
+      const metaPath = path.join(getLogsDir(), runnerName, "metadata.json");
+      try {
+        const existing = JSON.parse(await fs.readFile(metaPath, "utf-8"));
+        existing.warmCache = warm || i > 0; // first job cold only if cache is cold
+        await fs.writeFile(metaPath, JSON.stringify(existing, null, 2));
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
   // Use a concurrency limiter so we don't saturate the host when a wave has many jobs.
   const limiter = getJobLimiter();
   const effectiveMax = _maxConcurrentJobs ?? getDefaultMaxConcurrentJobs();
   supervisorLog(`[DEPS] Concurrency limit: ${effectiveMax} parallel jobs per wave`);
 
-  await Promise.all(
-    firstWave.map(({ taskId, runnerName, matrixContext }) =>
-      limiter.run(() =>
-        setupAndSpawnJob({
-          fullPath,
-          runnerName,
-          workflowName,
-          baseRunnerName,
-          taskId,
-          jobDisplayName: jobDisplayNames.get(taskId),
-          matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
-          jobIds,
-          repoPath,
-          commitId,
-          workflowId,
-        }),
-      ),
-    ),
-  ).then((firstWaveResults) => {
+  // Helper: run a wave job through the limiter.
+  const spawnJob = (
+    taskId: string,
+    runnerName: string,
+    matrixContext: Record<string, string>,
+    jobWarmCache: boolean,
+  ) =>
+    limiter.run(() =>
+      setupAndSpawnJob({
+        fullPath,
+        runnerName,
+        workflowName,
+        baseRunnerName,
+        taskId,
+        jobDisplayName: jobDisplayNames.get(taskId),
+        matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
+        jobIds,
+        repoPath,
+        commitId,
+        workflowId,
+        warmCache: jobWarmCache,
+      }),
+    );
+
+  // Prune orphaned networks once before launching any concurrent runners.
+  // Must not be called inside per-runner code (startServiceContainers) because
+  // concurrent runners would race to delete each other's freshly-created networks.
+  pruneOrphanedDockerResources();
+
+  let firstWaveResultsPromise: Promise<number[]>;
+
+  if (!warm && firstWave.length > 1) {
+    supervisorLog(
+      `[WARM] Cold node_modules with ${firstWave.length} parallel jobs — serializing first job to warm the cache`,
+    );
+    // First job: cold (does the actual pnpm install).
+    // Remaining jobs: warm (node_modules populated by the first job).
+    let firstJobDone = false;
+    firstWaveResultsPromise = runWaveWithWarmSerialization(
+      firstWave,
+      false,
+      ({ taskId, runnerName, matrixContext }) => {
+        const isWarm = firstJobDone;
+        firstJobDone = true;
+        return spawnJob(taskId, runnerName, matrixContext, isWarm);
+      },
+    ).then((results) => {
+      supervisorLog(
+        `[WARM] Warm job finished — node_modules now populated, launching ${firstWave.length - 1} remaining job(s)`,
+      );
+      return results;
+    });
+  } else {
+    // Warm cache or single job: launch all in parallel normally.
+    firstWaveResultsPromise = runWaveWithWarmSerialization(
+      firstWave,
+      true,
+      ({ taskId, runnerName, matrixContext }) => spawnJob(taskId, runnerName, matrixContext, warm),
+    );
+  }
+
+  await firstWaveResultsPromise.then((firstWaveResults) => {
     if (remainingWaves.length === 0) {
       return;
     }
@@ -815,6 +849,7 @@ export async function runWorkflow(
         supervisorLog(
           `[DEPS] Starting wave ${wi + 2}/${depWaves.length}: [${wave.map((r) => r.taskId).join(", ")}]`,
         );
+        pruneOrphanedDockerResources();
         const waveLimiter = getJobLimiter();
         const results = await Promise.all(
           wave.map(({ taskId, runnerName, matrixContext }) =>

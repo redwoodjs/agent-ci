@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { execFileSync, execSync, spawnSync } from "node:child_process";
 
 /**
@@ -68,5 +69,60 @@ function copyViaNodeFs(repoRoot: string, dest: string, files: string[]): void {
     } catch {
       // Skip files that can't be copied (e.g. broken symlinks)
     }
+  }
+}
+
+/**
+ * Compute a short SHA-256 hash of all pnpm-lock.yaml files tracked in the repo.
+ * Used as a cache key for the warm node_modules directory so the snapshot is
+ * automatically invalidated when dependencies change.
+ *
+ * Returns "no-lockfile" if no pnpm-lock.yaml is found.
+ */
+export function computeLockfileHash(repoRoot: string): string {
+  let lockfiles: string[];
+  try {
+    lockfiles = execSync("git ls-files --cached -- '**/pnpm-lock.yaml' 'pnpm-lock.yaml'", {
+      stdio: "pipe",
+      cwd: repoRoot,
+    })
+      .toString()
+      .split("\n")
+      .map((f) => f.trim())
+      .filter(Boolean);
+  } catch {
+    lockfiles = [];
+  }
+
+  if (lockfiles.length === 0) {
+    // Also try a direct filesystem check for untracked lockfiles
+    const rootLockfile = path.join(repoRoot, "pnpm-lock.yaml");
+    if (fs.existsSync(rootLockfile)) {
+      lockfiles = ["pnpm-lock.yaml"];
+    } else {
+      return "no-lockfile";
+    }
+  }
+
+  const hash = crypto.createHash("sha256");
+  for (const file of lockfiles.sort()) {
+    try {
+      hash.update(fs.readFileSync(path.join(repoRoot, file)));
+    } catch {
+      // Skip unreadable files
+    }
+  }
+  return hash.digest("hex").slice(0, 16);
+}
+
+/**
+ * Check whether a warm node_modules directory is populated (non-empty).
+ * Used by the wave scheduler to decide whether to serialize the first job.
+ */
+export function isWarmNodeModules(warmDir: string): boolean {
+  try {
+    return fs.existsSync(warmDir) && fs.readdirSync(warmDir).length > 0;
+  } catch {
+    return false;
   }
 }

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { runWorkflow, retryRun } from "./runner.js";
+import { runWorkflow, retryRun, runWaveWithWarmSerialization } from "./runner.js";
 
 // ── Multi-job workflow fan-out ─────────────────────────────────────────────────
 
@@ -195,6 +195,9 @@ describe("Matrix workflow fan-out", () => {
     const { getLogsDir } = await import("../logger.js");
     const logsDir = getLogsDir();
 
+    // Small delay to let spawned child's executeLocalJob write its metadata
+    await new Promise((r) => setTimeout(r, 500));
+
     const metas = await Promise.all(
       runnerNames.map((name) =>
         JSON.parse(fs.readFileSync(path.join(logsDir, name, "metadata.json"), "utf-8")),
@@ -234,5 +237,205 @@ describe("Matrix workflow fan-out", () => {
 
     expect(runnerNames).toHaveLength(1);
     expect(runnerNames[0]).toMatch(/^oa-runner-\d+$/); // no -001 suffix
+  });
+});
+
+// ── runWaveWithWarmSerialization ───────────────────────────────────────────────
+//
+// Tests the pure launch-plan function directly by injecting a spy spawner.
+// This is the real test of the serialization invariant — we verify call ORDER,
+// not just that runner names come back.
+
+type FakeJob = { runnerName: string };
+
+/** Spy spawner that records start/end times per job and resolves after delayMs. */
+function makeSpySpawner(delayMs = 20) {
+  const startLog: string[] = [];
+  const endLog: string[] = [];
+  const spawner = async (job: FakeJob): Promise<number> => {
+    startLog.push(job.runnerName);
+    await new Promise((r) => setTimeout(r, delayMs));
+    endLog.push(job.runnerName);
+    return 0;
+  };
+  return { startLog, endLog, spawner };
+}
+
+describe("runWaveWithWarmSerialization", () => {
+  it("cold + multi-job: first job starts AND finishes before the rest start", async () => {
+    const { startLog, endLog, spawner } = makeSpySpawner(30);
+    const jobs: FakeJob[] = [
+      { runnerName: "job-a" },
+      { runnerName: "job-b" },
+      { runnerName: "job-c" },
+    ];
+
+    await runWaveWithWarmSerialization(jobs, /* warm= */ false, spawner);
+
+    // job-a must start first and finish before job-b/c begin
+    expect(startLog[0]).toBe("job-a");
+    expect(endLog[0]).toBe("job-a");
+    // job-b and job-c only start after job-a finishes
+    const bStartIdx = startLog.indexOf("job-b");
+    const cStartIdx = startLog.indexOf("job-c");
+    expect(bStartIdx).toBeGreaterThan(0);
+    expect(cStartIdx).toBeGreaterThan(0);
+    // All 3 complete
+    expect(startLog).toHaveLength(3);
+    expect(endLog).toHaveLength(3);
+  });
+
+  it("cold + multi-job: remaining jobs run concurrently (not sequentially)", async () => {
+    // Track in-flight count to confirm job-b and job-c overlap
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    const spawner = async (_job: FakeJob): Promise<number> => {
+      concurrent++;
+      maxConcurrent = Math.max(maxConcurrent, concurrent);
+      await new Promise((r) => setTimeout(r, 30));
+      concurrent--;
+      return 0;
+    };
+    const jobs: FakeJob[] = [
+      { runnerName: "job-a" },
+      { runnerName: "job-b" },
+      { runnerName: "job-c" },
+    ];
+
+    await runWaveWithWarmSerialization(jobs, /* warm= */ false, spawner);
+
+    // First job runs alone (max=1), then job-b+job-c overlap (max=2)
+    expect(maxConcurrent).toBe(2);
+  });
+
+  it("warm: all jobs start concurrently (max concurrent = job count)", async () => {
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    const spawner = async (_job: FakeJob): Promise<number> => {
+      concurrent++;
+      maxConcurrent = Math.max(maxConcurrent, concurrent);
+      await new Promise((r) => setTimeout(r, 20));
+      concurrent--;
+      return 0;
+    };
+    const jobs: FakeJob[] = [
+      { runnerName: "job-a" },
+      { runnerName: "job-b" },
+      { runnerName: "job-c" },
+    ];
+
+    await runWaveWithWarmSerialization(jobs, /* warm= */ true, spawner);
+
+    // All 3 run concurrently when warm
+    expect(maxConcurrent).toBe(3);
+  });
+
+  it("single job never serializes (cold or warm)", async () => {
+    const { startLog, endLog, spawner } = makeSpySpawner(10);
+    const jobs: FakeJob[] = [{ runnerName: "only-job" }];
+
+    const results = await runWaveWithWarmSerialization(jobs, /* warm= */ false, spawner);
+
+    expect(results).toEqual([0]);
+    expect(startLog).toEqual(["only-job"]);
+    expect(endLog).toEqual(["only-job"]);
+  });
+
+  it("preserves result order regardless of completion order", async () => {
+    const jobs: FakeJob[] = [
+      { runnerName: "job-a" },
+      { runnerName: "job-b" },
+      { runnerName: "job-c" },
+    ];
+
+    // cold path: first job runs alone, then rest in parallel — result order must match job order
+    const coldResults = await runWaveWithWarmSerialization(jobs, false, async (j) =>
+      jobs.indexOf(j),
+    );
+    expect(coldResults).toEqual([0, 1, 2]);
+
+    // warm path: all run concurrently — result order must still match job order
+    const warmResults = await runWaveWithWarmSerialization(jobs, true, async (j) =>
+      jobs.indexOf(j),
+    );
+    expect(warmResults).toEqual([0, 1, 2]);
+  });
+
+  it("integration: multi-job workflow returns all runner names on cold path", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-warm-flow-test-"));
+    try {
+      const workflowsDir = path.join(tmpDir, ".github", "workflows");
+      fs.mkdirSync(workflowsDir, { recursive: true });
+      const content =
+        [
+          "name: Parallel Jobs",
+          "on: [push]",
+          "jobs:",
+          "  job-a:",
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          "      - run: echo a",
+          "  job-b:",
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          "      - run: echo b",
+        ].join("\n") + "\n";
+      fs.writeFileSync(path.join(workflowsDir, "parallel.yml"), content);
+
+      const runnerNames = await runWorkflow(tmpDir, "parallel.yml", "WORKING_TREE");
+
+      expect(runnerNames).toHaveLength(2);
+      expect(runnerNames[0]).toMatch(/^oa-runner-\d+-001$/);
+      expect(runnerNames[1]).toMatch(/^oa-runner-\d+-002$/);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("integration: cold path tags first job as cold and remaining as warm", async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-warm-tag-test-"));
+    try {
+      const workflowsDir = path.join(tmpDir, ".github", "workflows");
+      fs.mkdirSync(workflowsDir, { recursive: true });
+      const content =
+        [
+          "name: Three Jobs",
+          "on: [push]",
+          "jobs:",
+          "  job-a:",
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          "      - run: echo a",
+          "  job-b:",
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          "      - run: echo b",
+          "  job-c:",
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          "      - run: echo c",
+        ].join("\n") + "\n";
+      fs.writeFileSync(path.join(workflowsDir, "three.yml"), content);
+
+      const runnerNames = await runWorkflow(tmpDir, "three.yml", "WORKING_TREE");
+      expect(runnerNames).toHaveLength(3);
+
+      // Wait for spawned children to write metadata
+      await new Promise((r) => setTimeout(r, 500));
+
+      const { getLogsDir } = await import("../logger.js");
+      const logsDir = getLogsDir();
+      const metas = runnerNames.map((name) =>
+        JSON.parse(fs.readFileSync(path.join(logsDir, name, "metadata.json"), "utf-8")),
+      );
+
+      // First job: cold install (it does pnpm install to warm the cache)
+      expect(metas[0].warmCache).toBe(false);
+      // Remaining jobs: warm (they reuse node_modules populated by the first)
+      expect(metas[1].warmCache).toBe(true);
+      expect(metas[2].warmCache).toBe(true);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

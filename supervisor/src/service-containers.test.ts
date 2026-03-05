@@ -243,8 +243,8 @@ describe("startServiceContainers", () => {
     expect(lines.some((l) => l.includes("Created network"))).toBe(true);
     expect(lines.some((l) => l.includes("Starting service: mysql"))).toBe(true);
     expect(lines.some((l) => l.includes("mysql started"))).toBe(true);
-    expect(lines.some((l) => l.includes("Waiting for mysql health check"))).toBe(true);
-    expect(lines.some((l) => l.includes("mysql is healthy"))).toBe(true);
+    expect(lines.some((l) => l.includes("Waiting for mysql to become healthy"))).toBe(true);
+    expect(lines.some((l) => l.includes("mysql healthy in"))).toBe(true);
   });
 
   it("sets short service name as a Docker network alias so DB_HOST=mysql resolves on the bridge", async () => {

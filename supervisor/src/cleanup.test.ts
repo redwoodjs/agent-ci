@@ -86,3 +86,105 @@ describe("copyWorkspace", () => {
     );
   });
 });
+
+// ── computeLockfileHash tests ─────────────────────────────────────────────────
+
+describe("computeLockfileHash", () => {
+  let repoDir: string;
+
+  beforeEach(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-hash-test-"));
+    execSync("git init", { cwd: repoDir, stdio: "pipe" });
+    execSync('git config user.name "test"', { cwd: repoDir, stdio: "pipe" });
+    execSync('git config user.email "test@test.com"', { cwd: repoDir, stdio: "pipe" });
+  });
+
+  afterEach(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it("returns a hex string for a repo with a tracked lockfile", async () => {
+    const { computeLockfileHash } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+    execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
+
+    const hash = computeLockfileHash(repoDir);
+    expect(hash).toMatch(/^[a-f0-9]{16}$/);
+  });
+
+  it("returns the same hash for the same lockfile content", async () => {
+    const { computeLockfileHash } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+    execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
+
+    expect(computeLockfileHash(repoDir)).toBe(computeLockfileHash(repoDir));
+  });
+
+  it("returns a different hash when lockfile content changes", async () => {
+    const { computeLockfileHash } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+    execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
+    const hash1 = computeLockfileHash(repoDir);
+
+    fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n# changed\n");
+    execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+    execSync('git commit -m "update"', { cwd: repoDir, stdio: "pipe" });
+    const hash2 = computeLockfileHash(repoDir);
+
+    expect(hash1).not.toBe(hash2);
+  });
+
+  it("returns 'no-lockfile' when no pnpm-lock.yaml exists", async () => {
+    const { computeLockfileHash } = await import("./cleanup.js");
+    // Empty repo, no lockfile
+    fs.writeFileSync(path.join(repoDir, "README.md"), "hi");
+    execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+    execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
+
+    expect(computeLockfileHash(repoDir)).toBe("no-lockfile");
+  });
+});
+
+// ── isWarmNodeModules tests ───────────────────────────────────────────────────
+
+describe("isWarmNodeModules", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-warm-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns false for a non-existent directory", async () => {
+    const { isWarmNodeModules } = await import("./cleanup.js");
+    expect(isWarmNodeModules(path.join(tmpDir, "does-not-exist"))).toBe(false);
+  });
+
+  it("returns false for an empty directory", async () => {
+    const { isWarmNodeModules } = await import("./cleanup.js");
+    const emptyDir = path.join(tmpDir, "empty");
+    fs.mkdirSync(emptyDir);
+    expect(isWarmNodeModules(emptyDir)).toBe(false);
+  });
+
+  it("returns true when the directory has files", async () => {
+    const { isWarmNodeModules } = await import("./cleanup.js");
+    const warmDir = path.join(tmpDir, "warm");
+    fs.mkdirSync(warmDir);
+    fs.writeFileSync(path.join(warmDir, "some-package"), "content");
+    expect(isWarmNodeModules(warmDir)).toBe(true);
+  });
+
+  it("returns true when the directory has subdirectories", async () => {
+    const { isWarmNodeModules } = await import("./cleanup.js");
+    const warmDir = path.join(tmpDir, "warm");
+    fs.mkdirSync(path.join(warmDir, ".bin"), { recursive: true });
+    expect(isWarmNodeModules(warmDir)).toBe(true);
+  });
+});

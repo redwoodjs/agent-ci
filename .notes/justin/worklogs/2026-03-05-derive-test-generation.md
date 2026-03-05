@@ -1200,3 +1200,289 @@ pnpm --filter derive test
 - [x] Write `derive/test/e2e/harness.ts` — reusable test setup/teardown/run utility
 - [x] Write `derive/test/e2e/derive-one-shot.test.ts`
 - [x] Run the test, verify it passes
+
+## RFC: Task 5 — Test generation command (`derive gen-tests`)
+
+### 2000ft View
+
+We need a `derive gen-tests` command that spawns an **agentic** `claude -p` session to generate tests from Gherkin specs. Unlike the spec pipeline (which uses `--tools ""` for a single non-interactive LLM call), gen-tests gives Claude full filesystem tool access so it can read specs, discover existing test conventions, and write test files directly.
+
+The key constraint is **source code isolation**: Claude must not read implementation source files — only spec files, test files, test utilities, fixtures, and config files. This is enforced via convention-based system prompt instruction ("read only test files and specs, not implementation source code") rather than path-specific exclusions, because gen-tests is designed to work in arbitrary projects where directory layouts vary. The constraint is soft but reliable given Claude's instruction-following, and backstopped by human review of generated tests before committing.
+
+Hard isolation mechanisms were evaluated and rejected:
+
+- `.claudeignore` is repo-global — it would affect all Claude interactions, not just gen-tests
+- `--disallowed-tools` blocks tools by name, not by path — can't say "allow Read but only for `test/`"
+- Temp dir copy is fragile and slow — and defeats the purpose of letting Claude discover project structure organically
+
+The command reads specs from `.machinen/specs/[<scope>]/`, lets Claude explore the project's test directory and config files to understand conventions, and Claude writes test files directly to wherever the project's existing tests live. No `.generated` suffix — the tests are first-class citizens, reviewed and committed like any other code.
+
+### Behavior Spec
+
+```gherkin
+Feature: Test generation from specs
+
+  Scenario: gen-tests generates test files from spec files
+    Given .machinen/specs/derive/ contains Gherkin .feature files
+    And existing test files exist in the project
+    When derive gen-tests --scope derive is run
+    Then Claude reads the spec files and existing test conventions
+    And Claude writes new test files alongside existing tests
+    And the process exits with code 0
+
+  Scenario: gen-tests respects source code isolation
+    Given derive gen-tests is run
+    When Claude generates tests
+    Then Claude does not read implementation source files
+    And the generated tests are black-box — no internal imports from source modules
+
+  Scenario: gen-tests uses scope flag to target spec subset
+    Given .machinen/specs/derive/ contains feature files
+    And .machinen/specs/other/ contains different feature files
+    When derive gen-tests --scope derive is run
+    Then only specs from .machinen/specs/derive/ are referenced
+
+  Scenario: gen-tests skips conversation discovery
+    Given derive gen-tests is run
+    Then derive does not call discoverConversations
+    And derive does not require CLAUDE_PROJECTS_DIR
+```
+
+### API Reference (CLI)
+
+```
+derive gen-tests [options]
+
+Spawns an agentic Claude session to generate tests from Gherkin specs.
+
+Options:
+  --scope <name>    Target specs in .machinen/specs/<name>/ (default: .machinen/specs/)
+  --verbose         Pass --verbose to the Claude subprocess for raw NDJSON logging
+
+Claude receives filesystem tools (Read, Write, Edit, Glob, Grep) and writes test files directly.
+The process exits when Claude's agentic loop completes.
+```
+
+### Implementation Breakdown
+
+```
+[NEW]    derive/src/gen-tests.ts              — gen-tests entry point: system prompt, claude invocation
+[MODIFY] derive/src/index.ts                  — add gen-tests dispatch before discoverConversations
+[MODIFY] derive/src/spec.ts                   — export CLAUDE_BIN (or extract shared binary resolution)
+```
+
+### System Flow
+
+```
+derive gen-tests --scope derive
+  |
+  v
+main() — parse --scope, detect "gen-tests" subcommand
+  |
+  v
+skip discoverConversations (gen-tests doesn't need conversations or DB)
+  |
+  v
+runGenTests(cwd, scope?)
+  |
+  v
+resolve spec dir: <cwd>/.machinen/specs/[<scope>]/
+  |
+  v
+construct system prompt:
+  - role: test generation agent
+  - spec location: <specDir>
+  - isolation: read only test files, specs, and config — not implementation source
+  - convention discovery: read existing test files
+  - output: write test files alongside existing tests
+  |
+  v
+construct user prompt:
+  - "Generate tests for the specs at <specDir>."
+  |
+  v
+spawn claude -p (agentic — no --tools ""):
+  args: -p --verbose --output-format stream-json
+        --include-partial-messages --system-prompt "..."
+        --no-session-persistence --model sonnet
+  env: { ...process.env, delete CLAUDECODE }
+  extendEnv: false
+  cwd: <repoRoot>
+  input: <user prompt> (via stdin)
+  |
+  v
+stream NDJSON to stderr (progress dots, tool use logging)
+  |
+  v
+claude reads specs, reads existing tests, writes new test files
+  |
+  v
+process exits
+```
+
+### How it fits into `main()`
+
+Currently `main()` calls `discoverConversations` unconditionally before mode dispatch. gen-tests doesn't need conversations, the DB, or even `getCurrentBranch()` (it reads specs from disk). The dispatch needs to happen early:
+
+```typescript
+async function main(): Promise<void> {
+  const cwd = process.cwd();
+  const args = process.argv.slice(2);
+
+  const scopeIdx = args.indexOf("--scope");
+  const scope = scopeIdx !== -1 ? args[scopeIdx + 1] : undefined;
+
+  // gen-tests doesn't need branch detection, conversation discovery, or the DB
+  if (args[0] === "gen-tests") {
+    await runGenTests(cwd, scope);
+    return;
+  }
+
+  const branch = getCurrentBranch();
+  // ... rest of existing flow
+}
+```
+
+This avoids the `getCurrentBranch()` call (which errors on detached HEAD) and the `discoverConversations` call (which requires `CLAUDE_PROJECTS_DIR` and does DB work). gen-tests is a clean, independent code path.
+
+### The `runGenTests` function
+
+Lives in a new file `derive/src/gen-tests.ts`:
+
+```typescript
+import { execa } from "execa";
+import { specDir } from "./spec.js";
+
+const CLAUDE_BIN = process.env.CLAUDE_BIN ?? path.join(os.homedir(), ".local", "bin", "claude");
+
+const GEN_TESTS_SYSTEM_PROMPT = `You are a test generation agent. Your job is to generate tests from Gherkin specifications.
+
+Instructions:
+1. Read the Gherkin spec files at the path provided in the user prompt.
+2. Read existing test files, test utilities, fixtures, and config files (package.json, tsconfig, vitest/jest config, etc.) to understand the project's testing conventions, framework, patterns, and file locations.
+3. Generate new tests that exercise the behaviors described in the specs.
+4. Write the test files alongside existing tests, following the same conventions.
+
+Constraints:
+- Do NOT read implementation source code. You may only read: spec files, test files, test utilities, test fixtures, and project config files. Tests must be black-box — they test the product through its external interfaces (CLI, filesystem, API), not by importing internal modules.
+- Follow the same test framework, assertion style, and file organization as existing tests.
+- Each test should be independently runnable.
+- Use structural assertions (file exists, contains expected content) rather than exact string matching.`;
+
+export async function runGenTests(cwd: string, scope?: string): Promise<void> {
+  const dir = specDir(cwd, scope);
+  const userPrompt = `Generate tests for the Gherkin specs at ${dir}. Read existing tests to understand conventions.`;
+
+  const env = { ...process.env };
+  delete env.CLAUDECODE;
+
+  const proc = execa(
+    CLAUDE_BIN,
+    [
+      "-p",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--include-partial-messages",
+      "--system-prompt",
+      GEN_TESTS_SYSTEM_PROMPT,
+      "--no-session-persistence",
+      "--model",
+      "sonnet",
+    ],
+    {
+      env,
+      input: userPrompt,
+      extendEnv: false,
+      cwd,
+      stdout: "pipe",
+    },
+  );
+
+  // Stream progress to stderr (reuse same NDJSON parsing as runClaude)
+  // ...
+
+  await proc;
+}
+```
+
+Key differences from the existing `runClaude`:
+
+| Aspect | `runClaude` (spec pipeline)                            | `runGenTests`                                          |
+| ------ | ------------------------------------------------------ | ------------------------------------------------------ |
+| Tools  | `--tools ""` (disabled)                                | Default (all tools enabled)                            |
+| Effort | `--effort low`                                         | Default (not specified — full effort)                  |
+| Input  | Preamble + conversation excerpts piped via stdin       | Short user prompt via stdin; Claude reads files itself |
+| Output | Result text extracted from NDJSON, used by `writeSpec` | Side effects only — Claude writes files directly       |
+| cwd    | Irrelevant (no filesystem tools)                       | Repo root (so Claude can navigate the project)         |
+
+### System Prompt Design
+
+The system prompt has two jobs:
+
+1. **Direct Claude toward the right files**: specs at `<specDir>`, existing tests (Claude discovers where), config files
+2. **Fence Claude away from source code**: convention-based instruction — "read only test files, specs, and config; do not read implementation source code"
+
+The instruction is deliberately generic (not tied to specific directory names like `src/` or `lib/`) so it works across arbitrary project structures. Claude infers what counts as "implementation source" vs "test code" from file names, directory conventions, and import patterns — the same way a human developer would.
+
+The user prompt provides the specific spec location. The system prompt provides the role, constraints, and approach. Claude's agentic loop handles the rest — reading specs, reading existing tests for convention examples, generating new tests, writing them.
+
+### Source Code Isolation: Defense in Depth
+
+The isolation is a soft constraint (convention-based system prompt instruction). Defense layers:
+
+1. **System prompt**: "Do NOT read implementation source code" — convention-based, works across project structures
+2. **Human review**: generated tests are reviewed before committing — reviewer catches any internal import violations
+3. **Black-box test assertion**: the spec itself says tests should use external interfaces (CLI, filesystem), reinforcing the pattern Claude sees in the existing manual test
+
+This is sufficient for our use case. The spec pipeline's hard constraint (`--tools ""`) was needed because the spec pipeline runs frequently and automatically. gen-tests runs on-demand, with human review of output.
+
+### Testing Strategy
+
+The gen-tests command is tested with manually-written tests that verify the pipeline mechanics — command dispatch, argument parsing, Claude invocation, and NDJSON streaming — without requiring a fake binary that simulates agentic behavior.
+
+The tests cover:
+
+1. **Command dispatch**: `args[0] === "gen-tests"` routes to `runGenTests`, skipping `getCurrentBranch()` and `discoverConversations`
+2. **Spec dir resolution**: `--scope derive` resolves to `.machinen/specs/derive/`, no scope resolves to `.machinen/specs/`
+3. **Claude invocation contract**: the spawned process receives the right flags (no `--tools ""`, no `--effort low`), system prompt, and env vars (`CLAUDECODE` stripped, `extendEnv: false`)
+4. **NDJSON progress streaming**: tool use events are logged to stderr
+
+These are unit/integration tests of `runGenTests` internals, not full e2e tests. Full e2e testing of gen-tests (with a substitute binary that reads specs and writes test files) is deferred — the gen-tests output is always human-reviewed, so the critical path is the command plumbing, not an automated end-to-end loop.
+
+### NDJSON Progress Streaming
+
+gen-tests reuses the same NDJSON parsing as `runClaude` for progress output. The stream events include tool use events (Read, Write calls), which are useful for observing what Claude is doing:
+
+```
+[claude] tool_use: Read({"file_path":".machinen/specs/derive/reset-mode.feature"})
+[claude] tool_use: Read({"file_path":"derive/test/e2e/derive-one-shot.test.ts"})
+[claude] generating text...
+[claude] tool_use: Write({"file_path":"derive/test/e2e/reset-mode.test.ts","content":"..."})
+```
+
+The existing `runClaude` already handles `content_block_start` with `tool_use` type and logs tool names + input previews. This logging works as-is for the agentic case.
+
+### Invariants & Constraints
+
+- gen-tests must not require `getCurrentBranch()` — it works on spec files, not git state
+- gen-tests must not call `discoverConversations` — no conversation/DB dependency
+- gen-tests must use `--no-session-persistence` and strip `CLAUDECODE` — same recursion prevention as the spec pipeline
+- gen-tests must not use `--tools ""` — tools must be enabled for filesystem access
+- The `CLAUDE_BIN` env var must work for gen-tests (same override mechanism as spec pipeline)
+- The system prompt must use convention-based isolation (not path-specific) so it works across arbitrary projects
+
+### Suggested Verification
+
+1. Run `derive gen-tests --scope derive` and observe Claude reading specs and writing test files
+2. Inspect the generated test files — they should follow existing test conventions
+3. Check that no internal source imports appear in generated tests
+4. Run `pnpm --filter derive test` to verify generated tests pass alongside the existing manual test
+
+### Tasks
+
+- [ ] Create `derive/src/gen-tests.ts` — system prompt, `runGenTests` function, NDJSON progress streaming
+- [ ] Modify `derive/src/index.ts` — add `gen-tests` dispatch before `getCurrentBranch()` and `discoverConversations`
+- [ ] Extract shared NDJSON streaming logic from `runClaude` into a reusable helper (or duplicate with simplification)
+- [ ] Write manually-authored tests for gen-tests (command dispatch, spec dir resolution, Claude invocation contract)
+- [ ] Manual verification: run `derive gen-tests --scope derive`, inspect output

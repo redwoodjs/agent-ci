@@ -429,7 +429,7 @@ async function loadRuns() {
 
     const header = document.createElement("div");
     header.className = "list-item";
-    header.style.cursor = "default";
+    header.style.cursor = "pointer"; // Changed to pointer
     header.style.borderBottomLeftRadius = "0";
     header.style.borderBottomRightRadius = "0";
     header.innerHTML = `
@@ -439,6 +439,10 @@ async function loadRuns() {
       </div>
       <div>${getStatusBadge(overallStatus)}</div>
     `;
+    header.addEventListener("click", async () => {
+      await setAppState({ runId: latestJob.runId });
+      window.location.href = "views://runs/index.html";
+    });
     group.appendChild(header);
 
     // Group jobs by jobName, then sort attempts within each group

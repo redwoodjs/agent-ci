@@ -363,22 +363,6 @@ app.put("/concurrency", async (req, res) => {
   }
   setMaxConcurrentJobs(max);
 
-  // Persist to config file so the setting survives restarts
-  try {
-    const { DEFAULT_CONFIG_PATH, parseJsonc } = await import("../config.js");
-    const fsSync = await import("node:fs");
-    const pathMod = await import("node:path");
-    fsSync.mkdirSync(pathMod.dirname(DEFAULT_CONFIG_PATH), { recursive: true });
-    let existing: Record<string, any> = {};
-    if (fsSync.existsSync(DEFAULT_CONFIG_PATH)) {
-      existing = parseJsonc(fsSync.readFileSync(DEFAULT_CONFIG_PATH, "utf-8"));
-    }
-    existing.maxConcurrentJobs = max;
-    fsSync.writeFileSync(DEFAULT_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
-  } catch (err) {
-    console.error("[OA Supervisor] Failed to persist concurrency to config:", err);
-  }
-
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ max: getMaxConcurrentJobs() }));
 });

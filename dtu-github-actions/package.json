@@ -7,7 +7,7 @@
   "author": "",
   "type": "module",
   "scripts": {
-    "dev": "(pnpm dlx kill-port 8910 || true) && tsx --env-file=.env src/server/index.ts --config .oa-dev.jsonc",
+    "dev": "(pnpm dlx kill-port 8910 || true) && tsx --env-file=.env src/server/start.ts",
     "simulate": "tsx --env-file=.env src/simulate.ts",
     "typecheck": "tsgo",
     "test": "BRIDGE_URL=http://localhost:8911 GITHUB_WEBHOOK_SECRET=test-secret vitest run"

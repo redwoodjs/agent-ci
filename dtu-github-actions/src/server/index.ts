@@ -3,9 +3,9 @@ import bodyParser from "body-parser";
 import { execa } from "execa";
 import fs from "node:fs";
 import path from "node:path";
-import { config, loadOaConfig } from "../config.js";
+import { config } from "../config.js";
 import { state } from "./store.js";
-import { setupDtuLogging, getDtuLogPath, setWorkingDirectory, DTU_ROOT } from "./logger.js";
+import { setupDtuLogging, getDtuLogPath } from "./logger.js";
 
 // Routes
 import { registerDtuRoutes } from "./routes/dtu.js";
@@ -308,39 +308,4 @@ export async function bootstrapAndReturnApp() {
   });
 
   return app;
-}
-
-if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== "test") {
-  const args = process.argv.slice(2);
-  let configPath: string | undefined;
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--config" && args[i + 1]) {
-      configPath = args[i + 1];
-      i++;
-    }
-  }
-
-  const parsedConfig = loadOaConfig(configPath);
-  let workingDir = parsedConfig.workingDirectory;
-  if (workingDir) {
-    if (!path.isAbsolute(workingDir)) {
-      workingDir = path.resolve(DTU_ROOT, workingDir);
-    }
-    setWorkingDirectory(workingDir);
-  }
-
-  bootstrapAndReturnApp()
-    .then((app) => {
-      app.listen(config.DTU_PORT, "0.0.0.0", () => {
-        console.log(
-          `[DTU] OA-RUN-1 Mock GitHub API server running at http://0.0.0.0:${config.DTU_PORT}`,
-        );
-        console.log(`[DTU] Logging to ${getDtuLogPath()}`);
-      });
-    })
-    .catch((err: any) => {
-      console.error("[DTU] Failed to start:", err);
-      process.exit(1);
-    });
 }

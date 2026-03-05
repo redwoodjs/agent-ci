@@ -1,8 +1,6 @@
-import { parse } from "jsonc-parser";
 import { z } from "zod";
 import fs from "fs";
 import path from "path";
-import os from "os";
 import { PROJECT_ROOT } from "./logger.js";
 
 const configSchema = z.object({
@@ -20,29 +18,6 @@ const configSchema = z.object({
 export type Config = z.infer<typeof configSchema>;
 
 export const config = configSchema.parse(process.env);
-
-export const DEFAULT_CONFIG_PATH = path.join(os.homedir(), ".config", "oa", "config.jsonc");
-
-export function parseJsonc(fileContent: string): any {
-  const errors: any[] = [];
-  const result = parse(fileContent, errors, { allowTrailingComma: true });
-  if (errors.length > 0) {
-    throw new Error(`Failed to parse JSONC config with ${errors.length} error(s)`);
-  }
-  return result;
-}
-
-export function loadOaConfig(configPath?: string): {
-  workingDirectory?: string;
-  maxConcurrentJobs?: number;
-} {
-  const resolvedPath = configPath ? path.resolve(configPath) : DEFAULT_CONFIG_PATH;
-  if (!fs.existsSync(resolvedPath)) {
-    return {};
-  }
-  const content = fs.readFileSync(resolvedPath, "utf-8");
-  return parseJsonc(content);
-}
 
 /**
  * Load machine-local secrets from `.env.machine` at the oa-1 project root.

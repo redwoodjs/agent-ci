@@ -1,14 +1,7 @@
 import { BrowserWindow, Utils, Tray, defineElectrobunRPC } from "electrobun/bun";
 import path from "node:path";
 import type { MyRPCSchema } from "../shared/rpc.ts";
-import {
-  uiConfigPath,
-  parsedConfig,
-  workingDirectory,
-  getWorkspaceRoot,
-  getLogsDir,
-  getUserDataDir,
-} from "./config.ts";
+import { workingDirectory, getWorkspaceRoot, getLogsDir, getUserDataDir } from "./config.ts";
 
 let procs: any[] = [];
 let trayInstance: Tray | null = null;
@@ -188,9 +181,6 @@ async function buildTrayMenu() {
 
 async function startBackgroundProcesses() {
   const spawnArgs = ["pnpm", "--filter", "supervisor", "run", "oa", "server"];
-  if (uiConfigPath) {
-    spawnArgs.push("--config", uiConfigPath);
-  }
 
   const supervisorProc = Bun.spawn(spawnArgs, {
     cwd: getWorkspaceRoot(),
@@ -338,10 +328,8 @@ Promise.all([getUserDataDir(), import("node:fs/promises")])
   .then(([userDataDir, fs]) => {
     const logsDir = getLogsDir();
     fs.mkdir(logsDir, { recursive: true }).catch(() => {});
-    console.log("OA Electrobun app started with config:", {
-      uiConfigPath,
+    console.log("OA Electrobun app started:", {
       workingDirectory,
-      parsedConfig,
       logsDir,
       userDataDir,
     });

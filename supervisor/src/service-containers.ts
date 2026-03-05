@@ -1,5 +1,6 @@
 import Docker from "dockerode";
 import type { WorkflowService } from "./workflow-parser.js";
+import { pruneOrphanedDockerResources } from "./shutdown.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -91,7 +92,10 @@ export async function startServiceContainers(
   const containerIds: string[] = [];
   const portForwards: string[] = [];
 
-  // 1. Create a bridge network
+  // 1. Remove orphaned networks to avoid exhausting Docker's address pool
+  pruneOrphanedDockerResources();
+
+  // 2. Create a bridge network
   await docker.createNetwork({ Name: networkName, Driver: "bridge" });
   emit?.(`  🔗 Created network ${networkName}`);
 

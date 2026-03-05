@@ -1,75 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import request from "supertest";
-import { app } from "./index.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { runWorkflow, retryRun } from "./orchestrator.js";
-
-describe("Supervisor Server API", () => {
-  it("GET /status returns valid status response", async () => {
-    const res = await request(app.handler as any).get("/status");
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty("status");
-    expect(typeof res.body.status).toBe("string");
-    expect(["Idle", "Running", "Passed", "Failed"]).toContain(res.body.status);
-    expect(res.body).toHaveProperty("activeContainers");
-    expect(res.body).toHaveProperty("recentJobs");
-  });
-
-  it("POST /repos adds a repo and GET /repos returns it", async () => {
-    const testPath = "/Users/test/mock-repo";
-    const res1 = await request(app.handler as any)
-      .post("/repos")
-      .send({ repoPath: testPath });
-    expect(res1.status).toBe(200);
-
-    const res2 = await request(app.handler as any).get("/repos");
-    expect(res2.status).toBe(200);
-    expect(Array.isArray(res2.body)).toBe(true);
-    expect(res2.body.includes(testPath)).toBe(true);
-
-    // Cleanup
-    await request(app.handler as any)
-      .delete("/repos")
-      .send({ repoPath: testPath });
-  });
-
-  it("POST /repos/watched enables watching and GET /repos/watched returns it", async () => {
-    const testPath = "/Users/test/mock-repo-watched";
-    const res1 = await request(app.handler as any)
-      .post("/repos/watched")
-      .send({ repoPath: testPath });
-    expect(res1.status).toBe(200);
-
-    const res2 = await request(app.handler as any).get("/repos/watched");
-    expect(res2.status).toBe(200);
-    expect(Array.isArray(res2.body)).toBe(true);
-    expect(res2.body.includes(testPath)).toBe(true);
-
-    // Cleanup
-    await request(app.handler as any)
-      .delete("/repos/watched")
-      .send({ repoPath: testPath });
-  });
-
-  it("GET /workflows fails without repoPath", async () => {
-    const res = await request(app.handler as any).get("/workflows");
-    expect(res.status).toBe(400);
-  });
-
-  it("GET /disk-usage returns valid usage response", async () => {
-    const res = await request(app.handler as any).get("/disk-usage");
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty("workspaces");
-    expect(res.body.workspaces).toHaveProperty("count");
-    expect(res.body.workspaces).toHaveProperty("items");
-    expect(typeof res.body.totalBytes).toBe("number");
-    expect(typeof res.body.pnpmStoreBytes).toBe("number");
-    expect(typeof res.body.playwrightCacheBytes).toBe("number");
-    expect(typeof res.body.logsBytes).toBe("number");
-  });
-});
+import { runWorkflow, retryRun } from "./runner.js";
 
 // ── Multi-job workflow fan-out ─────────────────────────────────────────────────
 

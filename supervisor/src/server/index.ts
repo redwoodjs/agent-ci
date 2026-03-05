@@ -24,8 +24,6 @@ import {
   getRunDetail,
   getRunLogs,
   getRunErrors,
-  getRunStats,
-  getStatsHistory,
   getRunTimeline,
   getMaxConcurrentJobs,
   setMaxConcurrentJobs,
@@ -33,7 +31,11 @@ import {
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
 import { getWorkingDirectory } from "../logger.js";
-import { pruneStaleWorkspaces, getDiskUsage } from "../cleanup.js";
+import {
+  pruneStaleWorkspaces,
+  killAllRunnerContainers,
+  pruneOrphanedDockerResources,
+} from "../shutdown.js";
 
 const PORT = 8912;
 export const app = polka();
@@ -224,26 +226,6 @@ app.get("/runs", async (req, res) => {
   res.end(JSON.stringify(detail));
 });
 
-app.get("/runs/stats", async (req, res) => {
-  const runId = req.query.runId as string;
-  if (!runId) {
-    return res.writeHead(400).end();
-  }
-  const stats = await getRunStats(runId);
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(stats));
-});
-
-app.get("/runs/stats/history", async (req, res) => {
-  const runId = req.query.runId as string;
-  if (!runId) {
-    return res.writeHead(400).end();
-  }
-  const history = await getStatsHistory(runId);
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(history));
-});
-
 app.get("/runs/timeline", async (req, res) => {
   const runId = req.query.runId as string;
   if (!runId) {
@@ -346,37 +328,11 @@ app.put("/concurrency", (req, res) => {
   res.end(JSON.stringify({ max: getMaxConcurrentJobs() }));
 });
 
-// Disk Usage
-app.get("/disk-usage", (req, res) => {
-  const usage = getDiskUsage(getWorkingDirectory());
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(usage));
-});
-
-app.delete("/disk-usage/workspaces", (req, res) => {
-  const { name } = (req as any).body || {};
-  const workDir = getWorkingDirectory();
-  const fs = require("node:fs");
-  const path = require("node:path");
-
-  if (name) {
-    // Delete specific workspace
-    const wsPath = path.join(workDir, "work", name);
-    if (!name.startsWith("oa-runner-") || !fs.existsSync(wsPath)) {
-      return res.writeHead(404).end();
-    }
-    fs.rmSync(wsPath, { recursive: true, force: true });
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ deleted: [name] }));
-  } else {
-    // Delete all stale workspaces (24h)
-    const pruned = pruneStaleWorkspaces(workDir, 24 * 60 * 60 * 1000);
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ deleted: pruned }));
-  }
-});
-
 export async function startServer() {
+  // On startup: kill any orphaned runner containers from a previous unclean shutdown.
+  // This is a safety net so stale containers don't accumulate or conflict with new runs.
+  killAllRunnerContainers();
+  pruneOrphanedDockerResources();
   // Prune stale runner workspaces older than 24 hours (defense in depth)
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
   const pruned = pruneStaleWorkspaces(getWorkingDirectory(), TWENTY_FOUR_HOURS);
@@ -390,4 +346,14 @@ export async function startServer() {
   });
   // Auto-start DTU at runtime
   startDtu();
+
+  // Aggressive shutdown: kill ALL runner containers when the supervisor exits
+  const gracefulShutdown = () => {
+    console.log("\n[OA Supervisor] Shutting down — killing all runner containers...");
+    killAllRunnerContainers();
+    stopDtu();
+    process.exit(0);
+  };
+  process.on("SIGINT", gracefulShutdown);
+  process.on("SIGTERM", gracefulShutdown);
 }

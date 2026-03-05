@@ -305,13 +305,22 @@ export function registerActionRoutes(app: Polka) {
     res.end();
   });
 
-  // 14. Job Request Update / Renewal Mock
-  app.patch("/_apis/distributedtask/jobrequests", (req: any, res) => {
+  // 14. Job Request Update / Renewal / Finish Mock
+  //     The runner's VssClient resolves the route template "_apis/distributedtask/jobrequests/{jobId}"
+  //     but passes { poolId, requestId } as routeValues — since none match "{jobId}", the placeholder
+  //     is dropped and the runner sends PATCH /_apis/distributedtask/jobrequests (bare path).
+  //     We register both patterns for safety.
+  const jobrequestHandler = (req: any, res: any) => {
     let payload = req.body || {};
-    payload.lockedUntil = new Date(Date.now() + 60000).toISOString();
+    // If the request is a renewal (no result/finishTime), set lockedUntil
+    if (!payload.result && !payload.finishTime) {
+      payload.lockedUntil = new Date(Date.now() + 60000).toISOString();
+    }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(payload));
-  });
+  };
+  app.patch("/_apis/distributedtask/jobrequests", jobrequestHandler);
+  app.patch("/_apis/distributedtask/jobrequests/:requestId", jobrequestHandler);
 
   // 15. Timeline Records Handler — disk-only, no in-memory storage
   const timelineHandler = (req: any, res: any) => {

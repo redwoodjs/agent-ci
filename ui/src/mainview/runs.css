@@ -212,6 +212,27 @@ a:hover {
   color: var(--text-secondary);
 }
 
+/* Warm/cold node_modules cache badge */
+.warm-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  vertical-align: middle;
+  margin-left: 6px;
+}
+.warm-badge.warm {
+  background: rgba(255, 152, 0, 0.12);
+  color: #f0a040;
+  border: 1px solid rgba(255, 152, 0, 0.2);
+}
+.warm-badge.cold {
+  background: rgba(88, 166, 255, 0.1);
+  color: var(--accent);
+  border: 1px solid rgba(88, 166, 255, 0.2);
+}
+
 .log-viewer {
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
   font-size: 13px;

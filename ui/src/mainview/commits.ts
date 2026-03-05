@@ -18,6 +18,24 @@ let branchName = "";
 let selectedCommitId: string | null = null;
 let lastRunsJson: string | null = null;
 
+// Live-ticking timer: updates all elapsed-time spans every second
+let _elapsedTimer: ReturnType<typeof setInterval> | null = null;
+function startElapsedTimer() {
+  if (_elapsedTimer) {
+    return;
+  }
+  _elapsedTimer = setInterval(() => {
+    document.querySelectorAll("[data-elapsed-start]").forEach((el) => {
+      const start = Number((el as HTMLElement).dataset["elapsedStart"]);
+      const end = (el as HTMLElement).dataset["elapsedEnd"];
+      if (end) {
+        return;
+      } // finished — don't tick
+      (el as HTMLElement).textContent = formatElapsed(start);
+    });
+  }, 1000);
+}
+
 async function selectCommit(commitId: string, label: string) {
   selectedCommitId = commitId;
   lastRunsJson = null;
@@ -43,12 +61,14 @@ async function loadWorkflows() {
     return;
   }
 
-  const [workflows, enabledMap]: [
+  const [workflows, enabledMap, warmStatus]: [
     { id: string; name: string; triggers: string[]; enabledByDefault: boolean }[],
     Record<string, boolean>,
+    { warm: boolean; lockfileHash: string },
   ] = await Promise.all([
     api("/workflows?repoPath=" + encodeURIComponent(repoPath)),
     api("/workflows/enabled?repoPath=" + encodeURIComponent(repoPath)),
+    api("/workflows/warm-status?repoPath=" + encodeURIComponent(repoPath)),
   ]);
 
   workflowsList.innerHTML = "";
@@ -70,7 +90,7 @@ async function loadWorkflows() {
 
     item.innerHTML = `
       <div style="flex: 1; min-width: 0">
-        <div class="list-item-title">${wf.name}</div>
+        <div class="list-item-title">${wf.name} ${warmStatus.warm ? '<span class="warm-badge warm">🔥 warm</span>' : '<span class="warm-badge cold">❄️ cold</span>'}</div>
         <div class="list-item-subtitle">${wf.id}</div>
         <div style="font-size: 11px; color: var(--text-secondary); margin-top: 2px">
           runs on: <span style="color: var(--text-primary)">${runsOnText}</span>
@@ -179,6 +199,7 @@ async function loadRuns() {
     date: number;
     endDate?: number;
     attempt: number;
+    warmCache?: boolean;
   }[];
   try {
     history = await api(
@@ -299,9 +320,10 @@ async function loadRuns() {
         item.innerHTML = `
           <div style="flex:1;min-width:0">
             <div class="list-item-title">${latest.workflowName}</div>
-            <div class="list-item-subtitle">${latest.runnerName} · ${new Date(latest.date).toLocaleString()} · ${elapsed}</div>
+            <div class="list-item-subtitle">${latest.runnerName} · ${new Date(latest.date).toLocaleString()} · <span data-elapsed-start="${firstJob.date}" ${latestJob.endDate ? `data-elapsed-end="${latestJob.endDate}"` : ""}>${elapsed}</span></div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
+            ${latest.warmCache === true ? '<span class="warm-badge warm">🔥</span>' : latest.warmCache === false ? '<span class="warm-badge cold">❄️</span>' : ""}
             ${getStatusBadge(latest.status)}
           </div>
         `;
@@ -413,7 +435,7 @@ async function loadRuns() {
     header.innerHTML = `
       <div>
         <div class="list-item-title">${firstJob.workflowName}</div>
-        <div class="list-item-subtitle">${workflowRunId} · ${new Date(firstJob.date).toLocaleString()} · ${elapsed}</div>
+        <div class="list-item-subtitle">${workflowRunId} · ${new Date(firstJob.date).toLocaleString()} · <span data-elapsed-start="${firstJob.date}" ${latestJob.endDate ? `data-elapsed-end="${latestJob.endDate}"` : ""}>${elapsed}</span></div>
       </div>
       <div>${getStatusBadge(overallStatus)}</div>
     `;
@@ -498,13 +520,24 @@ async function loadRuns() {
         ? `<span class="attempt-badge">Attempt ${job.attempt ?? 1}</span>`
         : "";
 
+      // Per-job elapsed timer
+      const jobElapsed = job.endDate
+        ? formatElapsed(job.date, job.endDate)
+        : job.status === "Pending"
+          ? ""
+          : formatElapsed(job.date);
+      const jobElapsedHtml = jobElapsed
+        ? ` · <span data-elapsed-start="${job.date}" ${job.endDate ? `data-elapsed-end="${job.endDate}"` : ""}>${jobElapsed}</span>`
+        : "";
+
       jobRow.innerHTML = `
         <div style="display:flex;align-items:center;gap:8px">
           ${prefix}
-          ${nameLabel}
+          ${nameLabel}${jobElapsedHtml}
         </div>
         <div style="display:flex;align-items:center;gap:8px">
           ${attemptBadge}
+          ${job.warmCache === true ? '<span class="warm-badge warm">🔥</span>' : job.warmCache === false ? '<span class="warm-badge cold">❄️</span>' : ""}
           ${getStatusBadge(job.status)}
         </div>
       `;
@@ -530,6 +563,7 @@ async function loadRuns() {
 
     runsList.appendChild(group);
   });
+  startElapsedTimer();
 }
 
 async function loadCommits() {

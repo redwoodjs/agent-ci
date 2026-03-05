@@ -228,7 +228,13 @@ async function loadLogs() {
 
   if (runTitle) {
     const elapsed = runStartDate ? ` · ${formatElapsed(runStartDate, runEndDate)}` : "";
-    runTitle.innerText = `${details.runnerName || activeRunId}${elapsed}`;
+    const cacheLabel =
+      details.warmCache === true
+        ? ` <span class="warm-badge warm">🔥 warm cache</span>`
+        : details.warmCache === false
+          ? ` <span class="warm-badge cold">❄️ cold install</span>`
+          : "";
+    runTitle.innerHTML = `${details.runnerName || activeRunId}${elapsed}${cacheLabel}`;
   }
 
   if (details && logsViewer && runStatus) {

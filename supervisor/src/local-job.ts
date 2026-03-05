@@ -14,6 +14,7 @@ import {
   type ServiceContext,
 } from "./service-containers.js";
 import { killRunnerContainers } from "./shutdown.js";
+import { startEphemeralDtu } from "dtu-github-actions/src/ephemeral.js";
 
 // ─── ANSI / log-level patterns ────────────────────────────────────────────────
 
@@ -182,21 +183,26 @@ export async function executeLocalJob(job: Job): Promise<void> {
   // 3. Prepare directories (done first so containerName is available for the header)
   const {
     name: containerName,
+    runDir,
+    logDir,
     outputLogPath,
     debugLogPath,
-  } = createLogContext("oa-runner", job.runnerName);
+  } = createLogContext("machinen", job.runnerName);
 
-  // Tell the DTU which log directory to write step output into — do this as early as
-  // possible so it's ready before the runner container boots and sends feed lines.
-  const dtuUrl = config.GITHUB_API_URL;
-  const stepOutputPath = path.join(path.dirname(outputLogPath), "step-output.log");
+  // Start an ephemeral in-process DTU for this job run so each job gets its
+  // own isolated DTU instance on a random port — eliminating port conflicts.
+  const dtuCacheDir = path.resolve(getWorkingDirectory(), "cache", "dtu");
+  const ephemeralDtu = await startEphemeralDtu(dtuCacheDir).catch(() => null);
+  const dtuUrl = ephemeralDtu?.url ?? config.GITHUB_API_URL;
+
+  const stepOutputPath = path.join(logDir, "step-output.log");
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       runnerName: containerName,
-      logDir: path.dirname(outputLogPath),
-      timelineDir: path.dirname(outputLogPath), // write timeline.json alongside process-stdout.log
+      logDir,
+      timelineDir: logDir,
       // The pnpm store is bind-mounted into the container, so there's no need
       // for the runner to tar/gzip it. Tell the DTU to return a synthetic hit
       // for any cache key containing "pnpm" — skipping the 60s+ tar entirely.
@@ -208,7 +214,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
 
   // Write metadata if available (to help the UI map logs to workflows)
   if (job.workflowPath) {
-    const metadataPath = path.join(path.dirname(outputLogPath), "metadata.json");
+    const metadataPath = path.join(logDir, "metadata.json");
     // Derive repoPath from the workflow file (walk up to find .git)
     let repoPath = "";
     {
@@ -240,11 +246,9 @@ export async function executeLocalJob(job: Job): Promise<void> {
       }
     }
     if (!workflowRunId) {
-      // Derive workflowRunId (group key) by stripping the multi-job -NNN suffix
-      // (e.g. oa-runner-95-001 → oa-runner-95). The suffix is always zero-padded 3
-      // digits that follow another numeric segment, so we must NOT strip the runner
-      // number itself (e.g. oa-runner-107 must stay as-is, not become oa-runner).
-      workflowRunId = containerName.replace(/(?<=-\d+)-\d{3}$/, "");
+      // Derive workflowRunId (group key) by stripping job/matrix/retry suffixes.
+      // e.g. machinen-redwoodjssdk-14-j1-m2-r2 → machinen-redwoodjssdk-14
+      workflowRunId = containerName.replace(/(-j\d+)?(-m\d+)?(-r\d+)?$/, "");
     }
     // Build our fields; we'll merge them ON TOP of whatever the orchestrator wrote
     // so that matrixContext, warmCache, repoPath, etc. are preserved.
@@ -278,7 +282,6 @@ export async function executeLocalJob(job: Job): Promise<void> {
       "utf-8",
     );
   }
-
   // Open output stream immediately so header + footer lines are captured in the log
   const outputStream = fs.createWriteStream(outputLogPath);
   const debugStream = fs.createWriteStream(debugLogPath);
@@ -300,15 +303,17 @@ export async function executeLocalJob(job: Job): Promise<void> {
   }
   emit(`  └─ Delivery: ${job.deliveryId}\n`);
 
-  // Move workspace prep BEFORE seed to pass localPath
+  // Per-run dirs (work, shims, diag) are now co-located under the run's directory.
+  // This lets cleanup be a single `rm -rf <runDir>` removing everything for that run.
   const workDir = getWorkingDirectory();
-  const containerWorkDir = path.resolve(workDir, "work", containerName);
-  const shimsDir = path.resolve(workDir, "shims", containerName);
-  const diagDir = path.resolve(workDir, "diag", containerName);
-  const toolCacheDir = path.resolve(workDir, "toolcache");
+  const containerWorkDir = path.resolve(runDir, "work");
+  const shimsDir = path.resolve(runDir, "shims");
+  const diagDir = path.resolve(runDir, "diag");
+  // Shared caches: live under <workDir>/cache/ and are intentionally shared across all runners.
+  const toolCacheDir = path.resolve(workDir, "cache", "toolcache");
   const repoSlug = (job.githubRepo || config.GITHUB_REPO).replace("/", "-");
-  const pnpmStoreDir = path.resolve(workDir, "pnpm-store", repoSlug);
-  const playwrightCacheDir = path.resolve(workDir, "playwright-cache", repoSlug);
+  const pnpmStoreDir = path.resolve(workDir, "cache", "pnpm-store", repoSlug);
+  const playwrightCacheDir = path.resolve(workDir, "cache", "playwright", repoSlug);
   // Warm node_modules: a persistent bind-mount keyed by the pnpm lockfile hash.
   // First run: pnpm install writes into this directory through the bind-mount.
   // Subsequent runs: pnpm install finds node_modules already populated → NOP.
@@ -332,7 +337,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   } catch {
     // Best-effort; fall back to "no-lockfile"
   }
-  const warmModulesDir = path.resolve(workDir, "warm-modules", repoSlug, lockfileHash);
+  const warmModulesDir = path.resolve(workDir, "cache", "warm-modules", repoSlug, lockfileHash);
   // Place workspace files directly in containerWorkDir/<repo>/<repo>/ so the
   // runner finds them at /home/runner/_work/<repo>/<repo>/ via bind-mount.
   // This eliminates the container-side cp -r (Copy 2) entirely.

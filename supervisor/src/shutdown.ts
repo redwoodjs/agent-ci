@@ -5,18 +5,18 @@ import { execSync } from "node:child_process";
 // ─── Docker container cleanup ─────────────────────────────────────────────────
 
 /**
- * Force-kill ALL `oa-runner-*` Docker containers (runners + service sidecars)
- * and remove their associated `oa-net-*` bridge networks.
+ * Force-kill ALL `machinen-*` Docker containers (runners + service sidecars)
+ * and remove their associated `machinen-net-*` bridge networks.
  *
  * This is the "nuclear" cleanup — used when the supervisor process is shutting
  * down and we want to guarantee no orphaned containers remain.
  */
 export function killAllRunnerContainers(): void {
-  // 1. Force-remove all containers whose name starts with `oa-runner-`
-  //    This catches both runner containers (oa-runner-18) and service sidecars
-  //    (oa-runner-18-svc-mysql, oa-runner-18-svc-redis, etc.)
+  // 1. Force-remove all containers whose name starts with `machinen-`
+  //    This catches both runner containers (machinen-14) and service sidecars
+  //    (machinen-14-svc-mysql, machinen-14-svc-redis, etc.)
   try {
-    const ids = execSync(`docker ps -aq --filter "name=oa-runner-"`, {
+    const ids = execSync(`docker ps -aq --filter "name=machinen-"`, {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
@@ -29,9 +29,9 @@ export function killAllRunnerContainers(): void {
     // Docker may not be reachable or no matching containers — fine
   }
 
-  // 2. Remove all bridge networks whose name starts with `oa-net-`
+  // 2. Remove all bridge networks whose name starts with `machinen-net-`
   try {
-    const nets = execSync(`docker network ls -q --filter "name=oa-net-"`, {
+    const nets = execSync(`docker network ls -q --filter "name=machinen-net-"`, {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
@@ -82,7 +82,7 @@ export function killRunnerContainers(runnerName: string): void {
 
   // 3. Remove the shared bridge network
   try {
-    execSync(`docker network rm oa-net-${runnerName}`, {
+    execSync(`docker network rm machinen-net-${runnerName}`, {
       stdio: ["pipe", "pipe", "pipe"],
     });
   } catch {
@@ -92,16 +92,16 @@ export function killRunnerContainers(runnerName: string): void {
 
 /**
  * Remove orphaned Docker resources left behind by previous runs:
- *   1. `oa-net-*` networks with no connected containers
+ *   1. `machinen-net-*` networks with no connected containers
  *   2. Dangling volumes (anonymous volumes from service containers like MySQL)
  *
  * Call this proactively before creating new resources to prevent Docker from
  * exhausting its address pool ("all predefined address pools have been fully subnetted").
  */
 export function pruneOrphanedDockerResources(): void {
-  // 1. Remove orphaned oa-net-* networks
+  // 1. Remove orphaned machinen-net-* networks
   try {
-    const nets = execSync(`docker network ls -q --filter "name=oa-net-"`, {
+    const nets = execSync(`docker network ls -q --filter "name=machinen-net-"`, {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
@@ -135,24 +135,27 @@ export function pruneOrphanedDockerResources(): void {
 // ─── Workspace pruning ────────────────────────────────────────────────────────
 
 /**
- * Remove stale `oa-runner-*` workspace directories older than `maxAgeMs`.
+ * Remove stale `machinen-*` run directories older than `maxAgeMs` from
+ * `<workDir>/runs/`. Each run dir contains logs, work, shims, and diag
+ * co-located, so a single rm removes everything for that run.
+ *
  * Returns an array of directory names that were pruned.
  */
 export function pruneStaleWorkspaces(workDir: string, maxAgeMs: number): string[] {
-  const workPath = path.join(workDir, "work");
-  if (!fs.existsSync(workPath)) {
+  const runsPath = path.join(workDir, "runs");
+  if (!fs.existsSync(runsPath)) {
     return [];
   }
 
   const now = Date.now();
   const pruned: string[] = [];
 
-  for (const entry of fs.readdirSync(workPath, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.startsWith("oa-runner-")) {
+  for (const entry of fs.readdirSync(runsPath, { withFileTypes: true })) {
+    if (!entry.isDirectory() || !entry.name.startsWith("machinen-")) {
       continue;
     }
 
-    const dirPath = path.join(workPath, entry.name);
+    const dirPath = path.join(runsPath, entry.name);
     try {
       const stat = fs.statSync(dirPath);
       const ageMs = now - stat.mtimeMs;

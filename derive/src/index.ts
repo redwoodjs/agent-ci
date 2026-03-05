@@ -13,7 +13,8 @@ import {
 } from "./db.js";
 import { updateSpec, reviewSpecDir, specDir } from "./spec.js";
 
-const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
+const CLAUDE_PROJECTS_DIR =
+  process.env.CLAUDE_PROJECTS_DIR ?? path.join(os.homedir(), ".claude", "projects");
 const WATCH_DEBOUNCE_MS = 5_000;
 
 // --GROK--: Shells out to git to get the current branch name.

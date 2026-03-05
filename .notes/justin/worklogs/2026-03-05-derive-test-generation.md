@@ -1136,3 +1136,67 @@ The test infra blueprint covers:
 - E2e test conventions — black-box, vitest, structural assertions
 
 The derive blueprint retains a brief "Test isolation" section that names the three env vars and links to the test infra blueprint for details.
+
+## Implementation: Tasks 2+3+4 — Env var overrides, test infrastructure, and first e2e test
+
+### Part A: Env var overrides
+
+Three one-line changes, exactly as specified in the RFC:
+
+- `derive/src/spec.ts:8` — `CLAUDE_BIN` reads from `process.env.CLAUDE_BIN` with fallback to `~/.local/bin/claude`
+- `derive/src/index.ts:16-17` — `CLAUDE_PROJECTS_DIR` reads from `process.env.CLAUDE_PROJECTS_DIR` with fallback to `~/.claude/projects`
+- `derive/src/db.ts:7` — `DB_PATH` reads from `process.env.MACHINEN_DB` with fallback to `~/.machinen/machinen.db`
+
+Zero behavioral change when env vars are unset.
+
+### Part B: Test infrastructure
+
+Added `"test": "vitest run"` to `derive/package.json`. No separate vitest config — the root `vitest.config.ts` applies.
+
+Created `derive/test/e2e/harness.ts`:
+
+- `setupDeriveTest(opts)` creates a fully isolated temp directory structure: `repo/` (git-initialized), `projects/<slug>/` (with JSONL fixtures), and a `machinen.db` path
+- Returns `{ repoDir, projectsDir, dbPath, specDir, run }` where `run()` spawns derive as a subprocess with all env vars pointing to temp dirs
+- Module-level `afterEach` hook (side effect on import) tracks all temp roots in a `Set<string>` and removes them after each test
+- Slug computation mirrors derive's `getSlugDir`: `repoPath.replace(/[/_]/g, "-")`
+- Git init + branch creation + empty initial commit so `getCurrentBranch()` works
+
+### Part C: First e2e test
+
+Created `derive/test/e2e/derive-one-shot.test.ts` with two tests:
+
+1. **"produces .feature files from a synthetic conversation"** — single conversation with `--reset` flag discussion, asserts exit code 0, at least one .feature file, each file starts with `Feature:`, contains `Scenario:` and `Given/When/Then` steps
+2. **"discovers multiple conversations for the same branch"** — two conversations (pagination + sorting topics), asserts both are processed into feature files with valid Gherkin structure
+
+Both tests use 30s timeouts (subprocess spawning + two `claude -p` calls via the stub per spec update).
+
+### Bug encountered: macOS symlink slug mismatch
+
+On macOS, `os.tmpdir()` returns `/var/folders/...` but `process.cwd()` inside a subprocess resolves the symlink to `/private/var/folders/...`. This caused derive's `getSlugDir(process.cwd())` to compute a slug starting with `-private-var-...` while the test wrote the JSONL under the `-var-...` slug. Result: "slug dir does not exist — no conversations to discover."
+
+Fix: `fs.realpathSync()` the temp root immediately after `mkdtempSync()`. All paths derived from it then match what the subprocess sees.
+
+### Verification
+
+Both tests pass:
+
+```
+pnpm --filter derive test
+
+ ✓ test/e2e/derive-one-shot.test.ts (2 tests) 958ms
+   ✓ produces .feature files from a synthetic conversation 492ms
+   ✓ discovers multiple conversations for the same branch 466ms
+
+ Test Files  1 passed (1)
+      Tests  2 passed (2)
+```
+
+### Tasks
+
+- [x] Add env var override to `derive/src/spec.ts` (CLAUDE_BIN)
+- [x] Add env var override to `derive/src/index.ts` (CLAUDE_PROJECTS_DIR)
+- [x] Add env var override to `derive/src/db.ts` (MACHINEN_DB)
+- [x] Add `"test"` script to `derive/package.json`
+- [x] Write `derive/test/e2e/harness.ts` — reusable test setup/teardown/run utility
+- [x] Write `derive/test/e2e/derive-one-shot.test.ts`
+- [x] Run the test, verify it passes

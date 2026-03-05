@@ -5,7 +5,7 @@ import { execa } from "execa";
 import type { JsonlMessage } from "./types.js";
 import { extractText } from "./reader.js";
 
-const CLAUDE_BIN = path.join(os.homedir(), ".local", "bin", "claude");
+const CLAUDE_BIN = process.env.CLAUDE_BIN ?? path.join(os.homedir(), ".local", "bin", "claude");
 
 // --GROK--: When --verbose is passed to derive itself, we dump raw NDJSON
 // events from the spawned claude process so we can inspect the full stream.

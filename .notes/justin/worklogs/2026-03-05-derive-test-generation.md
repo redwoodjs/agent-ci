@@ -440,3 +440,685 @@ The generated tests follow the same conventions as the manually-written test (vi
 | 3   | Test infrastructure     | vitest config, test script, devDependencies                                                                            |
 | 4   | First manual e2e test   | Full pipeline: synthetic JSONL -> substitute binary -> .feature file output                                            |
 | 5   | Test generation command | `derive gen-tests` — reads specs + existing tests, generates new tests via `claude -p`                                 |
+
+## RFC: Task 1 — Substitute binary (`bin/fakeClaude`)
+
+### 2000ft View
+
+We need a drop-in replacement for the `claude` CLI that runs a local LLM instead of calling Anthropic's API. This enables e2e testing of derive's full pipeline — from conversation reading through LLM-based spec generation to file output — without spending money, requiring credentials, or risking runaway API costs.
+
+The substitute binary is a Node script at `bin/fakeClaude` that accepts the same CLI flags and stdin input that derive passes to `claude -p`, runs the input through a tiny local GGUF model via `node-llama-cpp`, and emits NDJSON output in the same format derive expects. derive doesn't know or care that it's talking to a local model — the binary path is swapped via the `CLAUDE_BIN` env var.
+
+### Behavior Spec
+
+```gherkin
+Feature: Substitute Claude binary
+
+  Scenario: fakeClaude produces NDJSON result from stdin input
+    Given fakeClaude is invoked with "-p" and stdin containing a prompt
+    When the process completes
+    Then stdout contains a JSON line with type "result" and a non-empty result string
+    And the process exits with code 0
+
+  Scenario: fakeClaude accepts claude-compatible CLI flags
+    Given fakeClaude is invoked with flags: -p --verbose --output-format stream-json --model sonnet --tools "" --effort low --no-session-persistence --system-prompt "some prompt"
+    When the process completes
+    Then the process does not error on unrecognized flags
+    And stdout contains a JSON line with type "result"
+
+  Scenario: fakeClaude uses system prompt for inference
+    Given fakeClaude is invoked with --system-prompt "Output only Gherkin"
+    And stdin contains text describing a feature
+    When the process completes
+    Then the result string contains Gherkin-like content
+
+  Scenario: Model is downloaded on first run
+    Given no model file exists in the cache directory
+    When fakeClaude is invoked
+    Then the model is downloaded to the cache directory
+    And subsequent invocations use the cached model without downloading
+
+  Scenario: fakeClaude reads input from stdin
+    Given fakeClaude is invoked with "-p"
+    And "Hello world" is piped to stdin
+    When the process completes
+    Then the result is based on the stdin content
+```
+
+### API Reference (CLI)
+
+```
+bin/fakeClaude -p [options]
+
+Reads a prompt from stdin, runs it through a local GGUF model, outputs NDJSON to stdout.
+
+Options (accepted for compatibility, behavior noted):
+  -p                          Required. Enables prompt mode (reads stdin).
+  --system-prompt <string>    Used as the system message for the local model.
+  --model <name>              Accepted, ignored (always uses the local model).
+  --tools <string>            Accepted, ignored.
+  --effort <level>            Accepted, ignored.
+  --verbose                   Accepted, ignored.
+  --output-format <format>    Accepted, ignored (always outputs NDJSON).
+  --include-partial-messages   Accepted, ignored.
+  --no-session-persistence    Accepted, ignored.
+
+Stdin:  The full prompt text (preamble + user prompt concatenated).
+Stdout: One or more NDJSON lines. The final line is: {"type":"result","result":"<model output>"}
+Exit:   0 on success, non-zero on failure.
+```
+
+### Implementation Breakdown
+
+```
+[NEW] bin/fakeClaude                — executable Node script (#!/usr/bin/env node)
+[NEW] bin/fakeClaude.ts             — TypeScript source (compiled or run via tsx)
+[MODIFY] package.json (root)        — add node-llama-cpp to devDependencies, add models:pull script
+```
+
+### Directory & File Structure
+
+```
+bin/
+  fakeClaude                  — symlink or shebang script that runs fakeClaude.ts via tsx
+  fakeClaude.ts               — TypeScript implementation
+```
+
+### Types & Data Structures
+
+```typescript
+// Output format — matches claude -p --output-format stream-json
+interface ResultEvent {
+  type: "result";
+  result: string; // the model's text output
+}
+```
+
+### System Flow
+
+```
+stdin (prompt text)
+  |
+  v
+parse argv for --system-prompt
+  |
+  v
+resolve model path (~/.cache/machinen/models/<name>.gguf)
+  |
+  +-- if not exists: download from HuggingFace URL → write to cache dir
+  |
+  v
+getLlama() → loadModel(modelPath) → createContext() → LlamaChatSession
+  |
+  v
+session.prompt(systemPrompt + stdinContent)
+  |
+  v
+stdout: {"type":"result","result":"<output>"}\n
+  |
+  v
+exit 0
+```
+
+### Invariants & Constraints
+
+- The binary must accept all CLI flags that derive passes to `claude -p` without erroring, even if it ignores most of them.
+- The NDJSON `result` event must be parseable by derive's existing `runClaude` output parser in `spec.ts` (lines 100-153).
+- Model download must be idempotent — if the file exists at the cache path, skip the download.
+- The binary must work when spawned via `execa` with `input:` (stdin piped, not TTY).
+- The binary must not write to `~/.claude/projects/` or create session files (no ghost conversation risk).
+- Model cache location: `~/.cache/machinen/models/`. Configurable via `MACHINEN_MODEL_CACHE` env var for CI.
+
+### Model Selection
+
+Start with **SmolLM-135M-Instruct Q4_K_M** (~105MB). If it cannot reliably produce text containing `Feature:` and `Scenario:` blocks, fall back to **Qwen3-0.6B Q2_K** (~296MB).
+
+The model URL is hardcoded in the binary (e.g. `https://huggingface.co/QuantFactory/SmolLM-135M-Instruct-GGUF/resolve/main/SmolLM-135M-Instruct.Q4_K_M.gguf`). This can be overridden via `FAKECLAUDE_MODEL_URL` env var.
+
+### Suggested Verification
+
+1. Run `echo "Describe a login feature" | tsx bin/fakeClaude.ts -p --system-prompt "Output only Gherkin"` and inspect stdout for valid NDJSON with a `result` field
+2. Run it again — second run should be faster (model already cached)
+3. Parse the output with `JSON.parse()` and check `obj.type === "result"` and `obj.result` is non-empty
+4. Inspect `~/.cache/machinen/models/` to confirm the GGUF file was downloaded
+
+### Tasks
+
+- [x] Add `node-llama-cpp` to root `devDependencies`
+- [ ] ~~Add `models:pull` script to root `package.json`~~ — not needed, `resolveModelFile` auto-downloads on first use
+- [x] Write `bin/fakeClaude.mts` — argv parsing, stdin reading, model loading, inference, NDJSON output
+- [x] Make `bin/fakeClaude` executable (bash wrapper that calls `tsx bin/fakeClaude.mts`)
+- [x] Spike: SmolLM-135M failed, switched to Qwen3-0.6B + `ensureGherkinStructure` post-processing
+
+## Implementation: Task 1 — Substitute binary
+
+Added `node-llama-cpp@^3.17.1` to root devDependencies and added it to `onlyBuiltDependencies` so pnpm runs its native build postinstall (compiles llama.cpp with Metal on macOS).
+
+Implementation notes for `bin/fakeClaude.mts`:
+
+- Uses `resolveModelFile("hf:QuantFactory/SmolLM-135M-Instruct-GGUF:Q4_K_M", modelsDir)` which auto-downloads the GGUF on first call and caches it. This eliminated the need for a separate `models:pull` script.
+- Model cache defaults to `~/.cache/machinen/models/`, overridable via `MACHINEN_MODEL_CACHE`.
+- Model URI overridable via `FAKECLAUDE_MODEL_URI` for switching to a larger model.
+- Parses `--system-prompt` (used for LlamaChatSession constructor), `-p` (mode gate), and silently consumes all other flags derive passes.
+- All diagnostic output goes to stderr; only the NDJSON result line goes to stdout.
+- Cleanup: disposes context and model after inference.
+- File uses `.mts` extension (not `.ts`) because `node-llama-cpp` uses top-level await internally, requiring ESM module output. tsx defaults to CJS for `.ts` but treats `.mts` as ESM.
+
+`bin/fakeClaude` is a bash wrapper that resolves tsx from `node_modules/.bin/tsx` relative to repo root: `exec "$REPO_ROOT/node_modules/.bin/tsx" "$DIR/fakeClaude.mts" "$@"`
+
+## Spike: Model quality validation
+
+Tested three configurations:
+
+**SmolLM-135M-Instruct Q4_K_M (~105MB)**: Failed. Produced Emacs Lisp gibberish instead of Gherkin, got stuck in a repetition loop (`(concat " "` repeated hundreds of times). Too small for any format following.
+
+**Qwen3-0.6B Q4_K_M (~484MB) — plain prompt**: Partial. Produced coherent English bullet points about the topic, no repetition, but missed Gherkin format entirely. Can understand content but can't follow format instructions from system prompt alone.
+
+**Qwen3-0.6B Q4_K_M — with few-shot example**: Produced `Feature:`, `Scenario:`, `Given/When/Then` steps when given an example in the prompt. However, with derive's actual preamble (no example), it produces `Given/When/Then` steps but omits the `Feature:` / `Scenario:` wrappers.
+
+**Decision**: Default to Qwen3-0.6B and add `ensureGherkinStructure()` post-processing in fakeClaude. If the model output is missing `Feature:` blocks, wrap it in a minimal `Feature: Generated specification / Scenario: Generated scenario` structure. This keeps real AI doing content extraction while ensuring structural validity for derive's `writeSpec` parser.
+
+Performance: ~1.3s inference with cached model (macOS, Apple Silicon). First run downloads ~484MB.
+
+Updated default model URI from SmolLM-135M to Qwen3-0.6B in `bin/fakeClaude.mts`.
+
+## Design pivot: deterministic template with keyword extraction
+
+After implementing the local model approach, we identified a fundamental issue: local models (even Qwen3-0.6B at 484MB) produce non-deterministic output that requires post-processing hacks (`ensureGherkinStructure`) to be structurally valid. This introduces flakiness into tests — the very thing tests should eliminate.
+
+The realization: the e2e test's job is to verify **derive's pipeline** (read JSONL -> call binary -> parse result -> write .feature files). The quality of AI output is irrelevant to that verification. What we need is a binary that:
+
+1. Accepts the same CLI interface as `claude -p`
+2. Returns deterministic, structurally valid Gherkin
+3. Incorporates content from stdin so the output isn't completely static (keyword extraction)
+
+This means we drop `node-llama-cpp` entirely. fakeClaude becomes a pure Node script with zero external dependencies — it parses stdin, extracts keywords/phrases, and templates them into a Gherkin structure. Deterministic, fast (~0ms inference), no model download, no flakiness.
+
+## Revised RFC: Task 1 — Spec generation stub (`derive/test/scripts/fake-claude-gen-specs`)
+
+### 2000ft View
+
+We need a drop-in replacement for the `claude` CLI that produces deterministic Gherkin output for e2e testing. The binary reads stdin (derive's preamble + conversation excerpts), extracts keywords from the input, and templates them into structurally valid Gherkin. This enables testing of derive's full pipeline without calling Anthropic's API, downloading models, or introducing non-determinism.
+
+The stub is a Node script at `derive/test/scripts/fake-claude-gen-specs` — living inside derive's test directory because it's a derive-specific test double, not a repo-wide utility. The name signals exactly what it is: a fake claude binary for generating specs. It accepts the same CLI flags and stdin input that derive passes to `claude -p` and emits NDJSON output in the same format derive expects. No AI, no model, no network — just keyword extraction and string templating.
+
+### Behavior Spec
+
+```gherkin
+Feature: Fake Claude spec generation binary
+
+  Scenario: fake-claude-gen-specs produces NDJSON result from stdin input
+    Given fake-claude-gen-specs is invoked with "-p" and stdin containing a prompt
+    When the process completes
+    Then stdout contains a JSON line with type "result" and a non-empty result string
+    And the result string contains valid Gherkin with Feature: and Scenario: blocks
+    And the process exits with code 0
+
+  Scenario: fake-claude-gen-specs accepts claude-compatible CLI flags
+    Given fake-claude-gen-specs is invoked with flags: -p --verbose --output-format stream-json --model sonnet --tools "" --effort low --no-session-persistence --system-prompt "some prompt"
+    When the process completes
+    Then the process does not error on unrecognized flags
+    And stdout contains a JSON line with type "result"
+
+  Scenario: fake-claude-gen-specs extracts keywords from stdin into Gherkin output
+    Given fake-claude-gen-specs is invoked with "-p"
+    And stdin contains conversation excerpts mentioning "--reset flag" and "spec regeneration"
+    When the process completes
+    Then the result Gherkin contains scenarios referencing "reset" and "regeneration"
+
+  Scenario: fake-claude-gen-specs output is deterministic
+    Given fake-claude-gen-specs is invoked twice with identical stdin and flags
+    When both invocations complete
+    Then both produce identical stdout output
+
+  Scenario: fake-claude-gen-specs reads input from stdin
+    Given fake-claude-gen-specs is invoked with "-p"
+    And "Hello world" is piped to stdin
+    When the process completes
+    Then the result contains Gherkin derived from the stdin content
+```
+
+### API Reference (CLI)
+
+```
+derive/test/scripts/fake-claude-gen-specs -p [options]
+
+Reads a prompt from stdin, extracts keywords, outputs deterministic Gherkin as NDJSON to stdout.
+
+Options (accepted for compatibility, all ignored):
+  -p                          Required. Enables prompt mode (reads stdin).
+  --system-prompt <string>    Accepted, ignored (output is always Gherkin).
+  --model <name>              Accepted, ignored.
+  --tools <string>            Accepted, ignored.
+  --effort <level>            Accepted, ignored.
+  --verbose                   Accepted, ignored.
+  --output-format <format>    Accepted, ignored (always outputs NDJSON).
+  --include-partial-messages   Accepted, ignored.
+  --no-session-persistence    Accepted, ignored.
+
+Stdin:  The full prompt text (preamble + user prompt concatenated).
+Stdout: One NDJSON line: {"type":"result","result":"<gherkin output>"}
+Exit:   0 on success, non-zero on failure.
+```
+
+### Implementation Breakdown
+
+```
+[NEW]    derive/test/scripts/fake-claude-gen-specs      — bash wrapper (executable)
+[NEW]    derive/test/scripts/fake-claude-gen-specs.mts   — keyword extraction + Gherkin templating
+[DELETE] bin/fakeClaude                              — superseded
+[DELETE] bin/fakeClaude.mts                          — superseded
+[REMOVE] node-llama-cpp from root devDependencies   — no longer needed
+```
+
+### Directory & File Structure
+
+```
+derive/
+  test/
+    scripts/
+      fake-claude-gen-specs        — bash wrapper: exec tsx fake-claude-gen-specs.mts "$@"
+      fake-claude-gen-specs.mts    — TypeScript implementation
+```
+
+### Keyword Extraction Strategy
+
+Uses `keyword-extractor` npm package (zero dependencies, built-in English stopword list) to strip noise words from the input, combined with regex extraction for structured tokens:
+
+1. Split stdin into lines, filter to `[human]:` / `[assistant]:` prefixed lines (derive's excerpt format)
+2. Extract flag-like tokens via regex (`--reset`, `--scope`, etc.) — these are always meaningful
+3. Run remaining text through `keyword_extractor.extract()` with `{ language: "english", return_chained_words: true }` to get meaningful word groups with stopwords removed
+4. Deduplicate and take the top N keywords
+5. Template into Gherkin: one `Feature:` block, one `Scenario:` per keyword/phrase, with `Given/When/Then` steps
+
+For example, input containing `[human]: We need to add a --reset flag that regenerates the spec from scratch` produces:
+
+```gherkin
+Feature: Extracted specification
+
+  Scenario: reset flag
+    Given the system is initialized
+    When the user invokes --reset
+    Then the expected behavior for reset is observed
+
+  Scenario: regenerates spec scratch
+    Given the system is initialized
+    When the user triggers regenerates spec scratch
+    Then the expected behavior is observed
+```
+
+`keyword-extractor` adds as a devDependency in derive (not root — it's only used by the test stub).
+
+### Types & Data Structures
+
+```typescript
+interface ResultEvent {
+  type: "result";
+  result: string;
+}
+```
+
+### System Flow
+
+```
+stdin (prompt text)
+  |
+  v
+parse argv for -p flag (gate)
+  |
+  v
+extract keywords from stdin:
+  - [human]/[assistant] line content
+  - flag tokens (--flag)
+  - action verbs + objects
+  - quoted strings
+  |
+  v
+template keywords into Gherkin:
+  - one Feature block
+  - one Scenario per keyword group
+  - Given/When/Then steps per scenario
+  |
+  v
+stdout: {"type":"result","result":"<gherkin>"}\n
+  |
+  v
+exit 0
+```
+
+### Invariants & Constraints
+
+- The binary must accept all CLI flags that derive passes without erroring.
+- The NDJSON `result` event must be parseable by derive's existing `runClaude` output parser in `spec.ts`.
+- Output must always contain at least one `Feature:` block so `writeSpec` produces at least one .feature file.
+- Output must be deterministic: same input always produces same output.
+- The binary must work when spawned via `execa` with `input:` (stdin piped, not TTY).
+- Zero external dependencies beyond Node.js stdlib (no model downloads, no network).
+
+### Suggested Verification
+
+1. Run `echo "[human]: Add a --reset flag for spec regeneration" | derive/test/scripts/fake-claude-gen-specs -p` and inspect stdout
+2. Run it twice — output must be identical
+3. Parse the output with `JSON.parse()` and check `obj.type === "result"` and `obj.result` contains `Feature:`
+4. Pass it the full set of flags derive uses — no errors
+
+### Tasks
+
+- [x] ~~Add `node-llama-cpp` to root `devDependencies`~~ — reverted, no longer needed
+- [x] ~~Spike: SmolLM-135M / Qwen3-0.6B~~ — informed the pivot to deterministic approach
+- [x] Remove `node-llama-cpp` from root `devDependencies` and `onlyBuiltDependencies`
+- [x] Delete `bin/fakeClaude` and `bin/fakeClaude.mts`
+- [x] Add `keyword-extractor` to derive devDependencies
+- [x] Write `derive/test/scripts/fake-claude-gen-specs.mts` — keyword extraction + Gherkin templating
+- [x] Write `derive/test/scripts/fake-claude-gen-specs` — bash wrapper
+- [x] Verify deterministic output end-to-end
+
+## Implementation: Revised Task 1 — Deterministic spec generation stub
+
+Removed `node-llama-cpp` from root (54 packages removed). Deleted `bin/fakeClaude` and `bin/fakeClaude.mts`.
+
+Added `keyword-extractor@^0.0.28` to derive devDependencies. Zero transitive deps — just a stopword list and a split/filter function.
+
+Created `derive/test/scripts/fake-claude-gen-specs.mts`:
+
+- Reads stdin, filters to `[human]:`/`[assistant]:` prefixed lines (derive's excerpt format)
+- Falls back to all non-empty lines if no conversation-formatted lines found (handles the review pass which sends raw Gherkin)
+- Extracts `--flag` tokens via regex — these become individual Scenario blocks
+- Runs remaining text through `keyword_extractor.extract()` with `{ language: "english", return_chained_words: true, remove_duplicates: true }`
+- Templates flags and keywords into a single Feature block with Given/When/Then scenarios
+- Outputs `{"type":"result","result":"<gherkin>"}` NDJSON line to stdout
+- All diagnostic output to stderr, only NDJSON to stdout
+
+Created `derive/test/scripts/fake-claude-gen-specs` bash wrapper — resolves tsx from `node_modules/.bin/tsx` relative to repo root (3 levels up from scripts dir).
+
+Verified:
+
+- Produces valid Gherkin: Feature:, Scenario:, Given/When/Then all present
+- Deterministic: two runs with identical input produce identical output
+- Accepts all claude -p flags without error
+- NDJSON parseable with JSON.parse(), type === "result"
+- ~0ms execution time (no model, no network)
+
+## Post-Task Review: Task 1 — Spec generation stub
+
+Reviewed the diff against the Revised RFC (worklog lines 635-812):
+
+- `[NEW] derive/test/scripts/fake-claude-gen-specs` — Created, executable. Match.
+- `[NEW] derive/test/scripts/fake-claude-gen-specs.mts` — Created, 157 lines. Match.
+- `[DELETE] bin/fakeClaude`, `bin/fakeClaude.mts` — Gone (never committed). Match.
+- `[REMOVE] node-llama-cpp` from root — Removed (54 packages cleaned). Match.
+- `keyword-extractor` in derive devDependencies — `"^0.0.28"`. Match.
+- NDJSON output format — Verified. Match.
+- Deterministic output — Verified. Match.
+- Accepts all claude -p flags — Verified. Match.
+- Feature: block always present (fallback scenario) — Match.
+- Zero external deps beyond keyword-extractor — Match.
+
+**Outcome**: Nothing unplanned introduced. Implementation matches RFC spec. All invariants hold. Task 1 complete.
+
+## RFC: Tasks 2+3+4 — Env var overrides, test infrastructure, and first e2e test
+
+Rolling Tasks 2, 3, and 4 into a single task unit because they form one cohesive deliverable: a working e2e test that proves the full derive pipeline runs end-to-end in isolation.
+
+### 2000ft View
+
+We need to make derive's three hardcoded paths configurable via environment variables, set up vitest in the derive package, and write the first e2e test that exercises the full pipeline: synthetic JSONL conversation file -> derive CLI (with `fake-claude-gen-specs` as CLAUDE_BIN) -> `.feature` file output on disk.
+
+The test is fully black-box: it spawns derive as a subprocess (via `tsx derive/src/index.ts`), injects env vars for complete isolation (temp dir for DB, temp dir for conversation files, stub binary for Claude), and asserts on the filesystem output. No internal imports from derive's source.
+
+### Behavior Spec
+
+```gherkin
+Feature: Derive e2e test infrastructure
+
+  Scenario: Env var overrides for test isolation
+    Given CLAUDE_BIN is set to the fake-claude-gen-specs stub
+    And MACHINEN_DB is set to a temp directory path
+    And CLAUDE_PROJECTS_DIR is set to a temp directory path
+    When derive is spawned as a subprocess
+    Then derive uses the stub binary instead of the real claude CLI
+    And derive creates its database in the temp directory
+    And derive reads conversations from the temp projects directory
+
+  Scenario: One-shot spec update from a single conversation
+    Given a temp directory structure with:
+      | path                                        | content                    |
+      | projects/{slug}/{conversation-id}.jsonl      | synthetic JSONL fixture    |
+      | repo/                                        | empty working directory    |
+    And CLAUDE_BIN points to fake-claude-gen-specs
+    And MACHINEN_DB points to a temp file
+    And CLAUDE_PROJECTS_DIR points to the temp projects directory
+    When derive is run in one-shot mode with cwd=repo/
+    Then derive discovers the conversation
+    And derive invokes the stub binary (not the real claude)
+    And .machinen/specs/*.feature files are created inside the repo directory
+    And the .feature files contain valid Gherkin with Feature: and Scenario: blocks
+    And the process exits with code 0
+```
+
+### Implementation Breakdown
+
+#### Part A: Env var overrides (production code changes)
+
+Three one-line changes to make hardcoded paths configurable:
+
+```
+[MODIFY] derive/src/spec.ts:8
+  Before: const CLAUDE_BIN = path.join(os.homedir(), ".local", "bin", "claude");
+  After:  const CLAUDE_BIN = process.env.CLAUDE_BIN ?? path.join(os.homedir(), ".local", "bin", "claude");
+
+[MODIFY] derive/src/index.ts:16
+  Before: const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), ".claude", "projects");
+  After:  const CLAUDE_PROJECTS_DIR = process.env.CLAUDE_PROJECTS_DIR ?? path.join(os.homedir(), ".claude", "projects");
+
+[MODIFY] derive/src/db.ts:7
+  Before: const DB_PATH = path.join(os.homedir(), ".machinen", "machinen.db");
+  After:  const DB_PATH = process.env.MACHINEN_DB ?? path.join(os.homedir(), ".machinen", "machinen.db");
+```
+
+Zero behavioral change when env vars are unset — existing defaults preserved.
+
+#### Part B: Test infrastructure
+
+```
+[NEW]    derive/test/e2e/derive-one-shot.test.ts   — first e2e test
+[NEW]    derive/test/e2e/harness.ts                 — reusable test harness (setup/teardown)
+[MODIFY] derive/package.json                        — add "test" script
+```
+
+No separate vitest config for derive — the root `vitest.config.ts` already applies to all packages (it only excludes `_/`, `node_modules/`, `dist/`). The root `test:unit` script runs `pnpm -r test`, so adding a `"test"` script to derive's package.json is enough to integrate with the monorepo test runner.
+
+#### Part C: First e2e test
+
+The test creates a fully isolated temp directory structure that mimics what derive expects:
+
+```
+$TMPDIR/derive-test-XXXXX/
+  projects/                          # CLAUDE_PROJECTS_DIR
+    -tmp-derive-test-xxxxx-repo/     # slugified cwd → slug dir
+      abc123.jsonl                   # synthetic conversation
+  repo/                              # the "repo" cwd (where .machinen/specs/ will appear)
+  machinen.db                        # MACHINEN_DB (SQLite file, created by derive)
+```
+
+**Synthetic JSONL fixture**: Minimal valid conversation that `readFromOffset` + `discoverConversations` will accept. Needs:
+
+- At least one line with `type: "user"` or `type: "assistant"`
+- The `cwd` field matching our fake repo path
+- The `gitBranch` field matching the branch we'll claim to be on
+- A `message.content` field with text that the stub binary can extract keywords from
+
+**Branch detection**: derive calls `git rev-parse --abbrev-ref HEAD` to get the current branch. Since our temp "repo" isn't a real git repo, we need to handle this. Two options:
+
+1. `git init` the temp repo dir and create a branch
+2. Override `getCurrentBranch()` somehow
+
+Option 1 is cleaner for a black-box test — we `git init` the temp repo dir and create a named branch. This avoids any production code changes beyond the three env var overrides.
+
+**Slug computation**: derive slugifies `cwd` by replacing `/` and `_` with `-`. Our test must set up the JSONL file at the path that derive's `getSlugDir(cwd)` would compute. For example if `cwd` is `/tmp/derive-test-xxx/repo`, the slug dir under CLAUDE_PROJECTS_DIR would be `projects/-tmp-derive-test-xxx-repo/`.
+
+#### Part D: Test harness (`derive/test/e2e/harness.ts`)
+
+A reusable utility that encapsulates the temp directory setup, git init, slug computation, JSONL fixture writing, derive invocation, and cleanup. Every e2e test reuses this instead of duplicating boilerplate.
+
+```typescript
+interface HarnessOptions {
+  branch?: string; // default: "test-branch"
+  conversations?: Array<{
+    // synthetic JSONL conversations to write
+    id?: string; // default: random UUID
+    messages: Array<{
+      type: "user" | "assistant";
+      content: string;
+    }>;
+  }>;
+  deriveArgs?: string[]; // extra args to pass to derive (e.g. "--reset", "--scope foo")
+}
+
+interface HarnessResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  specDir: string; // path to .machinen/specs/ in the temp repo
+  repoDir: string; // path to the temp repo
+  featureFiles: string[]; // list of .feature file paths
+}
+```
+
+The harness tracks all created temp directories at module level and cleans up automatically. Tests never think about cleanup — just import `setupDeriveTest` and use it.
+
+- `setupDeriveTest(opts: HarnessOptions)` — creates temp dirs, git inits repo, writes JSONL fixtures, returns paths + a `run()` function
+- The returned `run()` spawns derive as subprocess with all env vars pointing to temp dirs
+
+Cleanup is fully implicit: the module maintains a `Set<string>` of temp root paths. Each `setupDeriveTest` call adds its temp root. An `afterEach` hook registered at module level (side effect on import) iterates the set, removes each directory, and clears the set.
+
+```typescript
+// Inside harness.ts — module-level side effect
+const tempRoots = new Set<string>();
+
+afterEach(() => {
+  for (const root of tempRoots) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  tempRoots.clear();
+});
+```
+
+Usage pattern in tests — no cleanup code needed:
+
+```typescript
+import { setupDeriveTest } from "./harness.mjs";
+
+it("one-shot spec update from a single conversation", async () => {
+  const { run, specDir } = await setupDeriveTest({
+    branch: "test-branch",
+    conversations: [
+      {
+        messages: [
+          { type: "user", content: "Add a --reset flag for spec regeneration" },
+          { type: "assistant", content: "I will implement --reset to regenerate specs" },
+        ],
+      },
+    ],
+  });
+
+  const result = await run();
+  expect(result.exitCode).toBe(0);
+  // ... assert on result.featureFiles, specDir contents, etc.
+});
+```
+
+Internal responsibilities of the harness:
+
+1. Module-level `afterEach` hook registered as side effect on import — cleans up all tracked temp dirs
+2. `fs.mkdtempSync()` to create a unique temp root; add path to tracking set
+3. Create `projects/` and `repo/` subdirs
+4. `git init` + `git checkout -b <branch>` in the repo dir (+ an initial commit so HEAD exists)
+5. Compute slug from repo path: `repoPath.replace(/[/_]/g, "-")`
+6. Create slug dir under projects, write each conversation as `{id}.jsonl`
+7. Each JSONL line includes `cwd`, `gitBranch`, `sessionId` matching the test params
+8. `run()` spawns `tsx derive/src/index.ts` with `CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB` env vars
+9. After run, reads `.machinen/specs/` to populate `featureFiles` in the result
+
+### Directory & File Structure
+
+```
+derive/
+  test/
+    scripts/
+      fake-claude-gen-specs          # (already exists from Task 1)
+      fake-claude-gen-specs.mts      # (already exists from Task 1)
+    e2e/
+      harness.ts                     # reusable test setup/teardown/run utility
+      derive-one-shot.test.ts        # first e2e test
+  src/
+    spec.ts                          # CLAUDE_BIN env var override
+    index.ts                         # CLAUDE_PROJECTS_DIR env var override
+    db.ts                            # MACHINEN_DB env var override
+  package.json                       # add "test" script
+```
+
+### Synthetic JSONL Fixture Format
+
+Each line is a JSON object. Minimal valid conversation (two lines):
+
+```jsonl
+{"type":"user","sessionId":"test-session","cwd":"/tmp/derive-test-xxx/repo","gitBranch":"test-branch","message":{"role":"user","content":"We need to add a --reset flag that regenerates specs from scratch"}}
+{"type":"assistant","sessionId":"test-session","cwd":"/tmp/derive-test-xxx/repo","gitBranch":"test-branch","message":{"role":"assistant","content":"I will implement a --reset flag that clears existing specs and reprocesses all conversations"}}
+```
+
+The fixture is generated inline in the test (not a separate fixture file) because the paths must match the temp directory created at test time.
+
+### Types & Data Structures
+
+No new types. The test uses `execa` to spawn the subprocess and `fs` to inspect output.
+
+### System Flow
+
+```
+test setup:
+  mkdtemp → create temp dirs (projects/, repo/)
+  git init → temp repo (so getCurrentBranch works)
+  write synthetic JSONL → projects/{slug}/{id}.jsonl
+
+test execution:
+  execa("tsx", ["derive/src/index.ts"], {
+    cwd: tempRepo,
+    env: {
+      CLAUDE_BIN: path.resolve("derive/test/scripts/fake-claude-gen-specs"),
+      CLAUDE_PROJECTS_DIR: tempProjects,
+      MACHINEN_DB: tempDb,
+    }
+  })
+
+assertions:
+  - exit code 0
+  - .machinen/specs/*.feature files exist in tempRepo
+  - .feature content contains Feature: and Scenario:
+  - .feature content contains keywords from the synthetic conversation
+```
+
+### Invariants & Constraints
+
+- The test must not touch the real `~/.machinen/` or `~/.claude/` directories.
+- The test must not call the real `claude` CLI.
+- The test must not depend on network access.
+- Temp directories must be cleaned up after the test.
+- The env var overrides must have zero behavioral change when unset (existing defaults preserved).
+- The test must be runnable via `pnpm -r test` from the repo root.
+
+### Suggested Verification
+
+1. Run `pnpm --filter derive test` — the e2e test should pass.
+2. Inspect the test output to confirm derive discovers the synthetic conversation, invokes the stub, and writes .feature files.
+3. Verify that `~/.machinen/machinen.db` was not modified during the test run (isolation check).
+
+### Tasks
+
+- [ ] Add env var override to `derive/src/spec.ts` (CLAUDE_BIN)
+- [ ] Add env var override to `derive/src/index.ts` (CLAUDE_PROJECTS_DIR)
+- [ ] Add env var override to `derive/src/db.ts` (MACHINEN_DB)
+- [ ] Add `"test"` script to `derive/package.json`
+- [ ] Write `derive/test/e2e/harness.ts` — reusable test setup/teardown/run utility
+- [ ] Write `derive/test/e2e/derive-one-shot.test.ts`
+- [ ] Run the test, verify it passes

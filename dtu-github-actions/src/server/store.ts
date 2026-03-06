@@ -24,7 +24,7 @@ export const state = {
   // Concurrency Maps
   // runnerName -> logDirectory
   runnerLogs: new Map<string, string>(),
-  // runnerName -> timeline directory (supervisor's _/logs/<runnerName>/)
+  // runnerName -> timeline directory (CLI's _/logs/<runnerName>/)
   runnerTimelineDirs: new Map<string, string>(),
   // sessionId -> runnerName
   sessionToRunner: new Map<string, string>(),

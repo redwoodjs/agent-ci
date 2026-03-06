@@ -1,7 +1,7 @@
 {
-  "name": "supervisor",
+  "name": "cli",
   "version": "1.0.0",
-  "description": "Local supervisor for machinen",
+  "description": "Local CLI for machinen",
   "keywords": [],
   "license": "ISC",
   "author": "",

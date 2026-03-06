@@ -354,7 +354,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   fs.mkdirSync(playwrightCacheDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(warmModulesDir, { recursive: true, mode: 0o777 });
   // Ensure all intermediate dirs are world-writable for DinD scenarios where
-  // the supervisor runs as root but nested containers use runner user (UID 1001)
+  // the CLI runs as root but nested containers use runner user (UID 1001)
   try {
     fs.chmodSync(containerWorkDir, 0o777);
     fs.chmodSync(workspaceDir, 0o777);
@@ -422,7 +422,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     try {
       // Resolve repo root — needed for both archive and rsync paths.
       // Derive from the workflow path (which lives inside the target repo) so we copy
-      // from the correct repo, not from the supervisor's CWD (which is machinen).
+      // from the correct repo, not from the CLI's CWD (which is machinen).
       let repoRoot: string | undefined;
       if (job.workflowPath) {
         let dir = path.dirname(job.workflowPath);

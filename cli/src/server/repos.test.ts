@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import request from "supertest";
 import { app } from "./index.js";
 
-describe("Supervisor Server API", () => {
+describe("CLI Server API", () => {
   it("GET /status returns valid status response", async () => {
     const res = await request(app.handler as any).get("/status");
     expect(res.status).toBe(200);

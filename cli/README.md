@@ -1,6 +1,6 @@
-# Supervisor
+# CLI
 
-The **Supervisor** is a Node.js daemon that executes on your local machine. It manages Docker containers to execute GitHub Actions.
+The **CLI** is a Node.js daemon that executes on your local machine. It manages Docker containers to execute GitHub Actions.
 
 ## Features
 
@@ -14,7 +14,7 @@ This package is part of a `pnpm` workspace.
 **Run Locally** from the project root:
 
 ```bash
-pnpm --filter supervisor dev
+pnpm --filter cli dev
 ```
 
 ## Configuration

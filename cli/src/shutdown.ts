@@ -8,7 +8,7 @@ import { execSync } from "node:child_process";
  * Force-kill ALL `machinen-*` Docker containers (runners + service sidecars)
  * and remove their associated `machinen-net-*` bridge networks.
  *
- * This is the "nuclear" cleanup — used when the supervisor process is shutting
+ * This is the "nuclear" cleanup — used when the CLI process is shutting
  * down and we want to guarantee no orphaned containers remain.
  */
 export function killAllRunnerContainers(): void {

@@ -2,7 +2,7 @@ import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
 
-// Pinned to the monorepo root (project root), not the supervisor package
+// Pinned to the monorepo root (project root), not the cli package
 export const PROJECT_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
 
 // Define the default working directory globally: /tmp/machinen/<repo>

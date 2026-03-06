@@ -367,19 +367,17 @@ export async function startServer() {
   const TWENTY_FOUR_HOURS = 24 * 60 * 60 * 1000;
   const pruned = pruneStaleWorkspaces(getWorkingDirectory(), TWENTY_FOUR_HOURS);
   if (pruned.length > 0) {
-    console.log(
-      `[Machinen Supervisor] Pruned ${pruned.length} stale workspace(s): ${pruned.join(", ")}`,
-    );
+    console.log(`[Machinen CLI] Pruned ${pruned.length} stale workspace(s): ${pruned.join(", ")}`);
   }
 
   await loadWatchedRepos();
   app.listen(PORT, () => {
-    console.log(`[Machinen Supervisor] Server listening on http://localhost:${PORT}`);
+    console.log(`[Machinen CLI] Server listening on http://localhost:${PORT}`);
   });
 
-  // Aggressive shutdown: kill ALL runner containers when the supervisor exits
+  // Aggressive shutdown: kill ALL runner containers when the CLI exits
   const gracefulShutdown = () => {
-    console.log("\n[Machinen Supervisor] Shutting down — killing all runner containers...");
+    console.log("\n[Machinen CLI] Shutting down — killing all runner containers...");
     killAllRunnerContainers();
     process.exit(0);
   };

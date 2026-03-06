@@ -14,7 +14,7 @@ Unlike standard ephemeral runners, **Machinen** is designed to **freeze on failu
 This project is organized as a `pnpm` workspace: !!!!!!!!!!!
 
 - [bridge/](./bridge): A Cloudflare Worker that orchestrates jobs and presence.
-- [supervisor/](./supervisor): A Node.js agent that polls the bridge and runs Docker jobs.
+- [cli/](./cli): A Node.js agent that polls the bridge and runs Docker jobs.
 - [dtu-github-actions/](./dtu-github-actions): Digital Twin Universe mock tools for local simulation.
 
 ---
@@ -38,7 +38,7 @@ pnpm install
 
 ### 3. Ready
 
-No environment configuration is needed — the supervisor derives everything at boot:
+No environment configuration is needed — the CLI derives everything at boot:
 
 - **Repository**: detected from `git remote get-url origin`
 - **DTU (mock GitHub API)**: started ephemerally on a random port per run
@@ -60,7 +60,7 @@ This command uses `concurrently` and `wait-on` to ensure:
 
 1. `dtu-github-actions` (Mock Server) starts first on port 8910.
 2. `bridge` waits for the mock server to be ready and starts on port 8911.
-3. `supervisor` waits for the bridge to be ready.
+3. `cli` waits for the bridge to be ready.
 
 Or target specific services:
 
@@ -76,13 +76,13 @@ You can run workflows securely in headless mode without starting the full suite 
 To run a specific workflow:
 
 ```bash
-pnpm --filter supervisor run machinen run --workflow .github/workflows/tests.yml
+pnpm --filter cli run machinen run --workflow .github/workflows/tests.yml
 ```
 
 To run all relevant PR/Push workflows for your current branch:
 
 ```bash
-pnpm --filter supervisor run machinen run --all
+pnpm --filter cli run machinen run --all
 ```
 
 ---
@@ -92,7 +92,7 @@ pnpm --filter supervisor run machinen run --all
 The system consists of three primary technical components:
 
 1.  **Cloudflare Worker (Orchestrator):** The source of truth for runner availability. It queues jobs and manages "Heartbeats" from local nodes.
-2.  **Local Supervisor (Agent):** A Node.js daemon running on your MacBook that polls for jobs and manages the Docker lifecycle.
+2.  **Local CLI (Agent):** A Node.js daemon running on your MacBook that polls for jobs and manages the Docker lifecycle.
 3.  **Docker Environment (Execution):** Standard `ghcr.io/actions/actions-runner` containers that perform the work.
 
 ---

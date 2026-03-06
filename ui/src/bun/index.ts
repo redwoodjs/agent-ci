@@ -181,16 +181,16 @@ async function buildTrayMenu() {
 }
 
 async function startBackgroundProcesses() {
-  const spawnArgs = ["pnpm", "--filter", "supervisor", "run", "machinen", "server"];
+  const spawnArgs = ["pnpm", "--filter", "cli", "run", "machinen", "server"];
 
-  const supervisorProc = Bun.spawn(spawnArgs, {
+  const cliProc = Bun.spawn(spawnArgs, {
     cwd: getWorkspaceRoot(),
     env: { ...process.env, MACHINEN_WORKSPACE_DIR: getWorkspaceRoot() },
     stdout: "pipe",
     stderr: "pipe",
   });
 
-  procs.push(supervisorProc);
+  procs.push(cliProc);
 
   const readOutput = async (stream: ReadableStream | null, label: string) => {
     if (!stream) {
@@ -207,8 +207,8 @@ async function startBackgroundProcesses() {
     }
   };
 
-  readOutput(supervisorProc.stdout, "Supervisor Server");
-  readOutput(supervisorProc.stderr, "Supervisor Server Error");
+  readOutput(cliProc.stdout, "CLI Server");
+  readOutput(cliProc.stderr, "CLI Server Error");
 
   // Use SSE events to update tray icon and menu
   try {

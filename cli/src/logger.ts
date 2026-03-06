@@ -9,7 +9,7 @@ export function getRunsDir(): string {
 
 /**
  * @deprecated use getRunsDir() + runnerName for the per-run log directory.
- * Kept for the supervisor.log placement only.
+ * Kept for the cli.log placement only.
  */
 export function getLogsDir(): string {
   return path.join(getWorkingDirectory(), "logs");

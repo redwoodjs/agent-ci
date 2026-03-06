@@ -56,7 +56,7 @@ let _maxConcurrentJobs: number | undefined;
 /** Set the maximum number of jobs that can run in parallel within a wave. */
 export function setMaxConcurrentJobs(n: number) {
   _maxConcurrentJobs = n;
-  supervisorLog(`[CONFIG] maxConcurrentJobs set to ${n}`);
+  cliLog(`[CONFIG] maxConcurrentJobs set to ${n}`);
 }
 
 export function getMaxConcurrentJobs(): number {
@@ -68,11 +68,11 @@ function getJobLimiter() {
   return createConcurrencyLimiter(max);
 }
 
-// ─── Supervisor audit log ─────────────────────────────────────────────────────
+// ─── CLI audit log ────────────────────────────────────────────────────────────
 
-function supervisorLog(message: string) {
+function cliLog(message: string) {
   const line = `${new Date().toISOString()} ${message}\n`;
-  const logPath = path.join(getWorkingDirectory(), "supervisor.log");
+  const logPath = path.join(getWorkingDirectory(), "cli.log");
   try {
     fsSync.mkdirSync(path.dirname(logPath), { recursive: true });
     fsSync.appendFileSync(logPath, line);
@@ -127,7 +127,7 @@ function topoSort(deps: Map<string, string[]>): string[][] {
     }
     if (wave.length === 0) {
       // Cycle detected or unresolvable dependency — run remaining in one wave
-      supervisorLog(`[DEPS] Cycle or unresolvable dependency, running remaining jobs together`);
+      cliLog(`[DEPS] Cycle or unresolvable dependency, running remaining jobs together`);
       waves.push(Array.from(remaining.keys()));
       break;
     }
@@ -163,7 +163,7 @@ function spawnRunner({
   workflowId: string;
 }): Promise<number> {
   return new Promise((resolve) => {
-    const supervisorDir = path.join(PROJECT_ROOT, "supervisor");
+    const cliDir = path.join(PROJECT_ROOT, "cli");
     const spawnArgs = ["npx", "tsx", "--env-file=.env", "src/cli.ts", "run"];
     if (commitId && commitId !== "WORKING_TREE") {
       spawnArgs.push(commitId);
@@ -186,7 +186,7 @@ function spawnRunner({
     console.log(cliArgsLine);
     stdoutLog.write(cliArgsLine + "\n");
     const proc = spawn(spawnArgs[0], spawnArgs.slice(1), {
-      cwd: supervisorDir,
+      cwd: cliDir,
       env: { ...process.env, MACHINEN_WORKING_DIR: getWorkingDirectory() },
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -202,17 +202,15 @@ function spawnRunner({
       });
     }
 
-    supervisorLog(`[RUN] Spawned ${runnerName}: ${spawnArgs.join(" ")} (cwd=${supervisorDir})`);
+    cliLog(`[RUN] Spawned ${runnerName}: ${spawnArgs.join(" ")} (cwd=${cliDir})`);
 
     proc.on("error", (err) => {
-      supervisorLog(`[RUN] ${runnerName} spawn error: ${err.message}`);
+      cliLog(`[RUN] ${runnerName} spawn error: ${err.message}`);
     });
 
     proc.on("close", async (code, signal) => {
       activeRuns.delete(runnerName);
-      supervisorLog(
-        `[RUN] ${runnerName} exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`,
-      );
+      cliLog(`[RUN] ${runnerName} exited with code ${code}${signal ? ` (signal: ${signal})` : ""}`);
       stdoutLog.end();
       stderrLog.end();
       const exitCode = code ?? 1;
@@ -763,7 +761,7 @@ export async function runWorkflow(
     lockfileHash,
   );
   const warm = isWarmNodeModules(warmModulesDir);
-  supervisorLog(
+  cliLog(
     `[WARM] node_modules dir: ${warmModulesDir} (${warm ? "warm" : "cold"}, hash=${lockfileHash})`,
   );
 
@@ -789,7 +787,7 @@ export async function runWorkflow(
   // Use a concurrency limiter so we don't saturate the host when a wave has many jobs.
   const limiter = getJobLimiter();
   const effectiveMax = _maxConcurrentJobs ?? getDefaultMaxConcurrentJobs();
-  supervisorLog(`[DEPS] Concurrency limit: ${effectiveMax} parallel jobs per wave`);
+  cliLog(`[DEPS] Concurrency limit: ${effectiveMax} parallel jobs per wave`);
 
   // Helper: run a wave job through the limiter.
   const spawnJob = (
@@ -823,7 +821,7 @@ export async function runWorkflow(
   let firstWaveResultsPromise: Promise<number[]>;
 
   if (!warm && firstWave.length > 1) {
-    supervisorLog(
+    cliLog(
       `[WARM] Cold node_modules with ${firstWave.length} parallel jobs — serializing first job to warm the cache`,
     );
     // First job: cold (does the actual pnpm install).
@@ -838,7 +836,7 @@ export async function runWorkflow(
         return spawnJob(taskId, runnerName, matrixContext, isWarm);
       },
     ).then((results) => {
-      supervisorLog(
+      cliLog(
         `[WARM] Warm job finished — node_modules now populated, launching ${firstWave.length - 1} remaining job(s)`,
       );
       return results;
@@ -867,14 +865,14 @@ export async function runWorkflow(
     }
     const anyFailed = firstWaveResults.some((code) => code !== 0);
     if (anyFailed) {
-      supervisorLog(`[DEPS] Wave 1 had failures — aborting remaining waves`);
+      cliLog(`[DEPS] Wave 1 had failures — aborting remaining waves`);
       return;
     }
 
     // Run remaining waves sequentially in the background
     for (let wi = 0; wi < remainingWaves.length; wi++) {
       const wave = remainingWaves[wi];
-      supervisorLog(
+      cliLog(
         `[DEPS] Starting wave ${wi + 2}/${depWaves.length}: [${wave.map((r) => r.taskId).join(", ")}]`,
       );
       pruneOrphanedDockerResources();
@@ -899,7 +897,7 @@ export async function runWorkflow(
         ),
       );
       if (results.some((code) => code !== 0)) {
-        supervisorLog(`[DEPS] Wave ${wi + 2} had failures — aborting remaining waves`);
+        cliLog(`[DEPS] Wave ${wi + 2} had failures — aborting remaining waves`);
         break;
       }
     }

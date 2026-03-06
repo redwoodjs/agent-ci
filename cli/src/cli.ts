@@ -197,7 +197,7 @@ async function handleRun(options: {
     }
 
     // Derive the repo root by walking UP from the workflow file's directory.
-    // This correctly resolves external repos (e.g. sdk) even when the supervisor
+    // This correctly resolves external repos (e.g. sdk) even when the CLI
     // CWD is inside machinen.
     let repoRoot = path.dirname(workflowPath);
     while (repoRoot !== "/" && !fs.existsSync(path.join(repoRoot, ".git"))) {

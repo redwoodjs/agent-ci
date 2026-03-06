@@ -2,7 +2,7 @@
   "name": "machinen",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others --names \"GitHub,Bridge,Supervisor\" \"pnpm --filter dtu-github-actions dev\" \"wait-on http://localhost:8910 && pnpm --filter bridge dev\" \"wait-on http://localhost:8911 && pnpm --filter supervisor dev\"",
+    "dev": "concurrently --kill-others --names \"GitHub,Bridge,CLI\" \"pnpm --filter dtu-github-actions dev\" \"wait-on http://localhost:8910 && pnpm --filter bridge dev\" \"wait-on http://localhost:8911 && pnpm --filter cli dev\"",
     "test": "npm-run-all test:*",
     "test:unit": "pnpm -r test",
     "test:e2e": "(docker rm -f $(docker ps -a --filter name=machinen- -q) 2>/dev/null || true) && vitest run test/e2e",
@@ -18,6 +18,7 @@
     "prepare": "husky"
   },
   "devDependencies": {
+    "@google/gemini-cli": "^0.32.1",
     "@nkzw/oxlint-config": "1.0.1",
     "@types/node": "^25.3.0",
     "@typescript/native-preview": "7.0.0-dev.20260219.1",

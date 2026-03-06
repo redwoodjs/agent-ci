@@ -387,7 +387,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     // 1. Seed the job to Local DTU
     // Build a corrected repository object from job.githubRepo (which is resolved from the git
     // remote — e.g. "redwoodjs/sdk") so generators.ts uses the right repo name for checkout /
-    // workspace paths, rather than the webhook event repo that may point to opposite-actions.
+    // workspace paths, rather than the webhook event repo that may point to a different name.
     const [githubOwner, githubRepoName] = (job.githubRepo || "").split("/");
     const overriddenRepository = job.githubRepo
       ? {
@@ -508,6 +508,14 @@ fi
 # But we must create refs/remotes/origin/main so checkout's post-fetch validation passes.
 if [[ "$*" == *"fetch"* ]]; then
   echo "[OA Shim] Intercepted 'fetch' - workspace is pre-populated."
+  # If this is a fresh git init (no commits), create a seed commit
+  # so HEAD is valid and we can create branches from it.
+  if ! /usr/bin/git.real rev-parse HEAD >/dev/null 2>&1; then
+    /usr/bin/git.real config user.name "oa" 2>/dev/null
+    /usr/bin/git.real config user.email "oa@example.com" 2>/dev/null
+    /usr/bin/git.real add -A 2>/dev/null
+    /usr/bin/git.real commit --allow-empty -m "workspace" 2>/dev/null
+  fi
   /usr/bin/git.real update-ref refs/remotes/origin/main HEAD 2>/dev/null || true
   exit 0
 fi
@@ -604,7 +612,7 @@ exit $EXIT_CODE
     //
     // NOTE: The runner is a self-contained .NET app that requires glibc.
     // musl-based images (Alpine) are NOT supported. See issue #15.
-    const hostWorkDir = path.resolve(runDir, "host-work");
+    const hostWorkDir = containerWorkDir;
     const hostToolcacheDir = path.resolve(getWorkingDirectory(), "toolcache");
     // Shared seed directory — extracted once and reused across all containers.
     const hostRunnerSeedDir = path.resolve(getWorkingDirectory(), "runner");
@@ -722,7 +730,7 @@ const srv=net.createServer(c=>{
   s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
 });
 srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
-" & PROXY_PID=$! && for i in $(seq 1 100); do nc -z 127.0.0.1 80 2>/dev/null && break; sleep 0.1; done && echo "[OA] DTU proxy ready in $(($(date +%s%3N) - PROXY_T0))ms" && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && mkdir -p $WORKSPACE_PATH && ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
+" & PROXY_PID=$! && for i in $(seq 1 100); do nc -z 127.0.0.1 80 2>/dev/null && break; sleep 0.1; done && echo "[OA] DTU proxy ready in $(($(date +%s%3N) - PROXY_T0))ms" && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels machinen || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && mkdir -p $WORKSPACE_PATH && ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
       ],
       HostConfig: {
         Binds: [

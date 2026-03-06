@@ -63,20 +63,6 @@ app.delete("/repos", async (req, res) => {
   res.writeHead(200).end();
 });
 
-// UI Navigation State (in-memory, shared across all views)
-let uiState: Record<string, string> = {};
-
-app.get("/ui-state", (req, res) => {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(uiState));
-});
-
-app.post("/ui-state", (req, res) => {
-  const body = (req as any).body || {};
-  uiState = { ...uiState, ...body };
-  res.writeHead(200).end();
-});
-
 // Watched Repos
 app.get("/repos/watched", async (req, res) => {
   const repos = await getWatchedRepos();
@@ -170,7 +156,13 @@ app.get("/workflows/warm-status", async (req, res) => {
       lockfileHash = computeLockfileHash(repoPath);
     } catch {}
 
-    const warmModulesDir = path.join(getWorkingDirectory(), "warm-modules", repoSlug, lockfileHash);
+    const warmModulesDir = path.join(
+      getWorkingDirectory(),
+      "cache",
+      "warm-modules",
+      repoSlug,
+      lockfileHash,
+    );
     const warm = isWarmNodeModules(warmModulesDir);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ warm, lockfileHash }));
@@ -296,6 +288,25 @@ app.get("/runs/recent", async (req, res) => {
   const runs = await getRecentRuns(limit);
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify(runs));
+});
+
+app.get("/runs/path", async (req, res) => {
+  const runId = req.query.runId as string;
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const detail = await getRunDetail(runId);
+  if (!detail) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Run not found" }));
+    return;
+  }
+  // The directory name on disk is the runnerName (which equals runId in the run-store)
+  const path = await import("node:path");
+  const runsDir = path.join(getWorkingDirectory(), "runs");
+  const runDir = path.join(runsDir, detail.runnerName);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ runDir, runsDir }));
 });
 
 // Git

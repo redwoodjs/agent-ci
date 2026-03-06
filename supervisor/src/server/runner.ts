@@ -182,6 +182,9 @@ function spawnRunner({
     const stderrLog = fsSync.createWriteStream(path.join(runDir, "process-stderr.log"));
     stderrLog.on("error", () => {}); // suppress ENOENT if logDir is cleaned up
 
+    const cliArgsLine = `[OA Runner] CLI args: ${spawnArgs.join(" ")}`;
+    console.log(cliArgsLine);
+    stdoutLog.write(cliArgsLine + "\n");
     const proc = spawn(spawnArgs[0], spawnArgs.slice(1), {
       cwd: supervisorDir,
       env: { ...process.env, OA_WORKING_DIR: getWorkingDirectory() },

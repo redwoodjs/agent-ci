@@ -8,7 +8,7 @@
     "test:e2e": "(docker rm -f $(docker ps -a --filter name=machinen- -q) 2>/dev/null || true) && vitest run test/e2e",
     "check": "npm-run-all --parallel typecheck lint format:check",
     "check:fix": "npm-run-all --parallel typecheck lint:fix format:fix",
-    "typecheck": "pnpm -r exec tsgo",
+    "typecheck": "pnpm -r run typecheck",
     "lint": "oxlint --deny-warnings",
     "lint:fix": "oxlint --fix",
     "format": "oxfmt",

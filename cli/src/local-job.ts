@@ -7,7 +7,7 @@ import { config } from "./config.js";
 import { Job } from "./types.js";
 import { createLogContext, finalizeLog } from "./logger.js";
 import { getWorkingDirectory } from "./working-directory.js";
-import { copyWorkspace, computeLockfileHash } from "./cleanup.js";
+import { copyWorkspace, computeLockfileHash, repairWarmCache } from "./cleanup.js";
 import { minimatch } from "minimatch";
 import {
   startServiceContainers,
@@ -353,6 +353,13 @@ export async function executeLocalJob(job: Job): Promise<void> {
   fs.mkdirSync(pnpmStoreDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(playwrightCacheDir, { recursive: true, mode: 0o777 });
   fs.mkdirSync(warmModulesDir, { recursive: true, mode: 0o777 });
+  // Verify warm cache integrity before mounting it into the container.
+  // A non-empty cache missing `.modules.yaml` was left by an interrupted install
+  // (e.g. container killed mid-pnpm-install) — nuke it so pnpm starts fresh.
+  const cacheStatus = repairWarmCache(warmModulesDir);
+  if (cacheStatus === "repaired") {
+    console.warn(`[Machinen] Repaired corrupted warm cache: ${warmModulesDir}`);
+  }
   // Ensure all intermediate dirs are world-writable for DinD scenarios where
   // the CLI runs as root but nested containers use runner user (UID 1001)
   try {

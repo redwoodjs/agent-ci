@@ -173,18 +173,66 @@ describe("isWarmNodeModules", () => {
     expect(isWarmNodeModules(emptyDir)).toBe(false);
   });
 
-  it("returns true when the directory has files", async () => {
+  it("returns false when directory has files but no .modules.yaml (corrupted)", async () => {
     const { isWarmNodeModules } = await import("./cleanup.js");
     const warmDir = path.join(tmpDir, "warm");
     fs.mkdirSync(warmDir);
     fs.writeFileSync(path.join(warmDir, "some-package"), "content");
-    expect(isWarmNodeModules(warmDir)).toBe(true);
+    expect(isWarmNodeModules(warmDir)).toBe(false);
   });
 
-  it("returns true when the directory has subdirectories", async () => {
+  it("returns true when directory has .modules.yaml (intact)", async () => {
     const { isWarmNodeModules } = await import("./cleanup.js");
     const warmDir = path.join(tmpDir, "warm");
-    fs.mkdirSync(path.join(warmDir, ".bin"), { recursive: true });
+    fs.mkdirSync(warmDir);
+    fs.writeFileSync(path.join(warmDir, ".modules.yaml"), "hoistedDependencies: {}");
+    fs.mkdirSync(path.join(warmDir, ".pnpm"), { recursive: true });
     expect(isWarmNodeModules(warmDir)).toBe(true);
+  });
+});
+
+// ── repairWarmCache tests ─────────────────────────────────────────────────────
+
+describe("repairWarmCache", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-repair-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("returns 'cold' for a non-existent directory", async () => {
+    const { repairWarmCache } = await import("./cleanup.js");
+    expect(repairWarmCache(path.join(tmpDir, "nope"))).toBe("cold");
+  });
+
+  it("returns 'cold' for an empty directory", async () => {
+    const { repairWarmCache } = await import("./cleanup.js");
+    const emptyDir = path.join(tmpDir, "empty");
+    fs.mkdirSync(emptyDir);
+    expect(repairWarmCache(emptyDir)).toBe("cold");
+  });
+
+  it("returns 'warm' when .modules.yaml exists", async () => {
+    const { repairWarmCache } = await import("./cleanup.js");
+    const warmDir = path.join(tmpDir, "warm");
+    fs.mkdirSync(warmDir);
+    fs.writeFileSync(path.join(warmDir, ".modules.yaml"), "ok");
+    expect(repairWarmCache(warmDir)).toBe("warm");
+  });
+
+  it("returns 'repaired' and nukes a corrupted cache (files but no sentinel)", async () => {
+    const { repairWarmCache } = await import("./cleanup.js");
+    const brokenDir = path.join(tmpDir, "broken");
+    fs.mkdirSync(path.join(brokenDir, ".pnpm", "yaml@2.8.2"), { recursive: true });
+    fs.writeFileSync(path.join(brokenDir, ".pnpm", "yaml@2.8.2", "Pair.js"), "broken");
+
+    expect(repairWarmCache(brokenDir)).toBe("repaired");
+    // Directory should be recreated empty
+    expect(fs.existsSync(brokenDir)).toBe(true);
+    expect(fs.readdirSync(brokenDir)).toHaveLength(0);
   });
 });

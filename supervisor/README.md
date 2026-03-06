@@ -11,21 +11,17 @@ The **Supervisor** is a Node.js daemon that executes on your local machine. It m
 
 This package is part of a `pnpm` workspace.
 
-1. **Environment Variables**:
-   Symlinked to the root `.env`. Ensure the root `.env` is configured.
+**Run Locally** from the project root:
 
-2. **Run Locally**:
-   From the project root:
-   ```bash
-   pnpm --filter supervisor dev
-   ```
+```bash
+pnpm --filter supervisor dev
+```
 
 ## Configuration
 
-The supervisor relies on:
+All configuration is derived automatically at boot:
 
-- `GITHUB_USERNAME`: Your GitHub username for identifying assigned jobs.
+- **`GITHUB_REPO`**: Detected from `git remote get-url origin`.
+- **`GITHUB_API_URL`**: The DTU mock server is started ephemerally per run.
 
-## Future
-
-We will enable authentication via GitHub for your personal account.
+No `.env` file is required.

@@ -36,22 +36,13 @@ Run from the root directory:
 pnpm install
 ```
 
-### 3. Environment Setup
+### 3. Ready
 
-Shared environment variables are managed at the root.
+No environment configuration is needed — the supervisor derives everything at boot:
 
-1. Copy the example environment file:
-   ```bash
-   cp .env.example .env
-   ```
-2. Edit `.env` and `.dev.vars` at the root as needed.
-
-> [!NOTE]
-> All services use symbolic links pointing back to these root files:
->
-> - `bridge/.env` -> `../.env`
-> - `supervisor/.env` -> `../.env`
-> - `dtu/github-actions/.env` -> `../../.env`
+- **Repository**: detected from `git remote get-url origin`
+- **DTU (mock GitHub API)**: started ephemerally on a random port per run
+- **Webhook secret**: hardcoded for local-only mock usage
 
 ---
 

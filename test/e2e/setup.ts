@@ -18,10 +18,6 @@ export async function runSupervisor(workflow: string, task: string) {
       env: {
         ...process.env,
         GITHUB_REPO: "redwoodjs/machinen",
-        BRIDGE_URL: "http://localhost:8911",
-        BRIDGE_API_KEY: "e2e-key",
-        GITHUB_USERNAME: "e2e-user",
-        GITHUB_WEBHOOK_SECRET: "e2e-secret",
       },
     },
   );

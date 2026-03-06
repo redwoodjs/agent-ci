@@ -17,7 +17,7 @@ export async function runSupervisor(workflow: string, task: string) {
       cwd: PROJECT_ROOT,
       env: {
         ...process.env,
-        GITHUB_REPO: "redwoodjs/opposite-actions",
+        GITHUB_REPO: "redwoodjs/machinen",
         BRIDGE_URL: "http://localhost:8911",
         BRIDGE_API_KEY: "e2e-key",
         GITHUB_USERNAME: "e2e-user",

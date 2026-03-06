@@ -2,6 +2,7 @@ import { getAppStateAsync, setAppState } from "./state.ts";
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
 import { initSseAuditLog, recordSseEvent } from "./sse-audit-log.ts";
+import { api } from "./api.ts";
 
 const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
   maxRequestTime: 15000,
@@ -20,7 +21,7 @@ async function goToRuns(workflowId: string) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   initSseAuditLog();
-  const state = await getAppStateAsync();
+  const state = await getAppStateAsync(rpc);
   repoPath = state.repoPath;
   commitId = state.commitId;
 
@@ -37,9 +38,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const workflowsList = document.getElementById("workflows-list");
   if (workflowsList && repoPath) {
-    const workflows = await fetch(
-      "http://localhost:8912/workflows?repoPath=" + encodeURIComponent(repoPath),
-    ).then((r) => r.json());
+    const workflows = await api("/workflows?repoPath=" + encodeURIComponent(repoPath));
     workflowsList.innerHTML = "";
     workflows.forEach((wf: any, idx: number) => {
       const item = document.createElement("div");

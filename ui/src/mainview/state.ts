@@ -1,4 +1,27 @@
-const API_BASE = "http://localhost:8912";
+/**
+ * App state shared across views.
+ *
+ * IMPORTANT — Electrobun cross-view state limitations:
+ *
+ * 1. localStorage is scoped per views:// origin, so setAppState() on one
+ *    page (e.g. views://commits/) does NOT reach another (views://runs/).
+ *
+ * 2. Electrobun's views:// protocol handler treats BOTH query parameters
+ *    AND hash fragments as part of the literal file path. For example:
+ *      views://runs/index.html?foo=bar  →  tries to read "index.html?foo=bar"
+ *      views://runs/index.html#foo=bar  →  tries to read "index.html#foo=bar"
+ *    Both result in ENOENT / "file not found".
+ *
+ * SOLUTION: Use RPC to pass state through the shared bun process:
+ *   - Sender:  await rpc.request.setActiveRunId({ runId })
+ *   - Receiver: const runId = await rpc.request.getActiveRunId()
+ *   The bun process persists in memory across all view navigations.
+ */
+
+import type { MyRPCSchema } from "../shared/rpc.ts";
+import type ElectrobunView from "electrobun/view";
+
+type ElectrobunRPC = ReturnType<typeof ElectrobunView.Electroview.defineRPC<MyRPCSchema>>;
 
 export function getAppState() {
   // Synchronous fallback from localStorage
@@ -17,40 +40,28 @@ export function getAppState() {
   };
 }
 
-export async function getAppStateAsync() {
-  try {
-    const res = await fetch(`${API_BASE}/ui-state`);
-    if (res.ok) {
-      const serverState = await res.json();
-      if (serverState && Object.keys(serverState).length > 0) {
-        return {
-          repoPath: "",
-          branchName: "",
-          commitId: "WORKING_TREE",
-          workflowId: "",
-          runId: "",
-          ...serverState,
-        };
-      }
+export async function getAppStateAsync(rpc?: ElectrobunRPC) {
+  const local = getAppState();
+
+  if (rpc) {
+    try {
+      const initialState = await rpc.request.getInitialState();
+      const merged = { ...local, ...initialState };
+      // Save it back to local storage
+      setAppState(merged);
+      return merged;
+    } catch (e) {
+      console.warn("Failed to get initial state from RPC", e);
     }
-  } catch {}
-  return getAppState();
+  }
+
+  return local;
 }
 
 export async function setAppState(updates: Record<string, string>) {
-  // Write to localStorage as fallback
   const current = getAppState();
   const next = { ...current, ...updates };
   try {
     localStorage.setItem("oa-state", JSON.stringify(next));
-  } catch {}
-
-  // Write to server (primary)
-  try {
-    await fetch(`${API_BASE}/ui-state`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(updates),
-    });
   } catch {}
 }

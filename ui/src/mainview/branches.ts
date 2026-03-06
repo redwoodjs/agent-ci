@@ -2,6 +2,7 @@ import { getAppStateAsync, setAppState } from "./state.ts";
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
 import { initSseAuditLog, recordSseEvent } from "./sse-audit-log.ts";
+import { apiPost } from "./api.ts";
 
 const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
   maxRequestTime: 15000,
@@ -23,11 +24,10 @@ async function loadBranches() {
     return;
   }
 
-  const branches = await fetch(
-    "http://localhost:8912/git/branches?repoPath=" + encodeURIComponent(repoPath),
-  ).then((r) => r.json());
+  // Git reads go directly through Electrobun RPC — no supervisor dependency
+  const branches = await rpc.request.getBranches();
   branchesList.innerHTML = "";
-  branches.forEach((b: any, idx: number) => {
+  branches.forEach((b, idx) => {
     const item = document.createElement("div");
     item.className = "list-item animate-fade-in";
     item.style.animationDelay = `${idx * 0.05}s`;
@@ -54,16 +54,12 @@ async function loadBranches() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   initSseAuditLog();
-  const state = await getAppStateAsync();
+  const state = await getAppStateAsync(rpc);
   repoPath = state.repoPath;
 
   // Auto-enable watching so we get SSE events for branch switches and new commits
   if (repoPath) {
-    fetch("http://localhost:8912/repos/watched", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repoPath }),
-    }).catch(() => {});
+    apiPost("/repos/watched", { repoPath }).catch(() => {});
   }
 
   const backBtn = document.getElementById("back-btn");

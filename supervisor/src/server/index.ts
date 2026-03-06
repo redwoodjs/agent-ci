@@ -16,9 +16,6 @@ import {
   retryRun,
   addSSEClient,
   loadWatchedRepos,
-  getDtuStatus,
-  startDtu,
-  stopDtu,
   getRunsForCommit,
   getRecentRuns,
   getRunDetail,
@@ -30,7 +27,7 @@ import {
 } from "./orchestrator.js";
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
-import { getWorkingDirectory } from "../logger.js";
+import { getWorkingDirectory } from "../working-directory.js";
 import {
   pruneStaleWorkspaces,
   killAllRunnerContainers,
@@ -63,20 +60,6 @@ app.delete("/repos", async (req, res) => {
   if (repoPath) {
     await removeRecentRepo(repoPath);
   }
-  res.writeHead(200).end();
-});
-
-// UI Navigation State (in-memory, shared across all views)
-let uiState: Record<string, string> = {};
-
-app.get("/ui-state", (req, res) => {
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify(uiState));
-});
-
-app.post("/ui-state", (req, res) => {
-  const body = (req as any).body || {};
-  uiState = { ...uiState, ...body };
   res.writeHead(200).end();
 });
 
@@ -153,7 +136,7 @@ app.get("/workflows/warm-status", async (req, res) => {
   try {
     const { execSync } = await import("node:child_process");
     const { isWarmNodeModules, computeLockfileHash } = await import("../cleanup.js");
-    const { getWorkingDirectory } = await import("../logger.js");
+    const { getWorkingDirectory } = await import("../working-directory.js");
     const path = await import("node:path");
 
     // Derive repoSlug from git remote (matching runner.ts and local-job.ts)
@@ -173,7 +156,13 @@ app.get("/workflows/warm-status", async (req, res) => {
       lockfileHash = computeLockfileHash(repoPath);
     } catch {}
 
-    const warmModulesDir = path.join(getWorkingDirectory(), "warm-modules", repoSlug, lockfileHash);
+    const warmModulesDir = path.join(
+      getWorkingDirectory(),
+      "cache",
+      "warm-modules",
+      repoSlug,
+      lockfileHash,
+    );
     const warm = isWarmNodeModules(warmModulesDir);
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ warm, lockfileHash }));
@@ -301,6 +290,25 @@ app.get("/runs/recent", async (req, res) => {
   res.end(JSON.stringify(runs));
 });
 
+app.get("/runs/path", async (req, res) => {
+  const runId = req.query.runId as string;
+  if (!runId) {
+    return res.writeHead(400).end();
+  }
+  const detail = await getRunDetail(runId);
+  if (!detail) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "Run not found" }));
+    return;
+  }
+  // The directory name on disk is the runnerName (which equals runId in the run-store)
+  const path = await import("node:path");
+  const runsDir = path.join(getWorkingDirectory(), "runs");
+  const runDir = path.join(runsDir, detail.runnerName);
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ runDir, runsDir }));
+});
+
 // Git
 app.get("/git/branches", async (req, res) => {
   const repoPath = req.query.repoPath as string;
@@ -333,23 +341,6 @@ app.get("/git/working-tree", async (req, res) => {
   res.end(JSON.stringify({ dirty }));
 });
 
-// DTU
-app.get("/dtu", async (req, res) => {
-  const status = await getDtuStatus();
-  res.writeHead(200, { "Content-Type": "application/json" });
-  res.end(JSON.stringify({ status }));
-});
-
-app.post("/dtu", async (req, res) => {
-  await startDtu();
-  res.writeHead(200).end();
-});
-
-app.delete("/dtu", async (req, res) => {
-  await stopDtu();
-  res.writeHead(200).end();
-});
-
 // Concurrency
 app.get("/concurrency", (req, res) => {
   res.writeHead(200, { "Content-Type": "application/json" });
@@ -362,22 +353,6 @@ app.put("/concurrency", async (req, res) => {
     return res.writeHead(400).end();
   }
   setMaxConcurrentJobs(max);
-
-  // Persist to config file so the setting survives restarts
-  try {
-    const { DEFAULT_CONFIG_PATH, parseJsonc } = await import("../config.js");
-    const fsSync = await import("node:fs");
-    const pathMod = await import("node:path");
-    fsSync.mkdirSync(pathMod.dirname(DEFAULT_CONFIG_PATH), { recursive: true });
-    let existing: Record<string, any> = {};
-    if (fsSync.existsSync(DEFAULT_CONFIG_PATH)) {
-      existing = parseJsonc(fsSync.readFileSync(DEFAULT_CONFIG_PATH, "utf-8"));
-    }
-    existing.maxConcurrentJobs = max;
-    fsSync.writeFileSync(DEFAULT_CONFIG_PATH, JSON.stringify(existing, null, 2) + "\n", "utf-8");
-  } catch (err) {
-    console.error("[OA Supervisor] Failed to persist concurrency to config:", err);
-  }
 
   res.writeHead(200, { "Content-Type": "application/json" });
   res.end(JSON.stringify({ max: getMaxConcurrentJobs() }));
@@ -399,14 +374,11 @@ export async function startServer() {
   app.listen(PORT, () => {
     console.log(`[OA Supervisor] Server listening on http://localhost:${PORT}`);
   });
-  // Auto-start DTU at runtime
-  startDtu();
 
   // Aggressive shutdown: kill ALL runner containers when the supervisor exits
   const gracefulShutdown = () => {
     console.log("\n[OA Supervisor] Shutting down — killing all runner containers...");
     killAllRunnerContainers();
-    stopDtu();
     process.exit(0);
   };
   process.on("SIGINT", gracefulShutdown);

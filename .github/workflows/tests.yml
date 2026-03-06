@@ -3,24 +3,8 @@ name: Tests
 on: [push]
 
 jobs:
-  get-runner:
-    runs-on: ubuntu-latest
-    outputs:
-      target_runner: ${{ steps.status.outputs.label }}
-    steps:
-      - id: status
-        run: |
-          # Query the Cloudflare Orchestrator for local agent presence
-          RESPONSE=$(curl -s https://oa-1.redwoodjs.workers.dev/api/presence?username=${{ github.actor }})
-          if [ "$RESPONSE" == "active" ]; then
-            echo "label=opposite-actions" >> $GITHUB_OUTPUT
-          else
-            echo "label=ubuntu-latest" >> $GITHUB_OUTPUT
-          fi
-
   test:
-    needs: get-runner
-    runs-on: ${{ needs.get-runner.outputs.target_runner }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: Setup pnpm

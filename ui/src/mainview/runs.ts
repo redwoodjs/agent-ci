@@ -1,9 +1,9 @@
-import { getAppState, getAppStateAsync, setAppState } from "./state.ts";
+import { getAppState } from "./state.ts";
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
 import { AnsiUp } from "ansi_up";
 import { initSseAuditLog, recordSseEvent } from "./sse-audit-log.ts";
-import { api, apiPost } from "./api.ts";
+import { apiPost } from "./api.ts";
 import { initGlobalErrorHandler } from "./global-error-handler.ts";
 
 const ansiUp = new AnsiUp();
@@ -16,9 +16,11 @@ const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
 new ElectrobunView.Electroview({ rpc });
 
 let activeRunId: string | null = null;
+let resolvedRunnerName: string | null = null;
 let runStartDate: number = 0;
 let runEndDate: number | undefined;
 let activeStepId: string | null = null;
+let activeLogsPath: string | null = null;
 
 function formatElapsed(startMs: number, endMs?: number): string {
   const elapsed = Math.max(0, ((endMs ?? Date.now()) - startMs) / 1000);
@@ -28,6 +30,15 @@ function formatElapsed(startMs: number, endMs?: number): string {
   const mins = Math.floor(elapsed / 60);
   const secs = Math.round(elapsed % 60);
   return `${mins}m ${secs}s`;
+}
+
+/** Convert internal runner ID to a readable label (e.g. "Run #34" or "Run #34 · retry 2"). */
+function formatRunnerName(name: string): string {
+  const match = name.match(/(\d+)(?:-r(\d+))?$/);
+  if (!match) {
+    return name;
+  }
+  return match[2] ? `Run #${match[1]} · retry ${match[2]}` : `Run #${match[1]}`;
 }
 let statusPollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -202,9 +213,7 @@ async function loadTimeline() {
     return;
   }
   try {
-    const records: TimelineRecord[] = await api(
-      "/runs/timeline?runId=" + encodeURIComponent(activeRunId),
-    );
+    const records: TimelineRecord[] = await rpc.request.getRunTimeline({ runId: activeRunId });
     renderStepList(records);
   } catch {
     // timeline not available yet
@@ -216,7 +225,13 @@ async function loadLogs() {
     return;
   }
 
-  const details = await api("/runs?runId=" + encodeURIComponent(activeRunId));
+  const details = await rpc.request.getRunDetail({ runId: activeRunId });
+  if (!details) {
+    if (logsViewer) {
+      logsViewer.innerHTML = `<span style="color: var(--text-secondary)">Run not found: ${activeRunId}</span>`;
+    }
+    return;
+  }
   const status = details.status || "Unknown";
 
   if (details.date && !runStartDate) {
@@ -224,6 +239,12 @@ async function loadLogs() {
   }
   if (details.endDate) {
     runEndDate = details.endDate;
+  }
+  if (details.runnerName) {
+    resolvedRunnerName = details.runnerName;
+  }
+  if (details.logsPath) {
+    activeLogsPath = details.logsPath;
   }
 
   if (runTitle) {
@@ -234,17 +255,14 @@ async function loadLogs() {
         : details.warmCache === false
           ? ` <span class="warm-badge cold">❄️ cold install</span>`
           : "";
-    runTitle.innerHTML = `${details.runnerName || activeRunId}${elapsed}${cacheLabel}`;
+    runTitle.innerHTML = `${formatRunnerName(details.runnerName || activeRunId || "")}${elapsed}${cacheLabel}`;
   }
 
-  if (details && logsViewer && runStatus) {
-    // Fetch log content from the API
+  if (logsViewer && runStatus) {
+    // Read log content directly from the filesystem via RPC
     {
       try {
-        const res = await fetch(
-          "http://localhost:8912/runs/logs?runId=" + encodeURIComponent(activeRunId),
-        );
-        const logs = await res.text();
+        const logs = await rpc.request.getRunLogs({ runId: activeRunId });
         if (logs) {
           const isAtBottom =
             logsViewer.scrollHeight - logsViewer.scrollTop - logsViewer.clientHeight < 10;
@@ -418,7 +436,7 @@ async function loadErrorSummary() {
       message: string;
       line: number;
       context: string[];
-    }> = await api("/runs/errors?runId=" + encodeURIComponent(activeRunId));
+    }> = await rpc.request.getRunErrors({ runId: activeRunId });
 
     if (annotations.length === 0) {
       errorSummaryEl.style.display = "none";
@@ -484,7 +502,8 @@ async function loadErrorSummary() {
       const allMessages = annotations
         .map((a) => `[${a.severity.toUpperCase()}] ${a.message}`)
         .join("\n");
-      navigator.clipboard.writeText(allMessages);
+      const pathLine = activeLogsPath ? `\n\nLogs: ${activeLogsPath}` : "";
+      navigator.clipboard.writeText(allMessages + pathLine);
       if (copyBtn) {
         const orig = copyBtn.textContent;
         copyBtn.textContent = "Copied!";
@@ -516,15 +535,38 @@ async function loadErrorSummary() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   initSseAuditLog();
-  const state = await getAppStateAsync();
-  activeRunId = state.runId;
+
+  // Read runId from the shared bun process (set by commits page via setActiveRunId RPC)
+  // Note: Electrobun's views:// protocol treats query params and hash fragments as part
+  // of the file path, so we use RPC to pass state between views instead.
+  activeRunId = await rpc.request.getActiveRunId();
 
   if (backBtn) {
     backBtn.addEventListener("click", () => window.history.back());
   }
 
+  const openInFinderBtn = document.getElementById("open-in-finder-btn");
+  if (openInFinderBtn && activeRunId) {
+    openInFinderBtn.addEventListener("click", () => {
+      rpc.request.openRunInFinder({ runId: resolvedRunnerName || activeRunId! });
+    });
+  }
+
   if (workflowLabel) {
+    // Show "Run {number} - {jobName}" once detail loads; raw ID as initial placeholder
     workflowLabel.innerText = `Run ${activeRunId || "Unknown"}`;
+    rpc.request
+      .getRunDetail({ runId: activeRunId || "" })
+      .then((d: any) => {
+        if (d) {
+          const label = formatRunnerName(d.runnerName || activeRunId || "")
+            .replace("#", "")
+            .trim();
+          const jobSuffix = d.jobName ? ` - ${d.jobName}` : "";
+          workflowLabel.innerText = `${label}${jobSuffix}`;
+        }
+      })
+      .catch(() => {});
   }
 
   if (stopRunBtn) {
@@ -545,7 +587,7 @@ document.addEventListener("DOMContentLoaded", async () => {
           runId: activeRunId,
         });
         if (data.runnerName) {
-          await setAppState({ runId: data.runnerName });
+          await rpc.request.setActiveRunId({ runId: data.runnerName });
           window.location.reload();
         }
       } catch {
@@ -556,7 +598,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   initGlobalErrorHandler();
 
-  const initDetails = await api("/runs?runId=" + encodeURIComponent(activeRunId || ""));
+  const initDetails = await rpc.request.getRunDetail({ runId: activeRunId || "" });
   // Always do the initial full log load regardless of status.
 
   await loadLogs();
@@ -564,60 +606,12 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Poll status every 2s while not in a terminal state (catches the window
   // where Docker container hasn't started yet so status would show Unknown)
   const isTerminalStatus = (s: string) => s === "Passed" || s === "Failed";
-  if (!isTerminalStatus(initDetails?.status)) {
+  if (!isTerminalStatus(initDetails?.status ?? "")) {
     statusPollTimer = setInterval(async () => {
       await loadLogs();
     }, 2000);
   } else {
     // Terminal run - nothing extra to poll
-  }
-
-  const dtuStatusEl = document.getElementById("dtu-status");
-  const pollDtuStatus = async () => {
-    if (!dtuStatusEl) {
-      return;
-    }
-
-    let dtuStatus = "Stopped";
-    try {
-      const data = await api<{ status: string }>("/dtu");
-      dtuStatus = data.status;
-    } catch {
-      dtuStatus = "Error";
-    }
-
-    if (dtuStatus === "Running") {
-      dtuStatusEl.innerText = "DTU: Running";
-      dtuStatusEl.className = "status-badge status-Passed";
-    } else if (dtuStatus === "Starting") {
-      dtuStatusEl.innerText = "DTU: Starting...";
-      dtuStatusEl.className = "status-badge status-Running";
-    } else if (dtuStatus === "Failed" || dtuStatus === "Error") {
-      dtuStatusEl.innerText = "DTU: Error (Click to Retry)";
-      dtuStatusEl.className = "status-badge status-Failed";
-    } else {
-      dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
-      dtuStatusEl.className = "status-badge status-Failed";
-    }
-  };
-
-  if (dtuStatusEl) {
-    dtuStatusEl.addEventListener("click", async () => {
-      if (
-        dtuStatusEl.innerText.includes("Starting") ||
-        dtuStatusEl.innerText.includes("Stopping")
-      ) {
-        return;
-      }
-      const isCurrentlyRunning = dtuStatusEl.innerText.includes("Running");
-      dtuStatusEl.innerText = isCurrentlyRunning ? "DTU: Stopping..." : "DTU: Starting...";
-      dtuStatusEl.className = "status-badge status-Running";
-      try {
-        await api("/dtu", { method: isCurrentlyRunning ? "DELETE" : "POST" });
-      } catch {}
-      await pollDtuStatus();
-    });
-    pollDtuStatus();
   }
 
   try {
@@ -626,9 +620,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       try {
         const data = JSON.parse(event.data);
         recordSseEvent(data);
-        if (data.type === "dtuStatusChanged") {
-          pollDtuStatus();
-        }
         if (data.type === "runFinished") {
           if (statusPollTimer !== null) {
             clearInterval(statusPollTimer);

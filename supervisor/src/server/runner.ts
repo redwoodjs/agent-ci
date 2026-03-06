@@ -4,12 +4,20 @@ import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import crypto from "node:crypto";
-import { PROJECT_ROOT, getLogsDir, getNextLogNum, getWorkingDirectory } from "../logger.js";
+import { parse as parseYaml } from "yaml";
+import { getRunsDir, getNextLogNum } from "../logger.js";
+import { PROJECT_ROOT, getWorkingDirectory } from "../working-directory.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./concurrency.js";
 import { killRunnerContainers, pruneOrphanedDockerResources } from "../shutdown.js";
 import { broadcastEvent } from "./events.js";
 import { activeRuns } from "./run-store.js";
 import { isWarmNodeModules, computeLockfileHash } from "../cleanup.js";
+import {
+  parseWorkflowSteps,
+  getWorkflowTemplate,
+  parseMatrixDef,
+  expandMatrixCombinations,
+} from "../workflow-parser.js";
 
 // ─── Warm launch plan ─────────────────────────────────────────────────────────
 
@@ -42,12 +50,6 @@ export async function runWaveWithWarmSerialization<T extends { runnerName: strin
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-// Config path forwarded from the server startup (so spawned runners inherit the same --config)
-let _configPath: string | undefined;
-export function setOrchestratorConfigPath(p: string) {
-  _configPath = p;
-}
-
 // Concurrency limiting for parallel job execution within a wave.
 let _maxConcurrentJobs: number | undefined;
 
@@ -70,7 +72,7 @@ function getJobLimiter() {
 
 function supervisorLog(message: string) {
   const line = `${new Date().toISOString()} ${message}\n`;
-  const logPath = path.join(getLogsDir(), "supervisor.log");
+  const logPath = path.join(getWorkingDirectory(), "supervisor.log");
   try {
     fsSync.mkdirSync(path.dirname(logPath), { recursive: true });
     fsSync.appendFileSync(logPath, line);
@@ -79,7 +81,7 @@ function supervisorLog(message: string) {
 
 // ─── Runner numbering ─────────────────────────────────────────────────────────
 
-let nextRunnerNum = getNextLogNum("oa-runner");
+let nextRunnerNum = getNextLogNum("machinen");
 
 // ─── Job dependency resolution ────────────────────────────────────────────────
 
@@ -163,9 +165,6 @@ function spawnRunner({
   return new Promise((resolve) => {
     const supervisorDir = path.join(PROJECT_ROOT, "supervisor");
     const spawnArgs = ["npx", "tsx", "--env-file=.env", "src/cli.ts", "run"];
-    if (_configPath) {
-      spawnArgs.push("--config", _configPath);
-    }
     if (commitId && commitId !== "WORKING_TREE") {
       spawnArgs.push(commitId);
     }
@@ -179,8 +178,13 @@ function spawnRunner({
     }
 
     const stdoutLog = fsSync.createWriteStream(path.join(runDir, "process-stdout.log"));
+    stdoutLog.on("error", () => {}); // suppress ENOENT if logDir is cleaned up
     const stderrLog = fsSync.createWriteStream(path.join(runDir, "process-stderr.log"));
+    stderrLog.on("error", () => {}); // suppress ENOENT if logDir is cleaned up
 
+    const cliArgsLine = `[OA Runner] CLI args: ${spawnArgs.join(" ")}`;
+    console.log(cliArgsLine);
+    stdoutLog.write(cliArgsLine + "\n");
     const proc = spawn(spawnArgs[0], spawnArgs.slice(1), {
       cwd: supervisorDir,
       env: { ...process.env, OA_WORKING_DIR: getWorkingDirectory() },
@@ -260,10 +264,11 @@ async function setupJob({
   /** Whether this job's node_modules dir was pre-populated (warm) or empty (cold) at wave start. */
   warmCache?: boolean;
 }): Promise<string> {
-  const runDir = path.join(getLogsDir(), runnerName);
-  await fs.mkdir(runDir, { recursive: true });
+  const runDir = path.join(getRunsDir(), runnerName);
+  const logDir = path.join(runDir, "logs");
+  await fs.mkdir(logDir, { recursive: true });
   await fs.writeFile(
-    path.join(runDir, "metadata.json"),
+    path.join(logDir, "metadata.json"),
     JSON.stringify(
       {
         workflowPath: fullPath,
@@ -300,7 +305,6 @@ async function setupJob({
 
   // Write initial timeline.json so the UI can show pending steps immediately.
   try {
-    const { parseWorkflowSteps, getWorkflowTemplate } = await import("../workflow-parser.js");
     const jobIdForSteps = taskId ?? jobIds[0];
     let steps: any[] = [];
     if (jobIdForSteps) {
@@ -347,7 +351,7 @@ async function setupJob({
         };
       });
       await fs.writeFile(
-        path.join(runDir, "timeline.json"),
+        path.join(logDir, "timeline.json"),
         JSON.stringify(pendingRecords, null, 2),
       );
     }
@@ -355,7 +359,7 @@ async function setupJob({
     // Best-effort
   }
 
-  return runDir;
+  return logDir;
 }
 
 /** Prepare runDir + metadata + initial timeline for a job, then spawn it. Returns the exit code. */
@@ -395,8 +399,8 @@ async function setupAndSpawnJob(params: {
 export async function retryRun(
   runId: string,
 ): Promise<{ runnerName: string; attempt: number } | null> {
-  const logsDir = getLogsDir();
-  const metaPath = path.join(logsDir, runId, "metadata.json");
+  const logsDir = getRunsDir();
+  const metaPath = path.join(logsDir, runId, "logs", "metadata.json");
   let meta: any;
   try {
     meta = JSON.parse(await fs.readFile(metaPath, "utf-8"));
@@ -414,12 +418,12 @@ export async function retryRun(
   try {
     const entries = await fs.readdir(logsDir, { withFileTypes: true });
     for (const entry of entries) {
-      if (!entry.isDirectory() || !entry.name.startsWith("oa-runner-")) {
+      if (!entry.isDirectory() || !entry.name.startsWith("machinen-")) {
         continue;
       }
       try {
         const m = JSON.parse(
-          await fs.readFile(path.join(logsDir, entry.name, "metadata.json"), "utf-8"),
+          await fs.readFile(path.join(logsDir, entry.name, "logs", "metadata.json"), "utf-8"),
         );
         if (m.workflowRunId === workflowRunId && (m.taskId ?? null) === (taskId ?? null)) {
           maxAttempt = Math.max(maxAttempt, m.attempt ?? 1);
@@ -433,17 +437,16 @@ export async function retryRun(
   }
   const attempt = maxAttempt + 1;
 
-  // Derive runner name from the original run ID: oa-runner-114-003 → oa-runner-114-003-001
-  // Strip any existing attempt suffix (digits after a dash at the end that look like attempt nums)
-  // The base is always the original runId itself.
-  const runnerName = `${runId}-${String(attempt - 1).padStart(3, "0")}`;
+  // New runner name appends -r<attempt> (e.g. machinen-redwoodjssdk-14-r2).
+  const runnerName = `${runId}-r${attempt}`;
   const runDir = path.join(logsDir, runnerName);
+  const logDir = path.join(runDir, "logs");
   const jobName = taskId ?? null;
   const workflowId = path.basename(workflowPath);
 
-  await fs.mkdir(runDir, { recursive: true });
+  await fs.mkdir(logDir, { recursive: true });
   await fs.writeFile(
-    path.join(runDir, "metadata.json"),
+    path.join(logDir, "metadata.json"),
     JSON.stringify(
       {
         workflowPath,
@@ -474,7 +477,6 @@ export async function retryRun(
 
   // Pre-populate timeline (same logic as runWorkflow)
   try {
-    const { parseWorkflowSteps, getWorkflowTemplate } = await import("../workflow-parser.js");
     let steps: any[] = [];
     if (taskId) {
       steps = (await parseWorkflowSteps(workflowPath, taskId)) as any[];
@@ -520,7 +522,7 @@ export async function retryRun(
         };
       });
       await fs.writeFile(
-        path.join(runDir, "timeline.json"),
+        path.join(logDir, "timeline.json"),
         JSON.stringify(pendingRecords, null, 2),
       );
     }
@@ -531,7 +533,7 @@ export async function retryRun(
   spawnRunner({
     fullPath: workflowPath,
     runnerName,
-    runDir,
+    runDir: logDir,
     commitId,
     taskId,
     repoPath,
@@ -559,11 +561,10 @@ export async function runWorkflow(
   // Map from jobId → static display name (from the `name:` key in the workflow YAML)
   const jobDisplayNames = new Map<string, string>();
   try {
-    const { getWorkflowTemplate, parseMatrixDef, expandMatrixCombinations } =
-      await import("../workflow-parser.js");
-    const yaml = (await import("yaml")).parse(await fs.readFile(fullPath, "utf-8"));
-    const template = await getWorkflowTemplate(fullPath);
-    jobIds = template.jobs.filter((j) => j.type === "job").map((j) => j.id.toString());
+    const yaml = parseYaml(await fs.readFile(fullPath, "utf-8"));
+    // Extract job IDs directly from the YAML instead of using getWorkflowTemplate
+    // (which depends on @actions/workflow-parser that has a Node.js v22 JSON import issue)
+    jobIds = Object.keys(yaml?.jobs ?? {});
 
     // Collect static job display names from `name:` field in YAML
     for (const jobId of jobIds) {
@@ -607,7 +608,21 @@ export async function runWorkflow(
 
   // Claim the base runner number so all jobs share it
   const baseNum = nextRunnerNum++;
-  const baseRunnerName = `oa-runner-${baseNum}`;
+  // Derive a short repo slug from the repoPath for human-readable runner names.
+  let repoSlug = repoPath.replace(/.*\//, "").replace("/", "-"); // fallback: repo basename
+  try {
+    const remoteUrl = execSync("git remote get-url origin", { cwd: repoPath, stdio: "pipe" })
+      .toString()
+      .trim();
+    const match = remoteUrl.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
+    if (match) {
+      // e.g. "redwoodjs/sdk" → "redwoodjs-sdk"
+      repoSlug = match[1].replace("/", "-");
+    }
+  } catch {
+    // Best-effort — keep the directory basename fallback
+  }
+  const baseRunnerName = `machinen-${repoSlug}-${baseNum}`;
 
   // Count total expanded runners across all waves (one per matrix combination per job)
   const totalExpandedJobs = depWaves.reduce((sum, wave) => {
@@ -638,7 +653,7 @@ export async function runWorkflow(
       commitId,
       workflowId,
     });
-    // Now spawn without awaiting (process may run for minutes)
+    // runDir is the logDir returned by setupJob — spawn writes process-stdout.log there
     spawnRunner({
       fullPath,
       runnerName,
@@ -661,11 +676,23 @@ export async function runWorkflow(
   > = depWaves.map((wave) =>
     wave.flatMap((taskId) => {
       const combos = matrixCombinations.get(taskId) ?? [{}];
-      return combos.map((combo) => {
+      return combos.map((combo, comboIdx) => {
         globalJobIndex++;
+        // Only add -jJ suffix for multi-job workflows
+        // Only add -mM suffix when the job has a matrix
+        const hasMatrix = Object.keys(combo).filter((k) => !k.startsWith("__")).length > 0;
+        const isMultiJob = jobIds.length > 1;
+        let suffix = "";
+        if (isMultiJob) {
+          suffix += `-j${globalJobIndex}`;
+        }
+        // For matrix: use the global matrix position index within this job
+        if (hasMatrix) {
+          suffix += `-m${comboIdx + 1}`;
+        }
         return {
           taskId,
-          runnerName: `${baseRunnerName}-${String(globalJobIndex).padStart(3, "0")}`,
+          runnerName: `${baseRunnerName}${suffix}`,
           matrixContext: combo,
         };
       });
@@ -674,19 +701,19 @@ export async function runWorkflow(
   const allRunnerNames = waveRunnerPlan.flat().map(({ runnerName }) => runnerName);
 
   // Pre-create minimal Pending metadata for ALL runners so they appear in the UI
-  // immediately rather than being invisible until actually spawned. This is critical
-  // for cold-path serialization where only the first job starts right away.
+  // immediately rather than being invisible until actually spawned.
   for (const wave of waveRunnerPlan) {
     for (const { taskId, runnerName, matrixContext } of wave) {
-      const runDir = path.join(getLogsDir(), runnerName);
-      await fs.mkdir(runDir, { recursive: true });
+      const runDir = path.join(getRunsDir(), runnerName);
+      const logDir = path.join(runDir, "logs");
+      await fs.mkdir(logDir, { recursive: true });
       const base = jobDisplayNames.get(taskId) ?? taskId;
       const idx = matrixContext?.__job_index;
       const total = matrixContext?.__job_total;
       const jobName =
         idx !== undefined && total !== undefined ? `${base} (${parseInt(idx) + 1}/${total})` : base;
       await fs.writeFile(
-        path.join(runDir, "metadata.json"),
+        path.join(logDir, "metadata.json"),
         JSON.stringify(
           {
             workflowPath: fullPath,
@@ -720,28 +747,21 @@ export async function runWorkflow(
   // node_modules already in place and pnpm install exits in under a second.
   // If the dir is already warm (lockfile unchanged from a prior run), skip straight
   // to the normal parallel launch.
-  // Derive repoSlug the same way local-job.ts does (from githubRepo owner/name)
-  // so the warm-modules path matches between the warm check here and the actual
-  // bind-mount directory created in executeLocalJob.
-  let repoSlug = repoPath.replace(/.*\//, "").replace("/", "-"); // fallback
-  try {
-    const remoteUrl = execSync("git remote get-url origin", { cwd: repoPath, stdio: "pipe" })
-      .toString()
-      .trim();
-    const match = remoteUrl.match(/[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
-    if (match) {
-      repoSlug = match[1].replace("/", "-");
-    }
-  } catch {
-    // Best-effort — keep the directory basename fallback
-  }
+  // Derive repoSlug the same way we computed baseRunnerName above.
+  // warmModulesDir is now under <workDir>/cache/warm-modules/
   let lockfileHash = "no-lockfile";
   try {
     lockfileHash = computeLockfileHash(repoPath);
   } catch {
     // Best-effort
   }
-  const warmModulesDir = path.join(getWorkingDirectory(), "warm-modules", repoSlug, lockfileHash);
+  const warmModulesDir = path.join(
+    getWorkingDirectory(),
+    "cache",
+    "warm-modules",
+    repoSlug,
+    lockfileHash,
+  );
   const warm = isWarmNodeModules(warmModulesDir);
   supervisorLog(
     `[WARM] node_modules dir: ${warmModulesDir} (${warm ? "warm" : "cold"}, hash=${lockfileHash})`,
@@ -755,7 +775,7 @@ export async function runWorkflow(
     const wave1 = waveRunnerPlan[0];
     for (let i = 0; i < wave1.length; i++) {
       const { runnerName } = wave1[i];
-      const metaPath = path.join(getLogsDir(), runnerName, "metadata.json");
+      const metaPath = path.join(getRunsDir(), runnerName, "logs", "metadata.json");
       try {
         const existing = JSON.parse(await fs.readFile(metaPath, "utf-8"));
         existing.warmCache = warm || i > 0; // first job cold only if cache is cold
@@ -832,7 +852,16 @@ export async function runWorkflow(
     );
   }
 
-  await firstWaveResultsPromise.then((firstWaveResults) => {
+  // Kick off wave execution in the background — runWorkflow returns the runner names
+  // immediately so the HTTP handler can respond. Waves run concurrently in the background.
+  (async () => {
+    let firstWaveResults: number[];
+    try {
+      firstWaveResults = await firstWaveResultsPromise;
+    } catch {
+      return;
+    }
+
     if (remainingWaves.length === 0) {
       return;
     }
@@ -843,40 +872,38 @@ export async function runWorkflow(
     }
 
     // Run remaining waves sequentially in the background
-    (async () => {
-      for (let wi = 0; wi < remainingWaves.length; wi++) {
-        const wave = remainingWaves[wi];
-        supervisorLog(
-          `[DEPS] Starting wave ${wi + 2}/${depWaves.length}: [${wave.map((r) => r.taskId).join(", ")}]`,
-        );
-        pruneOrphanedDockerResources();
-        const waveLimiter = getJobLimiter();
-        const results = await Promise.all(
-          wave.map(({ taskId, runnerName, matrixContext }) =>
-            waveLimiter.run(() =>
-              setupAndSpawnJob({
-                fullPath,
-                runnerName,
-                workflowName,
-                baseRunnerName,
-                taskId,
-                jobDisplayName: jobDisplayNames.get(taskId),
-                matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
-                jobIds,
-                repoPath,
-                commitId,
-                workflowId,
-              }),
-            ),
+    for (let wi = 0; wi < remainingWaves.length; wi++) {
+      const wave = remainingWaves[wi];
+      supervisorLog(
+        `[DEPS] Starting wave ${wi + 2}/${depWaves.length}: [${wave.map((r) => r.taskId).join(", ")}]`,
+      );
+      pruneOrphanedDockerResources();
+      const waveLimiter = getJobLimiter();
+      const results = await Promise.all(
+        wave.map(({ taskId, runnerName, matrixContext }) =>
+          waveLimiter.run(() =>
+            setupAndSpawnJob({
+              fullPath,
+              runnerName,
+              workflowName,
+              baseRunnerName,
+              taskId,
+              jobDisplayName: jobDisplayNames.get(taskId),
+              matrixContext: Object.keys(matrixContext).length > 0 ? matrixContext : undefined,
+              jobIds,
+              repoPath,
+              commitId,
+              workflowId,
+            }),
           ),
-        );
-        if (results.some((code) => code !== 0)) {
-          supervisorLog(`[DEPS] Wave ${wi + 2} had failures — aborting remaining waves`);
-          break;
-        }
+        ),
+      );
+      if (results.some((code) => code !== 0)) {
+        supervisorLog(`[DEPS] Wave ${wi + 2} had failures — aborting remaining waves`);
+        break;
       }
-    })();
-  });
+    }
+  })();
 
   return allRunnerNames;
 }

@@ -139,15 +139,22 @@ async function loadWorkflows() {
         btn.setAttribute("disabled", "true");
         btn.innerHTML = "Starting...";
         try {
-          await apiPost("/workflows/run", {
-            repoPath,
-            workflowId: wf.id,
-            commitId: selectedCommitId,
-          });
-          await loadRuns();
+          const result = await apiPost<{ runnerName?: string; runnerNames?: string[] }>(
+            "/workflows/run",
+            {
+              repoPath,
+              workflowId: wf.id,
+              commitId: selectedCommitId,
+            },
+          );
+          if (result.runnerName) {
+            await rpc.request.setActiveRunId({ runId: result.runnerName });
+            window.location.href = "views://runs/index.html";
+          } else {
+            await loadRuns();
+          }
         } catch {
           // error already logged by api wrapper
-        } finally {
           btn.removeAttribute("disabled");
           btn.innerHTML = "Run";
         }
@@ -156,6 +163,17 @@ async function loadWorkflows() {
 
     workflowsList.appendChild(item);
   });
+}
+
+/** Convert internal runner ID (machinen-slug-34 or machinen-slug-34-r2) to a readable label. */
+function formatRunnerName(name: string): string {
+  const match = name.match(/(\d+)(?:-r(\d+))?$/);
+  if (!match) {
+    return name;
+  }
+  const run = match[1];
+  const retry = match[2];
+  return retry ? `Run #${run} · retry ${retry}` : `Run #${run}`;
 }
 
 function formatElapsed(startMs: number, endMs?: number): string {
@@ -320,7 +338,7 @@ async function loadRuns() {
         item.innerHTML = `
           <div style="flex:1;min-width:0">
             <div class="list-item-title">${latest.workflowName}</div>
-            <div class="list-item-subtitle">${latest.runnerName} · ${new Date(latest.date).toLocaleString()} · <span data-elapsed-start="${firstJob.date}" ${latestJob.endDate ? `data-elapsed-end="${latestJob.endDate}"` : ""}>${elapsed}</span></div>
+            <div class="list-item-subtitle">${formatRunnerName(latest.runnerName)} · ${new Date(latest.date).toLocaleString()} · <span data-elapsed-start="${firstJob.date}" ${latestJob.endDate ? `data-elapsed-end="${latestJob.endDate}"` : ""}>${elapsed}</span></div>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             ${latest.warmCache === true ? '<span class="warm-badge warm">🔥</span>' : latest.warmCache === false ? '<span class="warm-badge cold">❄️</span>' : ""}
@@ -328,7 +346,7 @@ async function loadRuns() {
           </div>
         `;
         item.addEventListener("click", async () => {
-          await setAppState({ runId: latest.runId });
+          await rpc.request.setActiveRunId({ runId: latest.runId });
           window.location.href = "views://runs/index.html";
         });
         if (latest.status === "Failed") {
@@ -363,7 +381,7 @@ async function loadRuns() {
         </div>
       `;
       headerRow.addEventListener("click", async () => {
-        await setAppState({ runId: latest.runId });
+        await rpc.request.setActiveRunId({ runId: latest.runId });
         window.location.href = "views://runs/index.html";
       });
       if (latest.status === "Failed") {
@@ -397,7 +415,7 @@ async function loadRuns() {
         row.innerHTML = `
           <div style="display:flex;align-items:center;gap:8px">
             <span style="color:var(--text-secondary);font-size:11px">└</span>
-            <span style="font-size:11px;color:var(--text-secondary)">${attempt.runnerName}</span>
+            <span style="font-size:11px;color:var(--text-secondary)">${formatRunnerName(attempt.runnerName)}</span>
           </div>
           <div style="display:flex;align-items:center;gap:8px">
             <span class="attempt-badge">Attempt ${attempt.attempt ?? 1}</span>
@@ -411,7 +429,7 @@ async function loadRuns() {
           row.style.background = "var(--panel-bg)";
         });
         row.addEventListener("click", async () => {
-          await setAppState({ runId: attempt.runId });
+          await rpc.request.setActiveRunId({ runId: attempt.runId });
           window.location.href = "views://runs/index.html";
         });
         singleGroup.appendChild(row);
@@ -429,7 +447,7 @@ async function loadRuns() {
 
     const header = document.createElement("div");
     header.className = "list-item";
-    header.style.cursor = "default";
+    header.style.cursor = "pointer"; // Changed to pointer
     header.style.borderBottomLeftRadius = "0";
     header.style.borderBottomRightRadius = "0";
     header.innerHTML = `
@@ -439,6 +457,10 @@ async function loadRuns() {
       </div>
       <div>${getStatusBadge(overallStatus)}</div>
     `;
+    header.addEventListener("click", async () => {
+      await rpc.request.setActiveRunId({ runId: latestJob.runId });
+      window.location.href = "views://runs/index.html";
+    });
     group.appendChild(header);
 
     // Group jobs by jobName, then sort attempts within each group
@@ -548,7 +570,7 @@ async function loadRuns() {
         jobRow.style.background = "var(--panel-bg)";
       });
       jobRow.addEventListener("click", async () => {
-        await setAppState({ runId: job.runId });
+        await rpc.request.setActiveRunId({ runId: job.runId });
         window.location.href = "views://runs/index.html";
       });
       // Add retry button on the top job row (latest attempt) if it failed
@@ -579,27 +601,18 @@ async function loadCommits() {
 
   list.innerHTML = `<div style="color: var(--text-secondary); text-align: center; padding: 32px">Loading...</div>`;
 
-  const commits = await fetch(
-    "http://localhost:8912/git/commits?repoPath=" +
-      encodeURIComponent(repoPath) +
-      "&branch=" +
-      encodeURIComponent(branchName),
-  ).then((r) => r.json());
+  // Git reads go directly through Electrobun RPC — no supervisor dependency
+  const [commits, branches] = await Promise.all([
+    rpc.request.getCommits({ branch: branchName }),
+    rpc.request.getBranches(),
+  ]);
+
   list.innerHTML = "";
 
-  const branches = await fetch(
-    "http://localhost:8912/git/branches?repoPath=" + encodeURIComponent(repoPath),
-  ).then((r) => r.json());
-  const isCurrentBranch =
-    branches.find((b: { name: string; isCurrent: boolean }) => b.name === branchName)?.isCurrent ??
-    false;
+  const isCurrentBranch = branches.find((b) => b.name === branchName)?.isCurrent ?? false;
 
   if (isCurrentBranch) {
-    const hasChanges = await fetch(
-      "http://localhost:8912/git/working-tree?repoPath=" + encodeURIComponent(repoPath),
-    )
-      .then((r) => r.json())
-      .then((r) => r.dirty);
+    const hasChanges = await rpc.request.getWorkingTreeDirty();
     const wtItem = document.createElement("div");
     wtItem.className = "list-item animate-fade-in";
     wtItem.style.borderColor = hasChanges ? "var(--accent)" : "var(--panel-border)";
@@ -614,7 +627,7 @@ async function loadCommits() {
   }
 
   if (commits.length > 0) {
-    commits.forEach((commit: any, idx: number) => {
+    commits.forEach((commit, idx) => {
       const item = document.createElement("div");
       item.className = "list-item animate-fade-in";
       item.style.animationDelay = `${idx * 0.02}s`;
@@ -641,7 +654,7 @@ async function loadCommits() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   initSseAuditLog();
-  const state = await getAppStateAsync();
+  const state = await getAppStateAsync(rpc);
   repoPath = state.repoPath;
   branchName = state.branchName;
 
@@ -659,7 +672,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const projName = document.getElementById("repo-name-display");
   if (projName && repoPath) {
-    projName.innerText = repoPath.split("/").pop() || repoPath;
+    projName.innerText = repoPath;
   }
 
   const runOnCommitToggle = document.getElementById("watch-mode-toggle");
@@ -674,8 +687,13 @@ document.addEventListener("DOMContentLoaded", async () => {
       }
     };
 
-    const watchedRepos = await api<string[]>("/repos/watched");
-    const isWatchEnabled = watchedRepos.includes(repoPath);
+    let isWatchEnabled = false;
+    try {
+      const watchedRepos = await api<string[]>("/repos/watched");
+      isWatchEnabled = watchedRepos.includes(repoPath);
+    } catch {
+      // Server may not be ready yet on cold start — default to Off
+    }
     updateWatchUI(isWatchEnabled);
 
     runOnCommitToggle.addEventListener("click", async () => {
@@ -751,71 +769,21 @@ document.addEventListener("DOMContentLoaded", async () => {
     loadConcurrency();
   }
 
-  const dtuStatusEl = document.getElementById("dtu-status");
-  const pollDtuStatus = async () => {
-    if (!dtuStatusEl) {
-      return;
-    }
-
-    let dtuStatus = "Stopped";
-    try {
-      const data = await api<{ status: string }>("/dtu");
-      dtuStatus = data.status;
-    } catch {
-      dtuStatus = "Error";
-    }
-
-    if (dtuStatus === "Running") {
-      dtuStatusEl.innerText = "DTU: Running";
-      dtuStatusEl.className = "status-badge status-Passed";
-    } else if (dtuStatus === "Starting") {
-      dtuStatusEl.innerText = "DTU: Starting...";
-      dtuStatusEl.className = "status-badge status-Running";
-    } else if (dtuStatus === "Failed" || dtuStatus === "Error") {
-      dtuStatusEl.innerText = "DTU: Error (Click to Retry)";
-      dtuStatusEl.className = "status-badge status-Failed";
-    } else {
-      dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
-      dtuStatusEl.className = "status-badge status-Failed";
-    }
-  };
-
-  if (dtuStatusEl) {
-    dtuStatusEl.addEventListener("click", async () => {
-      if (
-        dtuStatusEl.innerText.includes("Starting") ||
-        dtuStatusEl.innerText.includes("Stopping")
-      ) {
-        return;
-      }
-      const isCurrentlyRunning = dtuStatusEl.innerText.includes("Running");
-      dtuStatusEl.innerText = isCurrentlyRunning ? "DTU: Stopping..." : "DTU: Starting...";
-      dtuStatusEl.className = "status-badge status-Running";
+  try {
+    const evtSource = new EventSource("http://localhost:8912/events");
+    evtSource.addEventListener("message", (event) => {
       try {
-        await api("/dtu", { method: isCurrentlyRunning ? "DELETE" : "POST" });
+        const data = JSON.parse(event.data);
+        recordSseEvent(data);
+        if (data.type === "branchChanged" || data.type === "commitDetected") {
+          loadCommits();
+        }
+        if (data.type === "runStarted" || data.type === "runFinished") {
+          loadRuns();
+        }
       } catch {}
-      await pollDtuStatus();
     });
-    pollDtuStatus();
-    try {
-      const evtSource = new EventSource("http://localhost:8912/events");
-      evtSource.addEventListener("message", (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          recordSseEvent(data);
-          if (data.type === "dtuStatusChanged") {
-            pollDtuStatus();
-          }
-          if (data.type === "branchChanged" || data.type === "commitDetected") {
-            loadCommits();
-          }
-          if (data.type === "runStarted" || data.type === "runFinished") {
-            loadRuns();
-          }
-        } catch {}
-      });
-    } catch {}
-  }
+  } catch {}
 });
 
 // Refresh commits list when navigating back (bfcache restore won't fire DOMContentLoaded)

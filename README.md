@@ -24,7 +24,9 @@ This project is organized as a `pnpm` workspace: !!!!!!!!!!!
 ### 1. Prerequisites
 
 - `pnpm` (v10+)
-- `Docker` installed and running.
+- A Docker provider running on your machine:
+  - **macOS:** We highly recommend [OrbStack](https://orbstack.dev/) for its speed, low battery usage, and network integration. Alternatively, you can use Docker Desktop or Colima.
+  - **Linux:** Native Docker Engine.
 
 ### 2. Install Dependencies
 
@@ -55,6 +57,8 @@ Shared environment variables are managed at the root.
 
 ## Run Locally
 
+### Full Services Stack
+
 You can run all services in the required sequence from the root:
 
 ```bash
@@ -63,15 +67,31 @@ pnpm dev
 
 This command uses `concurrently` and `wait-on` to ensure:
 
-1. `dtu/github-actions` (Mock Server) starts first on port 8910.
+1. `dtu-github-actions` (Mock Server) starts first on port 8910.
 2. `bridge` waits for the mock server to be ready and starts on port 8911.
 3. `supervisor` waits for the bridge to be ready.
 
 Or target specific services:
 
 ```bash
-pnpm --filter dtu/github-actions dev
+pnpm --filter dtu-github-actions dev
 pnpm --filter bridge dev
+```
+
+### Headless Mode (This Repository Only)
+
+You can run workflows securely in headless mode without starting the full suite of services. _Note: Running external workflows is not yet supported or tested._
+
+To run a specific workflow:
+
+```bash
+pnpm --filter supervisor run oa run --workflow .github/workflows/tests.yml
+```
+
+To run all relevant PR/Push workflows for your current branch:
+
+```bash
+pnpm --filter supervisor run oa run --all
 ```
 
 ---
@@ -127,3 +147,19 @@ jobs:
 Unlike GitHub-hosted `ubuntu-latest` runners that come pre-populated with gigabytes of tools (like Node.js, Python, Go, etc.), the `opposite-actions` self-hosted runner starts with an empty cache.
 
 This means the _very first time_ a workflow uses an action like `actions/setup-node`, it will need to download the tool from the internet, taking slightly longer. However, the downloaded tools are saved to a persistent `toolcache` directory on your host machine. All subsequent runs and containers will instantly mount and find the tools in the cache, skipping the download step.
+
+---
+
+## Workspace Copies (macOS)
+
+On macOS, each run gets a private copy of the repository workspace placed under `$TMPDIR/machinen/<repo>/runs/<run-id>/`, where `<run-id>` follows the pattern `machinen-<N>` with optional suffixes:
+
+| Suffix  | Meaning                           |
+| ------- | --------------------------------- |
+| `-j<N>` | Job index in a multi-job workflow |
+| `-m<N>` | Matrix shard index                |
+| `-r<N>` | Retry attempt                     |
+
+For example: `machinen-42-j2-m3-r2` is the second retry of shard 3 of job 2 in run 42. In full service mode a repo slug is included: `machinen-<repo>-42-j1`. These copies are **APFS copy-on-write clones** made via `cp -c`, so they consume **zero additional disk space** at creation time — physical blocks are shared with the original files and only duplicated if the container modifies them.
+
+On Linux, `rsync` is used instead, which produces regular copies. Linux supports CoW via `cp --reflink=auto` on btrfs and XFS (kernel 4.16+) — this could replace the rsync path to get the same benefit on supported filesystems, with automatic fallback to a full copy on ext4.

@@ -2,6 +2,7 @@ import { getAppStateAsync, setAppState } from "./state.ts";
 import ElectrobunView from "electrobun/view";
 import type { MyRPCSchema } from "../shared/rpc.ts";
 import { initSseAuditLog, recordSseEvent } from "./sse-audit-log.ts";
+import { api } from "./api.ts";
 
 const rpc = ElectrobunView.Electroview.defineRPC<MyRPCSchema>({
   maxRequestTime: 15000,
@@ -20,7 +21,7 @@ async function goToRuns(workflowId: string) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   initSseAuditLog();
-  const state = await getAppStateAsync();
+  const state = await getAppStateAsync(rpc);
   repoPath = state.repoPath;
   commitId = state.commitId;
 
@@ -37,9 +38,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const workflowsList = document.getElementById("workflows-list");
   if (workflowsList && repoPath) {
-    const workflows = await fetch(
-      "http://localhost:8912/workflows?repoPath=" + encodeURIComponent(repoPath),
-    ).then((r) => r.json());
+    const workflows = await api("/workflows?repoPath=" + encodeURIComponent(repoPath));
     workflowsList.innerHTML = "";
     workflows.forEach((wf: any, idx: number) => {
       const item = document.createElement("div");
@@ -57,70 +56,15 @@ document.addEventListener("DOMContentLoaded", async () => {
     });
   }
 
-  const dtuStatusEl = document.getElementById("dtu-status");
-  const pollDtuStatus = async () => {
-    if (!dtuStatusEl) {
-      return;
-    }
-
-    let dtuStatus = "Stopped";
-    try {
-      const res = await fetch("http://localhost:8912/dtu");
-      if (res.ok) {
-        const data = await res.json();
-        dtuStatus = data.status;
-      }
-    } catch {
-      dtuStatus = "Error";
-    }
-
-    if (dtuStatus === "Running") {
-      dtuStatusEl.innerText = "DTU: Running";
-      dtuStatusEl.className = "status-badge status-Passed";
-    } else if (dtuStatus === "Starting") {
-      dtuStatusEl.innerText = "DTU: Starting...";
-      dtuStatusEl.className = "status-badge status-Running";
-    } else if (dtuStatus === "Failed" || dtuStatus === "Error") {
-      dtuStatusEl.innerText = "DTU: Error (Click to Retry)";
-      dtuStatusEl.className = "status-badge status-Failed";
-    } else {
-      dtuStatusEl.innerText = "DTU: Stopped (Click to Start)";
-      dtuStatusEl.className = "status-badge status-Failed";
-    }
-  };
-
-  if (dtuStatusEl) {
-    dtuStatusEl.addEventListener("click", async () => {
-      if (
-        dtuStatusEl.innerText.includes("Starting") ||
-        dtuStatusEl.innerText.includes("Stopping")
-      ) {
-        return;
-      }
-      const isCurrentlyRunning = dtuStatusEl.innerText.includes("Running");
-      dtuStatusEl.innerText = isCurrentlyRunning ? "DTU: Stopping..." : "DTU: Starting...";
-      dtuStatusEl.className = "status-badge status-Running";
+  try {
+    const evtSource = new EventSource("http://localhost:8912/events");
+    evtSource.addEventListener("message", (event) => {
       try {
-        await fetch("http://localhost:8912/dtu", {
-          method: isCurrentlyRunning ? "DELETE" : "POST",
-        });
+        const data = JSON.parse(event.data);
+        recordSseEvent(data);
       } catch {}
-      await pollDtuStatus();
     });
-    pollDtuStatus();
-    try {
-      const evtSource = new EventSource("http://localhost:8912/events");
-      evtSource.addEventListener("message", (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          recordSseEvent(data);
-          if (data.type === "dtuStatusChanged") {
-            pollDtuStatus();
-          }
-        } catch {}
-      });
-    } catch {}
-  }
+  } catch {}
 });
 
 // Global back navigation (Escape key + mouse back button)

@@ -9,7 +9,7 @@ describe("Signal handler cleanup", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-signal-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "machinen-signal-test-"));
   });
 
   afterEach(() => {
@@ -17,11 +17,13 @@ describe("Signal handler cleanup", () => {
   });
 
   it("cleanup function removes all temp directories", () => {
+    // With the new layout, work/shims/diag are co-located under runs/<runnerName>/
+    const runDir = path.join(tmpDir, "runs", "machinen-sig");
     const dirs = {
-      containerWorkDir: path.join(tmpDir, "work", "oa-runner-sig"),
-      workspaceDir: path.join(tmpDir, "work", "workspace-sig"),
-      shimsDir: path.join(tmpDir, "shims", "oa-runner-sig"),
-      diagDir: path.join(tmpDir, "diag", "oa-runner-sig"),
+      containerWorkDir: path.join(runDir, "work"),
+      workspaceDir: path.join(runDir, "work", "workspace"),
+      shimsDir: path.join(runDir, "shims"),
+      diagDir: path.join(runDir, "diag"),
     };
 
     for (const d of Object.values(dirs)) {
@@ -29,12 +31,10 @@ describe("Signal handler cleanup", () => {
       fs.writeFileSync(path.join(d, "test.txt"), "data");
     }
 
-    // Simulate signal handler cleanup (cleans everything including containerWorkDir)
-    for (const d of Object.values(dirs)) {
-      try {
-        fs.rmSync(d, { recursive: true, force: true });
-      } catch {}
-    }
+    // Simulate signal handler cleanup — just remove the entire runDir
+    try {
+      fs.rmSync(runDir, { recursive: true, force: true });
+    } catch {}
 
     for (const d of Object.values(dirs)) {
       expect(fs.existsSync(d)).toBe(false);
@@ -62,19 +62,20 @@ describe("Stale workspace pruning", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-prune-test-"));
-    fs.mkdirSync(path.join(tmpDir, "work"), { recursive: true });
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "machinen-prune-test-"));
+    // pruneStaleWorkspaces scans <workDir>/runs/
+    fs.mkdirSync(path.join(tmpDir, "runs"), { recursive: true });
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("removes oa-runner-* dirs older than maxAge", async () => {
-    // Create a stale workspace
-    const staleDir = path.join(tmpDir, "work", "oa-runner-100");
-    fs.mkdirSync(staleDir, { recursive: true });
-    fs.writeFileSync(path.join(staleDir, "file.txt"), "stale");
+  it("removes machinen-* dirs older than maxAge", async () => {
+    // Create a stale run dir — the entire runDir is removed (includes logs, work, shims, diag)
+    const staleDir = path.join(tmpDir, "runs", "machinen-100");
+    fs.mkdirSync(path.join(staleDir, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(staleDir, "logs", "output.log"), "stale");
 
     // Backdate it to 48 hours ago
     const oldTime = new Date(Date.now() - 48 * 60 * 60 * 1000);
@@ -83,15 +84,15 @@ describe("Stale workspace pruning", () => {
     const { pruneStaleWorkspaces } = await import("./shutdown.js");
     const pruned = pruneStaleWorkspaces(tmpDir, 24 * 60 * 60 * 1000);
 
-    expect(pruned).toContain("oa-runner-100");
+    expect(pruned).toContain("machinen-100");
     expect(fs.existsSync(staleDir)).toBe(false);
   });
 
-  it("keeps oa-runner-* dirs newer than maxAge", async () => {
-    // Create a fresh workspace
-    const freshDir = path.join(tmpDir, "work", "oa-runner-200");
-    fs.mkdirSync(freshDir, { recursive: true });
-    fs.writeFileSync(path.join(freshDir, "file.txt"), "fresh");
+  it("keeps machinen-* dirs newer than maxAge", async () => {
+    // Create a fresh run dir
+    const freshDir = path.join(tmpDir, "runs", "machinen-200");
+    fs.mkdirSync(path.join(freshDir, "logs"), { recursive: true });
+    fs.writeFileSync(path.join(freshDir, "logs", "output.log"), "fresh");
 
     const { pruneStaleWorkspaces } = await import("./shutdown.js");
     const pruned = pruneStaleWorkspaces(tmpDir, 24 * 60 * 60 * 1000);
@@ -100,8 +101,8 @@ describe("Stale workspace pruning", () => {
     expect(fs.existsSync(freshDir)).toBe(true);
   });
 
-  it("ignores non-oa-runner dirs", async () => {
-    const otherDir = path.join(tmpDir, "work", "workspace-12345");
+  it("ignores non-machinen dirs", async () => {
+    const otherDir = path.join(tmpDir, "runs", "workspace-12345");
     fs.mkdirSync(otherDir, { recursive: true });
 
     // Backdate it
@@ -120,74 +121,65 @@ describe("containerWorkDir cleanup on exit", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-cleanup-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "machinen-cleanup-test-"));
   });
 
   afterEach(() => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("cleans containerWorkDir on success", () => {
-    const containerWorkDir = path.join(tmpDir, "work", "oa-runner-1");
-    const workspaceDir = path.join(tmpDir, "work", "workspace-123");
-    const shimsDir = path.join(tmpDir, "shims", "oa-runner-1");
-    const diagDir = path.join(tmpDir, "diag", "oa-runner-1");
+  it("cleans entire runDir on success", () => {
+    // New layout: work/shims/diag are all under runs/<runnerName>/
+    const runDir = path.join(tmpDir, "runs", "machinen-1");
+    const containerWorkDir = path.join(runDir, "work");
+    const shimsDir = path.join(runDir, "shims");
+    const diagDir = path.join(runDir, "diag");
+    const logDir = path.join(runDir, "logs");
 
     // Create all dirs
-    for (const d of [containerWorkDir, workspaceDir, shimsDir, diagDir]) {
+    for (const d of [containerWorkDir, shimsDir, diagDir, logDir]) {
       fs.mkdirSync(d, { recursive: true });
       fs.writeFileSync(path.join(d, "test.txt"), "data");
     }
 
     const jobSucceeded = true;
 
-    // Simulate the cleanup logic (must match what we'll implement)
-    // 1. Always clean workspace, shims, diag
-    for (const d of [workspaceDir, shimsDir, diagDir]) {
-      if (fs.existsSync(d)) {
-        fs.rmSync(d, { recursive: true, force: true });
-      }
-    }
-    // 2. Clean containerWorkDir only on success
-    if (jobSucceeded && fs.existsSync(containerWorkDir)) {
-      fs.rmSync(containerWorkDir, { recursive: true, force: true });
+    // On success: clean the entire runDir (logs kept via archiving externally)
+    if (jobSucceeded && fs.existsSync(runDir)) {
+      fs.rmSync(runDir, { recursive: true, force: true });
     }
 
+    expect(fs.existsSync(runDir)).toBe(false);
     expect(fs.existsSync(containerWorkDir)).toBe(false);
-    expect(fs.existsSync(workspaceDir)).toBe(false);
     expect(fs.existsSync(shimsDir)).toBe(false);
     expect(fs.existsSync(diagDir)).toBe(false);
   });
 
-  it("retains containerWorkDir on failure for debugging", () => {
-    const containerWorkDir = path.join(tmpDir, "work", "oa-runner-2");
-    const workspaceDir = path.join(tmpDir, "work", "workspace-456");
-    const shimsDir = path.join(tmpDir, "shims", "oa-runner-2");
-    const diagDir = path.join(tmpDir, "diag", "oa-runner-2");
+  it("retains runDir on failure for debugging", () => {
+    const runDir = path.join(tmpDir, "runs", "machinen-2");
+    const containerWorkDir = path.join(runDir, "work");
+    const shimsDir = path.join(runDir, "shims");
+    const diagDir = path.join(runDir, "diag");
+    const logDir = path.join(runDir, "logs");
 
-    for (const d of [containerWorkDir, workspaceDir, shimsDir, diagDir]) {
+    for (const d of [containerWorkDir, shimsDir, diagDir, logDir]) {
       fs.mkdirSync(d, { recursive: true });
       fs.writeFileSync(path.join(d, "test.txt"), "data");
     }
 
     const jobSucceeded = false;
 
-    // Same cleanup logic
-    for (const d of [workspaceDir, shimsDir, diagDir]) {
-      if (fs.existsSync(d)) {
-        fs.rmSync(d, { recursive: true, force: true });
-      }
-    }
-    if (jobSucceeded && fs.existsSync(containerWorkDir)) {
-      fs.rmSync(containerWorkDir, { recursive: true, force: true });
+    // On failure: keep runDir so the developer can inspect work/, shims/, diag/, logs/
+    if (jobSucceeded && fs.existsSync(runDir)) {
+      fs.rmSync(runDir, { recursive: true, force: true });
     }
 
-    // containerWorkDir should be RETAINED
-    expect(fs.existsSync(containerWorkDir)).toBe(true);
+    // runDir should be RETAINED
+    expect(fs.existsSync(runDir)).toBe(true);
     expect(fs.readFileSync(path.join(containerWorkDir, "test.txt"), "utf-8")).toBe("data");
-    // Others should be cleaned
-    expect(fs.existsSync(workspaceDir)).toBe(false);
-    expect(fs.existsSync(shimsDir)).toBe(false);
-    expect(fs.existsSync(diagDir)).toBe(false);
+    // All subdirs retained
+    expect(fs.existsSync(containerWorkDir)).toBe(true);
+    expect(fs.existsSync(shimsDir)).toBe(true);
+    expect(fs.existsSync(diagDir)).toBe(true);
   });
 });

@@ -1,8 +1,9 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, loadOaConfig, loadMachineSecrets } from "./config.js";
-import { setWorkingDirectory, PROJECT_ROOT } from "./logger.js";
+import { config, loadMachineSecrets } from "./config.js";
+import { getNextLogNum } from "./logger.js";
+import { setWorkingDirectory, DEFAULT_WORKING_DIR, PROJECT_ROOT } from "./working-directory.js";
 
 import { executeLocalJob } from "./local-job.js";
 import {
@@ -12,6 +13,8 @@ import {
   parseWorkflowContainer,
   isWorkflowRelevant,
   validateSecrets,
+  parseMatrixDef,
+  expandMatrixCombinations,
 } from "./workflow-parser.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./server/concurrency.js";
@@ -21,34 +24,6 @@ async function run() {
   const command = args[0];
 
   if (command === "server") {
-    // Parse --config from server args to forward to spawned runners
-    let serverConfigPath: string | undefined;
-    for (let i = 1; i < args.length; i++) {
-      if (args[i] === "--config" && args[i + 1]) {
-        serverConfigPath = args[i + 1];
-        i++;
-      }
-    }
-    // Apply working directory from config so the server uses the right log paths
-    const parsedServerConfig = loadOaConfig(serverConfigPath);
-    if (parsedServerConfig.workingDirectory) {
-      let wd = parsedServerConfig.workingDirectory;
-      if (!path.isAbsolute(wd)) {
-        wd = path.resolve(PROJECT_ROOT, wd);
-      }
-      setWorkingDirectory(wd);
-    }
-    const { setOrchestratorConfigPath, setMaxConcurrentJobs } =
-      await import("./server/orchestrator.js");
-    if (serverConfigPath) {
-      setOrchestratorConfigPath(serverConfigPath);
-    }
-    if (
-      typeof parsedServerConfig.maxConcurrentJobs === "number" &&
-      parsedServerConfig.maxConcurrentJobs > 0
-    ) {
-      setMaxConcurrentJobs(parsedServerConfig.maxConcurrentJobs);
-    }
     const { startServer } = await import("./server/index.js");
     startServer();
     return;
@@ -61,7 +36,6 @@ async function run() {
     let taskName: string | undefined;
     let runAll = false;
     let branch: string | undefined;
-    let configPath: string | undefined;
     let runnerName: string | undefined;
     let matrixJson: string | undefined;
     let concurrency: number | undefined;
@@ -81,9 +55,6 @@ async function run() {
       } else if (args[i] === "--branch" && args[i + 1]) {
         branch = args[i + 1];
         i++;
-      } else if (args[i] === "--config" && args[i + 1]) {
-        configPath = args[i + 1];
-        i++;
       } else if (args[i] === "--runner-name" && args[i + 1]) {
         runnerName = args[i + 1];
         i++;
@@ -98,14 +69,7 @@ async function run() {
       }
     }
 
-    const parsedConfig = loadOaConfig(configPath);
-    let workingDir = parsedConfig.workingDirectory;
-    // OA_WORKING_DIR is injected by the server's spawnRunner so child processes
-    // inherit the server's resolved workingDirectory rather than loading it from
-    // the global ~/.config/oa/config.jsonc (which may point to a different repo).
-    if (process.env.OA_WORKING_DIR) {
-      workingDir = process.env.OA_WORKING_DIR;
-    }
+    let workingDir = process.env.OA_WORKING_DIR;
     if (workingDir) {
       if (!path.isAbsolute(workingDir)) {
         workingDir = path.resolve(PROJECT_ROOT, workingDir);
@@ -121,12 +85,13 @@ async function run() {
     }
 
     if (runAll) {
-      const maxJobs =
-        concurrency ?? parsedConfig.maxConcurrentJobs ?? getDefaultMaxConcurrentJobs();
+      const maxJobs = concurrency ?? getDefaultMaxConcurrentJobs();
       await handleRunAll({ sha, branch, taskName, runnerName, concurrency: maxJobs });
     } else {
       await handleRun({ sha, workflow, taskName, runnerName, matrixJson });
     }
+
+    process.exit(0);
   } else {
     printUsage();
     process.exit(1);
@@ -152,7 +117,6 @@ function printUsage() {
   console.log(
     "  --branch <name>        Branch name for relevance check (defaults to current branch)",
   );
-  console.log("  --config <path>        Path to the shared JSONC configuration file");
   console.log("  -c, --concurrency <n>  Max parallel jobs (default: cpuCount/2)");
 }
 
@@ -244,6 +208,12 @@ async function handleRun(options: {
       repoRoot = resolveRepoRoot();
     }
 
+    // Scope the working directory to an OS temp folder unless the
+    // user explicitly configured one via OA_WORKING_DIR environment variable.
+    if (!process.env.OA_WORKING_DIR) {
+      setWorkingDirectory(DEFAULT_WORKING_DIR);
+    }
+
     const { headSha, shaRef } = sha
       ? resolveHeadSha(repoRoot, sha)
       : { headSha: undefined, shaRef: undefined };
@@ -299,6 +269,9 @@ async function handleRun(options: {
     const services = await parseWorkflowServices(workflowPath, taskName);
     const container = await parseWorkflowContainer(workflowPath, taskName);
 
+    // Derive runner name: machinen-<N> (single job convention)
+    const derivedRunnerName = runnerName || undefined;
+
     // 6. Construct Job
     const job: Job = {
       deliveryId: `local-run-${Date.now()}`,
@@ -317,7 +290,7 @@ async function handleRun(options: {
         owner: { login: owner },
         default_branch: "main",
       },
-      runnerName,
+      runnerName: derivedRunnerName,
       steps,
       services,
       container: container ?? undefined,
@@ -344,6 +317,11 @@ async function handleRunAll(options: {
 
   try {
     const repoRoot = resolveRepoRoot();
+    // Scope the working directory to an OS temp folder unless the
+    // user explicitly configured one via OA_WORKING_DIR environment variable.
+    if (!process.env.OA_WORKING_DIR) {
+      setWorkingDirectory(DEFAULT_WORKING_DIR);
+    }
     const { headSha, shaRef } = options.sha
       ? resolveHeadSha(repoRoot, options.sha)
       : { headSha: undefined, shaRef: undefined };
@@ -361,7 +339,14 @@ async function handleRunAll(options: {
     const yamlFiles = fs
       .readdirSync(workflowsDir)
       .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
-    const relevantJobs: { workflowPath: string; taskName: string }[] = [];
+    // Collect relevant jobs and expand matrix strategies.
+    // Each expanded runner is a { workflowPath, taskName, matrixContext } tuple.
+    type ExpandedJob = {
+      workflowPath: string;
+      taskName: string;
+      matrixContext?: Record<string, string>;
+    };
+    const expandedJobs: ExpandedJob[] = [];
 
     for (const file of yamlFiles) {
       const workflowPath = path.join(workflowsDir, file);
@@ -371,36 +356,71 @@ async function handleRunAll(options: {
         const jobs = template.jobs.filter((j) => j.type === "job");
         for (const job of jobs) {
           const id = job.id.toString();
-          if (!options.taskName || options.taskName === id) {
-            relevantJobs.push({ workflowPath, taskName: id });
+          if (options.taskName && options.taskName !== id) {
+            continue;
+          }
+          // Expand matrix strategy (if any)
+          const matrixDef = await parseMatrixDef(workflowPath, id);
+          if (matrixDef) {
+            const combos = expandMatrixCombinations(matrixDef);
+            const total = combos.length;
+            for (let ci = 0; ci < combos.length; ci++) {
+              expandedJobs.push({
+                workflowPath,
+                taskName: id,
+                matrixContext: {
+                  ...combos[ci],
+                  __job_total: String(total),
+                  __job_index: String(ci),
+                },
+              });
+            }
+          } else {
+            expandedJobs.push({ workflowPath, taskName: id });
           }
         }
       }
     }
 
-    if (relevantJobs.length === 0) {
+    if (expandedJobs.length === 0) {
       console.log("[OA] No relevant workflows found for the current branch/triggers.");
       return;
     }
 
     const maxJobs = options.concurrency ?? getDefaultMaxConcurrentJobs();
-    console.log(
-      `[OA] Found ${relevantJobs.length} relevant task(s) to run (concurrency: ${maxJobs}).`,
-    );
+    console.log(`[OA] Found ${expandedJobs.length} runner(s) to launch (concurrency: ${maxJobs}).`);
 
     const limiter = createConcurrencyLimiter(maxJobs);
+    // Naming convention: machinen-<N>[-j<idx>][-m<shardIdx>]
+    // All jobs share the same base run number (workflowRunId = machinen-<N>).
+    const isMultiRunner = expandedJobs.length > 1;
+    const baseRunNum = getNextLogNum("machinen");
     const results = await Promise.allSettled(
-      relevantJobs.map(({ workflowPath, taskName }) =>
+      expandedJobs.map(({ workflowPath, taskName, matrixContext }, idx) =>
         limiter.run(async () => {
           console.log(
-            `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName} ---`,
+            `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""} ---`,
           );
           const secrets = loadMachineSecrets(repoRoot);
           const secretsFilePath = path.join(repoRoot, ".env.machinen");
           validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
-          const steps = await parseWorkflowSteps(workflowPath, taskName, secrets);
+          const steps = await parseWorkflowSteps(workflowPath, taskName, secrets, matrixContext);
           const services = await parseWorkflowServices(workflowPath, taskName);
           const container = await parseWorkflowContainer(workflowPath, taskName);
+
+          // Build runner name: machinen-<N>[-j<idx>][-m<shardIdx>]
+          let derivedRunnerName = options.runnerName;
+          if (!derivedRunnerName) {
+            let suffix = "";
+            if (isMultiRunner) {
+              suffix += `-j${idx + 1}`;
+            }
+            if (matrixContext) {
+              const shardIdx = parseInt(matrixContext.__job_index ?? "0", 10) + 1;
+              suffix += `-m${shardIdx}`;
+            }
+            derivedRunnerName = `machinen-${baseRunNum}${suffix}`;
+          }
 
           const job: Job = {
             deliveryId: `local-run-${Date.now()}`,
@@ -419,7 +439,7 @@ async function handleRunAll(options: {
               owner: { login: owner },
               default_branch: "main",
             },
-            runnerName: options.runnerName,
+            runnerName: derivedRunnerName,
             steps,
             services,
             container: container ?? undefined,

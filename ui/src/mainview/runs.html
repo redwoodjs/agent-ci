@@ -19,13 +19,6 @@
         <span id="workflow-label">Loading workflow...</span>
       </div>
       <div style="display: flex; align-items: center; gap: 8px">
-        <div
-          id="dtu-status"
-          class="status-badge status-Unknown"
-          style="cursor: pointer; user-select: none"
-        >
-          DTU: Checking...
-        </div>
         <button id="sse-audit-btn" class="sse-audit-btn">
           Events <span id="sse-audit-count">0</span>
         </button>
@@ -67,6 +60,14 @@
         </div>
         <div style="display: flex; gap: 8px">
           <span id="run-status" class="status-badge" style="display: none"></span>
+          <button
+            id="open-in-finder-btn"
+            class="btn"
+            style="height: 24px; padding: 0 8px; font-size: 12px"
+            title="Open log folder in Finder"
+          >
+            📂 Finder
+          </button>
           <button
             id="retry-run-btn"
             class="btn"

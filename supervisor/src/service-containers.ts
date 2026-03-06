@@ -101,7 +101,7 @@ export async function startServiceContainers(
   runnerName: string,
   emit?: (line: string) => void,
 ): Promise<ServiceContext> {
-  const networkName = `oa-net-${runnerName}`;
+  const networkName = `machinen-net-${runnerName}`;
   const containerIds: string[] = [];
   const portForwards: string[] = [];
 

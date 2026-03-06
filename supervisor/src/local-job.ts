@@ -5,7 +5,8 @@ import { execSync } from "child_process";
 import { createInterface } from "readline";
 import { config } from "./config.js";
 import { Job } from "./types.js";
-import { createLogContext, finalizeLog, getWorkingDirectory } from "./logger.js";
+import { createLogContext, finalizeLog } from "./logger.js";
+import { getWorkingDirectory } from "./working-directory.js";
 import { copyWorkspace, computeLockfileHash } from "./cleanup.js";
 import { minimatch } from "minimatch";
 import {
@@ -14,6 +15,7 @@ import {
   type ServiceContext,
 } from "./service-containers.js";
 import { killRunnerContainers } from "./shutdown.js";
+import { startEphemeralDtu } from "dtu-github-actions/src/ephemeral.js";
 
 // ─── ANSI / log-level patterns ────────────────────────────────────────────────
 
@@ -182,21 +184,26 @@ export async function executeLocalJob(job: Job): Promise<void> {
   // 3. Prepare directories (done first so containerName is available for the header)
   const {
     name: containerName,
+    runDir,
+    logDir,
     outputLogPath,
     debugLogPath,
-  } = createLogContext("oa-runner", job.runnerName);
+  } = createLogContext("machinen", job.runnerName);
 
-  // Tell the DTU which log directory to write step output into — do this as early as
-  // possible so it's ready before the runner container boots and sends feed lines.
-  const dtuUrl = config.GITHUB_API_URL;
-  const stepOutputPath = path.join(path.dirname(outputLogPath), "step-output.log");
+  // Start an ephemeral in-process DTU for this job run so each job gets its
+  // own isolated DTU instance on a random port — eliminating port conflicts.
+  const dtuCacheDir = path.resolve(getWorkingDirectory(), "cache", "dtu");
+  const ephemeralDtu = await startEphemeralDtu(dtuCacheDir).catch(() => null);
+  const dtuUrl = ephemeralDtu?.url ?? config.GITHUB_API_URL;
+
+  const stepOutputPath = path.join(logDir, "step-output.log");
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       runnerName: containerName,
-      logDir: path.dirname(outputLogPath),
-      timelineDir: path.dirname(outputLogPath), // write timeline.json alongside process-stdout.log
+      logDir,
+      timelineDir: logDir,
       // The pnpm store is bind-mounted into the container, so there's no need
       // for the runner to tar/gzip it. Tell the DTU to return a synthetic hit
       // for any cache key containing "pnpm" — skipping the 60s+ tar entirely.
@@ -208,7 +215,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
 
   // Write metadata if available (to help the UI map logs to workflows)
   if (job.workflowPath) {
-    const metadataPath = path.join(path.dirname(outputLogPath), "metadata.json");
+    const metadataPath = path.join(logDir, "metadata.json");
     // Derive repoPath from the workflow file (walk up to find .git)
     let repoPath = "";
     {
@@ -240,11 +247,9 @@ export async function executeLocalJob(job: Job): Promise<void> {
       }
     }
     if (!workflowRunId) {
-      // Derive workflowRunId (group key) by stripping the multi-job -NNN suffix
-      // (e.g. oa-runner-95-001 → oa-runner-95). The suffix is always zero-padded 3
-      // digits that follow another numeric segment, so we must NOT strip the runner
-      // number itself (e.g. oa-runner-107 must stay as-is, not become oa-runner).
-      workflowRunId = containerName.replace(/(?<=-\d+)-\d{3}$/, "");
+      // Derive workflowRunId (group key) by stripping job/matrix/retry suffixes.
+      // e.g. machinen-redwoodjssdk-14-j1-m2-r2 → machinen-redwoodjssdk-14
+      workflowRunId = containerName.replace(/(-j\d+)?(-m\d+)?(-r\d+)?$/, "");
     }
     // Build our fields; we'll merge them ON TOP of whatever the orchestrator wrote
     // so that matrixContext, warmCache, repoPath, etc. are preserved.
@@ -278,7 +283,6 @@ export async function executeLocalJob(job: Job): Promise<void> {
       "utf-8",
     );
   }
-
   // Open output stream immediately so header + footer lines are captured in the log
   const outputStream = fs.createWriteStream(outputLogPath);
   const debugStream = fs.createWriteStream(debugLogPath);
@@ -300,15 +304,17 @@ export async function executeLocalJob(job: Job): Promise<void> {
   }
   emit(`  └─ Delivery: ${job.deliveryId}\n`);
 
-  // Move workspace prep BEFORE seed to pass localPath
+  // Per-run dirs (work, shims, diag) are now co-located under the run's directory.
+  // This lets cleanup be a single `rm -rf <runDir>` removing everything for that run.
   const workDir = getWorkingDirectory();
-  const containerWorkDir = path.resolve(workDir, "work", containerName);
-  const shimsDir = path.resolve(workDir, "shims", containerName);
-  const diagDir = path.resolve(workDir, "diag", containerName);
-  const toolCacheDir = path.resolve(workDir, "toolcache");
+  const containerWorkDir = path.resolve(runDir, "work");
+  const shimsDir = path.resolve(runDir, "shims");
+  const diagDir = path.resolve(runDir, "diag");
+  // Shared caches: live under <workDir>/cache/ and are intentionally shared across all runners.
+  const toolCacheDir = path.resolve(workDir, "cache", "toolcache");
   const repoSlug = (job.githubRepo || config.GITHUB_REPO).replace("/", "-");
-  const pnpmStoreDir = path.resolve(workDir, "pnpm-store", repoSlug);
-  const playwrightCacheDir = path.resolve(workDir, "playwright-cache", repoSlug);
+  const pnpmStoreDir = path.resolve(workDir, "cache", "pnpm-store", repoSlug);
+  const playwrightCacheDir = path.resolve(workDir, "cache", "playwright", repoSlug);
   // Warm node_modules: a persistent bind-mount keyed by the pnpm lockfile hash.
   // First run: pnpm install writes into this directory through the bind-mount.
   // Subsequent runs: pnpm install finds node_modules already populated → NOP.
@@ -332,7 +338,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   } catch {
     // Best-effort; fall back to "no-lockfile"
   }
-  const warmModulesDir = path.resolve(workDir, "warm-modules", repoSlug, lockfileHash);
+  const warmModulesDir = path.resolve(workDir, "cache", "warm-modules", repoSlug, lockfileHash);
   // Place workspace files directly in containerWorkDir/<repo>/<repo>/ so the
   // runner finds them at /home/runner/_work/<repo>/<repo>/ via bind-mount.
   // This eliminates the container-side cp -r (Copy 2) entirely.
@@ -381,7 +387,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     // 1. Seed the job to Local DTU
     // Build a corrected repository object from job.githubRepo (which is resolved from the git
     // remote — e.g. "redwoodjs/sdk") so generators.ts uses the right repo name for checkout /
-    // workspace paths, rather than the webhook event repo that may point to opposite-actions.
+    // workspace paths, rather than the webhook event repo that may point to a different name.
     const [githubOwner, githubRepoName] = (job.githubRepo || "").split("/");
     const overriddenRepository = job.githubRepo
       ? {
@@ -502,6 +508,14 @@ fi
 # But we must create refs/remotes/origin/main so checkout's post-fetch validation passes.
 if [[ "$*" == *"fetch"* ]]; then
   echo "[OA Shim] Intercepted 'fetch' - workspace is pre-populated."
+  # If this is a fresh git init (no commits), create a seed commit
+  # so HEAD is valid and we can create branches from it.
+  if ! /usr/bin/git.real rev-parse HEAD >/dev/null 2>&1; then
+    /usr/bin/git.real config user.name "oa" 2>/dev/null
+    /usr/bin/git.real config user.email "oa@example.com" 2>/dev/null
+    /usr/bin/git.real add -A 2>/dev/null
+    /usr/bin/git.real commit --allow-empty -m "workspace" 2>/dev/null
+  fi
   /usr/bin/git.real update-ref refs/remotes/origin/main HEAD 2>/dev/null || true
   exit 0
 fi
@@ -544,7 +558,8 @@ exit $EXIT_CODE
     );
 
     // 6. Spawn container
-    const dtuPort = new URL(config.GITHUB_API_URL).port || "80";
+    // Use the ephemeral DTU URL (random port) instead of the global config port.
+    const dtuPort = new URL(dtuUrl).port || "80";
     // When running inside a Docker container (CI), nested containers can't reach the host via
     // `host.docker.internal` — that points to the Mac/host, not the CI container. We need the
     // CI container's own bridge IP so nested containers can reach the DTU running inside it.
@@ -563,10 +578,7 @@ exit $EXIT_CODE
         dtuHost = "172.17.0.1"; // fallback to bridge gateway
       }
     }
-    const dockerApiUrl = config.GITHUB_API_URL.replace("localhost", dtuHost).replace(
-      "127.0.0.1",
-      dtuHost,
-    );
+    const dockerApiUrl = dtuUrl.replace("localhost", dtuHost).replace("127.0.0.1", dtuHost);
     const repoUrl = `${dockerApiUrl}/${job.githubRepo || config.GITHUB_REPO}`;
 
     if (debug) {
@@ -600,13 +612,13 @@ exit $EXIT_CODE
     //
     // NOTE: The runner is a self-contained .NET app that requires glibc.
     // musl-based images (Alpine) are NOT supported. See issue #15.
-    const hostWorkDir = path.resolve(getWorkingDirectory(), "work", containerName);
+    const hostWorkDir = containerWorkDir;
     const hostToolcacheDir = path.resolve(getWorkingDirectory(), "toolcache");
     // Shared seed directory — extracted once and reused across all containers.
     const hostRunnerSeedDir = path.resolve(getWorkingDirectory(), "runner");
     // Per-container copy — each container gets its own writable copy so concurrent
     // config.sh / run.sh invocations don't race on .runner / .credentials files.
-    const hostRunnerDir = path.resolve(getWorkingDirectory(), `runner-${containerName}`);
+    const hostRunnerDir = path.resolve(runDir, "runner");
     const useDirectContainer = !!job.container;
     const containerImage = useDirectContainer ? job.container!.image : IMAGE;
 
@@ -718,7 +730,7 @@ const srv=net.createServer(c=>{
   s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
 });
 srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
-" & PROXY_PID=$! && for i in $(seq 1 100); do nc -z 127.0.0.1 80 2>/dev/null && break; sleep 0.1; done && echo "[OA] DTU proxy ready in $(($(date +%s%3N) - PROXY_T0))ms" && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
+" & PROXY_PID=$! && for i in $(seq 1 100); do nc -z 127.0.0.1 80 2>/dev/null && break; sleep 0.1; done && echo "[OA] DTU proxy ready in $(($(date +%s%3N) - PROXY_T0))ms" && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels machinen || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && mkdir -p $WORKSPACE_PATH && ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
       ],
       HostConfig: {
         Binds: [
@@ -731,10 +743,10 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
           `${hostToolcacheDir}:/opt/hostedtoolcache`,
           `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
           `${playwrightCacheDir}:/home/runner/.cache/ms-playwright`,
-          // Warm node_modules: pre-populated on first run, served from host on subsequent runs.
-          // pnpm install inside the container writes here directly; subsequent runs find
-          // node_modules already in place and exit immediately.
-          `${warmModulesDir}:/home/runner/_work/${repoName}/${repoName}/node_modules`,
+          // Warm node_modules: mounted outside the workspace so actions/checkout can
+          // delete the symlink without EBUSY. A symlink in the entrypoint points
+          // workspace/node_modules → /tmp/warm-modules.
+          `${warmModulesDir}:/tmp/warm-modules`,
         ],
         AutoRemove: false,
         Ulimits: [{ Name: "nofile", Soft: 65536, Hard: 65536 }],
@@ -762,12 +774,12 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     const tailPromise = (async () => {
       let offset = 0;
       let partial = "";
-      // Wait for file to exist (DTU creates it on start-runner)
-      while (!fs.existsSync(stepOutputPath) && !tailDone) {
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      while (!tailDone) {
+
+      const readPending = () => {
         try {
+          if (!fs.existsSync(stepOutputPath)) {
+            return;
+          }
           const stat = fs.statSync(stepOutputPath);
           if (stat.size > offset) {
             const fd = fs.openSync(stepOutputPath, "r");
@@ -783,15 +795,31 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
             }
           }
         } catch {
-          /* file may not exist yet */
+          /* ignore */
         }
+      };
+
+      // Wait for file to exist (DTU creates it on start-runner)
+      while (!fs.existsSync(stepOutputPath) && !tailDone) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      while (!tailDone) {
+        readPending();
         await new Promise((r) => setTimeout(r, 100));
       }
+      // Final read to catch any logs written exactly as the container exits
+      readPending();
+
       // Flush any remaining partial line
       if (partial.trim()) {
         emit(partial);
       }
     })();
+
+    // Start waiting for container exit in parallel with log streaming.
+    // With Tty:true the Docker log stream doesn't emit 'close' until the container
+    // exits, so we race the two: whichever happens first unblocks the other.
+    const containerWaitPromise = container.wait();
 
     await new Promise<void>((resolve) => {
       const rl = createInterface({ input: rawStream, crlfDelay: Infinity });
@@ -809,18 +837,25 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
       rl.on("close", () => {
         resolve();
       });
+
+      // When the container exits, destroy the raw stream so readline closes promptly.
+      containerWaitPromise
+        .then(() => {
+          (rawStream as any).destroy?.();
+        })
+        .catch(() => {});
     });
 
     // Stop tail now that container has finished
     tailDone = true;
     await tailPromise;
 
-    // 8. Wait for completion (with timeout to handle runner hang in --once mode)
+    // 8. Wait for completion (already started above; just collect the result)
     const CONTAINER_EXIT_TIMEOUT_MS = 30_000;
     let waitResult: { StatusCode: number };
     try {
       waitResult = await Promise.race([
-        container.wait(),
+        containerWaitPromise,
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("Container exit timeout")), CONTAINER_EXIT_TIMEOUT_MS),
         ),
@@ -888,9 +923,14 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
       fs.rmSync(containerWorkDir, { recursive: true, force: true });
     }
 
-    // Propagate failure so the orchestrator (which checks our exit code) sees it
+    await ephemeralDtu?.close().catch(() => {});
+
+    // Propagate failure so callers (orchestrator, handleRunAll) can detect it.
+    // Throw instead of process.exit() so concurrent jobs aren't killed.
     if (!jobSucceeded) {
-      process.exit(1);
+      throw new Error(
+        `Job failed: ${containerName} (${loggedResult || `exit ${containerExitCode}`})`,
+      );
     }
   } finally {
     // Always deregister signal handlers, even if an error was thrown before the

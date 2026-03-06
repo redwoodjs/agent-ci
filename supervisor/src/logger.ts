@@ -1,41 +1,43 @@
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
+import { getWorkingDirectory } from "./working-directory.js";
 
-// Pinned to the monorepo root (project root), not the supervisor package
-export const PROJECT_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
-
-let workingDirectory = path.join(PROJECT_ROOT, "_");
-
-export function setWorkingDirectory(dir: string): void {
-  workingDirectory = dir;
+/** Root of all run directories: `<workingDir>/runs/` */
+export function getRunsDir(): string {
+  return path.join(getWorkingDirectory(), "runs");
 }
 
-export function getWorkingDirectory(): string {
-  return workingDirectory;
-}
-
+/**
+ * @deprecated use getRunsDir() + runnerName for the per-run log directory.
+ * Kept for the supervisor.log placement only.
+ */
 export function getLogsDir(): string {
-  return path.join(workingDirectory, "logs");
+  return path.join(getWorkingDirectory(), "logs");
 }
 
 export function ensureLogDirs(): void {
-  fs.mkdirSync(getLogsDir(), { recursive: true });
+  fs.mkdirSync(getRunsDir(), { recursive: true });
 }
 
 export function getNextLogNum(prefix: string): number {
-  const logsDir = getLogsDir();
-  if (!fs.existsSync(logsDir)) {
+  const runsDir = getRunsDir();
+  if (!fs.existsSync(runsDir)) {
     return 1;
   }
 
-  const items = fs.readdirSync(logsDir, { withFileTypes: true });
+  const items = fs.readdirSync(runsDir, { withFileTypes: true });
   const nums = items
     .filter((item) => item.isDirectory() && item.name.startsWith(`${prefix}-`))
     .map((item) => {
-      // Strip any trailing -NNN job-suffix (e.g. oa-runner-50-001 → oa-runner-50)
-      // before extracting the base run number so multi-job names don't skew the counter.
-      const baseName = item.name.replace(/-\d{3}$/, "");
+      // Extract the trailing numeric run counter from a name like:
+      //   machinen-redwoodjssdk-14        → 14
+      //   machinen-redwoodjssdk-15-j1     → 15
+      //   machinen-redwoodjssdk-15-j1-m2  → 15
+      // Strategy: strip any -j<N>, -m<N>, -r<N> suffixes first, then grab the last number.
+      const baseName = item.name
+        .replace(/-j\d+(-m\d+)?(-r\d+)?$/, "")
+        .replace(/-m\d+(-r\d+)?$/, "")
+        .replace(/-r\d+$/, "");
       const match = baseName.match(/-(\d+)$/);
       return match ? parseInt(match[1], 10) : 0;
     });
@@ -54,12 +56,14 @@ export function createLogContext(prefix: string, preferredName?: string) {
     name = `${prefix}-${num}`;
   }
 
-  const logDir = path.join(getLogsDir(), name);
+  const runDir = path.join(getRunsDir(), name);
+  const logDir = path.join(runDir, "logs");
   fs.mkdirSync(logDir, { recursive: true });
 
   return {
     num,
     name,
+    runDir,
     logDir,
     outputLogPath: path.join(logDir, "output.log"),
     debugLogPath: path.join(logDir, "debug.log"),

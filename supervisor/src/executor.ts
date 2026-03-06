@@ -34,7 +34,7 @@ export async function startGitHubRunner(): Promise<void> {
       "[GitHubRunner] Official runner (run.sh) not found in standard locations. Skipping official runner start.",
     );
     console.log(
-      "[GitHubRunner] Tip: Install the official runner in the project root with the label 'opposite-actions'.",
+      "[GitHubRunner] Tip: Install the official runner in the project root with the label 'machinen'.",
     );
     return;
   }
@@ -67,7 +67,7 @@ export async function startGitHubRunner(): Promise<void> {
       const configScript = path.join(runnerPath, "config.sh");
 
       execSync(
-        `${configScript} --url ${expectedRepoUrl} --token ${registrationToken} --name local-runner --replace --unattended --labels opposite-actions`,
+        `${configScript} --url ${expectedRepoUrl} --token ${registrationToken} --name local-runner --replace --unattended --labels machinen`,
         {
           cwd: runnerPath,
           stdio: "inherit",

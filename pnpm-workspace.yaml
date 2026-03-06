@@ -1,5 +1,4 @@
 packages:
-  - "bridge"
   - "supervisor"
   - "dtu-github-actions"
   - "ui"

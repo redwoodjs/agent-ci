@@ -1,112 +1,11 @@
 import { Job } from "./types.js";
 import { config } from "./config.js";
 import Docker from "dockerode";
-import { spawn, execSync } from "child_process";
-import path from "path";
 import fs from "fs";
-import { fetchRegistrationToken } from "./bridge.js";
 import { createLogContext, finalizeLog } from "./logger.js";
 
 const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 const IMAGE = "ghcr.io/catthehacker/ubuntu:act-latest";
-
-function findRunnerPath(): string | null {
-  const searchPaths = [
-    path.join(process.cwd(), "actions-runner"), // actions-runner subfolder
-    path.join(process.cwd(), "..", "actions-runner"), // actions-runner in project root
-  ];
-
-  for (const searchPath of searchPaths) {
-    const runScript = path.join(searchPath, "run.sh");
-    if (fs.existsSync(runScript)) {
-      return searchPath;
-    }
-  }
-
-  return null;
-}
-
-export async function startGitHubRunner(): Promise<void> {
-  const runnerPath = findRunnerPath();
-
-  if (!runnerPath) {
-    console.log(
-      "[GitHubRunner] Official runner (run.sh) not found in standard locations. Skipping official runner start.",
-    );
-    console.log(
-      "[GitHubRunner] Tip: Install the official runner in the project root with the label 'machinen'.",
-    );
-    return;
-  }
-
-  // 1. Check/Update Configuration
-  const runnerConfigFile = path.join(runnerPath, ".runner");
-  const expectedRepoUrl = `${config.GITHUB_API_URL}/${config.GITHUB_REPO}`;
-  let needsConfig = true;
-
-  if (fs.existsSync(runnerConfigFile)) {
-    try {
-      const currentConfig = JSON.parse(fs.readFileSync(runnerConfigFile, "utf-8"));
-      if (currentConfig.gitHubUrl === expectedRepoUrl) {
-        needsConfig = false;
-        console.log(`[GitHubRunner] Existing configuration matches ${expectedRepoUrl}.`);
-      } else {
-        console.log(
-          `[GitHubRunner] Configuration mismatch. Current: ${currentConfig.gitHubUrl}, Expected: ${expectedRepoUrl}`,
-        );
-      }
-    } catch {
-      console.warn("[GitHubRunner] Failed to read .runner config. Re-configuring...");
-    }
-  }
-
-  if (needsConfig) {
-    console.log(`[GitHubRunner] Configuring runner for: ${expectedRepoUrl}...`);
-    try {
-      const registrationToken = await fetchRegistrationToken();
-      const configScript = path.join(runnerPath, "config.sh");
-
-      execSync(
-        `${configScript} --url ${expectedRepoUrl} --token ${registrationToken} --name local-runner --replace --unattended --labels machinen`,
-        {
-          cwd: runnerPath,
-          stdio: "inherit",
-          env: {
-            ...process.env,
-            GITHUB_API_URL: config.GITHUB_API_URL,
-            GITHUB_SERVER_URL: `${config.GITHUB_API_URL}/${config.GITHUB_REPO}`,
-          },
-        },
-      );
-      console.log("[GitHubRunner] Configuration successful.");
-    } catch (error: any) {
-      console.error("[GitHubRunner] Configuration failed:", error.message);
-      // We'll try to start anyway, but it will likely fail if config is missing.
-    }
-  }
-
-  // 2. Start Runner
-  const runScript = path.join(runnerPath, "run.sh");
-  console.log(`[GitHubRunner] Starting official runner from: ${runScript}`);
-
-  const runnerProcess = spawn(runScript, [], {
-    cwd: runnerPath,
-    stdio: "inherit",
-    env: {
-      ...process.env,
-      GITHUB_API_URL: config.GITHUB_API_URL,
-      GITHUB_SERVER_URL: `${config.GITHUB_API_URL}/${config.GITHUB_REPO}`,
-    },
-  });
-
-  runnerProcess.on("close", (code) => {
-    console.log(`[GitHubRunner] Process exited with code ${code}`);
-  });
-
-  runnerProcess.on("error", (err) => {
-    console.error(`[GitHubRunner] Failed to start process:`, err);
-  });
-}
 
 export async function ensureImageExists(): Promise<void> {
   console.log(`[Executor] Ensuring image ${IMAGE} exists...`);

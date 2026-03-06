@@ -21,7 +21,7 @@ Previously, `oa run` only operated on the current `HEAD`. To test historical com
   - Modified `runner/src/cli.ts` to capture `process.argv[3]`.
   - Added validation using `git rev-parse --verify <sha>` to ensure the provided string is a valid git object.
   - Updated the Bridge API payload to include the validated `headSha`.
-  - Injected `OA_HEAD_SHA` into the Docker container environment in `WarmPool.ts`.
+  - Injected `MACHINEN_HEAD_SHA` into the Docker container environment in `WarmPool.ts`.
   - **Verification:** Tested with:
     - `pnpm oa run` (defaults to HEAD).
     - `pnpm oa run <valid-sha>` (uses SHA).
@@ -30,7 +30,7 @@ Previously, `oa run` only operated on the current `HEAD`. To test historical com
 ## Discovery & Key Findings
 
 - Pre-validating the SHA in the CLI provides immediate feedback to the developer before any network requests or container spawning occurs.
-- Injected environment variables (`OA_HEAD_SHA`) allow the runner to report status accurately even when the container's internal git state might be shimmed or modified.
+- Injected environment variables (`MACHINEN_HEAD_SHA`) allow the runner to report status accurately even when the container's internal git state might be shimmed or modified.
 
 ## Resolution
 

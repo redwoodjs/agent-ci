@@ -181,11 +181,11 @@ async function buildTrayMenu() {
 }
 
 async function startBackgroundProcesses() {
-  const spawnArgs = ["pnpm", "--filter", "supervisor", "run", "oa", "server"];
+  const spawnArgs = ["pnpm", "--filter", "supervisor", "run", "machinen", "server"];
 
   const supervisorProc = Bun.spawn(spawnArgs, {
     cwd: getWorkspaceRoot(),
-    env: { ...process.env, OA_WORKSPACE_DIR: getWorkspaceRoot() },
+    env: { ...process.env, MACHINEN_WORKSPACE_DIR: getWorkspaceRoot() },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -613,7 +613,7 @@ startBackgroundProcesses();
 
 const trayIconPath = path.join(import.meta.dirname, "../assets/tray-idle.png");
 const tray = new Tray({
-  title: "OA",
+  title: "Machinen",
   image: trayIconPath,
   template: false,
 });
@@ -651,7 +651,7 @@ tray.on("tray-clicked", async (e: any) => {
 });
 
 const mainWindow = new BrowserWindow({
-  title: "OA Desktop",
+  title: "Machinen",
   url: "views://commits/index.html",
   rpc,
   frame: {

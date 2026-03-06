@@ -34,5 +34,5 @@ else
     PASSTHROUGH_ARGS=("--all")
   fi
   cd "$REPO_ROOT/supervisor"
-  exec pnpm run oa run "${PASSTHROUGH_ARGS[@]}"
+  exec pnpm run machinen run "${PASSTHROUGH_ARGS[@]}"
 fi

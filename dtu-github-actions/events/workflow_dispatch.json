@@ -5,14 +5,14 @@
   },
   "repository": {
     "id": 123456789,
-    "name": "oa-1",
-    "full_name": "redwoodjs/oa-1",
+    "name": "machinen",
+    "full_name": "redwoodjs/machinen",
     "private": false,
     "owner": {
       "login": "peterp",
       "id": 123456
     },
-    "html_url": "https://github.com/redwoodjs/oa-1"
+    "html_url": "https://github.com/redwoodjs/machinen"
   },
   "sender": {
     "login": "peterp",

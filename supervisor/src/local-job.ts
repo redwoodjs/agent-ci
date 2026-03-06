@@ -227,7 +227,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     }
     // If the orchestrator (or retryRun) already wrote a metadata.json with the
     // correct workflowRunId, honour it. This is critical for retries of multi-job
-    // runs (e.g. oa-runner-125-001-001) where a naive regex would strip only a
+    // runs (e.g. machinen-runner-125-001-001) where a naive regex would strip only a
     // single suffix and produce the wrong group key.
     let workflowRunId: string | undefined;
     let attempt: number | undefined;
@@ -422,7 +422,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     try {
       // Resolve repo root — needed for both archive and rsync paths.
       // Derive from the workflow path (which lives inside the target repo) so we copy
-      // from the correct repo, not from the supervisor's CWD (which is oa-1).
+      // from the correct repo, not from the supervisor's CWD (which is machinen).
       let repoRoot: string | undefined;
       if (job.workflowPath) {
         let dir = path.dirname(job.workflowPath);
@@ -454,8 +454,8 @@ export async function executeLocalJob(job: Job): Promise<void> {
       // The remote URL must exactly match what actions/checkout computes via URL.origin.
       // Node.js URL.origin strips the default port (80), so we must NOT include :80.
       execSync(`git init`, { cwd: workspaceDir });
-      execSync(`git config user.name "oa"`, { cwd: workspaceDir });
-      execSync(`git config user.email "oa@example.com"`, { cwd: workspaceDir });
+      execSync(`git config user.name "machinen"`, { cwd: workspaceDir });
+      execSync(`git config user.email "machinen@example.com"`, { cwd: workspaceDir });
       execSync(`git remote add origin http://127.0.0.1/${job.githubRepo || config.GITHUB_REPO}`, {
         cwd: workspaceDir,
       });
@@ -474,7 +474,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
     // 5. Git shim
     // The SHA returned by ls-remote must match github.sha in the job definition
     // so actions/checkout's SHA validation passes. Use the same SHA that the DTU
-    // will use in the job definition (OA_HEAD_SHA env var or the deterministic fake).
+    // will use in the job definition (MACHINEN_HEAD_SHA env var or the deterministic fake).
     const fakeSha =
       job.headSha && job.headSha !== "HEAD"
         ? job.headSha
@@ -486,7 +486,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
       `#!/bin/bash
 
 # Log every call for debugging
-echo "git $*" >> /home/runner/_diag/oa-git-calls.log
+echo "git $*" >> /home/runner/_diag/machinen-git-calls.log
 
 # actions/checkout probes the remote URL via config.
 # It computes the expected URL using URL.origin, which strips the default port 80.
@@ -507,12 +507,12 @@ fi
 # Intercept fetch - we don't have a real git server, so fetch is a no-op.
 # But we must create refs/remotes/origin/main so checkout's post-fetch validation passes.
 if [[ "$*" == *"fetch"* ]]; then
-  echo "[OA Shim] Intercepted 'fetch' - workspace is pre-populated."
+  echo "[Machinen Shim] Intercepted 'fetch' - workspace is pre-populated."
   # If this is a fresh git init (no commits), create a seed commit
   # so HEAD is valid and we can create branches from it.
   if ! /usr/bin/git.real rev-parse HEAD >/dev/null 2>&1; then
-    /usr/bin/git.real config user.name "oa" 2>/dev/null
-    /usr/bin/git.real config user.email "oa@example.com" 2>/dev/null
+    /usr/bin/git.real config user.name "machinen" 2>/dev/null
+    /usr/bin/git.real config user.email "machinen@example.com" 2>/dev/null
     /usr/bin/git.real add -A 2>/dev/null
     /usr/bin/git.real commit --allow-empty -m "workspace" 2>/dev/null
   fi
@@ -524,14 +524,14 @@ fi
 # Note: actions/checkout deletes the local 'main' branch before fetching, so we cannot
 # checkout the local branch - instead we recreate it from the current HEAD commit.
 if [[ "$*" == *"checkout"* && "$*" == *"refs/remotes/origin/"* ]]; then
-  echo "[OA Shim] Redirecting remote checkout - recreating main from HEAD."
+  echo "[Machinen Shim] Redirecting remote checkout - recreating main from HEAD."
   /usr/bin/git.real checkout -B main HEAD
   exit $?
 fi
 
 # Intercept clean and rm which can destroy workspace files
 if [[ "$1" == "clean" || "$1" == "rm" ]]; then
-  echo "[OA Shim] Intercepted '$1' to protect local files."
+  echo "[Machinen Shim] Intercepted '$1' to protect local files."
   exit 0
 fi
 
@@ -548,10 +548,10 @@ if [[ "$1" == "rev-parse" ]]; then
 fi
 
 # Pass through all other git commands (checkout, reset, log, init, config, etc.)
-echo "git $@ (pass-through)" >> /home/runner/_diag/oa-git-calls.log
+echo "git $@ (pass-through)" >> /home/runner/_diag/machinen-git-calls.log
 /usr/bin/git.real "$@"
 EXIT_CODE=$?
-echo "git $@ exited with $EXIT_CODE" >> /home/runner/_diag/oa-git-calls.log
+echo "git $@ exited with $EXIT_CODE" >> /home/runner/_diag/machinen-git-calls.log
 exit $EXIT_CODE
 `,
       { mode: 0o755 },
@@ -632,7 +632,7 @@ exit $EXIT_CODE
         await fs.promises.access(markerFile);
       } catch {
         emit("  Extracting runner binary to host (one-time)...");
-        const tmpName = `oa-seed-runner-${Date.now()}`;
+        const tmpName = `machinen-seed-runner-${Date.now()}`;
         const seedContainer = await docker.createContainer({
           Image: IMAGE,
           name: tmpName,
@@ -704,9 +704,9 @@ exit $EXIT_CODE
         `GITHUB_API_URL=${dockerApiUrl}`,
         `GITHUB_SERVER_URL=${repoUrl}`,
         `GITHUB_REPOSITORY=${job.githubRepo || config.GITHUB_REPO}`,
-        `OA_LOCAL_SYNC=true`,
-        `OA_HEAD_SHA=${job.headSha || "HEAD"}`,
-        `OA_DTU_HOST=${dtuHost}`,
+        `MACHINEN_LOCAL_SYNC=true`,
+        `MACHINEN_HEAD_SHA=${job.headSha || "HEAD"}`,
+        `MACHINEN_DTU_HOST=${dtuHost}`,
         `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
         `ACTIONS_RESULTS_URL=${dockerApiUrl}/`,
         `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
@@ -723,14 +723,14 @@ exit $EXIT_CODE
       Cmd: [
         ...(useDirectContainer ? ["-c"] : ["bash", "-c"]),
         // MAYBE_SUDO: use sudo if available, otherwise run directly (custom containers may not have sudo)
-        `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }; MAYBE_SUDO chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp /tmp/oa-shims/git /usr/bin/git 2>/dev/null; fi && ${svcPortForwardSnippet}echo "[OA] Starting DTU proxy (port 80 -> ${dtuPort})..." && PROXY_T0=$(date +%s%3N) && node -e "
+        `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }; MAYBE_SUDO chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp /tmp/machinen-shims/git /usr/bin/git 2>/dev/null; fi && ${svcPortForwardSnippet}echo "[Machinen] Starting DTU proxy (port 80 -> ${dtuPort})..." && PROXY_T0=$(date +%s%3N) && node -e "
 const net=require('net');
 const srv=net.createServer(c=>{
-  const s=net.connect(${dtuPort},'$OA_DTU_HOST',()=>{c.pipe(s);s.pipe(c)});
+  const s=net.connect(${dtuPort},'$MACHINEN_DTU_HOST',()=>{c.pipe(s);s.pipe(c)});
   s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
 });
 srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
-" & PROXY_PID=$! && for i in $(seq 1 100); do nc -z 127.0.0.1 80 2>/dev/null && break; sleep 0.1; done && echo "[OA] DTU proxy ready in $(($(date +%s%3N) - PROXY_T0))ms" && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels machinen || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && mkdir -p $WORKSPACE_PATH && ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
+" & PROXY_PID=$! && for i in $(seq 1 100); do nc -z 127.0.0.1 80 2>/dev/null && break; sleep 0.1; done && echo "[Machinen] DTU proxy ready in $(($(date +%s%3N) - PROXY_T0))ms" && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels machinen || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && mkdir -p $WORKSPACE_PATH && ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
       ],
       HostConfig: {
         Binds: [
@@ -738,7 +738,7 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
           ...(useDirectContainer ? [`${hostRunnerDir}:/home/runner`] : []),
           `${hostWorkDir}:/home/runner/_work`,
           "/var/run/docker.sock:/var/run/docker.sock",
-          `${shimsDir}:/tmp/oa-shims`,
+          `${shimsDir}:/tmp/machinen-shims`,
           `${diagDir}:/home/runner/_diag`,
           `${hostToolcacheDir}:/opt/hostedtoolcache`,
           `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,

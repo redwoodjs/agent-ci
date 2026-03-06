@@ -1,10 +1,10 @@
 # Production Release Guide
 
-This document explains how to deploy **Opposite-Actions** into production, from creating the GitHub App to running the local agent.
+This document explains how to deploy **Machinen** into production, from creating the GitHub App to running the local agent.
 
 ## 1. Overview & Prerequisites
 
-**Opposite-Actions** uses a three-tier architecture:
+**Machinen** uses a three-tier architecture:
 
 1.  **GitHub App**: Triggers jobs via webhooks.
 2.  **Cloudflare Bridge**: Orchestrates jobs and tracks runner presence.
@@ -24,7 +24,7 @@ This document explains how to deploy **Opposite-Actions** into production, from 
 The GitHub App is responsible for sending `workflow_job` events to the Bridge.
 
 1.  Go to **GitHub Settings > Developer Settings > GitHub Apps > New GitHub App**.
-2.  **Name**: `Opposite-Actions-Runner` (or similar).
+2.  **Name**: `Machinen-Runner` (or similar).
 3.  **Homepage URL**: Your project URL.
 4.  **Webhook**:
     - **URL**: `https://[YOUR_BRIDGE_ADDRESS]/api/webhook`
@@ -53,7 +53,7 @@ The Bridge runs on Cloudflare Workers and uses KV for job storage.
 
 ### 1. Set Secrets using 1Password
 
-Before deploying, create an item in your **1Password** vault (e.g., in the `RedwoodJS` vault) named `OppositeActions` with the following fields:
+Before deploying, create an item in your **1Password** vault (e.g., in the `RedwoodJS` vault) named `Machinen` with the following fields:
 
 - `GITHUB_WEBHOOK_SECRET`: The GitHub Webhook secret.
 - `GITHUB_APP_ID`: The GitHub App ID.
@@ -63,13 +63,13 @@ You can then pipe these secrets directly into Wrangler using the 1Password CLI (
 
 ```bash
 # Push Webhook Secret
-op read "op://RedwoodJS/OppositeActions/GITHUB_WEBHOOK_SECRET" | npx wrangler secret put GITHUB_WEBHOOK_SECRET
+op read "op://RedwoodJS/Machinen/GITHUB_WEBHOOK_SECRET" | npx wrangler secret put GITHUB_WEBHOOK_SECRET
 
 # Push App ID
-op read "op://RedwoodJS/OppositeActions/GITHUB_APP_ID" | npx wrangler secret put GITHUB_APP_ID
+op read "op://RedwoodJS/Machinen/GITHUB_APP_ID" | npx wrangler secret put GITHUB_APP_ID
 
 # Push Private Key
-op read "op://RedwoodJS/OppositeActions/GITHUB_PRIVATE_KEY" | npx wrangler secret put GITHUB_PRIVATE_KEY
+op read "op://RedwoodJS/Machinen/GITHUB_PRIVATE_KEY" | npx wrangler secret put GITHUB_PRIVATE_KEY
 ```
 
 ### 4. Deploy
@@ -82,14 +82,14 @@ pnpm --filter bridge release
 
 ## 4. Local Runner Setup
 
-The Runner stays on your machine and communicates with the Bridge. It also manages the official GitHub Actions runner process for `opposite-actions` jobs.
+The Runner stays on your machine and communicates with the Bridge. It also manages the official GitHub Actions runner process for `machinen` jobs.
 
 ### 1. Official GitHub Runner Setup
 
-Before starting the OA-1 Runner, you must have an official GitHub Actions self-hosted runner configured on your machine.
+Before starting the Machinen Runner, you must have an official GitHub Actions self-hosted runner configured on your machine.
 
 1.  Follow the [official GitHub documentation](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners/adding-self-hosted-runners) to download and configure a runner for your repository or organization.
-2.  **Do not** start it manually; the OA-1 Runner will handle this for you.
+2.  **Do not** start it manually; the Machinen Runner will handle this for you.
 3.  Take note of the directory where you installed the runner.
 
 ### 2. Configure `.env`
@@ -97,12 +97,12 @@ Before starting the OA-1 Runner, you must have an official GitHub Actions self-h
 Create a `.env` file in the root directory (the Runner will use this via symlink):
 
 ```bash
-BRIDGE_URL=https://oa-1.[your-subdomain].workers.dev
+BRIDGE_URL=https://machinen.[your-subdomain].workers.dev
 BRIDGE_API_KEY=your-api-key
 GITHUB_USERNAME=your-github-handle
 ```
 
-**Note**: The OA-1 Runner will automatically search for the official runner's `./run.sh` in the current directory and the project root.
+**Note**: The Machinen Runner will automatically search for the official runner's `./run.sh` in the current directory and the project root.
 
 ### 3. Start the Runner
 

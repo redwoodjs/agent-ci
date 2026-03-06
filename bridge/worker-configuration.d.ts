@@ -5,8 +5,8 @@ declare namespace Cloudflare {
     mainModule: typeof import("./src/worker");
   }
   interface Env {
-    OA1_BRIDGE_JOBS: KVNamespace;
-    OA1_BRIDGE_PRESENCE: KVNamespace;
+    MACHINEN_BRIDGE_JOBS: KVNamespace;
+    MACHINEN_BRIDGE_PRESENCE: KVNamespace;
     ASSETS: Fetcher;
   }
 }

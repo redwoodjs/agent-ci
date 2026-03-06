@@ -323,7 +323,7 @@ Every scenario must pass the black-box test: "Could a QA engineer verify this us
 
 ### Claude Code slugification
 
-Claude Code computes the slug directory by replacing both `/` and `_` with `-` in the absolute cwd path. For example, `/Users/justin/rw/worktrees/opposite-actions_specs` becomes `-Users-justin-rw-worktrees-opposite-actions-specs`. This was discovered empirically — the original assumption was that only `/` was replaced, which caused discovery to miss conversations for cwds containing underscores.
+Claude Code computes the slug directory by replacing both `/` and `_` with `-` in the absolute cwd path. For example, `/Users/justin/rw/worktrees/machinen_specs` becomes `-Users-justin-rw-worktrees-machinen-specs`. This was discovered empirically — the original assumption was that only `/` was replaced, which caused discovery to miss conversations for cwds containing underscores.
 
 ### awaitWriteFinish prevents partial reads
 

@@ -17,14 +17,14 @@ export async function api<T = any>(path: string, options?: RequestInit): Promise
   try {
     res = await fetch(url, options);
   } catch (err) {
-    const msg = `[OA] Network error: ${method} ${path}`;
+    const msg = `[Machinen] Network error: ${method} ${path}`;
     console.error(msg, err);
     throw new Error(msg);
   }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    const msg = `[OA] API error: ${method} ${path} → ${res.status} ${res.statusText}${body ? ` — ${body}` : ""}`;
+    const msg = `[Machinen] API error: ${method} ${path} → ${res.status} ${res.statusText}${body ? ` — ${body}` : ""}`;
     console.error(msg);
     throw new Error(msg);
   }

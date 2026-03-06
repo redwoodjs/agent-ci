@@ -56,7 +56,7 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
   }
 
   // 3. Deduplication check
-  const existing = await env.OA1_BRIDGE_JOBS.get(`webhook@${deliveryId}`);
+  const existing = await env.MACHINEN_BRIDGE_JOBS.get(`webhook@${deliveryId}`);
   if (existing) {
     return new Response("Webhook already processed", { status: 200 });
   }
@@ -78,34 +78,34 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
     status: "queued",
   };
 
-  await env.OA1_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(webhookData));
+  await env.MACHINEN_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(webhookData));
 
   // 3b. Update recent list
-  const recentWebhooksJson = await env.OA1_BRIDGE_JOBS.get("webhooks:recent");
+  const recentWebhooksJson = await env.MACHINEN_BRIDGE_JOBS.get("webhooks:recent");
   const recentIds: string[] = recentWebhooksJson ? JSON.parse(recentWebhooksJson) : [];
   if (!recentIds.includes(deliveryId)) {
     recentIds.unshift(deliveryId);
-    await env.OA1_BRIDGE_JOBS.put("webhooks:recent", JSON.stringify(recentIds.slice(0, 50)));
+    await env.MACHINEN_BRIDGE_JOBS.put("webhooks:recent", JSON.stringify(recentIds.slice(0, 50)));
   }
 
   // Store mapping for GitHub API mock
   const jobId = payload.workflow_job?.id;
   if (jobId) {
-    await env.OA1_BRIDGE_JOBS.put(`jobid@${jobId}`, deliveryId);
+    await env.MACHINEN_BRIDGE_JOBS.put(`jobid@${jobId}`, deliveryId);
   }
 
   // 5. Identify User & Check Presence
-  const presence = await env.OA1_BRIDGE_PRESENCE.get(`presence@${username}`);
+  const presence = await env.MACHINEN_BRIDGE_PRESENCE.get(`presence@${username}`);
 
   if (!presence) {
     console.log(`User ${username} is OFFLINE. Triggering cloud fallback.`);
     webhookData.status = "fallback";
-    await env.OA1_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(webhookData));
+    await env.MACHINEN_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(webhookData));
     return new Response("User offline, fallback triggered", { status: 200 });
   }
 
   // 6. Queue Job for Runner (GitHub metadata)
-  const jobsJson = await env.OA1_BRIDGE_JOBS.get(`queued_jobs@${username}`);
+  const jobsJson = await env.MACHINEN_BRIDGE_JOBS.get(`queued_jobs@${username}`);
   const jobs = jobsJson ? JSON.parse(jobsJson) : [];
 
   const installationId = payload.installation?.id;
@@ -120,7 +120,7 @@ async function handleWebhook({ request }: { request: Request }): Promise<Respons
     installationId, // Store the installationId instead of GITHUB_TOKEN
   });
 
-  await env.OA1_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify(jobs));
+  await env.MACHINEN_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify(jobs));
 
   return new Response("Job queued locally", { status: 200 });
 }
@@ -134,7 +134,7 @@ async function handleJobs({ request }: { request: Request }): Promise<Response> 
   }
 
   // Update presence
-  await env.OA1_BRIDGE_PRESENCE.put(
+  await env.MACHINEN_BRIDGE_PRESENCE.put(
     `presence@${username}`,
     JSON.stringify({ status: "online", lastSeen: Date.now() }),
     {
@@ -143,7 +143,7 @@ async function handleJobs({ request }: { request: Request }): Promise<Response> 
   );
 
   // Get and Clear for MVP
-  const jobsJson = await env.OA1_BRIDGE_JOBS.get(`queued_jobs@${username}`);
+  const jobsJson = await env.MACHINEN_BRIDGE_JOBS.get(`queued_jobs@${username}`);
   const rawJobs = jobsJson ? JSON.parse(jobsJson) : [];
   const jobs = [];
 
@@ -168,7 +168,7 @@ async function handleJobs({ request }: { request: Request }): Promise<Response> 
     }
 
     // Clear the queue
-    await env.OA1_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify([]));
+    await env.MACHINEN_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify([]));
   }
 
   return new Response(
@@ -205,15 +205,15 @@ async function handleLocalJob({ request }: { request: Request }): Promise<Respon
     headSha,
     repoName,
   };
-  await env.OA1_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(jobData));
+  await env.MACHINEN_BRIDGE_JOBS.put(`webhook@${deliveryId}`, JSON.stringify(jobData));
 
   // Update recent list
-  const recentWebhooksJson = await env.OA1_BRIDGE_JOBS.get("webhooks:recent");
+  const recentWebhooksJson = await env.MACHINEN_BRIDGE_JOBS.get("webhooks:recent");
   const recentIds: string[] = recentWebhooksJson ? JSON.parse(recentWebhooksJson) : [];
   recentIds.unshift(deliveryId);
-  await env.OA1_BRIDGE_JOBS.put("webhooks:recent", JSON.stringify(recentIds.slice(0, 50)));
+  await env.MACHINEN_BRIDGE_JOBS.put("webhooks:recent", JSON.stringify(recentIds.slice(0, 50)));
 
-  const jobsJson = await env.OA1_BRIDGE_JOBS.get(`queued_jobs@${username}`);
+  const jobsJson = await env.MACHINEN_BRIDGE_JOBS.get(`queued_jobs@${username}`);
   const jobs = jobsJson ? JSON.parse(jobsJson) : [];
 
   jobs.push({
@@ -225,7 +225,7 @@ async function handleLocalJob({ request }: { request: Request }): Promise<Respon
     headSha,
   });
 
-  await env.OA1_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify(jobs));
+  await env.MACHINEN_BRIDGE_JOBS.put(`queued_jobs@${username}`, JSON.stringify(jobs));
 
   return new Response(JSON.stringify({ status: "ok", deliveryId }), {
     headers: { "Content-Type": "application/json" },
@@ -240,7 +240,7 @@ async function handlePresence({ request }: { request: Request }): Promise<Respon
     return new Response("Missing username", { status: 400 });
   }
 
-  const presence = await env.OA1_BRIDGE_PRESENCE.get(`presence@${username}`);
+  const presence = await env.MACHINEN_BRIDGE_PRESENCE.get(`presence@${username}`);
   const status = presence ? "active" : "inactive";
 
   return new Response(status, { status: 200 });

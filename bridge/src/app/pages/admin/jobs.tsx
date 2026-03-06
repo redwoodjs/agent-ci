@@ -12,13 +12,13 @@ export interface WebhookData {
 }
 
 export const JobsPage = async () => {
-  const recentWebhooksJson = await env.OA1_BRIDGE_JOBS.get("webhooks:recent");
+  const recentWebhooksJson = await env.MACHINEN_BRIDGE_JOBS.get("webhooks:recent");
   const recentIds: string[] = recentWebhooksJson ? JSON.parse(recentWebhooksJson) : [];
 
   const webhooks = (
     await Promise.all(
       recentIds.map(async (id) => {
-        const data = await env.OA1_BRIDGE_JOBS.get(`webhook@${id}`);
+        const data = await env.MACHINEN_BRIDGE_JOBS.get(`webhook@${id}`);
         return data ? (JSON.parse(data) as WebhookData) : null;
       }),
     )

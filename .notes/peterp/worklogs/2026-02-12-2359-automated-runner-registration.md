@@ -8,7 +8,7 @@ author: peterp
 
 ## Summary
 
-Successfully implemented an automated, unique registration flow for on-demand runners. The Bridge now handles registration token generation via GitHub App authentication, and Runners register themselves with unique names and the `opposite-actions` label on startup.
+Successfully implemented an automated, unique registration flow for on-demand runners. The Bridge now handles registration token generation via GitHub App authentication, and Runners register themselves with unique names and the `machinen` label on startup.
 
 ## The Problem
 
@@ -17,7 +17,7 @@ Runners were failing to start or pick up jobs due to:
 1. **Manual Configuration Needed**: The `actions-runner` image required explicit `./config.sh` execution.
 2. **Permission Issues**: The Bridge lacked `Actions: write` and `Administration: write` permissions to fetch tokens.
 3. **Name Collisions**: Duplicate runner names caused "Session already exists" errors in GitHub.
-4. **Label Mismatch**: Runners lacked the `opposite-actions` label required by workflows.
+4. **Label Mismatch**: Runners lacked the `machinen` label required by workflows.
 
 ## Investigation & Timeline
 
@@ -40,7 +40,7 @@ Runners were failing to start or pick up jobs due to:
 The final solution involves:
 
 - **Bridge**: Authenticates as a GitHub App to provide registration tokens on-demand.
-- **Runner**: Appends high-entropy suffixes to names (e.g., `oa-runner-1-abcde`) and runs a combined `config.sh && run.sh` command.
+- **Runner**: Appends high-entropy suffixes to names (e.g., `machinen-runner-1-abcde`) and runs a combined `config.sh && run.sh` command.
 
 ## Next Steps
 

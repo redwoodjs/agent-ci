@@ -77,7 +77,7 @@ export function initGlobalErrorHandler() {
 
   window.addEventListener("error", (event) => {
     const msg = event.message || "Unknown error";
-    console.error("[OA] Uncaught error:", event.error || msg);
+    console.error("[Machinen] Uncaught error:", event.error || msg);
     showErrorToast(`Error: ${msg}`);
   });
 
@@ -89,7 +89,7 @@ export function initGlobalErrorHandler() {
         : typeof reason === "string"
           ? reason
           : "Unhandled promise rejection";
-    console.error("[OA] Unhandled rejection:", reason);
+    console.error("[Machinen] Unhandled rejection:", reason);
     showErrorToast(`Error: ${msg}`);
   });
 }

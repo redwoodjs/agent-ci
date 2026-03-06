@@ -16,7 +16,7 @@ const getRecentReposPath = () => path.join(OA_DIR, "recent_repos.json");
 const getWatchedReposPath = () => path.join(OA_DIR, "watched_repos.json");
 const getWorkflowOverridesPath = () => path.join(OA_DIR, "workflows.json");
 
-async function ensureOaDir() {
+async function ensureDataDir() {
   await fs.mkdir(OA_DIR, { recursive: true });
 }
 
@@ -32,7 +32,7 @@ export async function getRecentRepos(): Promise<string[]> {
 }
 
 export async function addRecentRepo(repoPath: string) {
-  await ensureOaDir();
+  await ensureDataDir();
   let repos = await getRecentRepos();
   repos = [repoPath, ...repos.filter((p: string) => p !== repoPath)].slice(0, 10);
   await fs.writeFile(getRecentReposPath(), JSON.stringify(repos, null, 2));
@@ -65,7 +65,7 @@ export async function loadWatchedRepos() {
 }
 
 async function saveWatchedRepos() {
-  await ensureOaDir();
+  await ensureDataDir();
   const repos = Array.from(watchedRepos.keys());
   await fs.writeFile(getWatchedReposPath(), JSON.stringify(repos, null, 2));
 }
@@ -199,7 +199,7 @@ async function loadWorkflowOverrides() {
 }
 
 async function saveWorkflowOverrides() {
-  await ensureOaDir();
+  await ensureDataDir();
   const out: Record<string, Record<string, boolean>> = {};
   for (const [repo, overrides] of workflowEnabledOverrides.entries()) {
     out[repo] = Object.fromEntries(overrides.entries());

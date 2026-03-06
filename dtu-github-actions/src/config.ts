@@ -5,7 +5,7 @@ import os from "node:os";
 
 const configSchema = z.object({
   /**
-   * The URL of the OA-1 Bridge (Orchestrator).
+   * The URL of the Machinen Bridge (Orchestrator).
    * Webhooks are sent here.
    */
   BRIDGE_URL: z.string().url(),

@@ -1,7 +1,7 @@
 {
   "name": "supervisor",
   "version": "1.0.0",
-  "description": "Local supervisor for oa-1",
+  "description": "Local supervisor for machinen",
   "keywords": [],
   "license": "ISC",
   "author": "",
@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsgo",
     "dev": "node --env-file=.env dist/index.js --config .oa-dev.jsonc",
-    "oa": "tsx --env-file=.env src/cli.ts",
+    "machinen": "tsx --env-file=.env src/cli.ts",
     "test": "vitest run"
   },
   "dependencies": {

@@ -1,5 +1,5 @@
 {
-  "name": "oa-1",
+  "name": "machinen",
   "private": true,
   "scripts": {
     "dev": "concurrently --kill-others --names \"GitHub,Bridge,Supervisor\" \"pnpm --filter dtu-github-actions dev\" \"wait-on http://localhost:8910 && pnpm --filter bridge dev\" \"wait-on http://localhost:8911 && pnpm --filter supervisor dev\"",

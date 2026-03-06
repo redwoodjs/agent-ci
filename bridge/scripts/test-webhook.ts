@@ -15,7 +15,7 @@ const payload = {
     owner: {
       login: "peterp",
     },
-    name: "oa-1",
+    name: "machinen",
   },
 };
 

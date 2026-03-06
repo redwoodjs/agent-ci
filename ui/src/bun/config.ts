@@ -12,10 +12,10 @@ export function getWorkspaceRoot(workingDirectory?: string) {
   return current === "/" ? process.cwd() : current;
 }
 
-export const workingDirectory = process.env["OA_WORKING_DIR"]
-  ? path.isAbsolute(process.env["OA_WORKING_DIR"])
-    ? process.env["OA_WORKING_DIR"]
-    : path.join(getWorkspaceRoot(), process.env["OA_WORKING_DIR"])
+export const workingDirectory = process.env["MACHINEN_WORKING_DIR"]
+  ? path.isAbsolute(process.env["MACHINEN_WORKING_DIR"])
+    ? process.env["MACHINEN_WORKING_DIR"]
+    : path.join(getWorkspaceRoot(), process.env["MACHINEN_WORKING_DIR"])
   : path.join(getWorkspaceRoot(), "_");
 
 export function getLogsDir() {

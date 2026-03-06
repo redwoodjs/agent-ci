@@ -19,7 +19,7 @@ export type Config = z.infer<typeof configSchema>;
 export const config = configSchema.parse(process.env);
 
 /**
- * Load machine-local secrets from `.env.machine` at the oa-1 project root.
+ * Load machine-local secrets from `.env.machine` at the machinen project root.
  * The file uses KEY=VALUE syntax (lines starting with # are ignored).
  * Returns an empty object if the file doesn't exist.
  */

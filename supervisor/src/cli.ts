@@ -69,7 +69,7 @@ async function run() {
       }
     }
 
-    let workingDir = process.env.OA_WORKING_DIR;
+    let workingDir = process.env.MACHINEN_WORKING_DIR;
     if (workingDir) {
       if (!path.isAbsolute(workingDir)) {
         workingDir = path.resolve(PROJECT_ROOT, workingDir);
@@ -78,7 +78,7 @@ async function run() {
     }
 
     if (!runAll && !workflow) {
-      console.error("[OA] Error: You must specify either --workflow <path> or --all");
+      console.error("[Machinen] Error: You must specify either --workflow <path> or --all");
       console.log("");
       printUsage();
       process.exit(1);
@@ -137,7 +137,7 @@ function resolveRepoInfo(repoRoot: string) {
       githubRepo = match[1];
     }
   } catch {
-    console.warn("[OA] Could not detect remote 'origin', using config default.");
+    console.warn("[Machinen] Could not detect remote 'origin', using config default.");
   }
   return githubRepo;
 }
@@ -198,7 +198,7 @@ async function handleRun(options: {
 
     // Derive the repo root by walking UP from the workflow file's directory.
     // This correctly resolves external repos (e.g. sdk) even when the supervisor
-    // CWD is inside oa-1.
+    // CWD is inside machinen.
     let repoRoot = path.dirname(workflowPath);
     while (repoRoot !== "/" && !fs.existsSync(path.join(repoRoot, ".git"))) {
       repoRoot = path.dirname(repoRoot);
@@ -209,8 +209,8 @@ async function handleRun(options: {
     }
 
     // Scope the working directory to an OS temp folder unless the
-    // user explicitly configured one via OA_WORKING_DIR environment variable.
-    if (!process.env.OA_WORKING_DIR) {
+    // user explicitly configured one via MACHINEN_WORKING_DIR environment variable.
+    if (!process.env.MACHINEN_WORKING_DIR) {
       setWorkingDirectory(DEFAULT_WORKING_DIR);
     }
 
@@ -234,7 +234,9 @@ async function handleRun(options: {
         if (found) {
           taskName = found;
         } else {
-          console.error(`[OA] Multiple tasks found in workflow. Please specify one with --task:`);
+          console.error(
+            `[Machinen] Multiple tasks found in workflow. Please specify one with --task:`,
+          );
           jobIds.forEach((id) => console.error(`  - ${id}`));
           process.exit(1);
         }
@@ -245,7 +247,7 @@ async function handleRun(options: {
     const jobIds = jobs.map((j) => j.id.toString());
     if (!jobIds.includes(taskName)) {
       console.error(
-        `[OA] Task "${taskName}" not found in ${path.basename(workflowPath)}. Available tasks:`,
+        `[Machinen] Task "${taskName}" not found in ${path.basename(workflowPath)}. Available tasks:`,
       );
       jobIds.forEach((id) => console.error(`  - ${id}`));
       process.exit(1);
@@ -261,7 +263,7 @@ async function handleRun(options: {
       try {
         matrixContext = JSON.parse(matrixJson);
       } catch {
-        console.warn("[OA] Warning: --matrix value is not valid JSON, ignoring.");
+        console.warn("[Machinen] Warning: --matrix value is not valid JSON, ignoring.");
       }
     }
 
@@ -282,7 +284,7 @@ async function handleRun(options: {
       headSha: headSha,
       shaRef: shaRef,
       env: {
-        OA_LOCAL: "true",
+        MACHINEN_LOCAL: "true",
       },
       repository: {
         name: name,
@@ -301,7 +303,7 @@ async function handleRun(options: {
     // 7. Execute
     await executeLocalJob(job);
   } catch (error) {
-    console.error(`[OA] Failed to trigger run: ${(error as Error).message}`);
+    console.error(`[Machinen] Failed to trigger run: ${(error as Error).message}`);
     process.exit(1);
   }
 }
@@ -313,13 +315,13 @@ async function handleRunAll(options: {
   runnerName?: string;
   concurrency?: number;
 }) {
-  console.log("[OA] Scanning for relevant workflows...");
+  console.log("[Machinen] Scanning for relevant workflows...");
 
   try {
     const repoRoot = resolveRepoRoot();
     // Scope the working directory to an OS temp folder unless the
-    // user explicitly configured one via OA_WORKING_DIR environment variable.
-    if (!process.env.OA_WORKING_DIR) {
+    // user explicitly configured one via MACHINEN_WORKING_DIR environment variable.
+    if (!process.env.MACHINEN_WORKING_DIR) {
       setWorkingDirectory(DEFAULT_WORKING_DIR);
     }
     const { headSha, shaRef } = options.sha
@@ -329,7 +331,7 @@ async function handleRunAll(options: {
     const [owner, name] = githubRepo.split("/");
     const branch = options.branch || getCurrentBranch(repoRoot);
 
-    console.log(`[OA] Repo: ${githubRepo} (Root: ${repoRoot}, Branch: ${branch})`);
+    console.log(`[Machinen] Repo: ${githubRepo} (Root: ${repoRoot}, Branch: ${branch})`);
 
     const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
     if (!fs.existsSync(workflowsDir)) {
@@ -383,12 +385,14 @@ async function handleRunAll(options: {
     }
 
     if (expandedJobs.length === 0) {
-      console.log("[OA] No relevant workflows found for the current branch/triggers.");
+      console.log("[Machinen] No relevant workflows found for the current branch/triggers.");
       return;
     }
 
     const maxJobs = options.concurrency ?? getDefaultMaxConcurrentJobs();
-    console.log(`[OA] Found ${expandedJobs.length} runner(s) to launch (concurrency: ${maxJobs}).`);
+    console.log(
+      `[Machinen] Found ${expandedJobs.length} runner(s) to launch (concurrency: ${maxJobs}).`,
+    );
 
     const limiter = createConcurrencyLimiter(maxJobs);
     // Naming convention: machinen-<N>[-j<idx>][-m<shardIdx>]
@@ -399,7 +403,7 @@ async function handleRunAll(options: {
       expandedJobs.map(({ workflowPath, taskName, matrixContext }, idx) =>
         limiter.run(async () => {
           console.log(
-            `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""} ---`,
+            `[Machinen] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""} ---`,
           );
           const secrets = loadMachineSecrets(repoRoot);
           const secretsFilePath = path.join(repoRoot, ".env.machinen");
@@ -431,7 +435,7 @@ async function handleRunAll(options: {
             headSha: headSha,
             shaRef: shaRef,
             env: {
-              OA_LOCAL: "true",
+              MACHINEN_LOCAL: "true",
             },
             repository: {
               name: name,
@@ -453,16 +457,16 @@ async function handleRunAll(options: {
 
     const failures = results.filter((r) => r.status === "rejected");
     if (failures.length > 0) {
-      console.error(`[OA] ${failures.length}/${results.length} job(s) failed.`);
+      console.error(`[Machinen] ${failures.length}/${results.length} job(s) failed.`);
       process.exit(1);
     }
   } catch (error) {
-    console.error(`[OA] Failed to run all: ${(error as Error).message}`);
+    console.error(`[Machinen] Failed to run all: ${(error as Error).message}`);
     process.exit(1);
   }
 }
 
 run().catch((err) => {
-  console.error("[OA] Fatal error:", err);
+  console.error("[Machinen] Fatal error:", err);
   process.exit(1);
 });

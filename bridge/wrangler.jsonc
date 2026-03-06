@@ -2,15 +2,15 @@
   // Schema reference for wrangler configuration
   "$schema": "node_modules/wrangler/config-schema.json",
   // Name of your worker
-  "name": "oa-1",
+  "name": "machinen",
   // KV Namespaces
   "kv_namespaces": [
     {
-      "binding": "OA1_BRIDGE_JOBS",
+      "binding": "MACHINEN_BRIDGE_JOBS",
       "id": "717845aa0968400884155af4b996a707",
     },
     {
-      "binding": "OA1_BRIDGE_PRESENCE",
+      "binding": "MACHINEN_BRIDGE_PRESENCE",
       "id": "347879108fbc4c1cb05f47040900d231",
     },
   ],

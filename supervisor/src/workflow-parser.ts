@@ -584,7 +584,7 @@ export function validateSecrets(
     return;
   }
   throw new Error(
-    `[OA] Missing secrets required by workflow job "${taskName}".\n` +
+    `[Machinen] Missing secrets required by workflow job "${taskName}".\n` +
       `Add the following to ${secretsFilePath}:\n\n` +
       missing.map((n) => `${n}=`).join("\n") +
       "\n",

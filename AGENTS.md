@@ -5,7 +5,7 @@
 
 ## Project Overview
 
-**Opposite-Actions** is a local-first CI runner system. It allows GitHub Actions to execute on your own hardware while providing a seamless fallback to GitHub-hosted runners.
+**Machinen** is a local-first CI runner system. It allows GitHub Actions to execute on your own hardware while providing a seamless fallback to GitHub-hosted runners.
 
 ### Core Philosophy: Freeze on Failure
 

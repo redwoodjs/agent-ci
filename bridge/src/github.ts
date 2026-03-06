@@ -103,7 +103,7 @@ export async function getRegistrationToken(
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "oa-1-bridge",
+      "User-Agent": "machinen-bridge",
     },
   });
 
@@ -130,7 +130,7 @@ export async function getInstallationIdForRepo(owner: string, repo: string): Pro
       Authorization: `Bearer ${jwt}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "oa-1-bridge",
+      "User-Agent": "machinen-bridge",
     },
   });
 
@@ -162,7 +162,7 @@ export async function getInstallationToken(
       Authorization: `Bearer ${jwt}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
-      "User-Agent": "oa-1-bridge",
+      "User-Agent": "machinen-bridge",
     },
     body: JSON.stringify({
       repositories: [repositoryName.split("/")[1]], // Only grant access to this repo

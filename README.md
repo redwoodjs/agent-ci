@@ -1,11 +1,11 @@
-# Opposite-Actions
+# Machinen
 
-**Opposite-Actions**
+**Machinen**
 
 !!!
 is a local-first CI runner system. It allows GitHub Actions to execute on your own hardware (your MacBook) while providing a seamless fallback to GitHub-hosted runners when you are offline.
 
-Unlike standard ephemeral runners, **Opposite-Actions** is designed to **freeze on failure**, preserving the Docker container and local filesystem for immediate, interactive debugging.
+Unlike standard ephemeral runners, **Machinen** is designed to **freeze on failure**, preserving the Docker container and local filesystem for immediate, interactive debugging.
 
 ---
 
@@ -85,13 +85,13 @@ You can run workflows securely in headless mode without starting the full suite 
 To run a specific workflow:
 
 ```bash
-pnpm --filter supervisor run oa run --workflow .github/workflows/tests.yml
+pnpm --filter supervisor run machinen run --workflow .github/workflows/tests.yml
 ```
 
 To run all relevant PR/Push workflows for your current branch:
 
 ```bash
-pnpm --filter supervisor run oa run --all
+pnpm --filter supervisor run machinen run --all
 ```
 
 ---
@@ -122,7 +122,7 @@ jobs:
       - id: status
         run: |
           # Query the Cloudflare Orchestrator for local agent presence
-          RESPONSE=$(curl -s https://oa-1.redwoodjs.workers.dev/api/presence?username=${{ github.actor }})
+          RESPONSE=$(curl -s https://machinen.redwoodjs.workers.dev/api/presence?username=${{ github.actor }})
           if [ "$RESPONSE" == "active" ]; then
             echo "label=self-hosted" >> $GITHUB_OUTPUT
           else
@@ -144,7 +144,7 @@ jobs:
 
 ## Tool Cache & Setup Actions
 
-Unlike GitHub-hosted `ubuntu-latest` runners that come pre-populated with gigabytes of tools (like Node.js, Python, Go, etc.), the `opposite-actions` self-hosted runner starts with an empty cache.
+Unlike GitHub-hosted `ubuntu-latest` runners that come pre-populated with gigabytes of tools (like Node.js, Python, Go, etc.), the `machinen` self-hosted runner starts with an empty cache.
 
 This means the _very first time_ a workflow uses an action like `actions/setup-node`, it will need to download the tool from the internet, taking slightly longer. However, the downloaded tools are saved to a persistent `toolcache` directory on your host machine. All subsequent runs and containers will instantly mount and find the tools in the cache, skipping the download step.
 

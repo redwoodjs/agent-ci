@@ -1,6 +1,6 @@
 name: Cache Tests
 
-# Exercises the warm node_modules bind-mount on the local (opposite-actions) runner.
+# Exercises the warm node_modules bind-mount on the local (machinen) runner.
 # Three parallel jobs all run pnpm install simultaneously. Without the warm cache:
 #   - First run: one job warms node_modules alone, then the other two run in parallel
 #   - Subsequent runs: all three start in parallel immediately (node_modules already warm)

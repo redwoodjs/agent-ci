@@ -24,7 +24,7 @@ export async function startEphemeralDtu(cacheDir: string): Promise<EphemeralDtu>
   setCacheDir(cacheDir);
 
   // Build the Polka app with all routes registered.
-  const app = await bootstrapAndReturnApp();
+  const app = await bootstrapAndReturnApp({ reset: false });
 
   // Wrap the Polka request handler in a plain Node.js HTTP server so we can
   // bind to port 0 (OS-assigned) and get back the actual port.
@@ -51,6 +51,10 @@ export async function startEphemeralDtu(cacheDir: string): Promise<EphemeralDtu>
     port,
     close(): Promise<void> {
       return new Promise((resolve) => {
+        // Force-close all existing connections (HTTP keep-alive etc.)
+        // so the server shuts down immediately instead of waiting for
+        // idle connections to drain.
+        server.closeAllConnections();
         server.close(() => resolve());
       });
     },

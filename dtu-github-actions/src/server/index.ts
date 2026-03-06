@@ -23,10 +23,13 @@ async function terminateOldProcess() {
   }
 }
 
-export async function bootstrapAndReturnApp() {
+export async function bootstrapAndReturnApp(options?: { reset?: boolean }) {
+  const shouldReset = options?.reset ?? true;
   setupDtuLogging();
-  state.reset();
-  await terminateOldProcess();
+  if (shouldReset) {
+    state.reset();
+    await terminateOldProcess();
+  }
 
   const app = polka();
 

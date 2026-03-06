@@ -3,7 +3,7 @@ import fsSync from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { PROJECT_ROOT } from "../logger.js";
+import { PROJECT_ROOT } from "../working-directory.js";
 import { broadcastEvent } from "./events.js";
 import { runWorkflow } from "./runner.js";
 

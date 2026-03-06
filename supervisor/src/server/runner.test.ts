@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { runWorkflow, retryRun, runWaveWithWarmSerialization } from "./runner.js";
-import { setWorkingDirectory } from "../logger.js";
+import { setWorkingDirectory, getWorkingDirectory } from "../working-directory.js";
 
 // ── Multi-job workflow fan-out ─────────────────────────────────────────────────
 
@@ -23,13 +23,16 @@ jobs:
 
 describe("Multi-job workflow fan-out", () => {
   let tmpDir: string;
+  let originalDir: string;
 
   beforeEach(() => {
+    originalDir = getWorkingDirectory();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "machinen-test-"));
     setWorkingDirectory(tmpDir);
   });
 
   afterEach(() => {
+    setWorkingDirectory(originalDir);
     if (tmpDir) {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

@@ -66,14 +66,9 @@ coverage
 # Wrangler
 .wrangler
 
-_/work
-_/identity
-_
-actions-runner
 
 temp_runner_source
 tmp-runner-logs
 temp_*
 .runner-source
 ui/build
-.machinen

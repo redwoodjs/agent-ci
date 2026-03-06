@@ -2,6 +2,7 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
+    isolate: true,
     exclude: ["_/**", "dist/**", "node_modules/**"],
     testTimeout: 30_000,
     server: {

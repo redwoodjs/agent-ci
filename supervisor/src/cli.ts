@@ -2,7 +2,8 @@ import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { config, loadMachineSecrets } from "./config.js";
-import { setWorkingDirectory, PROJECT_ROOT } from "./logger.js";
+import { getNextLogNum } from "./logger.js";
+import { setWorkingDirectory, DEFAULT_WORKING_DIR, PROJECT_ROOT } from "./working-directory.js";
 
 import { executeLocalJob } from "./local-job.js";
 import {
@@ -12,6 +13,8 @@ import {
   parseWorkflowContainer,
   isWorkflowRelevant,
   validateSecrets,
+  parseMatrixDef,
+  expandMatrixCombinations,
 } from "./workflow-parser.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./server/concurrency.js";
@@ -87,6 +90,8 @@ async function run() {
     } else {
       await handleRun({ sha, workflow, taskName, runnerName, matrixJson });
     }
+
+    process.exit(0);
   } else {
     printUsage();
     process.exit(1);
@@ -121,33 +126,6 @@ function resolveRepoRoot() {
     repoRoot = path.dirname(repoRoot);
   }
   return repoRoot === "/" ? process.cwd() : repoRoot;
-}
-
-/**
- * Ensure `.machinen` is listed in the repo's `.gitignore`.
- * Appends the entry if it is not already present — no-ops otherwise.
- */
-function ensureMachinenIgnored(repoRoot: string): void {
-  const gitignorePath = path.join(repoRoot, ".gitignore");
-  const entry = ".machinen";
-  try {
-    if (fs.existsSync(gitignorePath)) {
-      const content = fs.readFileSync(gitignorePath, "utf-8");
-      const lines = content.split("\n").map((l) => l.trim());
-      if (lines.includes(entry)) {
-        return; // already present
-      }
-      // Append with a trailing newline
-      const newContent = content.endsWith("\n")
-        ? content + entry + "\n"
-        : content + "\n" + entry + "\n";
-      fs.writeFileSync(gitignorePath, newContent, "utf-8");
-    } else {
-      fs.writeFileSync(gitignorePath, entry + "\n", "utf-8");
-    }
-  } catch {
-    // Best-effort — don't fail the run over a gitignore write error
-  }
 }
 
 function resolveRepoInfo(repoRoot: string) {
@@ -230,12 +208,11 @@ async function handleRun(options: {
       repoRoot = resolveRepoRoot();
     }
 
-    // Scope the working directory to the repo's .machinen folder unless the
+    // Scope the working directory to an OS temp folder unless the
     // user explicitly configured one via OA_WORKING_DIR environment variable.
     if (!process.env.OA_WORKING_DIR) {
-      setWorkingDirectory(path.join(repoRoot, ".machinen"));
+      setWorkingDirectory(DEFAULT_WORKING_DIR);
     }
-    ensureMachinenIgnored(repoRoot);
 
     const { headSha, shaRef } = sha
       ? resolveHeadSha(repoRoot, sha)
@@ -292,6 +269,9 @@ async function handleRun(options: {
     const services = await parseWorkflowServices(workflowPath, taskName);
     const container = await parseWorkflowContainer(workflowPath, taskName);
 
+    // Derive runner name: machinen-<N> (single job convention)
+    const derivedRunnerName = runnerName || undefined;
+
     // 6. Construct Job
     const job: Job = {
       deliveryId: `local-run-${Date.now()}`,
@@ -310,7 +290,7 @@ async function handleRun(options: {
         owner: { login: owner },
         default_branch: "main",
       },
-      runnerName,
+      runnerName: derivedRunnerName,
       steps,
       services,
       container: container ?? undefined,
@@ -337,12 +317,11 @@ async function handleRunAll(options: {
 
   try {
     const repoRoot = resolveRepoRoot();
-    // Scope the working directory to the repo's .machinen folder unless the
+    // Scope the working directory to an OS temp folder unless the
     // user explicitly configured one via OA_WORKING_DIR environment variable.
     if (!process.env.OA_WORKING_DIR) {
-      setWorkingDirectory(path.join(repoRoot, ".machinen"));
+      setWorkingDirectory(DEFAULT_WORKING_DIR);
     }
-    ensureMachinenIgnored(repoRoot);
     const { headSha, shaRef } = options.sha
       ? resolveHeadSha(repoRoot, options.sha)
       : { headSha: undefined, shaRef: undefined };
@@ -360,7 +339,14 @@ async function handleRunAll(options: {
     const yamlFiles = fs
       .readdirSync(workflowsDir)
       .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
-    const relevantJobs: { workflowPath: string; taskName: string }[] = [];
+    // Collect relevant jobs and expand matrix strategies.
+    // Each expanded runner is a { workflowPath, taskName, matrixContext } tuple.
+    type ExpandedJob = {
+      workflowPath: string;
+      taskName: string;
+      matrixContext?: Record<string, string>;
+    };
+    const expandedJobs: ExpandedJob[] = [];
 
     for (const file of yamlFiles) {
       const workflowPath = path.join(workflowsDir, file);
@@ -370,36 +356,71 @@ async function handleRunAll(options: {
         const jobs = template.jobs.filter((j) => j.type === "job");
         for (const job of jobs) {
           const id = job.id.toString();
-          if (!options.taskName || options.taskName === id) {
-            relevantJobs.push({ workflowPath, taskName: id });
+          if (options.taskName && options.taskName !== id) {
+            continue;
+          }
+          // Expand matrix strategy (if any)
+          const matrixDef = await parseMatrixDef(workflowPath, id);
+          if (matrixDef) {
+            const combos = expandMatrixCombinations(matrixDef);
+            const total = combos.length;
+            for (let ci = 0; ci < combos.length; ci++) {
+              expandedJobs.push({
+                workflowPath,
+                taskName: id,
+                matrixContext: {
+                  ...combos[ci],
+                  __job_total: String(total),
+                  __job_index: String(ci),
+                },
+              });
+            }
+          } else {
+            expandedJobs.push({ workflowPath, taskName: id });
           }
         }
       }
     }
 
-    if (relevantJobs.length === 0) {
+    if (expandedJobs.length === 0) {
       console.log("[OA] No relevant workflows found for the current branch/triggers.");
       return;
     }
 
     const maxJobs = options.concurrency ?? getDefaultMaxConcurrentJobs();
-    console.log(
-      `[OA] Found ${relevantJobs.length} relevant task(s) to run (concurrency: ${maxJobs}).`,
-    );
+    console.log(`[OA] Found ${expandedJobs.length} runner(s) to launch (concurrency: ${maxJobs}).`);
 
     const limiter = createConcurrencyLimiter(maxJobs);
+    // Naming convention: machinen-<N>[-j<idx>][-m<shardIdx>]
+    // All jobs share the same base run number (workflowRunId = machinen-<N>).
+    const isMultiRunner = expandedJobs.length > 1;
+    const baseRunNum = getNextLogNum("machinen");
     const results = await Promise.allSettled(
-      relevantJobs.map(({ workflowPath, taskName }) =>
+      expandedJobs.map(({ workflowPath, taskName, matrixContext }, idx) =>
         limiter.run(async () => {
           console.log(
-            `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName} ---`,
+            `[OA] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""} ---`,
           );
           const secrets = loadMachineSecrets(repoRoot);
           const secretsFilePath = path.join(repoRoot, ".env.machinen");
           validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
-          const steps = await parseWorkflowSteps(workflowPath, taskName, secrets);
+          const steps = await parseWorkflowSteps(workflowPath, taskName, secrets, matrixContext);
           const services = await parseWorkflowServices(workflowPath, taskName);
           const container = await parseWorkflowContainer(workflowPath, taskName);
+
+          // Build runner name: machinen-<N>[-j<idx>][-m<shardIdx>]
+          let derivedRunnerName = options.runnerName;
+          if (!derivedRunnerName) {
+            let suffix = "";
+            if (isMultiRunner) {
+              suffix += `-j${idx + 1}`;
+            }
+            if (matrixContext) {
+              const shardIdx = parseInt(matrixContext.__job_index ?? "0", 10) + 1;
+              suffix += `-m${shardIdx}`;
+            }
+            derivedRunnerName = `machinen-${baseRunNum}${suffix}`;
+          }
 
           const job: Job = {
             deliveryId: `local-run-${Date.now()}`,
@@ -418,7 +439,7 @@ async function handleRunAll(options: {
               owner: { login: owner },
               default_branch: "main",
             },
-            runnerName: options.runnerName,
+            runnerName: derivedRunnerName,
             steps,
             services,
             container: container ?? undefined,

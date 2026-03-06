@@ -12,12 +12,15 @@ export const activeRuns = new Set<string>();
 
 // ─── Per-repo run directory ───────────────────────────────────────────────────
 
+import { getWorkingDirectory } from "../working-directory.js";
+
 /**
  * Returns the `runs/` directory for a given repository.
- * All run state now lives under `<repo>/.machinen/runs/`.
+ * All run state now lives under the OS temporary directory scoped to the repo.
  */
-function getRunsDirForRepo(repoPath: string): string {
-  return path.join(repoPath, ".machinen", "runs");
+function getRunsDirForRepo(_repoPath: string): string {
+  // getWorkingDirectory() is now centrally configured to os.tmpdir()/machinen/<repo>
+  return path.join(getWorkingDirectory(), "runs");
 }
 
 /**

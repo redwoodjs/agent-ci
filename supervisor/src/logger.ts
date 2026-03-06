@@ -1,23 +1,10 @@
 import path from "path";
 import fs from "fs";
-import { fileURLToPath } from "url";
-
-// Pinned to the monorepo root (project root), not the supervisor package
-export const PROJECT_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
-
-let workingDirectory = path.join(PROJECT_ROOT, "_");
-
-export function setWorkingDirectory(dir: string): void {
-  workingDirectory = dir;
-}
-
-export function getWorkingDirectory(): string {
-  return workingDirectory;
-}
+import { getWorkingDirectory } from "./working-directory.js";
 
 /** Root of all run directories: `<workingDir>/runs/` */
 export function getRunsDir(): string {
-  return path.join(workingDirectory, "runs");
+  return path.join(getWorkingDirectory(), "runs");
 }
 
 /**
@@ -25,7 +12,7 @@ export function getRunsDir(): string {
  * Kept for the supervisor.log placement only.
  */
 export function getLogsDir(): string {
-  return path.join(workingDirectory, "logs");
+  return path.join(getWorkingDirectory(), "logs");
 }
 
 export function ensureLogDirs(): void {

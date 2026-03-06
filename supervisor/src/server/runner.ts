@@ -4,12 +4,20 @@ import path from "node:path";
 import { spawn, execSync } from "node:child_process";
 import { createInterface } from "node:readline";
 import crypto from "node:crypto";
-import { PROJECT_ROOT, getRunsDir, getNextLogNum, getWorkingDirectory } from "../logger.js";
+import { parse as parseYaml } from "yaml";
+import { getRunsDir, getNextLogNum } from "../logger.js";
+import { PROJECT_ROOT, getWorkingDirectory } from "../working-directory.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./concurrency.js";
 import { killRunnerContainers, pruneOrphanedDockerResources } from "../shutdown.js";
 import { broadcastEvent } from "./events.js";
 import { activeRuns } from "./run-store.js";
 import { isWarmNodeModules, computeLockfileHash } from "../cleanup.js";
+import {
+  parseWorkflowSteps,
+  getWorkflowTemplate,
+  parseMatrixDef,
+  expandMatrixCombinations,
+} from "../workflow-parser.js";
 
 // ─── Warm launch plan ─────────────────────────────────────────────────────────
 
@@ -294,7 +302,6 @@ async function setupJob({
 
   // Write initial timeline.json so the UI can show pending steps immediately.
   try {
-    const { parseWorkflowSteps, getWorkflowTemplate } = await import("../workflow-parser.js");
     const jobIdForSteps = taskId ?? jobIds[0];
     let steps: any[] = [];
     if (jobIdForSteps) {
@@ -467,7 +474,6 @@ export async function retryRun(
 
   // Pre-populate timeline (same logic as runWorkflow)
   try {
-    const { parseWorkflowSteps, getWorkflowTemplate } = await import("../workflow-parser.js");
     let steps: any[] = [];
     if (taskId) {
       steps = (await parseWorkflowSteps(workflowPath, taskId)) as any[];
@@ -552,11 +558,10 @@ export async function runWorkflow(
   // Map from jobId → static display name (from the `name:` key in the workflow YAML)
   const jobDisplayNames = new Map<string, string>();
   try {
-    const { getWorkflowTemplate, parseMatrixDef, expandMatrixCombinations } =
-      await import("../workflow-parser.js");
-    const yaml = (await import("yaml")).parse(await fs.readFile(fullPath, "utf-8"));
-    const template = await getWorkflowTemplate(fullPath);
-    jobIds = template.jobs.filter((j) => j.type === "job").map((j) => j.id.toString());
+    const yaml = parseYaml(await fs.readFile(fullPath, "utf-8"));
+    // Extract job IDs directly from the YAML instead of using getWorkflowTemplate
+    // (which depends on @actions/workflow-parser that has a Node.js v22 JSON import issue)
+    jobIds = Object.keys(yaml?.jobs ?? {});
 
     // Collect static job display names from `name:` field in YAML
     for (const jobId of jobIds) {

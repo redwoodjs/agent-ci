@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { PROJECT_ROOT } from "../logger.js";
+import { PROJECT_ROOT } from "../working-directory.js";
 import { broadcastEvent } from "./events.js";
 
 const execAsync = promisify(execFile);

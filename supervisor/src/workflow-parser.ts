@@ -1,12 +1,15 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
-import {
-  parseWorkflow,
-  NoOperationTraceWriter,
-  convertWorkflowTemplate,
-} from "@actions/workflow-parser";
 import { minimatch } from "minimatch";
+import { parse as parseYaml } from "yaml";
+
+// @actions/workflow-parser imports JSON without `type: json` assertion,
+// which fails on Node.js v22+. Lazy-import it only in the two functions
+// that actually need it (getWorkflowTemplate, parseWorkflowSteps).
+async function loadWorkflowParser() {
+  return await import("@actions/workflow-parser");
+}
 
 /**
  * Expand `${{ expr }}` placeholders in a string.
@@ -177,6 +180,8 @@ function findFiles(rootDir: string, pattern: string): string[] {
 }
 
 export async function getWorkflowTemplate(filePath: string) {
+  const { parseWorkflow, NoOperationTraceWriter, convertWorkflowTemplate } =
+    await loadWorkflowParser();
   const content = fs.readFileSync(filePath, "utf8");
   const result = parseWorkflow({ name: filePath, content }, new NoOperationTraceWriter());
 
@@ -184,7 +189,7 @@ export async function getWorkflowTemplate(filePath: string) {
     throw new Error(
       `Failed to parse workflow: ${result.context.errors
         .getErrors()
-        .map((e) => e.message)
+        .map((e: any) => e.message)
         .join(", ")}`,
     );
   }
@@ -226,7 +231,7 @@ export async function parseMatrixDef(
   filePath: string,
   jobId: string,
 ): Promise<Record<string, any[]> | null> {
-  const yaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
+  const yaml = parseYaml(fs.readFileSync(filePath, "utf8"));
   const matrix = yaml?.jobs?.[jobId]?.strategy?.matrix;
   if (!matrix || typeof matrix !== "object") {
     return null;
@@ -248,7 +253,7 @@ export async function parseWorkflowSteps(
   matrixContext?: Record<string, string>,
 ) {
   const template = await getWorkflowTemplate(filePath);
-  const rawYaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
+  const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
 
   // Derive repoPath from filePath (.../repoPath/.github/workflows/foo.yml → repoPath)
   const repoPath = path.dirname(path.dirname(path.dirname(filePath)));
@@ -400,7 +405,7 @@ export async function parseWorkflowServices(
   filePath: string,
   taskName: string,
 ): Promise<WorkflowService[]> {
-  const rawYaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
+  const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
   const rawJob = rawYaml.jobs?.[taskName] || {};
   const rawServices = rawJob.services;
   if (!rawServices || typeof rawServices !== "object") {
@@ -444,7 +449,7 @@ export async function parseWorkflowContainer(
   filePath: string,
   taskName: string,
 ): Promise<WorkflowContainer | null> {
-  const rawYaml = (await import("yaml")).parse(fs.readFileSync(filePath, "utf8"));
+  const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
   const rawJob = rawYaml.jobs?.[taskName] || {};
   const rawContainer = rawJob.container;
   if (!rawContainer) {
@@ -546,8 +551,7 @@ export function extractSecretRefs(filePath: string, taskName?: string): string[]
   let source = raw;
   if (taskName) {
     try {
-      const yaml = require("yaml");
-      const parsed = yaml.parse(raw);
+      const parsed = parseYaml(raw);
       const jobDef = parsed?.jobs?.[taskName];
       if (jobDef) {
         source = JSON.stringify(jobDef);

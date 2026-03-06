@@ -18,7 +18,8 @@ describe("Logger utilities", () => {
 
   describe("ensureLogDirs", () => {
     it("creates the runs/ directory", async () => {
-      const { setWorkingDirectory, ensureLogDirs } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { ensureLogDirs } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
       ensureLogDirs();
       expect(fs.existsSync(path.join(tmpDir, "runs"))).toBe(true);
@@ -27,13 +28,15 @@ describe("Logger utilities", () => {
 
   describe("getNextLogNum", () => {
     it("returns 1 when runs/ dir is empty or absent", async () => {
-      const { setWorkingDirectory, getNextLogNum } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { getNextLogNum } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
       expect(getNextLogNum("machinen")).toBe(1);
     });
 
     it("returns next number after existing machinen-* entries", async () => {
-      const { setWorkingDirectory, getNextLogNum } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { getNextLogNum } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
       fs.mkdirSync(path.join(tmpDir, "runs", "machinen-1"), { recursive: true });
       fs.mkdirSync(path.join(tmpDir, "runs", "machinen-2"), { recursive: true });
@@ -41,7 +44,8 @@ describe("Logger utilities", () => {
     });
 
     it("counts only the base run number from multi-job names", async () => {
-      const { setWorkingDirectory, getNextLogNum } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { getNextLogNum } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
       // Multi-job run: machinen-15 with -j1-m2 suffix — base is 15
       fs.mkdirSync(path.join(tmpDir, "runs", "machinen-redwoodjssdk-14"), { recursive: true });
@@ -55,7 +59,8 @@ describe("Logger utilities", () => {
 
   describe("createLogContext", () => {
     it("creates runDir/logs/ and returns correct paths", async () => {
-      const { setWorkingDirectory, createLogContext } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
 
       const ctx = createLogContext("machinen");
@@ -67,7 +72,8 @@ describe("Logger utilities", () => {
     });
 
     it("uses preferredName when provided", async () => {
-      const { setWorkingDirectory, createLogContext } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
 
       const ctx = createLogContext("machinen", "machinen-redwoodjssdk-42");
@@ -77,7 +83,8 @@ describe("Logger utilities", () => {
     });
 
     it("auto-increments when no preferredName given", async () => {
-      const { setWorkingDirectory, createLogContext } = await import("./logger.js");
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
 
       const first = createLogContext("machinen");

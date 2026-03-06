@@ -147,3 +147,19 @@ jobs:
 Unlike GitHub-hosted `ubuntu-latest` runners that come pre-populated with gigabytes of tools (like Node.js, Python, Go, etc.), the `opposite-actions` self-hosted runner starts with an empty cache.
 
 This means the _very first time_ a workflow uses an action like `actions/setup-node`, it will need to download the tool from the internet, taking slightly longer. However, the downloaded tools are saved to a persistent `toolcache` directory on your host machine. All subsequent runs and containers will instantly mount and find the tools in the cache, skipping the download step.
+
+---
+
+## Workspace Copies (macOS)
+
+On macOS, each run gets a private copy of the repository workspace placed under `$TMPDIR/machinen/<repo>/runs/<run-id>/`, where `<run-id>` follows the pattern `machinen-<N>` with optional suffixes:
+
+| Suffix  | Meaning                           |
+| ------- | --------------------------------- |
+| `-j<N>` | Job index in a multi-job workflow |
+| `-m<N>` | Matrix shard index                |
+| `-r<N>` | Retry attempt                     |
+
+For example: `machinen-42-j2-m3-r2` is the second retry of shard 3 of job 2 in run 42. In full service mode a repo slug is included: `machinen-<repo>-42-j1`. These copies are **APFS copy-on-write clones** made via `cp -c`, so they consume **zero additional disk space** at creation time — physical blocks are shared with the original files and only duplicated if the container modifies them.
+
+On Linux, `rsync` is used instead, which produces regular copies. Linux supports CoW via `cp --reflink=auto` on btrfs and XFS (kernel 4.16+) — this could replace the rsync path to get the same benefit on supported filesystems, with automatic fallback to a full copy on ext4.

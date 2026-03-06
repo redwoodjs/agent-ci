@@ -16,7 +16,7 @@ export interface EphemeralDtu {
  * Each call creates an independent server instance — no shared state between
  * calls. Typical startup overhead is ~50ms.
  *
- * @param cacheDir  Where cache archives should be stored (e.g. `<repo>/.machinen/cache/dtu`).
+ * @param cacheDir  Where cache archives should be stored (e.g. `os.tmpdir()/machinen/<repo>/cache/dtu`).
  */
 export async function startEphemeralDtu(cacheDir: string): Promise<EphemeralDtu> {
   // Override the cache directory before bootstrapping so the store writes

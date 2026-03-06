@@ -27,7 +27,7 @@ import {
 } from "./orchestrator.js";
 import { getBranches, getGitCommits, getWorkingTreeStatus } from "./git.js";
 
-import { getWorkingDirectory } from "../logger.js";
+import { getWorkingDirectory } from "../working-directory.js";
 import {
   pruneStaleWorkspaces,
   killAllRunnerContainers,
@@ -150,7 +150,7 @@ app.get("/workflows/warm-status", async (req, res) => {
   try {
     const { execSync } = await import("node:child_process");
     const { isWarmNodeModules, computeLockfileHash } = await import("../cleanup.js");
-    const { getWorkingDirectory } = await import("../logger.js");
+    const { getWorkingDirectory } = await import("../working-directory.js");
     const path = await import("node:path");
 
     // Derive repoSlug from git remote (matching runner.ts and local-job.ts)

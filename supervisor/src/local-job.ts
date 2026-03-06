@@ -5,7 +5,8 @@ import { execSync } from "child_process";
 import { createInterface } from "readline";
 import { config } from "./config.js";
 import { Job } from "./types.js";
-import { createLogContext, finalizeLog, getWorkingDirectory } from "./logger.js";
+import { createLogContext, finalizeLog } from "./logger.js";
+import { getWorkingDirectory } from "./working-directory.js";
 import { copyWorkspace, computeLockfileHash } from "./cleanup.js";
 import { minimatch } from "minimatch";
 import {
@@ -603,13 +604,13 @@ exit $EXIT_CODE
     //
     // NOTE: The runner is a self-contained .NET app that requires glibc.
     // musl-based images (Alpine) are NOT supported. See issue #15.
-    const hostWorkDir = path.resolve(getWorkingDirectory(), "work", containerName);
+    const hostWorkDir = path.resolve(runDir, "host-work");
     const hostToolcacheDir = path.resolve(getWorkingDirectory(), "toolcache");
     // Shared seed directory — extracted once and reused across all containers.
     const hostRunnerSeedDir = path.resolve(getWorkingDirectory(), "runner");
     // Per-container copy — each container gets its own writable copy so concurrent
     // config.sh / run.sh invocations don't race on .runner / .credentials files.
-    const hostRunnerDir = path.resolve(getWorkingDirectory(), `runner-${containerName}`);
+    const hostRunnerDir = path.resolve(runDir, "runner");
     const useDirectContainer = !!job.container;
     const containerImage = useDirectContainer ? job.container!.image : IMAGE;
 
@@ -721,7 +722,7 @@ const srv=net.createServer(c=>{
   s.on('error',()=>c.destroy());c.on('error',()=>s.destroy());
 });
 srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
-" & PROXY_PID=$! && for i in $(seq 1 100); do nc -z 127.0.0.1 80 2>/dev/null && break; sleep 0.1; done && echo "[OA] DTU proxy ready in $(($(date +%s%3N) - PROXY_T0))ms" && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
+" & PROXY_PID=$! && for i in $(seq 1 100); do nc -z 127.0.0.1 80 2>/dev/null && break; sleep 0.1; done && echo "[OA] DTU proxy ready in $(($(date +%s%3N) - PROXY_T0))ms" && chmod 666 /var/run/docker.sock 2>/dev/null || true && RESOLVED_URL="http://127.0.0.1:80/$GITHUB_REPOSITORY" && export GITHUB_API_URL="http://127.0.0.1:80" && export GITHUB_SERVER_URL="https://github.com" && cd /home/runner && ./config.sh remove --token "$RUNNER_TOKEN" 2>/dev/null || true && ./config.sh --url "$RESOLVED_URL" --token "$RUNNER_TOKEN" --name "$RUNNER_NAME" --unattended --ephemeral --work _work --labels opposite-actions || echo "Config warning: Service generation failed, proceeding..." && REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && mkdir -p $WORKSPACE_PATH && ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`,
       ],
       HostConfig: {
         Binds: [
@@ -734,10 +735,10 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
           `${hostToolcacheDir}:/opt/hostedtoolcache`,
           `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
           `${playwrightCacheDir}:/home/runner/.cache/ms-playwright`,
-          // Warm node_modules: pre-populated on first run, served from host on subsequent runs.
-          // pnpm install inside the container writes here directly; subsequent runs find
-          // node_modules already in place and exit immediately.
-          `${warmModulesDir}:/home/runner/_work/${repoName}/${repoName}/node_modules`,
+          // Warm node_modules: mounted outside the workspace so actions/checkout can
+          // delete the symlink without EBUSY. A symlink in the entrypoint points
+          // workspace/node_modules → /tmp/warm-modules.
+          `${warmModulesDir}:/tmp/warm-modules`,
         ],
         AutoRemove: false,
         Ulimits: [{ Name: "nofile", Soft: 65536, Hard: 65536 }],
@@ -765,12 +766,12 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     const tailPromise = (async () => {
       let offset = 0;
       let partial = "";
-      // Wait for file to exist (DTU creates it on start-runner)
-      while (!fs.existsSync(stepOutputPath) && !tailDone) {
-        await new Promise((r) => setTimeout(r, 50));
-      }
-      while (!tailDone) {
+
+      const readPending = () => {
         try {
+          if (!fs.existsSync(stepOutputPath)) {
+            return;
+          }
           const stat = fs.statSync(stepOutputPath);
           if (stat.size > offset) {
             const fd = fs.openSync(stepOutputPath, "r");
@@ -786,15 +787,31 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
             }
           }
         } catch {
-          /* file may not exist yet */
+          /* ignore */
         }
+      };
+
+      // Wait for file to exist (DTU creates it on start-runner)
+      while (!fs.existsSync(stepOutputPath) && !tailDone) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      while (!tailDone) {
+        readPending();
         await new Promise((r) => setTimeout(r, 100));
       }
+      // Final read to catch any logs written exactly as the container exits
+      readPending();
+
       // Flush any remaining partial line
       if (partial.trim()) {
         emit(partial);
       }
     })();
+
+    // Start waiting for container exit in parallel with log streaming.
+    // With Tty:true the Docker log stream doesn't emit 'close' until the container
+    // exits, so we race the two: whichever happens first unblocks the other.
+    const containerWaitPromise = container.wait();
 
     await new Promise<void>((resolve) => {
       const rl = createInterface({ input: rawStream, crlfDelay: Infinity });
@@ -812,18 +829,25 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
       rl.on("close", () => {
         resolve();
       });
+
+      // When the container exits, destroy the raw stream so readline closes promptly.
+      containerWaitPromise
+        .then(() => {
+          (rawStream as any).destroy?.();
+        })
+        .catch(() => {});
     });
 
     // Stop tail now that container has finished
     tailDone = true;
     await tailPromise;
 
-    // 8. Wait for completion (with timeout to handle runner hang in --once mode)
+    // 8. Wait for completion (already started above; just collect the result)
     const CONTAINER_EXIT_TIMEOUT_MS = 30_000;
     let waitResult: { StatusCode: number };
     try {
       waitResult = await Promise.race([
-        container.wait(),
+        containerWaitPromise,
         new Promise<never>((_, reject) =>
           setTimeout(() => reject(new Error("Container exit timeout")), CONTAINER_EXIT_TIMEOUT_MS),
         ),
@@ -891,9 +915,14 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
       fs.rmSync(containerWorkDir, { recursive: true, force: true });
     }
 
-    // Propagate failure so the orchestrator (which checks our exit code) sees it
+    await ephemeralDtu?.close().catch(() => {});
+
+    // Propagate failure so callers (orchestrator, handleRunAll) can detect it.
+    // Throw instead of process.exit() so concurrent jobs aren't killed.
     if (!jobSucceeded) {
-      process.exit(1);
+      throw new Error(
+        `Job failed: ${containerName} (${loggedResult || `exit ${containerExitCode}`})`,
+      );
     }
   } finally {
     // Always deregister signal handlers, even if an error was thrown before the

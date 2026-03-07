@@ -8,7 +8,7 @@ import { Job } from "./types.js";
 import { createLogContext } from "./logger.js";
 import { getWorkingDirectory } from "./working-directory.js";
 import { copyWorkspace, computeLockfileHash, repairWarmCache } from "./cleanup.js";
-import { minimatch } from "minimatch";
+
 import { debugRunner } from "./debug.js";
 import {
   startServiceContainers,
@@ -19,163 +19,6 @@ import { killRunnerContainers } from "./shutdown.js";
 import { startEphemeralDtu } from "dtu-github-actions/src/ephemeral.js";
 import { type JobResult, type StepResult, tailLogFile } from "./reporter.js";
 import logUpdate from "log-update";
-
-// ─── ANSI / log-level patterns ────────────────────────────────────────────────
-
-/** Strip ANSI/VT100 escape sequences so regexes work on clean text. */
-// Use RegExp constructor to avoid no-control-regex lint warning for ESC (\x1b)
-const ESC = String.fromCharCode(27);
-const ANSI_RE = new RegExp(`${ESC}(?:\\[[0-9;]*[A-Za-z]|[=?][0-9;]*)`, "g");
-const strip = (s: string) => s.replace(ANSI_RE, "");
-
-/** `[RUNNER … INFO …]` or `[WORKER … INFO …]` */
-const RUNNER_INFO = /^\[(?:RUNNER|WORKER) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z INFO/;
-/** `[RUNNER … WARN …]` */
-const RUNNER_WARN = /^\[(?:RUNNER|WORKER) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z WARN/;
-/** `[RUNNER … ERR …]` or `[WORKER … ERR …]` */
-const RUNNER_ERR = /^\[(?:RUNNER|WORKER) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z ERR/;
-/** DTU service noise */
-const DTU_NOISE = /^\[DTU\] Handling (?:service discovery|pools request):/;
-
-/**
- * Known-harmless runner errors that we suppress from user output.
- * These are expected artefacts of the local DTU setup, not real failures.
- */
-const KNOWN_NOISE_ERRORS = [
-  // Service-name calculation fails because our local URL isn't github.com
-  /SystemDControlManager/,
-  /Cannot find GitHub repository\/organization name from server url/,
-  /WRITE ERROR: Cannot find GitHub repository/,
-  // Expected unimplemented API endpoints in local DTU
-  /VssResourceNotFoundException/,
-  /AppendTimelineRecordFeedAsync/,
-  /ProcessWebConsoleLinesQueueAsync/,
-  /ProcessFilesUploadQueueAsync/,
-  /UploadFile/,
-  // DTU payload format mismatch (StringToken vs MappingToken) — not a user workflow issue
-  /Unexpected type 'StringToken' encountered/,
-  /The type 'MappingToken' was expected/,
-  /JobExtension.*Initialization/,
-  /Job initialize failed/,
-  /Caught exception from InitializeJob/,
-  // Stack trace lines from any of the above
-  /^\[(?:RUNNER|WORKER) [^\]]+ERR\s+[^\]]+\]\s+at /,
-  // All JobServerQueue errors are internal best-effort processing (feed, upload, timeline)
-  /JobServerQueue/,
-];
-
-// ─── Phase-based filter ───────────────────────────────────────────────────────
-
-/**
- * The runner goes through these phases in order:
- *   config  → "Running job:" → running → "Job X completed" → done
- *
- * We only show bare step output during the "running" phase.
- * Status milestones (√ lines, timestamps, job completed) are shown always.
- */
-type Phase = "config" | "running" | "done";
-
-function makeFilter(debug: boolean) {
-  let phase: Phase = "config";
-  let jobResult: string | null = null;
-  let currentStep: string | null = null;
-
-  function filterLine(raw: string): boolean {
-    if (debug) {
-      return true;
-    }
-
-    const line = strip(raw).trimEnd();
-
-    // ── Track current step name ──────────────────────────────────────────────
-    // The runner emits step markers as "##[group]Run <stepname>".
-    // Lines are prefixed with timestamps so we can't anchor with ^.
-    // Freeze once job completes so post-cleanup markers don't overwrite.
-    if (phase !== "done") {
-      const groupMatch = line.match(/##\[group\](.+)/);
-      if (groupMatch) {
-        currentStep = groupMatch[1].trim();
-      }
-    }
-
-    // ── Phase transitions ────────────────────────────────────────────────────
-    // The runner emits phase markers in two ways:
-    //   1. Bare:    "2026-02-19 19:07:47Z: Running job: local-job"
-    //   2. Wrapped: "[RUNNER … INFO Terminal] WRITE LINE: 2026-02-19 … Running job: …"
-    // We always update phase from either form, but only SHOW the bare form.
-    const isRunningJob = /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z: Running job:/.test(line);
-    const jobDoneMatch = line.match(
-      /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z: Job .+ completed with result: (\S+)/,
-    );
-    const isJobDone = jobDoneMatch !== null;
-
-    if (isRunningJob) {
-      phase = "running";
-    }
-    if (jobDoneMatch) {
-      phase = "done";
-      jobResult = jobDoneMatch[1]; // e.g. "Succeeded" or "Failed"
-    }
-
-    // ── Always suppress RUNNER/WORKER INFO and WARN ──────────────────────────
-    if (RUNNER_INFO.test(line)) {
-      return false;
-    }
-    if (RUNNER_WARN.test(line)) {
-      return false;
-    }
-    if (DTU_NOISE.test(line)) {
-      return false;
-    }
-
-    // ── Suppress known-harmless errors ───────────────────────────────────────
-    if (RUNNER_ERR.test(line)) {
-      return !KNOWN_NOISE_ERRORS.some((re) => re.test(line));
-    }
-
-    // ── Phase-gated bare output ──────────────────────────────────────────────
-    // Lines with no [RUNNER/WORKER/DTU/OA] prefix are bare output.
-    const isRunnerPrefixed = /^\[(?:RUNNER|WORKER|DTU|OA)[\s\]]/.test(line);
-    if (!isRunnerPrefixed) {
-      // Phase milestone lines (bare form) are always shown
-      if (isRunningJob || isJobDone) {
-        return true;
-      }
-      // All other bare lines only shown during step execution
-      return phase === "running";
-    }
-
-    return true;
-  }
-
-  /** Returns the result string captured from the "completed with result:" line. */
-  filterLine.getJobResult = () => jobResult;
-  /** Returns the last step name seen (from ##[group] markers). */
-  filterLine.getCurrentStep = () => currentStep;
-
-  return filterLine;
-}
-
-// ─── Helper ───────────────────────────────────────────────────────────────────
-
-/** Format a duration in ms as `Xs` or `Xm Ys`. */
-function formatElapsed(ms: number): string {
-  const s = Math.round(ms / 1000);
-  if (s < 60) {
-    return `${s}s`;
-  }
-  return `${Math.floor(s / 60)}m ${s % 60}s`;
-}
-
-function isDebug(): boolean {
-  const pattern = process.env.DEBUG || "";
-  return (
-    minimatch("machinen:runner", pattern) ||
-    minimatch("machinen:*", pattern) ||
-    minimatch("runner", pattern) ||
-    minimatch("runner:*", pattern)
-  );
-}
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
@@ -192,8 +35,6 @@ const IMAGE = "ghcr.io/actions/actions-runner:latest";
 
 export async function executeLocalJob(job: Job): Promise<JobResult> {
   const startTime = Date.now();
-  const debug = isDebug();
-  const filterLine = makeFilter(debug);
 
   // ── Pre-flight: verify Docker is reachable ────────────────────────────────
   try {
@@ -332,7 +173,7 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
   const spinnerInterval = setInterval(() => {
     const elapsed = Math.round((Date.now() - bootStart) / 1000);
     logUpdate(
-      `  ${spinnerFrames[spinnerIdx++ % spinnerFrames.length]} Setup container (${elapsed}s)`,
+      `  ${spinnerFrames[spinnerIdx++ % spinnerFrames.length]} Starting container (${elapsed}s)`,
     );
   }, 80);
 
@@ -823,13 +664,15 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     if (spinnerInterval) {
       clearInterval(spinnerInterval);
       const bootSec = Math.round((Date.now() - bootStart) / 1000);
-      logUpdate(`  ✓ Setup container (${bootSec}s)`);
+      logUpdate(`  ✓ Starting container (${bootSec}s)`);
       logUpdate.done();
     }
 
     let tailDone = false;
     let lastFailedStep: string | null = null;
     const timelinePath = path.join(logDir, "timeline.json");
+    /** Steps we've already emitted a "starting" line for. */
+    const seenStarted = new Set<string>();
 
     const checkTimeline = () => {
       try {
@@ -845,9 +688,14 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
           return;
         }
 
-        let output = "";
+        // Separate newly-completed steps from in-progress/pending steps.
+        // Completed steps are written permanently via stdout (once).
+        // In-progress/pending steps are redrawn via logUpdate each poll.
+        const newlyCompleted: { name: string; dur: string; result: string }[] = [];
+        let dynamicOutput = "";
 
         for (const r of steps) {
+          const stepKey = r.id ?? r.name;
           let dur = "";
           if (r.startedOn && r.finishedOn) {
             const ms = new Date(r.finishedOn).getTime() - new Date(r.startedOn).getTime();
@@ -856,31 +704,50 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
             }
           }
 
+          // Step hasn't completed yet — add to dynamic output
           if (!r.result && r.state !== "completed") {
             if (r.startedOn) {
               const stepElapsed = Math.round((Date.now() - new Date(r.startedOn).getTime()) / 1000);
               const frame = spinnerFrames[spinnerIdx % spinnerFrames.length];
-              output += `    ${frame} ${r.name} (${stepElapsed}s)\n`;
+              dynamicOutput += `    ${frame} ${r.name} (${stepElapsed}s)\n`;
             } else {
-              output += `    \u25CB ${r.name}\n`;
+              dynamicOutput += `    \u25CB ${r.name}\n`;
             }
             continue;
           }
 
-          const result = (r.result || "").toLowerCase();
-          if (result === "failed") {
-            output += `    \u2717 ${r.name}${dur}\n`;
-            lastFailedStep = r.name;
-          } else if (result === "skipped") {
-            output += `    \u2298 ${r.name}${dur}\n`;
-          } else {
-            output += `    \u2713 ${r.name}${dur}\n`;
+          // Step completed — collect if not already emitted
+          if (!seenStarted.has(stepKey)) {
+            seenStarted.add(stepKey);
+            const result = (r.result || "").toLowerCase();
+            newlyCompleted.push({ name: r.name, dur, result });
+            if (result === "failed") {
+              lastFailedStep = r.name;
+            }
+          }
+          // Already emitted — skip entirely
+        }
+
+        // If we have newly completed steps, clear the dynamic logUpdate content
+        // first, then write the permanent lines, then redraw dynamic lines.
+        if (newlyCompleted.length > 0) {
+          logUpdate.clear();
+          for (const s of newlyCompleted) {
+            if (s.result === "failed") {
+              process.stdout.write(`    \u2717 ${s.name}${s.dur}\n`);
+            } else if (s.result === "skipped") {
+              process.stdout.write(`    \u2298 ${s.name}${s.dur}\n`);
+            } else {
+              process.stdout.write(`    \u2713 ${s.name}${s.dur}\n`);
+            }
           }
         }
 
-        if (output) {
-          output += `\n  ⏱ ${formatElapsed(Date.now() - startTime)}`;
-          logUpdate(output.trimEnd());
+        // Redraw only in-progress/pending steps (overwrites previous dynamic content)
+        if (dynamicOutput) {
+          logUpdate(dynamicOutput.trimEnd());
+        } else {
+          logUpdate.clear();
         }
       } catch {
         // Best-effort
@@ -909,16 +776,7 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
       const rl = createInterface({ input: rawStream, crlfDelay: Infinity });
 
       rl.on("line", (line) => {
-        // Always write raw line to debug.log
         debugStream.write(line + "\n");
-
-        // Write filtered lines to stdout
-        if (filterLine(line)) {
-          const clean = line
-            .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
-            .replace(/^\uFEFF/, "");
-          process.stdout.write(clean + "\n");
-        }
       });
 
       rl.on("close", () => {
@@ -961,17 +819,9 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     }
     const containerExitCode = waitResult.StatusCode;
 
-    // Trust the result reported in the log over the container exit code.
-    const loggedResult = filterLine.getJobResult(); // e.g. "Succeeded", "Failed", or null
-    const jobSucceeded =
-      loggedResult !== null ? loggedResult === "Succeeded" : containerExitCode === 0;
-
-    const icon = jobSucceeded ? "✔" : "✖";
-    const label = jobSucceeded
-      ? "succeeded"
-      : `failed${loggedResult ? ` (result: ${loggedResult})` : ` (exit ${containerExitCode})`}`;
-    emit(`\n  ${icon} Job ${label} in ${formatElapsed(Date.now() - startTime)} · ${containerName}`);
-    emit(`  📄 Debug: file://${debugLogPath}\n`);
+    // Derive job result from timeline: if any step failed, the job failed.
+    // Fall back to container exit code if timeline is unavailable.
+    const jobSucceeded = lastFailedStep === null && containerExitCode === 0;
 
     // Close debug stream now that all lines are written
     await new Promise<void>((resolve) => debugStream.end(resolve));
@@ -1039,8 +889,7 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
       steps,
     };
     if (!jobSucceeded) {
-      const failedStepName = lastFailedStep ?? filterLine.getCurrentStep() ?? undefined;
-      result.failedStep = failedStepName;
+      result.failedStep = lastFailedStep ?? undefined;
       // The container exits with 0 if it successfully reported the job failure,
       // so only use the container exit code if it actually indicates a crash (non-zero).
       result.failedExitCode = containerExitCode !== 0 ? containerExitCode : undefined;
@@ -1049,7 +898,8 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
       // The feed handler writes steps/{recordId}.log (timeline UUID),
       // POST/PUT handlers write steps/{logId}.log (numeric).
       let stepLogTail: string[] | undefined;
-      if (failedStepName) {
+      if (lastFailedStep) {
+        const failedStepName: string = lastFailedStep;
         try {
           const timeline = JSON.parse(fs.readFileSync(timelinePath, "utf-8"));
           const failedRecord = timeline.find(

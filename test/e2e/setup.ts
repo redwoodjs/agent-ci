@@ -6,22 +6,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = path.resolve(__dirname, "../../");
 
 /**
- * Run the supervisor CLI in headless mode against a workflow file.
- * No DTU setup needed — the supervisor spawns its own ephemeral DTU internally.
+ * Run the CLI in headless mode against a workflow file.
+ * No DTU setup needed — the CLI spawns its own ephemeral DTU internally.
  */
-export async function runSupervisor(workflow: string, task: string) {
+export async function runCLI(workflow: string, task: string) {
   const proc = execa(
     "pnpm",
-    ["tsx", "supervisor/src/cli.ts", "run", "--workflow", workflow, "--task", task],
+    ["tsx", "cli/src/cli.ts", "run", "--workflow", workflow, "--task", task],
     {
       cwd: PROJECT_ROOT,
       env: {
         ...process.env,
         GITHUB_REPO: "redwoodjs/machinen",
-        BRIDGE_URL: "http://localhost:8911",
-        BRIDGE_API_KEY: "e2e-key",
-        GITHUB_USERNAME: "e2e-user",
-        GITHUB_WEBHOOK_SECRET: "e2e-secret",
       },
     },
   );
@@ -32,7 +28,7 @@ export async function runSupervisor(workflow: string, task: string) {
   try {
     return await proc;
   } catch (e: any) {
-    console.error(`[E2E] Supervisor failed: ${e.message}`);
+    console.error(`[E2E] CLI failed: ${e.message}`);
     if (e.stdout) {
       console.error(`[E2E] stdout: ${e.stdout}`);
     }

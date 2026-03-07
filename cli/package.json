@@ -1,0 +1,28 @@
+{
+  "name": "cli",
+  "version": "1.0.0",
+  "description": "Local CLI for machinen",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "scripts": {
+    "build": "tsgo",
+    "typecheck": "tsgo",
+    "machinen": "tsx src/cli.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@actions/workflow-parser": "0.3.43",
+    "dockerode": "^4.0.2",
+    "dtu-github-actions": "workspace:*",
+    "minimatch": "^10.2.1",
+    "yaml": "^2.8.2"
+  },
+  "devDependencies": {
+    "@types/dockerode": "^3.3.34",
+    "@types/node": "^22.10.2",
+    "tsx": "^4.21.0",
+    "vitest": "^4.0.18"
+  }
+}

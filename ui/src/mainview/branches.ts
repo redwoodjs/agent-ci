@@ -24,7 +24,7 @@ async function loadBranches() {
     return;
   }
 
-  // Git reads go directly through Electrobun RPC — no supervisor dependency
+  // Git reads go directly through Electrobun RPC — no CLI dependency
   const branches = await rpc.request.getBranches();
   branchesList.innerHTML = "";
   branches.forEach((b, idx) => {

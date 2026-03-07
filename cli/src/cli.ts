@@ -17,17 +17,15 @@ import {
   expandMatrixCombinations,
 } from "./workflow-parser.js";
 import { Job } from "./types.js";
-import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./server/concurrency.js";
+import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./concurrency.js";
+import { isWarmNodeModules, computeLockfileHash } from "./cleanup.js";
+import { getWorkingDirectory } from "./working-directory.js";
+import { pruneOrphanedDockerResources } from "./shutdown.js";
+import { parseJobDependencies, topoSort } from "./job-scheduler.js";
 
 async function run() {
   const args = process.argv.slice(2);
   const command = args[0];
-
-  if (command === "server") {
-    const { startServer } = await import("./server/index.js");
-    startServer();
-    return;
-  }
 
   if (command === "run") {
     // Basic argument parsing
@@ -99,10 +97,9 @@ async function run() {
 }
 
 function printUsage() {
-  console.log("Usage: oa <command> [args]");
+  console.log("Usage: machinen <command> [args]");
   console.log("");
   console.log("Commands:");
-  console.log("  server: Start the long-running continuous integration daemon for the UI");
   console.log(
     "  run [sha] --workflow <path> [--task <name>]: Run a specific workflow (defaults to HEAD)",
   );
@@ -197,7 +194,7 @@ async function handleRun(options: {
     }
 
     // Derive the repo root by walking UP from the workflow file's directory.
-    // This correctly resolves external repos (e.g. sdk) even when the supervisor
+    // This correctly resolves external repos (e.g. sdk) even when the CLI
     // CWD is inside machinen.
     let repoRoot = path.dirname(workflowPath);
     while (repoRoot !== "/" && !fs.existsSync(path.join(repoRoot, ".git"))) {
@@ -341,14 +338,15 @@ async function handleRunAll(options: {
     const yamlFiles = fs
       .readdirSync(workflowsDir)
       .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
-    // Collect relevant jobs and expand matrix strategies.
-    // Each expanded runner is a { workflowPath, taskName, matrixContext } tuple.
+
+    // ── Collect expanded jobs grouped by workflow file ─────────────────────────
     type ExpandedJob = {
       workflowPath: string;
       taskName: string;
       matrixContext?: Record<string, string>;
     };
-    const expandedJobs: ExpandedJob[] = [];
+    // Group by workflow for dependency resolution (needs: is per-workflow)
+    const jobsByWorkflow = new Map<string, ExpandedJob[]>();
 
     for (const file of yamlFiles) {
       const workflowPath = path.join(workflowsDir, file);
@@ -361,13 +359,13 @@ async function handleRunAll(options: {
           if (options.taskName && options.taskName !== id) {
             continue;
           }
-          // Expand matrix strategy (if any)
           const matrixDef = await parseMatrixDef(workflowPath, id);
+          const expandedForJob: ExpandedJob[] = [];
           if (matrixDef) {
             const combos = expandMatrixCombinations(matrixDef);
             const total = combos.length;
             for (let ci = 0; ci < combos.length; ci++) {
-              expandedJobs.push({
+              expandedForJob.push({
                 workflowPath,
                 taskName: id,
                 matrixContext: {
@@ -378,86 +376,180 @@ async function handleRunAll(options: {
               });
             }
           } else {
-            expandedJobs.push({ workflowPath, taskName: id });
+            expandedForJob.push({ workflowPath, taskName: id });
           }
+          const existing = jobsByWorkflow.get(workflowPath) ?? [];
+          existing.push(...expandedForJob);
+          jobsByWorkflow.set(workflowPath, existing);
         }
       }
     }
 
-    if (expandedJobs.length === 0) {
+    // Flatten for total count
+    const allExpandedJobs = Array.from(jobsByWorkflow.values()).flat();
+    if (allExpandedJobs.length === 0) {
       console.log("[Machinen] No relevant workflows found for the current branch/triggers.");
       return;
     }
 
     const maxJobs = options.concurrency ?? getDefaultMaxConcurrentJobs();
     console.log(
-      `[Machinen] Found ${expandedJobs.length} runner(s) to launch (concurrency: ${maxJobs}).`,
+      `[Machinen] Found ${allExpandedJobs.length} runner(s) to launch (concurrency: ${maxJobs}).`,
     );
+
+    // ── Warm-cache check ────────────────────────────────────────────────────────
+    const repoSlug = githubRepo.replace("/", "-");
+    let lockfileHash = "no-lockfile";
+    try {
+      lockfileHash = computeLockfileHash(repoRoot);
+    } catch {}
+    const warmModulesDir = path.resolve(
+      getWorkingDirectory(),
+      "cache",
+      "warm-modules",
+      repoSlug,
+      lockfileHash,
+    );
+    let warm = isWarmNodeModules(warmModulesDir);
+
+    // Naming convention: machinen-<N>[-j<idx>][-m<shardIdx>]
+    const isMultiRunner = allExpandedJobs.length > 1;
+    const baseRunNum = getNextLogNum("machinen");
+    let globalIdx = 0;
+
+    const buildJob = (ej: ExpandedJob): Job => {
+      const { workflowPath, taskName, matrixContext } = ej;
+      const secrets = loadMachineSecrets(repoRoot);
+      const secretsFilePath = path.join(repoRoot, ".env.machinen");
+      validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
+
+      const idx = globalIdx++;
+      let derivedRunnerName = options.runnerName;
+      if (!derivedRunnerName) {
+        let suffix = "";
+        if (isMultiRunner) {
+          suffix += `-j${idx + 1}`;
+        }
+        if (matrixContext) {
+          const shardIdx = parseInt(matrixContext.__job_index ?? "0", 10) + 1;
+          suffix += `-m${shardIdx}`;
+        }
+        derivedRunnerName = `machinen-${baseRunNum}${suffix}`;
+      }
+
+      return {
+        deliveryId: `local-run-${Date.now()}`,
+        eventType: "workflow_job",
+        githubJobId: Math.floor(Math.random() * 1000000).toString(),
+        githubRepo: githubRepo,
+        githubToken: "mock_token",
+        headSha: headSha,
+        shaRef: shaRef,
+        env: {
+          MACHINEN_LOCAL: "true",
+        },
+        repository: {
+          name: name,
+          full_name: githubRepo,
+          owner: { login: owner },
+          default_branch: "main",
+        },
+        runnerName: derivedRunnerName,
+        steps: undefined as any,
+        services: undefined as any,
+        container: undefined,
+        workflowPath,
+      };
+    };
+
+    const runJob = async (ej: ExpandedJob) => {
+      const { workflowPath, taskName, matrixContext } = ej;
+      console.log(
+        `[Machinen] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""} ---`,
+      );
+      const secrets = loadMachineSecrets(repoRoot);
+      const secretsFilePath = path.join(repoRoot, ".env.machinen");
+      validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
+      const steps = await parseWorkflowSteps(workflowPath, taskName, secrets, matrixContext);
+      const services = await parseWorkflowServices(workflowPath, taskName);
+      const container = await parseWorkflowContainer(workflowPath, taskName);
+
+      const job = buildJob(ej);
+      job.steps = steps;
+      job.services = services;
+      job.container = container ?? undefined;
+
+      await executeLocalJob(job);
+    };
+
+    // ── Prune orphaned Docker resources before launching ──────────────────────
+    pruneOrphanedDockerResources();
 
     const limiter = createConcurrencyLimiter(maxJobs);
-    // Naming convention: machinen-<N>[-j<idx>][-m<shardIdx>]
-    // All jobs share the same base run number (workflowRunId = machinen-<N>).
-    const isMultiRunner = expandedJobs.length > 1;
-    const baseRunNum = getNextLogNum("machinen");
-    const results = await Promise.allSettled(
-      expandedJobs.map(({ workflowPath, taskName, matrixContext }, idx) =>
-        limiter.run(async () => {
+    let totalFailures = 0;
+
+    // ── Execute each workflow with dependency-aware wave scheduling ────────────
+    for (const [workflowPath, wfJobs] of jobsByWorkflow) {
+      // Resolve job dependencies (needs:) into waves
+      const deps = parseJobDependencies(workflowPath);
+      const waves = topoSort(deps);
+
+      // Filter waves to only include jobs that are in our expanded set
+      const taskNamesInWf = new Set(wfJobs.map((j) => j.taskName));
+      const filteredWaves = waves
+        .map((wave) => wave.filter((jobId) => taskNamesInWf.has(jobId)))
+        .filter((wave) => wave.length > 0);
+
+      if (filteredWaves.length === 0) {
+        // No dependency structure — run all jobs from this workflow as one wave
+        filteredWaves.push(Array.from(taskNamesInWf));
+      }
+
+      for (let wi = 0; wi < filteredWaves.length; wi++) {
+        const waveJobIds = new Set(filteredWaves[wi]);
+        const waveJobs = wfJobs.filter((j) => waveJobIds.has(j.taskName));
+
+        if (waveJobs.length === 0) {
+          continue;
+        }
+
+        if (filteredWaves.length > 1) {
           console.log(
-            `[Machinen] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""} ---`,
+            `[Machinen] Wave ${wi + 1}/${filteredWaves.length}: [${filteredWaves[wi].join(", ")}]`,
           );
-          const secrets = loadMachineSecrets(repoRoot);
-          const secretsFilePath = path.join(repoRoot, ".env.machinen");
-          validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
-          const steps = await parseWorkflowSteps(workflowPath, taskName, secrets, matrixContext);
-          const services = await parseWorkflowServices(workflowPath, taskName);
-          const container = await parseWorkflowContainer(workflowPath, taskName);
+        }
 
-          // Build runner name: machinen-<N>[-j<idx>][-m<shardIdx>]
-          let derivedRunnerName = options.runnerName;
-          if (!derivedRunnerName) {
-            let suffix = "";
-            if (isMultiRunner) {
-              suffix += `-j${idx + 1}`;
-            }
-            if (matrixContext) {
-              const shardIdx = parseInt(matrixContext.__job_index ?? "0", 10) + 1;
-              suffix += `-m${shardIdx}`;
-            }
-            derivedRunnerName = `machinen-${baseRunNum}${suffix}`;
-          }
+        // ── Warm-cache serialization for the first wave ─────────────────────
+        if (!warm && wi === 0 && waveJobs.length > 1) {
+          console.log("[Machinen] Cold cache — running first job to populate warm modules...");
+          await runJob(waveJobs[0]);
 
-          const job: Job = {
-            deliveryId: `local-run-${Date.now()}`,
-            eventType: "workflow_job",
-            githubJobId: Math.floor(Math.random() * 1000000).toString(),
-            githubRepo: githubRepo,
-            githubToken: "mock_token",
-            headSha: headSha,
-            shaRef: shaRef,
-            env: {
-              MACHINEN_LOCAL: "true",
-            },
-            repository: {
-              name: name,
-              full_name: githubRepo,
-              owner: { login: owner },
-              default_branch: "main",
-            },
-            runnerName: derivedRunnerName,
-            steps,
-            services,
-            container: container ?? undefined,
-            workflowPath,
-          };
+          const rest = waveJobs.slice(1);
+          const results = await Promise.allSettled(rest.map((ej) => limiter.run(() => runJob(ej))));
+          const failures = results.filter((r) => r.status === "rejected");
+          totalFailures += failures.length;
+          // Mark cache as warm for subsequent waves
+          warm = true;
+        } else {
+          const results = await Promise.allSettled(
+            waveJobs.map((ej) => limiter.run(() => runJob(ej))),
+          );
+          const failures = results.filter((r) => r.status === "rejected");
+          totalFailures += failures.length;
+        }
 
-          await executeLocalJob(job);
-        }),
-      ),
-    );
+        // If any job in this wave failed, abort remaining waves for this workflow
+        if (totalFailures > 0 && wi < filteredWaves.length - 1) {
+          console.error(
+            `[Machinen] Wave ${wi + 1} had failures — aborting remaining waves for ${path.basename(workflowPath)}`,
+          );
+          break;
+        }
+      }
+    }
 
-    const failures = results.filter((r) => r.status === "rejected");
-    if (failures.length > 0) {
-      console.error(`[Machinen] ${failures.length}/${results.length} job(s) failed.`);
+    if (totalFailures > 0) {
+      console.error(`[Machinen] ${totalFailures}/${allExpandedJobs.length} job(s) failed.`);
       process.exit(1);
     }
   } catch (error) {

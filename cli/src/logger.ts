@@ -3,16 +3,8 @@ import fs from "fs";
 import { getWorkingDirectory } from "./working-directory.js";
 
 /** Root of all run directories: `<workingDir>/runs/` */
-export function getRunsDir(): string {
+function getRunsDir(): string {
   return path.join(getWorkingDirectory(), "runs");
-}
-
-/**
- * @deprecated use getRunsDir() + runnerName for the per-run log directory.
- * Kept for the supervisor.log placement only.
- */
-export function getLogsDir(): string {
-  return path.join(getWorkingDirectory(), "logs");
 }
 
 export function ensureLogDirs(): void {

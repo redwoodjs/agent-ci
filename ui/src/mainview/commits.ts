@@ -601,7 +601,7 @@ async function loadCommits() {
 
   list.innerHTML = `<div style="color: var(--text-secondary); text-align: center; padding: 32px">Loading...</div>`;
 
-  // Git reads go directly through Electrobun RPC — no supervisor dependency
+  // Git reads go directly through Electrobun RPC — no CLI dependency
   const [commits, branches] = await Promise.all([
     rpc.request.getCommits({ branch: branchName }),
     rpc.request.getBranches(),

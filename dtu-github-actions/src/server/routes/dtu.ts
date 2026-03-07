@@ -68,7 +68,7 @@ export function registerDtuRoutes(app: Polka) {
             planId,
           );
 
-          // Map timelineId → runner's timeline dir (supervisor logs dir)
+          // Map timelineId → runner's timeline dir (CLI logs dir)
           try {
             const jobBody = JSON.parse(jobResponse.Body);
             const timelineId = jobBody?.Timeline?.Id;
@@ -123,7 +123,7 @@ export function registerDtuRoutes(app: Polka) {
 
         // Register this runner mapping so we can route logs later
         state.runnerLogs.set(runnerName, logDir);
-        // Also store the timeline dir (supervisor's logs dir) for this runner
+        // Also store the timeline dir (CLI's logs dir) for this runner
         if (timelineDir) {
           state.runnerTimelineDirs.set(runnerName, timelineDir);
         }

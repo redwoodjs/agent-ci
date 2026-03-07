@@ -181,9 +181,8 @@ const IMAGE = "ghcr.io/actions/actions-runner:latest";
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export async function executeLocalJob(job: Job, options?: { quiet?: boolean }): Promise<JobResult> {
+export async function executeLocalJob(job: Job): Promise<JobResult> {
   const startTime = Date.now();
-  const quiet = options?.quiet ?? false;
   const debug = isDebug();
   const filterLine = makeFilter(debug);
 
@@ -312,9 +311,7 @@ export async function executeLocalJob(job: Job, options?: { quiet?: boolean }): 
   const debugStream = fs.createWriteStream(debugLogPath);
   /** Write a line to stdout. */
   const emit = (line: string) => {
-    if (!quiet) {
-      process.stdout.write(line + "\n");
-    }
+    process.stdout.write(line + "\n");
   };
 
   // ── Compact job header ──────────────────────────────────────────────────────
@@ -325,9 +322,20 @@ export async function executeLocalJob(job: Job, options?: { quiet?: boolean }): 
   emit(`\n  ┌─ Job: ${job.githubRepo}${shortSha}`);
   if (job.steps?.length) {
     const names = job.steps.map((s: any) => s.Name || s.name).join(", ");
-    emit(`  │  Steps: ${names}`);
+    emit(`  └─ Steps: ${names}`);
+  } else {
+    emit(`  └─`);
   }
-  emit(`  └─ Delivery: ${job.deliveryId}\n`);
+  emit("");
+
+  // ── Preflight spinner ────────────────────────────────────────────────────
+  // Shows an animated spinner during the silent setup phase (DTU, workspace
+  // copy, container creation/start) so the user knows work is happening.
+  const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+  let spinnerIdx = 0;
+  const spinnerInterval = setInterval(() => {
+    logUpdate(`  ${spinnerFrames[spinnerIdx++ % spinnerFrames.length]} Preparing environment...`);
+  }, 80);
 
   // Per-run dirs (work, shims, diag) are now co-located under the run's directory.
   // This lets cleanup be a single `rm -rf <runDir>` removing everything for that run.
@@ -435,7 +443,7 @@ export async function executeLocalJob(job: Job, options?: { quiet?: boolean }): 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: job.githubJobId || "1",
-        name: "local-job",
+        name: "job",
         status: "queued",
         localPath: workspaceDir,
         ...job,
@@ -812,6 +820,13 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     // Tail step-output.log written by the DTU during job execution.
     // Also poll timeline.json for real-time step progress (top-level steps only).
     // Runs in parallel with container log streaming; stops once container exits.
+    // ── Preflight complete — stop spinner before step-list UI takes over ──
+    if (spinnerInterval) {
+      clearInterval(spinnerInterval);
+      logUpdate(`  ✓ Environment ready`);
+      logUpdate.done();
+    }
+
     let tailDone = false;
     let lastFailedStep: string | null = null;
     const timelinePath = path.join(logDir, "timeline.json");
@@ -952,9 +967,7 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
           const clean = line
             .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
             .replace(/^\uFEFF/, "");
-          if (!quiet) {
-            process.stdout.write(clean + "\n");
-          }
+          process.stdout.write(clean + "\n");
         }
       });
 
@@ -1131,6 +1144,11 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     }
     return result;
   } finally {
+    // Always stop the preflight spinner if it's still running (e.g. error during setup)
+    if (spinnerInterval) {
+      clearInterval(spinnerInterval);
+      logUpdate.clear();
+    }
     // Always deregister signal handlers, even if an error was thrown before the
     // normal completion path (e.g. seed failure, container start failure).
     process.removeListener("SIGINT", signalCleanup);

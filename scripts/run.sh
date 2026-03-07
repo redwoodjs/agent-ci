@@ -3,9 +3,9 @@
 # Unified run command for machinen.
 #
 # Usage:
-#   ./scripts/run.sh                          # Headless: run all workflows via supervisor
+#   ./scripts/run.sh                          # Headless: run all workflows via CLI
 #   ./scripts/run.sh --ui                     # Boot the Electrobun UI
-#   ./scripts/run.sh -w ci.yml -j test        # Pass flags through to the supervisor CLI
+#   ./scripts/run.sh -w ci.yml -j test        # Pass flags through to the CLI
 #
 
 set -euo pipefail
@@ -28,11 +28,11 @@ if [ "$UI_MODE" = true ]; then
   cd "$REPO_ROOT/ui"
   exec pnpm run dev
 else
-  # Default: headless supervisor
+  # Default: headless CLI
   # If no flags are provided, default to --all
   if [ ${#PASSTHROUGH_ARGS[@]} -eq 0 ]; then
     PASSTHROUGH_ARGS=("--all")
   fi
-  cd "$REPO_ROOT/supervisor"
+  cd "$REPO_ROOT/cli"
   exec pnpm run machinen run "${PASSTHROUGH_ARGS[@]}"
 fi

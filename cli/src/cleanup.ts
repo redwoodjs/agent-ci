@@ -116,13 +116,62 @@ export function computeLockfileHash(repoRoot: string): string {
 }
 
 /**
- * Check whether a warm node_modules directory is populated (non-empty).
+ * Check whether a warm node_modules directory is populated AND intact.
  * Used by the wave scheduler to decide whether to serialize the first job.
+ *
+ * A cache is considered warm only if:
+ *   1. The directory exists and is non-empty
+ *   2. `.modules.yaml` exists (pnpm writes this only after a successful install)
+ *
+ * A non-empty directory WITHOUT `.modules.yaml` indicates an interrupted install
+ * (e.g. a killed container mid-pnpm-install) and is treated as cold/broken.
  */
 export function isWarmNodeModules(warmDir: string): boolean {
   try {
-    return fs.existsSync(warmDir) && fs.readdirSync(warmDir).length > 0;
+    if (!fs.existsSync(warmDir)) {
+      return false;
+    }
+    const entries = fs.readdirSync(warmDir);
+    if (entries.length === 0) {
+      return false;
+    }
+    // .modules.yaml is pnpm's sentinel — written at the end of a successful install.
+    // If it's missing, the cache is incomplete/corrupted.
+    return fs.existsSync(path.join(warmDir, ".modules.yaml"));
   } catch {
     return false;
+  }
+}
+
+/**
+ * Detect and repair a corrupted warm cache directory.
+ * A cache is corrupt if it has files but is missing `.modules.yaml`
+ * (pnpm's install-completion sentinel).
+ *
+ * When corruption is detected, the directory is deleted and recreated empty
+ * so the next pnpm install starts from scratch.
+ *
+ * @returns `"repaired"` if a broken cache was nuked, `"warm"` if the cache
+ *          is healthy, or `"cold"` if it was already empty/missing.
+ */
+export function repairWarmCache(warmDir: string): "repaired" | "warm" | "cold" {
+  try {
+    if (!fs.existsSync(warmDir)) {
+      return "cold";
+    }
+    const entries = fs.readdirSync(warmDir);
+    if (entries.length === 0) {
+      return "cold";
+    }
+    // If .modules.yaml exists, pnpm finished successfully — cache is healthy.
+    if (fs.existsSync(path.join(warmDir, ".modules.yaml"))) {
+      return "warm";
+    }
+    // Non-empty but no sentinel → interrupted install. Nuke and recreate.
+    fs.rmSync(warmDir, { recursive: true, force: true });
+    fs.mkdirSync(warmDir, { recursive: true, mode: 0o777 });
+    return "repaired";
+  } catch {
+    return "cold";
   }
 }

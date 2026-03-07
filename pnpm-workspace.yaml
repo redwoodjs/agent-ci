@@ -1,5 +1,5 @@
 packages:
-  - "supervisor"
+  - "cli"
   - "dtu-github-actions"
   - "ui"
   - "derive"

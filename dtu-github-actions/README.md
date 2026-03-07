@@ -4,7 +4,7 @@ This is a TypeScript package that provides tools and mocks to simulate GitHub Ac
 
 ## Purpose
 
-The DTU allows developers to run and test the `bridge` and `supervisor` integration without deploying to GitHub. It mirrors GitHub's REST API and handles webhook simulation.
+The DTU allows developers to run and test the `bridge` and `cli` integration without deploying to GitHub. It mirrors GitHub's REST API and handles webhook simulation.
 
 ## Setup
 

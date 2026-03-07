@@ -246,7 +246,7 @@ export function registerActionRoutes(app: Polka) {
         }
 
         const response = createJobResponse(jobId, jobData, baseUrl, planId);
-        // Map timelineId → runner's timeline dir (supervisor's _/logs/<runnerName>/)
+        // Map timelineId → runner's timeline dir (CLI's _/logs/<runnerName>/)
         try {
           const jobBody = JSON.parse(response.Body);
           const timelineId = jobBody?.Timeline?.Id;

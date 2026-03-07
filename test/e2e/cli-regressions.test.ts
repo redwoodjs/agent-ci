@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { runSupervisor, PROJECT_ROOT } from "./setup.js";
+import { runCLI, PROJECT_ROOT } from "./setup.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -9,7 +9,7 @@ const CONTAINER_WORKFLOW = path.resolve(PROJECT_ROOT, "test/fixtures/container-t
 const runsDir = path.join(os.tmpdir(), "machinen", path.basename(PROJECT_ROOT), "runs");
 
 /**
- * Extract the runner name from supervisor stdout.
+ * Extract the runner name from CLI stdout.
  * Convention: `machinen-<slug>-<N>` (possibly with -j/-m suffixes).
  */
 function extractRunnerName(stdout: string): string {
@@ -34,9 +34,9 @@ function readOutputLog(runnerName: string): string {
   return fs.readFileSync(logPath, "utf8");
 }
 
-describe("Supervisor E2E Regressions", () => {
+describe("CLI E2E Regressions", () => {
   it("should run the smoke build job and exit correctly", async () => {
-    const result = await runSupervisor(SMOKE_WORKFLOW, "build");
+    const result = await runCLI(SMOKE_WORKFLOW, "build");
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Job succeeded");
@@ -60,12 +60,12 @@ describe("Supervisor E2E Regressions", () => {
         : 0;
 
     const before = countRuns();
-    await runSupervisor(SMOKE_WORKFLOW, "build");
+    await runCLI(SMOKE_WORKFLOW, "build");
     expect(countRuns()).toBeGreaterThan(before);
   }, 90000);
 
   it("should write and restore cache via actions/cache", async () => {
-    const result = await runSupervisor(SMOKE_WORKFLOW, "build");
+    const result = await runCLI(SMOKE_WORKFLOW, "build");
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Job succeeded");
@@ -76,7 +76,7 @@ describe("Supervisor E2E Regressions", () => {
   }, 90000);
 
   it("should upload an artifact via actions/upload-artifact", async () => {
-    const result = await runSupervisor(SMOKE_WORKFLOW, "build");
+    const result = await runCLI(SMOKE_WORKFLOW, "build");
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Job succeeded");
@@ -86,7 +86,7 @@ describe("Supervisor E2E Regressions", () => {
   }, 90000);
 
   it("should run job steps inside the specified container image", async () => {
-    const result = await runSupervisor(CONTAINER_WORKFLOW, "test");
+    const result = await runCLI(CONTAINER_WORKFLOW, "test");
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Job succeeded");

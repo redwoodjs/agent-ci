@@ -1,7 +1,7 @@
 import { execSync } from "child_process";
-import { copyWorkspace } from "./cleanup.js";
+import { copyWorkspace } from "../output/cleanup.js";
 import { findRepoRoot } from "./metadata.js";
-import { config } from "./config.js";
+import { config } from "../config.js";
 
 // ─── Workspace preparation ────────────────────────────────────────────────────
 

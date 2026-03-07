@@ -3,20 +3,20 @@ import path from "path";
 import fs from "fs";
 import { execSync } from "child_process";
 import { createInterface } from "readline";
-import { config } from "./config.js";
-import { Job } from "./types.js";
-import { createLogContext } from "./logger.js";
-import { getWorkingDirectory } from "./working-directory.js";
+import { config } from "../config.js";
+import { Job } from "../types.js";
+import { createLogContext } from "../output/logger.js";
+import { getWorkingDirectory } from "../output/working-directory.js";
 
-import { debugRunner } from "./debug.js";
+import { debugRunner } from "../output/debug.js";
 import {
   startServiceContainers,
   cleanupServiceContainers,
   type ServiceContext,
-} from "./service-containers.js";
-import { killRunnerContainers } from "./shutdown.js";
+} from "../docker/service-containers.js";
+import { killRunnerContainers } from "../docker/shutdown.js";
 import { startEphemeralDtu } from "dtu-github-actions/src/ephemeral.js";
-import { type JobResult } from "./reporter.js";
+import { type JobResult } from "../output/reporter.js";
 import logUpdate from "log-update";
 
 import { writeJobMetadata } from "./metadata.js";
@@ -29,7 +29,7 @@ import {
   buildContainerCmd,
   resolveDtuHost,
   resolveDockerApiUrl,
-} from "./container-config.js";
+} from "../docker/container-config.js";
 import { buildJobResult } from "./result-builder.js";
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────

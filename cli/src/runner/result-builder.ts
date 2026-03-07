@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import { type JobResult, type StepResult, tailLogFile } from "./reporter.js";
+import { type JobResult, type StepResult, tailLogFile } from "../output/reporter.js";
 
 // ─── Timeline parsing ─────────────────────────────────────────────────────────
 

@@ -2,11 +2,15 @@ import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { config, loadMachineSecrets } from "./config.js";
-import { getNextLogNum } from "./logger.js";
-import { setWorkingDirectory, DEFAULT_WORKING_DIR, PROJECT_ROOT } from "./working-directory.js";
-import { debugCli } from "./debug.js";
+import { getNextLogNum } from "./output/logger.js";
+import {
+  setWorkingDirectory,
+  DEFAULT_WORKING_DIR,
+  PROJECT_ROOT,
+} from "./output/working-directory.js";
+import { debugCli } from "./output/debug.js";
 
-import { executeLocalJob } from "./local-job.js";
+import { executeLocalJob } from "./runner/local-job.js";
 import {
   getWorkflowTemplate,
   parseWorkflowSteps,
@@ -16,14 +20,19 @@ import {
   validateSecrets,
   parseMatrixDef,
   expandMatrixCombinations,
-} from "./workflow-parser.js";
+} from "./workflow/workflow-parser.js";
 import { Job } from "./types.js";
-import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./concurrency.js";
-import { isWarmNodeModules, computeLockfileHash } from "./cleanup.js";
-import { getWorkingDirectory } from "./working-directory.js";
-import { pruneOrphanedDockerResources } from "./shutdown.js";
-import { parseJobDependencies, topoSort } from "./job-scheduler.js";
-import { printJobStatus, printJobStarted, printSummary, type JobResult } from "./reporter.js";
+import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
+import { isWarmNodeModules, computeLockfileHash } from "./output/cleanup.js";
+import { getWorkingDirectory } from "./output/working-directory.js";
+import { pruneOrphanedDockerResources } from "./docker/shutdown.js";
+import { parseJobDependencies, topoSort } from "./workflow/job-scheduler.js";
+import {
+  printJobStatus,
+  printJobStarted,
+  printSummary,
+  type JobResult,
+} from "./output/reporter.js";
 
 async function run() {
   const args = process.argv.slice(2);

@@ -4,7 +4,7 @@ import {
   cleanupServiceContainers,
   parseHealthCheck,
 } from "./service-containers.js";
-import type { WorkflowService } from "./workflow-parser.js";
+import type { WorkflowService } from "../workflow/workflow-parser.js";
 
 // ─── Mock Docker client ───────────────────────────────────────────────────────
 

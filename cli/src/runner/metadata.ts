@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import { Job } from "./types.js";
+import { Job } from "../types.js";
 
 // ─── Repo root detection ──────────────────────────────────────────────────────
 

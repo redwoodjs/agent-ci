@@ -1,5 +1,5 @@
 import Docker from "dockerode";
-import type { WorkflowService } from "./workflow-parser.js";
+import type { WorkflowService } from "../workflow/workflow-parser.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

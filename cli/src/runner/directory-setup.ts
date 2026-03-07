@@ -1,10 +1,10 @@
 import path from "path";
 import fs from "fs";
-import { getWorkingDirectory } from "./working-directory.js";
-import { computeLockfileHash, repairWarmCache } from "./cleanup.js";
-import { config } from "./config.js";
+import { getWorkingDirectory } from "../output/working-directory.js";
+import { computeLockfileHash, repairWarmCache } from "../output/cleanup.js";
+import { config } from "../config.js";
 import { findRepoRoot } from "./metadata.js";
-import { debugRunner } from "./debug.js";
+import { debugRunner } from "../output/debug.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

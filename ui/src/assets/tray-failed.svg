@@ -1,4 +1,0 @@
-<svg width="128" height="128" xmlns="http://www.w3.org/2000/svg">
-  <circle cx="64" cy="64" r="44" stroke="white" stroke-width="12" fill="none"/>
-  <path d="M44 44 l40 40 M84 44 l-40 40" stroke="white" stroke-width="12" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>

@@ -158,6 +158,15 @@ function makeFilter(debug: boolean) {
 
 // ─── Helper ───────────────────────────────────────────────────────────────────
 
+/** Format a duration in ms as `Xs` or `Xm Ys`. */
+function formatElapsed(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) {
+    return `${s}s`;
+  }
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
+}
+
 function isDebug(): boolean {
   const pattern = process.env.DEBUG || "";
   return (
@@ -314,27 +323,17 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
     process.stdout.write(line + "\n");
   };
 
-  // ── Compact job header ──────────────────────────────────────────────────────
-  const shortSha = job.headSha ? ` (${job.headSha.substring(0, 7)})` : "";
-  emit(
-    `\n  Using: ${job.headSha ? `SHA ${job.headSha} (${job.shaRef ?? "HEAD"})` : "working directory (dirty files included)"} · ${containerName}`,
-  );
-  emit(`\n  ┌─ Job: ${job.githubRepo}${shortSha}`);
-  if (job.steps?.length) {
-    const names = job.steps.map((s: any) => s.Name || s.name).join(", ");
-    emit(`  └─ Steps: ${names}`);
-  } else {
-    emit(`  └─`);
-  }
-  emit("");
-
   // ── Preflight spinner ────────────────────────────────────────────────────
   // Shows an animated spinner during the silent setup phase (DTU, workspace
   // copy, container creation/start) so the user knows work is happening.
   const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   let spinnerIdx = 0;
+  const bootStart = Date.now();
   const spinnerInterval = setInterval(() => {
-    logUpdate(`  ${spinnerFrames[spinnerIdx++ % spinnerFrames.length]} Preparing environment...`);
+    const elapsed = Math.round((Date.now() - bootStart) / 1000);
+    logUpdate(
+      `  ${spinnerFrames[spinnerIdx++ % spinnerFrames.length]} Setup container (${elapsed}s)`,
+    );
   }, 80);
 
   // Per-run dirs (work, shims, diag) are now co-located under the run's directory.
@@ -823,7 +822,8 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     // ── Preflight complete — stop spinner before step-list UI takes over ──
     if (spinnerInterval) {
       clearInterval(spinnerInterval);
-      logUpdate(`  ✓ Environment ready`);
+      const bootSec = Math.round((Date.now() - bootStart) / 1000);
+      logUpdate(`  ✓ Setup container (${bootSec}s)`);
       logUpdate.done();
     }
 
@@ -831,40 +831,23 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     let lastFailedStep: string | null = null;
     const timelinePath = path.join(logDir, "timeline.json");
 
-    const expectedSteps = [
-      { order: 1, name: "Set up job" },
-      // job.steps are parsed and seeded; the runner adds them starting at order=3
-      ...(job.steps || []).map((s: any, idx: number) => ({
-        order: idx + 3,
-        name: s.DisplayName || s.Name || "Run step",
-      })),
-      // we'll use a large order number for "Complete job" to keep it at the end
-      { order: 9999, name: "Complete job" },
-    ];
-
     const checkTimeline = () => {
       try {
-        let records: any[] = [];
-        if (fs.existsSync(timelinePath)) {
-          records = JSON.parse(fs.readFileSync(timelinePath, "utf-8"));
-          records = records.filter((r) => r.type === "Task" && r.name);
-          records.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        if (!fs.existsSync(timelinePath)) {
+          return;
+        }
+        const records: any[] = JSON.parse(fs.readFileSync(timelinePath, "utf-8"));
+        const steps = records
+          .filter((r) => r.type === "Task" && r.name)
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+
+        if (steps.length === 0) {
+          return;
         }
 
-        const renderedNames = new Set<string>();
         let output = "";
 
-        const renderStep = (displayName: string, r: any | undefined) => {
-          if (renderedNames.has(displayName)) {
-            return;
-          }
-          renderedNames.add(displayName);
-
-          if (!r) {
-            output += `    \u25CB ${displayName}\n`;
-            return;
-          }
-
+        for (const r of steps) {
           let dur = "";
           if (r.startedOn && r.finishedOn) {
             const ms = new Date(r.finishedOn).getTime() - new Date(r.startedOn).getTime();
@@ -875,62 +858,28 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
 
           if (!r.result && r.state !== "completed") {
             if (r.startedOn) {
-              output += `    \u25CF ${displayName}\n`;
+              const stepElapsed = Math.round((Date.now() - new Date(r.startedOn).getTime()) / 1000);
+              const frame = spinnerFrames[spinnerIdx % spinnerFrames.length];
+              output += `    ${frame} ${r.name} (${stepElapsed}s)\n`;
             } else {
-              output += `    \u25CB ${displayName}\n`;
+              output += `    \u25CB ${r.name}\n`;
             }
-            return;
+            continue;
           }
 
           const result = (r.result || "").toLowerCase();
           if (result === "failed") {
-            output += `    \u2717 ${displayName}${dur}\n`;
-            lastFailedStep = displayName;
+            output += `    \u2717 ${r.name}${dur}\n`;
+            lastFailedStep = r.name;
           } else if (result === "skipped") {
-            output += `    \u2298 ${displayName}${dur}\n`;
+            output += `    \u2298 ${r.name}${dur}\n`;
           } else {
-            output += `    \u2713 ${displayName}${dur}\n`;
+            output += `    \u2713 ${r.name}${dur}\n`;
           }
-        };
-
-        // We want to print steps in order. `records` has the actual execution data.
-        // `expectedSteps` has the skeleton.
-        // Map available records by order.
-        const recordsByOrder = new Map<number, any>();
-        for (const r of records) {
-          recordsByOrder.set(r.order, r);
-        }
-
-        // We'll iterate through all known orders (expected + dynamic).
-        const allOrders = new Set([
-          ...expectedSteps.map((e) => e.order),
-          ...records.map((r) => r.order),
-        ]);
-        const sortedOrders = Array.from(allOrders).sort((a, b) => a - b);
-
-        for (const order of sortedOrders) {
-          const record = recordsByOrder.get(order);
-          const expected = expectedSteps.find((e) => e.order === order);
-
-          let displayName = "";
-          if (record) {
-            displayName = record.name;
-            if (displayName === "Initialize job") {
-              displayName = "Set up job";
-            }
-            if (displayName === "Finalize job") {
-              displayName = "Complete job";
-            }
-          } else if (expected) {
-            displayName = expected.name;
-          } else {
-            continue; // Shouldn't happen
-          }
-
-          renderStep(displayName, record);
         }
 
         if (output) {
+          output += `\n  ⏱ ${formatElapsed(Date.now() - startTime)}`;
           logUpdate(output.trimEnd());
         }
       } catch {
@@ -940,6 +889,7 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
 
     const pollPromise = (async () => {
       while (!tailDone) {
+        spinnerIdx++;
         checkTimeline();
         await new Promise((r) => setTimeout(r, 100));
       }
@@ -1020,7 +970,7 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     const label = jobSucceeded
       ? "succeeded"
       : `failed${loggedResult ? ` (result: ${loggedResult})` : ` (exit ${containerExitCode})`}`;
-    emit(`\n  ${icon} Job ${label} · ${containerName}`);
+    emit(`\n  ${icon} Job ${label} in ${formatElapsed(Date.now() - startTime)} · ${containerName}`);
     emit(`  📄 Debug: file://${debugLogPath}\n`);
 
     // Close debug stream now that all lines are written

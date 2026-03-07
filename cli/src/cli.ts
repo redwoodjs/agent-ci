@@ -4,6 +4,7 @@ import fs from "fs";
 import { config, loadMachineSecrets } from "./config.js";
 import { getNextLogNum } from "./logger.js";
 import { setWorkingDirectory, DEFAULT_WORKING_DIR, PROJECT_ROOT } from "./working-directory.js";
+import { debugCli } from "./debug.js";
 
 import { executeLocalJob } from "./local-job.js";
 import {
@@ -22,6 +23,7 @@ import { isWarmNodeModules, computeLockfileHash } from "./cleanup.js";
 import { getWorkingDirectory } from "./working-directory.js";
 import { pruneOrphanedDockerResources } from "./shutdown.js";
 import { parseJobDependencies, topoSort } from "./job-scheduler.js";
+import { printJobStatus, printJobStarted, printSummary, type JobResult } from "./reporter.js";
 
 async function run() {
   const args = process.argv.slice(2);
@@ -134,7 +136,7 @@ function resolveRepoInfo(repoRoot: string) {
       githubRepo = match[1];
     }
   } catch {
-    console.warn("[Machinen] Could not detect remote 'origin', using config default.");
+    debugCli("Could not detect remote 'origin', using config default.");
   }
   return githubRepo;
 }
@@ -260,7 +262,7 @@ async function handleRun(options: {
       try {
         matrixContext = JSON.parse(matrixJson);
       } catch {
-        console.warn("[Machinen] Warning: --matrix value is not valid JSON, ignoring.");
+        debugCli("Warning: --matrix value is not valid JSON, ignoring.");
       }
     }
 
@@ -298,7 +300,12 @@ async function handleRun(options: {
     };
 
     // 7. Execute
-    await executeLocalJob(job);
+    printJobStarted(path.basename(workflowPath), taskName);
+    const result = await executeLocalJob(job, { quiet: true });
+    printSummary([result]);
+    if (!result.succeeded) {
+      process.exit(1);
+    }
   } catch (error) {
     console.error(`[Machinen] Failed to trigger run: ${(error as Error).message}`);
     process.exit(1);
@@ -312,7 +319,7 @@ async function handleRunAll(options: {
   runnerName?: string;
   concurrency?: number;
 }) {
-  console.log("[Machinen] Scanning for relevant workflows...");
+  debugCli("Scanning for relevant workflows...");
 
   try {
     const repoRoot = resolveRepoRoot();
@@ -328,7 +335,7 @@ async function handleRunAll(options: {
     const [owner, name] = githubRepo.split("/");
     const branch = options.branch || getCurrentBranch(repoRoot);
 
-    console.log(`[Machinen] Repo: ${githubRepo} (Root: ${repoRoot}, Branch: ${branch})`);
+    debugCli(`Repo: ${githubRepo} (Root: ${repoRoot}, Branch: ${branch})`);
 
     const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
     if (!fs.existsSync(workflowsDir)) {
@@ -462,10 +469,10 @@ async function handleRunAll(options: {
       };
     };
 
-    const runJob = async (ej: ExpandedJob) => {
+    const runJob = async (ej: ExpandedJob): Promise<JobResult> => {
       const { workflowPath, taskName, matrixContext } = ej;
-      console.log(
-        `[Machinen] --- Running Workflow: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""} ---`,
+      debugCli(
+        `Running: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""}`,
       );
       const secrets = loadMachineSecrets(repoRoot);
       const secretsFilePath = path.join(repoRoot, ".env.machinen");
@@ -479,14 +486,18 @@ async function handleRunAll(options: {
       job.services = services;
       job.container = container ?? undefined;
 
-      await executeLocalJob(job);
+      const isMulti = allExpandedJobs.length > 1;
+      printJobStarted(path.basename(workflowPath), taskName);
+      const result = await executeLocalJob(job, { quiet: isMulti });
+      printJobStatus(result);
+      return result;
     };
 
     // ── Prune orphaned Docker resources before launching ──────────────────────
     pruneOrphanedDockerResources();
 
     const limiter = createConcurrencyLimiter(maxJobs);
-    let totalFailures = 0;
+    const allResults: JobResult[] = [];
 
     // ── Execute each workflow with dependency-aware wave scheduling ────────────
     for (const [workflowPath, wfJobs] of jobsByWorkflow) {
@@ -505,6 +516,7 @@ async function handleRunAll(options: {
         filteredWaves.push(Array.from(taskNamesInWf));
       }
 
+      let waveHadFailures = false;
       for (let wi = 0; wi < filteredWaves.length; wi++) {
         const waveJobIds = new Set(filteredWaves[wi]);
         const waveJobs = wfJobs.filter((j) => waveJobIds.has(j.taskName));
@@ -521,25 +533,33 @@ async function handleRunAll(options: {
 
         // ── Warm-cache serialization for the first wave ─────────────────────
         if (!warm && wi === 0 && waveJobs.length > 1) {
-          console.log("[Machinen] Cold cache — running first job to populate warm modules...");
-          await runJob(waveJobs[0]);
+          debugCli("Cold cache — running first job to populate warm modules...");
+          const firstResult = await runJob(waveJobs[0]);
+          allResults.push(firstResult);
 
           const rest = waveJobs.slice(1);
           const results = await Promise.allSettled(rest.map((ej) => limiter.run(() => runJob(ej))));
-          const failures = results.filter((r) => r.status === "rejected");
-          totalFailures += failures.length;
+          for (const r of results) {
+            if (r.status === "fulfilled") {
+              allResults.push(r.value);
+            }
+          }
           // Mark cache as warm for subsequent waves
           warm = true;
         } else {
           const results = await Promise.allSettled(
             waveJobs.map((ej) => limiter.run(() => runJob(ej))),
           );
-          const failures = results.filter((r) => r.status === "rejected");
-          totalFailures += failures.length;
+          for (const r of results) {
+            if (r.status === "fulfilled") {
+              allResults.push(r.value);
+            }
+          }
         }
 
         // If any job in this wave failed, abort remaining waves for this workflow
-        if (totalFailures > 0 && wi < filteredWaves.length - 1) {
+        waveHadFailures = allResults.some((r) => !r.succeeded);
+        if (waveHadFailures && wi < filteredWaves.length - 1) {
           console.error(
             `[Machinen] Wave ${wi + 1} had failures — aborting remaining waves for ${path.basename(workflowPath)}`,
           );
@@ -548,8 +568,11 @@ async function handleRunAll(options: {
       }
     }
 
+    // ── Print failures-first summary ──────────────────────────────────────────
+    printSummary(allResults);
+
+    const totalFailures = allResults.filter((r) => !r.succeeded).length;
     if (totalFailures > 0) {
-      console.error(`[Machinen] ${totalFailures}/${allExpandedJobs.length} job(s) failed.`);
       process.exit(1);
     }
   } catch (error) {

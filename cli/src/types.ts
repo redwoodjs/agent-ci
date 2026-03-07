@@ -22,5 +22,7 @@ export interface Job {
   steps?: any[];
   services?: WorkflowService[];
   container?: WorkflowContainer;
+  taskId?: string;
+  workflowPath?: string;
   [key: string]: any;
 }

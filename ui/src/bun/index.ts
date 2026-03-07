@@ -497,8 +497,8 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
           const repoBasename = path.basename(getWorkspaceRoot());
           const logsDir = path.join(os.tmpdir(), "machinen", repoBasename, "runs", runId, "logs");
 
-          // Prefer step-output.log, then process-stdout.log, then output.log, then stderr
-          for (const filename of ["step-output.log", "process-stdout.log", "output.log"]) {
+          // Prefer debug.log, then process-stdout.log, then stderr
+          for (const filename of ["debug.log", "process-stdout.log"]) {
             try {
               const content = await fsP.readFile(path.join(logsDir, filename), "utf-8");
               if (content.trim()) {
@@ -549,7 +549,7 @@ const rpc = defineElectrobunRPC<MyRPCSchema, "bun">("bun", {
 
           // Read the same log file chain as getRunLogs
           let logContent = "";
-          for (const filename of ["step-output.log", "process-stdout.log", "output.log"]) {
+          for (const filename of ["debug.log", "process-stdout.log"]) {
             try {
               const content = await fsP.readFile(path.join(logsDir, filename), "utf-8");
               if (content.trim()) {

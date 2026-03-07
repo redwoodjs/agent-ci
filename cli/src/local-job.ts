@@ -5,10 +5,11 @@ import { execSync } from "child_process";
 import { createInterface } from "readline";
 import { config } from "./config.js";
 import { Job } from "./types.js";
-import { createLogContext, finalizeLog } from "./logger.js";
+import { createLogContext } from "./logger.js";
 import { getWorkingDirectory } from "./working-directory.js";
 import { copyWorkspace, computeLockfileHash, repairWarmCache } from "./cleanup.js";
 import { minimatch } from "minimatch";
+import { debugRunner } from "./debug.js";
 import {
   startServiceContainers,
   cleanupServiceContainers,
@@ -16,6 +17,8 @@ import {
 } from "./service-containers.js";
 import { killRunnerContainers } from "./shutdown.js";
 import { startEphemeralDtu } from "dtu-github-actions/src/ephemeral.js";
+import { type JobResult, type StepResult, tailLogFile } from "./reporter.js";
+import logUpdate from "log-update";
 
 // ─── ANSI / log-level patterns ────────────────────────────────────────────────
 
@@ -75,6 +78,7 @@ type Phase = "config" | "running" | "done";
 function makeFilter(debug: boolean) {
   let phase: Phase = "config";
   let jobResult: string | null = null;
+  let currentStep: string | null = null;
 
   function filterLine(raw: string): boolean {
     if (debug) {
@@ -82,6 +86,17 @@ function makeFilter(debug: boolean) {
     }
 
     const line = strip(raw).trimEnd();
+
+    // ── Track current step name ──────────────────────────────────────────────
+    // The runner emits step markers as "##[group]Run <stepname>".
+    // Lines are prefixed with timestamps so we can't anchor with ^.
+    // Freeze once job completes so post-cleanup markers don't overwrite.
+    if (phase !== "done") {
+      const groupMatch = line.match(/##\[group\](.+)/);
+      if (groupMatch) {
+        currentStep = groupMatch[1].trim();
+      }
+    }
 
     // ── Phase transitions ────────────────────────────────────────────────────
     // The runner emits phase markers in two ways:
@@ -135,6 +150,8 @@ function makeFilter(debug: boolean) {
 
   /** Returns the result string captured from the "completed with result:" line. */
   filterLine.getJobResult = () => jobResult;
+  /** Returns the last step name seen (from ##[group] markers). */
+  filterLine.getCurrentStep = () => currentStep;
 
   return filterLine;
 }
@@ -143,7 +160,12 @@ function makeFilter(debug: boolean) {
 
 function isDebug(): boolean {
   const pattern = process.env.DEBUG || "";
-  return minimatch("runner", pattern) || minimatch("runner:*", pattern);
+  return (
+    minimatch("machinen:runner", pattern) ||
+    minimatch("machinen:*", pattern) ||
+    minimatch("runner", pattern) ||
+    minimatch("runner:*", pattern)
+  );
 }
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
@@ -159,7 +181,9 @@ const IMAGE = "ghcr.io/actions/actions-runner:latest";
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export async function executeLocalJob(job: Job): Promise<void> {
+export async function executeLocalJob(job: Job, options?: { quiet?: boolean }): Promise<JobResult> {
+  const startTime = Date.now();
+  const quiet = options?.quiet ?? false;
   const debug = isDebug();
   const filterLine = makeFilter(debug);
 
@@ -186,9 +210,11 @@ export async function executeLocalJob(job: Job): Promise<void> {
     name: containerName,
     runDir,
     logDir,
-    outputLogPath,
     debugLogPath,
   } = createLogContext("machinen", job.runnerName);
+
+  process.stdout.write(`    Runner: ${containerName}\n`);
+  process.stdout.write(`    Dir: ${runDir}\n`);
 
   // Start an ephemeral in-process DTU for this job run so each job gets its
   // own isolated DTU instance on a random port — eliminating port conflicts.
@@ -196,7 +222,6 @@ export async function executeLocalJob(job: Job): Promise<void> {
   const ephemeralDtu = await startEphemeralDtu(dtuCacheDir).catch(() => null);
   const dtuUrl = ephemeralDtu?.url ?? config.GITHUB_API_URL;
 
-  const stepOutputPath = path.join(logDir, "step-output.log");
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -283,13 +308,13 @@ export async function executeLocalJob(job: Job): Promise<void> {
       "utf-8",
     );
   }
-  // Open output stream immediately so header + footer lines are captured in the log
-  const outputStream = fs.createWriteStream(outputLogPath);
+  // Open debug stream to capture raw container output
   const debugStream = fs.createWriteStream(debugLogPath);
-  /** Write a line to stdout and output.log. */
+  /** Write a line to stdout. */
   const emit = (line: string) => {
-    process.stdout.write(line + "\n");
-    outputStream.write(line + "\n");
+    if (!quiet) {
+      process.stdout.write(line + "\n");
+    }
   };
 
   // ── Compact job header ──────────────────────────────────────────────────────
@@ -358,7 +383,7 @@ export async function executeLocalJob(job: Job): Promise<void> {
   // (e.g. container killed mid-pnpm-install) — nuke it so pnpm starts fresh.
   const cacheStatus = repairWarmCache(warmModulesDir);
   if (cacheStatus === "repaired") {
-    console.warn(`[Machinen] Repaired corrupted warm cache: ${warmModulesDir}`);
+    debugRunner(`Repaired corrupted warm cache: ${warmModulesDir}`);
   }
   // Ensure all intermediate dirs are world-writable for DinD scenarios where
   // the CLI runs as root but nested containers use runner user (UID 1001)
@@ -460,22 +485,30 @@ export async function executeLocalJob(job: Job): Promise<void> {
       // Add fake git repo so actions/checkout can use the existing workspace.
       // The remote URL must exactly match what actions/checkout computes via URL.origin.
       // Node.js URL.origin strips the default port (80), so we must NOT include :80.
-      execSync(`git init`, { cwd: workspaceDir });
-      execSync(`git config user.name "machinen"`, { cwd: workspaceDir });
-      execSync(`git config user.email "machinen@example.com"`, { cwd: workspaceDir });
+      execSync(`git init`, { cwd: workspaceDir, stdio: "pipe" });
+      execSync(`git config user.name "machinen"`, { cwd: workspaceDir, stdio: "pipe" });
+      execSync(`git config user.email "machinen@example.com"`, {
+        cwd: workspaceDir,
+        stdio: "pipe",
+      });
       execSync(`git remote add origin http://127.0.0.1/${job.githubRepo || config.GITHUB_REPO}`, {
         cwd: workspaceDir,
+        stdio: "pipe",
       });
-      execSync(`git add . && git commit -m "workspace" || true`, { cwd: workspaceDir });
+      execSync(`git add . && git commit -m "workspace" || true`, {
+        cwd: workspaceDir,
+        stdio: "pipe",
+      });
       // Create main and refs/remotes/origin/main pointing to this commit
-      execSync(`git branch -M main`, { cwd: workspaceDir });
-      execSync(`git update-ref refs/remotes/origin/main HEAD`, { cwd: workspaceDir });
+      execSync(`git branch -M main`, { cwd: workspaceDir, stdio: "pipe" });
+      execSync(`git update-ref refs/remotes/origin/main HEAD`, {
+        cwd: workspaceDir,
+        stdio: "pipe",
+      });
       // Detach HEAD so checkout can freely delete ALL branches (it can't delete the current branch)
-      execSync(`git checkout --detach HEAD`, { cwd: workspaceDir });
+      execSync(`git checkout --detach HEAD`, { cwd: workspaceDir, stdio: "pipe" });
     } catch (err) {
-      if (debug) {
-        console.warn(`[LocalJob] Failed to prepare workspace: ${err}. Using host fallback.`);
-      }
+      debugRunner(`Failed to prepare workspace: ${err}. Using host fallback.`);
     }
 
     // 5. Git shim
@@ -588,9 +621,7 @@ exit $EXIT_CODE
     const dockerApiUrl = dtuUrl.replace("localhost", dtuHost).replace("127.0.0.1", dtuHost);
     const repoUrl = `${dockerApiUrl}/${job.githubRepo || config.GITHUB_REPO}`;
 
-    if (debug) {
-      console.log(`[debug] Spawning container ${containerName}...`);
-    }
+    debugRunner(`Spawning container ${containerName}...`);
 
     // Pre-cleanup: remove any stale container with the same name to prevent 409 conflicts.
     try {
@@ -719,6 +750,9 @@ exit $EXIT_CODE
         `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
         `RUNNER_TOOL_CACHE=/opt/hostedtoolcache`,
         `PATH=/home/runner/externals/node24/bin:/home/runner/externals/node20/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`,
+        // Force colour output in all child processes (pnpm, Node, etc.) even though
+        // they write to the runner's HTTP feed pipe rather than a real TTY.
+        `FORCE_COLOR=1`,
         // Custom containers may run as root and lack libicu — configure accordingly
         ...(useDirectContainer
           ? [`RUNNER_ALLOW_RUNASROOT=1`, `DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1`]
@@ -773,54 +807,132 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
       stderr: true,
     })) as NodeJS.ReadableStream;
 
-    // outputStream + debugStream already open from above
-
     // Tail step-output.log written by the DTU during job execution.
+    // Also poll timeline.json for real-time step progress (top-level steps only).
+    // Tail step-output.log written by the DTU during job execution.
+    // Also poll timeline.json for real-time step progress (top-level steps only).
     // Runs in parallel with container log streaming; stops once container exits.
     let tailDone = false;
-    const tailPromise = (async () => {
-      let offset = 0;
-      let partial = "";
+    let lastFailedStep: string | null = null;
+    const timelinePath = path.join(logDir, "timeline.json");
 
-      const readPending = () => {
-        try {
-          if (!fs.existsSync(stepOutputPath)) {
+    const expectedSteps = [
+      { order: 1, name: "Set up job" },
+      // job.steps are parsed and seeded; the runner adds them starting at order=3
+      ...(job.steps || []).map((s: any, idx: number) => ({
+        order: idx + 3,
+        name: s.DisplayName || s.Name || "Run step",
+      })),
+      // we'll use a large order number for "Complete job" to keep it at the end
+      { order: 9999, name: "Complete job" },
+    ];
+
+    const checkTimeline = () => {
+      try {
+        let records: any[] = [];
+        if (fs.existsSync(timelinePath)) {
+          records = JSON.parse(fs.readFileSync(timelinePath, "utf-8"));
+          records = records.filter((r) => r.type === "Task" && r.name);
+          records.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        }
+
+        const renderedNames = new Set<string>();
+        let output = "";
+
+        const renderStep = (displayName: string, r: any | undefined) => {
+          if (renderedNames.has(displayName)) {
             return;
           }
-          const stat = fs.statSync(stepOutputPath);
-          if (stat.size > offset) {
-            const fd = fs.openSync(stepOutputPath, "r");
-            const chunk = Buffer.alloc(stat.size - offset);
-            fs.readSync(fd, chunk, 0, chunk.length, offset);
-            fs.closeSync(fd);
-            offset = stat.size;
-            partial += chunk.toString("utf8");
-            const lines = partial.split("\n");
-            partial = lines.pop() ?? "";
-            for (const line of lines) {
-              emit(line);
+          renderedNames.add(displayName);
+
+          if (!r) {
+            output += `    \u25CB ${displayName}\n`;
+            return;
+          }
+
+          let dur = "";
+          if (r.startedOn && r.finishedOn) {
+            const ms = new Date(r.finishedOn).getTime() - new Date(r.startedOn).getTime();
+            if (!isNaN(ms) && ms >= 0) {
+              dur = ` (${Math.round(ms / 1000)}s)`;
             }
           }
-        } catch {
-          /* ignore */
-        }
-      };
 
-      // Wait for file to exist (DTU creates it on start-runner)
-      while (!fs.existsSync(stepOutputPath) && !tailDone) {
-        await new Promise((r) => setTimeout(r, 50));
+          if (!r.result && r.state !== "completed") {
+            if (r.startedOn) {
+              output += `    \u25CF ${displayName}\n`;
+            } else {
+              output += `    \u25CB ${displayName}\n`;
+            }
+            return;
+          }
+
+          const result = (r.result || "").toLowerCase();
+          if (result === "failed") {
+            output += `    \u2717 ${displayName}${dur}\n`;
+            lastFailedStep = displayName;
+          } else if (result === "skipped") {
+            output += `    \u2298 ${displayName}${dur}\n`;
+          } else {
+            output += `    \u2713 ${displayName}${dur}\n`;
+          }
+        };
+
+        // We want to print steps in order. `records` has the actual execution data.
+        // `expectedSteps` has the skeleton.
+        // Map available records by order.
+        const recordsByOrder = new Map<number, any>();
+        for (const r of records) {
+          recordsByOrder.set(r.order, r);
+        }
+
+        // We'll iterate through all known orders (expected + dynamic).
+        const allOrders = new Set([
+          ...expectedSteps.map((e) => e.order),
+          ...records.map((r) => r.order),
+        ]);
+        const sortedOrders = Array.from(allOrders).sort((a, b) => a - b);
+
+        for (const order of sortedOrders) {
+          const record = recordsByOrder.get(order);
+          const expected = expectedSteps.find((e) => e.order === order);
+
+          let displayName = "";
+          if (record) {
+            displayName = record.name;
+            if (displayName === "Initialize job") {
+              displayName = "Set up job";
+            }
+            if (displayName === "Finalize job") {
+              displayName = "Complete job";
+            }
+          } else if (expected) {
+            displayName = expected.name;
+          } else {
+            continue; // Shouldn't happen
+          }
+
+          renderStep(displayName, record);
+        }
+
+        if (output) {
+          logUpdate(output.trimEnd());
+        }
+      } catch {
+        // Best-effort
       }
+    };
+
+    const pollPromise = (async () => {
       while (!tailDone) {
-        readPending();
+        checkTimeline();
         await new Promise((r) => setTimeout(r, 100));
       }
-      // Final read to catch any logs written exactly as the container exits
-      readPending();
-
-      // Flush any remaining partial line
-      if (partial.trim()) {
-        emit(partial);
-      }
+      // Final check
+      checkTimeline();
+      // Ensure the final state is written to stdout permanently
+      // instead of being cleared if another script runs logUpdate.clear()
+      logUpdate.done();
     })();
 
     // Start waiting for container exit in parallel with log streaming.
@@ -834,10 +946,15 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
       rl.on("line", (line) => {
         // Always write raw line to debug.log
         debugStream.write(line + "\n");
-        // Write filtered lines to output.log and stdout
+
+        // Write filtered lines to stdout
         if (filterLine(line)) {
-          outputStream.write(line + "\n");
-          process.stdout.write(line + "\n");
+          const clean = line
+            .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
+            .replace(/^\uFEFF/, "");
+          if (!quiet) {
+            process.stdout.write(clean + "\n");
+          }
         }
       });
 
@@ -855,7 +972,7 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
 
     // Stop tail now that container has finished
     tailDone = true;
-    await tailPromise;
+    await pollPromise;
 
     // 8. Wait for completion (already started above; just collect the result)
     const CONTAINER_EXIT_TIMEOUT_MS = 30_000;
@@ -885,24 +1002,16 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
     const loggedResult = filterLine.getJobResult(); // e.g. "Succeeded", "Failed", or null
     const jobSucceeded =
       loggedResult !== null ? loggedResult === "Succeeded" : containerExitCode === 0;
-    const exitCode = jobSucceeded ? 0 : 1;
 
     const icon = jobSucceeded ? "✔" : "✖";
     const label = jobSucceeded
       ? "succeeded"
       : `failed${loggedResult ? ` (result: ${loggedResult})` : ` (exit ${containerExitCode})`}`;
     emit(`\n  ${icon} Job ${label} · ${containerName}`);
-    emit(`  📄 Output: file://${outputLogPath}`);
-    emit(`  📄 Debug:  file://${debugLogPath}\n`);
+    emit(`  📄 Debug: file://${debugLogPath}\n`);
 
-    // Close streams now that all lines are written
-    await new Promise<void>((resolve) => outputStream.end(resolve));
+    // Close debug stream now that all lines are written
     await new Promise<void>((resolve) => debugStream.end(resolve));
-
-    // Finalize log
-    if (fs.existsSync(outputLogPath)) {
-      finalizeLog(outputLogPath, exitCode, job.headSha, containerName);
-    }
 
     // Cleanup
     try {
@@ -932,13 +1041,95 @@ srv.listen(80,'127.0.0.1',()=>process.stdout.write(''));
 
     await ephemeralDtu?.close().catch(() => {});
 
-    // Propagate failure so callers (orchestrator, handleRunAll) can detect it.
-    // Throw instead of process.exit() so concurrent jobs aren't killed.
-    if (!jobSucceeded) {
-      throw new Error(
-        `Job failed: ${containerName} (${loggedResult || `exit ${containerExitCode}`})`,
-      );
+    // Build structured result for the caller
+    // Read timeline.json for per-step results
+    let steps: StepResult[] = [];
+    try {
+      if (fs.existsSync(timelinePath)) {
+        const records: any[] = JSON.parse(fs.readFileSync(timelinePath, "utf-8"));
+        steps = records
+          .filter((r: any) => r.type === "Task" && r.name)
+          .map((r: any) => ({
+            name: r.name,
+            status:
+              r.result === "Succeeded" || r.result === "succeeded"
+                ? ("passed" as const)
+                : r.result === "Failed" || r.result === "failed"
+                  ? ("failed" as const)
+                  : r.result === "Skipped" || r.result === "skipped"
+                    ? ("skipped" as const)
+                    : r.state === "completed"
+                      ? ("passed" as const)
+                      : ("skipped" as const),
+          }));
+      }
+    } catch {
+      // Best-effort
     }
+    const result: JobResult = {
+      name: containerName,
+      workflow: job.workflowPath ? path.basename(job.workflowPath) : "unknown",
+      taskId: job.taskId ?? "unknown",
+      succeeded: jobSucceeded,
+      durationMs: Date.now() - startTime,
+      debugLogPath,
+      steps,
+    };
+    if (!jobSucceeded) {
+      const failedStepName = lastFailedStep ?? filterLine.getCurrentStep() ?? undefined;
+      result.failedStep = failedStepName;
+      // The container exits with 0 if it successfully reported the job failure,
+      // so only use the container exit code if it actually indicates a crash (non-zero).
+      result.failedExitCode = containerExitCode !== 0 ? containerExitCode : undefined;
+
+      // Find the failed step's log file from timeline.json.
+      // The feed handler writes steps/{recordId}.log (timeline UUID),
+      // POST/PUT handlers write steps/{logId}.log (numeric).
+      let stepLogTail: string[] | undefined;
+      if (failedStepName) {
+        try {
+          const timeline = JSON.parse(fs.readFileSync(timelinePath, "utf-8"));
+          const failedRecord = timeline.find(
+            (r: any) => r.name === failedStepName && r.type === "Task",
+          );
+          if (failedRecord) {
+            // Attempt to parse the actual step exit code from the issues array
+            const issueMsg = failedRecord.issues?.find((i: any) => i.type === "error")?.message;
+            if (issueMsg) {
+              const m = issueMsg.match(/exit code (\d+)/i);
+              if (m) {
+                result.failedExitCode = parseInt(m[1], 10);
+              }
+            }
+
+            const stepsDir = path.join(logDir, "steps");
+            // Also reproduce the DTU sanitization logic to look for stepName.log
+            const sanitized = failedStepName
+              .replace(/[^a-zA-Z0-9_.-]/g, "-")
+              .replace(/-+/g, "-")
+              .replace(/^-|-$/g, "")
+              .substring(0, 80);
+
+            // Try sanitized name first, then record.id (feed handler), then log.id (POST/PUT handlers)
+            for (const id of [sanitized, failedRecord.id, failedRecord.log?.id]) {
+              if (!id) {
+                continue;
+              }
+              const stepLogPath = path.join(stepsDir, `${id}.log`);
+              if (fs.existsSync(stepLogPath)) {
+                result.failedStepLogPath = stepLogPath;
+                stepLogTail = tailLogFile(stepLogPath);
+                break;
+              }
+            }
+          }
+        } catch {
+          /* best-effort */
+        }
+      }
+      result.lastOutputLines = stepLogTail ?? [];
+    }
+    return result;
   } finally {
     // Always deregister signal handlers, even if an error was thrown before the
     // normal completion path (e.g. seed failure, container start failure).

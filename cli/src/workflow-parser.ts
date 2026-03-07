@@ -280,12 +280,20 @@ export async function parseWorkflowSteps(
         : stepId;
       const rawStep = rawSteps[index] || {};
 
-      // Fix for __actions_checkout issue
-      // If a step uses an action but has no name, @actions/workflow-parser might auto-generate a name like __actions_checkout
-      // which causes the runner to treat it as a special internal step expecting specific inputs.
-      // We force a display name if one isn't provided.
-      if (!step.name && (step as any).uses) {
-        stepName = (step as any).uses.toString();
+      // If a step lacks an explicit name, we map it to standard GitHub Actions defaults
+      if (!step.name) {
+        if ("run" in step) {
+          const runText = rawStep.run != null ? String(rawStep.run) : step.run.toString();
+          // Extract the first non-empty line of the script
+          const firstLine =
+            runText
+              .split("\n")
+              .map((l: string) => l.trim())
+              .find(Boolean) || "command";
+          stepName = `Run ${firstLine}`;
+        } else if ((step as any).uses) {
+          stepName = `Run ${(step as any).uses.toString()}`;
+        }
       }
 
       if ("run" in step) {

@@ -28,8 +28,10 @@ export const state = {
   runnerTimelineDirs: new Map<string, string>(),
   // sessionId -> runnerName
   sessionToRunner: new Map<string, string>(),
-  // planId -> step-output.log path
-  planToLogPath: new Map<string, string>(),
+  // recordId/logId -> sanitized step name (for per-step log files)
+  recordToStepName: new Map<string, string>(),
+  // planId -> log directory (for per-step files)
+  planToLogDir: new Map<string, string>(),
   // timelineId -> runner log directory (for persisting timeline.json)
   timelineToLogDir: new Map<string, string>(),
 
@@ -90,7 +92,8 @@ export const state = {
     this.runnerLogs.clear();
     this.runnerTimelineDirs.clear();
     this.sessionToRunner.clear();
-    this.planToLogPath.clear();
+    this.recordToStepName.clear();
+    this.planToLogDir.clear();
     this.timelineToLogDir.clear();
     this.virtualCachePatterns.clear();
     this.caches.clear();

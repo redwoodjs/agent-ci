@@ -36,7 +36,7 @@ function readOutputLog(runnerName: string): string {
 
 describe("CLI E2E Regressions", () => {
   it("should run the smoke build job and exit correctly", async () => {
-    const result = await runCLI(SMOKE_WORKFLOW, "build");
+    const result = await runCLI(SMOKE_WORKFLOW);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Job succeeded");
@@ -60,12 +60,12 @@ describe("CLI E2E Regressions", () => {
         : 0;
 
     const before = countRuns();
-    await runCLI(SMOKE_WORKFLOW, "build");
+    await runCLI(SMOKE_WORKFLOW);
     expect(countRuns()).toBeGreaterThan(before);
   }, 90000);
 
   it("should write and restore cache via actions/cache", async () => {
-    const result = await runCLI(SMOKE_WORKFLOW, "build");
+    const result = await runCLI(SMOKE_WORKFLOW);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Job succeeded");
@@ -76,7 +76,7 @@ describe("CLI E2E Regressions", () => {
   }, 90000);
 
   it("should upload an artifact via actions/upload-artifact", async () => {
-    const result = await runCLI(SMOKE_WORKFLOW, "build");
+    const result = await runCLI(SMOKE_WORKFLOW);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Job succeeded");
@@ -86,7 +86,7 @@ describe("CLI E2E Regressions", () => {
   }, 90000);
 
   it("should run job steps inside the specified container image", async () => {
-    const result = await runCLI(CONTAINER_WORKFLOW, "test");
+    const result = await runCLI(CONTAINER_WORKFLOW);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("Job succeeded");

@@ -24,12 +24,7 @@ function deriveGithubRepo(): string {
   return "unknown/unknown";
 }
 
-export interface Config {
-  GITHUB_REPO: string;
-  GITHUB_API_URL: string;
-}
-
-export const config: Config = {
+export const config = {
   GITHUB_REPO: process.env.GITHUB_REPO || deriveGithubRepo(),
   GITHUB_API_URL: process.env.GITHUB_API_URL || "http://localhost:8910",
 };

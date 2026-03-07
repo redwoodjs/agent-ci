@@ -9,7 +9,6 @@
   "scripts": {
     "build": "tsgo",
     "typecheck": "tsgo",
-    "dev": "node dist/index.js",
     "machinen": "tsx src/cli.ts",
     "test": "vitest run"
   },
@@ -17,25 +16,13 @@
     "@actions/workflow-parser": "0.3.43",
     "dockerode": "^4.0.2",
     "dtu-github-actions": "workspace:*",
-    "jsonc-parser": "^3.3.1",
     "minimatch": "^10.2.1",
-    "yaml": "^2.8.2",
-    "zod": "^3.24.1"
+    "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/dockerode": "^3.3.34",
     "@types/node": "^22.10.2",
-    "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "vitest": "^4.0.18"
-  },
-  "ts-node": {
-    "transpileOnly": true,
-    "transpiler": "ts-node/transpilers/swc",
-    "files": true,
-    "compilerOptions": {
-      "module": "esnext",
-      "isolatedModules": false
-    }
   }
 }

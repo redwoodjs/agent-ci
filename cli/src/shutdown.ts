@@ -5,53 +5,6 @@ import { execSync } from "node:child_process";
 // ─── Docker container cleanup ─────────────────────────────────────────────────
 
 /**
- * Force-kill ALL `machinen-*` Docker containers (runners + service sidecars)
- * and remove their associated `machinen-net-*` bridge networks.
- *
- * This is the "nuclear" cleanup — used when the CLI process is shutting
- * down and we want to guarantee no orphaned containers remain.
- */
-export function killAllRunnerContainers(): void {
-  // 1. Force-remove all containers whose name starts with `machinen-`
-  //    This catches both runner containers (machinen-14) and service sidecars
-  //    (machinen-14-svc-mysql, machinen-14-svc-redis, etc.)
-  try {
-    const ids = execSync(`docker ps -aq --filter "name=machinen-"`, {
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    if (ids) {
-      execSync(`docker rm -f ${ids.split("\n").join(" ")}`, {
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-    }
-  } catch {
-    // Docker may not be reachable or no matching containers — fine
-  }
-
-  // 2. Remove all bridge networks whose name starts with `machinen-net-`
-  try {
-    const nets = execSync(`docker network ls -q --filter "name=machinen-net-"`, {
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    if (nets) {
-      for (const netId of nets.split("\n")) {
-        try {
-          execSync(`docker network rm ${netId}`, {
-            stdio: ["pipe", "pipe", "pipe"],
-          });
-        } catch {
-          // Network may still have connected containers — skip
-        }
-      }
-    }
-  } catch {
-    // Docker may not be reachable — fine
-  }
-}
-
-/**
  * Force-kill a specific runner and its associated service containers + network.
  * Used when stopping a single workflow run.
  */

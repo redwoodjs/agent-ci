@@ -275,7 +275,7 @@ async function handleRun(options: {
 
     // 6. Construct Job
     const job: Job = {
-      deliveryId: `local-run-${Date.now()}`,
+      deliveryId: `run-${Date.now()}`,
       eventType: "workflow_job",
       githubJobId: `local-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
       githubRepo: githubRepo,
@@ -301,7 +301,7 @@ async function handleRun(options: {
 
     // 7. Execute
     printJobStarted(path.basename(workflowPath), taskName);
-    const result = await executeLocalJob(job, { quiet: true });
+    const result = await executeLocalJob(job);
     printSummary([result]);
     if (!result.succeeded) {
       process.exit(1);
@@ -445,7 +445,7 @@ async function handleRunAll(options: {
       }
 
       return {
-        deliveryId: `local-run-${Date.now()}`,
+        deliveryId: `run-${Date.now()}`,
         eventType: "workflow_job",
         githubJobId: Math.floor(Math.random() * 1000000).toString(),
         githubRepo: githubRepo,
@@ -486,9 +486,8 @@ async function handleRunAll(options: {
       job.services = services;
       job.container = container ?? undefined;
 
-      const isMulti = allExpandedJobs.length > 1;
       printJobStarted(path.basename(workflowPath), taskName);
-      const result = await executeLocalJob(job, { quiet: isMulti });
+      const result = await executeLocalJob(job);
       printJobStatus(result);
       return result;
     };

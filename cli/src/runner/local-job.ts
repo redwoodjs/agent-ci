@@ -236,21 +236,32 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
     // 2. Registration token (mock for local)
     const registrationToken = "mock_local_token";
 
-    // 4. Prepare workspace (checkout emulation)
-    try {
-      prepareWorkspace({
-        workflowPath: job.workflowPath,
-        headSha: job.headSha,
-        githubRepo: job.githubRepo,
-        workspaceDir: dirs.workspaceDir,
-      });
-    } catch (err) {
-      debugRunner(`Failed to prepare workspace: ${err}. Using host fallback.`);
-    }
+    // 4. Prepare workspace + git shim — kicked off now, awaited after container.start().
+    // These can run in parallel with container setup because the workspace directory
+    // already exists and the container entrypoint takes ~1-2s before touching files.
+    const workspacePrepPromise = (async () => {
+      try {
+        prepareWorkspace({
+          workflowPath: job.workflowPath,
+          headSha: job.headSha,
+          githubRepo: job.githubRepo,
+          workspaceDir: dirs.workspaceDir,
+        });
+      } catch (err) {
+        debugRunner(`Failed to prepare workspace: ${err}. Using host fallback.`);
+      }
+      const fakeSha = computeFakeSha(job.headSha);
+      writeGitShim(dirs.shimsDir, fakeSha);
 
-    // 5. Git shim
-    const fakeSha = computeFakeSha(job.headSha);
-    writeGitShim(dirs.shimsDir, fakeSha);
+      // Set permissions on the host so the entrypoint doesn't need recursive chmod.
+      // The runner user (UID 1001) inside the container must be able to read/write
+      // workspace and diag files via bind-mount.
+      try {
+        execSync(`chmod -R 777 "${dirs.containerWorkDir}" "${dirs.diagDir}"`, { stdio: "pipe" });
+      } catch {
+        // Non-fatal: entrypoint has a fallback
+      }
+    })();
 
     // 6. Spawn container
     const dtuPort = new URL(dtuUrl).port || "80";
@@ -407,7 +418,8 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
       Tty: true,
     });
 
-    await container.start();
+    // Start the container and ensure workspace prep has finished in parallel.
+    await Promise.all([container.start(), workspacePrepPromise]);
 
     // 7. Stream logs ─────────────────────────────────────────────────────────────
     // Use readline so we process complete lines (no split ANSI sequences).

@@ -1596,3 +1596,106 @@ Updated `derive-test-infra.md`:
 Updated `derive-gen-tests.md`:
 
 - Added cross-reference to test infra blueprint
+
+## Manual test of `derive tests` against real Claude CLI
+
+Ran `cd derive && npx tsx src/index.ts tests --scope derive` against the 10 `.feature` files in `.machinen/specs/derive/`. Claude (Sonnet, agentic mode with full tools) spent significant time in extended thinking — analyzing specs, the test harness, and planning which scenarios are testable — before writing files. Total runtime ~3 minutes.
+
+### Output
+
+Claude generated 8 new e2e test files:
+
+- `derive-one-shot-edge-cases.test.ts` — no conversations, idempotency, second-run-no-op
+- `derive-conversation-discovery.test.ts` — branch filtering, multi-conversation
+- `derive-reset-mode.test.ts` — `--reset` flag, stale file cleanup, `--keep-spec`
+- `derive-incremental-updates.test.ts` — appending messages, large conversations
+- `derive-multi-file-spec.test.ts` — per-feature file naming, slug, stale removal
+- `derive-spec-location.test.ts` — spec dir creation, no leaking outside project
+- `derive-cli-context.test.ts` — branch inference, detached HEAD error
+- `derive-scope-flag.test.ts` — scoped subdirectory, default location, scoped reset
+
+All files correctly used the harness import pattern, vitest structure, and `--GROK--` comments matching project conventions.
+
+### Bugs found during manual test
+
+1. **`--` args leak** — `pnpm --filter derive start -- tests --scope derive` passes `--` as `args[0]` in `process.argv.slice(2)`, so `args[0] === "tests"` never matches and the command falls through to the spec pipeline. Fixed by stripping a leading `--` from args in `main()` and the `isWatchMode` check.
+
+2. **`--keep-spec` test failure** — Claude generated a test asserting that `--reset --keep-spec` preserves hand-written `.feature` files on disk. 35/36 tests passed, 1 failed. Investigation revealed the test was faithfully implementing an **inaccurate spec**: `reset-mode.feature` said "existing .feature files are not deleted", but `writeSpec()` always does a clean-slate write (deletes all `.feature` files before writing new ones). `--keep-spec` only skips the explicit deletion in `resetBranch` — it preserves _content as LLM context_ (via `readSpec`), not _files on disk_. Fixed the spec wording and replaced the test with one matching actual behavior.
+
+### Observations about the generated tests
+
+- Claude spent ~60% of the session in extended thinking, ~40% writing files
+- The tests are black-box e2e tests against the spec pipeline (not `derive tests` itself)
+- Claude figured out how to use `execa` directly for multi-run tests (reset mode)
+- Claude correctly identified which scenarios are testable with the fake binary vs. which would need richer infrastructure
+
+## Open design question: spec/test lifecycle management
+
+The `--keep-spec` incident surfaced a fundamental question about how specs and generated tests relate over time.
+
+### The tension
+
+Specs are the source of truth. Tests are generated from specs. But what happens when:
+
+1. **A spec is later found to be wrong and corrected** — do we regenerate the tests? The old tests now assert incorrect behavior. But deleting them means losing any manual refinements.
+
+2. **A spec item disappears** (e.g. feature removed, scenarios merged, reworded during a spec regen) — do we delete the corresponding tests? That feels destructive. But keeping orphaned tests means the test suite drifts from the spec.
+
+3. **Tests are manually edited** after generation (fixing assertions, adding edge cases, improving readability) — a full regen would overwrite those improvements.
+
+### The core problem
+
+This is the classic "generated code vs. edited code" tension. Two conflicting principles:
+
+- **Specs should be source of truth** — if a spec changes, tests should reflect that
+- **Tests are valuable artifacts** — deleting or overwriting tests loses verified, working assertions
+
+### Possible approaches (not yet decided)
+
+**A. Tests are fully regenerated, never manually edited**
+
+- Simplest model: specs change → delete all generated tests → regenerate
+- Downside: no room for human refinement, test quality limited by what Claude produces in one shot
+
+**B. Tests are generated once, then owned by humans**
+
+- `derive tests` is a scaffolding tool, not a sync tool
+- Generated tests are a starting point; humans take ownership
+- Downside: tests drift from specs over time, no mechanism to detect drift
+
+**C. Hybrid: generated tests coexist with human-written tests**
+
+- Convention: `test/generated/` for auto-generated, `test/e2e/` for human-written
+- Regen only touches `test/generated/`, human tests are never overwritten
+- Downside: unclear which is authoritative when they conflict
+
+**D. Diff-based regeneration**
+
+- Compare current spec with previous spec, identify changed/removed scenarios
+- Only regenerate tests for changed scenarios, flag removed ones for review
+- Most sophisticated, highest implementation cost
+
+**E. Spec-pinned tests with drift detection**
+
+- Each test file records the spec hash it was generated from
+- A lint/CI step detects when specs have changed but tests haven't been regenerated
+- Humans decide when to regenerate and what to preserve
+
+We need to align on which model fits our workflow before building more infrastructure around this.
+
+## Decision: spec/test lifecycle — let the LLM reason about it
+
+After discussing options A through E, we landed on something simpler than any of them: **Claude already has the context to manage the lifecycle**.
+
+When `derive tests` runs, Claude reads both the specs and the existing test files. It already has everything it needs to decide:
+
+- If a spec scenario disappeared, don't write a test for it
+- If a test exists that still matches the spec, leave it alone
+- If a test contradicts the updated spec, rewrite it
+- If a test has been manually refined, preserve the refinements where they're still valid
+
+No hashing, no drift detection, no separate directories. The system prompt just needs to tell Claude it may modify or remove existing tests that no longer match specs. The human reviews the diff before committing.
+
+This is approach B ("generate once, humans own") with one key addition: on re-runs, Claude reasons about what to keep vs. change rather than blindly overwriting. The "mechanism to detect drift" is Claude + the human reviewer.
+
+**Convention**: if we want durable test logic that survives regen, write it in a separate hand-authored test file. Generated tests are Claude's to manage; hand-written tests are ours.

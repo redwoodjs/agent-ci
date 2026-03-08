@@ -232,7 +232,11 @@ async function resetBranch(
 
 async function main(): Promise<void> {
   const cwd = process.cwd();
-  const args = process.argv.slice(2);
+  // --GROK--: Strip a leading "--" that pnpm injects when forwarding args via
+  // `pnpm start -- tests`. Without this, args[0] is "--" and subcommand
+  // dispatch never fires.
+  const rawArgs = process.argv.slice(2);
+  const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
 
   // --GROK--: Parse --scope <name> to direct specs into a subdirectory.
   // e.g. --scope derive → .machinen/specs/derive/*.feature
@@ -287,7 +291,9 @@ async function main(): Promise<void> {
   await runSpecUpdate(cwd, branch, scope);
 }
 
-const isWatchMode = process.argv.slice(2)[0] === "watch";
+// --GROK--: Same "--" stripping as in main() for consistency.
+const topArgs = process.argv.slice(2);
+const isWatchMode = (topArgs[0] === "--" ? topArgs[1] : topArgs[0]) === "watch";
 
 main().then(
   () => {

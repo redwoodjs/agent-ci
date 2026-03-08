@@ -1,4 +1,6 @@
-# Architecture Blueprint: derive
+# Architecture Blueprint: derive — spec pipeline
+
+> Related blueprints: [derive test generation](derive-gen-tests.md), [derive test infrastructure](derive-test-infra.md)
 
 ## 2000ft View Narrative
 
@@ -148,14 +150,14 @@ Feature: CLI spec update
     And the spec is fully regenerated as per-feature .feature files
     And the process exits
 
-  Scenario: Reset with --keep-spec preserves existing spec
+  Scenario: Reset with --keep-spec uses existing spec as context
     Given the user is in a git repository on branch "feature-x"
-    And .feature files exist with user-written content
+    And .feature files exist with curated content
     And conversations exist for this branch
     When the user runs derive --reset --keep-spec
-    Then the existing .feature files are not deleted
-    And all conversation offsets are zeroed
-    And each conversation is reprocessed with the existing spec as starting context
+    Then all conversation offsets are zeroed
+    And each conversation is reprocessed with the existing spec content as starting context
+    And the output .feature files incorporate the prior spec content
     And the process exits
 
   Scenario: Detached HEAD
@@ -272,6 +274,10 @@ Discovery reconciles the SQLite index with the filesystem. It queries the DB for
 
 The watcher uses `ignoreInitial: true` (the initial cycle is explicit), `awaitWriteFinish` (500ms stability threshold) for partial-write safety, and an `ignored` callback that filters out non-JSONL files.
 
+### Test isolation
+
+Three hardcoded paths (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB`) are configurable via environment variables, enabling full isolation of e2e tests from the host system. When unset, each falls back to its hardcoded default — zero behavioral change in production. The test infrastructure — substitute binary, test harness, fixture format, and conventions — is documented in the [derive test infrastructure blueprint](derive-test-infra.md).
+
 ## API Reference (CLI)
 
 | Command                      | Description                                                                                                              |
@@ -306,6 +312,7 @@ All commands infer the repository path from `process.cwd()` and the branch from 
 - **No tools, low effort, Sonnet model.** Spawned `claude -p` calls use `--model sonnet`, `--tools ""` (no built-in tools), and `--effort low` (minimal thinking). Both passes are text-in/text-out transformations that receive all context via stdin — Opus-level reasoning is unnecessary.
 - **No session persistence.** Spawned `claude -p` calls use `--no-session-persistence` to prevent writing JSONL session files. Without this, each spawned call creates a session file in the same slug directory, which gets discovered as a "conversation" on the next run — creating a feedback loop of ghost conversations.
 - **Node >= 22.5.** Required for `node:sqlite` `DatabaseSync`.
+- **Env var overrides are invisible when unset.** `CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, and `MACHINEN_DB` use `process.env.X ?? <default>`. Production behavior is unchanged unless the env var is explicitly set. These exist solely for test isolation.
 
 ## Learnings & Anti-Patterns
 
@@ -345,7 +352,7 @@ When `claude -p` is spawned from within a Claude Code session, the child process
 
 ```
 derive/
-  package.json          — package metadata, scripts (start, typecheck), dependencies (chokidar, execa)
+  package.json          — package metadata, scripts (start, typecheck, test), dependencies (chokidar, execa)
   tsconfig.json         — TypeScript config (module: NodeNext, target: ES2022, strict)
   src/
     index.ts            — CLI entry point: context detection, discovery, mode dispatch (one-shot/reset/watch)
@@ -354,6 +361,7 @@ derive/
     reader.ts           — JSONL reader (incremental offset-based reading, system tag stripping, text extraction)
     spec.ts             — spec pipeline (two-pass Gherkin: extraction + review, 300K chunking, claude -p via execa, stream-json activity log, readSpec/writeSpec I/O virtualization)
     types.ts            — shared types (JsonlMessage, ConversationRecord, BranchRecord)
+  test/                 — test infrastructure (see derive-test-infra.md blueprint)
 ```
 
 Spec files are written to `<repoPath>/.machinen/specs/<feature-slug>.feature` (project-local, not in the derive package). One file per `Feature:` block, named by slugifying the feature name.

@@ -2,7 +2,7 @@ import chokidar from "chokidar";
 
 export type WatchCallback = (jsonlPath: string) => void;
 
-// --GROK--: Branch-scoped watcher. Watches a single slug directory (not all of
+// Branch-scoped watcher. Watches a single slug directory (not all of
 // ~/.claude/projects/). ignoreInitial=true because the caller runs an explicit
 // discover+update cycle before starting the watcher — we only care about
 // changes that happen after that point.

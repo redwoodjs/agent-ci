@@ -9,13 +9,13 @@ Feature: Reset mode
     And new .feature files are generated from all available conversation data
     And the process exits
 
-  Scenario: Reset with --keep-spec preserves existing spec files
+  Scenario: Reset with --keep-spec uses existing spec as context
     Given the user is in a git repository on branch "feature-x"
-    And .feature files exist with user-written content
+    And .feature files exist with curated content
     And conversations exist for this branch
     When the user runs derive --reset --keep-spec
-    Then the existing .feature files are not deleted
-    And all conversations are reprocessed with the existing spec as starting context
+    Then all conversations are reprocessed with the existing spec content as starting context
+    And the output .feature files incorporate the prior spec content
     And the process exits
 
   Scenario: Reset with no conversations reports no data

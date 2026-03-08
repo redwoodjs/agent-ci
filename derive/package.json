@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx src/index.ts",
+    "test": "vitest run",
     "typecheck": "tsgo"
   },
   "dependencies": {
@@ -11,7 +12,8 @@
     "execa": "^9.6.1"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0"
+    "@types/node": "^22.0.0",
+    "keyword-extractor": "^0.0.28"
   },
   "engines": {
     "node": ">=22.5"

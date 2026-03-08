@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:withcatai.github.io)",
+      "WebFetch(domain:node-llama-cpp.withcat.ai)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  }
+}

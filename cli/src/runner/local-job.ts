@@ -44,6 +44,60 @@ const docker = new Docker(dockerConfig);
 
 const IMAGE = "ghcr.io/actions/actions-runner:latest";
 
+// ─── Pre-baked runner credentials ─────────────────────────────────────────────
+// The GitHub Actions runner normally requires `config.sh` (a .NET binary) to
+// generate .runner, .credentials and .credentials_rsaparams before run.sh can
+// start.  Each invocation cold-starts .NET 6, costing ~3-5s — and we were
+// running it twice (remove + register).
+//
+// Since the DTU mock accepts any credential values, we write these files
+// directly with deterministic content, saving ~5-10s per container start.
+
+function writeRunnerCredentials(runnerDir: string, runnerName: string, serverUrl: string): void {
+  // .runner — tells run.sh who it is and where to connect
+  const dotRunner = {
+    agentId: 1,
+    agentName: runnerName,
+    poolId: 1,
+    poolName: "Default",
+    serverUrl: "http://127.0.0.1:80",
+    gitHubUrl: serverUrl,
+    workFolder: "_work",
+    ephemeral: true,
+  };
+  fs.writeFileSync(path.join(runnerDir, ".runner"), JSON.stringify(dotRunner, null, 2));
+
+  // .credentials — OAuth scheme that run.sh reads to authenticate with the DTU
+  const dotCredentials = {
+    scheme: "OAuth",
+    data: {
+      clientId: "00000000-0000-0000-0000-000000000000",
+      authorizationUrl: `${serverUrl}/_apis/oauth2/token`,
+      oAuthEndpointUrl: `${serverUrl}/_apis/oauth2/token`,
+      requireFipsCryptography: "False",
+    },
+  };
+  fs.writeFileSync(path.join(runnerDir, ".credentials"), JSON.stringify(dotCredentials, null, 2));
+
+  // .credentials_rsaparams — RSA key the runner uses for token signing.
+  // Format: RSAParametersSerializable JSON (ISerializable with lowercase keys
+  // matching the RSAParametersSerializable constructor). The DTU mock never
+  // validates signatures, so we use a static pre-generated RSA 2048-bit key.
+  const dotRsaParams = {
+    d: "CQpCI+sO2GD1N/JsHHI9zEhMlu5Fcc8mU4O2bO6iscOsagFjvEnTesJgydC/Go1HuOBlx+GT9EG2h7+juS0z2o5n8Mvt5BBxlK+tqoDOs8VfQ9CSUl3hqYRPeNdBfnA1w8ovLW0wqfPO08FWTLI0urYsnwjZ5BQrBM+D7zYeA0aCsKdo75bKmaEKnmqrtIEhb7hE45XQa32Yt0RPCPi8QcQAY2HLHbdWdZYDj6k/UuDvz9H/xlDzwYq6Yikk2RSMArFzaufxCGS9tBZNEACDPYgnZnEMXRcvsnZ9FYbq81KOSifCmq7Yocq+j3rY5zJCD+PIDY9QJwPxB4PGasRKAQ==",
+    dp: "A0sY1oOz1+3uUMiy+I5xGuHGHOrEQPYspd1xGClBYYsa/Za0UDWS7V0Tn1cbRWfWtNe5vTpxcvwQd6UZBwrtHF6R2zyXFhE++PLPhCe0tH4C5FY9i9jUw9Vo8t44i/s5JUHU2B1mEptXFUA0GcVrLKS8toZSgqELSS2Q/YLRxoE=",
+    dq: "GrLC9dPJ5n3VYw51ghCH7tybUN9/Oe4T8d9v4dLQ34RQEWHwRd4g3U3zkvuhpXFPloUTMmkxS7MF5pS1evrtzkay4QUTDv+28s0xRuAsw5qNTzuFygg8t93MvpvTVZ2TNApW6C7NFvkL9NbxAnU8+I61/3ow7i6a7oYJJ0hWAxE=",
+    exponent: "AQAB",
+    inverseQ:
+      "8DVz9FSvEdt5W4B9OjgakZHwGfnhn2VLDUxrsR5ilC5tPC/IgA8C2xEfKQM1t+K/N3pAYHBYQ6EPgtW4kquBS/Sy102xbRI7GSCnUbRtTpWYPOaCn6EaxBNzwWzbp5vCbCGvFqlSu4+OBYRVe+iCj+gAnkmT/TKPhHHbTjJHvw==",
+    modulus:
+      "x0eoW2DD7xsW5YiorMN8pNHVvZk4ED1SHlA/bmVnRz5FjEDnQloMn0nBgIUHxoNArksknrp/FOVJv5sJHJTiRZkOp+ZmH7d3W3gmw63IxK2C5pV+6xfav9jR2+Wt/6FMYMgG2utBdF95oif1f2XREFovHoXkWms2l0CPLLHVPO44Hh9EEmBmjOeMJEZkulHJ44z9y8e+GZ2nYqO0ZiRWQcRObZ0vlRaGg6PPOl4ltay0BfNksMB3NDtlhkdVkAEFQxEaZZDK9NtkvNljXCioP3TyTAbqNUGsYCA5D+IHGZT9An99J9vUqTFP6TKjqUvy9WNiIzaUksCySA0a4SVBkQ==",
+    p: "8fgAdmWy+sTzAN19fYkWMQqeC7t1BCQMo5z5knfVLg8TtwP9ZGqDtoe+r0bGv3UgVsvvDdP/QwRvRVP+5G9l999Y6b4VbSdUbrfPfOgjpPDmRTQzHDve5jh5xBENQoRXYm7PMgHGmjwuFsE/tKtSGTrvt2Z3qcYAo0IOqLLhYmE=",
+    q: "0tXx4+P7gUWePf92UJLkzhNBClvdnmDbIt52Lui7YCARczbN/asCDJxcMy6Bh3qmIx/bNuOUrfzHkYZHfnRw8AGEK80qmiLLPI6jrUBOGRajmzemGQx0W8FWalEQfGdNIv9R2nsegDRoMq255Zo/qX60xQ6abpp0c6UNhVYSjTE=",
+  };
+  fs.writeFileSync(path.join(runnerDir, ".credentials_rsaparams"), JSON.stringify(dotRsaParams));
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export async function executeLocalJob(job: Job): Promise<JobResult> {
@@ -107,18 +161,23 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
     process.stdout.write(line + "\n");
   };
 
-  // ── Preflight spinner ────────────────────────────────────────────────────
-  // Shows an animated spinner during the silent setup phase (DTU, workspace
-  // copy, container creation/start) so the user knows work is happening.
+  // ── Preflight boot tracker ───────────────────────────────────────────────
+  // Shows a spinner with elapsed time while the container boots up.
   const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   let spinnerIdx = 0;
   const bootStart = Date.now();
-  const spinnerInterval = setInterval(() => {
+  const workflowBasename = job.workflowPath ? path.basename(job.workflowPath) : "workflow";
+
+  const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
+
+  const renderBootTree = () => {
     const elapsed = Math.round((Date.now() - bootStart) / 1000);
-    logUpdate(
-      `  ${spinnerFrames[spinnerIdx++ % spinnerFrames.length]} Starting container (${elapsed}s)`,
-    );
-  }, 80);
+    const frame = spinnerFrames[spinnerIdx++ % spinnerFrames.length];
+    logUpdate(`  ${workflowBasename}\n    └── ${frame} Starting runner (${elapsed}s)`);
+  };
+
+  let spinnerInterval: ReturnType<typeof setInterval> | null = setInterval(renderBootTree, 80);
+  let bootDurationMs = 0;
 
   // ── Create run directories ────────────────────────────────────────────────
   const dirs = createRunDirectories({
@@ -274,16 +333,15 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
           /* not present */
         }
       }
-      // Copy seed to per-container directory so config.sh / run.sh don't race.
+      // Copy seed to per-container directory so run.sh invocations don't race.
       execSync(`cp -a "${hostRunnerSeedDir}" "${hostRunnerDir}"`, { stdio: "pipe" });
-      // Remove any stale runner auth files from the copy
-      for (const staleFile of [".runner", ".credentials", ".credentials_rsaparams"]) {
-        try {
-          fs.rmSync(path.join(hostRunnerDir, staleFile));
-        } catch {
-          /* not present */
-        }
-      }
+
+      // ── Pre-bake runner credentials ──────────────────────────────────────────
+      // Instead of running config.sh (which cold-starts .NET, ~5-10s), we write
+      // the credential files directly. The DTU mock accepts any values, so we
+      // use deterministic static content stamped with this container's identity.
+      const resolvedUrl = `http://127.0.0.1:80/${githubRepo}`;
+      writeRunnerCredentials(hostRunnerDir, containerName, resolvedUrl);
     }
 
     // Pull the custom container image if needed
@@ -331,6 +389,7 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
       svcPortForwardSnippet,
       dtuPort,
       useDirectContainer,
+      containerName,
     });
 
     const container = await docker.createContainer({
@@ -359,19 +418,13 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
       stderr: true,
     })) as NodeJS.ReadableStream;
 
-    // ── Preflight complete — stop spinner before step-list UI takes over ──
-    if (spinnerInterval) {
-      clearInterval(spinnerInterval);
-      const bootSec = Math.round((Date.now() - bootStart) / 1000);
-      logUpdate(`  ✓ Starting container (${bootSec}s)`);
-      logUpdate.done();
-    }
+    // The boot spinner keeps running until the first timeline entry appears.
+    // This captures the full startup time including .NET cold-start inside
+    // the container.
 
     let tailDone = false;
     let lastFailedStep: string | null = null;
     const timelinePath = path.join(logDir, "timeline.json");
-
-    const workflowBasename = job.workflowPath ? path.basename(job.workflowPath) : "workflow";
 
     const checkTimeline = () => {
       try {
@@ -385,6 +438,13 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
 
         if (steps.length === 0) {
           return;
+        }
+
+        // ── Finalize boot spinner on first timeline entry ──────────────────────
+        if (spinnerInterval) {
+          clearInterval(spinnerInterval);
+          spinnerInterval = null;
+          bootDurationMs = Date.now() - bootStart;
         }
 
         // Build step child nodes for the tree
@@ -444,19 +504,21 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
           stepNodes.push(completeNode);
         }
 
-        // Build the full tree: workflow → job → run → steps
+        // Build the full tree: workflow → Starting runner + job → steps
+        const totalMs = Date.now() - bootStart;
+        const startingNode: TreeNode = {
+          label: spinnerInterval
+            ? `${spinnerFrames[spinnerIdx % spinnerFrames.length]} Starting runner`
+            : `Starting runner (${fmtMs(bootDurationMs)})`,
+        };
         const tree: TreeNode[] = [
           {
-            label: `[*] ${workflowBasename}`,
+            label: `${workflowBasename} (${fmtMs(totalMs)})`,
             children: [
+              startingNode,
               {
-                label: `[job] ${job.taskId ?? "job"}`,
-                children: [
-                  {
-                    label: `[run] ${containerName}`,
-                    children: stepNodes,
-                  },
-                ],
+                label: `${job.taskId ?? "job"}`,
+                children: stepNodes,
               },
             ],
           },

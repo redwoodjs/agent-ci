@@ -93,6 +93,7 @@ describe("buildContainerCmd", () => {
       svcPortForwardSnippet: "",
       dtuPort: "3000",
       useDirectContainer: false,
+      containerName: "test-runner",
     });
 
     expect(cmd[0]).toBe("bash");
@@ -107,6 +108,7 @@ describe("buildContainerCmd", () => {
       svcPortForwardSnippet: "",
       dtuPort: "3000",
       useDirectContainer: true,
+      containerName: "test-runner",
     });
 
     expect(cmd[0]).toBe("-c");
@@ -119,6 +121,7 @@ describe("buildContainerCmd", () => {
       svcPortForwardSnippet: "socat TCP-LISTEN:5432,fork TCP:svc-db:5432 & \nsleep 0.3 && ",
       dtuPort: "3000",
       useDirectContainer: false,
+      containerName: "test-runner",
     });
 
     expect(cmd[2]).toContain("socat TCP-LISTEN:5432");

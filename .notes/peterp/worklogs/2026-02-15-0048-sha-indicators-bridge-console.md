@@ -23,7 +23,7 @@ While `oa run <sha>` was functional in the runner, the Bridge Console (UI) provi
 - **Attempts:**
   - Identified that `handleLocalJob` needed to mirror the storage logic of GitHub webhooks.
   - DISCOVERED that the UI logic relied on a `webhooks:recent` key that wasn't being maintained by the API.
-  - STANDARDZED on the `webhook@<id>` prefix for all job records in the `OA1_BRIDGE_JOBS` KV.
+  - STANDARDZED on the `webhook@<id>` prefix for all job records in the `MACHINEN_BRIDGE_JOBS` KV.
 
 ## Discovery & Key Findings
 
@@ -33,7 +33,7 @@ While `oa run <sha>` was functional in the runner, the Bridge Console (UI) provi
 ## Resolution
 
 - **Bridge API:** Updated `handleWebhook` and `handleLocalJob` to maintain a `webhooks:recent` list and persist job metadata (including `headSha`).
-- **Console UI:** Refactored `JobsPage` to use the correct `OA1_BRIDGE_JOBS` binding, added columns for "Type" (Local vs. GitHub) and "SHA", and improved formatting.
+- **Console UI:** Refactored `JobsPage` to use the correct `MACHINEN_BRIDGE_JOBS` binding, added columns for "Type" (Local vs. GitHub) and "SHA", and improved formatting.
 
 ## Next Steps
 

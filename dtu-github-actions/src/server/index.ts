@@ -3,9 +3,9 @@ import bodyParser from "body-parser";
 import { execa } from "execa";
 import fs from "node:fs";
 import path from "node:path";
-import { config, loadOaConfig } from "../config.js";
+import { config } from "../config.js";
 import { state } from "./store.js";
-import { setupDtuLogging, getDtuLogPath, setWorkingDirectory, DTU_ROOT } from "./logger.js";
+import { setupDtuLogging, getDtuLogPath } from "./logger.js";
 
 // Routes
 import { registerDtuRoutes } from "./routes/dtu.js";
@@ -23,10 +23,13 @@ async function terminateOldProcess() {
   }
 }
 
-export async function bootstrapAndReturnApp() {
+export async function bootstrapAndReturnApp(options?: { reset?: boolean }) {
+  const shouldReset = options?.reset ?? true;
   setupDtuLogging();
-  state.reset();
-  await terminateOldProcess();
+  if (shouldReset) {
+    state.reset();
+    await terminateOldProcess();
+  }
 
   const app = polka();
 
@@ -67,19 +70,30 @@ export async function bootstrapAndReturnApp() {
     }
     if (text) {
       const planId = req.params.planId;
-      const logPath = state.planToLogPath.get(planId);
-      if (logPath) {
+      const logDir = state.planToLogDir.get(planId);
+      if (logDir) {
         let content = "";
         for (const rawLine of text.split("\n")) {
           const line = rawLine.trimEnd();
-          if (!line || line.startsWith("##[") || line.startsWith("[command]")) {
+          if (!line) {
+            content += "\n";
             continue;
           }
-          content += line + "\n";
+          const stripped = line
+            .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
+            .replace(/^\uFEFF/, "");
+          if (!stripped || stripped.startsWith("##[") || stripped.startsWith("[command]")) {
+            continue;
+          }
+          content += stripped + "\n";
         }
         if (content) {
           try {
-            fs.appendFileSync(logPath, content);
+            const stepName =
+              state.recordToStepName.get(String(req.params.logId)) || req.params.logId;
+            const stepsDir = path.join(logDir, "steps");
+            fs.mkdirSync(stepsDir, { recursive: true });
+            fs.appendFileSync(path.join(stepsDir, `${stepName}.log`), content);
           } catch {
             /* best-effort */
           }
@@ -107,19 +121,30 @@ export async function bootstrapAndReturnApp() {
     }
     if (text) {
       const planId = req.params.planId;
-      const logPath = state.planToLogPath.get(planId);
-      if (logPath) {
+      const logDir = state.planToLogDir.get(planId);
+      if (logDir) {
         let content = "";
         for (const rawLine of text.split("\n")) {
           const line = rawLine.trimEnd();
-          if (!line || line.startsWith("##[") || line.startsWith("[command]")) {
+          if (!line) {
+            content += "\n";
             continue;
           }
-          content += line + "\n";
+          const stripped = line
+            .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
+            .replace(/^\uFEFF/, "");
+          if (!stripped || stripped.startsWith("##[") || stripped.startsWith("[command]")) {
+            continue;
+          }
+          content += stripped + "\n";
         }
         if (content) {
           try {
-            fs.appendFileSync(logPath, content);
+            const stepName =
+              state.recordToStepName.get(String(req.params.logId)) || req.params.logId;
+            const stepsDir = path.join(logDir, "steps");
+            fs.mkdirSync(stepsDir, { recursive: true });
+            fs.appendFileSync(path.join(stepsDir, `${stepName}.log`), content);
           } catch {
             /* best-effort */
           }
@@ -308,39 +333,4 @@ export async function bootstrapAndReturnApp() {
   });
 
   return app;
-}
-
-if (import.meta.url === `file://${process.argv[1]}` || process.env.NODE_ENV !== "test") {
-  const args = process.argv.slice(2);
-  let configPath: string | undefined;
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--config" && args[i + 1]) {
-      configPath = args[i + 1];
-      i++;
-    }
-  }
-
-  const parsedConfig = loadOaConfig(configPath);
-  let workingDir = parsedConfig.workingDirectory;
-  if (workingDir) {
-    if (!path.isAbsolute(workingDir)) {
-      workingDir = path.resolve(DTU_ROOT, workingDir);
-    }
-    setWorkingDirectory(workingDir);
-  }
-
-  bootstrapAndReturnApp()
-    .then((app) => {
-      app.listen(config.DTU_PORT, "0.0.0.0", () => {
-        console.log(
-          `[DTU] OA-RUN-1 Mock GitHub API server running at http://0.0.0.0:${config.DTU_PORT}`,
-        );
-        console.log(`[DTU] Logging to ${getDtuLogPath()}`);
-      });
-    })
-    .catch((err: any) => {
-      console.error("[DTU] Failed to start:", err);
-      process.exit(1);
-    });
 }

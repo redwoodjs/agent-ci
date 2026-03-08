@@ -1,8 +1,8 @@
-# Worklog: Migrate spec-generation tool into opposite-actions as `derive`
+# Worklog: Migrate spec-generation tool into machinen as `derive`
 
 ## Context / Brief
 
-We are migrating the spec-generation tool from the `machinen-experiments_specs` repo into the `opposite-actions` monorepo as a new package called `derive`. The tool watches Claude Code conversation JSONL files, extracts behavioral intent, and generates Gherkin specs per git branch. It will also house test generation from those specs in the future.
+We are migrating the spec-generation tool from the `machinen-experiments_specs` repo into the `machinen` monorepo as a new package called `derive`. The tool watches Claude Code conversation JSONL files, extracts behavioral intent, and generates Gherkin specs per git branch. It will also house test generation from those specs in the future.
 
 The name `derive` captures the core action: derive specs from conversations, derive tests from specs. The tool sits alongside the existing packages (`bridge`, `supervisor`, `dtu-github-actions`, `ui`) in the pnpm workspace.
 
@@ -10,11 +10,11 @@ The original worklog for the tool's development lives at `machinen-experiments_s
 
 ---
 
-## RFC: Migrate specs package into opposite-actions as `derive`
+## RFC: Migrate specs package into machinen as `derive`
 
 ### 2000ft View
 
-We copy the `specs/` package from the `machinen-experiments_specs` repo into the `opposite-actions` monorepo as `derive/`. We rename the package, align it with monorepo conventions (tsgo, oxlint, oxfmt, vitest), register it in the pnpm workspace, and move the original worklog into this repo's `.notes/` directory.
+We copy the `specs/` package from the `machinen-experiments_specs` repo into the `machinen` monorepo as `derive/`. We rename the package, align it with monorepo conventions (tsgo, oxlint, oxfmt, vitest), register it in the pnpm workspace, and move the original worklog into this repo's `.notes/` directory.
 
 ### Implementation Breakdown
 

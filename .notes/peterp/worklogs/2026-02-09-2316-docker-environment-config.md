@@ -8,7 +8,7 @@ author: peterp
 
 ## Summary
 
-We containerized the `oa-1-runner` and implemented a robust job execution system using Docker. The runner now spawns worker containers that mirror the GitHub Actions `ubuntu-latest` environment, injects dynamic environment variables per job, and preserves containers upon failure for easier debugging.
+We containerized the `machinen-runner` and implemented a robust job execution system using Docker. The runner now spawns worker containers that mirror the GitHub Actions `ubuntu-latest` environment, injects dynamic environment variables per job, and preserves containers upon failure for easier debugging.
 
 ## The Problem
 
@@ -22,7 +22,7 @@ Jobs needed to run in an environment consistent with GitHub Actions to ensure po
 
 ## Investigation & Timeline
 
-- **Initial State:** `oa-1-runner` was a bare TypeScript application with a simulation stub in `executor.ts`.
+- **Initial State:** `machinen-runner` was a bare TypeScript application with a simulation stub in `executor.ts`.
 - **Attempts:**
   - **Native HTTP approach:** Initially explored using Node's `http` module to communicate with `/var/run/docker.sock` to avoid extra dependencies.
   - **Image Research:** Identified `ghcr.io/catthehacker/ubuntu:act-latest` as the best Docker-equivalent for the `ubuntu-latest` VM environment used in GitHub Actions.

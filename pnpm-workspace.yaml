@@ -1,6 +1,4 @@
 packages:
-  - "bridge"
-  - "supervisor"
+  - "cli"
   - "dtu-github-actions"
-  - "ui"
   - "derive"

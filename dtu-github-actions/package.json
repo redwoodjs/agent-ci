@@ -7,14 +7,15 @@
   "author": "",
   "type": "module",
   "scripts": {
-    "dev": "(pnpm dlx kill-port 8910 || true) && tsx --env-file=.env src/server/index.ts --config .oa-dev.jsonc",
-    "simulate": "tsx --env-file=.env src/simulate.ts",
+    "dev": "(pnpm dlx kill-port 8910 || true) && tsx src/server/start.ts",
+    "simulate": "tsx src/simulate.ts",
     "typecheck": "tsgo",
-    "test": "BRIDGE_URL=http://localhost:8911 GITHUB_WEBHOOK_SECRET=test-secret vitest run"
+    "test": "vitest run"
   },
   "dependencies": {
     "body-parser": "^2.2.2",
     "jsonc-parser": "^3.3.1",
+    "minimatch": "^10.2.4",
     "polka": "^0.5.2",
     "zod": "^3.24.1"
   },

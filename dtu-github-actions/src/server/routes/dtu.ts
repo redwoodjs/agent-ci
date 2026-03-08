@@ -1,7 +1,7 @@
 import { Polka } from "polka";
 import crypto from "node:crypto";
 import fs from "node:fs";
-import path from "node:path";
+
 import { state } from "../store.js";
 import { createJobResponse } from "./actions/generators.js";
 
@@ -53,11 +53,11 @@ export function registerDtuRoutes(app: Polka) {
 
           const planId = crypto.randomUUID();
 
-          // Map this planId to this specific runner's log path
+          // Map this planId to this runner's log directory
           if (sessRunner) {
             const logDir = state.runnerLogs.get(sessRunner);
             if (logDir) {
-              state.planToLogPath.set(planId, path.join(logDir, "step-output.log"));
+              state.planToLogDir.set(planId, logDir);
             }
           }
 
@@ -68,7 +68,7 @@ export function registerDtuRoutes(app: Polka) {
             planId,
           );
 
-          // Map timelineId → runner's timeline dir (supervisor logs dir)
+          // Map timelineId → runner's timeline dir (CLI logs dir)
           try {
             const jobBody = JSON.parse(jobResponse.Body);
             const timelineId = jobBody?.Timeline?.Id;
@@ -118,12 +118,10 @@ export function registerDtuRoutes(app: Polka) {
       const { runnerName, logDir, timelineDir, virtualCachePatterns } = req.body;
       if (runnerName && logDir) {
         fs.mkdirSync(logDir, { recursive: true });
-        const stepOutputPath = path.join(logDir, "step-output.log");
-        fs.writeFileSync(stepOutputPath, ""); // Truncate/create fresh
 
         // Register this runner mapping so we can route logs later
         state.runnerLogs.set(runnerName, logDir);
-        // Also store the timeline dir (supervisor's logs dir) for this runner
+        // Also store the timeline dir (CLI's logs dir) for this runner
         if (timelineDir) {
           state.runnerTimelineDirs.set(runnerName, timelineDir);
         }
@@ -161,7 +159,8 @@ export function registerDtuRoutes(app: Polka) {
       runnerLogs: Object.fromEntries(state.runnerLogs),
       runnerTimelineDirs: Object.fromEntries(state.runnerTimelineDirs),
       sessionToRunner: Object.fromEntries(state.sessionToRunner),
-      planToLogPath: Object.fromEntries(state.planToLogPath),
+      planToLogDir: Object.fromEntries(state.planToLogDir),
+      recordToStepName: Object.fromEntries(state.recordToStepName),
       timelineToLogDir: Object.fromEntries(state.timelineToLogDir),
     };
     res.writeHead(200, { "Content-Type": "application/json" });

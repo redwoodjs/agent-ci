@@ -130,7 +130,8 @@ export function createJobResponse(
 
     const s = {
       id: step.Id || step.id || crypto.randomUUID(),
-      name: step.Name || step.DisplayName || step.name || `step-${index}`,
+      name: step.Name || step.name || `step-${index}`,
+      displayName: step.DisplayName || step.Name || step.name || `step-${index}`,
       type: (step.Type || "Action").toLowerCase(),
       reference: (() => {
         const refTypeSource = step.Reference?.Type || "Script";

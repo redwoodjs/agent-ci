@@ -137,7 +137,7 @@ extraction pass → raw Gherkin
 
 ```bash
 # Reset spec to regenerate from scratch with the new review pass:
-cd /Users/justin/rw/worktrees/opposite-actions_specs
+cd /Users/justin/rw/worktrees/machinen_specs
 pnpm --filter derive start -- --reset
 
 # Compare the regenerated spec against the current one.
@@ -395,7 +395,7 @@ During a `--reset` run, 61 conversations were being processed for the `specs` br
 
 ### Investigation
 
-Inventoried all 86 JSONL files in `~/.claude/projects/-Users-justin-rw-worktrees-opposite-actions-specs/`. Found that ~62 files had only 4–5 lines each (consistent with short `claude -p` calls) despite file sizes up to 624K. These were session files created by `claude -p` during previous derive runs.
+Inventoried all 86 JSONL files in `~/.claude/projects/-Users-justin-rw-worktrees-machinen-specs/`. Found that ~62 files had only 4–5 lines each (consistent with short `claude -p` calls) despite file sizes up to 624K. These were session files created by `claude -p` during previous derive runs.
 
 This was a **feedback loop**: each `--reset` run spawns multiple `claude -p` calls (extraction + review per conversation). By default, `claude -p` persists session JSONL files in the same slug directory as the parent. On the next `--reset`, those ghost files are discovered as "conversations" and processed, which creates even more ghost files.
 

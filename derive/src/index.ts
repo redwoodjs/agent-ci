@@ -39,7 +39,7 @@ function getCurrentBranch(): string {
 function getSlugDir(cwd: string): string {
   // Claude Code replaces both / and _ with - when slugifying.
   // Previously we only replaced /, causing lookups to miss directories
-  // for cwds containing underscores (e.g. opposite-actions_specs).
+  // for cwds containing underscores (e.g. machinen_specs).
   const slug = cwd.replace(/[/_]/g, "-");
   return path.join(CLAUDE_PROJECTS_DIR, slug);
 }

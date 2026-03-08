@@ -9,7 +9,7 @@ We are rearchitecting `derive` from a daemon that watches Claude Code conversati
 `derive` was built as a daemon (`watcher.ts` + chokidar) that monitors `~/.claude/projects/**/*.jsonl` for changes. When a file changes, it indexes the conversation (repo + branch mapping in SQLite) and triggers a spec update. The full development history lives in two worklogs:
 
 - `2026-03-03-machinen-setup.md` — original tool development (watching, indexing, reading, spec maintenance, all the CLI bug investigations)
-- `2026-03-03-derive-migration.md` — migration from `machinen-experiments_specs` into the `opposite-actions` monorepo as the `derive` package
+- `2026-03-03-derive-migration.md` — migration from `machinen-experiments_specs` into the `machinen` monorepo as the `derive` package
 
 ### Current architecture (what we are changing from)
 
@@ -300,7 +300,7 @@ The downstream logic (`runSpecUpdate`, `resetBranch`, `updateSpec`, `filterSpec`
 
 ```bash
 # One-shot update:
-cd /Users/justin/rw/worktrees/opposite-actions_specs
+cd /Users/justin/rw/worktrees/machinen_specs
 pnpm --filter derive start
 
 # Should: detect branch, discover conversations, update spec, exit
@@ -579,10 +579,10 @@ Typecheck clean.
 
 We ran `derive` and it reported "no new messages" despite new conversations existing. We investigated the discovery pipeline and found that `getSlugDir` was computing the wrong slug directory.
 
-**Root cause:** Claude Code's slugification replaces both `/` and `_` with `-`. Our `getSlugDir` only replaced `/`. For the cwd `/Users/justin/rw/worktrees/opposite-actions_specs`:
+**Root cause:** Claude Code's slugification replaces both `/` and `_` with `-`. Our `getSlugDir` only replaced `/`. For the cwd `/Users/justin/rw/worktrees/machinen_specs`:
 
-- derive computed slug: `-Users-justin-rw-worktrees-opposite-actions_specs` (underscore preserved)
-- Claude Code actual slug: `-Users-justin-rw-worktrees-opposite-actions-specs` (underscore → dash)
+- derive computed slug: `-Users-justin-rw-worktrees-machinen_specs` (underscore preserved)
+- Claude Code actual slug: `-Users-justin-rw-worktrees-machinen-specs` (underscore → dash)
 
 The slug dir derive was looking in did not exist on the filesystem. `discoverConversations` returned immediately (no slug dir → no files), and `runSpecUpdate` queried the DB for conversations on the correct `repo_path` but found only previously-indexed ones (all with offsets already advanced) → "no new messages."
 

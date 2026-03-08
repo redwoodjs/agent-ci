@@ -23,7 +23,7 @@ When a commit was created on a watched repo, only one workflow ran (e.g. `tests.
 
 ## Discovery & Key Findings
 
-- The supervisor already names Docker containers `oa-runner-N`, making `docker ps --filter name=oa-runner-` a reliable source of truth for running status.
+- The supervisor already names Docker containers `machinen-runner-N`, making `docker ps --filter name=machinen-runner-` a reliable source of truth for running status.
 - Pre-creating `metadata.json` before spawning the supervisor process eliminates the race condition where the UI polls before logs flush.
 - `stopWorkflow` can target a specific container via `docker rm -f <runId>` rather than killing a remembered process handle.
 

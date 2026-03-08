@@ -1,16 +1,16 @@
-# GitHub Actions Specification (OA-1 & DTU)
+# GitHub Actions Specification (Machinen & DTU)
 
-This document defines the technical communication flow between the Digital Twin Universe (DTU), the OA-1 Bridge, and the Local Runner.
+This document defines the technical communication flow between the Digital Twin Universe (DTU), the Machinen Bridge, and the Local Runner.
 
 ## System Architecture
 
-The Opposite-Actions (OA-1) system mimics GitHub's pull-based runner architecture. In the local-first environment (DTU), components interaction is defined as follows:
+The Machinen (Machinen) system mimics GitHub's pull-based runner architecture. In the local-first environment (DTU), components interaction is defined as follows:
 
 ```mermaid
 sequenceDiagram
     participant DTU as DTU (Simulation Server)
-    participant Bridge as OA-1 Bridge (Orchestrator)
-    participant Runner as OA-1 Runner (Local Agent)
+    participant Bridge as Machinen Bridge (Orchestrator)
+    participant Runner as Machinen Runner (Local Agent)
     participant Container as Docker Container
 
     Note over DTU: State: In-Memory GitHub Mock
@@ -69,12 +69,12 @@ Even if the Bridge says you are "active," GitHub itself won't send the job to yo
 
 ### The Registration Flow
 
-The OA-1 system automates runner registration using the Bridge as a secure credential manager. This eliminates the need for manual registration tokens.
+The Machinen system automates runner registration using the Bridge as a secure credential manager. This eliminates the need for manual registration tokens.
 
 1.  **Request Token**: The Runner calls the Bridge (`GET /api/registration-token`) before spinning up a Docker container.
 2.  **Generate Token**: The Bridge uses its **GitHub App Credentials** to authenticate via the GitHub API and fetch a fresh `registration-token` for the repository.
 3.  **Bootstrap**: The Runner injects this token into the Docker container.
-4.  **Registration**: The official runner application (`./run.sh`) uses the token to register itself with a unique name (e.g., `oa-runner-1`).
+4.  **Registration**: The official runner application (`./run.sh`) uses the token to register itself with a unique name (e.g., `machinen-runner-1`).
 
 ### Required Credentials
 
@@ -95,7 +95,7 @@ The GitHub App must be installed on the repository with at least:
 
 ---
 
-## 2. OA-1 Bridge API
+## 2. Machinen Bridge API
 
 The Bridge acts as the message queue and presence orchestrator.
 
@@ -123,7 +123,7 @@ The Bridge acts as the message queue and presence orchestrator.
 
 ---
 
-## 4. Why this matters for "Opposite-Actions"
+## 4. Why this matters for "Machinen"
 
 By mirroring the official GitHub API in the DTU, we ensure that:
 

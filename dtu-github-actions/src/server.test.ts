@@ -141,7 +141,7 @@ describe("DTU Server", () => {
     const res = await request("POST", "/_apis/distributedtask/pools/1/sessions");
     expect(res.status).toBe(200);
     expect(res.body.sessionId).toBeDefined();
-    expect(res.body.agent.name).toBe("oa-runner");
+    expect(res.body.agent.name).toBe("machinen-runner");
   });
 
   it("should handle long polling for messages", async () => {
@@ -357,5 +357,37 @@ describe("Artifact v4 upload/download", () => {
     const { artifacts } = (await res.json()) as { artifacts: any[] };
     expect(artifacts).toHaveLength(1);
     expect(artifacts[0].name).toBe("list-test-artifact");
+  });
+
+  it("should handle job request renewal on bare path (actual runner behavior)", async () => {
+    const res = await request("PATCH", "/_apis/distributedtask/jobrequests", {
+      requestId: 1,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.lockedUntil).toBeDefined();
+    expect(new Date(res.body.lockedUntil).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("should handle job request renewal on parameterized path", async () => {
+    const res = await request("PATCH", "/_apis/distributedtask/jobrequests/1", {
+      requestId: 1,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.lockedUntil).toBeDefined();
+    expect(new Date(res.body.lockedUntil).getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it("should handle job request finish (PATCH with result + finishTime)", async () => {
+    const finishTime = new Date().toISOString();
+    const res = await request("PATCH", "/_apis/distributedtask/jobrequests", {
+      requestId: 1,
+      result: "succeeded",
+      finishTime,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.result).toBe("succeeded");
+    expect(res.body.finishTime).toBe(finishTime);
+    // Finish requests should NOT get lockedUntil injected
+    expect(res.body.lockedUntil).toBeUndefined();
   });
 });

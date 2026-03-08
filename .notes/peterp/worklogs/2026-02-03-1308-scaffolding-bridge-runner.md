@@ -19,8 +19,8 @@ The goal was to set up the foundation for a local GitHub Actions execution syste
 - **Initial State:** Empty monorepo root.
 - **Attempts:**
   - Researched use of `pnpm create rwsdk` for the worker project.
-  - Created `oa-1-orchestrate` using the SDK starter.
-  - Created `oa-1-agent` as a basic Node workspace.
+  - Created `machinen-orchestrate` using the SDK starter.
+  - Created `machinen-agent` as a basic Node workspace.
   - Renamed projects based on feedback: `orchestrate` -> `bridge` and `agent` -> `runner`.
   - Updated `package.json` names and internal scaffolding to match new naming convention.
 
@@ -33,11 +33,11 @@ The goal was to set up the foundation for a local GitHub Actions execution syste
 
 Final structure:
 
-- `oa-1-bridge`: RedwoodSDK Cloudflare Worker.
-- `oa-1-runner`: Node.js project for local task execution.
+- `machinen-bridge`: RedwoodSDK Cloudflare Worker.
+- `machinen-runner`: Node.js project for local task execution.
 
 ## Next Steps
 
-- [ ] Implement Webhook Handler in `oa-1-bridge`.
-- [ ] Set up polling logic in `oa-1-runner`.
+- [ ] Implement Webhook Handler in `machinen-bridge`.
+- [ ] Set up polling logic in `machinen-runner`.
 - [ ] Configure Docker environment for execution.

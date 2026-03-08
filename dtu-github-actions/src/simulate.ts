@@ -7,12 +7,6 @@ import { config } from "./config.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-async function signPayload(payload: string, secret: string): Promise<string> {
-  const hmac = crypto.createHmac("sha256", secret);
-  hmac.update(payload);
-  return `sha256=${hmac.digest("hex")}`;
-}
-
 async function main() {
   const event = process.argv[2] || "workflow_job";
 
@@ -57,42 +51,7 @@ async function main() {
 
   console.log(`[DTU] Simulating "${event}" event...`);
   console.log(`[DTU] Delivery ID: ${deliveryId}`);
-  console.log(`[DTU] Target Bridge: ${config.BRIDGE_URL}`);
-
-  const signature = await signPayload(rawPayload, config.GITHUB_WEBHOOK_SECRET);
-
-  try {
-    const response = await fetch(`${config.BRIDGE_URL}/api/webhook`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-GitHub-Event": event,
-        "X-GitHub-Delivery": deliveryId,
-        "X-Hub-Signature-256": signature,
-      },
-      body: rawPayload,
-    });
-
-    if (!response.ok) {
-      const text = await response.text();
-      console.error(`[DTU] Failed to trigger event: ${response.status} ${response.statusText}`);
-      console.error(`[DTU] Response: ${text}`);
-      process.exit(1);
-    }
-
-    console.log("[DTU] Event triggered successfully!");
-    const text = await response.text();
-    console.log("[DTU] Bridge Response:", text);
-  } catch (error: any) {
-    if (error.code === "ECONNREFUSED") {
-      console.error(
-        `[DTU] Error: Could not connect to Bridge at ${config.BRIDGE_URL}. Is it running?`,
-      );
-    } else {
-      console.error("[DTU] Error triggering event:", error);
-    }
-    process.exit(1);
-  }
+  console.log(`[DTU] Simulation complete.`);
 }
 
 main();

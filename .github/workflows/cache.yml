@@ -1,0 +1,51 @@
+name: Cache Tests
+
+# Exercises the warm node_modules bind-mount on the local (machinen) runner.
+# Three parallel jobs all run pnpm install simultaneously. Without the warm cache:
+#   - First run: one job warms node_modules alone, then the other two run in parallel
+#   - Subsequent runs: all three start in parallel immediately (node_modules already warm)
+
+on: [push]
+
+jobs:
+  install-a:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - run: pnpm install
+      - run: echo "✅ install-a complete — node_modules present $(ls node_modules | wc -l | tr -d ' ') packages"
+
+  install-b:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - run: pnpm install
+      - run: echo "✅ install-b complete — node_modules present $(ls node_modules | wc -l | tr -d ' ') packages"
+
+  install-c:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - run: pnpm install
+      - run: echo "✅ install-c complete — node_modules present $(ls node_modules | wc -l | tr -d ' ') packages"

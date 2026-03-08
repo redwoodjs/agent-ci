@@ -44,7 +44,7 @@ The final set of fixes deployed across the codebase:
 1. Configured custom `vitest.config.ts` for sequential test running in DTU.
 2. Modified the `localJob.ts` container schema implementation:
    - Added Node.js to `$PATH`.
-   - Used `hostname -I` to fetch the correct `OA_DTU_HOST` proxy target.
+   - Used `hostname -I` to fetch the correct `MACHINEN_DTU_HOST` proxy target.
    - Replaced `rsync` with a robust `fs.cpSync` fallback.
    - Pre-created bind-mounted directories with 0o777 permissions and issued a recursive `chmod` in the container startup script.
 3. Cleaned up all tracking debug code and verbose logging in the GitHub workflow and E2E tests wrapper.

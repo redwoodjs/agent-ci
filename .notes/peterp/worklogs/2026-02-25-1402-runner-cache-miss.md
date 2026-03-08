@@ -8,11 +8,11 @@ author: peterp
 
 ## Summary
 
-Investigated why `actions/setup-node` was downloading the Node.js binaries on every test run instead of utilizing the cache on the `opposite-actions` self-hosted runner. Fixed the issue by creating and mounting a persistent `toolcache` directory to `/opt/hostedtoolcache` on the ephemeral runner containers.
+Investigated why `actions/setup-node` was downloading the Node.js binaries on every test run instead of utilizing the cache on the `machinen` self-hosted runner. Fixed the issue by creating and mounting a persistent `toolcache` directory to `/opt/hostedtoolcache` on the ephemeral runner containers.
 
 ## The Problem
 
-When running `.github/workflows/tests.yml` locally via the `opposite-actions` self-hosted runner, the runner failed to find Node.js in the cache, forcing a multi-second internet download on every single run.
+When running `.github/workflows/tests.yml` locally via the `machinen` self-hosted runner, the runner failed to find Node.js in the cache, forcing a multi-second internet download on every single run.
 
 ## Investigation & Timeline
 

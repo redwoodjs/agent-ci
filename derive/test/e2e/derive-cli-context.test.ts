@@ -1,4 +1,4 @@
-// --GROK--: E2E tests for cli-context-detection.feature. Verifies that derive
+// E2E tests for cli-context-detection.feature. Verifies that derive
 // infers the git branch from the repository in the current working directory,
 // and that it rejects a detached HEAD state with a non-zero exit code.
 //
@@ -12,7 +12,7 @@ import { setupDeriveTest } from "./harness.js";
 
 describe("derive CLI context detection", () => {
   it("infers the branch from the current git repository and exits cleanly", async () => {
-    // --GROK--: The harness creates a repo on "feature-x" and passes that as
+    // The harness creates a repo on "feature-x" and passes that as
     // the cwd when spawning derive. Producing spec files proves derive read the
     // branch from the git repo rather than crashing on context detection.
     const { run } = await setupDeriveTest({
@@ -20,7 +20,10 @@ describe("derive CLI context detection", () => {
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --infer-flag to auto-detect settings" },
+            {
+              type: "user",
+              content: "Add --infer-flag to auto-detect settings",
+            },
             { type: "assistant", content: "I will add --infer-flag" },
           ],
         },
@@ -42,7 +45,10 @@ describe("derive CLI context detection", () => {
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --detach-flag to work in detached state" },
+            {
+              type: "user",
+              content: "Add --detach-flag to work in detached state",
+            },
             { type: "assistant", content: "I will add --detach-flag" },
           ],
         },
@@ -55,8 +61,6 @@ describe("derive CLI context detection", () => {
 
     const result = await run();
 
-    // --GROK--: The spec says "an error message indicates a named branch is
-    // required / And the process exits with a non-zero code".
     expect(result.exitCode).not.toBe(0);
 
     const output = result.stdout + result.stderr;

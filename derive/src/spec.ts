@@ -8,7 +8,7 @@ import { extractText } from "./reader.js";
 export const CLAUDE_BIN =
   process.env.CLAUDE_BIN ?? path.join(os.homedir(), ".local", "bin", "claude");
 
-// --GROK--: When --verbose is passed to derive itself, we dump raw NDJSON
+// When --verbose is passed to derive itself, we dump raw NDJSON
 // events from the spawned claude process so we can inspect the full stream.
 const VERBOSE = process.argv.includes("--verbose");
 
@@ -34,14 +34,14 @@ Rules:
 6. When updating an existing spec, preserve scenarios that are still valid, revise those that have changed, and add new ones as needed.
 7. Ignore conversations about debugging, investigation, internal refactoring, or tooling workarounds — these are not product behaviours.`;
 
-// --GROK--: --system-prompt is a short, fixed override that replaces the
+// --system-prompt is a short, fixed override that replaces the
 // default system prompt (stripping inherited style instructions like
 // explanatory output mode). The detailed role instructions (preamble) are
 // prepended to the stdin input alongside the prompt, keeping the CLI arg
 // short and avoiding E2BIG.
 const SYSTEM_PROMPT_OVERRIDE = "Output only Gherkin. No commentary, no markdown, no code fences.";
 
-// --GROK--: Shared NDJSON streaming logic. Parses claude -p stream-json output,
+// Shared NDJSON streaming logic. Parses claude -p stream-json output,
 // logs progress to stderr (thinking, tool_use, text generation), and calls
 // onResult when the final result event arrives. Used by both runClaude (spec
 // pipeline) and runGenTests (test generation).
@@ -200,7 +200,7 @@ async function reviewSpec(gherkin: string): Promise<string> {
   return runClaude(REVIEW_SYSTEM_PROMPT, prompt);
 }
 
-// --GROK--: Standalone review for callers that batch multiple updateSpec calls
+// Standalone review for callers that batch multiple updateSpec calls
 // with skipReview and want to review once at the end (e.g. resetBranch).
 export async function reviewSpecDir(dir: string): Promise<void> {
   const content = readSpec(dir);
@@ -262,7 +262,7 @@ export async function updateSpec(
       console.log(`[spec] sending ${chunk.length} messages | ${excerpts.length} chars of excerpts`);
     }
 
-    // --GROK--: readSpec concatenates all .feature files in the directory.
+    // readSpec concatenates all .feature files in the directory.
     // The LLM sees a single string — file boundaries are invisible.
     const currentSpec = readSpec(dir);
 
@@ -288,14 +288,14 @@ export async function updateSpec(
       output = reviewed;
     }
 
-    // --GROK--: writeSpec splits the output by Feature: blocks, slugifies
+    // writeSpec splits the output by Feature: blocks, slugifies
     // each name, rm's existing .feature files, and writes the new ones.
     // Between chunk iterations, the next readSpec call will re-concat.
     writeSpec(dir, output);
   }
 }
 
-// --GROK--: specDir returns the directory where .feature files live. All
+// specDir returns the directory where .feature files live. All
 // branches share the same directory — specs describe product features, not
 // branch-scoped work.
 export function specDir(repoPath: string, scope?: string): string {
@@ -303,7 +303,7 @@ export function specDir(repoPath: string, scope?: string): string {
   return scope ? path.join(base, scope) : base;
 }
 
-// --GROK--: readSpec globs *.feature files, sorts alphabetically for
+// readSpec globs *.feature files, sorts alphabetically for
 // deterministic ordering, and concatenates into a single string. The LLM
 // pipeline only ever sees this concatenated string — file boundaries are
 // invisible to it.
@@ -325,7 +325,7 @@ export function readSpec(dir: string): string | null {
   return contents.join("\n\n");
 }
 
-// --GROK--: slugify turns a Feature name into a filename-safe slug.
+// slugify turns a Feature name into a filename-safe slug.
 // "CLI spec update" → "cli-spec-update"
 function slugify(name: string): string {
   return name
@@ -334,7 +334,7 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-// --GROK--: writeSpec parses the Gherkin output by Feature: blocks, slugifies
+// writeSpec parses the Gherkin output by Feature: blocks, slugifies
 // each feature name to determine the filename, removes all existing .feature
 // files (clean slate — content was already consumed), and writes the new files.
 export function writeSpec(dir: string, gherkin: string): void {

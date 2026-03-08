@@ -18,7 +18,7 @@ const CLAUDE_PROJECTS_DIR =
   process.env.CLAUDE_PROJECTS_DIR ?? path.join(os.homedir(), ".claude", "projects");
 const WATCH_DEBOUNCE_MS = 5_000;
 
-// --GROK--: Shells out to git to get the current branch name.
+// Shells out to git to get the current branch name.
 // Rejects detached HEAD since we need a named branch for spec routing.
 function getCurrentBranch(): string {
   const branch = execSync("git rev-parse --abbrev-ref HEAD", {
@@ -34,17 +34,17 @@ function getCurrentBranch(): string {
   return branch;
 }
 
-// --GROK--: Computes the slug directory where Claude Code stores conversations
+// omputes the slug directory where Claude Code stores conversations
 // for a given cwd. Mirrors Claude Code's own slugification: replace / with -.
 function getSlugDir(cwd: string): string {
-  // --GROK--: Claude Code replaces both / and _ with - when slugifying.
+  // Claude Code replaces both / and _ with - when slugifying.
   // Previously we only replaced /, causing lookups to miss directories
   // for cwds containing underscores (e.g. opposite-actions_specs).
   const slug = cwd.replace(/[/_]/g, "-");
   return path.join(CLAUDE_PROJECTS_DIR, slug);
 }
 
-// --GROK--: DB-first reconciliation. Queries the DB for known conversations on
+// DB-first reconciliation. Queries the DB for known conversations on
 // this branch, then diffs against the filesystem to find truly new JSONL files.
 // New files are read to extract their gitBranch — matching ones are indexed.
 // Non-matching files are also indexed (for their actual branch) so the
@@ -156,7 +156,7 @@ async function runSpecUpdate(repoPath: string, branch: string, scope?: string): 
   console.log(`[spec] spec written to ${dir}`);
 }
 
-// --GROK--: Reset mode. Discovery has already reconciled the DB, so
+// Discovery has already reconciled the DB, so
 // getConversationsForBranch returns the complete set. We zero offsets and
 // reprocess each conversation sequentially — one updateSpec call per
 // conversation to avoid exceeding the prompt size limit.
@@ -178,7 +178,7 @@ async function resetBranch(
   const dir = specDir(cwd, opts.scope);
 
   if (!opts.keepSpec && fs.existsSync(dir)) {
-    // --GROK--: Remove all existing .feature files (clean slate for regeneration).
+    // Remove all existing .feature files (clean slate for regeneration).
     // The content was already consumed — nothing is lost.
     const existing = fs.readdirSync(dir).filter((f) => f.endsWith(".feature"));
     for (const f of existing) {
@@ -200,7 +200,7 @@ async function resetBranch(
     );
 
     if (messages.length > 0) {
-      // --GROK--: Skip review on each conversation — review once at the end.
+      // Skip review on each conversation — review once at the end.
       await updateSpec(messages, dir, { skipReview: true });
       totalMessages += messages.length;
       console.log(`[reset] spec updated: ${dir}`);
@@ -232,18 +232,18 @@ async function resetBranch(
 
 async function main(): Promise<void> {
   const cwd = process.cwd();
-  // --GROK--: Strip a leading "--" that pnpm injects when forwarding args via
+  // Strip a leading "--" that pnpm injects when forwarding args via
   // `pnpm start -- tests`. Without this, args[0] is "--" and subcommand
   // dispatch never fires.
   const rawArgs = process.argv.slice(2);
   const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
 
-  // --GROK--: Parse --scope <name> to direct specs into a subdirectory.
+  // Parse --scope <name> to direct specs into a subdirectory.
   // e.g. --scope derive → .machinen/specs/derive/*.feature
   const scopeIdx = args.indexOf("--scope");
   const scope = scopeIdx !== -1 ? args[scopeIdx + 1] : undefined;
 
-  // --GROK--: `derive tests` dispatches before getCurrentBranch() and
+  // `derive tests` dispatches before getCurrentBranch() and
   // discoverConversations() — it operates on spec files, not git state or
   // conversations. No DB access, no branch detection needed.
   if (args[0] === "tests") {
@@ -258,7 +258,10 @@ async function main(): Promise<void> {
   await discoverConversations(cwd, branch);
 
   if (args.includes("--reset")) {
-    await resetBranch(cwd, branch, { keepSpec: args.includes("--keep-spec"), scope });
+    await resetBranch(cwd, branch, {
+      keepSpec: args.includes("--keep-spec"),
+      scope,
+    });
     return;
   }
 
@@ -291,7 +294,7 @@ async function main(): Promise<void> {
   await runSpecUpdate(cwd, branch, scope);
 }
 
-// --GROK--: Same "--" stripping as in main() for consistency.
+// Same "--" stripping as in main() for consistency.
 const topArgs = process.argv.slice(2);
 const isWatchMode = (topArgs[0] === "--" ? topArgs[1] : topArgs[0]) === "watch";
 

@@ -18,7 +18,7 @@ The `--keep-spec` incident surfaced the question: what happens when specs change
 
 ## Alternatives Considered
 
-All five approaches above were discussed. The user wanted "super dead simple" and proposed letting Claude reason about it, since Claude already reads both specs and existing tests during `derive tests`.
+All five approaches above were discussed. We wanted wanted "super dead simple" and proposed letting Claude reason about it, since Claude already reads both specs and existing tests during `derive tests`.
 
 ## Consequences
 

@@ -241,7 +241,7 @@ export function registerActionRoutes(app: Polka) {
         if (runnerName) {
           const logDir = state.runnerLogs.get(runnerName);
           if (logDir) {
-            state.planToLogPath.set(planId, path.join(logDir, "step-output.log"));
+            state.planToLogDir.set(planId, logDir);
           }
         }
 
@@ -402,6 +402,45 @@ export function registerActionRoutes(app: Polka) {
       }
     }
 
+    // Build recordId/logId → sanitized step name mappings for per-step log files.
+    // Also rename any existing files that were written before the mapping was available.
+    // logDir is already resolved above from state.timelineToLogDir — reuse it here.
+    const stepsDir = logDir ? path.join(logDir, "steps") : undefined;
+
+    for (const record of existing) {
+      if (record.name && record.type === "Task") {
+        const sanitized = record.name
+          .replace(/[^a-zA-Z0-9_.-]/g, "-")
+          .replace(/-+/g, "-")
+          .replace(/^-|-$/g, "")
+          .substring(0, 80);
+
+        const ids: string[] = [];
+        if (record.id) {
+          ids.push(record.id);
+        }
+        if (record.log?.id) {
+          ids.push(String(record.log.id));
+        }
+
+        for (const id of ids) {
+          state.recordToStepName.set(id, sanitized);
+          // Rename existing file from {id}.log to {stepName}.log if needed
+          if (stepsDir && id !== sanitized) {
+            const oldPath = path.join(stepsDir, `${id}.log`);
+            const newPath = path.join(stepsDir, `${sanitized}.log`);
+            try {
+              if (fs.existsSync(oldPath) && !fs.existsSync(newPath)) {
+                fs.renameSync(oldPath, newPath);
+              }
+            } catch {
+              /* best-effort */
+            }
+          }
+        }
+      }
+    }
+
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ count: existing.length, value: existing }));
   };
@@ -512,10 +551,10 @@ export function registerActionRoutes(app: Polka) {
     },
   );
 
-  // Helper to append lines to the concurrent runner's log file
-  const writeStepOutputLines = (planId: string, lines: string[]) => {
-    const logPath = state.planToLogPath.get(planId);
-    if (!logPath) {
+  // Helper to append filtered lines to the per-step log file
+  const writeStepOutputLines = (planId: string, recordId: string, lines: string[]) => {
+    const logDir = state.planToLogDir.get(planId);
+    if (!logDir) {
       return;
     }
 
@@ -525,20 +564,31 @@ export function registerActionRoutes(app: Polka) {
 
     for (const rawLine of lines) {
       const line = rawLine.trimEnd();
+      if (!line) {
+        content += "\n";
+        continue;
+      }
+      // Strip BOM + timestamp prefix before filtering
+      const stripped = line
+        .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
+        .replace(/^\uFEFF/, "");
       if (
-        !line ||
-        line.startsWith("##[") ||
-        line.startsWith("[command]") ||
-        RUNNER_INTERNAL_RE.test(line)
+        !stripped ||
+        stripped.startsWith("##[") ||
+        stripped.startsWith("[command]") ||
+        RUNNER_INTERNAL_RE.test(stripped)
       ) {
         continue;
       }
-      content += line + "\n";
+      content += stripped + "\n";
     }
 
     if (content) {
       try {
-        fs.appendFileSync(logPath, content);
+        const stepName = state.recordToStepName.get(recordId) || recordId;
+        const stepsDir = path.join(logDir, "steps");
+        fs.mkdirSync(stepsDir, { recursive: true });
+        fs.appendFileSync(path.join(stepsDir, `${stepName}.log`), content);
       } catch {
         /* best-effort */
       }
@@ -564,7 +614,7 @@ export function registerActionRoutes(app: Polka) {
       }
 
       if (extractedLines.length > 0) {
-        writeStepOutputLines(planId, extractedLines);
+        writeStepOutputLines(planId, req.params.recordId, extractedLines);
       }
 
       res.writeHead(200, { "Content-Type": "application/json" });

@@ -16,6 +16,7 @@
     "@actions/workflow-parser": "0.3.43",
     "dockerode": "^4.0.2",
     "dtu-github-actions": "workspace:*",
+    "log-update": "^7.2.0",
     "minimatch": "^10.2.1",
     "yaml": "^2.8.2"
   },

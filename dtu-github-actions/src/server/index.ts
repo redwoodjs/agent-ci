@@ -70,19 +70,30 @@ export async function bootstrapAndReturnApp(options?: { reset?: boolean }) {
     }
     if (text) {
       const planId = req.params.planId;
-      const logPath = state.planToLogPath.get(planId);
-      if (logPath) {
+      const logDir = state.planToLogDir.get(planId);
+      if (logDir) {
         let content = "";
         for (const rawLine of text.split("\n")) {
           const line = rawLine.trimEnd();
-          if (!line || line.startsWith("##[") || line.startsWith("[command]")) {
+          if (!line) {
+            content += "\n";
             continue;
           }
-          content += line + "\n";
+          const stripped = line
+            .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
+            .replace(/^\uFEFF/, "");
+          if (!stripped || stripped.startsWith("##[") || stripped.startsWith("[command]")) {
+            continue;
+          }
+          content += stripped + "\n";
         }
         if (content) {
           try {
-            fs.appendFileSync(logPath, content);
+            const stepName =
+              state.recordToStepName.get(String(req.params.logId)) || req.params.logId;
+            const stepsDir = path.join(logDir, "steps");
+            fs.mkdirSync(stepsDir, { recursive: true });
+            fs.appendFileSync(path.join(stepsDir, `${stepName}.log`), content);
           } catch {
             /* best-effort */
           }
@@ -110,19 +121,30 @@ export async function bootstrapAndReturnApp(options?: { reset?: boolean }) {
     }
     if (text) {
       const planId = req.params.planId;
-      const logPath = state.planToLogPath.get(planId);
-      if (logPath) {
+      const logDir = state.planToLogDir.get(planId);
+      if (logDir) {
         let content = "";
         for (const rawLine of text.split("\n")) {
           const line = rawLine.trimEnd();
-          if (!line || line.startsWith("##[") || line.startsWith("[command]")) {
+          if (!line) {
+            content += "\n";
             continue;
           }
-          content += line + "\n";
+          const stripped = line
+            .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
+            .replace(/^\uFEFF/, "");
+          if (!stripped || stripped.startsWith("##[") || stripped.startsWith("[command]")) {
+            continue;
+          }
+          content += stripped + "\n";
         }
         if (content) {
           try {
-            fs.appendFileSync(logPath, content);
+            const stepName =
+              state.recordToStepName.get(String(req.params.logId)) || req.params.logId;
+            const stepsDir = path.join(logDir, "steps");
+            fs.mkdirSync(stepsDir, { recursive: true });
+            fs.appendFileSync(path.join(stepsDir, `${stepName}.log`), content);
           } catch {
             /* best-effort */
           }

@@ -9,18 +9,14 @@ export const PROJECT_ROOT = path.resolve(__dirname, "../../");
  * Run the CLI in headless mode against a workflow file.
  * No DTU setup needed — the CLI spawns its own ephemeral DTU internally.
  */
-export async function runCLI(workflow: string, task: string) {
-  const proc = execa(
-    "pnpm",
-    ["tsx", "cli/src/cli.ts", "run", "--workflow", workflow, "--task", task],
-    {
-      cwd: PROJECT_ROOT,
-      env: {
-        ...process.env,
-        GITHUB_REPO: "redwoodjs/machinen",
-      },
+export async function runCLI(workflow: string) {
+  const proc = execa("pnpm", ["tsx", "cli/src/cli.ts", "run", "--workflow", workflow], {
+    cwd: PROJECT_ROOT,
+    env: {
+      ...process.env,
+      GITHUB_REPO: "redwoodjs/machinen",
     },
-  );
+  });
 
   proc.stdout?.pipe(process.stdout);
   proc.stderr?.pipe(process.stderr);

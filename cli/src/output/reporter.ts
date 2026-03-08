@@ -34,28 +34,15 @@ function formatDuration(ms: number): string {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
-// ─── Single-line status (emitted as each job finishes) ────────────────────────
-
-export function printJobStatus(result: JobResult): void {
-  const icon = result.succeeded ? "✓" : "✗";
-  const dur = formatDuration(result.durationMs);
-  const label = `${result.workflow} > ${result.taskId}`;
-  process.stdout.write(`  ${icon} ${label} (${dur})\n`);
-}
-
-export function printJobStarted(workflow: string, taskId: string): void {
-  process.stdout.write(`  ● ${workflow} > ${taskId} (running)\n`);
-}
-
 // ─── Failures-first summary (emitted after all jobs complete) ─────────────────
 
-export function printSummary(results: JobResult[]): void {
+export function printSummary(results: JobResult[], runDir?: string): void {
   const failures = results.filter((r) => !r.succeeded);
   const passes = results.filter((r) => r.succeeded);
   const totalMs = results.reduce((sum, r) => sum + r.durationMs, 0);
 
   if (failures.length > 0) {
-    process.stdout.write("\n━━━ FAILURES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+    process.stdout.write("\n━━━ FAILURES ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
     for (const f of failures) {
       if (f.failedStep) {
         process.stdout.write(`  ✗ ${f.workflow} > ${f.taskId} > "${f.failedStep}"\n`);
@@ -75,16 +62,19 @@ export function printSummary(results: JobResult[]): void {
     }
   }
 
-  process.stdout.write("\n━━━ SUMMARY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
+  process.stdout.write("\n━━━ SUMMARY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");
 
-  const tally = [
-    failures.length > 0 ? `✗ ${failures.length} failed` : null,
-    passes.length > 0 ? `✓ ${passes.length} passed` : null,
-  ]
-    .filter(Boolean)
-    .join(", ");
+  const status =
+    failures.length > 0
+      ? `✗ ${failures.length} failed, ${passes.length} passed`
+      : `✓ ${passes.length} passed`;
 
-  process.stdout.write(`  ${tally}, ${results.length} total (${formatDuration(totalMs)})\n\n`);
+  process.stdout.write(`  Status:    ${status} (${results.length} total)\n`);
+  process.stdout.write(`  Duration:  ${formatDuration(totalMs)}\n`);
+  if (runDir) {
+    process.stdout.write(`  Root:      ${runDir}\n`);
+  }
+  process.stdout.write("\n");
 }
 
 // ─── Tail helper ──────────────────────────────────────────────────────────────

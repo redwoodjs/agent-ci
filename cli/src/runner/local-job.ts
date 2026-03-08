@@ -18,6 +18,7 @@ import { killRunnerContainers } from "../docker/shutdown.js";
 import { startEphemeralDtu } from "dtu-github-actions/src/ephemeral.js";
 import { type JobResult } from "../output/reporter.js";
 import logUpdate from "log-update";
+import { renderTree, type TreeNode } from "../output/tree-renderer.js";
 
 import { writeJobMetadata } from "./metadata.js";
 import { computeFakeSha, writeGitShim } from "./git-shim.js";
@@ -73,9 +74,6 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
     logDir,
     debugLogPath,
   } = createLogContext("machinen", job.runnerName);
-
-  process.stdout.write(`    Runner: ${containerName}\n`);
-  process.stdout.write(`    Dir: ${runDir}\n`);
 
   // Start an ephemeral in-process DTU for this job run so each job gets its
   // own isolated DTU instance on a random port — eliminating port conflicts.
@@ -372,8 +370,8 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
     let tailDone = false;
     let lastFailedStep: string | null = null;
     const timelinePath = path.join(logDir, "timeline.json");
-    /** Steps we've already emitted a "starting" line for. */
-    const seenStarted = new Set<string>();
+
+    const workflowBasename = job.workflowPath ? path.basename(job.workflowPath) : "workflow";
 
     const checkTimeline = () => {
       try {
@@ -389,67 +387,82 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
           return;
         }
 
-        // Separate newly-completed steps from in-progress/pending steps.
-        // Completed steps are written permanently via stdout (once).
-        // In-progress/pending steps are redrawn via logUpdate each poll.
-        const newlyCompleted: { name: string; dur: string; result: string }[] = [];
-        let dynamicOutput = "";
+        // Build step child nodes for the tree
+        const stepNodes: TreeNode[] = [];
+        const seenNames = new Set<string>();
+        let hasPostSteps = false;
 
         for (const r of steps) {
-          const stepKey = r.id ?? r.name;
+          // Post-job cleanup steps share the same name as an earlier step — skip them.
+          if (seenNames.has(r.name)) {
+            hasPostSteps = true;
+            continue;
+          }
+          seenNames.add(r.name);
+
           let dur = "";
-          if (r.startedOn && r.finishedOn) {
-            const ms = new Date(r.finishedOn).getTime() - new Date(r.startedOn).getTime();
+          if (r.startTime && r.finishTime) {
+            const ms = new Date(r.finishTime).getTime() - new Date(r.startTime).getTime();
             if (!isNaN(ms) && ms >= 0) {
               dur = ` (${Math.round(ms / 1000)}s)`;
             }
           }
 
-          // Step hasn't completed yet — add to dynamic output
+          const stepName = r.name as string;
+
+          // Step hasn't completed yet
           if (!r.result && r.state !== "completed") {
-            if (r.startedOn) {
-              const stepElapsed = Math.round((Date.now() - new Date(r.startedOn).getTime()) / 1000);
+            if (r.startTime) {
+              const stepElapsed = Math.round((Date.now() - new Date(r.startTime).getTime()) / 1000);
               const frame = spinnerFrames[spinnerIdx % spinnerFrames.length];
-              dynamicOutput += `    ${frame} ${r.name} (${stepElapsed}s)\n`;
+              stepNodes.push({ label: `${frame} ${stepName} (${stepElapsed}s...)` });
             } else {
-              dynamicOutput += `    \u25CB ${r.name}\n`;
+              stepNodes.push({ label: `[ ] ${stepName}` });
             }
             continue;
           }
 
-          // Step completed — collect if not already emitted
-          if (!seenStarted.has(stepKey)) {
-            seenStarted.add(stepKey);
-            const result = (r.result || "").toLowerCase();
-            newlyCompleted.push({ name: r.name, dur, result });
-            if (result === "failed") {
-              lastFailedStep = r.name;
-            }
-          }
-          // Already emitted — skip entirely
-        }
-
-        // If we have newly completed steps, clear the dynamic logUpdate content
-        // first, then write the permanent lines, then redraw dynamic lines.
-        if (newlyCompleted.length > 0) {
-          logUpdate.clear();
-          for (const s of newlyCompleted) {
-            if (s.result === "failed") {
-              process.stdout.write(`    \u2717 ${s.name}${s.dur}\n`);
-            } else if (s.result === "skipped") {
-              process.stdout.write(`    \u2298 ${s.name}${s.dur}\n`);
-            } else {
-              process.stdout.write(`    \u2713 ${s.name}${s.dur}\n`);
-            }
+          // Step completed
+          const result = (r.result || "").toLowerCase();
+          if (result === "failed") {
+            lastFailedStep = r.name;
+            stepNodes.push({ label: `[✗] ${stepName}${dur}` });
+          } else if (result === "skipped") {
+            stepNodes.push({ label: `[⊘] ${stepName}${dur}` });
+          } else {
+            stepNodes.push({ label: `[✓] ${stepName}${dur}` });
           }
         }
 
-        // Redraw only in-progress/pending steps (overwrites previous dynamic content)
-        if (dynamicOutput) {
-          logUpdate(dynamicOutput.trimEnd());
-        } else {
-          logUpdate.clear();
+        // Ensure "Complete job" is always last, with "Post Setup" before it
+        const completeIdx = stepNodes.findIndex((n) => n.label.includes("Complete job"));
+        const completeNode = completeIdx >= 0 ? stepNodes.splice(completeIdx, 1)[0] : null;
+        if (hasPostSteps) {
+          stepNodes.push({ label: "[✓] Post Setup" });
         }
+        if (completeNode) {
+          stepNodes.push(completeNode);
+        }
+
+        // Build the full tree: workflow → job → run → steps
+        const tree: TreeNode[] = [
+          {
+            label: `[*] ${workflowBasename}`,
+            children: [
+              {
+                label: `[job] ${job.taskId ?? "job"}`,
+                children: [
+                  {
+                    label: `[run] ${containerName}`,
+                    children: stepNodes,
+                  },
+                ],
+              },
+            ],
+          },
+        ];
+
+        logUpdate(renderTree(tree));
       } catch {
         // Best-effort
       }

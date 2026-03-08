@@ -26,12 +26,7 @@ import { isWarmNodeModules, computeLockfileHash } from "./output/cleanup.js";
 import { getWorkingDirectory } from "./output/working-directory.js";
 import { pruneOrphanedDockerResources } from "./docker/shutdown.js";
 import { parseJobDependencies, topoSort } from "./workflow/job-scheduler.js";
-import {
-  printJobStatus,
-  printJobStarted,
-  printSummary,
-  type JobResult,
-} from "./output/reporter.js";
+import { printSummary, type JobResult } from "./output/reporter.js";
 
 async function run() {
   const args = process.argv.slice(2);
@@ -245,7 +240,6 @@ async function handleRun(options: { sha?: string; workflow?: string }) {
         taskId: ej.taskName,
       };
 
-      printJobStarted(path.basename(workflowPath), ej.taskName);
       const result = await executeLocalJob(job);
       printSummary([result]);
       if (!result.succeeded) {
@@ -335,9 +329,7 @@ async function handleRun(options: { sha?: string; workflow?: string }) {
       job.services = services;
       job.container = container ?? undefined;
 
-      printJobStarted(path.basename(workflowPath), taskName);
       const result = await executeLocalJob(job);
-      printJobStatus(result);
       return result;
     };
 

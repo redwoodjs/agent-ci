@@ -39,7 +39,7 @@ describe("CLI E2E Regressions", () => {
     const result = await runCLI(SMOKE_WORKFLOW);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Job succeeded");
+    expect(result.stdout).toContain("passed");
 
     const runnerName = extractRunnerName(result.stdout);
     const logs = readOutputLog(runnerName);
@@ -68,7 +68,7 @@ describe("CLI E2E Regressions", () => {
     const result = await runCLI(SMOKE_WORKFLOW);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Job succeeded");
+    expect(result.stdout).toContain("passed");
 
     const logs = readOutputLog(extractRunnerName(result.stdout));
     expect(logs).toContain("Hello from cache");
@@ -79,7 +79,7 @@ describe("CLI E2E Regressions", () => {
     const result = await runCLI(SMOKE_WORKFLOW);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Job succeeded");
+    expect(result.stdout).toContain("passed");
 
     const logs = readOutputLog(extractRunnerName(result.stdout));
     expect(logs).toContain("smoke-build has been successfully uploaded");
@@ -89,7 +89,7 @@ describe("CLI E2E Regressions", () => {
     const result = await runCLI(CONTAINER_WORKFLOW);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain("Job succeeded");
+    expect(result.stdout).toContain("passed");
 
     const logs = readOutputLog(extractRunnerName(result.stdout));
     // Ubuntu 24.04 (noble) — confirms the container image was used, not the default runner

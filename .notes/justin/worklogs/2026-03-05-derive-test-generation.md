@@ -1732,3 +1732,23 @@ Created during implementation (already committed):
 - [x] Bug fix: `--` args leak in `index.ts`
 - [x] Bug fix: `--keep-spec` spec and test corrected
 - [x] Knowledge extraction: learnings, decisions, blueprints promoted
+
+## Draft PR
+
+**Title:** Add test generation command and e2e test infrastructure for derive
+
+**Body:**
+
+## Problem
+
+derive had zero test infrastructure -- no vitest config, no test harness, no test files. We also had no mechanism to generate tests from the Gherkin specs that derive produces, which is the natural next step in the derive pipeline (conversations -> specs -> tests).
+
+## Solution
+
+We built two things: (1) a full e2e test infrastructure for derive with 36 passing tests across 10 test files, and (2) a `derive tests` command that spawns an agentic Claude session to generate tests from Gherkin specs.
+
+**Test infrastructure** -- Three env var overrides (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB`) enable full isolation. Two deterministic substitute binaries replace `claude -p` in tests: `fake-claude-gen-specs` (keyword extraction -> Gherkin template) and `fake-claude-gen-tests` (reads specs, writes vitest files). A reusable test harness (`setupDeriveTest`) handles temp directory setup, git init, JSONL fixture writing, derive invocation, and cleanup.
+
+**`derive tests` command** -- Spawns `claude -p` with full filesystem tools (no `--tools ""`), letting Claude read specs and existing test conventions, then write test files directly. Source code isolation is enforced by convention-based system prompt instruction. The command is independent of git state and conversation discovery -- it operates purely on spec files on disk.
+
+**Bug fixes discovered during manual testing** -- Fixed a `--` args leak where pnpm passed `--` as a literal argv element, preventing `derive tests` from dispatching. Corrected an inaccurate `--keep-spec` spec scenario (it preserves content as LLM context, not files on disk).

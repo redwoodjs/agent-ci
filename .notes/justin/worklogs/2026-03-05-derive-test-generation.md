@@ -1699,3 +1699,36 @@ No hashing, no drift detection, no separate directories. The system prompt just 
 This is approach B ("generate once, humans own") with one key addition: on re-runs, Claude reasons about what to keep vs. change rather than blindly overwriting. The "mechanism to detect drift" is Claude + the human reviewer.
 
 **Convention**: if we want durable test logic that survives regen, write it in a separate hand-authored test file. Generated tests are Claude's to manage; hand-written tests are ours.
+
+## Knowledge extraction (finalization)
+
+Promoted the following artifacts from this worklog:
+
+### Learnings (`.docs/learnings/`)
+
+- `2026-03-09-pnpm-double-dash-args-leak.md` -- pnpm passes `--` as a literal argv element, breaking subcommand dispatch
+- `2026-03-09-macos-tmpdir-symlink-slug-mismatch.md` -- `os.tmpdir()` returns `/var/` but subprocess cwd resolves to `/private/var/`, causing slug mismatches
+- `2026-03-09-keep-spec-preserves-context-not-files.md` -- `--keep-spec` preserves content as LLM context via `readSpec`, not files on disk (`writeSpec` always does clean-slate)
+
+### Decisions (`.docs/decisions/`)
+
+- `2026-03-09-spec-test-lifecycle-llm-reasoning.md` -- let Claude reason about which tests to keep/modify/remove on re-runs, rather than building hashing/drift infrastructure
+- `2026-03-09-deterministic-stubs-over-local-ai.md` -- deterministic keyword-to-Gherkin templates over local AI models (SmolLM, Qwen) for test doubles
+
+### Blueprints (`.docs/blueprints/`)
+
+Created during implementation (already committed):
+
+- `derive-gen-tests.md` -- test generation command architecture
+- `derive-test-infra.md` -- test infrastructure (harness, stubs, env vars, conventions)
+- `derive-spec.md` -- renamed from `derive.md`, trimmed to spec pipeline only
+
+### Task status
+
+- [x] Task 1: Substitute binary (deterministic stub)
+- [x] Task 2+3+4: Env var overrides, test infrastructure, first e2e test
+- [x] Task 5: `derive tests` command
+- [x] Manual test: ran `derive tests --scope derive` against real Claude CLI
+- [x] Bug fix: `--` args leak in `index.ts`
+- [x] Bug fix: `--keep-spec` spec and test corrected
+- [x] Knowledge extraction: learnings, decisions, blueprints promoted

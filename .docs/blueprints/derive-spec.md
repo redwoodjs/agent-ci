@@ -150,14 +150,14 @@ Feature: CLI spec update
     And the spec is fully regenerated as per-feature .feature files
     And the process exits
 
-  Scenario: Reset with --keep-spec preserves existing spec
+  Scenario: Reset with --keep-spec uses existing spec as context
     Given the user is in a git repository on branch "feature-x"
-    And .feature files exist with user-written content
+    And .feature files exist with curated content
     And conversations exist for this branch
     When the user runs derive --reset --keep-spec
-    Then the existing .feature files are not deleted
-    And all conversation offsets are zeroed
-    And each conversation is reprocessed with the existing spec as starting context
+    Then all conversation offsets are zeroed
+    And each conversation is reprocessed with the existing spec content as starting context
+    And the output .feature files incorporate the prior spec content
     And the process exits
 
   Scenario: Detached HEAD

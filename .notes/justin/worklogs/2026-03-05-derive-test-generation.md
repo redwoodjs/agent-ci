@@ -1745,10 +1745,16 @@ derive had zero test infrastructure -- no vitest config, no test harness, no tes
 
 ## Solution
 
-We built two things: (1) a full e2e test infrastructure for derive with 36 passing tests across 10 test files, and (2) a `derive tests` command that spawns an agentic Claude session to generate tests from Gherkin specs.
+We built e2e test infrastructure and a `derive tests` command, then dogfooded the command to generate the bulk of the test suite from derive's own specs.
 
-**Test infrastructure** -- Three env var overrides (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB`) enable full isolation. Two deterministic substitute binaries replace `claude -p` in tests: `fake-claude-gen-specs` (keyword extraction -> Gherkin template) and `fake-claude-gen-tests` (reads specs, writes vitest files). A reusable test harness (`setupDeriveTest`) handles temp directory setup, git init, JSONL fixture writing, derive invocation, and cleanup.
+**Hand-written foundation (2 test files, 6 tests)** -- We wrote two test files manually: `derive-one-shot.test.ts` (spec pipeline e2e) and `derive-tests.test.ts` (test generation command e2e). These establish the conventions, patterns, and infrastructure that generated tests build on. Supporting infrastructure includes:
 
-**`derive tests` command** -- Spawns `claude -p` with full filesystem tools (no `--tools ""`), letting Claude read specs and existing test conventions, then write test files directly. Source code isolation is enforced by convention-based system prompt instruction. The command is independent of git state and conversation discovery -- it operates purely on spec files on disk.
+- Three env var overrides (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB`) for full isolation from the host system
+- Two deterministic substitute binaries that replace `claude -p` in tests: `fake-claude-gen-specs` (keyword extraction -> Gherkin template) and `fake-claude-gen-tests` (reads specs, writes vitest files)
+- A reusable test harness (`setupDeriveTest`) that handles temp directory setup, git init, JSONL fixture writing, derive invocation, and cleanup
 
-**Bug fixes discovered during manual testing** -- Fixed a `--` args leak where pnpm passed `--` as a literal argv element, preventing `derive tests` from dispatching. Corrected an inaccurate `--keep-spec` spec scenario (it preserves content as LLM context, not files on disk).
+**`derive tests` command** -- Spawns an agentic `claude -p` session with full filesystem tools, letting Claude read specs and existing test conventions, then write test files directly. Source code isolation is enforced by convention-based system prompt instruction (Claude reads only specs, tests, and config -- not implementation source). The command is independent of git state and conversation discovery -- it operates purely on spec files on disk.
+
+**Generated test suite (8 test files, 30 tests)** -- We ran `derive tests --scope derive` against derive's own 10 `.feature` spec files. Claude read the specs and the two hand-written tests to learn the conventions, then generated 8 additional test files covering: CLI context detection, conversation discovery, incremental updates, multi-file spec storage, one-shot edge cases, reset mode, scope flag, and spec file location. 36 tests pass across 10 files total.
+
+**Bug fixes discovered during manual testing** -- Running `derive tests` against the real Claude CLI surfaced two bugs: a `--` args leak where pnpm passed `--` as a literal argv element (preventing `derive tests` from dispatching), and an inaccurate `--keep-spec` spec scenario (it preserves content as LLM context, not files on disk). Both were corrected, along with the spec and one generated test that reflected the wrong semantics.

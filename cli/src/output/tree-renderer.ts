@@ -48,5 +48,13 @@ export function renderTree(nodes: TreeNode[], prefix = "", isRoot = true): strin
     }
   }
 
-  return lines.filter((l) => l.length > 0).join("\n");
+  const result = lines.filter((l) => l.length > 0).join("\n");
+  // Add 1-space left padding only at the top-level call
+  if (isRoot) {
+    return result
+      .split("\n")
+      .map((l) => ` ${l}`)
+      .join("\n");
+  }
+  return result;
 }

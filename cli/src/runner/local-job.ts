@@ -180,7 +180,13 @@ export async function executeLocalJob(
   const renderBootTree = () => {
     const elapsed = Math.round((Date.now() - bootStart) / 1000);
     const frame = spinnerFrames[spinnerIdx++ % spinnerFrames.length];
-    logUpdate(`  ${workflowBasename}\n    └── ${frame} Starting runner (${elapsed}s)`);
+    const tree: TreeNode[] = [
+      {
+        label: workflowBasename,
+        children: [{ label: `${frame} Starting runner ${containerName} (${elapsed}s)` }],
+      },
+    ];
+    logUpdate(renderTree(tree));
   };
 
   let spinnerInterval: ReturnType<typeof setInterval> | null = setInterval(renderBootTree, 80);
@@ -536,8 +542,11 @@ export async function executeLocalJob(
         const seenNames = new Set<string>();
         let hasPostSteps = false;
         let stepIdx = 0;
+        let completeJobRecord: any = null;
 
-        // Pre-compute total step count for left-padding numbers
+        // Pre-compute total step count for left-padding numbers.
+        // "Complete job" is excluded because it is always rendered last
+        // (after "Post Setup" when present) and gets its number at the end.
         const preCountNames = new Set<string>();
         for (const r of steps) {
           if (!preCountNames.has(r.name)) {
@@ -546,7 +555,15 @@ export async function executeLocalJob(
             hasPostSteps = true;
           }
         }
-        const totalSteps = preCountNames.size + (hasPostSteps ? 1 : 0);
+        // Total = unique names (minus "Complete job" which is re‑added at end)
+        //       + "Post Setup" (if present)
+        //       + "Complete job" (always last)
+        const hasCompleteJob = preCountNames.has("Complete job");
+        const totalSteps =
+          preCountNames.size -
+          (hasCompleteJob ? 1 : 0) +
+          (hasPostSteps ? 1 : 0) +
+          (hasCompleteJob ? 1 : 0);
         const padW = String(totalSteps).length;
         const pad = (n: number) => String(n).padStart(padW);
 
@@ -556,6 +573,12 @@ export async function executeLocalJob(
             continue;
           }
           seenNames.add(r.name);
+
+          // "Complete job" is always rendered last — capture it and skip here.
+          if (r.name === "Complete job") {
+            completeJobRecord = r;
+            continue;
+          }
           stepIdx++;
 
           let dur = "";
@@ -609,27 +632,35 @@ export async function executeLocalJob(
           }
         }
 
-        // Ensure "Complete job" is always last, with "Post Setup" before it
-        const completeIdx = stepNodes.findIndex((n) => n.label.includes("Complete job"));
-        const completeNode = completeIdx >= 0 ? stepNodes.splice(completeIdx, 1)[0] : null;
-        if (hasPostSteps) {
+        // "Post Setup" and "Complete job" only appear once the job has actually finished
+        const jobFinished = completeJobRecord?.result;
+        if (hasPostSteps && jobFinished) {
           stepIdx++;
           stepNodes.push({ label: `✓ ${pad(stepIdx)}. Post Setup` });
         }
-        if (completeNode) {
-          stepNodes.push(completeNode);
+        if (completeJobRecord && jobFinished) {
+          stepIdx++;
+          let dur = "";
+          if (completeJobRecord.startTime && completeJobRecord.finishTime) {
+            const ms =
+              new Date(completeJobRecord.finishTime).getTime() -
+              new Date(completeJobRecord.startTime).getTime();
+            if (!isNaN(ms) && ms >= 0) {
+              dur = ` (${Math.round(ms / 1000)}s)`;
+            }
+          }
+          stepNodes.push({ label: `✓ ${pad(stepIdx)}. Complete job${dur}` });
         }
 
         // Build the full tree: workflow → Starting runner + job → steps
-        const totalMs = Date.now() - bootStart;
         const startingNode: TreeNode = {
           label: spinnerInterval
-            ? `${spinnerFrames[spinnerIdx % spinnerFrames.length]} Starting runner`
-            : `Starting runner (${fmtMs(bootDurationMs)})`,
+            ? `${spinnerFrames[spinnerIdx % spinnerFrames.length]} Starting runner ${containerName}`
+            : `Starting runner ${containerName} (${fmtMs(bootDurationMs)})`,
         };
         const tree: TreeNode[] = [
           {
-            label: `${workflowBasename} (${fmtMs(totalMs)})`,
+            label: workflowBasename,
             children: [
               startingNode,
               {

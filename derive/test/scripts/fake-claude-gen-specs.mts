@@ -1,4 +1,4 @@
-// --GROK--: Deterministic test double for `claude -p` that produces valid Gherkin
+// Deterministic test double for `claude -p` that produces valid Gherkin
 // from stdin input. Used via CLAUDE_BIN env var override in e2e tests. No AI,
 // no network, no model — just keyword extraction and string templating.
 //
@@ -9,7 +9,7 @@
 
 import keyword_extractor from "keyword-extractor";
 
-// --GROK--: Parse the subset of CLI flags that derive passes to `claude -p`.
+// Parse the subset of CLI flags that derive passes to `claude -p`.
 // We only need -p as a mode gate. Everything else is accepted silently so
 // derive doesn't get arg errors when spawning us.
 function parseArgs(argv: string[]): { hasPromptFlag: boolean } {
@@ -43,7 +43,7 @@ function readStdin(): Promise<string> {
   });
 }
 
-// --GROK--: Extract flag tokens (--reset, --scope, etc.) from text. These are
+// Extract flag tokens (--reset, --scope, etc.) from text. These are
 // always meaningful in derive conversations — they represent CLI features being
 // discussed.
 function extractFlags(text: string): string[] {
@@ -54,7 +54,7 @@ function extractFlags(text: string): string[] {
   return [...new Set(matches)];
 }
 
-// --GROK--: Extract conversation lines — the [human]: and [assistant]: prefixed
+// Extract conversation lines — the [human]: and [assistant]: prefixed
 // lines that derive's excerpt format uses. These contain the actual feature
 // discussion content. We strip the prefix to get clean text for keyword extraction.
 function extractConversationText(input: string): string {
@@ -63,7 +63,7 @@ function extractConversationText(input: string): string {
     .filter((line) => /^\[(?:human|assistant)\]:/.test(line.trim()))
     .map((line) => line.replace(/^\[(?:human|assistant)\]:\s*/, "").trim());
 
-  // --GROK--: If no conversation-formatted lines found, fall back to using all
+  // If no conversation-formatted lines found, fall back to using all
   // non-empty lines. This handles cases where the input is a plain prompt (e.g.
   // the review pass, which sends raw Gherkin without conversation prefixes).
   if (conversationLines.length === 0) {
@@ -73,7 +73,7 @@ function extractConversationText(input: string): string {
   return conversationLines.join(" ");
 }
 
-// --GROK--: Build Gherkin output from extracted keywords. Each flag becomes its
+// uild Gherkin output from extracted keywords. Each flag becomes its
 // own scenario (flags are the most concrete, testable tokens). Remaining keywords
 // are grouped into a single "general behavior" scenario to avoid producing dozens
 // of trivial one-keyword scenarios.
@@ -100,7 +100,7 @@ function buildGherkin(flags: string[], keywords: string[]): string {
     );
   }
 
-  // --GROK--: Fallback — if we extracted nothing at all, produce a minimal valid
+  // Fallback — if we extracted nothing at all, produce a minimal valid
   // Feature block. writeSpec needs at least one Feature: to produce a .feature file.
   if (scenarios.length === 0) {
     scenarios.push(

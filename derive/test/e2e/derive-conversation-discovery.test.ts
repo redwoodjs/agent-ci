@@ -1,4 +1,4 @@
-// --GROK--: E2E tests for conversation-discovery.feature. Verifies that derive
+// E2E tests for conversation-discovery.feature. Verifies that derive
 // only includes conversations belonging to the current git branch and that it
 // aggregates across all conversations for that branch.
 //
@@ -32,10 +32,6 @@ describe("derive conversation discovery", () => {
       ],
     });
 
-    // --GROK--: Write a JSONL file into the same slug directory but tagged with
-    // a different gitBranch. derive should skip it when processing "feature-x".
-    // The flag --other-branch-xyz is the canary: if it appears in the spec,
-    // derive did not filter correctly.
     const slug = repoDir.replace(/[/_]/g, "-");
     const slugDir = path.join(projectsDir, slug);
     const otherId = crypto.randomUUID();
@@ -60,9 +56,6 @@ describe("derive conversation discovery", () => {
     expect(result.exitCode).toBe(0);
     expect(result.featureFiles.length).toBeGreaterThan(0);
 
-    // --GROK--: The fake binary embeds --flags verbatim in Scenario text. If
-    // the other-branch conversation was processed, "other-branch-xyz" would
-    // appear. It must not.
     const allContent = result.featureFiles.map((f) => fs.readFileSync(f, "utf8")).join("\n");
     expect(allContent).not.toContain("other-branch-xyz");
   }, 30_000);

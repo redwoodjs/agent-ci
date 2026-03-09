@@ -33,7 +33,7 @@ export interface HarnessOptions {
       content: string;
     }>;
   }>;
-  // --GROK--: Pre-populate .machinen/specs/<scope>/ with feature files. Used by
+  // Pre-populate .machinen/specs/<scope>/ with feature files. Used by
   // derive tests e2e tests where we need specs on disk before running the command.
   specs?: {
     scope?: string;
@@ -42,7 +42,7 @@ export interface HarnessOptions {
       content: string; // raw Gherkin content
     }>;
   };
-  // --GROK--: Override the fake claude binary. Defaults to fake-claude-gen-specs
+  // Override the fake claude binary. Defaults to fake-claude-gen-specs
   // (spec pipeline). Set to FAKE_CLAUDE_GEN_TESTS_BIN for derive tests e2e tests.
   claudeBin?: string;
   deriveArgs?: string[];
@@ -91,7 +91,7 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
 }> {
   const branch = opts.branch ?? "test-branch";
 
-  // --GROK--: Create a unique temp root. All test artifacts live under this
+  // Create a unique temp root. All test artifacts live under this
   // single directory, making cleanup a single rmSync call.
   // fs.realpathSync resolves macOS symlinks (/var -> /private/var, /tmp ->
   // /private/tmp). Without this, process.cwd() inside the subprocess returns
@@ -107,14 +107,17 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
   fs.mkdirSync(repoDir, { recursive: true });
   fs.mkdirSync(projectsDir, { recursive: true });
 
-  // --GROK--: git init + create a branch + initial commit so that derive's
+  // it init + create a branch + initial commit so that derive's
   // getCurrentBranch() (which calls `git rev-parse --abbrev-ref HEAD`) works.
   // Without an initial commit, HEAD doesn't exist and rev-parse fails.
   execSync("git init", { cwd: repoDir, stdio: "ignore" });
   execSync(`git checkout -b ${branch}`, { cwd: repoDir, stdio: "ignore" });
-  execSync("git commit --allow-empty -m 'init'", { cwd: repoDir, stdio: "ignore" });
+  execSync("git commit --allow-empty -m 'init'", {
+    cwd: repoDir,
+    stdio: "ignore",
+  });
 
-  // --GROK--: Write synthetic JSONL conversations. The slug dir under
+  // Write synthetic JSONL conversations. The slug dir under
   // projectsDir must match what derive's getSlugDir(repoDir) would compute.
   const slug = computeSlug(repoDir);
   const slugDir = path.join(projectsDir, slug);
@@ -140,9 +143,6 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
 
   const specDir = path.join(repoDir, ".machinen", "specs");
 
-  // --GROK--: Pre-populate spec files if opts.specs is provided. This lets
-  // derive tests e2e tests start with specs already on disk (since derive tests
-  // reads specs, not conversations).
   if (opts.specs) {
     const scopedSpecDir = opts.specs.scope ? path.join(specDir, opts.specs.scope) : specDir;
     fs.mkdirSync(scopedSpecDir, { recursive: true });
@@ -154,10 +154,6 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
   async function run(): Promise<HarnessResult> {
     const args = opts.deriveArgs ?? [];
 
-    // --GROK--: Spawn derive as a subprocess with full env isolation.
-    // CLAUDE_BIN points to the deterministic stub, CLAUDE_PROJECTS_DIR to our
-    // temp projects dir, MACHINEN_DB to a temp file. This ensures zero contact
-    // with the real ~/.machinen/ or ~/.claude/ directories.
     const result = await execa(
       path.join(REPO_ROOT, "node_modules", ".bin", "tsx"),
       [DERIVE_ENTRY, ...args],
@@ -173,7 +169,6 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
       },
     );
 
-    // --GROK--: Read back the .feature files that derive wrote (if any).
     let featureFiles: string[] = [];
     if (fs.existsSync(specDir)) {
       featureFiles = fs

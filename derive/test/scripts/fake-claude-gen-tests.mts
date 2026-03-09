@@ -1,4 +1,4 @@
-// --GROK--: Deterministic test double for `claude -p` in agentic mode. Simulates
+// Deterministic test double for `claude -p` in agentic mode. Simulates
 // what Claude does when `derive tests` spawns it: read spec files from disk,
 // generate test files, write them to disk. No AI, no network — just file I/O
 // and string templating.
@@ -82,7 +82,7 @@ function generateTestContent(featureFile: string, featureContent: string): strin
   );
 }
 
-// --GROK--: Slugify a feature name into a filename, matching derive's own
+// Slugify a feature name into a filename, matching derive's own
 // slugify in spec.ts.
 function slugify(name: string): string {
   return name
@@ -112,7 +112,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // --GROK--: Read all .feature files from the spec directory — same as what
+  // Read all .feature files from the spec directory — same as what
   // real Claude would do via the Read tool.
   const featureFiles = fs
     .readdirSync(specDir)
@@ -124,7 +124,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // --GROK--: Write one test file per feature file. The output directory is
+  // Write one test file per feature file. The output directory is
   // <cwd>/test/generated/ — a predictable location for e2e test assertions.
   const outputDir = path.join(process.cwd(), "test", "generated");
   fs.mkdirSync(outputDir, { recursive: true });
@@ -146,7 +146,7 @@ async function main(): Promise<void> {
     process.stderr.write(`[fake-claude-gen-tests] wrote ${testFilePath}\n`);
   }
 
-  // --GROK--: Output NDJSON result. derive tests doesn't extract this (it has
+  // Output NDJSON result. derive tests doesn't extract this (it has
   // no onResult callback), but the NDJSON contract requires it for completeness.
   const result = `Generated ${writtenFiles.length} test file(s) from ${featureFiles.length} spec(s).`;
   process.stdout.write(JSON.stringify({ type: "result", result }) + "\n");

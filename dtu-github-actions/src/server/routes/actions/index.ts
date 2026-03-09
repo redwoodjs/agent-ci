@@ -438,6 +438,12 @@ export function registerActionRoutes(app: Polka) {
             }
           }
         }
+
+        // Track the currently in-progress step so the Job-level feed
+        // can assign output to the correct per-step log file.
+        if (record.state === "inProgress") {
+          state.currentInProgressStep.set(timelineId, sanitized);
+        }
       }
     }
 
@@ -585,7 +591,25 @@ export function registerActionRoutes(app: Polka) {
 
     if (content) {
       try {
-        const stepName = state.recordToStepName.get(recordId) || recordId;
+        let stepName = state.recordToStepName.get(recordId);
+        // Fallback: if the recordId is a Job-level record (no mapping),
+        // use the currently in-progress step from the timeline.
+        if (!stepName) {
+          // Find timelineId for this plan — check all timelines mapped to the same logDir
+          const logDirForPlan = state.planToLogDir.get(planId);
+          if (logDirForPlan) {
+            for (const [tid, tdir] of state.timelineToLogDir) {
+              if (tdir === logDirForPlan) {
+                const current = state.currentInProgressStep.get(tid);
+                if (current) {
+                  stepName = current;
+                }
+                break;
+              }
+            }
+          }
+        }
+        stepName = stepName || recordId;
         const stepsDir = path.join(logDir, "steps");
         fs.mkdirSync(stepsDir, { recursive: true });
         fs.appendFileSync(path.join(stepsDir, `${stepName}.log`), content);

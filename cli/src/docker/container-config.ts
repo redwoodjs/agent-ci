@@ -16,6 +16,8 @@ export interface ContainerBindsOpts {
   diagDir: string;
   toolCacheDir: string;
   pnpmStoreDir: string;
+  npmCacheDir: string;
+  bunCacheDir: string;
   playwrightCacheDir: string;
   warmModulesDir: string;
   hostRunnerDir: string;
@@ -83,6 +85,8 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     diagDir,
     toolCacheDir,
     pnpmStoreDir,
+    npmCacheDir,
+    bunCacheDir,
     playwrightCacheDir,
     warmModulesDir,
     hostRunnerDir,
@@ -99,7 +103,10 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     ...(signalsDir ? [`${signalsDir}:/tmp/machinen-signals`] : []),
     `${diagDir}:/home/runner/_diag`,
     `${toolCacheDir}:/opt/hostedtoolcache`,
+    // Package manager caches (persist across runs)
     `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,
+    `${npmCacheDir}:/home/runner/.npm`,
+    `${bunCacheDir}:/home/runner/.bun/install/cache`,
     `${playwrightCacheDir}:/home/runner/.cache/ms-playwright`,
     // Warm node_modules: mounted outside the workspace so actions/checkout can
     // delete the symlink without EBUSY. A symlink in the entrypoint points

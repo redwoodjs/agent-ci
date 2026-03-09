@@ -1,0 +1,15 @@
+NPM|---
+npm-cold|28.1s
+npm-warm-cache|2.0s
+npm-warm-modules|18.4s
+npm-symlink|0.0s
+Yarn|---
+yarn-cold|2.9s
+yarn-warm-cache|2.9s
+yarn-warm-modules|0.3s
+yarn-symlink|0.0s
+Bun|---
+bun-cold|14.2s
+bun-warm-cache|1.1s
+bun-warm-modules|0.1s
+bun-symlink|0.0s

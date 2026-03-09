@@ -30,10 +30,13 @@ export const state = {
   sessionToRunner: new Map<string, string>(),
   // recordId/logId -> sanitized step name (for per-step log files)
   recordToStepName: new Map<string, string>(),
-  // planId -> log directory (for per-step files)
+  // planId → log directory (for per-step files)
   planToLogDir: new Map<string, string>(),
-  // timelineId -> runner log directory (for persisting timeline.json)
+  // timelineId → runner log directory (for persisting timeline.json)
   timelineToLogDir: new Map<string, string>(),
+  // timelineId → sanitized name of the currently in-progress step
+  // (used as fallback when the feed recordId is a Job-level ID)
+  currentInProgressStep: new Map<string, string>(),
 
   // Substring patterns for cache keys that should always return a synthetic hit
   // with an empty archive (e.g. "pnpm" for bind-mounted pnpm stores).
@@ -95,6 +98,7 @@ export const state = {
     this.recordToStepName.clear();
     this.planToLogDir.clear();
     this.timelineToLogDir.clear();
+    this.currentInProgressStep.clear();
     this.virtualCachePatterns.clear();
     this.caches.clear();
     this.pendingCaches.clear();

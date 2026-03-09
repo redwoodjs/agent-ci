@@ -1,27 +1,38 @@
-# CLI
+# Machinen
 
-The **CLI** is a Node.js daemon that executes on your local machine. It manages Docker containers to execute GitHub Actions.
+**Local-first CI with 1:1 API parity with GitHub Actions.** Intended to be used by AI.
 
-## Features
+Machinen runs your GitHub Actions workflows locally using the same [official GitHub Action runners](https://github.com/actions/runner) — the exact same binaries that power GitHub-hosted CI. What Machinen emulates is the GitHub.com API itself, so actions like `actions/checkout`, `actions/setup-node`, and `actions/cache` work out of the box without hitting GitHub's servers.
 
-- **Docker Integration**: Spawns isolated containers for job execution.
-- **Freeze on Failure**: Keeps containers alive if a step fails for easy debugging.
+## Why Machinen?
 
-## Development
+Traditional CI is a fire-and-forget loop: push, wait, fail, read logs, push again. Every retry pays the full cost of a new run.
 
-This package is part of a `pnpm` workspace.
+Machinen runs on the same machine as your code. When a step fails the run **pauses** — the container stays alive with all state intact. Your local edits are synced into the container on retry, so you can fix the issue and **retry just the failed step** — no checkout, no reinstall, no waiting. This makes it ideal for AI agents: point an agent at the failure, let it fix and retry in a tight loop — without the cost of a full remote CI cycle each time.
 
-**Run Locally** from the project root:
+<!-- TODO: Add demo video/screen recording -->
+
+## Installation
 
 ```bash
-pnpm --filter cli dev
+npm install -g machinen
 ```
 
-## Configuration
+### Prerequisites
 
-All configuration is derived automatically at boot:
+- **Docker** — A running Docker provider:
+  - **macOS:** [OrbStack](https://orbstack.dev/) (recommended) or Docker Desktop
+  - **Linux:** Native Docker Engine
 
-- **`GITHUB_REPO`**: Detected from `git remote get-url origin`.
-- **`GITHUB_API_URL`**: The DTU mock server is started ephemerally per run.
+## Usage
 
-No `.env` file is required.
+Point Machinen at any workflow file in your repo:
+
+```bash
+machinen run --workflow .github/workflows/ci.yml
+```
+
+## YAML Compatibility
+
+> [!NOTE]
+> A full table of supported vs. unsupported GitHub Actions YAML features is coming soon.

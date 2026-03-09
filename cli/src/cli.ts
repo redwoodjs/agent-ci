@@ -57,14 +57,14 @@ async function run() {
     // Basic argument parsing
     let sha: string | undefined;
     let workflow: string | undefined;
-    let pauseOnFailure = false;
+    let pauseOnFailure = true;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
         workflow = args[i + 1];
         i++;
-      } else if (args[i] === "--pause-on-failure" || args[i] === "-p") {
-        pauseOnFailure = true;
+      } else if (args[i] === "--exit-on-failure" || args[i] === "-x") {
+        pauseOnFailure = false;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
@@ -171,7 +171,7 @@ function printUsage() {
   console.log("");
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");
-  console.log("  -p, --pause-on-failure        Pause on step failure and wait for retry");
+  console.log("  -x, --exit-on-failure         Exit immediately on step failure (default: pause)");
 }
 
 function resolveRepoRoot() {

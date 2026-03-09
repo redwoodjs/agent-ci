@@ -1,0 +1,15 @@
+name: pause-test
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Passing step
+        run: echo "This step passes"
+      - name: Failing step
+        run: |
+          echo "About to fail..."
+          exit 1
+      - name: Should not run
+        run: echo "Unreachable"

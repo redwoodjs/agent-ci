@@ -32,6 +32,7 @@ import {
   resolveDockerApiUrl,
 } from "../docker/container-config.js";
 import { buildJobResult } from "./result-builder.js";
+import { wrapJobSteps } from "./step-wrapper.js";
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
@@ -100,7 +101,11 @@ function writeRunnerCredentials(runnerDir: string, runnerName: string, serverUrl
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-export async function executeLocalJob(job: Job): Promise<JobResult> {
+export async function executeLocalJob(
+  job: Job,
+  options?: { pauseOnFailure?: boolean },
+): Promise<JobResult> {
+  const pauseOnFailure = options?.pauseOnFailure ?? false;
   const startTime = Date.now();
 
   // ── Pre-flight: verify Docker is reachable ────────────────────────────────
@@ -192,7 +197,7 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
   const signalCleanup = () => {
     // Force-kill Docker containers (sync so it works in signal handlers)
     killRunnerContainers(containerName);
-    for (const d of [dirs.containerWorkDir, dirs.shimsDir, dirs.diagDir]) {
+    for (const d of [dirs.containerWorkDir, dirs.shimsDir, dirs.signalsDir, dirs.diagDir]) {
       try {
         fs.rmSync(d, { recursive: true, force: true });
       } catch {}
@@ -216,6 +221,9 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
         }
       : job.repository;
 
+    // Wrap run: steps in the pause-on-failure retry loop before seeding
+    const seededSteps = pauseOnFailure ? wrapJobSteps(job.steps ?? [], true) : job.steps;
+
     const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -225,6 +233,7 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
         status: "queued",
         localPath: dirs.workspaceDir,
         ...job,
+        steps: seededSteps,
         // Override repository with the git-remote-resolved repo (takes precedence over ...job spread)
         repository: overriddenRepository,
       }),
@@ -387,6 +396,7 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
     const containerBinds = buildContainerBinds({
       hostWorkDir,
       shimsDir: dirs.shimsDir,
+      signalsDir: pauseOnFailure ? dirs.signalsDir : undefined,
       diagDir: dirs.diagDir,
       toolCacheDir: dirs.toolCacheDir,
       pnpmStoreDir: dirs.pnpmStoreDir,
@@ -434,12 +444,37 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
     // This captures the full startup time including .NET cold-start inside
     // the container.
 
+    // ANSI color helpers
+    const YELLOW = `${String.fromCharCode(27)}[33m`;
+    const RESET = `${String.fromCharCode(27)}[0m`;
+
     let tailDone = false;
     let lastFailedStep: string | null = null;
+    let isPaused = false;
+    let pausedStepName: string | null = null;
+    let pausedAtMs: number | null = null;
+    let lastSeenAttempt = 0;
     const timelinePath = path.join(logDir, "timeline.json");
+    const pausedSignalPath = path.join(dirs.signalsDir, "paused");
 
     const checkTimeline = () => {
       try {
+        // ── Pause-on-failure: check for paused signal ───────────────────────────
+        if (pauseOnFailure && fs.existsSync(pausedSignalPath)) {
+          const content = fs.readFileSync(pausedSignalPath, "utf-8").trim();
+          const lines = content.split("\n");
+          pausedStepName = lines[0] || null;
+          const attempt = parseInt(lines[1] || "1", 10);
+          if (attempt !== lastSeenAttempt) {
+            lastSeenAttempt = attempt;
+            isPaused = true;
+            pausedAtMs = Date.now();
+          }
+        } else if (isPaused && !fs.existsSync(pausedSignalPath)) {
+          // File completely gone (abort cleaned it up)
+          isPaused = false;
+          pausedAtMs = null;
+        }
         if (!fs.existsSync(timelinePath)) {
           return;
         }
@@ -487,7 +522,22 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
             if (r.startTime) {
               const stepElapsed = Math.round((Date.now() - new Date(r.startTime).getTime()) / 1000);
               const frame = spinnerFrames[spinnerIdx % spinnerFrames.length];
-              stepNodes.push({ label: `${frame} ${stepName} (${stepElapsed}s...)` });
+              if (isPaused && pausedStepName === stepName) {
+                // Paused: show ⏸ icon with frozen timer, add a yellow child leaf
+                const frozenElapsed = pausedAtMs
+                  ? Math.round((pausedAtMs - new Date(r.startTime).getTime()) / 1000)
+                  : stepElapsed;
+                stepNodes.push({
+                  label: `⏸ ${stepName} (${frozenElapsed}s)`,
+                  children: [{ label: `${YELLOW}Step failed attempt #${lastSeenAttempt}${RESET}` }],
+                });
+              } else if (!isPaused && lastSeenAttempt > 0 && pausedStepName === stepName) {
+                stepNodes.push({
+                  label: `${frame} ${stepName} — retrying (${stepElapsed}s...)`,
+                });
+              } else {
+                stepNodes.push({ label: `${frame} ${stepName} (${stepElapsed}s...)` });
+              }
             } else {
               stepNodes.push({ label: `[ ] ${stepName}` });
             }
@@ -536,7 +586,14 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
           },
         ];
 
-        logUpdate(renderTree(tree));
+        let output = renderTree(tree);
+        // Append yellow retry/abort hints below the tree when paused
+        if (isPaused) {
+          output += `\n\n  ${YELLOW}↻ To retry:  machinen retry --runner ${containerName}${RESET}`;
+          output += `\n  ${YELLOW}■ To abort:  machinen abort --runner ${containerName}${RESET}`;
+        }
+
+        logUpdate(output);
       } catch {
         // Best-effort
       }
@@ -624,6 +681,11 @@ export async function executeLocalJob(job: Job): Promise<JobResult> {
     // workspaceDir is now inside containerWorkDir — no separate cleanup needed
     if (fs.existsSync(dirs.shimsDir)) {
       fs.rmSync(dirs.shimsDir, { recursive: true, force: true });
+    }
+    // Keep the signals dir alive when pauseOnFailure is set so the external
+    // retry/abort command can find it. Otherwise clean it up.
+    if (!pauseOnFailure && fs.existsSync(dirs.signalsDir)) {
+      fs.rmSync(dirs.signalsDir, { recursive: true, force: true });
     }
     if (fs.existsSync(dirs.diagDir)) {
       fs.rmSync(dirs.diagDir, { recursive: true, force: true });

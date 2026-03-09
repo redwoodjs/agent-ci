@@ -12,6 +12,7 @@ export interface ContainerEnvOpts {
 export interface ContainerBindsOpts {
   hostWorkDir: string;
   shimsDir: string;
+  signalsDir?: string;
   diagDir: string;
   toolCacheDir: string;
   pnpmStoreDir: string;
@@ -78,6 +79,7 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
   const {
     hostWorkDir,
     shimsDir,
+    signalsDir,
     diagDir,
     toolCacheDir,
     pnpmStoreDir,
@@ -93,6 +95,8 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     `${hostWorkDir}:/home/runner/_work`,
     "/var/run/docker.sock:/var/run/docker.sock",
     `${shimsDir}:/tmp/machinen-shims`,
+    // Pause-on-failure IPC: signal files (paused, retry, abort)
+    ...(signalsDir ? [`${signalsDir}:/tmp/machinen-signals`] : []),
     `${diagDir}:/home/runner/_diag`,
     `${toolCacheDir}:/opt/hostedtoolcache`,
     `${pnpmStoreDir}:/home/runner/_work/.pnpm-store`,

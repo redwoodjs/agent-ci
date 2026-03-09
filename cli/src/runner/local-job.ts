@@ -501,14 +501,28 @@ export async function executeLocalJob(
         const stepNodes: TreeNode[] = [];
         const seenNames = new Set<string>();
         let hasPostSteps = false;
+        let stepIdx = 0;
+
+        // Pre-compute total step count for left-padding numbers
+        const preCountNames = new Set<string>();
+        for (const r of steps) {
+          if (!preCountNames.has(r.name)) {
+            preCountNames.add(r.name);
+          } else {
+            hasPostSteps = true;
+          }
+        }
+        const totalSteps = preCountNames.size + (hasPostSteps ? 1 : 0);
+        const padW = String(totalSteps).length;
+        const pad = (n: number) => String(n).padStart(padW);
 
         for (const r of steps) {
           // Post-job cleanup steps share the same name as an earlier step — skip them.
           if (seenNames.has(r.name)) {
-            hasPostSteps = true;
             continue;
           }
           seenNames.add(r.name);
+          stepIdx++;
 
           let dur = "";
           if (r.startTime && r.finishTime) {
@@ -531,18 +545,20 @@ export async function executeLocalJob(
                   ? Math.round((pausedAtMs - new Date(r.startTime).getTime()) / 1000)
                   : stepElapsed;
                 stepNodes.push({
-                  label: `⏸ ${stepName} (${frozenElapsed}s)`,
+                  label: `⏸ ${pad(stepIdx)}. ${stepName} (${frozenElapsed}s)`,
                   children: [{ label: `${YELLOW}Step failed attempt #${lastSeenAttempt}${RESET}` }],
                 });
               } else if (!isPaused && lastSeenAttempt > 0 && pausedStepName === stepName) {
                 stepNodes.push({
-                  label: `${frame} ${stepName} — retrying (${stepElapsed}s...)`,
+                  label: `${frame} ${pad(stepIdx)}. ${stepName} — retrying (${stepElapsed}s...)`,
                 });
               } else {
-                stepNodes.push({ label: `${frame} ${stepName} (${stepElapsed}s...)` });
+                stepNodes.push({
+                  label: `${frame} ${pad(stepIdx)}. ${stepName} (${stepElapsed}s...)`,
+                });
               }
             } else {
-              stepNodes.push({ label: `[ ] ${stepName}` });
+              stepNodes.push({ label: `○ ${pad(stepIdx)}. ${stepName}` });
             }
             continue;
           }
@@ -551,11 +567,11 @@ export async function executeLocalJob(
           const result = (r.result || "").toLowerCase();
           if (result === "failed") {
             lastFailedStep = r.name;
-            stepNodes.push({ label: `[✗] ${stepName}${dur}` });
+            stepNodes.push({ label: `✗ ${pad(stepIdx)}. ${stepName}${dur}` });
           } else if (result === "skipped") {
-            stepNodes.push({ label: `[⊘] ${stepName}${dur}` });
+            stepNodes.push({ label: `⊘ ${pad(stepIdx)}. ${stepName}${dur}` });
           } else {
-            stepNodes.push({ label: `[✓] ${stepName}${dur}` });
+            stepNodes.push({ label: `✓ ${pad(stepIdx)}. ${stepName}${dur}` });
           }
         }
 
@@ -563,7 +579,8 @@ export async function executeLocalJob(
         const completeIdx = stepNodes.findIndex((n) => n.label.includes("Complete job"));
         const completeNode = completeIdx >= 0 ? stepNodes.splice(completeIdx, 1)[0] : null;
         if (hasPostSteps) {
-          stepNodes.push({ label: "[✓] Post Setup" });
+          stepIdx++;
+          stepNodes.push({ label: `✓ ${pad(stepIdx)}. Post Setup` });
         }
         if (completeNode) {
           stepNodes.push(completeNode);

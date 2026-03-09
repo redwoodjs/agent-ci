@@ -91,14 +91,24 @@ async function run() {
   } else if (command === "retry" || command === "abort") {
     // retry / abort: write a signal file to the runner's signals dir
     let runnerName: string | undefined;
+    let fromStep: string | undefined;
     for (let i = 1; i < args.length; i++) {
       if (args[i] === "--runner" && args[i + 1]) {
         runnerName = args[i + 1];
         i++;
+      } else if (args[i] === "--from-step" && args[i + 1]) {
+        fromStep = args[i + 1];
+        i++;
+      } else if (args[i] === "--from-start") {
+        fromStep = "*";
       }
     }
     if (!runnerName) {
       console.error(`[Machinen] Error: --runner <name> is required for '${command}'`);
+      process.exit(1);
+    }
+    if (fromStep && fromStep !== "*" && (isNaN(Number(fromStep)) || Number(fromStep) < 1)) {
+      console.error(`[Machinen] Error: --from-step must be a positive step number`);
       process.exit(1);
     }
     const signalsDir = findSignalsDir(runnerName);
@@ -134,9 +144,14 @@ async function run() {
     if (command === "retry") {
       const runDir = path.dirname(signalsDir);
       syncWorkspaceForRetry(runDir);
+      // Write from-step signal before retry so the wrapper picks it up
+      if (fromStep) {
+        fs.writeFileSync(path.join(signalsDir, "from-step"), fromStep);
+      }
     }
     fs.writeFileSync(path.join(signalsDir, command), "");
-    console.log(`[Machinen] Sent '${command}' signal to ${runnerName}`);
+    const extra = fromStep ? ` (from step ${fromStep === "*" ? "1" : fromStep})` : "";
+    console.log(`[Machinen] Sent '${command}' signal to ${runnerName}${extra}`);
     process.exit(0);
   } else {
     printUsage();
@@ -150,6 +165,8 @@ function printUsage() {
   console.log("Commands:");
   console.log("  run [sha] --workflow <path>   Run all jobs in a workflow file (defaults to HEAD)");
   console.log("  retry --runner <name>         Send retry signal to a paused runner");
+  console.log("    --from-step <N>              Re-run from step N (skips earlier steps)");
+  console.log("    --from-start                 Re-run all run: steps from the beginning");
   console.log("  abort --runner <name>         Send abort signal to a paused runner");
   console.log("");
   console.log("Options:");

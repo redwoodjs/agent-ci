@@ -137,7 +137,7 @@ describe("computeLockfileHash", () => {
     expect(hash1).not.toBe(hash2);
   });
 
-  it("returns 'no-lockfile' when no pnpm-lock.yaml exists", async () => {
+  it("returns 'no-lockfile' when no lockfile exists", async () => {
     const { computeLockfileHash } = await import("./cleanup.js");
     // Empty repo, no lockfile
     fs.writeFileSync(path.join(repoDir, "README.md"), "hi");
@@ -145,6 +145,36 @@ describe("computeLockfileHash", () => {
     execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
 
     expect(computeLockfileHash(repoDir)).toBe("no-lockfile");
+  });
+
+  it("detects package-lock.json (npm)", async () => {
+    const { computeLockfileHash } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "package-lock.json"), '{"lockfileVersion": 3}');
+    execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+    execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
+
+    const hash = computeLockfileHash(repoDir);
+    expect(hash).toMatch(/^[a-f0-9]{16}$/);
+  });
+
+  it("detects yarn.lock", async () => {
+    const { computeLockfileHash } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "yarn.lock"), "# yarn lockfile v1");
+    execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+    execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
+
+    const hash = computeLockfileHash(repoDir);
+    expect(hash).toMatch(/^[a-f0-9]{16}$/);
+  });
+
+  it("detects bun.lock", async () => {
+    const { computeLockfileHash } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "bun.lock"), '{"lockfileVersion": 0}');
+    execSync("git add .", { cwd: repoDir, stdio: "pipe" });
+    execSync('git commit -m "init"', { cwd: repoDir, stdio: "pipe" });
+
+    const hash = computeLockfileHash(repoDir);
+    expect(hash).toMatch(/^[a-f0-9]{16}$/);
   });
 });
 
@@ -181,12 +211,39 @@ describe("isWarmNodeModules", () => {
     expect(isWarmNodeModules(warmDir)).toBe(false);
   });
 
-  it("returns true when directory has .modules.yaml (intact)", async () => {
+  it("returns true when directory has .modules.yaml (pnpm)", async () => {
     const { isWarmNodeModules } = await import("./cleanup.js");
     const warmDir = path.join(tmpDir, "warm");
     fs.mkdirSync(warmDir);
     fs.writeFileSync(path.join(warmDir, ".modules.yaml"), "hoistedDependencies: {}");
     fs.mkdirSync(path.join(warmDir, ".pnpm"), { recursive: true });
+    expect(isWarmNodeModules(warmDir)).toBe(true);
+  });
+
+  it("returns true when directory has .package-lock.json (npm)", async () => {
+    const { isWarmNodeModules } = await import("./cleanup.js");
+    const warmDir = path.join(tmpDir, "warm-npm");
+    fs.mkdirSync(warmDir);
+    fs.writeFileSync(path.join(warmDir, ".package-lock.json"), "{}");
+    fs.writeFileSync(path.join(warmDir, "express"), "pkg");
+    expect(isWarmNodeModules(warmDir)).toBe(true);
+  });
+
+  it("returns true when directory has .yarn-integrity (yarn)", async () => {
+    const { isWarmNodeModules } = await import("./cleanup.js");
+    const warmDir = path.join(tmpDir, "warm-yarn");
+    fs.mkdirSync(warmDir);
+    fs.writeFileSync(path.join(warmDir, ".yarn-integrity"), "{}");
+    fs.writeFileSync(path.join(warmDir, "express"), "pkg");
+    expect(isWarmNodeModules(warmDir)).toBe(true);
+  });
+
+  it("returns true when directory has .cache (bun)", async () => {
+    const { isWarmNodeModules } = await import("./cleanup.js");
+    const warmDir = path.join(tmpDir, "warm-bun");
+    fs.mkdirSync(warmDir);
+    fs.mkdirSync(path.join(warmDir, ".cache"));
+    fs.writeFileSync(path.join(warmDir, "express"), "pkg");
     expect(isWarmNodeModules(warmDir)).toBe(true);
   });
 });
@@ -216,11 +273,19 @@ describe("repairWarmCache", () => {
     expect(repairWarmCache(emptyDir)).toBe("cold");
   });
 
-  it("returns 'warm' when .modules.yaml exists", async () => {
+  it("returns 'warm' when .modules.yaml exists (pnpm)", async () => {
     const { repairWarmCache } = await import("./cleanup.js");
     const warmDir = path.join(tmpDir, "warm");
     fs.mkdirSync(warmDir);
     fs.writeFileSync(path.join(warmDir, ".modules.yaml"), "ok");
+    expect(repairWarmCache(warmDir)).toBe("warm");
+  });
+
+  it("returns 'warm' when .package-lock.json exists (npm)", async () => {
+    const { repairWarmCache } = await import("./cleanup.js");
+    const warmDir = path.join(tmpDir, "warm-npm");
+    fs.mkdirSync(warmDir);
+    fs.writeFileSync(path.join(warmDir, ".package-lock.json"), "{}");
     expect(repairWarmCache(warmDir)).toBe("warm");
   });
 

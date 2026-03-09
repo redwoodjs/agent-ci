@@ -2,3 +2,4 @@ packages:
   - "cli"
   - "dtu-github-actions"
   - "derive"
+  - "experiments/retry-proof"

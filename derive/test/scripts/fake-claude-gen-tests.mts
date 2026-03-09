@@ -41,7 +41,7 @@ function readStdin(): Promise<string> {
   });
 }
 
-// --GROK--: Extract the spec directory path from the user prompt. The prompt
+// Extract the spec directory path from the user prompt. The prompt
 // format is: "Generate tests for the Gherkin specs at <path>. Read existing..."
 // The path may contain dots (e.g. .machinen) so we match up to the ". " boundary
 // (period followed by space) rather than stopping at the first dot.
@@ -50,7 +50,7 @@ function extractSpecDir(prompt: string): string | null {
   return match?.[1] ?? null;
 }
 
-// --GROK--: Generate a deterministic vitest test file from feature content.
+// Generate a deterministic vitest test file from feature content.
 // Each Feature: block becomes a describe(), each Scenario: becomes an it().
 // The test bodies are placeholder assertions — the point is to produce
 // structurally valid test files, not meaningful test logic.

@@ -61,7 +61,7 @@ describe("derive conversation discovery", () => {
   }, 30_000);
 
   it("processes all conversations associated with the current branch", async () => {
-    // --GROK--: Two separate JSONL files, both tagged "feature-x". Both must
+    // Two separate JSONL files, both tagged "feature-x". Both must
     // contribute to the spec. We use distinct --flags so we can verify each
     // conversation's content made it into the prompt seen by the fake binary.
     const { run } = await setupDeriveTest({

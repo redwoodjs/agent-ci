@@ -1,4 +1,4 @@
-// --GROK--: E2e tests for `derive tests` — the test generation command. These
+// E2e tests for `derive tests` — the test generation command. These
 // verify the full pipeline: spec files on disk -> derive tests invocation ->
 // fake-claude-gen-tests binary reads specs and writes test files.
 //
@@ -51,7 +51,7 @@ describe("derive tests", () => {
 
     expect(result.exitCode).toBe(0);
 
-    // --GROK--: fake-claude-gen-tests writes to <cwd>/test/generated/<slug>.test.ts
+    // fake-claude-gen-tests writes to <cwd>/test/generated/<slug>.test.ts
     const generatedDir = path.join(repoDir, "test", "generated");
     expect(fs.existsSync(generatedDir)).toBe(true);
 
@@ -90,7 +90,7 @@ describe("derive tests", () => {
       .sort();
     expect(testFiles.length).toBe(2);
 
-    // --GROK--: Each feature file should produce a test file named by slugifying
+    // Each feature file should produce a test file named by slugifying
     // the Feature: name. "Reset mode" -> "reset-mode.test.ts"
     expect(testFiles).toContain("reset-mode.test.ts");
     expect(testFiles).toContain("watch-mode.test.ts");
@@ -113,13 +113,13 @@ describe("derive tests", () => {
     const generatedDir = path.join(repoDir, "test", "generated");
     const testContent = fs.readFileSync(path.join(generatedDir, "watch-mode.test.ts"), "utf8");
 
-    // --GROK--: The fake binary turns each Scenario: into an it() block
+    // The fake binary turns each Scenario: into an it() block
     expect(testContent).toContain("Watch triggers update on conversation change");
     expect(testContent).toContain("Watch discovers new conversations");
   }, 30_000);
 
   it("does not require git branch or conversations", async () => {
-    // --GROK--: derive tests should work without conversations or CLAUDE_PROJECTS_DIR.
+    // derive tests should work without conversations or CLAUDE_PROJECTS_DIR.
     // We pass no conversations — the command should still succeed because it only
     // reads spec files, not JSONL conversations.
     const { run } = await setupDeriveTest({

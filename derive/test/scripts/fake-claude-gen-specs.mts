@@ -132,7 +132,7 @@ async function main(): Promise<void> {
   const conversationText = extractConversationText(input);
   const flags = extractFlags(conversationText);
 
-  // --GROK--: keyword-extractor strips English stopwords and returns meaningful
+  // keyword-extractor strips English stopwords and returns meaningful
   // words. return_chained_words preserves multi-word phrases when adjacent
   // non-stopwords appear together. remove_duplicates keeps the output clean.
   const keywords = keyword_extractor.extract(conversationText, {
@@ -145,7 +145,7 @@ async function main(): Promise<void> {
 
   const gherkin = buildGherkin(flags, keywords);
 
-  // --GROK--: derive's runClaude parser only cares about {"type":"result","result":"..."}.
+  // derive's runClaude parser only cares about {"type":"result","result":"..."}.
   const output = JSON.stringify({ type: "result", result: gherkin });
   process.stdout.write(output + "\n");
 }

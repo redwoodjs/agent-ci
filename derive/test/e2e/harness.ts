@@ -1,4 +1,4 @@
-// --GROK--: Reusable e2e test harness for derive. Creates fully isolated temp
+// Reusable e2e test harness for derive. Creates fully isolated temp
 // directory structures (projects dir, repo dir, DB file) so tests never touch
 // the real ~/.machinen/ or ~/.claude/ directories.
 //
@@ -12,7 +12,7 @@ import { execSync } from "node:child_process";
 import { execa } from "execa";
 import { afterEach } from "vitest";
 
-// --GROK--: Module-level tracking of temp roots. The afterEach hook iterates
+// Module-level tracking of temp roots. The afterEach hook iterates
 // this set and removes all temp directories, so individual tests never need
 // to think about cleanup.
 const tempRoots = new Set<string>();
@@ -57,13 +57,13 @@ export interface HarnessResult {
   featureFiles: string[];
 }
 
-// --GROK--: Mirrors derive's getSlugDir — Claude Code replaces both / and _
+// Mirrors derive's getSlugDir — Claude Code replaces both / and _
 // with - when computing the slug directory name for a given cwd.
 function computeSlug(repoPath: string): string {
   return repoPath.replace(/[/_]/g, "-");
 }
 
-// --GROK--: Resolves paths relative to the repo root (three levels up from
+// Resolves paths relative to the repo root (three levels up from
 // this file: e2e/ -> test/ -> derive/ -> repo root).
 const REPO_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 const DERIVE_ENTRY = path.join(REPO_ROOT, "derive", "src", "index.ts");

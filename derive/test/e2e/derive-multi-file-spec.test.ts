@@ -1,4 +1,4 @@
-// --GROK--: E2E tests for multi-file-spec-storage.feature and
+// E2E tests for multi-file-spec-storage.feature and
 // spec-file-content-and-format.feature. Verifies that derive writes spec output
 // as individual .feature files (one per Feature block), names them by slugifying
 // the Feature title, and clears stale files before writing new ones.
@@ -20,7 +20,10 @@ describe("derive multi-file spec storage", () => {
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --output-flag to configure output directory" },
+            {
+              type: "user",
+              content: "Add --output-flag to configure output directory",
+            },
             { type: "assistant", content: "I will add --output-flag" },
           ],
         },
@@ -32,7 +35,6 @@ describe("derive multi-file spec storage", () => {
     expect(result.exitCode).toBe(0);
     expect(result.featureFiles.length).toBeGreaterThan(0);
 
-    // --GROK--: Every file must be a .feature file living inside specDir.
     for (const filePath of result.featureFiles) {
       expect(filePath.startsWith(specDir)).toBe(true);
       expect(filePath.endsWith(".feature")).toBe(true);
@@ -40,14 +42,15 @@ describe("derive multi-file spec storage", () => {
   }, 30_000);
 
   it("names each file by slugifying the Feature block title", async () => {
-    // --GROK--: The fake binary always emits "Feature: Extracted specification".
-    // Slugified: "extracted-specification". Verify the filename matches.
     const { run } = await setupDeriveTest({
       branch: "feature-x",
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --format-flag for output formatting" },
+            {
+              type: "user",
+              content: "Add --format-flag for output formatting",
+            },
             { type: "assistant", content: "I will add --format-flag" },
           ],
         },
@@ -59,8 +62,6 @@ describe("derive multi-file spec storage", () => {
     expect(result.exitCode).toBe(0);
     expect(result.featureFiles.length).toBeGreaterThan(0);
 
-    // --GROK--: Filename must be a slug derived from the Feature: title, not
-    // the conversation ID or a random name.
     for (const filePath of result.featureFiles) {
       const basename = path.basename(filePath);
       // Slug pattern: lowercase, hyphens, no spaces or special chars.
@@ -69,9 +70,6 @@ describe("derive multi-file spec storage", () => {
   }, 30_000);
 
   it("removes stale .feature files before writing new ones", async () => {
-    // --GROK--: Pre-seed the spec directory with a file whose name will not be
-    // produced by the current conversation. After derive --reset, that file must
-    // be gone and new files must be present.
     const { specDir, run } = await setupDeriveTest({
       branch: "feature-x",
       conversations: [
@@ -101,14 +99,15 @@ describe("derive multi-file spec storage", () => {
   }, 30_000);
 
   it("produces files with valid Gherkin structure", async () => {
-    // --GROK--: Covers spec-file-content-and-format.feature — every .feature
-    // file must start with "Feature:" and contain Scenario steps (Given/When/Then).
     const { run } = await setupDeriveTest({
       branch: "feature-x",
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --validate-flag to validate input files" },
+            {
+              type: "user",
+              content: "Add --validate-flag to validate input files",
+            },
             { type: "assistant", content: "I will add --validate-flag" },
           ],
         },
@@ -133,7 +132,7 @@ describe("derive multi-file spec storage", () => {
   }, 30_000);
 
   it("uses existing spec content as context for the update", async () => {
-    // --GROK--: Run derive once to create spec files. Run again (incrementally,
+    // Run derive once to create spec files. Run again (incrementally,
     // with new messages) — derive must read existing files as starting context
     // and produce an updated spec. We verify the second run still exits 0 and
     // produces valid files, not that specific content was merged (which is
@@ -143,7 +142,10 @@ describe("derive multi-file spec storage", () => {
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --context-flag to pass context to the spec" },
+            {
+              type: "user",
+              content: "Add --context-flag to pass context to the spec",
+            },
             { type: "assistant", content: "I will add --context-flag" },
           ],
         },

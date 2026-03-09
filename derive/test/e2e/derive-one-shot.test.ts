@@ -1,4 +1,4 @@
-// --GROK--: First e2e test for derive. Fully black-box — spawns derive as a
+// First e2e test for derive. Fully black-box — spawns derive as a
 // subprocess, injects env vars for complete isolation, and asserts on filesystem
 // output. No internal imports from derive's source.
 
@@ -30,10 +30,10 @@ describe("derive one-shot", () => {
 
     const result = await run();
 
-    // --GROK--: derive should exit cleanly after the one-shot spec update.
+    // derive should exit cleanly after the one-shot spec update.
     expect(result.exitCode).toBe(0);
 
-    // --GROK--: The specs directory should have been created with at least one
+    // The specs directory should have been created with at least one
     // .feature file. The fake-claude-gen-specs stub produces deterministic
     // Gherkin from the conversation keywords.
     expect(result.featureFiles.length).toBeGreaterThan(0);
@@ -41,11 +41,11 @@ describe("derive one-shot", () => {
     for (const filePath of result.featureFiles) {
       const content = fs.readFileSync(filePath, "utf8");
 
-      // --GROK--: Every .feature file must start with "Feature:" — this is how
+      // Every .feature file must start with "Feature:" — this is how
       // writeSpec splits and names the files.
       expect(content).toMatch(/^Feature:/);
 
-      // --GROK--: Structural validity: must contain at least one Scenario with
+      // Structural validity: must contain at least one Scenario with
       // Given/When/Then steps.
       expect(content).toContain("Scenario:");
       expect(content).toMatch(/Given |When |Then /);
@@ -88,7 +88,7 @@ describe("derive one-shot", () => {
     expect(result.exitCode).toBe(0);
     expect(result.featureFiles.length).toBeGreaterThan(0);
 
-    // --GROK--: Both conversations should have been processed — the combined
+    // Both conversations should have been processed — the combined
     // spec output should contain keywords from both conversations.
     const allContent = result.featureFiles.map((f) => fs.readFileSync(f, "utf8")).join("\n");
 

@@ -28,6 +28,26 @@ import { pruneOrphanedDockerResources } from "./docker/shutdown.js";
 import { parseJobDependencies, topoSort } from "./workflow/job-scheduler.js";
 import { printSummary, type JobResult } from "./output/reporter.js";
 
+// ─── Signal helpers for retry / abort commands ────────────────────────────────
+
+function findSignalsDir(runnerName: string): string | null {
+  const workDir = getWorkingDirectory();
+  const runsDir = path.resolve(workDir, "runs");
+  if (!fs.existsSync(runsDir)) {
+    return null;
+  }
+  // Walk run dirs looking for a directory whose name ends with the runner name
+  for (const entry of fs.readdirSync(runsDir)) {
+    if (entry === runnerName || entry.endsWith(runnerName)) {
+      const signalsDir = path.join(runsDir, entry, "signals");
+      if (fs.existsSync(signalsDir)) {
+        return signalsDir;
+      }
+    }
+  }
+  return null;
+}
+
 async function run() {
   const args = process.argv.slice(2);
   const command = args[0];
@@ -36,11 +56,14 @@ async function run() {
     // Basic argument parsing
     let sha: string | undefined;
     let workflow: string | undefined;
+    let pauseOnFailure = false;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
         workflow = args[i + 1];
         i++;
+      } else if (args[i] === "--pause-on-failure" || args[i] === "-p") {
+        pauseOnFailure = true;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
@@ -61,8 +84,53 @@ async function run() {
       process.exit(1);
     }
 
-    await handleRun({ sha, workflow });
+    await handleRun({ sha, workflow, pauseOnFailure });
 
+    process.exit(0);
+  } else if (command === "retry" || command === "abort") {
+    // retry / abort: write a signal file to the runner's signals dir
+    let runnerName: string | undefined;
+    for (let i = 1; i < args.length; i++) {
+      if (args[i] === "--runner" && args[i + 1]) {
+        runnerName = args[i + 1];
+        i++;
+      }
+    }
+    if (!runnerName) {
+      console.error(`[Machinen] Error: --runner <name> is required for '${command}'`);
+      process.exit(1);
+    }
+    const signalsDir = findSignalsDir(runnerName);
+    if (!signalsDir) {
+      console.error(
+        `[Machinen] Error: No runner '${runnerName}' found. It may have already exited.`,
+      );
+      process.exit(1);
+    }
+    const pausedFile = path.join(signalsDir, "paused");
+    if (!fs.existsSync(pausedFile)) {
+      fs.rmSync(signalsDir, { recursive: true, force: true });
+      console.error(
+        `[Machinen] Error: Runner '${runnerName}' is not currently paused. It may have already exited.`,
+      );
+      process.exit(1);
+    }
+    // Verify the container is still running
+    try {
+      const { execSync } = await import("node:child_process");
+      const status = execSync(`docker inspect -f '{{.State.Running}}' ${runnerName} 2>/dev/null`, {
+        encoding: "utf-8",
+      }).trim();
+      if (status !== "true") {
+        throw new Error("not running");
+      }
+    } catch {
+      fs.rmSync(signalsDir, { recursive: true, force: true });
+      console.error(`[Machinen] Error: Runner '${runnerName}' is no longer running.`);
+      process.exit(1);
+    }
+    fs.writeFileSync(path.join(signalsDir, command), "");
+    console.log(`[Machinen] Sent '${command}' signal to ${runnerName}`);
     process.exit(0);
   } else {
     printUsage();
@@ -74,10 +142,13 @@ function printUsage() {
   console.log("Usage: machinen <command> [args]");
   console.log("");
   console.log("Commands:");
-  console.log("  run [sha] --workflow <path>: Run all jobs in a workflow file (defaults to HEAD)");
+  console.log("  run [sha] --workflow <path>   Run all jobs in a workflow file (defaults to HEAD)");
+  console.log("  retry --runner <name>         Send retry signal to a paused runner");
+  console.log("  abort --runner <name>         Send abort signal to a paused runner");
   console.log("");
   console.log("Options:");
-  console.log("  -w, --workflow <path>  Path to the workflow file");
+  console.log("  -w, --workflow <path>         Path to the workflow file");
+  console.log("  -p, --pause-on-failure        Pause on step failure and wait for retry");
 }
 
 function resolveRepoRoot() {
@@ -113,8 +184,8 @@ function resolveHeadSha(repoRoot: string, sha: string) {
   }
 }
 
-async function handleRun(options: { sha?: string; workflow?: string }) {
-  const { sha } = options;
+async function handleRun(options: { sha?: string; workflow?: string; pauseOnFailure?: boolean }) {
+  const { sha, pauseOnFailure } = options;
   let workflow = options.workflow;
 
   try {
@@ -240,9 +311,12 @@ async function handleRun(options: { sha?: string; workflow?: string }) {
         taskId: ej.taskName,
       };
 
-      const result = await executeLocalJob(job);
+      const result = await executeLocalJob(job, { pauseOnFailure });
       printSummary([result]);
       if (!result.succeeded) {
+        if (pauseOnFailure) {
+          process.stdout.write(`\n  To retry: machinen retry --runner ${result.name}\n\n`);
+        }
         process.exit(1);
       }
       return;
@@ -329,7 +403,7 @@ async function handleRun(options: { sha?: string; workflow?: string }) {
       job.services = services;
       job.container = container ?? undefined;
 
-      const result = await executeLocalJob(job);
+      const result = await executeLocalJob(job, { pauseOnFailure });
       return result;
     };
 

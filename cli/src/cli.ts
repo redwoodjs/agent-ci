@@ -27,6 +27,7 @@ import { getWorkingDirectory } from "./output/working-directory.js";
 import { pruneOrphanedDockerResources } from "./docker/shutdown.js";
 import { parseJobDependencies, topoSort } from "./workflow/job-scheduler.js";
 import { printSummary, type JobResult } from "./output/reporter.js";
+import { syncWorkspaceForRetry } from "./runner/sync.js";
 
 // ─── Signal helpers for retry / abort commands ────────────────────────────────
 
@@ -128,6 +129,11 @@ async function run() {
       fs.rmSync(signalsDir, { recursive: true, force: true });
       console.error(`[Machinen] Error: Runner '${runnerName}' is no longer running.`);
       process.exit(1);
+    }
+    // For retry: sync local source changes into the run workspace
+    if (command === "retry") {
+      const runDir = path.dirname(signalsDir);
+      syncWorkspaceForRetry(runDir);
     }
     fs.writeFileSync(path.join(signalsDir, command), "");
     console.log(`[Machinen] Sent '${command}' signal to ${runnerName}`);

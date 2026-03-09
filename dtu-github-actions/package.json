@@ -5,10 +5,23 @@
   "keywords": [],
   "license": "ISC",
   "author": "",
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "type": "module",
+  "main": "./dist/server/start.js",
+  "exports": {
+    ".": "./dist/server/start.js",
+    "./ephemeral": "./dist/ephemeral.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "dev": "(pnpm dlx kill-port 8910 || true) && tsx src/server/start.ts",
     "simulate": "tsx src/simulate.ts",
+    "build": "tsgo",
     "typecheck": "tsgo",
     "test": "vitest run"
   },

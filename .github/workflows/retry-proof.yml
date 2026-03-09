@@ -1,6 +1,6 @@
-name: Tests
+name: Retry Proof
 
-on: [push]
+on: [workflow_dispatch]
 
 jobs:
   test:
@@ -17,8 +17,5 @@ jobs:
           node-version: 22
           cache: "pnpm"
       - run: pnpm install
-      - run: pnpm check
-      - name: Test DTU
-        run: pnpm --filter dtu-github-actions test
-      - name: Test CLI
-        run: pnpm --filter machinen test
+      - name: Run assertion test
+        run: pnpm --filter retry-proof test

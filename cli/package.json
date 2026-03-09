@@ -1,11 +1,21 @@
 {
-  "name": "cli",
+  "name": "machinen",
   "version": "1.0.0",
-  "description": "Local CLI for machinen",
+  "description": "Local GitHub Actions runner",
   "keywords": [],
   "license": "ISC",
   "author": "",
+  "bin": {
+    "machinen": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "shim.sh"
+  ],
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsgo",
     "typecheck": "tsgo",

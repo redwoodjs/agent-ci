@@ -2,7 +2,6 @@
   "name": "machinen-monorepo",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others --names \"GitHub,Bridge,CLI\" \"pnpm --filter dtu-github-actions dev\" \"wait-on http://localhost:8910 && pnpm --filter bridge dev\" \"wait-on http://localhost:8911 && pnpm --filter machinen dev\"",
     "test": "npm-run-all test:*",
     "test:unit": "pnpm -r test",
     "test:e2e": "(docker rm -f $(docker ps -a --filter name=machinen- -q) 2>/dev/null || true) && vitest run test/e2e",
@@ -14,6 +13,7 @@
     "format": "oxfmt",
     "format:fix": "oxfmt",
     "format:check": "oxfmt --check",
+    "machinen-dev": "pnpm --filter machinen run machinen",
     "start": "./scripts/run.sh",
     "prepare": "husky",
     "changeset": "changeset",
@@ -26,7 +26,6 @@
     "@nkzw/oxlint-config": "1.0.1",
     "@types/node": "^25.3.0",
     "@typescript/native-preview": "7.0.0-dev.20260219.1",
-    "concurrently": "^9.2.1",
     "execa": "^9.6.1",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
@@ -34,8 +33,7 @@
     "oxfmt": "0.33.0",
     "oxlint": "1.48.0",
     "tsx": "^4.21.0",
-    "vitest": "^4.0.18",
-    "wait-on": "^9.0.3"
+    "vitest": "^4.0.18"
   },
   "lint-staged": {
     "*.{js,ts,jsx,tsx,json,md,yml,yaml,css,html}": [

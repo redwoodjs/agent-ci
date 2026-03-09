@@ -1,6 +1,6 @@
 # Machinen
 
-**Local-first CI with 1:1 API parity with GitHub Actions.** Intended to be used by AI.
+Machinen is local CI for agents. It pauses when a workflow fails, allowing your agent to fix the issue and resume the workflow. Think of it as "live-reload for CI."
 
 Machinen runs your GitHub Actions workflows locally using the same [official GitHub Action runners](https://github.com/actions/runner) — the exact same binaries that power GitHub-hosted CI. What Machinen emulates is the GitHub.com API itself, so actions like `actions/checkout`, `actions/setup-node`, and `actions/cache` work out of the box without hitting GitHub's servers.
 

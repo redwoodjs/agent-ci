@@ -106,7 +106,7 @@ export async function executeLocalJob(
   job: Job,
   options?: { pauseOnFailure?: boolean },
 ): Promise<JobResult> {
-  const pauseOnFailure = options?.pauseOnFailure ?? false;
+  const pauseOnFailure = options?.pauseOnFailure ?? true;
   const startTime = Date.now();
 
   // ── Pre-flight: verify Docker is reachable ────────────────────────────────

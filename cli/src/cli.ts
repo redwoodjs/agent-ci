@@ -19,6 +19,7 @@ import {
   validateSecrets,
   parseMatrixDef,
   expandMatrixCombinations,
+  isWorkflowRelevant,
 } from "./workflow/workflow-parser.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
@@ -58,6 +59,7 @@ async function run() {
     let sha: string | undefined;
     let workflow: string | undefined;
     let pauseOnFailure = true;
+    let runAll = false;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -65,6 +67,8 @@ async function run() {
         i++;
       } else if (args[i] === "--exit-on-failure" || args[i] === "-x") {
         pauseOnFailure = false;
+      } else if (args[i] === "--all" || args[i] === "-a") {
+        runAll = true;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
@@ -78,8 +82,76 @@ async function run() {
       setWorkingDirectory(workingDir);
     }
 
+    if (runAll) {
+      // Discover and run all relevant workflows
+      const repoRoot = resolveRepoRoot();
+      const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
+      if (!fs.existsSync(workflowsDir)) {
+        console.error(`[Machinen] No .github/workflows directory found in ${repoRoot}`);
+        process.exit(1);
+      }
+
+      const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: repoRoot })
+        .toString()
+        .trim();
+
+      const files = fs
+        .readdirSync(workflowsDir)
+        .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
+        .map((f) => path.join(workflowsDir, f));
+
+      const relevant: string[] = [];
+      for (const file of files) {
+        try {
+          const { parse: parseYaml } = await import("yaml");
+          const raw = parseYaml(fs.readFileSync(file, "utf8"));
+          // Normalize `on:` to an events object
+          const onDef = raw?.on || raw?.true;
+          if (!onDef) {
+            continue;
+          }
+          const events: Record<string, any> = {};
+          if (Array.isArray(onDef)) {
+            for (const e of onDef) {
+              events[e] = {};
+            }
+          } else if (typeof onDef === "string") {
+            events[onDef] = {};
+          } else {
+            Object.assign(events, onDef);
+          }
+          if (isWorkflowRelevant({ events }, branch)) {
+            relevant.push(file);
+          }
+        } catch {
+          // Skip unparsable workflows
+        }
+      }
+
+      if (relevant.length === 0) {
+        console.log(`[Machinen] No relevant workflows found for branch '${branch}'.`);
+        process.exit(0);
+      }
+
+      console.log(
+        `[Machinen] Found ${relevant.length} relevant workflow(s) for branch '${branch}':\n` +
+          relevant.map((f) => `  • ${path.basename(f)}`).join("\n"),
+      );
+
+      let anyFailed = false;
+      for (const wf of relevant) {
+        console.log(`\n[Machinen] ─── ${path.basename(wf)} ───`);
+        try {
+          await handleRun({ sha, workflow: wf, pauseOnFailure });
+        } catch {
+          anyFailed = true;
+        }
+      }
+      process.exit(anyFailed ? 1 : 0);
+    }
+
     if (!workflow) {
-      console.error("[Machinen] Error: You must specify --workflow <path>");
+      console.error("[Machinen] Error: You must specify --workflow <path> or --all");
       console.log("");
       printUsage();
       process.exit(1);
@@ -164,6 +236,9 @@ function printUsage() {
   console.log("");
   console.log("Commands:");
   console.log("  run [sha] --workflow <path>   Run all jobs in a workflow file (defaults to HEAD)");
+  console.log(
+    "  run --all                     Run all relevant PR/Push workflows for current branch",
+  );
   console.log("  retry --runner <name>         Send retry signal to a paused runner");
   console.log("    --from-step <N>              Re-run from step N (skips earlier steps)");
   console.log("    --from-start                 Re-run all run: steps from the beginning");
@@ -171,6 +246,7 @@ function printUsage() {
   console.log("");
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");
+  console.log("  -a, --all                     Discover and run all relevant workflows");
   console.log("  -x, --exit-on-failure         Exit immediately on step failure (default: pause)");
 }
 

@@ -16,7 +16,7 @@ import {
 } from "../docker/service-containers.js";
 import { killRunnerContainers } from "../docker/shutdown.js";
 import { startEphemeralDtu } from "dtu-github-actions/ephemeral";
-import { type JobResult } from "../output/reporter.js";
+import { type JobResult, tailLogFile } from "../output/reporter.js";
 import logUpdate from "log-update";
 import { renderTree, type TreeNode } from "../output/tree-renderer.js";
 
@@ -31,8 +31,9 @@ import {
   resolveDtuHost,
   resolveDockerApiUrl,
 } from "../docker/container-config.js";
-import { buildJobResult } from "./result-builder.js";
+import { buildJobResult, sanitizeStepName } from "./result-builder.js";
 import { wrapJobSteps } from "./step-wrapper.js";
+import { syncWorkspaceForRetry } from "./sync.js";
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
 
@@ -457,8 +458,40 @@ export async function executeLocalJob(
     let pausedStepName: string | null = null;
     let pausedAtMs: number | null = null;
     let lastSeenAttempt = 0;
+    let stdinListening = false;
     const timelinePath = path.join(logDir, "timeline.json");
     const pausedSignalPath = path.join(dirs.signalsDir, "paused");
+    const signalsRunDir = path.dirname(dirs.signalsDir);
+
+    // Listen for Enter key to trigger retry when paused
+    const setupStdinRetry = () => {
+      if (stdinListening || !process.stdin.isTTY) {
+        return;
+      }
+      stdinListening = true;
+      process.stdin.setRawMode(true);
+      process.stdin.resume();
+      process.stdin.on("data", (key: Buffer) => {
+        // Ctrl+C
+        if (key[0] === 3) {
+          process.stdin.setRawMode(false);
+          process.exit(130);
+        }
+        // Enter
+        if (key[0] === 13 && isPaused) {
+          syncWorkspaceForRetry(signalsRunDir);
+          fs.writeFileSync(path.join(dirs.signalsDir, "retry"), "");
+        }
+      });
+    };
+    const cleanupStdin = () => {
+      if (stdinListening && process.stdin.isTTY) {
+        process.stdin.setRawMode(false);
+        process.stdin.pause();
+        process.stdin.removeAllListeners("data");
+        stdinListening = false;
+      }
+    };
 
     const checkTimeline = () => {
       try {
@@ -472,6 +505,7 @@ export async function executeLocalJob(
             lastSeenAttempt = attempt;
             isPaused = true;
             pausedAtMs = Date.now();
+            setupStdinRetry();
           }
         } else if (isPaused && !fs.existsSync(pausedSignalPath)) {
           // File completely gone (abort cleaned it up)
@@ -540,7 +574,7 @@ export async function executeLocalJob(
               const stepElapsed = Math.round((Date.now() - new Date(r.startTime).getTime()) / 1000);
               const frame = spinnerFrames[spinnerIdx % spinnerFrames.length];
               if (isPaused && pausedStepName === stepName) {
-                // Paused: show ⏸ icon with frozen timer, add a yellow child leaf
+                // Paused: show ⏸ icon with frozen timer
                 const frozenElapsed = pausedAtMs
                   ? Math.round((pausedAtMs - new Date(r.startTime).getTime()) / 1000)
                   : stepElapsed;
@@ -607,9 +641,44 @@ export async function executeLocalJob(
         ];
 
         let output = renderTree(tree);
-        // Append yellow retry/abort hints below the tree when paused
-        if (isPaused) {
-          output += `\n\n  ${YELLOW}↻ To retry:  machinen retry --runner ${containerName}${RESET}`;
+        // Append failure output below the tree when paused
+        if (isPaused && pausedStepName) {
+          // Read step log and show last output lines below the tree.
+          // The sanitized step name may not match the log filename (the DTU
+          // writes logs under a feed-record UUID). Fall back to the newest .log.
+          const DIM = `${String.fromCharCode(27)}[2m`;
+          const stepsDir = path.join(logDir, "steps");
+          let tailLines: string[] = [];
+          const sanitized = sanitizeStepName(pausedStepName);
+          const byName = path.join(stepsDir, `${sanitized}.log`);
+          tailLines = tailLogFile(byName, 20);
+          if (tailLines.length === 0 && fs.existsSync(stepsDir)) {
+            let newest = "";
+            let newestMtime = 0;
+            for (const f of fs.readdirSync(stepsDir)) {
+              if (!f.endsWith(".log")) {
+                continue;
+              }
+              const mt = fs.statSync(path.join(stepsDir, f)).mtimeMs;
+              if (mt > newestMtime) {
+                newestMtime = mt;
+                newest = f;
+              }
+            }
+            if (newest) {
+              tailLines = tailLogFile(path.join(stepsDir, newest), 20);
+            }
+          }
+          if (tailLines.length > 0) {
+            output += `\n\n  ${DIM}Last output:${RESET}`;
+            for (const line of tailLines) {
+              const trimmed = line.trimEnd();
+              if (trimmed) {
+                output += `\n    ${DIM}${trimmed}${RESET}`;
+              }
+            }
+          }
+          output += `\n\n  ${YELLOW}↻ To retry:  machinen retry --runner ${containerName} [enter]${RESET}`;
           output += `\n  ${YELLOW}■ To abort:  machinen abort --runner ${containerName}${RESET}`;
         }
 
@@ -655,6 +724,7 @@ export async function executeLocalJob(
 
     // Stop tail now that container has finished
     tailDone = true;
+    cleanupStdin();
     await pollPromise;
 
     // 8. Wait for completion (already started above; just collect the result)

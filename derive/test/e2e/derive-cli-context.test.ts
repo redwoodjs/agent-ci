@@ -37,9 +37,6 @@ describe("derive CLI context detection", () => {
   }, 30_000);
 
   it("rejects a detached HEAD with a non-zero exit code and an error message", async () => {
-    // --GROK--: Set up a repo on a named branch, then put it into detached HEAD
-    // before running derive. derive requires a named branch to scope conversations;
-    // a detached HEAD is ambiguous so it must be rejected.
     const { repoDir, run } = await setupDeriveTest({
       branch: "feature-x",
       conversations: [
@@ -68,9 +65,6 @@ describe("derive CLI context detection", () => {
   }, 30_000);
 
   it("uses the repository path inferred from the working directory, not a global path", async () => {
-    // --GROK--: Two independent harness setups. Each produces spec files in
-    // their own repoDir. This confirms derive scopes its context to the CWD
-    // rather than reading from a single shared location.
     const { repoDir: repoA, run: runA } = await setupDeriveTest({
       branch: "branch-a",
       conversations: [

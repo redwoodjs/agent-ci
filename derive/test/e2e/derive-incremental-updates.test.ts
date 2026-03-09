@@ -1,4 +1,4 @@
-// --GROK--: E2E tests for incremental-spec-updates.feature. Verifies that
+// E2E tests for incremental-spec-updates.feature. Verifies that
 // derive tracks byte offsets in the DB so a second run only processes newly
 // appended JSONL content, not already-processed lines.
 //
@@ -37,7 +37,7 @@ describe("derive incremental spec updates", () => {
     expect(firstResult.exitCode).toBe(0);
     expect(firstResult.featureFiles.length).toBeGreaterThan(0);
 
-    // --GROK--: Find the JSONL file written by the harness and append a new
+    // Find the JSONL file written by the harness and append a new
     // message line to it. The new line has a distinct --flag so we can detect
     // whether it was processed in the second run.
     const slug = repoDir.replace(/[/_]/g, "-");
@@ -68,7 +68,7 @@ describe("derive incremental spec updates", () => {
   }, 30_000);
 
   it("processes the full content of a large conversation", async () => {
-    // --GROK--: Generate a conversation with many messages. derive must process
+    // Generate a conversation with many messages. derive must process
     // all of them (not truncate at an arbitrary limit) and produce valid Gherkin.
     const messages: Array<{ type: "user" | "assistant"; content: string }> = [];
     for (let i = 0; i < 20; i++) {
@@ -99,15 +99,15 @@ describe("derive incremental spec updates", () => {
   }, 30_000);
 
   it("does not reprocess already-processed messages on a subsequent run", async () => {
-    // --GROK--: After a first run (offsets recorded), a second run with no new
-    // JSONL content should exit 0 cleanly. This confirms derive is reading
-    // offsets, not re-reading from byte 0.
     const { run } = await setupDeriveTest({
       branch: "feature-x",
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --idempotent-flag for idempotent operations" },
+            {
+              type: "user",
+              content: "Add --idempotent-flag for idempotent operations",
+            },
             { type: "assistant", content: "I will add --idempotent-flag" },
           ],
         },
@@ -117,7 +117,6 @@ describe("derive incremental spec updates", () => {
     const firstResult = await run();
     expect(firstResult.exitCode).toBe(0);
 
-    // Second run with identical JSONL content (nothing appended).
     const secondResult = await run();
     expect(secondResult.exitCode).toBe(0);
   }, 30_000);

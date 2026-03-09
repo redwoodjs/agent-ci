@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# --GROK--: Wrapper that runs fake-claude-gen-tests.mts via tsx. Resolves tsx
+# Wrapper that runs fake-claude-gen-tests.mts via tsx. Resolves tsx
 # from the monorepo root's node_modules (three levels up from this script).
 set -euo pipefail
 

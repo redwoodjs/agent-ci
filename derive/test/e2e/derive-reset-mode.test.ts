@@ -1,4 +1,4 @@
-// --GROK--: E2E tests for reset-mode.feature. Exercises the --reset flag which
+// E2E tests for reset-mode.feature. Exercises the --reset flag which
 // clears existing .feature files and reprocesses all conversations from offset
 // zero. Also covers --keep-spec (preserves files while still reprocessing) and
 // the edge case of no conversations when --reset is used.
@@ -20,7 +20,10 @@ describe("derive --reset", () => {
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --reset flag to regenerate the spec" },
+            {
+              type: "user",
+              content: "Add --reset flag to regenerate the spec",
+            },
             {
               type: "assistant",
               content: "I will add a --reset flag that clears specs and reprocesses",
@@ -31,7 +34,7 @@ describe("derive --reset", () => {
       deriveArgs: ["--reset"],
     });
 
-    // --GROK--: Pre-seed a stale .feature file. This simulates what a previous
+    // Pre-seed a stale .feature file. This simulates what a previous
     // derive run would have written. After --reset, it must be gone.
     fs.mkdirSync(specDir, { recursive: true });
     const staleFile = path.join(specDir, "stale-feature.feature");
@@ -45,7 +48,7 @@ describe("derive --reset", () => {
 
     expect(result.exitCode).toBe(0);
 
-    // --GROK--: The stale file must be removed — --reset clears all .feature
+    // The stale file must be removed — --reset clears all .feature
     // files before writing new ones.
     expect(fs.existsSync(staleFile)).toBe(false);
 
@@ -59,7 +62,10 @@ describe("derive --reset", () => {
       conversations: [
         {
           messages: [
-            { type: "user", content: "Implement --dry-run flag for previewing changes" },
+            {
+              type: "user",
+              content: "Implement --dry-run flag for previewing changes",
+            },
             { type: "assistant", content: "I will implement --dry-run" },
           ],
         },
@@ -88,7 +94,7 @@ describe("derive --reset", () => {
   }, 30_000);
 
   it("exits cleanly and reports no data when there are no conversations", async () => {
-    // --GROK--: --reset with no conversations should not crash. The spec says
+    // --reset with no conversations should not crash. The spec says
     // "a message indicates no conversations were found".
     const { run } = await setupDeriveTest({
       branch: "feature-x",
@@ -104,13 +110,16 @@ describe("derive --reset", () => {
   }, 30_000);
 
   it("reprocesses conversations that were already processed in a prior run", async () => {
-    // --GROK--: Run derive (no --reset) to record conversation offsets in the
+    // Run derive (no --reset) to record conversation offsets in the
     // DB. Then run derive --reset — it must clear the offsets and reprocess,
     // producing spec files again even though the DB said everything was done.
     const conversations = [
       {
         messages: [
-          { type: "user" as const, content: "Add --output-flag to set the output path" },
+          {
+            type: "user" as const,
+            content: "Add --output-flag to set the output path",
+          },
           { type: "assistant" as const, content: "I will add --output-flag" },
         ],
       },
@@ -125,7 +134,7 @@ describe("derive --reset", () => {
     expect(firstResult.exitCode).toBe(0);
     expect(firstResult.featureFiles.length).toBeGreaterThan(0);
 
-    // --GROK--: We can't change deriveArgs between calls on the same harness
+    // We can't change deriveArgs between calls on the same harness
     // instance, so we create a second harness pointing at the same directories
     // by pre-seeding the spec dir. Instead we verify reset by checking the
     // pre-seeded stale file is removed (which only happens on --reset).
@@ -151,7 +160,7 @@ describe("derive --reset", () => {
   }, 30_000);
 
   it("discovers new conversation files before reprocessing", async () => {
-    // --GROK--: Write an extra JSONL file into the slug dir after harness setup
+    // Write an extra JSONL file into the slug dir after harness setup
     // to simulate a conversation that arrived since the last index. --reset must
     // discover and include it.
     const { repoDir, projectsDir, specDir, run } = await setupDeriveTest({
@@ -159,7 +168,10 @@ describe("derive --reset", () => {
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --config-flag to specify a config file" },
+            {
+              type: "user",
+              content: "Add --config-flag to specify a config file",
+            },
             { type: "assistant", content: "I will add --config-flag" },
           ],
         },
@@ -178,7 +190,10 @@ describe("derive --reset", () => {
         sessionId: "test-session",
         cwd: repoDir,
         gitBranch: "feature-x",
-        message: { role: "user", content: "Add --extra-discovered-flag support" },
+        message: {
+          role: "user",
+          content: "Add --extra-discovered-flag support",
+        },
       }) + "\n",
       "utf8",
     );
@@ -201,7 +216,7 @@ describe("derive --reset", () => {
 
 describe("derive --reset --keep-spec", () => {
   it("uses existing spec content as context when reprocessing", async () => {
-    // --GROK--: --keep-spec skips the initial deletion in resetBranch so
+    // --keep-spec skips the initial deletion in resetBranch so
     // existing spec content is fed to the LLM as starting context via readSpec.
     // The files themselves are still replaced by writeSpec (clean-slate write),
     // but the LLM sees the prior content and can incorporate it.
@@ -210,7 +225,10 @@ describe("derive --reset --keep-spec", () => {
       conversations: [
         {
           messages: [
-            { type: "user", content: "Add --keep-spec flag to preserve spec context" },
+            {
+              type: "user",
+              content: "Add --keep-spec flag to preserve spec context",
+            },
             { type: "assistant", content: "I will add --keep-spec support" },
           ],
         },
@@ -218,7 +236,7 @@ describe("derive --reset --keep-spec", () => {
       deriveArgs: ["--reset", "--keep-spec"],
     });
 
-    // --GROK--: Pre-seed a spec file. With --keep-spec, resetBranch skips the
+    // Pre-seed a spec file. With --keep-spec, resetBranch skips the
     // explicit deletion, so readSpec inside updateSpec will pick up this content
     // and include it in the prompt to the LLM.
     fs.mkdirSync(specDir, { recursive: true });
@@ -231,7 +249,7 @@ describe("derive --reset --keep-spec", () => {
     const result = await run();
 
     expect(result.exitCode).toBe(0);
-    // --GROK--: writeSpec always does a clean-slate write, so the output files
+    // writeSpec always does a clean-slate write, so the output files
     // are whatever the fake binary produced — but the run should succeed and
     // produce valid spec files.
     expect(result.featureFiles.length).toBeGreaterThan(0);

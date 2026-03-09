@@ -1,4 +1,4 @@
-// --GROK--: E2E tests for scope-flag.feature. Verifies that --scope <name>
+// E2E tests for scope-flag.feature. Verifies that --scope <name>
 // redirects spec file I/O to .machinen/specs/<name>/ instead of the default
 // .machinen/specs/ directory. Also verifies reset respects the scoped directory
 // and that without --scope the default location is used.
@@ -34,7 +34,7 @@ describe("derive --scope flag", () => {
 
     expect(result.exitCode).toBe(0);
 
-    // --GROK--: With --scope myapp, files must land in .machinen/specs/myapp/,
+    // With --scope myapp, files must land in .machinen/specs/myapp/,
     // not directly in .machinen/specs/. The harness featureFiles array will be
     // empty because it only reads one level deep; we read the subdir ourselves.
     const scopedDir = path.join(specDir, "myapp");
@@ -49,7 +49,7 @@ describe("derive --scope flag", () => {
   }, 30_000);
 
   it("reads existing spec files from .machinen/specs/<scope>/ when --scope is provided", async () => {
-    // --GROK--: Pre-seed the scoped directory with a spec file. The second run
+    // Pre-seed the scoped directory with a spec file. The second run
     // should read it as context. We verify this by checking that a second run
     // (which processes no new messages) still exits 0 without error, implying
     // derive successfully found and read the scoped spec directory.
@@ -107,14 +107,14 @@ describe("derive --scope flag", () => {
     expect(result.exitCode).toBe(0);
     expect(result.featureFiles.length).toBeGreaterThan(0);
 
-    // --GROK--: All files must live directly in specDir, not in a subdirectory.
+    // All files must live directly in specDir, not in a subdirectory.
     for (const filePath of result.featureFiles) {
       expect(path.dirname(filePath)).toBe(specDir);
     }
   }, 30_000);
 
   it("--reset --scope deletes and regenerates only the scoped directory", async () => {
-    // --GROK--: Pre-seed both the scoped directory and a file outside it. After
+    // Pre-seed both the scoped directory and a file outside it. After
     // derive --reset --scope myapp, the scoped files must be cleared and
     // regenerated while the file outside the scope is untouched.
     const { specDir, run } = await setupDeriveTest({
@@ -162,7 +162,7 @@ describe("derive --scope flag", () => {
     const newScopedFiles = fs.readdirSync(scopedDir).filter((f) => f.endsWith(".feature"));
     expect(newScopedFiles.length).toBeGreaterThan(0);
 
-    // --GROK--: File outside the scope must not be affected by the scoped reset.
+    // File outside the scope must not be affected by the scoped reset.
     expect(fs.existsSync(outsideFile)).toBe(true);
   }, 30_000);
 });

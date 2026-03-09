@@ -11,6 +11,7 @@ import { debugRunner } from "../output/debug.js";
 export interface RunDirectories {
   containerWorkDir: string;
   shimsDir: string;
+  signalsDir: string;
   diagDir: string;
   toolCacheDir: string;
   pnpmStoreDir: string;
@@ -41,6 +42,7 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
   // Per-run dirs
   const containerWorkDir = path.resolve(runDir, "work");
   const shimsDir = path.resolve(runDir, "shims");
+  const signalsDir = path.resolve(runDir, "signals");
   const diagDir = path.resolve(runDir, "diag");
 
   // Shared caches
@@ -70,6 +72,7 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
     workspaceDir,
     containerWorkDir,
     shimsDir,
+    signalsDir,
     diagDir,
     toolCacheDir,
     pnpmStoreDir,
@@ -92,6 +95,7 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
   return {
     containerWorkDir,
     shimsDir,
+    signalsDir,
     diagDir,
     toolCacheDir,
     pnpmStoreDir,

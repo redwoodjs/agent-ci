@@ -145,3 +145,31 @@ describe("resolveDockerApiUrl", () => {
     );
   });
 });
+
+// ── signalsDir bind-mount ─────────────────────────────────────────────────────
+
+describe("buildContainerBinds with signalsDir", () => {
+  const baseOpts = {
+    hostWorkDir: "/tmp/work",
+    shimsDir: "/tmp/shims",
+    diagDir: "/tmp/diag",
+    toolCacheDir: "/tmp/toolcache",
+    pnpmStoreDir: "/tmp/pnpm",
+    playwrightCacheDir: "/tmp/playwright",
+    warmModulesDir: "/tmp/warm",
+    hostRunnerDir: "/tmp/runner",
+    useDirectContainer: false,
+  };
+
+  it("includes signals bind-mount when signalsDir is provided", async () => {
+    const { buildContainerBinds } = await import("./container-config.js");
+    const binds = buildContainerBinds({ ...baseOpts, signalsDir: "/tmp/signals" });
+    expect(binds).toContain("/tmp/signals:/tmp/machinen-signals");
+  });
+
+  it("omits signals bind-mount when signalsDir is undefined", async () => {
+    const { buildContainerBinds } = await import("./container-config.js");
+    const binds = buildContainerBinds(baseOpts);
+    expect(binds.some((b) => b.includes("machinen-signals"))).toBe(false);
+  });
+});

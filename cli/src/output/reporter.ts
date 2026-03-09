@@ -20,6 +20,8 @@ export interface JobResult {
   failedStepLogPath?: string;
   failedExitCode?: number;
   lastOutputLines?: string[];
+  /** Number of attempts (only set when > 1, i.e. retried) */
+  attempt?: number;
 }
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────

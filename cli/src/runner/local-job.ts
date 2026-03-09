@@ -147,10 +147,11 @@ export async function executeLocalJob(
       runnerName: containerName,
       logDir,
       timelineDir: logDir,
-      // The pnpm store is bind-mounted into the container, so there's no need
-      // for the runner to tar/gzip it. Tell the DTU to return a synthetic hit
-      // for any cache key containing "pnpm" — skipping the 60s+ tar entirely.
-      virtualCachePatterns: ["pnpm"],
+      // Package manager stores are bind-mounted into the container, so there's
+      // no need for the runner to tar/gzip them. Tell the DTU to return a
+      // synthetic hit for any cache key matching these patterns — skipping the
+      // 60s+ tar entirely.
+      virtualCachePatterns: ["pnpm", "npm", "yarn", "bun"],
     }),
   }).catch(() => {
     /* non-fatal */
@@ -400,6 +401,8 @@ export async function executeLocalJob(
       diagDir: dirs.diagDir,
       toolCacheDir: dirs.toolCacheDir,
       pnpmStoreDir: dirs.pnpmStoreDir,
+      npmCacheDir: dirs.npmCacheDir,
+      bunCacheDir: dirs.bunCacheDir,
       playwrightCacheDir: dirs.playwrightCacheDir,
       warmModulesDir: dirs.warmModulesDir,
       hostRunnerDir,

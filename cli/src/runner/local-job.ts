@@ -19,6 +19,7 @@ import { startEphemeralDtu } from "dtu-github-actions/ephemeral";
 import { type JobResult, tailLogFile } from "../output/reporter.js";
 import logUpdate from "log-update";
 import { renderTree, type TreeNode } from "../output/tree-renderer.js";
+import { RenderContext, createRenderContext } from "../output/render-context.js";
 
 import { writeJobMetadata } from "./metadata.js";
 import { computeFakeSha, writeGitShim } from "./git-shim.js";
@@ -104,10 +105,12 @@ function writeRunnerCredentials(runnerDir: string, runnerName: string, serverUrl
 
 export async function executeLocalJob(
   job: Job,
-  options?: { pauseOnFailure?: boolean },
+  options?: { pauseOnFailure?: boolean; renderContext?: RenderContext },
 ): Promise<JobResult> {
   const pauseOnFailure = options?.pauseOnFailure ?? true;
   const startTime = Date.now();
+  const renderCtx = options?.renderContext ?? createRenderContext();
+  const ownsRenderCtx = !options?.renderContext;
 
   // ── Pre-flight: verify Docker is reachable ────────────────────────────────
   try {
@@ -163,9 +166,11 @@ export async function executeLocalJob(
 
   // Open debug stream to capture raw container output
   const debugStream = fs.createWriteStream(debugLogPath);
-  /** Write a line to stdout. */
+  /** Write a line to stdout (suppressed in shared-context mode to avoid logUpdate conflicts). */
   const emit = (line: string) => {
-    process.stdout.write(line + "\n");
+    if (ownsRenderCtx) {
+      process.stdout.write(line + "\n");
+    }
   };
 
   // ── Preflight boot tracker ───────────────────────────────────────────────
@@ -180,13 +185,20 @@ export async function executeLocalJob(
   const renderBootTree = () => {
     const elapsed = Math.round((Date.now() - bootStart) / 1000);
     const frame = spinnerFrames[spinnerIdx++ % spinnerFrames.length];
-    const tree: TreeNode[] = [
-      {
-        label: workflowBasename,
-        children: [{ label: `${frame} Starting runner ${containerName} (${elapsed}s)` }],
-      },
-    ];
-    logUpdate(renderTree(tree));
+    if (ownsRenderCtx) {
+      const tree: TreeNode[] = [
+        {
+          label: workflowBasename,
+          children: [{ label: `${frame} Starting runner ${containerName} (${elapsed}s)` }],
+        },
+      ];
+      logUpdate(renderTree(tree));
+    } else {
+      renderCtx.updateJob(workflowBasename, containerName, {
+        label: `${frame} Starting runner ${containerName} (${elapsed}s)`,
+      });
+      renderCtx.flush();
+    }
   };
 
   let spinnerInterval: ReturnType<typeof setInterval> | null = setInterval(renderBootTree, 80);
@@ -653,6 +665,52 @@ export async function executeLocalJob(
         }
 
         // Build the full tree: workflow → Starting runner + job → steps
+        const jobName = job.taskId ?? "job";
+        const jobFinishedFully = !!completeJobRecord?.result;
+
+        // ── Shared context (--all mode): report job node to the grouped renderer ──
+        if (!ownsRenderCtx) {
+          if (jobFinishedFully) {
+            // Collapse completed job to a single summary line
+            let totalDur = "";
+            const allTimes = steps
+              .filter((r: any) => r.startTime && r.finishTime)
+              .map((r: any) => ({
+                start: new Date(r.startTime).getTime(),
+                end: new Date(r.finishTime).getTime(),
+              }));
+            if (allTimes.length > 0) {
+              const earliest = Math.min(...allTimes.map((t: any) => t.start));
+              const latest = Math.max(...allTimes.map((t: any) => t.end));
+              const ms = latest - earliest;
+              if (!isNaN(ms) && ms >= 0) {
+                totalDur = ` (${Math.round(ms / 1000)}s)`;
+              }
+            }
+            const icon = lastFailedStep ? "✗" : "✓";
+            renderCtx.updateJob(workflowBasename, containerName, {
+              label: `${icon} ${jobName}${totalDur}`,
+            });
+          } else if (isPaused && pausedStepName) {
+            // Paused: show retry hint as child node
+            stepNodes.push({
+              label: `${YELLOW}↻ retry: machinen retry --runner ${containerName}${RESET}`,
+            });
+            renderCtx.updateJob(workflowBasename, containerName, {
+              label: jobName,
+              children: stepNodes,
+            });
+          } else {
+            renderCtx.updateJob(workflowBasename, containerName, {
+              label: jobName,
+              children: stepNodes,
+            });
+          }
+          renderCtx.flush();
+          return;
+        }
+
+        // ── Single-workflow mode: render full tree directly ──
         const startingNode: TreeNode = {
           label: spinnerInterval
             ? `${spinnerFrames[spinnerIdx % spinnerFrames.length]} Starting runner ${containerName}`
@@ -664,7 +722,7 @@ export async function executeLocalJob(
             children: [
               startingNode,
               {
-                label: `${job.taskId ?? "job"}`,
+                label: jobName,
                 children: stepNodes,
               },
             ],
@@ -674,9 +732,6 @@ export async function executeLocalJob(
         let output = renderTree(tree);
         // Append failure output below the tree when paused
         if (isPaused && pausedStepName) {
-          // Read step log and show last output lines below the tree.
-          // The sanitized step name may not match the log filename (the DTU
-          // writes logs under a feed-record UUID). Fall back to the newest .log.
           const DIM = `${String.fromCharCode(27)}[2m`;
           const stepsDir = path.join(logDir, "steps");
           let tailLines: string[] = [];
@@ -727,8 +782,10 @@ export async function executeLocalJob(
       }
       // Final check
       checkTimeline();
-      // Ensure the final state is written to stdout permanently
-      logUpdate.done();
+      // Persist final state only if we own the context (single-workflow mode)
+      if (ownsRenderCtx) {
+        logUpdate.done();
+      }
     })();
 
     // Start waiting for container exit in parallel with log streaming.
@@ -838,7 +895,9 @@ export async function executeLocalJob(
     // Always stop the preflight spinner if it's still running (e.g. error during setup)
     if (spinnerInterval) {
       clearInterval(spinnerInterval);
-      logUpdate.clear();
+      if (ownsRenderCtx) {
+        logUpdate.clear();
+      }
     }
     // Always deregister signal handlers, even if an error was thrown before the
     // normal completion path (e.g. seed failure, container start failure).

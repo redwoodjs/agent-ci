@@ -15,7 +15,7 @@ import {
   type ServiceContext,
 } from "../docker/service-containers.js";
 import { killRunnerContainers } from "../docker/shutdown.js";
-import { startEphemeralDtu } from "dtu-github-actions/src/ephemeral.js";
+import { startEphemeralDtu } from "dtu-github-actions/ephemeral";
 import { type JobResult } from "../output/reporter.js";
 import logUpdate from "log-update";
 import { renderTree, type TreeNode } from "../output/tree-renderer.js";

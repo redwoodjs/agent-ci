@@ -15,6 +15,8 @@ export interface RunDirectories {
   diagDir: string;
   toolCacheDir: string;
   pnpmStoreDir: string;
+  npmCacheDir: string;
+  bunCacheDir: string;
   playwrightCacheDir: string;
   warmModulesDir: string;
   workspaceDir: string;
@@ -49,9 +51,11 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
   const repoSlug = (githubRepo || config.GITHUB_REPO).replace("/", "-");
   const toolCacheDir = path.resolve(workDir, "cache", "toolcache");
   const pnpmStoreDir = path.resolve(workDir, "cache", "pnpm-store", repoSlug);
+  const npmCacheDir = path.resolve(workDir, "cache", "npm-cache", repoSlug);
+  const bunCacheDir = path.resolve(workDir, "cache", "bun-cache", repoSlug);
   const playwrightCacheDir = path.resolve(workDir, "cache", "playwright", repoSlug);
 
-  // Warm node_modules: keyed by the pnpm lockfile hash
+  // Warm node_modules: keyed by the lockfile hash (any supported PM)
   let lockfileHash = "no-lockfile";
   try {
     const repoRoot = workflowPath ? findRepoRoot(workflowPath) : undefined;
@@ -76,6 +80,8 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
     diagDir,
     toolCacheDir,
     pnpmStoreDir,
+    npmCacheDir,
+    bunCacheDir,
     playwrightCacheDir,
     warmModulesDir,
   ];
@@ -99,6 +105,8 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
     diagDir,
     toolCacheDir,
     pnpmStoreDir,
+    npmCacheDir,
+    bunCacheDir,
     playwrightCacheDir,
     warmModulesDir,
     workspaceDir,

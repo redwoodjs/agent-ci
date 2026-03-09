@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Digital Twin Universe - GitHub Actions Mock and Simulation",
   "keywords": [],
-  "license": "ISC",
+  "license": "FSL-1.1-MIT",
   "author": "",
   "files": [
     "dist",

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Local GitHub Actions runner",
   "keywords": [],
-  "license": "ISC",
+  "license": "FSL-1.1-MIT",
   "author": "",
   "bin": {
     "machinen": "./dist/cli.js"

@@ -13,7 +13,7 @@
     "format": "oxfmt",
     "format:fix": "oxfmt",
     "format:check": "oxfmt --check",
-    "machinen-dev": "pnpm --filter machinen run machinen",
+    "machinen-dev": "cd cli && tsx src/cli.ts",
     "start": "./scripts/run.sh",
     "prepare": "husky",
     "changeset": "changeset",

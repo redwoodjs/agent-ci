@@ -19,6 +19,10 @@
     "source={{WORKSPACE_DIR}}/.git,target={{WORKSPACE_DIR}}/.git,type=bind"
   ],
 
+  "containerEnv": {
+    "is_sandbox": "1"
+  },
+
   "postCreateCommand": "npm install -g pnpm @anthropic-ai/claude-code && pnpm install",
 
   "customizations": {

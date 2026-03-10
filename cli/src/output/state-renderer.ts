@@ -91,7 +91,13 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
     const elapsed = job.startedAt
       ? Math.round((Date.now() - new Date(job.startedAt).getTime()) / 1000)
       : 0;
-    return [{ label: `${getSpinnerFrame()} Starting runner ${job.runnerId} (${elapsed}s)` }];
+    const bootNode: TreeNode = {
+      label: `${getSpinnerFrame()} Starting runner ${job.runnerId} (${elapsed}s)`,
+    };
+    if (job.logDir) {
+      bootNode.children = [{ label: `${DIM}Logs: ${job.logDir}${RESET}` }];
+    }
+    return [bootNode];
   }
 
   // ── Completed / failed in multi-job mode → collapse to one line ────────────
@@ -118,7 +124,11 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
       job.bootDurationMs !== undefined
         ? `Starting runner ${job.runnerId} (${fmtMs(job.bootDurationMs)})`
         : `Starting runner ${job.runnerId}`;
-    return [{ label: bootLabel }, { label: job.id, children: stepNodes }];
+    const bootNode: TreeNode = { label: bootLabel };
+    if (job.logDir) {
+      bootNode.children = [{ label: `${DIM}Logs: ${job.logDir}${RESET}` }];
+    }
+    return [bootNode, { label: job.id, children: stepNodes }];
   }
 
   // ── Multi-job mode: show job name with steps as children ──────────────────

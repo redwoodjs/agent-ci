@@ -79,9 +79,12 @@ export interface RunState {
  * - Renderer (state-renderer.ts) reads `getState()` to produce terminal output.
  * - State is persisted atomically to disk (write-tmp + rename) for inspection / resumability.
  */
+export type StoreListener = (state: RunState) => void;
+
 export class RunStateStore {
   private state: RunState;
   private filePath: string;
+  private listeners: StoreListener[] = [];
 
   constructor(runId: string, filePath: string) {
     this.state = {
@@ -92,6 +95,11 @@ export class RunStateStore {
     };
     this.filePath = filePath;
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  }
+
+  /** Register a callback that fires synchronously on every state change. */
+  onUpdate(listener: StoreListener): void {
+    this.listeners.push(listener);
   }
 
   getState(): RunState {
@@ -133,6 +141,7 @@ export class RunStateStore {
         ...options,
       });
     }
+    this.notify();
   }
 
   /**
@@ -149,6 +158,7 @@ export class RunStateStore {
       }
     }
     this.save();
+    this.notify();
   }
 
   /** Mark the overall run complete and persist. */
@@ -178,6 +188,16 @@ export class RunStateStore {
       return JSON.parse(fs.readFileSync(filePath, "utf-8")) as RunState;
     } catch {
       return JSON.parse(fs.readFileSync(filePath + ".tmp", "utf-8")) as RunState;
+    }
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(this.state);
+      } catch {
+        // Best-effort — don't let listener errors break state updates
+      }
     }
   }
 

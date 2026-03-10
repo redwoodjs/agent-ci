@@ -1,6 +1,9 @@
+import { execSync } from "node:child_process";
 import { Polka } from "polka";
 import { state } from "../store.js";
 import { getBaseUrl } from "./dtu.js";
+
+const EMPTY_TARBALL = execSync("tar czf - -T /dev/null");
 
 export function registerGithubRoutes(app: Polka) {
   // 2. GitHub REST API Mirror - Job Detail
@@ -114,4 +117,17 @@ export function registerGithubRoutes(app: Polka) {
 
   app.post("/actions/runner-registration", globalRunnerRegistrationHandler);
   app.post("/api/v3/actions/runner-registration", globalRunnerRegistrationHandler);
+
+  // 7. Tarball route — actions/checkout downloads repos via this endpoint.
+  // Return an empty tar.gz since the workspace is already bind-mounted.
+  const tarballHandler = (req: any, res: any) => {
+    console.log(`[DTU] Serving empty tarball for ${req.url}`);
+    res.writeHead(200, {
+      "Content-Type": "application/gzip",
+      "Content-Length": String(EMPTY_TARBALL.length),
+    });
+    res.end(EMPTY_TARBALL);
+  };
+  app.get("/repos/:owner/:repo/tarball/:ref", tarballHandler);
+  app.get("/_apis/repos/:owner/:repo/tarball/:ref", tarballHandler);
 }

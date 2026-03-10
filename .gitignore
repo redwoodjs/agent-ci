@@ -67,11 +67,13 @@ coverage
 .wrangler
 
 
+.machinen
 temp_runner_source
 tmp-runner-logs
 temp_*
 .runner-source
 ui/build
+
 
 # Ephemeral agent devcontainer configs
 .devcontainer/agent-*/

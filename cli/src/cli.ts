@@ -31,6 +31,7 @@ import { printSummary, type JobResult } from "./output/reporter.js";
 import { syncWorkspaceForRetry } from "./runner/sync.js";
 import { RunStateStore } from "./output/run-state.js";
 import { renderRunState } from "./output/state-renderer.js";
+import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
 import logUpdate from "log-update";
 
 // ─── Signal helpers for retry / abort commands ────────────────────────────────
@@ -70,6 +71,8 @@ async function run() {
         pauseOnFailure = false;
       } else if (args[i] === "--all" || args[i] === "-a") {
         runAll = true;
+      } else if (args[i] === "--quiet" || args[i] === "-q") {
+        setQuietMode(true);
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
@@ -252,12 +255,75 @@ async function runWorkflows(options: {
   const store = new RunStateStore(runId, storeFilePath);
 
   // Start the render loop — reads from store, never touches execution logic
-  const renderInterval = setInterval(() => {
-    const state = store.getState();
-    if (state.workflows.length > 0) {
-      logUpdate(renderRunState(state));
-    }
-  }, 80);
+  // In agent mode (AI_AGENT=1 or --quiet), skip animated rendering to avoid token waste
+  // but register a synchronous callback for important state changes.
+  let renderInterval: ReturnType<typeof setInterval> | null = null;
+  if (isAgentMode()) {
+    const reportedPauses = new Set<string>();
+    const reportedRunners = new Set<string>();
+    const reportedSteps = new Map<string, Set<string>>();
+    const emit = (msg: string) => process.stderr.write(msg + "\n");
+    store.onUpdate((state) => {
+      for (const wf of state.workflows) {
+        for (const job of wf.jobs) {
+          if (job.status !== "queued" && !reportedRunners.has(job.runnerId)) {
+            reportedRunners.add(job.runnerId);
+            emit(`[Machinen] Starting runner ${job.runnerId} (${wf.id} > ${job.id})`);
+            if (job.logDir) {
+              emit(`  Logs: ${job.logDir}`);
+            }
+          }
+          if (!reportedSteps.has(job.runnerId)) {
+            reportedSteps.set(job.runnerId, new Set());
+          }
+          const seen = reportedSteps.get(job.runnerId)!;
+          for (const step of job.steps) {
+            const key = `${step.index}:${step.status}`;
+            if (seen.has(key)) {
+              continue;
+            }
+            if (step.status === "completed") {
+              seen.add(key);
+              const dur =
+                step.durationMs != null ? ` (${(step.durationMs / 1000).toFixed(1)}s)` : "";
+              emit(`  ✓ ${step.name}${dur}`);
+            } else if (step.status === "failed") {
+              seen.add(key);
+              emit(`  ✗ ${step.name}`);
+            } else if (step.status === "running") {
+              seen.add(key);
+              emit(`  ▸ ${step.name}`);
+            }
+          }
+          if (job.status === "paused" && !reportedPauses.has(job.runnerId)) {
+            reportedPauses.add(job.runnerId);
+            const lines: string[] = [];
+            lines.push(`\n[Machinen] Step failed: "${job.pausedAtStep}" (${wf.id} > ${job.id})`);
+            if (job.attempt && job.attempt > 1) {
+              lines.push(`  Attempt: ${job.attempt}`);
+            }
+            if (job.lastOutputLines && job.lastOutputLines.length > 0) {
+              lines.push("  Last output:");
+              for (const l of job.lastOutputLines) {
+                lines.push(`    ${l}`);
+              }
+            }
+            lines.push(`  To retry:  machinen retry --runner ${job.runnerId}`);
+            emit(lines.join("\n"));
+          } else if (job.status !== "paused" && reportedPauses.has(job.runnerId)) {
+            reportedPauses.delete(job.runnerId);
+          }
+        }
+      }
+    });
+  } else {
+    renderInterval = setInterval(() => {
+      const state = store.getState();
+      if (state.workflows.length > 0) {
+        logUpdate(renderRunState(state));
+      }
+    }, 80);
+  }
 
   try {
     const allResults: JobResult[] = [];
@@ -327,13 +393,17 @@ async function runWorkflows(options: {
     store.complete(allResults.some((r) => !r.succeeded) ? "failed" : "completed");
     return allResults;
   } finally {
-    clearInterval(renderInterval);
-    // Final render — show the completed state
-    const finalState = store.getState();
-    if (finalState.workflows.length > 0) {
-      logUpdate(renderRunState(finalState));
+    if (renderInterval) {
+      clearInterval(renderInterval);
     }
-    logUpdate.done();
+    if (!isAgentMode()) {
+      // Final render — show the completed state
+      const finalState = store.getState();
+      if (finalState.workflows.length > 0) {
+        logUpdate(renderRunState(finalState));
+      }
+      logUpdate.done();
+    }
   }
 }
 
@@ -609,6 +679,9 @@ function printUsage() {
   console.log("  -w, --workflow <path>         Path to the workflow file");
   console.log("  -a, --all                     Discover and run all relevant workflows");
   console.log("  -x, --exit-on-failure         Exit immediately on step failure (default: pause)");
+  console.log(
+    "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",
+  );
 }
 
 function resolveRepoRoot() {

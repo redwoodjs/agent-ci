@@ -34,7 +34,7 @@ export async function startEphemeralDtu(cacheDir: string): Promise<EphemeralDtu>
   });
 
   const port = await new Promise<number>((resolve, reject) => {
-    server.listen(0, "127.0.0.1", () => {
+    server.listen(0, "0.0.0.0", () => {
       const addr = server.address();
       if (!addr || typeof addr === "string") {
         return reject(new Error("Unexpected server address type"));

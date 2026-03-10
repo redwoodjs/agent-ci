@@ -73,4 +73,8 @@ tmp-runner-logs
 temp_*
 .runner-source
 ui/build
+
+
+# Ephemeral agent devcontainer configs
+.devcontainer/agent-*/
 .devcontainer/devcontainer.json

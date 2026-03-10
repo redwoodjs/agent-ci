@@ -136,7 +136,30 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     ? ""
     : `echo '{"agentId":1,"agentName":"${containerName}","poolId":1,"poolName":"Default","serverUrl":"${dtuBaseUrl}","gitHubUrl":"${dtuBaseUrl}/'$GITHUB_REPOSITORY'","workFolder":"_work","ephemeral":true}' > /home/runner/.runner && echo '{"scheme":"OAuth","data":{"clientId":"00000000-0000-0000-0000-000000000000","authorizationUrl":"${dtuBaseUrl}/_apis/oauth2/token","oAuthEndpointUrl":"${dtuBaseUrl}/_apis/oauth2/token","requireFipsCryptography":"False"}}' > /home/runner/.credentials && echo '{"d":"CQpCI+sO2GD1N/JsHHI9zEhMlu5Fcc8mU4O2bO6iscOsagFjvEnTesJgydC/Go1HuOBlx+GT9EG2h7+juS0z2o5n8Mvt5BBxlK+tqoDOs8VfQ9CSUl3hqYRPeNdBfnA1w8ovLW0wqfPO08FWTLI0urYsnwjZ5BQrBM+D7zYeA0aCsKdo75bKmaEKnmqrtIEhb7hE45XQa32Yt0RPCPi8QcQAY2HLHbdWdZYDj6k/UuDvz9H/xlDzwYq6Yikk2RSMArFzaufxCGS9tBZNEACDPYgnZnEMXRcvsnZ9FYbq81KOSifCmq7Yocq+j3rY5zJCD+PIDY9QJwPxB4PGasRKAQ==","dp":"A0sY1oOz1+3uUMiy+I5xGuHGHOrEQPYspd1xGClBYYsa/Za0UDWS7V0Tn1cbRWfWtNe5vTpxcvwQd6UZBwrtHF6R2zyXFhE++PLPhCe0tH4C5FY9i9jUw9Vo8t44i/s5JUHU2B1mEptXFUA0GcVrLKS8toZSgqELSS2Q/YLRxoE=","dq":"GrLC9dPJ5n3VYw51ghCH7tybUN9/Oe4T8d9v4dLQ34RQEWHwRd4g3U3zkvuhpXFPloUTMmkxS7MF5pS1evrtzkay4QUTDv+28s0xRuAsw5qNTzuFygg8t93MvpvTVZ2TNApW6C7NFvkL9NbxAnU8+I61/3ow7i6a7oYJJ0hWAxE=","exponent":"AQAB","inverseQ":"8DVz9FSvEdt5W4B9OjgakZHwGfnhn2VLDUxrsR5ilC5tPC/IgA8C2xEfKQM1t+K/N3pAYHBYQ6EPgtW4kquBS/Sy102xbRI7GSCnUbRtTpWYPOaCn6EaxBNzwWzbp5vCbCGvFqlSu4+OBYRVe+iCj+gAnkmT/TKPhHHbTjJHvw==","modulus":"x0eoW2DD7xsW5YiorMN8pNHVvZk4ED1SHlA/bmVnRz5FjEDnQloMn0nBgIUHxoNArksknrp/FOVJv5sJHJTiRZkOp+ZmH7d3W3gmw63IxK2C5pV+6xfav9jR2+Wt/6FMYMgG2utBdF95oif1f2XREFovHoXkWms2l0CPLLHVPO44Hh9EEmBmjOeMJEZkulHJ44z9y8e+GZ2nYqO0ZiRWQcRObZ0vlRaGg6PPOl4ltay0BfNksMB3NDtlhkdVkAEFQxEaZZDK9NtkvNljXCioP3TyTAbqNUGsYCA5D+IHGZT9An99J9vUqTFP6TKjqUvy9WNiIzaUksCySA0a4SVBkQ==","p":"8fgAdmWy+sTzAN19fYkWMQqeC7t1BCQMo5z5knfVLg8TtwP9ZGqDtoe+r0bGv3UgVsvvDdP/QwRvRVP+5G9l999Y6b4VbSdUbrfPfOgjpPDmRTQzHDve5jh5xBENQoRXYm7PMgHGmjwuFsE/tKtSGTrvt2Z3qcYAo0IOqLLhYmE=","q":"0tXx4+P7gUWePf92UJLkzhNBClvdnmDbIt52Lui7YCARczbN/asCDJxcMy6Bh3qmIx/bNuOUrfzHkYZHfnRw8AGEK80qmiLLPI6jrUBOGRajmzemGQx0W8FWalEQfGdNIv9R2nsegDRoMq255Zo/qX60xQ6abpp0c6UNhVYSjTE="}' > /home/runner/.credentials_rsaparams && `;
 
-  const cmdScript = `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }; MAYBE_SUDO chmod -R 777 /home/runner/_work /home/runner/_diag 2>/dev/null || true && if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp -p /tmp/machinen-shims/git /usr/bin/git 2>/dev/null; MAYBE_SUDO chmod +x /usr/bin/git 2>/dev/null; fi && ${svcPortForwardSnippet}chmod 666 /var/run/docker.sock 2>/dev/null || true && cd /home/runner && ${credentialSnippet}REPO_NAME=$(basename $GITHUB_REPOSITORY) && WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME && MAYBE_SUDO chmod -R 777 $WORKSPACE_PATH 2>/dev/null || true && mkdir -p $WORKSPACE_PATH && ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules && echo "Workspace ready (direct bind-mount): $(ls $WORKSPACE_PATH 2>/dev/null | wc -l) files" && ./run.sh --once`;
+  // Timing helper: date +%s%3N gives epoch milliseconds
+  const T = (label: string) =>
+    `T1=$(date +%s%3N); echo "[machinen:boot] ${label}: $((T1-T0))ms"; T0=$T1`;
+
+  const cmdScript = [
+    `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }`,
+    `BOOT_T0=$(date +%s%3N); T0=$BOOT_T0`,
+    // chmod is done host-side in workspacePrepPromise — skip it here
+    `if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp -p /tmp/machinen-shims/git /usr/bin/git 2>/dev/null; MAYBE_SUDO chmod +x /usr/bin/git 2>/dev/null; fi`,
+    T("git-shim"),
+    `${svcPortForwardSnippet}chmod 666 /var/run/docker.sock 2>/dev/null || true`,
+    T("docker-sock"),
+    `cd /home/runner`,
+    `${credentialSnippet}true`,
+    T("credentials"),
+    `REPO_NAME=$(basename $GITHUB_REPOSITORY)`,
+    `WORKSPACE_PATH=/home/runner/_work/$REPO_NAME/$REPO_NAME`,
+    `mkdir -p $WORKSPACE_PATH`,
+    `ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules`,
+    T("workspace-setup"),
+    `echo "[machinen:boot] total: $(($(date +%s%3N)-BOOT_T0))ms"`,
+    `echo "[machinen:boot] starting run.sh --once"`,
+    `./run.sh --once`,
+  ].join(" && ");
 
   return [...(useDirectContainer ? ["-c"] : ["bash", "-c"]), cmdScript];
 }

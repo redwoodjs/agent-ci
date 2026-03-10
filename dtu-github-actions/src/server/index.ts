@@ -44,6 +44,21 @@ export async function bootstrapAndReturnApp(options?: { reset?: boolean }) {
     originalHandler(req, res, info);
   };
 
+  // Request timing middleware
+  app.use((req: any, res: any, next: any) => {
+    const start = Date.now();
+    const origEnd = res.end.bind(res);
+    res.end = (...args: any[]) => {
+      const ms = Date.now() - start;
+      const url = req.url || "";
+      if (!url.includes("/logs/") && !url.includes("/feed") && !url.includes("/lines")) {
+        console.log(`[DTU] ${req.method} ${url} (${ms}ms)`);
+      }
+      return origEnd(...args);
+    };
+    next();
+  });
+
   app.use(bodyParser.json({ limit: "50mb" }));
   // Raw parsers for logs and cache uploads
   app.use(bodyParser.text({ type: ["text/plain"], limit: "50mb" }));

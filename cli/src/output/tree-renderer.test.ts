@@ -4,7 +4,7 @@ import { renderTree, type TreeNode } from "./tree-renderer.js";
 describe("renderTree", () => {
   it("renders a single root node", () => {
     const nodes: TreeNode[] = [{ label: "[*] tests.yml" }];
-    expect(renderTree(nodes)).toBe("[*] tests.yml");
+    expect(renderTree(nodes)).toBe(" [*] tests.yml");
   });
 
   it("renders a linear chain", () => {
@@ -19,7 +19,7 @@ describe("renderTree", () => {
         ],
       },
     ];
-    const expected = ["[*] tests.yml", "└── [job] test", "    └── [run] machinen-5"].join("\n");
+    const expected = [" [*] tests.yml", " └── [job] test", "     └── [run] machinen-5"].join("\n");
     expect(renderTree(tree)).toBe(expected);
   });
 
@@ -46,20 +46,20 @@ describe("renderTree", () => {
       },
     ];
     const expected = [
-      "[*] tests.yml",
-      "└── [job] test",
-      "    └── [run] machinen-5",
-      "        ├── [+] Set up job (1s)",
-      "        ├── [+] actions/checkout@v4 (2s)",
-      "        ├── [>] Run pnpm check (12s...)",
-      "        └── [ ] Pending...",
+      " [*] tests.yml",
+      " └── [job] test",
+      "     └── [run] machinen-5",
+      "         ├── [+] Set up job (1s)",
+      "         ├── [+] actions/checkout@v4 (2s)",
+      "         ├── [>] Run pnpm check (12s...)",
+      "         └── [ ] Pending...",
     ].join("\n");
     expect(renderTree(tree)).toBe(expected);
   });
 
   it("renders multiple root nodes", () => {
     const tree: TreeNode[] = [{ label: "[*] a.yml" }, { label: "[*] b.yml" }];
-    const expected = ["[*] a.yml", "[*] b.yml"].join("\n");
+    const expected = [" [*] a.yml", " [*] b.yml"].join("\n");
     expect(renderTree(tree)).toBe(expected);
   });
 
@@ -88,13 +88,13 @@ describe("renderTree", () => {
       },
     ];
     const expected = [
-      "[*] tests.yml",
-      "└── [job] test",
-      "    └── [run] machinen-5",
-      "        ├── [+] Set up job (1s)",
-      "        ├── [>] Run pnpm check (12s...)",
-      "        │   └── [output] Checking 142 files...",
-      "        └── [ ] Pending...",
+      " [*] tests.yml",
+      " └── [job] test",
+      "     └── [run] machinen-5",
+      "         ├── [+] Set up job (1s)",
+      "         ├── [>] Run pnpm check (12s...)",
+      "         │   └── [output] Checking 142 files...",
+      "         └── [ ] Pending...",
     ].join("\n");
     expect(renderTree(tree)).toBe(expected);
   });
@@ -106,6 +106,6 @@ describe("renderTree", () => {
         children: [],
       },
     ];
-    expect(renderTree(tree)).toBe("root");
+    expect(renderTree(tree)).toBe(" root");
   });
 });

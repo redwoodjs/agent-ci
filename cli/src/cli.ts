@@ -19,6 +19,7 @@ import {
   validateSecrets,
   parseMatrixDef,
   expandMatrixCombinations,
+  isWorkflowRelevant,
 } from "./workflow/workflow-parser.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
@@ -28,6 +29,7 @@ import { pruneOrphanedDockerResources } from "./docker/shutdown.js";
 import { parseJobDependencies, topoSort } from "./workflow/job-scheduler.js";
 import { printSummary, type JobResult } from "./output/reporter.js";
 import { syncWorkspaceForRetry } from "./runner/sync.js";
+import { createRenderContext, type RenderContext } from "./output/render-context.js";
 
 // ─── Signal helpers for retry / abort commands ────────────────────────────────
 
@@ -57,14 +59,17 @@ async function run() {
     // Basic argument parsing
     let sha: string | undefined;
     let workflow: string | undefined;
-    let pauseOnFailure = false;
+    let pauseOnFailure = true;
+    let runAll = false;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
         workflow = args[i + 1];
         i++;
-      } else if (args[i] === "--pause-on-failure" || args[i] === "-p") {
-        pauseOnFailure = true;
+      } else if (args[i] === "--exit-on-failure" || args[i] === "-x") {
+        pauseOnFailure = false;
+      } else if (args[i] === "--all" || args[i] === "-a") {
+        runAll = true;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
@@ -78,15 +83,119 @@ async function run() {
       setWorkingDirectory(workingDir);
     }
 
+    if (runAll) {
+      // Discover and run all relevant workflows
+      const repoRoot = resolveRepoRoot();
+      const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
+      if (!fs.existsSync(workflowsDir)) {
+        console.error(`[Machinen] No .github/workflows directory found in ${repoRoot}`);
+        process.exit(1);
+      }
+
+      const branch = execSync("git rev-parse --abbrev-ref HEAD", { cwd: repoRoot })
+        .toString()
+        .trim();
+
+      const files = fs
+        .readdirSync(workflowsDir)
+        .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
+        .map((f) => path.join(workflowsDir, f));
+
+      const relevant: string[] = [];
+      for (const file of files) {
+        try {
+          const { parse: parseYaml } = await import("yaml");
+          const raw = parseYaml(fs.readFileSync(file, "utf8"));
+          const onDef = raw?.on || raw?.true;
+          if (!onDef) {
+            continue;
+          }
+          const events: Record<string, any> = {};
+          if (Array.isArray(onDef)) {
+            for (const e of onDef) {
+              events[e] = {};
+            }
+          } else if (typeof onDef === "string") {
+            events[onDef] = {};
+          } else {
+            Object.assign(events, onDef);
+          }
+          if (isWorkflowRelevant({ events }, branch)) {
+            relevant.push(file);
+          }
+        } catch {
+          // Skip unparsable workflows
+        }
+      }
+
+      if (relevant.length === 0) {
+        console.log(`[Machinen] No relevant workflows found for branch '${branch}'.`);
+        process.exit(0);
+      }
+
+      // Launch all workflows with a shared render context.
+      // Run the first workflow serially to warm the package-manager cache,
+      // then launch the rest in parallel.
+      const sharedCtx = createRenderContext();
+      const repoSlug = resolveRepoInfo(repoRoot).replace("/", "-");
+      let lockfileHash = "no-lockfile";
+      try {
+        lockfileHash = computeLockfileHash(repoRoot);
+      } catch {}
+      const warmModulesDir = path.resolve(
+        getWorkingDirectory(),
+        "cache",
+        "warm-modules",
+        repoSlug,
+        lockfileHash,
+      );
+      const warm = isWarmNodeModules(warmModulesDir);
+
+      let firstResult: JobResult[] = [];
+      const rest = relevant;
+      if (!warm && relevant.length > 1) {
+        // Cold cache — run first workflow to populate warm modules
+        firstResult = await handleRun({
+          sha,
+          workflow: relevant[0],
+          pauseOnFailure,
+          renderContext: sharedCtx,
+        });
+        rest.splice(0, 1);
+      }
+
+      const settled = await Promise.allSettled(
+        rest.map((wf) =>
+          handleRun({ sha, workflow: wf, pauseOnFailure, renderContext: sharedCtx }),
+        ),
+      );
+      sharedCtx.done();
+
+      const allResults = [
+        ...firstResult,
+        ...settled
+          .filter((s): s is PromiseFulfilledResult<JobResult[]> => s.status === "fulfilled")
+          .flatMap((s) => s.value),
+      ];
+
+      printSummary(allResults);
+      const anyFailed =
+        allResults.some((r) => !r.succeeded) || settled.some((s) => s.status === "rejected");
+      process.exit(anyFailed ? 1 : 0);
+    }
+
     if (!workflow) {
-      console.error("[Machinen] Error: You must specify --workflow <path>");
+      console.error("[Machinen] Error: You must specify --workflow <path> or --all");
       console.log("");
       printUsage();
       process.exit(1);
     }
 
-    await handleRun({ sha, workflow, pauseOnFailure });
-
+    const results = await handleRun({ sha, workflow, pauseOnFailure });
+    printSummary(results);
+    if (results.some((r) => !r.succeeded)) {
+      process.exit(1);
+    }
     process.exit(0);
   } else if (command === "retry" || command === "abort") {
     // retry / abort: write a signal file to the runner's signals dir
@@ -164,6 +273,9 @@ function printUsage() {
   console.log("");
   console.log("Commands:");
   console.log("  run [sha] --workflow <path>   Run all jobs in a workflow file (defaults to HEAD)");
+  console.log(
+    "  run --all                     Run all relevant PR/Push workflows for current branch",
+  );
   console.log("  retry --runner <name>         Send retry signal to a paused runner");
   console.log("    --from-step <N>              Re-run from step N (skips earlier steps)");
   console.log("    --from-start                 Re-run all run: steps from the beginning");
@@ -171,7 +283,8 @@ function printUsage() {
   console.log("");
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");
-  console.log("  -p, --pause-on-failure        Pause on step failure and wait for retry");
+  console.log("  -a, --all                     Discover and run all relevant workflows");
+  console.log("  -x, --exit-on-failure         Exit immediately on step failure (default: pause)");
 }
 
 function resolveRepoRoot() {
@@ -207,8 +320,13 @@ function resolveHeadSha(repoRoot: string, sha: string) {
   }
 }
 
-async function handleRun(options: { sha?: string; workflow?: string; pauseOnFailure?: boolean }) {
-  const { sha, pauseOnFailure } = options;
+async function handleRun(options: {
+  sha?: string;
+  workflow?: string;
+  pauseOnFailure?: boolean;
+  renderContext?: RenderContext;
+}): Promise<JobResult[]> {
+  const { sha, pauseOnFailure, renderContext } = options;
   let workflow = options.workflow;
 
   try {
@@ -265,7 +383,7 @@ async function handleRun(options: { sha?: string; workflow?: string; pauseOnFail
 
     if (jobs.length === 0) {
       console.log("[Machinen] No jobs found in workflow.");
-      return;
+      return [];
     }
 
     // ── Collect expanded jobs (with matrix expansion) ──────────────────────────
@@ -334,22 +452,20 @@ async function handleRun(options: { sha?: string; workflow?: string; pauseOnFail
         taskId: ej.taskName,
       };
 
-      const result = await executeLocalJob(job, { pauseOnFailure });
-      printSummary([result]);
-      if (!result.succeeded) {
-        if (pauseOnFailure) {
-          process.stdout.write(`\n  To retry: machinen retry --runner ${result.name}\n\n`);
-        }
-        process.exit(1);
-      }
-      return;
+      const result = await executeLocalJob(job, { pauseOnFailure, renderContext });
+      return [result];
     }
 
     // ── Multi-job orchestration ───────────────────────────────────────────────
+    // Always create a shared render context for multi-job workflows,
+    // so all runners appear in one composite tree.
+    const localCtx = renderContext ?? createRenderContext();
     const maxJobs = getDefaultMaxConcurrentJobs();
-    console.log(
-      `[Machinen] Found ${expandedJobs.length} runner(s) to launch (concurrency: ${maxJobs}).`,
-    );
+    if (!renderContext) {
+      console.log(
+        `[Machinen] Found ${expandedJobs.length} runner(s) to launch (concurrency: ${maxJobs}).`,
+      );
+    }
 
     // ── Warm-cache check ──────────────────────────────────────────────────────
     const repoSlug = githubRepo.replace("/", "-");
@@ -406,6 +522,7 @@ async function handleRun(options: { sha?: string; workflow?: string; pauseOnFail
         services: undefined as any,
         container: undefined,
         workflowPath,
+        taskId: ej.taskName,
       };
     };
 
@@ -426,7 +543,7 @@ async function handleRun(options: { sha?: string; workflow?: string; pauseOnFail
       job.services = services;
       job.container = container ?? undefined;
 
-      const result = await executeLocalJob(job, { pauseOnFailure });
+      const result = await executeLocalJob(job, { pauseOnFailure, renderContext: localCtx });
       return result;
     };
 
@@ -458,7 +575,7 @@ async function handleRun(options: { sha?: string; workflow?: string; pauseOnFail
         continue;
       }
 
-      if (filteredWaves.length > 1) {
+      if (filteredWaves.length > 1 && !renderContext) {
         console.log(
           `[Machinen] Wave ${wi + 1}/${filteredWaves.length}: [${filteredWaves[wi].join(", ")}]`,
         );
@@ -493,23 +610,24 @@ async function handleRun(options: { sha?: string; workflow?: string; pauseOnFail
       // If any job in this wave failed, abort remaining waves
       const waveHadFailures = allResults.some((r) => !r.succeeded);
       if (waveHadFailures && wi < filteredWaves.length - 1) {
-        console.error(
-          `[Machinen] Wave ${wi + 1} had failures — aborting remaining waves for ${path.basename(workflowPath)}`,
-        );
+        if (!renderContext) {
+          console.error(
+            `[Machinen] Wave ${wi + 1} had failures — aborting remaining waves for ${path.basename(workflowPath)}`,
+          );
+        }
         break;
       }
     }
 
     // ── Print failures-first summary ────────────────────────────────────────
-    printSummary(allResults);
-
-    const totalFailures = allResults.filter((r) => !r.succeeded).length;
-    if (totalFailures > 0) {
-      process.exit(1);
+    // Persist the composite tree if we own the local context (non --all mode)
+    if (!renderContext) {
+      localCtx.done();
     }
+    return allResults;
   } catch (error) {
     console.error(`[Machinen] Failed to trigger run: ${(error as Error).message}`);
-    process.exit(1);
+    return [];
   }
 }
 

@@ -1,0 +1,32 @@
+{
+  "name": "Machine Agent {{N}}",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:1-22",
+
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+
+  "containerName": "machine-agent-{{N}}",
+  "remoteUser": "root",
+
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=${localEnv:HOME}/.claude.json,target=/root/.claude.json,type=bind",
+    "source=${localEnv:HOME}/.claude,target=/root/.claude,type=bind",
+    "source=${localEnv:HOME}/.config/gh,target=/root/.config/gh,type=bind",
+    "source=machinen-pnpm-store,target=/root/.local/share/pnpm/store,type=volume",
+    "source={{WORKSPACE_DIR}}/.git,target={{WORKSPACE_DIR}}/.git,type=bind"
+  ],
+
+  "postCreateCommand": "npm install -g pnpm @anthropic-ai/claude-code && pnpm install",
+
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-vscode.vscode-typescript-next", "oxc.oxc-vscode", "anthropic.claude-code"],
+      "settings": {
+        "typescript.tsdk": "node_modules/typescript/lib"
+      }
+    }
+  }
+}

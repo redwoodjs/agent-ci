@@ -17,9 +17,7 @@ import {
 import { killRunnerContainers } from "../docker/shutdown.js";
 import { startEphemeralDtu } from "dtu-github-actions/ephemeral";
 import { type JobResult, tailLogFile } from "../output/reporter.js";
-import logUpdate from "log-update";
-import { renderTree, type TreeNode } from "../output/tree-renderer.js";
-import { RenderContext, createRenderContext } from "../output/render-context.js";
+import { RunStateStore, type StepState } from "../output/run-state.js";
 
 import { writeJobMetadata } from "./metadata.js";
 import { computeFakeSha, writeGitShim } from "./git-shim.js";
@@ -63,7 +61,7 @@ function writeRunnerCredentials(runnerDir: string, runnerName: string, serverUrl
     agentName: runnerName,
     poolId: 1,
     poolName: "Default",
-    serverUrl: "http://127.0.0.1:80",
+    serverUrl: new URL(serverUrl).origin,
     gitHubUrl: serverUrl,
     workFolder: "_work",
     ephemeral: true,
@@ -105,12 +103,11 @@ function writeRunnerCredentials(runnerDir: string, runnerName: string, serverUrl
 
 export async function executeLocalJob(
   job: Job,
-  options?: { pauseOnFailure?: boolean; renderContext?: RenderContext },
+  options?: { pauseOnFailure?: boolean; store?: RunStateStore },
 ): Promise<JobResult> {
   const pauseOnFailure = options?.pauseOnFailure ?? true;
   const startTime = Date.now();
-  const renderCtx = options?.renderContext ?? createRenderContext();
-  const ownsRenderCtx = !options?.renderContext;
+  const store = options?.store;
 
   // ── Pre-flight: verify Docker is reachable ────────────────────────────────
   try {
@@ -130,13 +127,25 @@ export async function executeLocalJob(
     );
   }
 
-  // 3. Prepare directories (done first so containerName is available for the header)
+  // ── Prepare directories ───────────────────────────────────────────────────
   const {
     name: containerName,
     runDir,
     logDir,
     debugLogPath,
   } = createLogContext("machinen", job.runnerName);
+
+  // Register the job in the store so the render loop can show the boot spinner
+  store?.addJob(job.workflowPath ?? "", job.taskId ?? "job", containerName, {
+    logDir,
+    debugLogPath,
+  });
+  store?.updateJob(containerName, {
+    status: "booting",
+    startedAt: new Date().toISOString(),
+  });
+
+  const bootStart = Date.now();
 
   // Start an ephemeral in-process DTU for this job run so each job gets its
   // own isolated DTU instance on a random port — eliminating port conflicts.
@@ -166,43 +175,6 @@ export async function executeLocalJob(
 
   // Open debug stream to capture raw container output
   const debugStream = fs.createWriteStream(debugLogPath);
-  /** Write a line to stdout (suppressed in shared-context mode to avoid logUpdate conflicts). */
-  const emit = (line: string) => {
-    if (ownsRenderCtx) {
-      process.stdout.write(line + "\n");
-    }
-  };
-
-  // ── Preflight boot tracker ───────────────────────────────────────────────
-  // Shows a spinner with elapsed time while the container boots up.
-  const spinnerFrames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-  let spinnerIdx = 0;
-  const bootStart = Date.now();
-  const workflowBasename = job.workflowPath ? path.basename(job.workflowPath) : "workflow";
-
-  const fmtMs = (ms: number) => (ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`);
-
-  const renderBootTree = () => {
-    const elapsed = Math.round((Date.now() - bootStart) / 1000);
-    const frame = spinnerFrames[spinnerIdx++ % spinnerFrames.length];
-    if (ownsRenderCtx) {
-      const tree: TreeNode[] = [
-        {
-          label: workflowBasename,
-          children: [{ label: `${frame} Starting runner ${containerName} (${elapsed}s)` }],
-        },
-      ];
-      logUpdate(renderTree(tree));
-    } else {
-      renderCtx.updateJob(workflowBasename, containerName, {
-        label: `${frame} Starting runner ${containerName} (${elapsed}s)`,
-      });
-      renderCtx.flush();
-    }
-  };
-
-  let spinnerInterval: ReturnType<typeof setInterval> | null = setInterval(renderBootTree, 80);
-  let bootDurationMs = 0;
 
   // ── Create run directories ────────────────────────────────────────────────
   const dirs = createRunDirectories({
@@ -212,10 +184,7 @@ export async function executeLocalJob(
   });
 
   // Signal handler: ensure cleanup runs even when killed.
-  // Kills the Docker container + any service sidecars + network, then removes temp dirs.
-  // Use process.once so multiple calls to executeLocalJob() don't accumulate listeners.
   const signalCleanup = () => {
-    // Force-kill Docker containers (sync so it works in signal handlers)
     killRunnerContainers(containerName);
     for (const d of [dirs.containerWorkDir, dirs.shimsDir, dirs.signalsDir, dirs.diagDir]) {
       try {
@@ -226,11 +195,9 @@ export async function executeLocalJob(
   };
   process.once("SIGINT", signalCleanup);
   process.once("SIGTERM", signalCleanup);
+
   try {
     // 1. Seed the job to Local DTU
-    // Build a corrected repository object from job.githubRepo (which is resolved from the git
-    // remote — e.g. "redwoodjs/sdk") so generators.ts uses the right repo name for checkout /
-    // workspace paths, rather than the webhook event repo that may point to a different name.
     const [githubOwner, githubRepoName] = (job.githubRepo || "").split("/");
     const overriddenRepository = job.githubRepo
       ? {
@@ -241,7 +208,6 @@ export async function executeLocalJob(
         }
       : job.repository;
 
-    // Wrap run: steps in the pause-on-failure retry loop before seeding
     const seededSteps = pauseOnFailure ? wrapJobSteps(job.steps ?? [], true) : job.steps;
 
     const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
@@ -254,7 +220,6 @@ export async function executeLocalJob(
         localPath: dirs.workspaceDir,
         ...job,
         steps: seededSteps,
-        // Override repository with the git-remote-resolved repo (takes precedence over ...job spread)
         repository: overriddenRepository,
       }),
     });
@@ -265,9 +230,13 @@ export async function executeLocalJob(
     // 2. Registration token (mock for local)
     const registrationToken = "mock_local_token";
 
-    // 4. Prepare workspace + git shim — kicked off now, awaited after container.start().
-    // These can run in parallel with container setup because the workspace directory
-    // already exists and the container entrypoint takes ~1-2s before touching files.
+    // 4. Write git shim BEFORE container start so the entrypoint can install it
+    // immediately. On Linux, prepareWorkspace (rsync) is slow enough that the
+    // container entrypoint would race ahead and find an empty shims dir.
+    const fakeSha = computeFakeSha(job.headSha);
+    writeGitShim(dirs.shimsDir, fakeSha);
+
+    // Prepare workspace files in parallel with container setup
     const workspacePrepPromise = (async () => {
       try {
         prepareWorkspace({
@@ -279,12 +248,7 @@ export async function executeLocalJob(
       } catch (err) {
         debugRunner(`Failed to prepare workspace: ${err}. Using host fallback.`);
       }
-      const fakeSha = computeFakeSha(job.headSha);
-      writeGitShim(dirs.shimsDir, fakeSha);
 
-      // Set permissions on the host so the entrypoint doesn't need recursive chmod.
-      // The runner user (UID 1001) inside the container must be able to read/write
-      // workspace and diag files via bind-mount.
       try {
         execSync(`chmod -R 777 "${dirs.containerWorkDir}" "${dirs.diagDir}"`, { stdio: "pipe" });
       } catch {
@@ -301,7 +265,7 @@ export async function executeLocalJob(
 
     debugRunner(`Spawning container ${containerName}...`);
 
-    // Pre-cleanup: remove any stale container with the same name to prevent 409 conflicts.
+    // Pre-cleanup: remove any stale container with the same name
     try {
       const stale = docker.getContainer(containerName);
       await stale.remove({ force: true });
@@ -309,42 +273,33 @@ export async function executeLocalJob(
       // Ignore - container doesn't exist
     }
 
-    // ── Service containers ──────────────────────────────────────────────────────
+    // ── Service containers ────────────────────────────────────────────────────
     let serviceCtx: ServiceContext | undefined;
     if (job.services && job.services.length > 0) {
-      emit(`\n  Starting ${job.services.length} service container(s)...`);
-      serviceCtx = await startServiceContainers(docker, job.services, containerName, emit);
-      emit("");
+      debugRunner(`Starting ${job.services.length} service container(s)...`);
+      serviceCtx = await startServiceContainers(docker, job.services, containerName, (line) =>
+        debugRunner(line),
+      );
     }
 
-    // Build port-forward shell snippet for service containers (runs inside the runner container).
-    // Each forwarder binds localhost:<port> and proxies to the service container on the Docker network.
     const svcPortForwardSnippet = serviceCtx?.portForwards.length
       ? serviceCtx.portForwards.join(" \n") + " \nsleep 0.3 && "
       : "";
 
-    // ── Direct container injection ──────────────────────────────────────────────
-    // When job.container is set, use the specified image directly and inject the
-    // runner binary via bind-mount. This avoids DinD entirely.
+    // ── Direct container injection ─────────────────────────────────────────────
     const hostWorkDir = dirs.containerWorkDir;
-    // Shared seed directory — extracted once and reused across all containers.
     const hostRunnerSeedDir = path.resolve(getWorkingDirectory(), "runner");
-    // Per-container copy — each container gets its own writable copy so concurrent
-    // config.sh / run.sh invocations don't race on .runner / .credentials files.
     const hostRunnerDir = path.resolve(runDir, "runner");
     const useDirectContainer = !!job.container;
     const containerImage = useDirectContainer ? job.container!.image : IMAGE;
 
-    // When using a custom container, we need the runner binary on the host so we
-    // can bind-mount it in. Extract from the actions-runner image once into the
-    // shared seed directory, then copy to a per-container directory.
     if (useDirectContainer) {
       await fs.promises.mkdir(hostRunnerSeedDir, { recursive: true });
       const markerFile = path.join(hostRunnerSeedDir, ".seeded");
       try {
         await fs.promises.access(markerFile);
       } catch {
-        emit("  Extracting runner binary to host (one-time)...");
+        debugRunner(`Extracting runner binary to host (one-time)...`);
         const tmpName = `machinen-seed-runner-${Date.now()}`;
         const seedContainer = await docker.createContainer({
           Image: IMAGE,
@@ -354,7 +309,6 @@ export async function executeLocalJob(
         const { execSync } = await import("node:child_process");
         execSync(`docker cp ${tmpName}:/home/runner/. "${hostRunnerSeedDir}/"`, { stdio: "pipe" });
         await seedContainer.remove();
-        // Patch config.sh to skip the dependency checks (ldd/ldconfig for libicu etc.)
         const configShPath = path.join(hostRunnerSeedDir, "config.sh");
         let configSh = await fs.promises.readFile(configShPath, "utf8");
         configSh = configSh.replace(
@@ -363,9 +317,8 @@ export async function executeLocalJob(
         );
         await fs.promises.writeFile(configShPath, configSh);
         await fs.promises.writeFile(markerFile, new Date().toISOString());
-        emit("  ✔ Runner extracted.");
+        debugRunner(`Runner extracted.`);
       }
-      // Clean stale runner auth files from the seed dir itself
       for (const staleFile of [".runner", ".credentials", ".credentials_rsaparams"]) {
         try {
           fs.rmSync(path.join(hostRunnerSeedDir, staleFile));
@@ -373,20 +326,14 @@ export async function executeLocalJob(
           /* not present */
         }
       }
-      // Copy seed to per-container directory so run.sh invocations don't race.
       execSync(`cp -a "${hostRunnerSeedDir}" "${hostRunnerDir}"`, { stdio: "pipe" });
 
-      // ── Pre-bake runner credentials ──────────────────────────────────────────
-      // Instead of running config.sh (which cold-starts .NET, ~5-10s), we write
-      // the credential files directly. The DTU mock accepts any values, so we
-      // use deterministic static content stamped with this container's identity.
-      const resolvedUrl = `http://127.0.0.1:80/${githubRepo}`;
+      const resolvedUrl = `${dockerApiUrl}/${githubRepo}`;
       writeRunnerCredentials(hostRunnerDir, containerName, resolvedUrl);
     }
 
-    // Pull the custom container image if needed
     if (useDirectContainer) {
-      emit(`  Pulling ${containerImage}...`);
+      debugRunner(`Pulling ${containerImage}...`);
       await new Promise<void>((resolve, reject) => {
         docker.pull(containerImage, (err: Error | null, stream: NodeJS.ReadableStream) => {
           if (err) {
@@ -431,6 +378,7 @@ export async function executeLocalJob(
     const containerCmd = buildContainerCmd({
       svcPortForwardSnippet,
       dtuPort,
+      dtuHost,
       useDirectContainer,
       containerName,
     });
@@ -450,25 +398,15 @@ export async function executeLocalJob(
       Tty: true,
     });
 
-    // Start the container and ensure workspace prep has finished in parallel.
-    await Promise.all([container.start(), workspacePrepPromise]);
+    await workspacePrepPromise;
+    await container.start();
 
-    // 7. Stream logs ─────────────────────────────────────────────────────────────
-    // Use readline so we process complete lines (no split ANSI sequences).
-    // Write ALL lines to debug.log; write filtered lines to output.log and stdout.
+    // 7. Stream logs ───────────────────────────────────────────────────────────
     const rawStream = (await container.logs({
       follow: true,
       stdout: true,
       stderr: true,
     })) as NodeJS.ReadableStream;
-
-    // The boot spinner keeps running until the first timeline entry appears.
-    // This captures the full startup time including .NET cold-start inside
-    // the container.
-
-    // ANSI color helpers
-    const YELLOW = `${String.fromCharCode(27)}[33m`;
-    const RESET = `${String.fromCharCode(27)}[0m`;
 
     let tailDone = false;
     let lastFailedStep: string | null = null;
@@ -476,6 +414,7 @@ export async function executeLocalJob(
     let pausedStepName: string | null = null;
     let pausedAtMs: number | null = null;
     let lastSeenAttempt = 0;
+    let isBooting = true;
     let stdinListening = false;
     const timelinePath = path.join(logDir, "timeline.json");
     const pausedSignalPath = path.join(dirs.signalsDir, "paused");
@@ -490,12 +429,10 @@ export async function executeLocalJob(
       process.stdin.setRawMode(true);
       process.stdin.resume();
       process.stdin.on("data", (key: Buffer) => {
-        // Ctrl+C
         if (key[0] === 3) {
           process.stdin.setRawMode(false);
           process.exit(130);
         }
-        // Enter
         if (key[0] === 13 && isPaused) {
           syncWorkspaceForRetry(signalsRunDir);
           fs.writeFileSync(path.join(dirs.signalsDir, "retry"), "");
@@ -511,9 +448,12 @@ export async function executeLocalJob(
       }
     };
 
-    const checkTimeline = () => {
+    // ── Timeline → store updater ──────────────────────────────────────────────
+    // Reads timeline.json and the paused signal, then updates the RunStateStore.
+    // The render loop in cli.ts reads the store and calls renderRunState().
+    const updateStoreFromTimeline = () => {
       try {
-        // ── Pause-on-failure: check for paused signal ───────────────────────────
+        // ── Pause-on-failure: check for paused signal ───────────────────────
         if (pauseOnFailure && fs.existsSync(pausedSignalPath)) {
           const content = fs.readFileSync(pausedSignalPath, "utf-8").trim();
           const lines = content.split("\n");
@@ -524,16 +464,53 @@ export async function executeLocalJob(
             isPaused = true;
             pausedAtMs = Date.now();
             setupStdinRetry();
+
+            // Read last output lines from the failed step's log
+            let tailLines: string[] = [];
+            if (pausedStepName) {
+              const stepsDir = path.join(logDir, "steps");
+              const sanitized = sanitizeStepName(pausedStepName);
+              const byName = path.join(stepsDir, `${sanitized}.log`);
+              tailLines = tailLogFile(byName, 20);
+              if (tailLines.length === 0 && fs.existsSync(stepsDir)) {
+                let newest = "";
+                let newestMtime = 0;
+                for (const f of fs.readdirSync(stepsDir)) {
+                  if (!f.endsWith(".log")) {
+                    continue;
+                  }
+                  const mt = fs.statSync(path.join(stepsDir, f)).mtimeMs;
+                  if (mt > newestMtime) {
+                    newestMtime = mt;
+                    newest = f;
+                  }
+                }
+                if (newest) {
+                  tailLines = tailLogFile(path.join(stepsDir, newest), 20);
+                }
+              }
+            }
+
+            store?.updateJob(containerName, {
+              status: "paused",
+              pausedAtStep: pausedStepName || undefined,
+              pausedAtMs: new Date(pausedAtMs).toISOString(),
+              attempt: lastSeenAttempt,
+              lastOutputLines: tailLines,
+            });
           }
         } else if (isPaused && !fs.existsSync(pausedSignalPath)) {
-          // File completely gone (abort cleaned it up)
+          // Pause signal removed — job is retrying
           isPaused = false;
           pausedAtMs = null;
+          store?.updateJob(containerName, { status: "running", pausedAtMs: undefined });
         }
+
         if (!fs.existsSync(timelinePath)) {
           return;
         }
-        const records: any[] = JSON.parse(fs.readFileSync(timelinePath, "utf-8"));
+
+        const records = JSON.parse(fs.readFileSync(timelinePath, "utf-8")) as any[];
         const steps = records
           .filter((r) => r.type === "Task" && r.name)
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
@@ -542,23 +519,20 @@ export async function executeLocalJob(
           return;
         }
 
-        // ── Finalize boot spinner on first timeline entry ──────────────────────
-        if (spinnerInterval) {
-          clearInterval(spinnerInterval);
-          spinnerInterval = null;
-          bootDurationMs = Date.now() - bootStart;
+        // ── Transition from booting to running on first timeline entry ────────
+        if (isBooting) {
+          isBooting = false;
+          store?.updateJob(containerName, {
+            status: isPaused ? "paused" : "running",
+            bootDurationMs: Date.now() - bootStart,
+          });
         }
 
-        // Build step child nodes for the tree
-        const stepNodes: TreeNode[] = [];
+        // ── Build StepState[] from timeline records ───────────────────────────
         const seenNames = new Set<string>();
         let hasPostSteps = false;
-        let stepIdx = 0;
         let completeJobRecord: any = null;
 
-        // Pre-compute total step count for left-padding numbers.
-        // "Complete job" is excluded because it is always rendered last
-        // (after "Post Setup" when present) and gets its number at the end.
         const preCountNames = new Set<string>();
         for (const r of steps) {
           if (!preCountNames.has(r.name)) {
@@ -567,208 +541,118 @@ export async function executeLocalJob(
             hasPostSteps = true;
           }
         }
-        // Total = unique names (minus "Complete job" which is re‑added at end)
-        //       + "Post Setup" (if present)
-        //       + "Complete job" (always last)
         const hasCompleteJob = preCountNames.has("Complete job");
+        // Total = unique names (minus "Complete job") + "Post Setup" (if any) + "Complete job"
         const totalSteps =
           preCountNames.size -
           (hasCompleteJob ? 1 : 0) +
           (hasPostSteps ? 1 : 0) +
           (hasCompleteJob ? 1 : 0);
         const padW = String(totalSteps).length;
-        const pad = (n: number) => String(n).padStart(padW);
+
+        let stepIdx = 0;
+        const newSteps: StepState[] = [];
 
         for (const r of steps) {
-          // Post-job cleanup steps share the same name as an earlier step — skip them.
           if (seenNames.has(r.name)) {
             continue;
           }
           seenNames.add(r.name);
 
-          // "Complete job" is always rendered last — capture it and skip here.
           if (r.name === "Complete job") {
             completeJobRecord = r;
             continue;
           }
           stepIdx++;
 
-          let dur = "";
-          if (r.startTime && r.finishTime) {
-            const ms = new Date(r.finishTime).getTime() - new Date(r.startTime).getTime();
-            if (!isNaN(ms) && ms >= 0) {
-              dur = ` (${Math.round(ms / 1000)}s)`;
-            }
-          }
+          const durationMs =
+            r.startTime && r.finishTime
+              ? new Date(r.finishTime).getTime() - new Date(r.startTime).getTime()
+              : undefined;
 
-          const stepName = r.name as string;
-
-          // Step hasn't completed yet
+          let status: StepState["status"];
           if (!r.result && r.state !== "completed") {
             if (r.startTime) {
-              const stepElapsed = Math.round((Date.now() - new Date(r.startTime).getTime()) / 1000);
-              const frame = spinnerFrames[spinnerIdx % spinnerFrames.length];
-              if (isPaused && pausedStepName === stepName) {
-                // Paused: show ⏸ icon with frozen timer
-                const frozenElapsed = pausedAtMs
-                  ? Math.round((pausedAtMs - new Date(r.startTime).getTime()) / 1000)
-                  : stepElapsed;
-                stepNodes.push({
-                  label: `⏸ ${pad(stepIdx)}. ${stepName} (${frozenElapsed}s)`,
-                  children: [{ label: `${YELLOW}Step failed attempt #${lastSeenAttempt}${RESET}` }],
-                });
-              } else if (!isPaused && lastSeenAttempt > 0 && pausedStepName === stepName) {
-                stepNodes.push({
-                  label: `${frame} ${pad(stepIdx)}. ${stepName} — retrying (${stepElapsed}s...)`,
-                });
-              } else {
-                stepNodes.push({
-                  label: `${frame} ${pad(stepIdx)}. ${stepName} (${stepElapsed}s...)`,
-                });
-              }
+              status = isPaused && pausedStepName === r.name ? "paused" : "running";
             } else {
-              stepNodes.push({ label: `○ ${pad(stepIdx)}. ${stepName}` });
+              status = "pending";
             }
-            continue;
+          } else {
+            const result = (r.result || "").toLowerCase();
+            if (result === "failed") {
+              lastFailedStep = r.name;
+              status = "failed";
+            } else if (result === "skipped") {
+              status = "skipped";
+            } else {
+              status = "completed";
+            }
           }
 
-          // Step completed
-          const result = (r.result || "").toLowerCase();
-          if (result === "failed") {
-            lastFailedStep = r.name;
-            stepNodes.push({ label: `✗ ${pad(stepIdx)}. ${stepName}${dur}` });
-          } else if (result === "skipped") {
-            stepNodes.push({ label: `⊘ ${pad(stepIdx)}. ${stepName}${dur}` });
-          } else {
-            stepNodes.push({ label: `✓ ${pad(stepIdx)}. ${stepName}${dur}` });
-          }
+          newSteps.push({
+            name: r.name,
+            index: stepIdx,
+            status,
+            startedAt: r.startTime,
+            completedAt: r.finishTime,
+            durationMs,
+          });
+          void padW; // used for totalSteps calculation above
         }
 
-        // "Post Setup" and "Complete job" only appear once the job has actually finished
-        const jobFinished = completeJobRecord?.result;
+        const jobFinished = !!completeJobRecord?.result;
+
         if (hasPostSteps && jobFinished) {
           stepIdx++;
-          stepNodes.push({ label: `✓ ${pad(stepIdx)}. Post Setup` });
+          newSteps.push({ name: "Post Setup", index: stepIdx, status: "completed" });
         }
+
         if (completeJobRecord && jobFinished) {
           stepIdx++;
-          let dur = "";
-          if (completeJobRecord.startTime && completeJobRecord.finishTime) {
-            const ms =
-              new Date(completeJobRecord.finishTime).getTime() -
-              new Date(completeJobRecord.startTime).getTime();
+          const durationMs =
+            completeJobRecord.startTime && completeJobRecord.finishTime
+              ? new Date(completeJobRecord.finishTime).getTime() -
+                new Date(completeJobRecord.startTime).getTime()
+              : undefined;
+          newSteps.push({
+            name: "Complete job",
+            index: stepIdx,
+            status: "completed",
+            startedAt: completeJobRecord.startTime,
+            completedAt: completeJobRecord.finishTime,
+            durationMs,
+          });
+        }
+
+        // Compute total duration from timeline step times
+        let totalDurationMs: number | undefined;
+        if (jobFinished) {
+          const allTimes = steps
+            .filter((r) => r.startTime && r.finishTime)
+            .map((r) => ({
+              start: new Date(r.startTime).getTime(),
+              end: new Date(r.finishTime).getTime(),
+            }));
+          if (allTimes.length > 0) {
+            const earliest = Math.min(...allTimes.map((t) => t.start));
+            const latest = Math.max(...allTimes.map((t) => t.end));
+            const ms = latest - earliest;
             if (!isNaN(ms) && ms >= 0) {
-              dur = ` (${Math.round(ms / 1000)}s)`;
+              totalDurationMs = ms;
             }
           }
-          stepNodes.push({ label: `✓ ${pad(stepIdx)}. Complete job${dur}` });
         }
 
-        // Build the full tree: workflow → Starting runner + job → steps
-        const jobName = job.taskId ?? "job";
-        const jobFinishedFully = !!completeJobRecord?.result;
-
-        // ── Shared context (--all mode): report job node to the grouped renderer ──
-        if (!ownsRenderCtx) {
-          if (jobFinishedFully) {
-            // Collapse completed job to a single summary line
-            let totalDur = "";
-            const allTimes = steps
-              .filter((r: any) => r.startTime && r.finishTime)
-              .map((r: any) => ({
-                start: new Date(r.startTime).getTime(),
-                end: new Date(r.finishTime).getTime(),
-              }));
-            if (allTimes.length > 0) {
-              const earliest = Math.min(...allTimes.map((t: any) => t.start));
-              const latest = Math.max(...allTimes.map((t: any) => t.end));
-              const ms = latest - earliest;
-              if (!isNaN(ms) && ms >= 0) {
-                totalDur = ` (${Math.round(ms / 1000)}s)`;
+        store?.updateJob(containerName, {
+          steps: newSteps,
+          ...(jobFinished
+            ? {
+                status: lastFailedStep ? "failed" : "completed",
+                failedStep: lastFailedStep || undefined,
+                durationMs: totalDurationMs,
               }
-            }
-            const icon = lastFailedStep ? "✗" : "✓";
-            renderCtx.updateJob(workflowBasename, containerName, {
-              label: `${icon} ${jobName}${totalDur}`,
-            });
-          } else if (isPaused && pausedStepName) {
-            // Paused: show retry hint as child node
-            stepNodes.push({
-              label: `${YELLOW}↻ retry: machinen retry --runner ${containerName}${RESET}`,
-            });
-            renderCtx.updateJob(workflowBasename, containerName, {
-              label: jobName,
-              children: stepNodes,
-            });
-          } else {
-            renderCtx.updateJob(workflowBasename, containerName, {
-              label: jobName,
-              children: stepNodes,
-            });
-          }
-          renderCtx.flush();
-          return;
-        }
-
-        // ── Single-workflow mode: render full tree directly ──
-        const startingNode: TreeNode = {
-          label: spinnerInterval
-            ? `${spinnerFrames[spinnerIdx % spinnerFrames.length]} Starting runner ${containerName}`
-            : `Starting runner ${containerName} (${fmtMs(bootDurationMs)})`,
-        };
-        const tree: TreeNode[] = [
-          {
-            label: workflowBasename,
-            children: [
-              startingNode,
-              {
-                label: jobName,
-                children: stepNodes,
-              },
-            ],
-          },
-        ];
-
-        let output = renderTree(tree);
-        // Append failure output below the tree when paused
-        if (isPaused && pausedStepName) {
-          const DIM = `${String.fromCharCode(27)}[2m`;
-          const stepsDir = path.join(logDir, "steps");
-          let tailLines: string[] = [];
-          const sanitized = sanitizeStepName(pausedStepName);
-          const byName = path.join(stepsDir, `${sanitized}.log`);
-          tailLines = tailLogFile(byName, 20);
-          if (tailLines.length === 0 && fs.existsSync(stepsDir)) {
-            let newest = "";
-            let newestMtime = 0;
-            for (const f of fs.readdirSync(stepsDir)) {
-              if (!f.endsWith(".log")) {
-                continue;
-              }
-              const mt = fs.statSync(path.join(stepsDir, f)).mtimeMs;
-              if (mt > newestMtime) {
-                newestMtime = mt;
-                newest = f;
-              }
-            }
-            if (newest) {
-              tailLines = tailLogFile(path.join(stepsDir, newest), 20);
-            }
-          }
-          if (tailLines.length > 0) {
-            output += `\n\n  ${DIM}Last output:${RESET}`;
-            for (const line of tailLines) {
-              const trimmed = line.trimEnd();
-              if (trimmed) {
-                output += `\n    ${DIM}${trimmed}${RESET}`;
-              }
-            }
-          }
-          output += `\n\n  ${YELLOW}↻ To retry:  machinen retry --runner ${containerName} [enter]${RESET}`;
-          output += `\n  ${YELLOW}■ To abort:  machinen abort --runner ${containerName}${RESET}`;
-        }
-
-        logUpdate(output);
+            : {}),
+        });
       } catch {
         // Best-effort
       }
@@ -776,16 +660,11 @@ export async function executeLocalJob(
 
     const pollPromise = (async () => {
       while (!tailDone) {
-        spinnerIdx++;
-        checkTimeline();
+        updateStoreFromTimeline();
         await new Promise((r) => setTimeout(r, 100));
       }
-      // Final check
-      checkTimeline();
-      // Persist final state only if we own the context (single-workflow mode)
-      if (ownsRenderCtx) {
-        logUpdate.done();
-      }
+      // Final update
+      updateStoreFromTimeline();
     })();
 
     // Start waiting for container exit in parallel with log streaming.
@@ -802,7 +681,6 @@ export async function executeLocalJob(
         resolve();
       });
 
-      // When the container exits, destroy the raw stream so readline closes promptly.
       containerWaitPromise
         .then(() => {
           (rawStream as any).destroy?.();
@@ -810,12 +688,11 @@ export async function executeLocalJob(
         .catch(() => {});
     });
 
-    // Stop tail now that container has finished
     tailDone = true;
     cleanupStdin();
     await pollPromise;
 
-    // 8. Wait for completion (already started above; just collect the result)
+    // 8. Wait for completion
     const CONTAINER_EXIT_TIMEOUT_MS = 30_000;
     let waitResult: { StatusCode: number };
     try {
@@ -826,9 +703,8 @@ export async function executeLocalJob(
         ),
       ]);
     } catch {
-      // Container didn't exit in time — force-stop it
-      emit(
-        `  ⚠ Runner did not exit within ${CONTAINER_EXIT_TIMEOUT_MS / 1000}s, force-stopping container…`,
+      debugRunner(
+        `Runner did not exit within ${CONTAINER_EXIT_TIMEOUT_MS / 1000}s, force-stopping container…`,
       );
       try {
         await container.stop({ t: 5 });
@@ -839,47 +715,44 @@ export async function executeLocalJob(
     }
     const containerExitCode = waitResult.StatusCode;
 
-    // Derive job result from timeline: if any step failed, the job failed.
-    // Fall back to container exit code if timeline is unavailable.
     const jobSucceeded = lastFailedStep === null && containerExitCode === 0;
 
-    // Close debug stream now that all lines are written
+    // Update store with final exit code on failure
+    if (!jobSucceeded) {
+      store?.updateJob(containerName, {
+        failedExitCode: containerExitCode !== 0 ? containerExitCode : undefined,
+      });
+    }
+
     await new Promise<void>((resolve) => debugStream.end(resolve));
 
     // Cleanup
     try {
       await container.remove({ force: true });
     } catch {
-      // Ignore - container may already be removed
+      /* already removed */
     }
-    // Clean up service containers and shared network
     if (serviceCtx) {
-      await cleanupServiceContainers(docker, serviceCtx, emit);
+      await cleanupServiceContainers(docker, serviceCtx, (line) => debugRunner(line));
     }
-    // workspaceDir is now inside containerWorkDir — no separate cleanup needed
     if (fs.existsSync(dirs.shimsDir)) {
       fs.rmSync(dirs.shimsDir, { recursive: true, force: true });
     }
-    // Keep the signals dir alive when pauseOnFailure is set so the external
-    // retry/abort command can find it. Otherwise clean it up.
     if (!pauseOnFailure && fs.existsSync(dirs.signalsDir)) {
       fs.rmSync(dirs.signalsDir, { recursive: true, force: true });
     }
     if (fs.existsSync(dirs.diagDir)) {
       fs.rmSync(dirs.diagDir, { recursive: true, force: true });
     }
-    // Clean per-container runner copy (always safe to remove)
     if (fs.existsSync(hostRunnerDir)) {
       fs.rmSync(hostRunnerDir, { recursive: true, force: true });
     }
-    // Clean containerWorkDir only on success (keep failed workspaces for inspection)
     if (jobSucceeded && fs.existsSync(dirs.containerWorkDir)) {
       fs.rmSync(dirs.containerWorkDir, { recursive: true, force: true });
     }
 
     await ephemeralDtu?.close().catch(() => {});
 
-    // Build structured result for the caller
     return buildJobResult({
       containerName,
       job,
@@ -892,15 +765,6 @@ export async function executeLocalJob(
       debugLogPath,
     });
   } finally {
-    // Always stop the preflight spinner if it's still running (e.g. error during setup)
-    if (spinnerInterval) {
-      clearInterval(spinnerInterval);
-      if (ownsRenderCtx) {
-        logUpdate.clear();
-      }
-    }
-    // Always deregister signal handlers, even if an error was thrown before the
-    // normal completion path (e.g. seed failure, container start failure).
     process.removeListener("SIGINT", signalCleanup);
     process.removeListener("SIGTERM", signalCleanup);
   }

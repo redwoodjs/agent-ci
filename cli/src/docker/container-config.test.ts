@@ -96,6 +96,7 @@ describe("buildContainerCmd", () => {
     const cmd = buildContainerCmd({
       svcPortForwardSnippet: "",
       dtuPort: "3000",
+      dtuHost: "localhost",
       useDirectContainer: false,
       containerName: "test-runner",
     });
@@ -111,6 +112,7 @@ describe("buildContainerCmd", () => {
     const cmd = buildContainerCmd({
       svcPortForwardSnippet: "",
       dtuPort: "3000",
+      dtuHost: "localhost",
       useDirectContainer: true,
       containerName: "test-runner",
     });
@@ -124,6 +126,7 @@ describe("buildContainerCmd", () => {
     const cmd = buildContainerCmd({
       svcPortForwardSnippet: "socat TCP-LISTEN:5432,fork TCP:svc-db:5432 & \nsleep 0.3 && ",
       dtuPort: "3000",
+      dtuHost: "localhost",
       useDirectContainer: false,
       containerName: "test-runner",
     });

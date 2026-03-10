@@ -67,8 +67,10 @@ coverage
 .wrangler
 
 
+.machinen
 temp_runner_source
 tmp-runner-logs
 temp_*
 .runner-source
 ui/build
+.devcontainer/devcontainer.json

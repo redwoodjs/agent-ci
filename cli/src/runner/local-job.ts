@@ -8,7 +8,7 @@ import { Job } from "../types.js";
 import { createLogContext } from "../output/logger.js";
 import { getWorkingDirectory } from "../output/working-directory.js";
 
-import { debugRunner } from "../output/debug.js";
+import { debugRunner, debugBoot } from "../output/debug.js";
 import {
   startServiceContainers,
   cleanupServiceContainers,
@@ -146,12 +146,18 @@ export async function executeLocalJob(
   });
 
   const bootStart = Date.now();
+  const bt = (label: string, since: number) => {
+    debugBoot(`${containerName} ${label}: ${Date.now() - since}ms`);
+    return Date.now();
+  };
 
   // Start an ephemeral in-process DTU for this job run so each job gets its
   // own isolated DTU instance on a random port — eliminating port conflicts.
+  let t0 = Date.now();
   const dtuCacheDir = path.resolve(getWorkingDirectory(), "cache", "dtu");
   const ephemeralDtu = await startEphemeralDtu(dtuCacheDir).catch(() => null);
   const dtuUrl = ephemeralDtu?.url ?? config.GITHUB_API_URL;
+  t0 = bt("dtu-start", t0);
 
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",
@@ -169,6 +175,7 @@ export async function executeLocalJob(
   }).catch(() => {
     /* non-fatal */
   });
+  t0 = bt("dtu-register", t0);
 
   // Write metadata if available (to help the UI map logs to workflows)
   writeJobMetadata({ logDir, containerName, job });
@@ -210,6 +217,7 @@ export async function executeLocalJob(
 
     const seededSteps = pauseOnFailure ? wrapJobSteps(job.steps ?? [], true) : job.steps;
 
+    t0 = Date.now();
     const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -226,6 +234,7 @@ export async function executeLocalJob(
     if (!seedResponse.ok) {
       throw new Error(`Failed to seed DTU: ${seedResponse.status} ${seedResponse.statusText}`);
     }
+    t0 = bt("dtu-seed", t0);
 
     // 2. Registration token (mock for local)
     const registrationToken = "mock_local_token";
@@ -237,6 +246,7 @@ export async function executeLocalJob(
     writeGitShim(dirs.shimsDir, fakeSha);
 
     // Prepare workspace files in parallel with container setup
+    const workspacePrepStart = Date.now();
     const workspacePrepPromise = (async () => {
       try {
         prepareWorkspace({
@@ -254,6 +264,7 @@ export async function executeLocalJob(
       } catch {
         // Non-fatal: entrypoint has a fallback
       }
+      bt("workspace-prep", workspacePrepStart);
     })();
 
     // 6. Spawn container
@@ -276,10 +287,12 @@ export async function executeLocalJob(
     // ── Service containers ────────────────────────────────────────────────────
     let serviceCtx: ServiceContext | undefined;
     if (job.services && job.services.length > 0) {
+      const svcStart = Date.now();
       debugRunner(`Starting ${job.services.length} service container(s)...`);
       serviceCtx = await startServiceContainers(docker, job.services, containerName, (line) =>
         debugRunner(line),
       );
+      bt("service-containers", svcStart);
     }
 
     const svcPortForwardSnippet = serviceCtx?.portForwards.length
@@ -383,6 +396,7 @@ export async function executeLocalJob(
       containerName,
     });
 
+    t0 = Date.now();
     const container = await docker.createContainer({
       Image: containerImage,
       name: containerName,
@@ -397,9 +411,12 @@ export async function executeLocalJob(
       },
       Tty: true,
     });
+    t0 = bt("container-create", t0);
 
     await workspacePrepPromise;
+    t0 = Date.now();
     await container.start();
+    bt("container-start", t0);
 
     // 7. Stream logs ───────────────────────────────────────────────────────────
     const rawStream = (await container.logs({
@@ -522,6 +539,7 @@ export async function executeLocalJob(
         // ── Transition from booting to running on first timeline entry ────────
         if (isBooting) {
           isBooting = false;
+          bt("total", bootStart);
           store?.updateJob(containerName, {
             status: isPaused ? "paused" : "running",
             bootDurationMs: Date.now() - bootStart,

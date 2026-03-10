@@ -39,3 +39,4 @@ export function createDebug(namespace: string): (...args: unknown[]) => void {
 export const debugCli = createDebug("machinen:cli");
 export const debugRunner = createDebug("machinen:runner");
 export const debugDtu = createDebug("machinen:dtu");
+export const debugBoot = createDebug("machinen:boot");

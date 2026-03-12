@@ -105,7 +105,7 @@ export async function executeLocalJob(
   job: Job,
   options?: { pauseOnFailure?: boolean; store?: RunStateStore },
 ): Promise<JobResult> {
-  const pauseOnFailure = options?.pauseOnFailure ?? true;
+  const pauseOnFailure = options?.pauseOnFailure ?? false;
   const startTime = Date.now();
   const store = options?.store;
 

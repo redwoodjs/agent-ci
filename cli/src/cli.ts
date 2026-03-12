@@ -60,15 +60,15 @@ async function run() {
   if (command === "run") {
     let sha: string | undefined;
     let workflow: string | undefined;
-    let pauseOnFailure = true;
+    let pauseOnFailure = false;
     let runAll = false;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
         workflow = args[i + 1];
         i++;
-      } else if (args[i] === "--exit-on-failure" || args[i] === "-x") {
-        pauseOnFailure = false;
+      } else if (args[i] === "--pause-on-failure" || args[i] === "-p") {
+        pauseOnFailure = true;
       } else if (args[i] === "--all" || args[i] === "-a") {
         runAll = true;
       } else if (args[i] === "--quiet" || args[i] === "-q") {
@@ -678,7 +678,7 @@ function printUsage() {
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");
   console.log("  -a, --all                     Discover and run all relevant workflows");
-  console.log("  -x, --exit-on-failure         Exit immediately on step failure (default: pause)");
+  console.log("  -p, --pause-on-failure         Pause on step failure for interactive debugging");
   console.log(
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",
   );

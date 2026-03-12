@@ -33,6 +33,6 @@ else
   if [ ${#PASSTHROUGH_ARGS[@]} -eq 0 ]; then
     PASSTHROUGH_ARGS=("--all")
   fi
-  cd "$REPO_ROOT/cli"
+  cd "$REPO_ROOT/packages/cli"
   exec pnpm run agent-ci run "${PASSTHROUGH_ARGS[@]}"
 fi

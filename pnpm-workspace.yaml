@@ -1,5 +1,5 @@
 packages:
-  - "cli"
-  - "dtu-github-actions"
+  - "packages/cli"
+  - "packages/dtu-github-actions"
   - "derive"
   - "experiments/retry-proof"

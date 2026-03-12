@@ -592,7 +592,7 @@ export function validateSecrets(
     return;
   }
   throw new Error(
-    `[Machinen] Missing secrets required by workflow job "${taskName}".\n` +
+    `[Agent CI] Missing secrets required by workflow job "${taskName}".\n` +
       `Add the following to ${secretsFilePath}:\n\n` +
       missing.map((n) => `${n}=`).join("\n") +
       "\n",

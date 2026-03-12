@@ -8,7 +8,7 @@ author: peterp
 
 ## Summary
 
-We implemented a pull-based architecture for the Machinen runner where the worker container fetches its own job metadata and secrets directly from the GitHub API. This mirrors the official GitHub runner's security model and reduces the Bridge's role to a lightweight orchestrator and token provider.
+We implemented a pull-based architecture for the Agent CI runner where the worker container fetches its own job metadata and secrets directly from the GitHub API. This mirrors the official GitHub runner's security model and reduces the Bridge's role to a lightweight orchestrator and token provider.
 
 ## The Problem
 
@@ -22,8 +22,8 @@ Initially, the Runner host was responsible for pulling job details from the Brid
   - **Feedback:** The user clarified that the container should fetch from the **GitHub API**, not the Bridge.
   - **Refinement:** We researched how the `ACTIONS_RUNTIME_TOKEN` works. It's an ephemeral token provided when a job is claimed. We updated the Bridge to act as the provider of this token (mapping to a scoped GitHub App Installation Token in production).
   - **Implementation:**
-    - Updated `machinen-bridge` to extract GitHub metadata (Job ID, Repo) and provide a `GITHUB_TOKEN`.
-    - Updated `machinen-runner` to inject these as `ACTIONS_RUNTIME_TOKEN`, `GITHUB_JOB_ID`, and `GITHUB_REPO`.
+    - Updated `agent-ci-bridge` to extract GitHub metadata (Job ID, Repo) and provide a `GITHUB_TOKEN`.
+    - Updated `agent-ci-runner` to inject these as `ACTIONS_RUNTIME_TOKEN`, `GITHUB_JOB_ID`, and `GITHUB_REPO`.
     - Updated the container command to use `curl` against `api.github.com`.
 
 ## Discovery & Key Findings

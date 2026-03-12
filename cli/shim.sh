@@ -1,11 +1,11 @@
 #!/bin/bash
 case "$1" in
   checkout|fetch|reset)
-    echo "[Machinen Shim] Intercepted '$1' to protect local files."
+    echo "[Agent CI Shim] Intercepted '$1' to protect local files."
     exit 0
     ;;
   *)
-    echo "git $@" >> /tmp/machinen-git-calls.log
+    echo "git $@" >> /tmp/agent-ci-git-calls.log
     /usr/bin/git "$@"
     ;;
 esac

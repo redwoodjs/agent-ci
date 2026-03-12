@@ -12,7 +12,7 @@ Investigated whether the PNPM warm `node_modules` caching strategy can be genera
 
 ## The Problem
 
-Machinen has three PNPM-specific caching layers (warm `node_modules` keyed by lockfile hash, shared pnpm-store bind-mount, wave serialization). None of this exists for NPM or Yarn. We needed data to decide whether it's worth generalizing.
+Agent CI has three PNPM-specific caching layers (warm `node_modules` keyed by lockfile hash, shared pnpm-store bind-mount, wave serialization). None of this exists for NPM or Yarn. We needed data to decide whether it's worth generalizing.
 
 ## Investigation & Timeline
 

@@ -101,7 +101,7 @@ export async function startServiceContainers(
   runnerName: string,
   emit?: (line: string) => void,
 ): Promise<ServiceContext> {
-  const networkName = `machinen-net-${runnerName}`;
+  const networkName = `agent-ci-net-${runnerName}`;
   const containerIds: string[] = [];
   const portForwards: string[] = [];
 

@@ -8,7 +8,7 @@ author: peterp
 
 ## Summary
 
-We implemented the `machinen-runner` as a local Node.js process that polls the Cloudflare Worker Bridge for jobs. We unified the Polling and Heartbeat mechanisms into a single API call to simplify the architecture. Execution is currently stubbed.
+We implemented the `agent-ci-runner` as a local Node.js process that polls the Cloudflare Worker Bridge for jobs. We unified the Polling and Heartbeat mechanisms into a single API call to simplify the architecture. Execution is currently stubbed.
 
 ## The Problem
 
@@ -16,7 +16,7 @@ We needed a local agent to execute tasks (like Docker containers) that the Cloud
 
 ## Investigation & Timeline
 
-- **Initial State:** Empty `machinen-runner` directory.
+- **Initial State:** Empty `agent-ci-runner` directory.
 - **Attempts:**
   - Scaffolded a TypeScript Node.js project.
   - Implemented configuration using `zod` (Bridge URL, GitHub Username, API Key).
@@ -32,7 +32,7 @@ We needed a local agent to execute tasks (like Docker containers) that the Cloud
 
 ## Resolution
 
-- **Runner Implemented:** `machinen-runner` is ready.
+- **Runner Implemented:** `agent-ci-runner` is ready.
 - **Bridge Updated:** `GET /jobs` now accepts `username` and updates KV presence.
 - **Verification:** Validated that the runner polls correctly and handles connection errors gracefully.
 

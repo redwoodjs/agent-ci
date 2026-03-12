@@ -1,10 +1,10 @@
 // E2E tests for scope-flag.feature. Verifies that --scope <name>
-// redirects spec file I/O to .machinen/specs/<name>/ instead of the default
-// .machinen/specs/ directory. Also verifies reset respects the scoped directory
+// redirects spec file I/O to .agent-ci/specs/<name>/ instead of the default
+// .agent-ci/specs/ directory. Also verifies reset respects the scoped directory
 // and that without --scope the default location is used.
 //
 // Because the harness's featureFiles helper only reads one level deep from
-// specDir (i.e. .machinen/specs/), scoped files must be found by reading the
+// specDir (i.e. .agent-ci/specs/), scoped files must be found by reading the
 // subdirectory manually.
 
 import fs from "node:fs";
@@ -13,7 +13,7 @@ import { describe, it, expect } from "vitest";
 import { setupDeriveTest } from "./harness.js";
 
 describe("derive --scope flag", () => {
-  it("writes spec files to .machinen/specs/<scope>/ when --scope is provided", async () => {
+  it("writes spec files to .agent-ci/specs/<scope>/ when --scope is provided", async () => {
     const { specDir, run } = await setupDeriveTest({
       branch: "feature-x",
       conversations: [
@@ -34,8 +34,8 @@ describe("derive --scope flag", () => {
 
     expect(result.exitCode).toBe(0);
 
-    // With --scope myapp, files must land in .machinen/specs/myapp/,
-    // not directly in .machinen/specs/. The harness featureFiles array will be
+    // With --scope myapp, files must land in .agent-ci/specs/myapp/,
+    // not directly in .agent-ci/specs/. The harness featureFiles array will be
     // empty because it only reads one level deep; we read the subdir ourselves.
     const scopedDir = path.join(specDir, "myapp");
     expect(fs.existsSync(scopedDir)).toBe(true);
@@ -48,7 +48,7 @@ describe("derive --scope flag", () => {
     expect(unscopedFiles.length).toBe(0);
   }, 30_000);
 
-  it("reads existing spec files from .machinen/specs/<scope>/ when --scope is provided", async () => {
+  it("reads existing spec files from .agent-ci/specs/<scope>/ when --scope is provided", async () => {
     // Pre-seed the scoped directory with a spec file. The second run
     // should read it as context. We verify this by checking that a second run
     // (which processes no new messages) still exits 0 without error, implying
@@ -85,7 +85,7 @@ describe("derive --scope flag", () => {
     expect(filesAfterSecond.length).toBeGreaterThan(0);
   }, 30_000);
 
-  it("without --scope writes spec files to the default .machinen/specs/ location", async () => {
+  it("without --scope writes spec files to the default .agent-ci/specs/ location", async () => {
     const { specDir, run } = await setupDeriveTest({
       branch: "feature-x",
       conversations: [

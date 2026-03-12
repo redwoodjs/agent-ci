@@ -8,8 +8,8 @@ We are rearchitecting `derive` from a daemon that watches Claude Code conversati
 
 `derive` was built as a daemon (`watcher.ts` + chokidar) that monitors `~/.claude/projects/**/*.jsonl` for changes. When a file changes, it indexes the conversation (repo + branch mapping in SQLite) and triggers a spec update. The full development history lives in two worklogs:
 
-- `2026-03-03-machinen-setup.md` — original tool development (watching, indexing, reading, spec maintenance, all the CLI bug investigations)
-- `2026-03-03-derive-migration.md` — migration from `machinen-experiments_specs` into the `machinen` monorepo as the `derive` package
+- `2026-03-03-agent-ci-setup.md` — original tool development (watching, indexing, reading, spec maintenance, all the CLI bug investigations)
+- `2026-03-03-derive-migration.md` — migration from `agent-ci-experiments_specs` into the `agent-ci` monorepo as the `derive` package
 
 ### Current architecture (what we are changing from)
 
@@ -300,7 +300,7 @@ The downstream logic (`runSpecUpdate`, `resetBranch`, `updateSpec`, `filterSpec`
 
 ```bash
 # One-shot update:
-cd /Users/justin/rw/worktrees/machinen_specs
+cd /Users/justin/rw/worktrees/agent-ci_specs
 pnpm --filter derive start
 
 # Should: detect branch, discover conversations, update spec, exit
@@ -341,15 +341,15 @@ pnpm --filter derive typecheck
 
 #### The problem: specs live outside the project
 
-Spec files are currently stored in a global directory (`~/.machinen/specs/<repo-slug>/<branch>.md`). This has two drawbacks:
+Spec files are currently stored in a global directory (`~/.agent-ci/specs/<repo-slug>/<branch>.md`). This has two drawbacks:
 
 1. **Specs do not travel with the branch.** When switching branches via git, the spec for the previous branch is still on disk in the global directory. There is no connection between the branch's code and its spec — they live in different places and are managed by different tools (git vs. derive).
 
 2. **No natural "init from existing" path.** If a spec already exists for a branch (e.g., committed by a teammate, or carried forward from a prior session), derive has no way to discover it automatically. The global directory is opaque to git.
 
-#### The solution: store specs in `<project>/.machinen/specs/<branch>.gherkin`
+#### The solution: store specs in `<project>/.agent-ci/specs/<branch>.gherkin`
 
-Move spec files into the project directory tree at `.machinen/specs/<branch>.gherkin`. This means:
+Move spec files into the project directory tree at `.agent-ci/specs/<branch>.gherkin`. This means:
 
 - **Specs travel with the branch.** `git checkout feature-x` brings its spec; `git checkout main` brings (or doesn't bring) main's. The spec is version-controlled alongside the code it describes.
 - **Init from existing works automatically.** `updateSpec` already reads the spec file from disk if it exists (`fs.existsSync(sPath)`). By placing specs in the project, a spec committed on the branch becomes the starting point — no new logic required.
@@ -357,7 +357,7 @@ Move spec files into the project directory tree at `.machinen/specs/<branch>.ghe
 
 #### What changes
 
-- **`spec.ts`**: `specFilePath()` computes `path.join(repoPath, ".machinen", "specs", \`${branch}.gherkin\`)`instead of using`MACHINEN_SPECS_DIR`. The `MACHINEN_SPECS_DIR` constant is removed.
+- **`spec.ts`**: `specFilePath()` computes `path.join(repoPath, ".agent-ci", "specs", \`${branch}.gherkin\`)`instead of using`AGENT_CI_SPECS_DIR`. The `AGENT_CI_SPECS_DIR` constant is removed.
 - **Nothing else.** `updateSpec`, `filterSpec`, `runSpecUpdate`, `resetBranch`, `upsertBranch` — all consume `specFilePath()` output. The path changes, the logic does not.
 
 #### What stays the same
@@ -379,29 +379,29 @@ Feature: Project-local spec storage
   Scenario: Spec file is created in the project directory
     Given the user is in a git repository at "/path/to/project" on branch "feature-x"
     When the user runs derive and new messages are found
-    Then the spec file is written to "/path/to/project/.machinen/specs/feature-x.gherkin"
+    Then the spec file is written to "/path/to/project/.agent-ci/specs/feature-x.gherkin"
 
   Scenario: Existing spec is used as starting point
     Given the user is in a git repository on branch "feature-x"
-    And a spec file exists at ".machinen/specs/feature-x.gherkin" in the project
+    And a spec file exists at ".agent-ci/specs/feature-x.gherkin" in the project
     When the user runs derive
     Then the existing spec is read and used as context for the update
     And the updated spec is written back to the same path
 
   Scenario: Reset deletes the project-local spec
     Given the user is in a git repository on branch "feature-x"
-    And a spec file exists at ".machinen/specs/feature-x.gherkin"
+    And a spec file exists at ".agent-ci/specs/feature-x.gherkin"
     When the user runs derive --reset
     Then the spec file is deleted
     And a fresh spec is regenerated from all conversations
-    And the new spec is written to ".machinen/specs/feature-x.gherkin"
+    And the new spec is written to ".agent-ci/specs/feature-x.gherkin"
 ```
 
 ### Implementation Breakdown
 
 ```
-[MODIFY]  src/spec.ts    — specFilePath(): compute <repoPath>/.machinen/specs/<branch>.gherkin
-                           remove MACHINEN_SPECS_DIR constant
+[MODIFY]  src/spec.ts    — specFilePath(): compute <repoPath>/.agent-ci/specs/<branch>.gherkin
+                           remove AGENT_CI_SPECS_DIR constant
                            remove os import (no longer needed for homedir)
 ```
 
@@ -409,14 +409,14 @@ No changes to: `index.ts`, `watcher.ts`, `db.ts`, `reader.ts`, `types.ts`.
 
 ### Invariants & Constraints
 
-- **Spec path is deterministic from (repoPath, branch)**: `<repoPath>/.machinen/specs/<branch>.gherkin`. No slug computation needed — repoPath is already absolute.
-- **Branch names with `/`**: e.g., `feature/x` produces `.machinen/specs/feature/x.gherkin` (nested directory). `path.join` handles this, and git handles nested paths. Same behaviour as before (the old scheme also did not slugify branch names).
+- **Spec path is deterministic from (repoPath, branch)**: `<repoPath>/.agent-ci/specs/<branch>.gherkin`. No slug computation needed — repoPath is already absolute.
+- **Branch names with `/`**: e.g., `feature/x` produces `.agent-ci/specs/feature/x.gherkin` (nested directory). `path.join` handles this, and git handles nested paths. Same behaviour as before (the old scheme also did not slugify branch names).
 - **Init from existing is implicit**: no new code path. `updateSpec` already checks `fs.existsSync(sPath)` and reads the file if present.
 
 ### Tasks
 
 - [x] Modify `specFilePath()` in `spec.ts`
-- [x] Remove `MACHINEN_SPECS_DIR` constant (`os` import kept — still needed for `CLAUDE_BIN`)
+- [x] Remove `AGENT_CI_SPECS_DIR` constant (`os` import kept — still needed for `CLAUDE_BIN`)
 - [x] Verify typecheck passes
 
 ---
@@ -425,8 +425,8 @@ No changes to: `index.ts`, `watcher.ts`, `db.ts`, `reader.ts`, `types.ts`.
 
 Changed `specFilePath()` in `spec.ts`. Two edits:
 
-1. Removed `MACHINEN_SPECS_DIR` constant (was `~/.machinen/specs`). The `os` import stays — it is still used by `CLAUDE_BIN`.
-2. `specFilePath()` now returns `path.join(repoPath, ".machinen", "specs", \`${branch}.gherkin\`)`. No slug computation — `repoPath`is already absolute. Extension changed from`.md`to`.gherkin`.
+1. Removed `AGENT_CI_SPECS_DIR` constant (was `~/.agent-ci/specs`). The `os` import stays — it is still used by `CLAUDE_BIN`.
+2. `specFilePath()` now returns `path.join(repoPath, ".agent-ci", "specs", \`${branch}.gherkin\`)`. No slug computation — `repoPath`is already absolute. Extension changed from`.md`to`.gherkin`.
 
 Typecheck clean.
 
@@ -513,7 +513,7 @@ A user may want to write an initial spec by hand — defining expected behaviour
 
 #### The solution: `derive init`
 
-Add a fourth CLI mode: `derive init`. It creates an empty `.machinen/specs/<branch>.gherkin` file (and parent directories) for the current branch. The user fills it in, then runs `derive` — which reads the existing spec from disk and uses it as context for the Claude call.
+Add a fourth CLI mode: `derive init`. It creates an empty `.agent-ci/specs/<branch>.gherkin` file (and parent directories) for the current branch. The user fills it in, then runs `derive` — which reads the existing spec from disk and uses it as context for the Claude call.
 
 Behaviour:
 
@@ -530,14 +530,14 @@ Feature: Init mode
 
   Scenario: Create empty spec file
     Given the user is in a git repository on branch "feature-x"
-    And no spec file exists at ".machinen/specs/feature-x.gherkin"
+    And no spec file exists at ".agent-ci/specs/feature-x.gherkin"
     When the user runs derive init
-    Then an empty file is created at ".machinen/specs/feature-x.gherkin"
+    Then an empty file is created at ".agent-ci/specs/feature-x.gherkin"
     And the path is printed to stdout
 
   Scenario: Spec file already exists
     Given the user is in a git repository on branch "feature-x"
-    And a spec file exists at ".machinen/specs/feature-x.gherkin"
+    And a spec file exists at ".agent-ci/specs/feature-x.gherkin"
     When the user runs derive init
     Then the existing file is not modified
     And a message indicates the spec already exists
@@ -579,10 +579,10 @@ Typecheck clean.
 
 We ran `derive` and it reported "no new messages" despite new conversations existing. We investigated the discovery pipeline and found that `getSlugDir` was computing the wrong slug directory.
 
-**Root cause:** Claude Code's slugification replaces both `/` and `_` with `-`. Our `getSlugDir` only replaced `/`. For the cwd `/Users/justin/rw/worktrees/machinen_specs`:
+**Root cause:** Claude Code's slugification replaces both `/` and `_` with `-`. Our `getSlugDir` only replaced `/`. For the cwd `/Users/justin/rw/worktrees/agent-ci_specs`:
 
-- derive computed slug: `-Users-justin-rw-worktrees-machinen_specs` (underscore preserved)
-- Claude Code actual slug: `-Users-justin-rw-worktrees-machinen-specs` (underscore → dash)
+- derive computed slug: `-Users-justin-rw-worktrees-agent-ci_specs` (underscore preserved)
+- Claude Code actual slug: `-Users-justin-rw-worktrees-agent-ci-specs` (underscore → dash)
 
 The slug dir derive was looking in did not exist on the filesystem. `discoverConversations` returned immediately (no slug dir → no files), and `runSpecUpdate` queried the DB for conversations on the correct `repo_path` but found only previously-indexed ones (all with offsets already advanced) → "no new messages."
 

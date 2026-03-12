@@ -81,7 +81,7 @@ Sequential per-conversation processing avoids exceeding the prompt size limit �
 
 ## Database Schema
 
-SQLite database at `~/.machinen/machinen.db`. Uses `node:sqlite` `DatabaseSync` (synchronous API).
+SQLite database at `~/.agent-ci/agent-ci.db`. Uses `node:sqlite` `DatabaseSync` (synchronous API).
 
 ### conversations
 
@@ -103,7 +103,7 @@ SQLite database at `~/.machinen/machinen.db`. Uses `node:sqlite` `DatabaseSync` 
 | spec_path  | TEXT | NOT NULL                 | Absolute path to the spec directory    |
 | updated_at | TEXT | NOT NULL                 | ISO 8601 timestamp of last spec update |
 
-The `branches` table is a lookup table — it records which spec directory belongs to which repo+branch combination. The `specPath` value is deterministic from `repoPath` (always `<repoPath>/.machinen/specs/`), but storing it provides a single query point for downstream tooling.
+The `branches` table is a lookup table — it records which spec directory belongs to which repo+branch combination. The `specPath` value is deterministic from `repoPath` (always `<repoPath>/.agent-ci/specs/`), but storing it provides a single query point for downstream tooling.
 
 ## Behaviour Spec
 
@@ -197,17 +197,17 @@ Feature: Multi-file spec storage
   Scenario: Spec output is split into per-feature files
     Given a derive run produces Gherkin with multiple Feature blocks
     When the spec is written to disk
-    Then each Feature block is written to a separate .feature file in .machinen/specs/
+    Then each Feature block is written to a separate .feature file in .agent-ci/specs/
     And each file is named by slugifying the Feature name
 
   Scenario: Feature files are concatenated on read
-    Given multiple .feature files exist in .machinen/specs/
+    Given multiple .feature files exist in .agent-ci/specs/
     When derive reads the current spec
     Then all .feature files are concatenated into a single string
     And this string is used as context for the LLM
 
   Scenario: Old feature files are removed before writing
-    Given .machinen/specs/ contains feature files from a previous run
+    Given .agent-ci/specs/ contains feature files from a previous run
     When a new spec is written
     Then all existing .feature files are removed
     And only the new feature files are written
@@ -218,7 +218,7 @@ Feature: Multi-file spec storage
     Then the file is named "cli-spec-update.feature"
 
   Scenario: Existing spec is used as starting point
-    Given .feature files exist in .machinen/specs/ in the project
+    Given .feature files exist in .agent-ci/specs/ in the project
     When the user runs derive
     Then the existing spec content is concatenated and used as context for the update
     And the updated spec is split back into per-feature files
@@ -276,7 +276,7 @@ The watcher uses `ignoreInitial: true` (the initial cycle is explicit), `awaitWr
 
 ### Test isolation
 
-Three hardcoded paths (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB`) are configurable via environment variables, enabling full isolation of e2e tests from the host system. When unset, each falls back to its hardcoded default — zero behavioral change in production. The test infrastructure — substitute binary, test harness, fixture format, and conventions — is documented in the [derive test infrastructure blueprint](derive-test-infra.md).
+Three hardcoded paths (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `AGENT_CI_DB`) are configurable via environment variables, enabling full isolation of e2e tests from the host system. When unset, each falls back to its hardcoded default — zero behavioral change in production. The test infrastructure — substitute binary, test harness, fixture format, and conventions — is documented in the [derive test infrastructure blueprint](derive-test-infra.md).
 
 ## API Reference (CLI)
 
@@ -286,7 +286,7 @@ Three hardcoded paths (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB`) are c
 | `derive --reset`             | Regenerate spec from scratch. Delete .feature files, zero offsets, reprocess all conversations sequentially, exit.       |
 | `derive --reset --keep-spec` | Reprocess all conversations from scratch, but preserve the existing .feature files as starting context.                  |
 | `derive watch`               | Run an initial update, then watch for conversation changes on the current branch. Re-runs on changes (debounced).        |
-| `derive --scope <name>`      | Direct specs to a subdirectory: `.machinen/specs/<name>/*.feature`. Combinable with other flags.                         |
+| `derive --scope <name>`      | Direct specs to a subdirectory: `.agent-ci/specs/<name>/*.feature`. Combinable with other flags.                         |
 | `derive --verbose`           | Enable verbose output. Dumps raw NDJSON events from spawned claude processes for debugging. Combinable with other flags. |
 
 All commands infer the repository path from `process.cwd()` and the branch from `git rev-parse --abbrev-ref HEAD`. The tool is invoked via `pnpm --filter derive start` (or `pnpm --filter derive start -- <args>`).
@@ -302,8 +302,8 @@ All commands infer the repository path from `process.cwd()` and the branch from 
 - **Offset semantics.** `lastLineOffset` is the total number of lines read (0-indexed start). Offsets are advanced before the Claude call (crash safety).
 - **Spec pipeline is stateless.** No `--resume`. The spec files on disk are the state. Each `claude -p` call reads the current spec (concatenated from `.feature` files) and produces an updated one.
 - **Sequential reset.** Reset mode processes each conversation in a separate `updateSpec` call to avoid exceeding prompt size limits.
-- **Project-local specs.** Spec files live at `<repoPath>/.machinen/specs/*.feature` (or `<repoPath>/.machinen/specs/<scope>/*.feature` when `--scope` is used), one per `Feature:` block. They travel with the branch via git.
-- **Optional scope.** `--scope <name>` appends a subdirectory to the spec path, allowing specs to be organized by domain (e.g., `--scope derive` → `.machinen/specs/derive/`). When omitted, specs go directly into `.machinen/specs/`.
+- **Project-local specs.** Spec files live at `<repoPath>/.agent-ci/specs/*.feature` (or `<repoPath>/.agent-ci/specs/<scope>/*.feature` when `--scope` is used), one per `Feature:` block. They travel with the branch via git.
+- **Optional scope.** `--scope <name>` appends a subdirectory to the spec path, allowing specs to be organized by domain (e.g., `--scope derive` → `.agent-ci/specs/derive/`). When omitted, specs go directly into `.agent-ci/specs/`.
 - **Virtualized file boundary.** The LLM pipeline operates on a single concatenated string. `readSpec` concatenates all `.feature` files; `writeSpec` splits the output by `Feature:` blocks and writes per-feature files. A `Feature:` block maps 1:1 to a `.feature` file.
 - **Deterministic read order.** `.feature` files are sorted alphabetically by filename when concatenated, ensuring deterministic input to the LLM.
 - **Clean-slate write.** `writeSpec` removes all existing `.feature` files before writing new ones. This is safe because the content was already consumed and re-expressed by the LLM.
@@ -312,7 +312,7 @@ All commands infer the repository path from `process.cwd()` and the branch from 
 - **No tools, low effort, Sonnet model.** Spawned `claude -p` calls use `--model sonnet`, `--tools ""` (no built-in tools), and `--effort low` (minimal thinking). Both passes are text-in/text-out transformations that receive all context via stdin — Opus-level reasoning is unnecessary.
 - **No session persistence.** Spawned `claude -p` calls use `--no-session-persistence` to prevent writing JSONL session files. Without this, each spawned call creates a session file in the same slug directory, which gets discovered as a "conversation" on the next run — creating a feedback loop of ghost conversations.
 - **Node >= 22.5.** Required for `node:sqlite` `DatabaseSync`.
-- **Env var overrides are invisible when unset.** `CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, and `MACHINEN_DB` use `process.env.X ?? <default>`. Production behavior is unchanged unless the env var is explicitly set. These exist solely for test isolation.
+- **Env var overrides are invisible when unset.** `CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, and `AGENT_CI_DB` use `process.env.X ?? <default>`. Production behavior is unchanged unless the env var is explicitly set. These exist solely for test isolation.
 
 ## Learnings & Anti-Patterns
 
@@ -330,7 +330,7 @@ Every scenario must pass the black-box test: "Could a QA engineer verify this us
 
 ### Claude Code slugification
 
-Claude Code computes the slug directory by replacing both `/` and `_` with `-` in the absolute cwd path. For example, `/Users/justin/rw/worktrees/machinen_specs` becomes `-Users-justin-rw-worktrees-machinen-specs`. This was discovered empirically — the original assumption was that only `/` was replaced, which caused discovery to miss conversations for cwds containing underscores.
+Claude Code computes the slug directory by replacing both `/` and `_` with `-` in the absolute cwd path. For example, `/Users/justin/rw/worktrees/agent-ci_specs` becomes `-Users-justin-rw-worktrees-agent-ci-specs`. This was discovered empirically — the original assumption was that only `/` was replaced, which caused discovery to miss conversations for cwds containing underscores.
 
 ### awaitWriteFinish prevents partial reads
 
@@ -364,6 +364,6 @@ derive/
   test/                 — test infrastructure (see derive-test-infra.md blueprint)
 ```
 
-Spec files are written to `<repoPath>/.machinen/specs/<feature-slug>.feature` (project-local, not in the derive package). One file per `Feature:` block, named by slugifying the feature name.
+Spec files are written to `<repoPath>/.agent-ci/specs/<feature-slug>.feature` (project-local, not in the derive package). One file per `Feature:` block, named by slugifying the feature name.
 
-The SQLite database lives at `~/.machinen/machinen.db` (global, shared across projects).
+The SQLite database lives at `~/.agent-ci/agent-ci.db` (global, shared across projects).

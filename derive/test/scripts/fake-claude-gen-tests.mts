@@ -43,7 +43,7 @@ function readStdin(): Promise<string> {
 
 // Extract the spec directory path from the user prompt. The prompt
 // format is: "Generate tests for the Gherkin specs at <path>. Read existing..."
-// The path may contain dots (e.g. .machinen) so we match up to the ". " boundary
+// The path may contain dots (e.g. .agent-ci) so we match up to the ". " boundary
 // (period followed by space) rather than stopping at the first dot.
 function extractSpecDir(prompt: string): string | null {
   const match = prompt.match(/specs at (.+?)\. /);

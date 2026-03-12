@@ -132,7 +132,7 @@ export function registerActionRoutes(app: Polka) {
 
     const response = {
       id: agentId,
-      name: payload?.name || "machinen-runner",
+      name: payload?.name || "agent-ci-runner",
       version: payload?.version || "2.331.0",
       osDescription: payload?.osDescription || "Linux",
       ephemeral: payload?.ephemeral || true,
@@ -156,7 +156,7 @@ export function registerActionRoutes(app: Polka) {
     console.log(`[DTU] Creating session for pool ${req.params.poolId}`);
     const newSessionId = crypto.randomUUID();
 
-    const ownerName = req.body?.agent?.name || "machinen-runner";
+    const ownerName = req.body?.agent?.name || "agent-ci-runner";
 
     // Map this session to the runner name, allowing concurrent jobs to find their logs
     state.sessionToRunner.set(newSessionId, ownerName);

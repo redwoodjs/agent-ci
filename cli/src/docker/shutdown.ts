@@ -35,7 +35,7 @@ export function killRunnerContainers(runnerName: string): void {
 
   // 3. Remove the shared bridge network
   try {
-    execSync(`docker network rm machinen-net-${runnerName}`, {
+    execSync(`docker network rm agent-ci-net-${runnerName}`, {
       stdio: ["pipe", "pipe", "pipe"],
     });
   } catch {
@@ -45,16 +45,16 @@ export function killRunnerContainers(runnerName: string): void {
 
 /**
  * Remove orphaned Docker resources left behind by previous runs:
- *   1. `machinen-net-*` networks with no connected containers
+ *   1. `agent-ci-net-*` networks with no connected containers
  *   2. Dangling volumes (anonymous volumes from service containers like MySQL)
  *
  * Call this proactively before creating new resources to prevent Docker from
  * exhausting its address pool ("all predefined address pools have been fully subnetted").
  */
 export function pruneOrphanedDockerResources(): void {
-  // 1. Remove orphaned machinen-net-* networks
+  // 1. Remove orphaned agent-ci-net-* networks
   try {
-    const nets = execSync(`docker network ls -q --filter "name=machinen-net-"`, {
+    const nets = execSync(`docker network ls -q --filter "name=agent-ci-net-"`, {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
@@ -88,7 +88,7 @@ export function pruneOrphanedDockerResources(): void {
 // ─── Workspace pruning ────────────────────────────────────────────────────────
 
 /**
- * Remove stale `machinen-*` run directories older than `maxAgeMs` from
+ * Remove stale `agent-ci-*` run directories older than `maxAgeMs` from
  * `<workDir>/runs/`. Each run dir contains logs, work, shims, and diag
  * co-located, so a single rm removes everything for that run.
  *
@@ -104,7 +104,7 @@ export function pruneStaleWorkspaces(workDir: string, maxAgeMs: number): string[
   const pruned: string[] = [];
 
   for (const entry of fs.readdirSync(runsPath, { withFileTypes: true })) {
-    if (!entry.isDirectory() || !entry.name.startsWith("machinen-")) {
+    if (!entry.isDirectory() || !entry.name.startsWith("agent-ci-")) {
       continue;
     }
 

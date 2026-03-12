@@ -21,4 +21,4 @@ jobs:
       - name: Test DTU
         run: pnpm --filter dtu-github-actions test
       - name: Test CLI
-        run: pnpm --filter machinen test
+        run: pnpm --filter agent-ci test

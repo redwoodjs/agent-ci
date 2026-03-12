@@ -8,11 +8,11 @@ author: peterp
 
 ## Summary
 
-Generalized Machinen's PNPM-specific install caching to support NPM, Yarn, and Bun. Lockfile detection, sentinel checks, cache bind-mounts, and virtual cache patterns all extended. 34 tests pass.
+Generalized Agent CI's PNPM-specific install caching to support NPM, Yarn, and Bun. Lockfile detection, sentinel checks, cache bind-mounts, and virtual cache patterns all extended. 34 tests pass.
 
 ## The Problem
 
-Machinen's warm `node_modules` caching was hardcoded to PNPM: lockfile hash only checked `pnpm-lock.yaml`, integrity sentinel only checked `.modules.yaml`, and only the PNPM store was bind-mounted.
+Agent CI's warm `node_modules` caching was hardcoded to PNPM: lockfile hash only checked `pnpm-lock.yaml`, integrity sentinel only checked `.modules.yaml`, and only the PNPM store was bind-mounted.
 
 Benchmark results (from prior session) showed the symlink strategy works universally — 40s→0s for NPM, 3s→0s for Yarn, 14s→0s for Bun.
 

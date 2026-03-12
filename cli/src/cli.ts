@@ -78,7 +78,7 @@ async function run() {
       }
     }
 
-    let workingDir = process.env.MACHINEN_WORKING_DIR;
+    let workingDir = process.env.AGENT_CI_WORKING_DIR;
     if (workingDir) {
       if (!path.isAbsolute(workingDir)) {
         workingDir = path.resolve(PROJECT_ROOT, workingDir);
@@ -91,7 +91,7 @@ async function run() {
       const repoRoot = resolveRepoRoot();
       const workflowsDir = path.resolve(repoRoot, ".github", "workflows");
       if (!fs.existsSync(workflowsDir)) {
-        console.error(`[Machinen] No .github/workflows directory found in ${repoRoot}`);
+        console.error(`[Agent CI] No .github/workflows directory found in ${repoRoot}`);
         process.exit(1);
       }
 
@@ -132,7 +132,7 @@ async function run() {
       }
 
       if (relevant.length === 0) {
-        console.log(`[Machinen] No relevant workflows found for branch '${branch}'.`);
+        console.log(`[Agent CI] No relevant workflows found for branch '${branch}'.`);
         process.exit(0);
       }
 
@@ -143,7 +143,7 @@ async function run() {
     }
 
     if (!workflow) {
-      console.error("[Machinen] Error: You must specify --workflow <path> or --all");
+      console.error("[Agent CI] Error: You must specify --workflow <path> or --all");
       console.log("");
       printUsage();
       process.exit(1);
@@ -175,7 +175,7 @@ async function run() {
     let runnerName: string | undefined;
     let fromStep: string | undefined;
     for (let i = 1; i < args.length; i++) {
-      if (args[i] === "--runner" && args[i + 1]) {
+      if ((args[i] === "--name" || args[i] === "-n" || args[i] === "--runner") && args[i + 1]) {
         runnerName = args[i + 1];
         i++;
       } else if (args[i] === "--from-step" && args[i + 1]) {
@@ -186,17 +186,17 @@ async function run() {
       }
     }
     if (!runnerName) {
-      console.error(`[Machinen] Error: --runner <name> is required for '${command}'`);
+      console.error(`[Agent CI] Error: --name <name> is required for '${command}'`);
       process.exit(1);
     }
     if (fromStep && fromStep !== "*" && (isNaN(Number(fromStep)) || Number(fromStep) < 1)) {
-      console.error(`[Machinen] Error: --from-step must be a positive step number`);
+      console.error(`[Agent CI] Error: --from-step must be a positive step number`);
       process.exit(1);
     }
     const signalsDir = findSignalsDir(runnerName);
     if (!signalsDir) {
       console.error(
-        `[Machinen] Error: No runner '${runnerName}' found. It may have already exited.`,
+        `[Agent CI] Error: No runner '${runnerName}' found. It may have already exited.`,
       );
       process.exit(1);
     }
@@ -204,7 +204,7 @@ async function run() {
     if (!fs.existsSync(pausedFile)) {
       fs.rmSync(signalsDir, { recursive: true, force: true });
       console.error(
-        `[Machinen] Error: Runner '${runnerName}' is not currently paused. It may have already exited.`,
+        `[Agent CI] Error: Runner '${runnerName}' is not currently paused. It may have already exited.`,
       );
       process.exit(1);
     }
@@ -218,7 +218,7 @@ async function run() {
       }
     } catch {
       fs.rmSync(signalsDir, { recursive: true, force: true });
-      console.error(`[Machinen] Error: Runner '${runnerName}' is no longer running.`);
+      console.error(`[Agent CI] Error: Runner '${runnerName}' is no longer running.`);
       process.exit(1);
     }
     if (command === "retry") {
@@ -230,7 +230,7 @@ async function run() {
     }
     fs.writeFileSync(path.join(signalsDir, command), "");
     const extra = fromStep ? ` (from step ${fromStep === "*" ? "1" : fromStep})` : "";
-    console.log(`[Machinen] Sent '${command}' signal to ${runnerName}${extra}`);
+    console.log(`[Agent CI] Sent '${command}' signal to ${runnerName}${extra}`);
     process.exit(0);
   } else {
     printUsage();
@@ -268,7 +268,7 @@ async function runWorkflows(options: {
         for (const job of wf.jobs) {
           if (job.status !== "queued" && !reportedRunners.has(job.runnerId)) {
             reportedRunners.add(job.runnerId);
-            emit(`[Machinen] Starting runner ${job.runnerId} (${wf.id} > ${job.id})`);
+            emit(`[Agent CI] Starting runner ${job.runnerId} (${wf.id} > ${job.id})`);
             if (job.logDir) {
               emit(`  Logs: ${job.logDir}`);
             }
@@ -298,7 +298,7 @@ async function runWorkflows(options: {
           if (job.status === "paused" && !reportedPauses.has(job.runnerId)) {
             reportedPauses.add(job.runnerId);
             const lines: string[] = [];
-            lines.push(`\n[Machinen] Step failed: "${job.pausedAtStep}" (${wf.id} > ${job.id})`);
+            lines.push(`\n[Agent CI] Step failed: "${job.pausedAtStep}" (${wf.id} > ${job.id})`);
             if (job.attempt && job.attempt > 1) {
               lines.push(`  Attempt: ${job.attempt}`);
             }
@@ -308,7 +308,7 @@ async function runWorkflows(options: {
                 lines.push(`    ${l}`);
               }
             }
-            lines.push(`  To retry:  machinen retry --runner ${job.runnerId}`);
+            lines.push(`  To retry:  agent-ci retry --name ${job.runnerId}`);
             emit(lines.join("\n"));
           } else if (job.status !== "paused" && reportedPauses.has(job.runnerId)) {
             reportedPauses.delete(job.runnerId);
@@ -427,7 +427,7 @@ async function handleWorkflow(options: {
 
     const repoRoot = resolveRepoRootFromWorkflow(workflowPath);
 
-    if (!process.env.MACHINEN_WORKING_DIR) {
+    if (!process.env.AGENT_CI_WORKING_DIR) {
       setWorkingDirectory(DEFAULT_WORKING_DIR);
     }
 
@@ -441,7 +441,7 @@ async function handleWorkflow(options: {
     const jobs = template.jobs.filter((j) => j.type === "job");
 
     if (jobs.length === 0) {
-      debugCli(`[Machinen] No jobs found in workflow: ${path.basename(workflowPath)}`);
+      debugCli(`[Agent CI] No jobs found in workflow: ${path.basename(workflowPath)}`);
       return [];
     }
 
@@ -480,7 +480,7 @@ async function handleWorkflow(options: {
     if (expandedJobs.length === 1) {
       const ej = expandedJobs[0];
       const secrets = loadMachineSecrets(repoRoot);
-      const secretsFilePath = path.join(repoRoot, ".env.machinen");
+      const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
       validateSecrets(workflowPath, ej.taskName, secrets, secretsFilePath);
 
       const steps = await parseWorkflowSteps(workflowPath, ej.taskName, secrets, ej.matrixContext);
@@ -495,7 +495,7 @@ async function handleWorkflow(options: {
         githubToken: "mock_token",
         headSha: headSha,
         shaRef: shaRef,
-        env: { MACHINEN_LOCAL: "true" },
+        env: { AGENT_CI_LOCAL: "true" },
         repository: {
           name: name,
           full_name: githubRepo,
@@ -531,13 +531,13 @@ async function handleWorkflow(options: {
     );
     let warm = isWarmNodeModules(warmModulesDir);
 
-    // Naming convention: machinen-<N>[-j<idx>][-m<shardIdx>]
-    const baseRunNum = getNextLogNum("machinen");
+    // Naming convention: agent-ci-<N>[-j<idx>][-m<shardIdx>]
+    const baseRunNum = getNextLogNum("agent-ci");
     let globalIdx = 0;
 
     const buildJob = (ej: ExpandedJob): Job => {
       const secrets = loadMachineSecrets(repoRoot);
-      const secretsFilePath = path.join(repoRoot, ".env.machinen");
+      const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
       validateSecrets(workflowPath, ej.taskName, secrets, secretsFilePath);
 
       const idx = globalIdx++;
@@ -546,7 +546,7 @@ async function handleWorkflow(options: {
         const shardIdx = parseInt(ej.matrixContext.__job_index ?? "0", 10) + 1;
         suffix += `-m${shardIdx}`;
       }
-      const derivedRunnerName = `machinen-${baseRunNum}${suffix}`;
+      const derivedRunnerName = `agent-ci-${baseRunNum}${suffix}`;
 
       return {
         deliveryId: `run-${Date.now()}`,
@@ -556,7 +556,7 @@ async function handleWorkflow(options: {
         githubToken: "mock_token",
         headSha: headSha,
         shaRef: shaRef,
-        env: { MACHINEN_LOCAL: "true" },
+        env: { AGENT_CI_LOCAL: "true" },
         repository: {
           name: name,
           full_name: githubRepo,
@@ -578,7 +578,7 @@ async function handleWorkflow(options: {
         `Running: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""}`,
       );
       const secrets = loadMachineSecrets(repoRoot);
-      const secretsFilePath = path.join(repoRoot, ".env.machinen");
+      const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
       validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
       const steps = await parseWorkflowSteps(workflowPath, taskName, secrets, matrixContext);
       const services = await parseWorkflowServices(workflowPath, taskName);
@@ -655,7 +655,7 @@ async function handleWorkflow(options: {
 
     return allResults;
   } catch (error) {
-    console.error(`[Machinen] Failed to trigger run: ${(error as Error).message}`);
+    console.error(`[Agent CI] Failed to trigger run: ${(error as Error).message}`);
     return [];
   }
 }
@@ -663,17 +663,17 @@ async function handleWorkflow(options: {
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 function printUsage() {
-  console.log("Usage: machinen <command> [args]");
+  console.log("Usage: agent-ci <command> [args]");
   console.log("");
   console.log("Commands:");
   console.log("  run [sha] --workflow <path>   Run all jobs in a workflow file (defaults to HEAD)");
   console.log(
     "  run --all                     Run all relevant PR/Push workflows for current branch",
   );
-  console.log("  retry --runner <name>         Send retry signal to a paused runner");
+  console.log("  retry --name <name>           Send retry signal to a paused runner");
   console.log("    --from-step <N>              Re-run from step N (skips earlier steps)");
   console.log("    --from-start                 Re-run all run: steps from the beginning");
-  console.log("  abort --runner <name>         Send abort signal to a paused runner");
+  console.log("  abort --name <name>           Send abort signal to a paused runner");
   console.log("");
   console.log("Options:");
   console.log("  -w, --workflow <path>         Path to the workflow file");
@@ -726,6 +726,6 @@ function resolveHeadSha(repoRoot: string, sha: string) {
 }
 
 run().catch((err) => {
-  console.error("[Machinen] Fatal error:", err);
+  console.error("[Agent CI] Fatal error:", err);
   process.exit(1);
 });

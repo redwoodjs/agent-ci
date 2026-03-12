@@ -6,7 +6,7 @@
 
 `derive tests` is a command that spawns an agentic `claude -p` session to generate tests from Gherkin specs. Unlike the spec pipeline (which uses `--tools ""` for stateless text-in/text-out LLM calls), the tests command gives Claude full filesystem tool access so it can read specs, discover existing test conventions, and write test files directly.
 
-The command reads specs from `.machinen/specs/[<scope>]/`, lets Claude explore the project's test directory and config files to understand conventions, and Claude writes test files to wherever the project's existing tests live. The generated tests are first-class citizens — reviewed and committed like any other code.
+The command reads specs from `.agent-ci/specs/[<scope>]/`, lets Claude explore the project's test directory and config files to understand conventions, and Claude writes test files to wherever the project's existing tests live. The generated tests are first-class citizens — reviewed and committed like any other code.
 
 The key constraint is **source code isolation**: Claude must not read implementation source files — only spec files, test files, test utilities, fixtures, and config files. This is enforced via convention-based system prompt instruction rather than path-specific exclusions, because the tests command is designed to work across arbitrary project structures. The constraint is backstopped by human review of generated tests before committing.
 
@@ -26,7 +26,7 @@ skip getCurrentBranch(), discoverConversations(), DB access
 runGenTests(cwd, scope?)
   |
   v
-resolve spec dir: <cwd>/.machinen/specs/[<scope>]/
+resolve spec dir: <cwd>/.agent-ci/specs/[<scope>]/
   |
   v
 construct system prompt:
@@ -65,7 +65,7 @@ process exits
 Feature: Test generation from specs
 
   Scenario: tests generates test files from spec files
-    Given .machinen/specs/derive/ contains Gherkin .feature files
+    Given .agent-ci/specs/derive/ contains Gherkin .feature files
     And existing test files exist in the project
     When derive tests --scope derive is run
     Then Claude reads the spec files and existing test conventions
@@ -79,10 +79,10 @@ Feature: Test generation from specs
     And the generated tests are black-box — no internal imports from source modules
 
   Scenario: tests uses scope flag to target spec subset
-    Given .machinen/specs/derive/ contains feature files
-    And .machinen/specs/other/ contains different feature files
+    Given .agent-ci/specs/derive/ contains feature files
+    And .agent-ci/specs/other/ contains different feature files
     When derive tests --scope derive is run
-    Then only specs from .machinen/specs/derive/ are referenced
+    Then only specs from .agent-ci/specs/derive/ are referenced
 
   Scenario: tests skips conversation discovery
     Given derive tests is run
@@ -124,7 +124,7 @@ Shared with the spec pipeline: `--no-session-persistence`, `CLAUDECODE` env var 
 `derive tests` reuses the same NDJSON streaming logic as the spec pipeline for progress output. Stream events include tool use events, which are useful for observing what Claude is doing:
 
 ```
-[claude] tool_use: Read({"file_path":".machinen/specs/derive/reset-mode.feature"})
+[claude] tool_use: Read({"file_path":".agent-ci/specs/derive/reset-mode.feature"})
 [claude] tool_use: Read({"file_path":"derive/test/e2e/derive-one-shot.test.ts"})
 [claude] generating text...
 [claude] tool_use: Write({"file_path":"derive/test/e2e/reset-mode.test.ts","content":"..."})
@@ -159,8 +159,8 @@ The instruction is deliberately generic (not tied to specific directory names li
 
 | Command                       | Description                                                                    |
 | ----------------------------- | ------------------------------------------------------------------------------ |
-| `derive tests`                | Generate tests from specs in `.machinen/specs/`. Claude writes files directly. |
-| `derive tests --scope <name>` | Generate tests from specs in `.machinen/specs/<name>/` only.                   |
+| `derive tests`                | Generate tests from specs in `.agent-ci/specs/`. Claude writes files directly. |
+| `derive tests --scope <name>` | Generate tests from specs in `.agent-ci/specs/<name>/` only.                   |
 
 The `--verbose` flag (inherited from the derive CLI) dumps raw NDJSON events from the spawned Claude process.
 

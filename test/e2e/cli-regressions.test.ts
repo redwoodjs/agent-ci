@@ -6,14 +6,14 @@ import os from "node:os";
 
 const SMOKE_WORKFLOW = ".github/workflows/smoke-tests.yml";
 const CONTAINER_WORKFLOW = path.resolve(PROJECT_ROOT, "test/fixtures/container-test.yml");
-const runsDir = path.join(os.tmpdir(), "machinen", path.basename(PROJECT_ROOT), "runs");
+const runsDir = path.join(os.tmpdir(), "agent-ci", path.basename(PROJECT_ROOT), "runs");
 
 /**
  * Extract the runner name from CLI stdout.
- * Convention: `machinen-<slug>-<N>` (possibly with -j/-m suffixes).
+ * Convention: `agent-ci-<slug>-<N>` (possibly with -j/-m suffixes).
  */
 function extractRunnerName(stdout: string): string {
-  const match = stdout.match(/machinen-\d+(?:-[jmr]\d+)*/);
+  const match = stdout.match(/agent-ci-\d+(?:-[jmr]\d+)*/);
   if (!match) {
     throw new Error(
       `[E2E] Could not extract runner name from stdout.\n--- stdout ---\n${stdout}\n---`,
@@ -23,7 +23,7 @@ function extractRunnerName(stdout: string): string {
 }
 
 /**
- * Read output.log for a runner: .machinen/runs/<name>/logs/output.log
+ * Read output.log for a runner: .agent-ci/runs/<name>/logs/output.log
  */
 function readOutputLog(runnerName: string): string {
   const logPath = path.join(runsDir, runnerName, "logs", "output.log");
@@ -46,7 +46,7 @@ describe("CLI E2E Regressions", () => {
     expect(logs).toContain("Hello from E2E");
   }, 90000);
 
-  it("should place logs in os.tmpdir()/machinen/<repo>/runs/<runner>/logs/output.log", async () => {
+  it("should place logs in os.tmpdir()/agent-ci/<repo>/runs/<runner>/logs/output.log", async () => {
     const countRuns = () =>
       fs.existsSync(runsDir)
         ? fs
@@ -54,7 +54,7 @@ describe("CLI E2E Regressions", () => {
             .filter(
               (e) =>
                 e.isDirectory() &&
-                e.name.startsWith("machinen-") &&
+                e.name.startsWith("agent-ci-") &&
                 fs.existsSync(path.join(runsDir, e.name, "logs", "output.log")),
             ).length
         : 0;

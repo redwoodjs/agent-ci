@@ -11,8 +11,8 @@ export const PROJECT_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "
 // so bind mounts resolve correctly on the host.
 const isInsideDocker = fs.existsSync("/.dockerenv");
 export const DEFAULT_WORKING_DIR = isInsideDocker
-  ? path.join(PROJECT_ROOT, ".machinen")
-  : path.join(os.tmpdir(), "machinen", path.basename(PROJECT_ROOT));
+  ? path.join(PROJECT_ROOT, ".agent-ci")
+  : path.join(os.tmpdir(), "agent-ci", path.basename(PROJECT_ROOT));
 
 let workingDirectory = DEFAULT_WORKING_DIR;
 

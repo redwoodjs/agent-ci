@@ -7,7 +7,7 @@ describe("Logger utilities", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "machinen-logger-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-logger-test-"));
     vi.resetModules();
   });
 
@@ -31,29 +31,29 @@ describe("Logger utilities", () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
       const { getNextLogNum } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
-      expect(getNextLogNum("machinen")).toBe(1);
+      expect(getNextLogNum("agent-ci")).toBe(1);
     });
 
-    it("returns next number after existing machinen-* entries", async () => {
+    it("returns next number after existing agent-ci-* entries", async () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
       const { getNextLogNum } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
-      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-1"), { recursive: true });
-      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-2"), { recursive: true });
-      expect(getNextLogNum("machinen")).toBe(3);
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-1"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-2"), { recursive: true });
+      expect(getNextLogNum("agent-ci")).toBe(3);
     });
 
     it("counts only the base run number from multi-job names", async () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
       const { getNextLogNum } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
-      // Multi-job run: machinen-15 with -j1-m2 suffix — base is 15
-      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-redwoodjssdk-14"), { recursive: true });
-      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-redwoodjssdk-15-j1"), { recursive: true });
-      fs.mkdirSync(path.join(tmpDir, "runs", "machinen-redwoodjssdk-15-j2-m1"), {
+      // Multi-job run: agent-ci-15 with -j1-m2 suffix — base is 15
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-redwoodjssdk-14"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-redwoodjssdk-15-j1"), { recursive: true });
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-redwoodjssdk-15-j2-m1"), {
         recursive: true,
       });
-      expect(getNextLogNum("machinen")).toBe(16);
+      expect(getNextLogNum("agent-ci")).toBe(16);
     });
   });
 
@@ -63,8 +63,8 @@ describe("Logger utilities", () => {
       const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
 
-      const ctx = createLogContext("machinen");
-      expect(ctx.name).toMatch(/^machinen-\d+$/);
+      const ctx = createLogContext("agent-ci");
+      expect(ctx.name).toMatch(/^agent-ci-\d+$/);
       expect(fs.existsSync(ctx.runDir)).toBe(true);
       expect(fs.existsSync(ctx.logDir)).toBe(true);
       expect(ctx.outputLogPath).toBe(path.join(ctx.logDir, "output.log"));
@@ -76,10 +76,10 @@ describe("Logger utilities", () => {
       const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
 
-      const ctx = createLogContext("machinen", "machinen-redwoodjssdk-42");
-      expect(ctx.name).toBe("machinen-redwoodjssdk-42");
-      expect(ctx.runDir).toBe(path.join(tmpDir, "runs", "machinen-redwoodjssdk-42"));
-      expect(ctx.logDir).toBe(path.join(tmpDir, "runs", "machinen-redwoodjssdk-42", "logs"));
+      const ctx = createLogContext("agent-ci", "agent-ci-redwoodjssdk-42");
+      expect(ctx.name).toBe("agent-ci-redwoodjssdk-42");
+      expect(ctx.runDir).toBe(path.join(tmpDir, "runs", "agent-ci-redwoodjssdk-42"));
+      expect(ctx.logDir).toBe(path.join(tmpDir, "runs", "agent-ci-redwoodjssdk-42", "logs"));
     });
 
     it("auto-increments when no preferredName given", async () => {
@@ -87,8 +87,8 @@ describe("Logger utilities", () => {
       const { createLogContext } = await import("./logger.js");
       setWorkingDirectory(tmpDir);
 
-      const first = createLogContext("machinen");
-      const second = createLogContext("machinen");
+      const first = createLogContext("agent-ci");
+      const second = createLogContext("agent-ci");
       expect(second.num).toBe(first.num + 1);
     });
   });

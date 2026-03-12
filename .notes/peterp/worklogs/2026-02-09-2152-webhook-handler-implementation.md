@@ -8,7 +8,7 @@ author: peterp
 
 ## Summary
 
-Implemented the GitHub webhook handler in `machinen-bridge`, refactored secrets management, and aligned KV bindings with the project's naming conventions.
+Implemented the GitHub webhook handler in `agent-ci-bridge`, refactored secrets management, and aligned KV bindings with the project's naming conventions.
 
 ## The Problem
 
@@ -16,10 +16,10 @@ We needed to implement a webhook handler to receive events from GitHub, but the 
 
 ## Investigation & Timeline
 
-- **Initial State:** `machinen-bridge` had basic routing but no actual webhook logic. Secrets were manually handled.
+- **Initial State:** `agent-ci-bridge` had basic routing but no actual webhook logic. Secrets were manually handled.
 - **Attempts:**
   - Refactored `secrets.ts` to use Zod for environment variable validation.
-  - Renamed KV bindings in `wrangler.jsonc` to `MACHINEN_BRIDGE_JOBS` and `MACHINEN_BRIDGE_PRESENCE`.
+  - Renamed KV bindings in `wrangler.jsonc` to `AGENT_CI_BRIDGE_JOBS` and `AGENT_CI_BRIDGE_PRESENCE`.
   - Implemented `handleWebhook` in `src/api/routes.ts` with signature verification, deduplication, and job queuing.
   - Created `scripts/test-webhook.ts` to verify the implementation.
   - Improved error messages in `secrets.ts` to explicitly mention missing `process.env` variables.

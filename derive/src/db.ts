@@ -4,7 +4,7 @@ import os from "node:os";
 import fs from "node:fs";
 import type { ConversationRecord, BranchRecord } from "./types.js";
 
-const DB_PATH = process.env.MACHINEN_DB ?? path.join(os.homedir(), ".machinen", "machinen.db");
+const DB_PATH = process.env.AGENT_CI_DB ?? path.join(os.homedir(), ".agent-ci", "agent-ci.db");
 
 function initDb(): DatabaseSync {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });

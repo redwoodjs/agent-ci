@@ -2,7 +2,7 @@
 
 ## Problem
 
-`derive` was unable to discover conversations for repositories with underscores in their cwd path (e.g. `machinen_specs`). The `getSlugDir` function computed a slug directory that did not match Claude Code's actual directory on disk.
+`derive` was unable to discover conversations for repositories with underscores in their cwd path (e.g. `agent-ci_specs`). The `getSlugDir` function computed a slug directory that did not match Claude Code's actual directory on disk.
 
 ## Finding
 
@@ -10,8 +10,8 @@ Claude Code's slugification of the cwd path replaces **both `/` and `_` with `-`
 
 Examples:
 
-- `/Users/justin/rw/worktrees/machinen_specs` → `-Users-justin-rw-worktrees-machinen-specs`
-- `machinen_log-ui-poll` → `machinen-log-ui-poll`
+- `/Users/justin/rw/worktrees/agent-ci_specs` → `-Users-justin-rw-worktrees-agent-ci-specs`
+- `agent-ci_log-ui-poll` → `agent-ci-log-ui-poll`
 - `sdk_dipankarmaikap-fix-handel-windows-path` → `sdk-dipankarmaikap-fix-handel-windows-path`
 
 ## Solution

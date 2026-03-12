@@ -2,7 +2,7 @@
 
 ## Context / Brief
 
-We reviewed the generated spec file (`.machinen/specs/specs.gherkin`) and found multiple categories of redundancy that the current filter pass does not catch. The filter pass (pass 2 of the spec pipeline) only removes scenarios that fail the black-box test — it does not deduplicate, merge overlapping scenarios, or simplify redundant ones.
+We reviewed the generated spec file (`.agent-ci/specs/specs.gherkin`) and found multiple categories of redundancy that the current filter pass does not catch. The filter pass (pass 2 of the spec pipeline) only removes scenarios that fail the black-box test — it does not deduplicate, merge overlapping scenarios, or simplify redundant ones.
 
 This is a prompt-level change to `FILTER_SYSTEM_PROMPT` in `derive/src/spec.ts`. No code logic changes.
 
@@ -137,7 +137,7 @@ extraction pass → raw Gherkin
 
 ```bash
 # Reset spec to regenerate from scratch with the new review pass:
-cd /Users/justin/rw/worktrees/machinen_specs
+cd /Users/justin/rw/worktrees/agent-ci_specs
 pnpm --filter derive start -- --reset
 
 # Compare the regenerated spec against the current one.
@@ -395,7 +395,7 @@ During a `--reset` run, 61 conversations were being processed for the `specs` br
 
 ### Investigation
 
-Inventoried all 86 JSONL files in `~/.claude/projects/-Users-justin-rw-worktrees-machinen-specs/`. Found that ~62 files had only 4–5 lines each (consistent with short `claude -p` calls) despite file sizes up to 624K. These were session files created by `claude -p` during previous derive runs.
+Inventoried all 86 JSONL files in `~/.claude/projects/-Users-justin-rw-worktrees-agent-ci-specs/`. Found that ~62 files had only 4–5 lines each (consistent with short `claude -p` calls) despite file sizes up to 624K. These were session files created by `claude -p` during previous derive runs.
 
 This was a **feedback loop**: each `--reset` run spawns multiple `claude -p` calls (extraction + review per conversation). By default, `claude -p` persists session JSONL files in the same slug directory as the parent. On the next `--reset`, those ghost files are discovered as "conversations" and processed, which creates even more ghost files.
 
@@ -411,7 +411,7 @@ Added `--no-session-persistence` to the `claude -p` args in `runClaude`. This pr
 ### Fix: clean up existing ghost files
 
 1. Removed 60 ghost JSONL files: `grep -l "spec-maintenance agent" *.jsonl | xargs rm`.
-2. Deleted all 227 conversation entries for the `specs` branch from `~/.machinen/machinen.db` — these included stale entries pointing to deleted files. A `--reset` will rebuild the index from the 26 remaining real files.
+2. Deleted all 227 conversation entries for the `specs` branch from `~/.agent-ci/agent-ci.db` — these included stale entries pointing to deleted files. A `--reset` will rebuild the index from the 26 remaining real files.
 
 Post-cleanup state: 27 JSONL files remain (26 real conversations + 1 current session transcript). The one remaining file matching "spec-maintenance agent" is this current conversation session which discusses the preamble text — not a ghost.
 
@@ -437,7 +437,7 @@ Engineers build features on branches using Claude Code. Those conversations impl
 
 ## Solution
 
-We add `derive`, a CLI tool that reads Claude Code conversation logs and maintains a living Gherkin behaviour spec per git branch. It extracts testable product behaviours from conversations and writes them to `.machinen/specs/<branch>.gherkin` in the project directory, where they travel with the branch via git.
+We add `derive`, a CLI tool that reads Claude Code conversation logs and maintains a living Gherkin behaviour spec per git branch. It extracts testable product behaviours from conversations and writes them to `.agent-ci/specs/<branch>.gherkin` in the project directory, where they travel with the branch via git.
 
 The tool provides four modes — all with explicit token-spend control:
 
@@ -446,6 +446,6 @@ The tool provides four modes — all with explicit token-spend control:
 - **`derive watch`** — opt-in continuous mode. Run an initial update, then watch for conversation changes on the current branch (debounced, branch-scoped).
 - **`derive init`** — create an empty spec file for manual seeding before any conversations are processed.
 
-Under the hood, `derive` maintains a lightweight SQLite routing index (`~/.machinen/machinen.db`) that maps conversations to repos and branches and tracks read cursors. The spec pipeline is stateless: each update is a fresh `claude -p` call (Sonnet, no tools, low effort) that reads the current spec from disk, combines it with new conversation excerpts, and produces an updated spec. A two-pass architecture — extraction then review — ensures specs contain only externally observable behaviours (the "black-box test") and are deduplicated, consolidated, and simplified.
+Under the hood, `derive` maintains a lightweight SQLite routing index (`~/.agent-ci/agent-ci.db`) that maps conversations to repos and branches and tracks read cursors. The spec pipeline is stateless: each update is a fresh `claude -p` call (Sonnet, no tools, low effort) that reads the current spec from disk, combines it with new conversation excerpts, and produces an updated spec. A two-pass architecture — extraction then review — ensures specs contain only externally observable behaviours (the "black-box test") and are deduplicated, consolidated, and simplified.
 
-We have dogfooded `derive` on itself: `.machinen/specs/specs.gherkin` is the tool's own behaviour spec, generated from the conversations that built it. When we add test generation from specs, we will use this generated spec to dogfood further — closing the loop from conversations to specs to tests.
+We have dogfooded `derive` on itself: `.agent-ci/specs/specs.gherkin` is the tool's own behaviour spec, generated from the conversations that built it. When we add test generation from specs, we will use this generated spec to dogfood further — closing the loop from conversations to specs to tests.

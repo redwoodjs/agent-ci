@@ -21,7 +21,7 @@ export function prepareWorkspace(opts: PrepareWorkspaceOpts): void {
 
   // Resolve repo root — needed for both archive and rsync paths.
   // Derive from the workflow path (which lives inside the target repo) so we copy
-  // from the correct repo, not from the CLI's CWD (which is machinen).
+  // from the correct repo, not from the CLI's CWD (which is agent-ci).
   let repoRoot: string | undefined;
   if (workflowPath) {
     repoRoot = findRepoRoot(workflowPath);
@@ -56,8 +56,8 @@ export function initFakeGitRepo(dir: string, githubRepo: string): void {
   // The remote URL must exactly match what actions/checkout computes via URL.origin.
   // Node.js URL.origin strips the default port (80), so we must NOT include :80.
   execSync(`git init`, { cwd: dir, stdio: "pipe" });
-  execSync(`git config user.name "machinen"`, { cwd: dir, stdio: "pipe" });
-  execSync(`git config user.email "machinen@example.com"`, {
+  execSync(`git config user.name "agent-ci"`, { cwd: dir, stdio: "pipe" });
+  execSync(`git config user.email "agent-ci@example.com"`, {
     cwd: dir,
     stdio: "pipe",
   });

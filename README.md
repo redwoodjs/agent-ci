@@ -1,4 +1,4 @@
-# Machinen
+# Agent CI
 
 ## Development
 
@@ -48,7 +48,7 @@ Each agent runs in an isolated VS Code devcontainer with its own git worktree, s
 
 This will:
 
-1. Create a git worktree at `../machinen-agent-N/` checked out to `<branch>` (creating the branch from HEAD if it doesn't exist)
+1. Create a git worktree at `../agent-ci-agent-N/` checked out to `<branch>` (creating the branch from HEAD if it doesn't exist)
 2. Generate a `devcontainer.json` inside the worktree
 3. Open a new VS Code window connected to the devcontainer
 
@@ -73,20 +73,20 @@ Each container shares the following from your host machine:
 | `~/.config/gh/`                | `/root/.config/gh/`             | GitHub CLI credentials                  |
 | `<repo>/.git`                  | `<repo>/.git`                   | Main git repo (for worktree resolution) |
 | `/var/run/docker.sock`         | `/var/run/docker.sock`          | Docker-outside-of-Docker                |
-| `machinen-pnpm-store` (volume) | `/root/.local/share/pnpm/store` | Shared pnpm cache                       |
+| `agent-ci-pnpm-store` (volume) | `/root/.local/share/pnpm/store` | Shared pnpm cache                       |
 
 ---
 
 ## Run Locally
 
 ```bash
-pnpm machinen-dev run --workflow .github/workflows/tests.yml
+pnpm agent-ci-dev run --workflow .github/workflows/tests.yml
 ```
 
 To run all relevant PR/Push workflows for your current branch:
 
 ```bash
-pnpm machinen-dev run --all
+pnpm agent-ci-dev run --all
 ```
 
 A workflow is **relevant** if its `on:` trigger includes:

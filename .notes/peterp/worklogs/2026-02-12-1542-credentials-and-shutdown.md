@@ -35,11 +35,11 @@ The runner credentials (`.runner`, `.credentials`, `.credentials_rsaparams`) are
 1.  **Go to GitHub**: Navigate to **Settings** > **Actions** > **Runners** > **New self-hosted runner**.
 2.  **Download & Configure**: Follow the instructions to download the runner package and run the `config.sh` script.
     ```bash
-    ./config.sh --url https://github.com/redwoodjs/machinen --token <YOUR_TOKEN>
+    ./config.sh --url https://github.com/redwoodjs/agent-ci --token <YOUR_TOKEN>
     ```
 3.  **Extract Credentials**: After configuration, the credentials files are created in the runner directory. Copy them to your local identity folder:
     ```bash
-    cp .runner .credentials .credentials_rsaparams ~/gh/redwoodjs/machinen/runner/_/identity/
+    cp .runner .credentials .credentials_rsaparams ~/gh/redwoodjs/agent-ci/runner/_/identity/
     ```
 
 ## Resolution

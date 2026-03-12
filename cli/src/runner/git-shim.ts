@@ -27,7 +27,7 @@ export function writeGitShim(shimsDir: string, fakeSha: string): void {
     `#!/bin/bash
 
 # Log every call for debugging
-echo "git $*" >> /home/runner/_diag/machinen-git-calls.log
+echo "git $*" >> /home/runner/_diag/agent-ci-git-calls.log
 
 # actions/checkout probes the remote URL via config.
 # It computes the expected URL using URL.origin, which strips the default port 80.
@@ -48,12 +48,12 @@ fi
 # Intercept fetch - we don't have a real git server, so fetch is a no-op.
 # But we must create refs/remotes/origin/main so checkout's post-fetch validation passes.
 if [[ "$*" == *"fetch"* ]]; then
-  echo "[Machinen Shim] Intercepted 'fetch' - workspace is pre-populated."
+  echo "[Agent CI Shim] Intercepted 'fetch' - workspace is pre-populated."
   # If this is a fresh git init (no commits), create a seed commit
   # so HEAD is valid and we can create branches from it.
   if ! /usr/bin/git.real rev-parse HEAD >/dev/null 2>&1; then
-    /usr/bin/git.real config user.name "machinen" 2>/dev/null
-    /usr/bin/git.real config user.email "machinen@example.com" 2>/dev/null
+    /usr/bin/git.real config user.name "agent-ci" 2>/dev/null
+    /usr/bin/git.real config user.email "agent-ci@example.com" 2>/dev/null
     /usr/bin/git.real add -A 2>/dev/null
     /usr/bin/git.real commit --allow-empty -m "workspace" 2>/dev/null
   fi
@@ -65,14 +65,14 @@ fi
 # Note: actions/checkout deletes the local 'main' branch before fetching, so we cannot
 # checkout the local branch - instead we recreate it from the current HEAD commit.
 if [[ "$*" == *"checkout"* && "$*" == *"refs/remotes/origin/"* ]]; then
-  echo "[Machinen Shim] Redirecting remote checkout - recreating main from HEAD."
+  echo "[Agent CI Shim] Redirecting remote checkout - recreating main from HEAD."
   /usr/bin/git.real checkout -B main HEAD
   exit $?
 fi
 
 # Intercept clean and rm which can destroy workspace files
 if [[ "$1" == "clean" || "$1" == "rm" ]]; then
-  echo "[Machinen Shim] Intercepted '$1' to protect local files."
+  echo "[Agent CI Shim] Intercepted '$1' to protect local files."
   exit 0
 fi
 
@@ -89,10 +89,10 @@ if [[ "$1" == "rev-parse" ]]; then
 fi
 
 # Pass through all other git commands (checkout, reset, log, init, config, etc.)
-echo "git $@ (pass-through)" >> /home/runner/_diag/machinen-git-calls.log
+echo "git $@ (pass-through)" >> /home/runner/_diag/agent-ci-git-calls.log
 /usr/bin/git.real "$@"
 EXIT_CODE=$?
-echo "git $@ exited with $EXIT_CODE" >> /home/runner/_diag/machinen-git-calls.log
+echo "git $@ exited with $EXIT_CODE" >> /home/runner/_diag/agent-ci-git-calls.log
 exit $EXIT_CODE
 `,
     { mode: 0o755 },

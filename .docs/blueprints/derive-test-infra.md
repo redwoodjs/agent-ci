@@ -4,7 +4,7 @@
 
 ## 2000ft View Narrative
 
-derive's e2e test infrastructure enables full-pipeline testing of the derive CLI without calling Anthropic's API, touching the host filesystem, or spending tokens. Tests spawn derive as a subprocess — the same way a user invokes it — in a fully isolated temp directory environment. Three env var overrides (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB`) redirect all I/O to temp paths, and a deterministic substitute binary (`fake-claude-gen-specs`) replaces the real `claude` CLI.
+derive's e2e test infrastructure enables full-pipeline testing of the derive CLI without calling Anthropic's API, touching the host filesystem, or spending tokens. Tests spawn derive as a subprocess — the same way a user invokes it — in a fully isolated temp directory environment. Three env var overrides (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `AGENT_CI_DB`) redirect all I/O to temp paths, and a deterministic substitute binary (`fake-claude-gen-specs`) replaces the real `claude` CLI.
 
 The infrastructure has three layers: the **substitute binaries** (drop-in `claude -p` replacements — one for spec generation that produces deterministic Gherkin, one for test generation that reads spec files and writes test files), the **test harness** (a reusable utility that sets up isolated temp directories, initializes a git repo, writes synthetic JSONL fixtures or pre-populates spec files, spawns derive, and cleans up), and the **e2e tests** that exercise both the spec pipeline and the test generation command. Tests are black-box — they import nothing from derive's source, interact only through the CLI and filesystem.
 
@@ -24,7 +24,7 @@ create temp root (mkdtemp)
   |
   +-- repo/                          git-initialized working directory (cwd for derive)
   |
-  +-- machinen.db                    MACHINEN_DB (SQLite, created by derive on first run)
+  +-- agent-ci.db                    AGENT_CI_DB (SQLite, created by derive on first run)
   |
   v
 return { run(), specDir, repoDir, ... }
@@ -38,7 +38,7 @@ execa("tsx", ["derive/src/index.ts"], {
   env: {
     CLAUDE_BIN:         <abs path to fake-claude-gen-specs>,
     CLAUDE_PROJECTS_DIR: tempProjects,
-    MACHINEN_DB:        tempDb,
+    AGENT_CI_DB:        tempDb,
   }
 })
   |
@@ -124,7 +124,7 @@ Feature: Test harness
   Scenario: setupDeriveTest creates isolated temp directory structure
     Given setupDeriveTest is called with a branch name and conversations
     When setup completes
-    Then a temp root directory exists containing projects/, repo/, and machinen.db path
+    Then a temp root directory exists containing projects/, repo/, and agent-ci.db path
     And the repo/ directory is a git repository on the specified branch
     And conversation JSONL files exist under projects/<slug>/
 
@@ -140,8 +140,8 @@ Feature: Test harness
     Then derive is spawned as a subprocess with cwd set to the temp repo
     And CLAUDE_BIN points to fake-claude-gen-specs
     And CLAUDE_PROJECTS_DIR points to the temp projects directory
-    And MACHINEN_DB points to the temp database path
-    And no real ~/.machinen/ or ~/.claude/ paths are accessed
+    And AGENT_CI_DB points to the temp database path
+    And no real ~/.agent-ci/ or ~/.claude/ paths are accessed
 
   Scenario: Automatic cleanup after each test
     Given a test has completed (pass or fail)
@@ -160,10 +160,10 @@ Feature: Env var overrides for test isolation
     When derive discovers conversations
     Then it reads JSONL files from the overridden path instead of ~/.claude/projects
 
-  Scenario: MACHINEN_DB overrides the database path
-    Given MACHINEN_DB is set to a path
+  Scenario: AGENT_CI_DB overrides the database path
+    Given AGENT_CI_DB is set to a path
     When derive initializes the database
-    Then it creates the SQLite database at the overridden path instead of ~/.machinen/machinen.db
+    Then it creates the SQLite database at the overridden path instead of ~/.agent-ci/agent-ci.db
 
   Scenario: Env var overrides are invisible when unset
     Given no test isolation env vars are set
@@ -176,19 +176,19 @@ Feature: E2e test — one-shot spec update
   Scenario: One-shot spec update from a single conversation
     Given a temp directory structure with a synthetic JSONL conversation
     And CLAUDE_BIN points to fake-claude-gen-specs
-    And MACHINEN_DB points to a temp file
+    And AGENT_CI_DB points to a temp file
     And CLAUDE_PROJECTS_DIR points to the temp projects directory
     When derive is run in one-shot mode
     Then derive discovers the conversation
     And derive invokes the stub binary (not the real claude)
-    And .machinen/specs/*.feature files are created in the repo directory
+    And .agent-ci/specs/*.feature files are created in the repo directory
     And the .feature files contain valid Gherkin with Feature: and Scenario: blocks
     And the process exits with code 0
 
 Feature: E2e test — test generation
 
   Scenario: derive tests generates test files from specs
-    Given .machinen/specs/derive/ contains Gherkin .feature files
+    Given .agent-ci/specs/derive/ contains Gherkin .feature files
     And CLAUDE_BIN points to fake-claude-gen-tests
     When derive tests --scope derive is run
     Then test files are written to test/generated/ in the repo directory
@@ -196,14 +196,14 @@ Feature: E2e test — test generation
     And the process exits with code 0
 
   Scenario: derive tests generates one test file per feature
-    Given .machinen/specs/derive/ contains multiple .feature files
+    Given .agent-ci/specs/derive/ contains multiple .feature files
     And CLAUDE_BIN points to fake-claude-gen-tests
     When derive tests --scope derive is run
     Then one test file is generated per feature file
     And test file names match the slugified feature names
 
   Scenario: derive tests does not require conversations
-    Given .machinen/specs/derive/ contains .feature files
+    Given .agent-ci/specs/derive/ contains .feature files
     And no synthetic JSONL conversations exist
     And CLAUDE_BIN points to fake-claude-gen-tests
     When derive tests --scope derive is run
@@ -282,7 +282,7 @@ Three one-line changes in derive's production code make hardcoded paths configur
 | --------------------- | ------------------------------- | ------------------------- | ---------------------------- |
 | `CLAUDE_BIN`          | [spec.ts](derive/src/spec.ts)   | `~/.local/bin/claude`     | Path to the `claude` binary  |
 | `CLAUDE_PROJECTS_DIR` | [index.ts](derive/src/index.ts) | `~/.claude/projects`      | Conversation JSONL directory |
-| `MACHINEN_DB`         | [db.ts](derive/src/db.ts)       | `~/.machinen/machinen.db` | SQLite database path         |
+| `AGENT_CI_DB`         | [db.ts](derive/src/db.ts)       | `~/.agent-ci/agent-ci.db` | SQLite database path         |
 
 Each uses `process.env.X ?? <default>`. When unset, behavior is identical to the hardcoded paths — zero behavioral change in production. These exist solely for test isolation.
 
@@ -303,7 +303,7 @@ interface HarnessOptions {
     }>;
   }>;
   specs?: {
-    scope?: string; // subdirectory under .machinen/specs/
+    scope?: string; // subdirectory under .agent-ci/specs/
     features: Array<{
       name: string; // filename (e.g. "reset-mode.feature")
       content: string; // raw Gherkin content
@@ -317,7 +317,7 @@ interface HarnessResult {
   exitCode: number;
   stdout: string;
   stderr: string;
-  specDir: string; // path to .machinen/specs/ in the temp repo
+  specDir: string; // path to .agent-ci/specs/ in the temp repo
   repoDir: string; // path to the temp repo
   featureFiles: string[]; // list of .feature file paths
 }
@@ -333,7 +333,7 @@ $TMPDIR/derive-test-XXXXX/
     -tmp-derive-test-xxxxx-repo/     slugified repo path
       <uuid>.jsonl                   synthetic conversation fixture
   repo/                              git-initialized working directory
-  machinen.db                        MACHINEN_DB (created by derive on first run)
+  agent-ci.db                        AGENT_CI_DB (created by derive on first run)
 ```
 
 #### Slug computation
@@ -406,7 +406,7 @@ Exit:   0 on success, non-zero on failure.
 
 ## Requirements, Invariants & Constraints
 
-- **Full isolation.** Tests must not touch `~/.machinen/`, `~/.claude/`, or `~/.local/bin/claude`. All paths are redirected via env vars.
+- **Full isolation.** Tests must not touch `~/.agent-ci/`, `~/.claude/`, or `~/.local/bin/claude`. All paths are redirected via env vars.
 - **No network.** The substitute binary makes no network calls. No model downloads, no API calls.
 - **Deterministic output.** Identical stdin to `fake-claude-gen-specs` produces identical stdout. No randomness, no timestamps in output.
 - **At least one Feature block.** The substitute binary always produces at least one `Feature:` block in its output, ensuring `writeSpec` creates at least one `.feature` file.
@@ -453,6 +453,6 @@ derive/
     spec.ts                          CLAUDE_BIN env var override, shared NDJSON streaming helper
     index.ts                         CLAUDE_PROJECTS_DIR env var override, tests dispatch
     gen-tests.ts                     test generation command (runGenTests)
-    db.ts                            MACHINEN_DB env var override
+    db.ts                            AGENT_CI_DB env var override
   package.json                       "test" script, keyword-extractor devDependency
 ```

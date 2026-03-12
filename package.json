@@ -13,7 +13,7 @@
     "format": "oxfmt",
     "format:fix": "oxfmt",
     "format:check": "oxfmt --check",
-    "agent-ci-dev": "cd dtu-github-actions && pnpm run build && cd ../cli && tsx src/cli.ts",
+    "agent-ci-dev": "cd packages/dtu-github-actions && pnpm run build && cd ../cli && tsx src/cli.ts",
     "start": "./scripts/run.sh",
     "prepare": "husky",
     "changeset": "changeset",

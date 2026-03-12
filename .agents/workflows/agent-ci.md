@@ -11,4 +11,20 @@ aliases: [validate]
 pnpm agent-ci-dev run --all -q -p
 ```
 
-2. Confirm all jobs passed. If any failed, fix the issue and re-run from step 1.
+2. If all jobs passed, you're done.
+
+3. If a job fails, the runner pauses and waits. **CI was passing before your work started**, so the failure is caused by your changes. Investigate and fix it:
+   - Read the last output lines shown in the failure message.
+   - Check the runner's log directory (printed when the runner starts) for full logs.
+   - Identify and fix the issue in your code.
+   - Retry the failed runner:
+     ```bash
+     agent-ci retry --name <runner-name>
+     ```
+   - If the fix requires re-running from an earlier step:
+     ```bash
+     agent-ci retry --name <runner-name> --from-step <N>
+     ```
+   - Repeat until the job passes.
+
+4. Once all jobs have passed, you're done.

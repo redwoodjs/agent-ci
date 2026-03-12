@@ -94,4 +94,8 @@ A workflow is **relevant** if its `on:` trigger includes:
 - **`pull_request`** — targeting `main` (respecting `branches` / `branches-ignore` filters)
 - **`push`** — matching the current branch (respecting `branches` / `branches-ignore` filters)
 
+Both events also respect `paths` / `paths-ignore` filters: agent-ci compares the files
+changed in the current commit (`git diff --name-only HEAD~1`) against the workflow's
+path patterns and skips workflows that don't match.
+
 Workflows triggered only by `schedule`, `workflow_dispatch`, `release`, etc. are skipped.

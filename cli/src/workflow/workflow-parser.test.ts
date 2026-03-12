@@ -691,3 +691,118 @@ jobs:
     ).not.toThrow(/PRESENT_SECRET/);
   });
 });
+
+// ─── isWorkflowRelevant ───────────────────────────────────────────────────────
+
+import { isWorkflowRelevant } from "./workflow-parser.js";
+
+describe("isWorkflowRelevant", () => {
+  // Helper to build a template with push event config
+  function pushTemplate(config: Record<string, any> = {}) {
+    return { events: { push: config } };
+  }
+
+  function prTemplate(config: Record<string, any> = {}) {
+    return { events: { pull_request: config } };
+  }
+
+  // ── Basic branch matching (existing behavior) ─────────────────────────────
+
+  it("matches push with no branch/path filters", () => {
+    expect(isWorkflowRelevant(pushTemplate(), "main")).toBe(true);
+  });
+
+  it("matches push when branch matches", () => {
+    expect(isWorkflowRelevant(pushTemplate({ branches: ["main"] }), "main")).toBe(true);
+  });
+
+  it("does not match push when branch doesn't match", () => {
+    expect(isWorkflowRelevant(pushTemplate({ branches: ["main"] }), "feature")).toBe(false);
+  });
+
+  // ── paths-ignore ──────────────────────────────────────────────────────────
+
+  it("skips workflow when all changed files match paths-ignore", () => {
+    const template = pushTemplate({
+      "paths-ignore": ["**/*.md", "docs/**", "LICENSE"],
+    });
+    const changedFiles = ["README.md", "docs/guide.md", "LICENSE"];
+    expect(isWorkflowRelevant(template, "main", changedFiles)).toBe(false);
+  });
+
+  it("runs workflow when at least one changed file is not ignored", () => {
+    const template = pushTemplate({
+      "paths-ignore": ["**/*.md", "docs/**"],
+    });
+    const changedFiles = ["README.md", "cli/src/cli.ts"];
+    expect(isWorkflowRelevant(template, "main", changedFiles)).toBe(true);
+  });
+
+  it("runs workflow when paths-ignore is set but no changed files provided", () => {
+    const template = pushTemplate({
+      "paths-ignore": ["**/*.md"],
+    });
+    expect(isWorkflowRelevant(template, "main")).toBe(true);
+    expect(isWorkflowRelevant(template, "main", [])).toBe(true);
+  });
+
+  // ── paths ─────────────────────────────────────────────────────────────────
+
+  it("runs workflow when a changed file matches a paths filter", () => {
+    const template = pushTemplate({
+      paths: ["cli/**", "dtu-github-actions/**"],
+    });
+    const changedFiles = ["cli/src/cli.ts"];
+    expect(isWorkflowRelevant(template, "main", changedFiles)).toBe(true);
+  });
+
+  it("skips workflow when no changed files match paths filter", () => {
+    const template = pushTemplate({
+      paths: ["cli/**"],
+    });
+    const changedFiles = ["README.md", "docs/guide.md"];
+    expect(isWorkflowRelevant(template, "main", changedFiles)).toBe(false);
+  });
+
+  it("runs workflow when paths is set but no changed files provided", () => {
+    const template = pushTemplate({
+      paths: ["cli/**"],
+    });
+    expect(isWorkflowRelevant(template, "main")).toBe(true);
+    expect(isWorkflowRelevant(template, "main", [])).toBe(true);
+  });
+
+  // ── paths + branch interaction ────────────────────────────────────────────
+
+  it("skips when branch matches but all files are ignored", () => {
+    const template = pushTemplate({
+      branches: ["main"],
+      "paths-ignore": ["**/*.md"],
+    });
+    expect(isWorkflowRelevant(template, "main", ["README.md"])).toBe(false);
+  });
+
+  it("skips when branch does not match, even if paths would match", () => {
+    const template = pushTemplate({
+      branches: ["main"],
+      paths: ["cli/**"],
+    });
+    expect(isWorkflowRelevant(template, "feature", ["cli/src/cli.ts"])).toBe(false);
+  });
+
+  // ── pull_request with paths ───────────────────────────────────────────────
+
+  it("skips PR workflow when all changed files match paths-ignore", () => {
+    const template = prTemplate({
+      "paths-ignore": ["**/*.md"],
+    });
+    expect(isWorkflowRelevant(template, "feature", ["README.md"])).toBe(false);
+  });
+
+  it("runs PR workflow when a changed file is not ignored", () => {
+    const template = prTemplate({
+      "paths-ignore": ["**/*.md"],
+    });
+    expect(isWorkflowRelevant(template, "feature", ["cli/src/cli.ts"])).toBe(true);
+  });
+});

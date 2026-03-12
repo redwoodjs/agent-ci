@@ -20,6 +20,7 @@ import {
   parseMatrixDef,
   expandMatrixCombinations,
   isWorkflowRelevant,
+  getChangedFiles,
 } from "./workflow/workflow-parser.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
@@ -99,6 +100,8 @@ async function run() {
         .toString()
         .trim();
 
+      const changedFiles = getChangedFiles(repoRoot);
+
       const files = fs
         .readdirSync(workflowsDir)
         .filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"))
@@ -123,7 +126,7 @@ async function run() {
           } else {
             Object.assign(events, onDef);
           }
-          if (isWorkflowRelevant({ events }, branch)) {
+          if (isWorkflowRelevant({ events }, branch, changedFiles)) {
             relevant.push(file);
           }
         } catch {

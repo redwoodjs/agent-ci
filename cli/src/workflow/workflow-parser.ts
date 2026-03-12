@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { execSync } from "child_process";
 import { minimatch } from "minimatch";
 import { parse as parseYaml } from "yaml";
 
@@ -496,7 +497,60 @@ export async function parseWorkflowContainer(
   return result;
 }
 
-export function isWorkflowRelevant(template: any, branch: string) {
+/**
+ * Get the list of files changed in the current commit relative to the previous
+ * commit. Returns an empty array on error (safe fallback: all workflows run).
+ */
+export function getChangedFiles(repoRoot: string): string[] {
+  try {
+    const output = execSync("git diff --name-only HEAD~1", {
+      cwd: repoRoot,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    return output
+      .trim()
+      .split("\n")
+      .filter((f) => f.length > 0);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Check whether the changed files pass the paths / paths-ignore filter for an
+ * event definition. Returns true (relevant) when:
+ *  - No changedFiles provided or the array is empty (safe fallback).
+ *  - No paths / paths-ignore filters are defined.
+ *  - At least one changed file matches a `paths` pattern.
+ *  - At least one changed file is NOT matched by all `paths-ignore` patterns.
+ */
+function matchesPaths(eventDef: Record<string, any>, changedFiles?: string[]): boolean {
+  if (!changedFiles || changedFiles.length === 0) {
+    return true; // No file info → always relevant
+  }
+
+  const pathsFilter: string[] | undefined = eventDef.paths;
+  const pathsIgnore: string[] | undefined = eventDef["paths-ignore"];
+
+  if (!pathsFilter && !pathsIgnore) {
+    return true; // No path filters defined
+  }
+
+  if (pathsFilter) {
+    // At least one changed file must match one of the path patterns
+    return changedFiles.some((file) => pathsFilter.some((pattern) => minimatch(file, pattern)));
+  }
+
+  if (pathsIgnore) {
+    // At least one changed file must NOT be matched by all ignore patterns
+    return changedFiles.some((file) => !pathsIgnore.some((pattern) => minimatch(file, pattern)));
+  }
+
+  return true;
+}
+
+export function isWorkflowRelevant(template: any, branch: string, changedFiles?: string[]) {
   const events = template.events;
   if (!events) {
     return false;
@@ -507,40 +561,36 @@ export function isWorkflowRelevant(template: any, branch: string) {
     const pr = events.pull_request;
     // If pull_request has branch filters, check if 'main' (target) is included.
     // This simulates a PR being raised against main.
+    let branchMatches = false;
     if (!pr.branches && !pr["branches-ignore"]) {
-      return true; // No filters, matches all PRs
+      branchMatches = true; // No filters, matches all PRs
+    } else if (pr.branches) {
+      branchMatches = pr.branches.some((pattern: string) => minimatch("main", pattern));
+    } else if (pr["branches-ignore"]) {
+      branchMatches = !pr["branches-ignore"].some((pattern: string) => minimatch("main", pattern));
     }
 
-    if (pr.branches) {
-      if (pr.branches.some((pattern: string) => minimatch("main", pattern))) {
-        return true;
-      }
-    }
-
-    if (pr["branches-ignore"]) {
-      if (!pr["branches-ignore"].some((pattern: string) => minimatch("main", pattern))) {
-        return true;
-      }
+    if (branchMatches && matchesPaths(pr, changedFiles)) {
+      return true;
     }
   }
 
   // 2. Check push
   if (events.push) {
     const push = events.push;
+    let branchMatches = false;
     if (!push.branches && !push["branches-ignore"]) {
-      return true; // No filters, matches all pushes
+      branchMatches = true; // No filters, matches all pushes
+    } else if (push.branches) {
+      branchMatches = push.branches.some((pattern: string) => minimatch(branch, pattern));
+    } else if (push["branches-ignore"]) {
+      branchMatches = !push["branches-ignore"].some((pattern: string) =>
+        minimatch(branch, pattern),
+      );
     }
 
-    if (push.branches) {
-      if (push.branches.some((pattern: string) => minimatch(branch, pattern))) {
-        return true;
-      }
-    }
-
-    if (push["branches-ignore"]) {
-      if (!push["branches-ignore"].some((pattern: string) => minimatch(branch, pattern))) {
-        return true;
-      }
+    if (branchMatches && matchesPaths(push, changedFiles)) {
+      return true;
     }
   }
 

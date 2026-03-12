@@ -18,7 +18,7 @@ describe("buildContainerEnv", () => {
 
     expect(env).toContain("RUNNER_NAME=runner-1");
     expect(env).toContain("GITHUB_REPOSITORY=org/repo");
-    expect(env).toContain("MACHINEN_HEAD_SHA=abc123");
+    expect(env).toContain("AGENT_CI_HEAD_SHA=abc123");
     expect(env).toContain("FORCE_COLOR=1");
     // Should NOT include root-mode vars for standard container
     expect(env).not.toContain("RUNNER_ALLOW_RUNASROOT=1");
@@ -62,7 +62,7 @@ describe("buildContainerBinds", () => {
 
     expect(binds).toContain("/tmp/work:/home/runner/_work");
     expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock");
-    expect(binds).toContain("/tmp/shims:/tmp/machinen-shims");
+    expect(binds).toContain("/tmp/shims:/tmp/agent-ci-shims");
     expect(binds).toContain("/tmp/warm:/tmp/warm-modules");
     // Standard mode should NOT include runner home bind (but _work bind is expected)
     expect(binds.some((b) => b.endsWith(":/home/runner"))).toBe(false);
@@ -173,12 +173,12 @@ describe("buildContainerBinds with signalsDir", () => {
   it("includes signals bind-mount when signalsDir is provided", async () => {
     const { buildContainerBinds } = await import("./container-config.js");
     const binds = buildContainerBinds({ ...baseOpts, signalsDir: "/tmp/signals" });
-    expect(binds).toContain("/tmp/signals:/tmp/machinen-signals");
+    expect(binds).toContain("/tmp/signals:/tmp/agent-ci-signals");
   });
 
   it("omits signals bind-mount when signalsDir is undefined", async () => {
     const { buildContainerBinds } = await import("./container-config.js");
     const binds = buildContainerBinds(baseOpts);
-    expect(binds.some((b) => b.includes("machinen-signals"))).toBe(false);
+    expect(binds.some((b) => b.includes("agent-ci-signals"))).toBe(false);
   });
 });

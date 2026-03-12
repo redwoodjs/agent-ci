@@ -626,7 +626,7 @@ jobs:
       - run: echo ok
 `);
     expect(() =>
-      validateSecrets(filePath, "run", { MY_TOKEN: "abc123" }, "/repo/.env.machinen"),
+      validateSecrets(filePath, "run", { MY_TOKEN: "abc123" }, "/repo/.env.agent-ci"),
     ).not.toThrow();
   });
 
@@ -640,7 +640,7 @@ jobs:
     steps:
       - run: echo ok
 `);
-    expect(() => validateSecrets(filePath, "run", {}, "/repo/.env.machinen")).not.toThrow();
+    expect(() => validateSecrets(filePath, "run", {}, "/repo/.env.agent-ci")).not.toThrow();
   });
 
   it("throws listing missing secrets and the secrets file path", () => {
@@ -656,16 +656,16 @@ jobs:
     steps:
       - run: echo deploy
 `);
-    expect(() => validateSecrets(filePath, "deploy", {}, "/home/user/repo/.env.machinen")).toThrow(
+    expect(() => validateSecrets(filePath, "deploy", {}, "/home/user/repo/.env.agent-ci")).toThrow(
       /CLOUDFLARE_ACCOUNT_ID=/,
     );
 
-    expect(() => validateSecrets(filePath, "deploy", {}, "/home/user/repo/.env.machinen")).toThrow(
+    expect(() => validateSecrets(filePath, "deploy", {}, "/home/user/repo/.env.agent-ci")).toThrow(
       /CLOUDFLARE_API_TOKEN=/,
     );
 
-    expect(() => validateSecrets(filePath, "deploy", {}, "/home/user/repo/.env.machinen")).toThrow(
-      /\/home\/user\/repo\/.env.machinen/,
+    expect(() => validateSecrets(filePath, "deploy", {}, "/home/user/repo/.env.agent-ci")).toThrow(
+      /\/home\/user\/repo\/.env.agent-ci/,
     );
   });
 
@@ -683,11 +683,11 @@ jobs:
       - run: echo ok
 `);
     expect(() =>
-      validateSecrets(filePath, "run", { PRESENT_SECRET: "value" }, "/repo/.env.machinen"),
+      validateSecrets(filePath, "run", { PRESENT_SECRET: "value" }, "/repo/.env.agent-ci"),
     ).toThrow(/MISSING_SECRET/);
 
     expect(() =>
-      validateSecrets(filePath, "run", { PRESENT_SECRET: "value" }, "/repo/.env.machinen"),
+      validateSecrets(filePath, "run", { PRESENT_SECRET: "value" }, "/repo/.env.agent-ci"),
     ).not.toThrow(/PRESENT_SECRET/);
   });
 });

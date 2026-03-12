@@ -1,6 +1,6 @@
 # Releasing
 
-Machinen uses [Changesets](https://github.com/changesets/changesets) to manage versioning and publishing. The CLI (`machinen`) and DTU (`dtu-github-actions`) are always released together at the same version.
+Agent CI uses [Changesets](https://github.com/changesets/changesets) to manage versioning and publishing. The CLI (`agent-ci`) and DTU (`dtu-github-actions`) are always released together at the same version.
 
 ## Making a Release
 

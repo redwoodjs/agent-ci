@@ -1,6 +1,6 @@
 // Reusable e2e test harness for derive. Creates fully isolated temp
 // directory structures (projects dir, repo dir, DB file) so tests never touch
-// the real ~/.machinen/ or ~/.claude/ directories.
+// the real ~/.agent-ci/ or ~/.claude/ directories.
 //
 // Usage: import this module (side-effect registers afterEach cleanup), call
 // setupDeriveTest() to get paths + a run() function, then assert on results.
@@ -33,7 +33,7 @@ export interface HarnessOptions {
       content: string;
     }>;
   }>;
-  // Pre-populate .machinen/specs/<scope>/ with feature files. Used by
+  // Pre-populate .agent-ci/specs/<scope>/ with feature files. Used by
   // derive tests e2e tests where we need specs on disk before running the command.
   specs?: {
     scope?: string;
@@ -102,7 +102,7 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
 
   const repoDir = path.join(tempRoot, "repo");
   const projectsDir = path.join(tempRoot, "projects");
-  const dbPath = path.join(tempRoot, "machinen.db");
+  const dbPath = path.join(tempRoot, "agent-ci.db");
 
   fs.mkdirSync(repoDir, { recursive: true });
   fs.mkdirSync(projectsDir, { recursive: true });
@@ -141,7 +141,7 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
     fs.writeFileSync(path.join(slugDir, `${id}.jsonl`), lines.join("\n") + "\n", "utf8");
   }
 
-  const specDir = path.join(repoDir, ".machinen", "specs");
+  const specDir = path.join(repoDir, ".agent-ci", "specs");
 
   if (opts.specs) {
     const scopedSpecDir = opts.specs.scope ? path.join(specDir, opts.specs.scope) : specDir;
@@ -163,7 +163,7 @@ export async function setupDeriveTest(opts: HarnessOptions = {}): Promise<{
           ...process.env,
           CLAUDE_BIN: opts.claudeBin ?? FAKE_CLAUDE_GEN_SPECS_BIN,
           CLAUDE_PROJECTS_DIR: projectsDir,
-          MACHINEN_DB: dbPath,
+          AGENT_CI_DB: dbPath,
         },
         reject: false,
       },

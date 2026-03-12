@@ -105,7 +105,7 @@ export async function executeLocalJob(
   job: Job,
   options?: { pauseOnFailure?: boolean; store?: RunStateStore },
 ): Promise<JobResult> {
-  const pauseOnFailure = options?.pauseOnFailure ?? true;
+  const pauseOnFailure = options?.pauseOnFailure ?? false;
   const startTime = Date.now();
   const store = options?.store;
 
@@ -133,7 +133,7 @@ export async function executeLocalJob(
     runDir,
     logDir,
     debugLogPath,
-  } = createLogContext("machinen", job.runnerName);
+  } = createLogContext("agent-ci", job.runnerName);
 
   // Register the job in the store so the render loop can show the boot spinner
   store?.addJob(job.workflowPath ?? "", job.taskId ?? "job", containerName, {
@@ -313,7 +313,7 @@ export async function executeLocalJob(
         await fs.promises.access(markerFile);
       } catch {
         debugRunner(`Extracting runner binary to host (one-time)...`);
-        const tmpName = `machinen-seed-runner-${Date.now()}`;
+        const tmpName = `agent-ci-seed-runner-${Date.now()}`;
         const seedContainer = await docker.createContainer({
           Image: IMAGE,
           name: tmpName,

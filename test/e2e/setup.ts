@@ -14,7 +14,7 @@ export async function runCLI(workflow: string) {
     cwd: PROJECT_ROOT,
     env: {
       ...process.env,
-      GITHUB_REPO: "redwoodjs/machinen",
+      GITHUB_REPO: "redwoodjs/agent-ci",
     },
   });
 

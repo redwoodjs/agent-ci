@@ -30,12 +30,12 @@ export const config = {
 };
 
 /**
- * Load machine-local secrets from `.env.machine` at the machinen project root.
+ * Load machine-local secrets from `.env.machine` at the agent-ci project root.
  * The file uses KEY=VALUE syntax (lines starting with # are ignored).
  * Returns an empty object if the file doesn't exist.
  */
 export function loadMachineSecrets(baseDir?: string): Record<string, string> {
-  const envMachinePath = path.join(baseDir ?? PROJECT_ROOT, ".env.machinen");
+  const envMachinePath = path.join(baseDir ?? PROJECT_ROOT, ".env.agent-ci");
   if (!fs.existsSync(envMachinePath)) {
     return {};
   }

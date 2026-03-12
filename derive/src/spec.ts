@@ -186,7 +186,7 @@ You perform four operations, in order:
 
 3. CONSOLIDATE — When the same invariant or rule appears in multiple Features (e.g., "other branches are ignored" stated separately for one-shot mode and watch mode), keep it in the most natural location and remove the duplicate. If it applies universally, state it once.
 
-4. SIMPLIFY — Remove scenarios whose assertion is already fully encoded in another scenario. For example, if one scenario states "the spec file is written to .machinen/specs/feature-x.gherkin", a separate scenario stating "the spec file uses the .gherkin extension" adds nothing and should be removed.
+4. SIMPLIFY — Remove scenarios whose assertion is already fully encoded in another scenario. For example, if one scenario states "the spec file is written to .agent-ci/specs/feature-x.gherkin", a separate scenario stating "the spec file uses the .gherkin extension" adds nothing and should be removed.
 
 Rules:
 - Do NOT invent new scenarios or add behaviours not present in the input.
@@ -299,7 +299,7 @@ export async function updateSpec(
 // branches share the same directory — specs describe product features, not
 // branch-scoped work.
 export function specDir(repoPath: string, scope?: string): string {
-  const base = path.join(repoPath, ".machinen", "specs");
+  const base = path.join(repoPath, ".agent-ci", "specs");
   return scope ? path.join(base, scope) : base;
 }
 

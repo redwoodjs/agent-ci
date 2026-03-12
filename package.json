@@ -1,10 +1,10 @@
 {
-  "name": "machinen-monorepo",
+  "name": "agent-ci-monorepo",
   "private": true,
   "scripts": {
     "test": "npm-run-all test:*",
     "test:unit": "pnpm -r test",
-    "test:e2e": "(docker rm -f $(docker ps -a --filter name=machinen- -q) 2>/dev/null || true) && vitest run test/e2e",
+    "test:e2e": "(docker rm -f $(docker ps -a --filter name=agent-ci- -q) 2>/dev/null || true) && vitest run test/e2e",
     "check": "npm-run-all --parallel typecheck lint format:check",
     "check:fix": "npm-run-all --parallel typecheck lint:fix format:fix",
     "typecheck": "pnpm -r run typecheck",
@@ -13,7 +13,7 @@
     "format": "oxfmt",
     "format:fix": "oxfmt",
     "format:check": "oxfmt --check",
-    "machinen-dev": "cd cli && tsx src/cli.ts",
+    "agent-ci-dev": "cd dtu-github-actions && pnpm run build && cd ../cli && tsx src/cli.ts",
     "start": "./scripts/run.sh",
     "prepare": "husky",
     "changeset": "changeset",

@@ -14,10 +14,10 @@ Runner 23 was stuck on "Waiting for logs..." in the UI. Root cause: `code-qualit
 
 ## The Problem
 
-- Clicked **Run** on `code-quality.yml` → `machinen-runner-23` spawned, UI showed "Waiting for logs..." indefinitely.
+- Clicked **Run** on `code-quality.yml` → `agent-ci-runner-23` spawned, UI showed "Waiting for logs..." indefinitely.
 - `process-stdout.log` was **0 bytes**. `process-stderr.log` contained:
   ```
-  [Machinen] Multiple tasks found in workflow. Please specify one with --task:
+  [Agent CI] Multiple tasks found in workflow. Please specify one with --task:
     - check-sdk
     - check-community
   ```
@@ -28,7 +28,7 @@ Runner 23 was stuck on "Waiting for logs..." in the UI. Root cause: `code-qualit
 ## Investigation & Timeline
 
 - **Initial state:** `runWorkflow` in `orchestrator.ts` spawned a single CLI process without `--task`. The CLI errored to stderr and exited. `getRunLogs` only read `process-stdout.log` → returned empty → UI showed "Waiting for logs...".
-- **Checked `_/logs/machinen-runner-23/`** — confirmed 0-byte stdout, 105-byte stderr.
+- **Checked `_/logs/agent-ci-runner-23/`** — confirmed 0-byte stdout, 105-byte stderr.
 - **Checked `cli.ts`** — confirmed the "Multiple tasks found" path calls `console.error` (stderr) and `process.exit(1)`.
 - **Fix 1:** `getRunLogs` now falls back to `process-stderr.log` when stdout is empty, so error messages surface in the UI.
 - **Fix 2:** `runWorkflow` now calls `getWorkflowTemplate` (the existing `@actions/workflow-parser`-backed parser) to enumerate jobs, then spawns one CLI process per job with `--task <jobId>`. The common-entry-point heuristic (`test`, `ci`, `run`, `build`) still short-circuits to a single runner when applicable.
@@ -39,7 +39,7 @@ Runner 23 was stuck on "Waiting for logs..." in the UI. Root cause: `code-qualit
 
 - **stderr swallowed silently** — the orchestrator piped stderr to a file but `getRunLogs` never read it.
 - **`getWorkflowTemplate` already available** — `workflow-parser.ts` exports the full parsed template with `template.jobs`; no need for a custom YAML regex.
-- **Naming scheme** — user wanted multi-job runners grouped like GitHub's "jobs" sidebar. Settled on `machinen-runner-N-001`, `machinen-runner-N-002` (all jobs share the same base number `N`), with `workflowRunId: "machinen-runner-N"` and `jobName` stored in metadata.
+- **Naming scheme** — user wanted multi-job runners grouped like GitHub's "jobs" sidebar. Settled on `agent-ci-runner-N-001`, `agent-ci-runner-N-002` (all jobs share the same base number `N`), with `workflowRunId: "agent-ci-runner-N"` and `jobName` stored in metadata.
 
 ---
 
@@ -49,8 +49,8 @@ Runner 23 was stuck on "Waiting for logs..." in the UI. Root cause: `code-qualit
 
 - `getRunLogs`: tries `process-stdout.log` → `output.log` → `process-stderr.log`, returning first non-empty.
 - `runWorkflow`: refactored into `spawnRunner` helper + main function that fans out to N runners for N jobs. Runner naming:
-  - Single job → `machinen-runner-N`
-  - Multi job → `machinen-runner-N-001`, `machinen-runner-N-002`, …
+  - Single job → `agent-ci-runner-N`
+  - Multi job → `agent-ci-runner-N-001`, `agent-ci-runner-N-002`, …
 - Metadata now includes `workflowName` (bare), `jobName` (job id or null), `workflowRunId` (base runner name).
 - `getRunsForCommit`: returns `jobName` and `workflowRunId` fields.
 
@@ -71,5 +71,5 @@ Runner 23 was stuck on "Waiting for logs..." in the UI. Root cause: `code-qualit
 ## Next Steps
 
 - [ ] Restart supervisor dev server to pick up orchestrator changes
-- [ ] Verify `code-quality.yml` now spawns two runners (`machinen-runner-N-001`, `machinen-runner-N-002`) and both appear in the UI grouped correctly
+- [ ] Verify `code-quality.yml` now spawns two runners (`agent-ci-runner-N-001`, `agent-ci-runner-N-002`) and both appear in the UI grouped correctly
 - [ ] Consider running jobs in parallel rather than sequentially (currently each `spawnRunner` fires independently — check if DTU handles concurrent runners)

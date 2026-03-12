@@ -56,9 +56,9 @@ export function buildContainerEnv(opts: ContainerEnvOpts): string[] {
     `GITHUB_API_URL=${dockerApiUrl}`,
     `GITHUB_SERVER_URL=${repoUrl}`,
     `GITHUB_REPOSITORY=${githubRepo}`,
-    `MACHINEN_LOCAL_SYNC=true`,
-    `MACHINEN_HEAD_SHA=${headSha || "HEAD"}`,
-    `MACHINEN_DTU_HOST=${dtuHost}`,
+    `AGENT_CI_LOCAL_SYNC=true`,
+    `AGENT_CI_HEAD_SHA=${headSha || "HEAD"}`,
+    `AGENT_CI_DTU_HOST=${dtuHost}`,
     `ACTIONS_CACHE_URL=${dockerApiUrl}/`,
     `ACTIONS_RESULTS_URL=${dockerApiUrl}/`,
     `ACTIONS_RUNTIME_TOKEN=mock_cache_token_123`,
@@ -100,9 +100,9 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     ...(useDirectContainer ? [`${h(hostRunnerDir)}:/home/runner`] : []),
     `${h(hostWorkDir)}:/home/runner/_work`,
     "/var/run/docker.sock:/var/run/docker.sock",
-    `${h(shimsDir)}:/tmp/machinen-shims`,
+    `${h(shimsDir)}:/tmp/agent-ci-shims`,
     // Pause-on-failure IPC: signal files (paused, retry, abort)
-    ...(signalsDir ? [`${h(signalsDir)}:/tmp/machinen-signals`] : []),
+    ...(signalsDir ? [`${h(signalsDir)}:/tmp/agent-ci-signals`] : []),
     `${h(diagDir)}:/home/runner/_diag`,
     `${h(toolCacheDir)}:/opt/hostedtoolcache`,
     // Package manager caches (persist across runs)
@@ -138,13 +138,13 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
 
   // Timing helper: date +%s%3N gives epoch milliseconds
   const T = (label: string) =>
-    `T1=$(date +%s%3N); echo "[machinen:boot] ${label}: $((T1-T0))ms"; T0=$T1`;
+    `T1=$(date +%s%3N); echo "[agent-ci:boot] ${label}: $((T1-T0))ms"; T0=$T1`;
 
   const cmdScript = [
     `MAYBE_SUDO() { if command -v sudo >/dev/null 2>&1; then sudo -n "$@"; else "$@"; fi; }`,
     `BOOT_T0=$(date +%s%3N); T0=$BOOT_T0`,
     // chmod is done host-side in workspacePrepPromise — skip it here
-    `if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp -p /tmp/machinen-shims/git /usr/bin/git 2>/dev/null; MAYBE_SUDO chmod +x /usr/bin/git 2>/dev/null; fi`,
+    `if [ -f /usr/bin/git ]; then MAYBE_SUDO mv /usr/bin/git /usr/bin/git.real 2>/dev/null; MAYBE_SUDO cp -p /tmp/agent-ci-shims/git /usr/bin/git 2>/dev/null; MAYBE_SUDO chmod +x /usr/bin/git 2>/dev/null; fi`,
     T("git-shim"),
     `${svcPortForwardSnippet}chmod 666 /var/run/docker.sock 2>/dev/null || true`,
     T("docker-sock"),
@@ -156,8 +156,8 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
     `mkdir -p $WORKSPACE_PATH`,
     `ln -sfn /tmp/warm-modules $WORKSPACE_PATH/node_modules`,
     T("workspace-setup"),
-    `echo "[machinen:boot] total: $(($(date +%s%3N)-BOOT_T0))ms"`,
-    `echo "[machinen:boot] starting run.sh --once"`,
+    `echo "[agent-ci:boot] total: $(($(date +%s%3N)-BOOT_T0))ms"`,
+    `echo "[agent-ci:boot] starting run.sh --once"`,
     `./run.sh --once`,
   ].join(" && ");
 

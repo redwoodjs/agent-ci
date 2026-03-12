@@ -1,5 +1,5 @@
 // E2E tests for spec-file-location.feature. Verifies that derive
-// always writes .feature files to .machinen/specs/ inside the current working
+// always writes .feature files to .agent-ci/specs/ inside the current working
 // directory (the git repository), never to a global or user-level location.
 
 import fs from "node:fs";
@@ -8,7 +8,7 @@ import { describe, it, expect } from "vitest";
 import { setupDeriveTest } from "./harness.js";
 
 describe("derive spec file location", () => {
-  it("writes spec files to .machinen/specs/ inside the project directory", async () => {
+  it("writes spec files to .agent-ci/specs/ inside the project directory", async () => {
     const { repoDir, specDir, run } = await setupDeriveTest({
       branch: "feature-x",
       conversations: [
@@ -29,9 +29,9 @@ describe("derive spec file location", () => {
     expect(result.exitCode).toBe(0);
     expect(result.featureFiles.length).toBeGreaterThan(0);
 
-    // specDir is path.join(repoDir, ".machinen", "specs"). Every
+    // specDir is path.join(repoDir, ".agent-ci", "specs"). Every
     // produced file must sit inside this directory, not anywhere else.
-    const expectedSpecDir = path.join(repoDir, ".machinen", "specs");
+    const expectedSpecDir = path.join(repoDir, ".agent-ci", "specs");
     expect(specDir).toBe(expectedSpecDir);
 
     for (const filePath of result.featureFiles) {
@@ -39,7 +39,7 @@ describe("derive spec file location", () => {
     }
   }, 30_000);
 
-  it("creates the .machinen/specs/ directory if it does not exist", async () => {
+  it("creates the .agent-ci/specs/ directory if it does not exist", async () => {
     const { specDir, run } = await setupDeriveTest({
       branch: "feature-x",
       conversations: [
@@ -89,7 +89,7 @@ describe("derive spec file location", () => {
     expect(result.featureFiles.length).toBeGreaterThan(0);
 
     // All produced files must be rooted under repoDir. This guards
-    // against any accidental writes to ~/.machinen/ or other global paths.
+    // against any accidental writes to ~/.agent-ci/ or other global paths.
     for (const filePath of result.featureFiles) {
       expect(filePath.startsWith(repoDir)).toBe(true);
     }

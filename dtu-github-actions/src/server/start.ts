@@ -3,7 +3,7 @@ import { bootstrapAndReturnApp } from "./index.js";
 import { getDtuLogPath, setWorkingDirectory, DTU_ROOT } from "./logger.js";
 import path from "node:path";
 
-let workingDir = process.env.MACHINEN_WORKING_DIR;
+let workingDir = process.env.AGENT_CI_WORKING_DIR;
 if (workingDir) {
   if (!path.isAbsolute(workingDir)) {
     workingDir = path.resolve(DTU_ROOT, workingDir);

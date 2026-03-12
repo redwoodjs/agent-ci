@@ -22,7 +22,7 @@ Developers needed a way to trigger local CI runs that include their current, unc
   - Added a dedicated POST endpoint `/api/local-job` in the Bridge to queue local sync jobs.
   - Modified `WarmPool.ts` to detect `localSync` jobs and spawn dedicated containers with:
     - Bind mount of the local repo: `${localPath}:/home/runner/_work/${repo}/${repo}`.
-    - A git shim in `/tmp/machinen-shims` to intercept `checkout`, `fetch`, and `reset`.
+    - A git shim in `/tmp/agent-ci-shims` to intercept `checkout`, `fetch`, and `reset`.
   - **Obstacle:** Container failed to start because `PATH` was set to `$PATH`, inheriting the host's `PATH` which lacked container-specific binaries. Fix: Set a standard container `PATH` with shims prepended.
   - **Obstacle:** Bridge failed to process jobs because it tried to generate GitHub installation tokens for local jobs. Fix: Added a bypass for `localSync` jobs.
   - **Refinement:** Replaced the binary `"oa"` with a `package.json` script `"oa": "node --env-file=.env dist/cli.js"` to simplify environment management.

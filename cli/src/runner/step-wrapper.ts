@@ -23,7 +23,7 @@ export function wrapStepScript(script: string, stepName: string, stepIndex: numb
   // The original script runs in a subshell `( ... )` so that:
   //  1. `exit N` inside the script terminates the subshell, not the retry loop
   //  2. The runner's `set -e` (bash -e {0}) doesn't bypass the wrapper
-  return `__SIGNALS="/tmp/machinen-signals"
+  return `__SIGNALS="/tmp/agent-ci-signals"
 __STEP_INDEX=${stepIndex}
 # ── from-step skip logic ──
 if [ -f "$__SIGNALS/from-step" ]; then

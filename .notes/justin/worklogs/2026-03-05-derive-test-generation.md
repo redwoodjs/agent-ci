@@ -14,7 +14,7 @@ Beyond the immediate task, this fits into a larger pipeline vision: conversation
 - Spec pipeline: two-pass (extraction + review) via `claude -p` with `--model sonnet --tools "" --effort low`
 - Spec I/O is virtualized: `readSpec` concatenates `.feature` files, `writeSpec` splits by `Feature:` block
 - Modes: one-shot (`derive`), reset (`derive --reset`), watch (`derive watch`)
-- Specs live at `<repoPath>/.machinen/specs/` (or `<repoPath>/.machinen/specs/<scope>/`)
+- Specs live at `<repoPath>/.agent-ci/specs/` (or `<repoPath>/.agent-ci/specs/<scope>/`)
 - Key invariant: spec pipeline is stateless — each call reads spec from disk, produces updated version
 - Claude recursion prevention: `extendEnv: false`, `delete env.CLAUDECODE`
 - No session persistence to avoid ghost conversations
@@ -277,9 +277,9 @@ This is a trivial, safe change with no behavioral impact on production.
 
 The substitute binary handles model acquisition:
 
-- On first run, downloads the GGUF model to `~/.cache/machinen/models/<model-name>.gguf`
+- On first run, downloads the GGUF model to `~/.cache/agent-ci/models/<model-name>.gguf`
 - Subsequent runs use the cached file
-- CI caches `~/.cache/machinen/models/`
+- CI caches `~/.cache/agent-ci/models/`
 - The download URL and model name are hardcoded in the substitute (or configurable via env var)
 
 #### Summary
@@ -290,7 +290,7 @@ The substitute binary handles model acquisition:
 | Substitute binary      | ~50-line Node script, `#!/usr/bin/env node`                           |
 | Runtime                | `node-llama-cpp` as devDependency in derive                           |
 | Model                  | SmolLM-135M-Instruct Q4_K_M (~105MB), fallback to Qwen3-0.6B (~296MB) |
-| Model caching          | `~/.cache/machinen/models/`, one-time download                        |
+| Model caching          | `~/.cache/agent-ci/models/`, one-time download                        |
 | Cost                   | Zero. Local CPU inference.                                            |
 | Runaway-safe           | Yes. No API calls, no money spent.                                    |
 | Output contract        | Single NDJSON line: `{"type":"result","result":"..."}`                |
@@ -314,7 +314,7 @@ A `#!/usr/bin/env node` script that:
 
 - Reads stdin (the preamble + prompt)
 - Parses `--system-prompt` from argv
-- Loads a tiny GGUF model via node-llama-cpp (auto-downloads on first run to `~/.cache/machinen/models/`)
+- Loads a tiny GGUF model via node-llama-cpp (auto-downloads on first run to `~/.cache/agent-ci/models/`)
 - Runs inference
 - Outputs `{"type":"result","result":"<output>"}\n` to stdout
 - Exits
@@ -351,10 +351,10 @@ Test shape (pure e2e — spawn the CLI as a subprocess, no internal imports):
    - cwd: temp git repo
    - env.CLAUDE_BIN: path to the substitute binary
    - env.CLAUDE_PROJECTS_DIR: temp projects dir
-   - env.MACHINEN_DB: temp db path (isolate from real DB)
+   - env.AGENT_CI_DB: temp db path (isolate from real DB)
 3. Wait for process to exit successfully (exit code 0)
 4. Assert on filesystem output:
-   - <temp-repo>/.machinen/specs/ directory was created
+   - <temp-repo>/.agent-ci/specs/ directory was created
    - At least one .feature file exists
    - Each .feature file starts with "Feature:"
    - File names are slugified feature names (lowercase, hyphens)
@@ -368,7 +368,7 @@ Env var overrides needed in production code (all trivial one-line changes):
 
 - `CLAUDE_BIN` in `spec.ts` — substitute binary path
 - `CLAUDE_PROJECTS_DIR` in `index.ts` — temp projects dir
-- `MACHINEN_DB` in `db.ts` — temp SQLite path (otherwise tests share the real global DB at `~/.machinen/machinen.db`)
+- `AGENT_CI_DB` in `db.ts` — temp SQLite path (otherwise tests share the real global DB at `~/.agent-ci/agent-ci.db`)
 
 ```typescript
 // spec.ts
@@ -379,14 +379,14 @@ const CLAUDE_PROJECTS_DIR =
   process.env.CLAUDE_PROJECTS_DIR ?? path.join(os.homedir(), ".claude", "projects");
 
 // db.ts
-const DB_PATH = process.env.MACHINEN_DB ?? path.join(os.homedir(), ".machinen", "machinen.db");
+const DB_PATH = process.env.AGENT_CI_DB ?? path.join(os.homedir(), ".agent-ci", "agent-ci.db");
 ```
 
 #### Task 4: Test generation — first implementation
 
 This is where derive starts generating tests from specs. The mechanism:
 
-1. derive reads the spec files (`.machinen/specs/**/*.feature`) — already has `readSpec` for this
+1. derive reads the spec files (`.agent-ci/specs/**/*.feature`) — already has `readSpec` for this
 2. derive reads the existing test files (e.g. `derive/src/*.test.ts`) — concatenates them as "convention examples"
 3. derive calls `claude -p` (or the substitute in tests) with a test-generation system prompt + the spec content + the existing test code
 4. The prompt instructs: "here are the specs, here are the existing tests, generate additional tests following the same conventions, do not read any source code"
@@ -394,7 +394,7 @@ This is where derive starts generating tests from specs. The mechanism:
 
 Key design: the test generation call uses `--tools ""` (no filesystem access) and receives everything via stdin. The stdin payload is: system prompt + spec content + existing test code. This enforces the source code isolation constraint — the LLM cannot read `spec.ts`, `index.ts`, etc.
 
-For this slice, test generation is a separate command: `derive gen-tests --scope <name>`. It reads specs from `.machinen/specs/<scope>/`, reads existing tests from a configured test directory, and writes generated tests. This is manual-only for now — no watch mode, no automatic triggering.
+For this slice, test generation is a separate command: `derive gen-tests --scope <name>`. It reads specs from `.agent-ci/specs/<scope>/`, reads existing tests from a configured test directory, and writes generated tests. This is manual-only for now — no watch mode, no automatic triggering.
 
 The generated tests follow the same conventions as the manually-written test (vitest, temp dirs, substitute binary, structural assertions). The manually-written test is the "seed" that teaches the generator what good tests look like.
 
@@ -422,7 +422,7 @@ The generated tests follow the same conventions as the manually-written test (vi
 #### Watch mode for test gen
 
 - `derive watch` already re-runs spec update on JSONL changes
-- Extending it to also re-run test gen on spec changes means watching a second directory (`.machinen/specs/`)
+- Extending it to also re-run test gen on spec changes means watching a second directory (`.agent-ci/specs/`)
 - Could be a second chokidar watcher in the same process, or a separate `derive gen-tests --watch` process
 
 #### Test file location
@@ -436,7 +436,7 @@ The generated tests follow the same conventions as the manually-written test (vi
 | #   | Task                    | Description                                                                                                            |
 | --- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | 1   | Substitute binary       | `bin/fakeClaude` — local AI drop-in for `claude -p`                                                                    |
-| 2   | Env var overrides       | Make `CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, and `MACHINEN_DB` configurable via env in `spec.ts`, `index.ts`, and `db.ts` |
+| 2   | Env var overrides       | Make `CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, and `AGENT_CI_DB` configurable via env in `spec.ts`, `index.ts`, and `db.ts` |
 | 3   | Test infrastructure     | vitest config, test script, devDependencies                                                                            |
 | 4   | First manual e2e test   | Full pipeline: synthetic JSONL -> substitute binary -> .feature file output                                            |
 | 5   | Test generation command | `derive gen-tests` — reads specs + existing tests, generates new tests via `claude -p`                                 |
@@ -543,7 +543,7 @@ stdin (prompt text)
 parse argv for --system-prompt
   |
   v
-resolve model path (~/.cache/machinen/models/<name>.gguf)
+resolve model path (~/.cache/agent-ci/models/<name>.gguf)
   |
   +-- if not exists: download from HuggingFace URL → write to cache dir
   |
@@ -567,7 +567,7 @@ exit 0
 - Model download must be idempotent — if the file exists at the cache path, skip the download.
 - The binary must work when spawned via `execa` with `input:` (stdin piped, not TTY).
 - The binary must not write to `~/.claude/projects/` or create session files (no ghost conversation risk).
-- Model cache location: `~/.cache/machinen/models/`. Configurable via `MACHINEN_MODEL_CACHE` env var for CI.
+- Model cache location: `~/.cache/agent-ci/models/`. Configurable via `AGENT_CI_MODEL_CACHE` env var for CI.
 
 ### Model Selection
 
@@ -580,7 +580,7 @@ The model URL is hardcoded in the binary (e.g. `https://huggingface.co/QuantFact
 1. Run `echo "Describe a login feature" | tsx bin/fakeClaude.ts -p --system-prompt "Output only Gherkin"` and inspect stdout for valid NDJSON with a `result` field
 2. Run it again — second run should be faster (model already cached)
 3. Parse the output with `JSON.parse()` and check `obj.type === "result"` and `obj.result` is non-empty
-4. Inspect `~/.cache/machinen/models/` to confirm the GGUF file was downloaded
+4. Inspect `~/.cache/agent-ci/models/` to confirm the GGUF file was downloaded
 
 ### Tasks
 
@@ -597,7 +597,7 @@ Added `node-llama-cpp@^3.17.1` to root devDependencies and added it to `onlyBuil
 Implementation notes for `bin/fakeClaude.mts`:
 
 - Uses `resolveModelFile("hf:QuantFactory/SmolLM-135M-Instruct-GGUF:Q4_K_M", modelsDir)` which auto-downloads the GGUF on first call and caches it. This eliminated the need for a separate `models:pull` script.
-- Model cache defaults to `~/.cache/machinen/models/`, overridable via `MACHINEN_MODEL_CACHE`.
+- Model cache defaults to `~/.cache/agent-ci/models/`, overridable via `AGENT_CI_MODEL_CACHE`.
 - Model URI overridable via `FAKECLAUDE_MODEL_URI` for switching to a larger model.
 - Parses `--system-prompt` (used for LlamaChatSession constructor), `-p` (mode gate), and silently consumes all other flags derive passes.
 - All diagnostic output goes to stderr; only the NDJSON result line goes to stdout.
@@ -873,7 +873,7 @@ Feature: Derive e2e test infrastructure
 
   Scenario: Env var overrides for test isolation
     Given CLAUDE_BIN is set to the fake-claude-gen-specs stub
-    And MACHINEN_DB is set to a temp directory path
+    And AGENT_CI_DB is set to a temp directory path
     And CLAUDE_PROJECTS_DIR is set to a temp directory path
     When derive is spawned as a subprocess
     Then derive uses the stub binary instead of the real claude CLI
@@ -886,12 +886,12 @@ Feature: Derive e2e test infrastructure
       | projects/{slug}/{conversation-id}.jsonl      | synthetic JSONL fixture    |
       | repo/                                        | empty working directory    |
     And CLAUDE_BIN points to fake-claude-gen-specs
-    And MACHINEN_DB points to a temp file
+    And AGENT_CI_DB points to a temp file
     And CLAUDE_PROJECTS_DIR points to the temp projects directory
     When derive is run in one-shot mode with cwd=repo/
     Then derive discovers the conversation
     And derive invokes the stub binary (not the real claude)
-    And .machinen/specs/*.feature files are created inside the repo directory
+    And .agent-ci/specs/*.feature files are created inside the repo directory
     And the .feature files contain valid Gherkin with Feature: and Scenario: blocks
     And the process exits with code 0
 ```
@@ -912,8 +912,8 @@ Three one-line changes to make hardcoded paths configurable:
   After:  const CLAUDE_PROJECTS_DIR = process.env.CLAUDE_PROJECTS_DIR ?? path.join(os.homedir(), ".claude", "projects");
 
 [MODIFY] derive/src/db.ts:7
-  Before: const DB_PATH = path.join(os.homedir(), ".machinen", "machinen.db");
-  After:  const DB_PATH = process.env.MACHINEN_DB ?? path.join(os.homedir(), ".machinen", "machinen.db");
+  Before: const DB_PATH = path.join(os.homedir(), ".agent-ci", "agent-ci.db");
+  After:  const DB_PATH = process.env.AGENT_CI_DB ?? path.join(os.homedir(), ".agent-ci", "agent-ci.db");
 ```
 
 Zero behavioral change when env vars are unset — existing defaults preserved.
@@ -937,8 +937,8 @@ $TMPDIR/derive-test-XXXXX/
   projects/                          # CLAUDE_PROJECTS_DIR
     -tmp-derive-test-xxxxx-repo/     # slugified cwd → slug dir
       abc123.jsonl                   # synthetic conversation
-  repo/                              # the "repo" cwd (where .machinen/specs/ will appear)
-  machinen.db                        # MACHINEN_DB (SQLite file, created by derive)
+  repo/                              # the "repo" cwd (where .agent-ci/specs/ will appear)
+  agent-ci.db                        # AGENT_CI_DB (SQLite file, created by derive)
 ```
 
 **Synthetic JSONL fixture**: Minimal valid conversation that `readFromOffset` + `discoverConversations` will accept. Needs:
@@ -979,7 +979,7 @@ interface HarnessResult {
   exitCode: number;
   stdout: string;
   stderr: string;
-  specDir: string; // path to .machinen/specs/ in the temp repo
+  specDir: string; // path to .agent-ci/specs/ in the temp repo
   repoDir: string; // path to the temp repo
   featureFiles: string[]; // list of .feature file paths
 }
@@ -1037,8 +1037,8 @@ Internal responsibilities of the harness:
 5. Compute slug from repo path: `repoPath.replace(/[/_]/g, "-")`
 6. Create slug dir under projects, write each conversation as `{id}.jsonl`
 7. Each JSONL line includes `cwd`, `gitBranch`, `sessionId` matching the test params
-8. `run()` spawns `tsx derive/src/index.ts` with `CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB` env vars
-9. After run, reads `.machinen/specs/` to populate `featureFiles` in the result
+8. `run()` spawns `tsx derive/src/index.ts` with `CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `AGENT_CI_DB` env vars
+9. After run, reads `.agent-ci/specs/` to populate `featureFiles` in the result
 
 ### Directory & File Structure
 
@@ -1054,7 +1054,7 @@ derive/
   src/
     spec.ts                          # CLAUDE_BIN env var override
     index.ts                         # CLAUDE_PROJECTS_DIR env var override
-    db.ts                            # MACHINEN_DB env var override
+    db.ts                            # AGENT_CI_DB env var override
   package.json                       # add "test" script
 ```
 
@@ -1087,20 +1087,20 @@ test execution:
     env: {
       CLAUDE_BIN: path.resolve("derive/test/scripts/fake-claude-gen-specs"),
       CLAUDE_PROJECTS_DIR: tempProjects,
-      MACHINEN_DB: tempDb,
+      AGENT_CI_DB: tempDb,
     }
   })
 
 assertions:
   - exit code 0
-  - .machinen/specs/*.feature files exist in tempRepo
+  - .agent-ci/specs/*.feature files exist in tempRepo
   - .feature content contains Feature: and Scenario:
   - .feature content contains keywords from the synthetic conversation
 ```
 
 ### Invariants & Constraints
 
-- The test must not touch the real `~/.machinen/` or `~/.claude/` directories.
+- The test must not touch the real `~/.agent-ci/` or `~/.claude/` directories.
 - The test must not call the real `claude` CLI.
 - The test must not depend on network access.
 - Temp directories must be cleaned up after the test.
@@ -1111,13 +1111,13 @@ assertions:
 
 1. Run `pnpm --filter derive test` — the e2e test should pass.
 2. Inspect the test output to confirm derive discovers the synthetic conversation, invokes the stub, and writes .feature files.
-3. Verify that `~/.machinen/machinen.db` was not modified during the test run (isolation check).
+3. Verify that `~/.agent-ci/agent-ci.db` was not modified during the test run (isolation check).
 
 ### Tasks
 
 - [ ] Add env var override to `derive/src/spec.ts` (CLAUDE_BIN)
 - [ ] Add env var override to `derive/src/index.ts` (CLAUDE_PROJECTS_DIR)
-- [ ] Add env var override to `derive/src/db.ts` (MACHINEN_DB)
+- [ ] Add env var override to `derive/src/db.ts` (AGENT_CI_DB)
 - [ ] Add `"test"` script to `derive/package.json`
 - [ ] Write `derive/test/e2e/harness.ts` — reusable test setup/teardown/run utility
 - [ ] Write `derive/test/e2e/derive-one-shot.test.ts`
@@ -1145,7 +1145,7 @@ Three one-line changes, exactly as specified in the RFC:
 
 - `derive/src/spec.ts:8` — `CLAUDE_BIN` reads from `process.env.CLAUDE_BIN` with fallback to `~/.local/bin/claude`
 - `derive/src/index.ts:16-17` — `CLAUDE_PROJECTS_DIR` reads from `process.env.CLAUDE_PROJECTS_DIR` with fallback to `~/.claude/projects`
-- `derive/src/db.ts:7` — `DB_PATH` reads from `process.env.MACHINEN_DB` with fallback to `~/.machinen/machinen.db`
+- `derive/src/db.ts:7` — `DB_PATH` reads from `process.env.AGENT_CI_DB` with fallback to `~/.agent-ci/agent-ci.db`
 
 Zero behavioral change when env vars are unset.
 
@@ -1155,7 +1155,7 @@ Added `"test": "vitest run"` to `derive/package.json`. No separate vitest config
 
 Created `derive/test/e2e/harness.ts`:
 
-- `setupDeriveTest(opts)` creates a fully isolated temp directory structure: `repo/` (git-initialized), `projects/<slug>/` (with JSONL fixtures), and a `machinen.db` path
+- `setupDeriveTest(opts)` creates a fully isolated temp directory structure: `repo/` (git-initialized), `projects/<slug>/` (with JSONL fixtures), and a `agent-ci.db` path
 - Returns `{ repoDir, projectsDir, dbPath, specDir, run }` where `run()` spawns derive as a subprocess with all env vars pointing to temp dirs
 - Module-level `afterEach` hook (side effect on import) tracks all temp roots in a `Set<string>` and removes them after each test
 - Slug computation mirrors derive's `getSlugDir`: `repoPath.replace(/[/_]/g, "-")`
@@ -1195,7 +1195,7 @@ pnpm --filter derive test
 
 - [x] Add env var override to `derive/src/spec.ts` (CLAUDE_BIN)
 - [x] Add env var override to `derive/src/index.ts` (CLAUDE_PROJECTS_DIR)
-- [x] Add env var override to `derive/src/db.ts` (MACHINEN_DB)
+- [x] Add env var override to `derive/src/db.ts` (AGENT_CI_DB)
 - [x] Add `"test"` script to `derive/package.json`
 - [x] Write `derive/test/e2e/harness.ts` — reusable test setup/teardown/run utility
 - [x] Write `derive/test/e2e/derive-one-shot.test.ts`
@@ -1215,7 +1215,7 @@ Hard isolation mechanisms were evaluated and rejected:
 - `--disallowed-tools` blocks tools by name, not by path — can't say "allow Read but only for `test/`"
 - Temp dir copy is fragile and slow — and defeats the purpose of letting Claude discover project structure organically
 
-The command reads specs from `.machinen/specs/[<scope>]/`, lets Claude explore the project's test directory and config files to understand conventions, and Claude writes test files directly to wherever the project's existing tests live. No `.generated` suffix — the tests are first-class citizens, reviewed and committed like any other code.
+The command reads specs from `.agent-ci/specs/[<scope>]/`, lets Claude explore the project's test directory and config files to understand conventions, and Claude writes test files directly to wherever the project's existing tests live. No `.generated` suffix — the tests are first-class citizens, reviewed and committed like any other code.
 
 ### Behavior Spec
 
@@ -1223,7 +1223,7 @@ The command reads specs from `.machinen/specs/[<scope>]/`, lets Claude explore t
 Feature: Test generation from specs
 
   Scenario: gen-tests generates test files from spec files
-    Given .machinen/specs/derive/ contains Gherkin .feature files
+    Given .agent-ci/specs/derive/ contains Gherkin .feature files
     And existing test files exist in the project
     When derive gen-tests --scope derive is run
     Then Claude reads the spec files and existing test conventions
@@ -1237,10 +1237,10 @@ Feature: Test generation from specs
     And the generated tests are black-box — no internal imports from source modules
 
   Scenario: gen-tests uses scope flag to target spec subset
-    Given .machinen/specs/derive/ contains feature files
-    And .machinen/specs/other/ contains different feature files
+    Given .agent-ci/specs/derive/ contains feature files
+    And .agent-ci/specs/other/ contains different feature files
     When derive gen-tests --scope derive is run
-    Then only specs from .machinen/specs/derive/ are referenced
+    Then only specs from .agent-ci/specs/derive/ are referenced
 
   Scenario: gen-tests skips conversation discovery
     Given derive gen-tests is run
@@ -1256,7 +1256,7 @@ derive gen-tests [options]
 Spawns an agentic Claude session to generate tests from Gherkin specs.
 
 Options:
-  --scope <name>    Target specs in .machinen/specs/<name>/ (default: .machinen/specs/)
+  --scope <name>    Target specs in .agent-ci/specs/<name>/ (default: .agent-ci/specs/)
   --verbose         Pass --verbose to the Claude subprocess for raw NDJSON logging
 
 Claude receives filesystem tools (Read, Write, Edit, Glob, Grep) and writes test files directly.
@@ -1286,7 +1286,7 @@ skip discoverConversations (gen-tests doesn't need conversations or DB)
 runGenTests(cwd, scope?)
   |
   v
-resolve spec dir: <cwd>/.machinen/specs/[<scope>]/
+resolve spec dir: <cwd>/.agent-ci/specs/[<scope>]/
   |
   v
 construct system prompt:
@@ -1444,7 +1444,7 @@ The gen-tests command is tested with manually-written tests that verify the pipe
 The tests cover:
 
 1. **Command dispatch**: `args[0] === "gen-tests"` routes to `runGenTests`, skipping `getCurrentBranch()` and `discoverConversations`
-2. **Spec dir resolution**: `--scope derive` resolves to `.machinen/specs/derive/`, no scope resolves to `.machinen/specs/`
+2. **Spec dir resolution**: `--scope derive` resolves to `.agent-ci/specs/derive/`, no scope resolves to `.agent-ci/specs/`
 3. **Claude invocation contract**: the spawned process receives the right flags (no `--tools ""`, no `--effort low`), system prompt, and env vars (`CLAUDECODE` stripped, `extendEnv: false`)
 4. **NDJSON progress streaming**: tool use events are logged to stderr
 
@@ -1455,7 +1455,7 @@ These are unit/integration tests of `runGenTests` internals, not full e2e tests.
 gen-tests reuses the same NDJSON parsing as `runClaude` for progress output. The stream events include tool use events (Read, Write calls), which are useful for observing what Claude is doing:
 
 ```
-[claude] tool_use: Read({"file_path":".machinen/specs/derive/reset-mode.feature"})
+[claude] tool_use: Read({"file_path":".agent-ci/specs/derive/reset-mode.feature"})
 [claude] tool_use: Read({"file_path":"derive/test/e2e/derive-one-shot.test.ts"})
 [claude] generating text...
 [claude] tool_use: Write({"file_path":"derive/test/e2e/reset-mode.test.ts","content":"..."})
@@ -1550,13 +1550,13 @@ The binary:
 
 Zero external dependencies (only `node:fs` and `node:path`). Deterministic output.
 
-Bug encountered: the initial regex `specs at ([^\s.]+)` stopped at the first `.` character, which occurs in `.machinen`. The spec dir path (e.g. `/tmp/derive-test-xxx/repo/.machinen/specs/derive/`) was truncated to `/tmp/derive-test-xxx/repo/`. Fixed by matching up to `". "` (period + space) instead.
+Bug encountered: the initial regex `specs at ([^\s.]+)` stopped at the first `.` character, which occurs in `.agent-ci`. The spec dir path (e.g. `/tmp/derive-test-xxx/repo/.agent-ci/specs/derive/`) was truncated to `/tmp/derive-test-xxx/repo/`. Fixed by matching up to `". "` (period + space) instead.
 
 ### Harness extensions
 
 Extended `HarnessOptions` with:
 
-- `specs` — pre-populate `.machinen/specs/[<scope>]/` with feature files (used by `derive tests` e2e tests)
+- `specs` — pre-populate `.agent-ci/specs/[<scope>]/` with feature files (used by `derive tests` e2e tests)
 - `claudeBin` — override the fake binary (defaults to `fake-claude-gen-specs`)
 
 Renamed `FAKE_CLAUDE_BIN` to `FAKE_CLAUDE_GEN_SPECS_BIN` and added `FAKE_CLAUDE_GEN_TESTS_BIN`, both exported for use in test files.
@@ -1599,7 +1599,7 @@ Updated `derive-gen-tests.md`:
 
 ## Manual test of `derive tests` against real Claude CLI
 
-Ran `cd derive && npx tsx src/index.ts tests --scope derive` against the 10 `.feature` files in `.machinen/specs/derive/`. Claude (Sonnet, agentic mode with full tools) spent significant time in extended thinking — analyzing specs, the test harness, and planning which scenarios are testable — before writing files. Total runtime ~3 minutes.
+Ran `cd derive && npx tsx src/index.ts tests --scope derive` against the 10 `.feature` files in `.agent-ci/specs/derive/`. Claude (Sonnet, agentic mode with full tools) spent significant time in extended thinking — analyzing specs, the test harness, and planning which scenarios are testable — before writing files. Total runtime ~3 minutes.
 
 ### Output
 
@@ -1749,7 +1749,7 @@ We built e2e test infrastructure and a `derive tests` command, then dogfooded th
 
 **Hand-written foundation (2 test files, 6 tests)** -- We wrote two test files manually: `derive-one-shot.test.ts` (spec pipeline e2e) and `derive-tests.test.ts` (test generation command e2e). These establish the conventions, patterns, and infrastructure that generated tests build on. Supporting infrastructure includes:
 
-- Three env var overrides (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `MACHINEN_DB`) for full isolation from the host system
+- Three env var overrides (`CLAUDE_BIN`, `CLAUDE_PROJECTS_DIR`, `AGENT_CI_DB`) for full isolation from the host system
 - Two deterministic substitute binaries that replace `claude -p` in tests: `fake-claude-gen-specs` (keyword extraction -> Gherkin template) and `fake-claude-gen-tests` (reads specs, writes vitest files)
 - A reusable test harness (`setupDeriveTest`) that handles temp directory setup, git init, JSONL fixture writing, derive invocation, and cleanup
 

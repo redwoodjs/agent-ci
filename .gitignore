@@ -67,7 +67,7 @@ coverage
 .wrangler
 
 
-.machinen
+.agent-ci
 temp_runner_source
 tmp-runner-logs
 temp_*

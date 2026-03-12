@@ -22,9 +22,9 @@ export function getNextLogNum(prefix: string): number {
     .filter((item) => item.isDirectory() && item.name.startsWith(`${prefix}-`))
     .map((item) => {
       // Extract the trailing numeric run counter from a name like:
-      //   machinen-redwoodjssdk-14        → 14
-      //   machinen-redwoodjssdk-15-j1     → 15
-      //   machinen-redwoodjssdk-15-j1-m2  → 15
+      //   agent-ci-redwoodjssdk-14        → 14
+      //   agent-ci-redwoodjssdk-15-j1     → 15
+      //   agent-ci-redwoodjssdk-15-j1-m2  → 15
       // Strategy: strip any -j<N>, -m<N>, -r<N> suffixes first, then grab the last number.
       const baseName = item.name
         .replace(/-j\d+(-m\d+)?(-r\d+)?$/, "")

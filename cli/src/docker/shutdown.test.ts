@@ -9,7 +9,7 @@ describe("Signal handler cleanup", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "machinen-signal-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-signal-test-"));
   });
 
   afterEach(() => {
@@ -18,7 +18,7 @@ describe("Signal handler cleanup", () => {
 
   it("cleanup function removes all temp directories", () => {
     // With the new layout, work/shims/diag are co-located under runs/<runnerName>/
-    const runDir = path.join(tmpDir, "runs", "machinen-sig");
+    const runDir = path.join(tmpDir, "runs", "agent-ci-sig");
     const dirs = {
       containerWorkDir: path.join(runDir, "work"),
       workspaceDir: path.join(runDir, "work", "workspace"),
@@ -62,7 +62,7 @@ describe("Stale workspace pruning", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "machinen-prune-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-prune-test-"));
     // pruneStaleWorkspaces scans <workDir>/runs/
     fs.mkdirSync(path.join(tmpDir, "runs"), { recursive: true });
   });
@@ -71,9 +71,9 @@ describe("Stale workspace pruning", () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("removes machinen-* dirs older than maxAge", async () => {
+  it("removes agent-ci-* dirs older than maxAge", async () => {
     // Create a stale run dir — the entire runDir is removed (includes logs, work, shims, diag)
-    const staleDir = path.join(tmpDir, "runs", "machinen-100");
+    const staleDir = path.join(tmpDir, "runs", "agent-ci-100");
     fs.mkdirSync(path.join(staleDir, "logs"), { recursive: true });
     fs.writeFileSync(path.join(staleDir, "logs", "output.log"), "stale");
 
@@ -84,13 +84,13 @@ describe("Stale workspace pruning", () => {
     const { pruneStaleWorkspaces } = await import("./shutdown.js");
     const pruned = pruneStaleWorkspaces(tmpDir, 24 * 60 * 60 * 1000);
 
-    expect(pruned).toContain("machinen-100");
+    expect(pruned).toContain("agent-ci-100");
     expect(fs.existsSync(staleDir)).toBe(false);
   });
 
-  it("keeps machinen-* dirs newer than maxAge", async () => {
+  it("keeps agent-ci-* dirs newer than maxAge", async () => {
     // Create a fresh run dir
-    const freshDir = path.join(tmpDir, "runs", "machinen-200");
+    const freshDir = path.join(tmpDir, "runs", "agent-ci-200");
     fs.mkdirSync(path.join(freshDir, "logs"), { recursive: true });
     fs.writeFileSync(path.join(freshDir, "logs", "output.log"), "fresh");
 
@@ -101,7 +101,7 @@ describe("Stale workspace pruning", () => {
     expect(fs.existsSync(freshDir)).toBe(true);
   });
 
-  it("ignores non-machinen dirs", async () => {
+  it("ignores non-agent-ci dirs", async () => {
     const otherDir = path.join(tmpDir, "runs", "workspace-12345");
     fs.mkdirSync(otherDir, { recursive: true });
 
@@ -121,7 +121,7 @@ describe("containerWorkDir cleanup on exit", () => {
   let tmpDir: string;
 
   beforeEach(() => {
-    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "machinen-cleanup-test-"));
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-ci-cleanup-test-"));
   });
 
   afterEach(() => {
@@ -130,7 +130,7 @@ describe("containerWorkDir cleanup on exit", () => {
 
   it("cleans entire runDir on success", () => {
     // New layout: work/shims/diag are all under runs/<runnerName>/
-    const runDir = path.join(tmpDir, "runs", "machinen-1");
+    const runDir = path.join(tmpDir, "runs", "agent-ci-1");
     const containerWorkDir = path.join(runDir, "work");
     const shimsDir = path.join(runDir, "shims");
     const diagDir = path.join(runDir, "diag");
@@ -156,7 +156,7 @@ describe("containerWorkDir cleanup on exit", () => {
   });
 
   it("retains runDir on failure for debugging", () => {
-    const runDir = path.join(tmpDir, "runs", "machinen-2");
+    const runDir = path.join(tmpDir, "runs", "agent-ci-2");
     const containerWorkDir = path.join(runDir, "work");
     const shimsDir = path.join(runDir, "shims");
     const diagDir = path.join(runDir, "diag");

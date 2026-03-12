@@ -141,7 +141,7 @@ describe("DTU Server", () => {
     const res = await request("POST", "/_apis/distributedtask/pools/1/sessions");
     expect(res.status).toBe(200);
     expect(res.body.sessionId).toBeDefined();
-    expect(res.body.agent.name).toBe("machinen-runner");
+    expect(res.body.agent.name).toBe("agent-ci-runner");
   });
 
   it("should handle long polling for messages", async () => {

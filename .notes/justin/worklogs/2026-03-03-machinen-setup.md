@@ -1,8 +1,8 @@
-# Worklog: Machinen — Initial TypeScript Project Setup
+# Worklog: Agent CI — Initial TypeScript Project Setup
 
 ## Context / Brief
 
-We are building a lightweight local orchestration layer called Machinen. Its purpose is to sit alongside Claude Code and help us maintain a living behaviour spec per git branch. The core idea is simple: engineers are already using Claude Code to build features on branches. Those conversations implicitly contain the evolving intent of the feature. We want to capture that intent and maintain a structured spec that reflects what the branch is supposed to do — without changing how engineers work.
+We are building a lightweight local orchestration layer called Agent CI. Its purpose is to sit alongside Claude Code and help us maintain a living behaviour spec per git branch. The core idea is simple: engineers are already using Claude Code to build features on branches. Those conversations implicitly contain the evolving intent of the feature. We want to capture that intent and maintain a structured spec that reflects what the branch is supposed to do — without changing how engineers work.
 
 Claude Code stores conversations locally as JSONL files. These files contain useful metadata such as cwd, gitBranch, sessionId (which we refer to as conversationId), timestamps, and the full message stream. That means we do not need to infer branch or repository state ourselves. We can read it directly from the conversation logs.
 
@@ -16,31 +16,31 @@ For example:
 
 The <slugified_dir_path> corresponds to the working directory of the project (derived from cwd), and each <conversation_id>.jsonl file contains the full append-only log of that conversation.
 
-We treat these files as the source of truth. Machinen does not duplicate conversation content into its own store. Instead, it maintains only minimal lookup state: which Claude conversations belong to which repo and branch, and which spec file corresponds to that branch.
+We treat these files as the source of truth. Agent CI does not duplicate conversation content into its own store. Instead, it maintains only minimal lookup state: which Claude conversations belong to which repo and branch, and which spec file corresponds to that branch.
 
 The basic mental model is:
 • Each git branch has:
 • A set of Claude conversations associated with it (feature-building conversations).
-• A spec file maintained by Machinen.
+• A spec file maintained by Agent CI.
 • A dedicated Claude conversation used exclusively for maintaining the branch spec.
 
-Machinen runs locally as a small daemon. It watches the Claude projects directory:
+Agent CI runs locally as a small daemon. It watches the Claude projects directory:
 
 ~/.claude/projects/\*\*
 
-When a conversation file changes, Machinen reads new lines and extracts minimal metadata: conversation ID, repository path (from cwd), and branch name (from gitBranch). Using that information, it records a simple mapping: this conversation ID belongs to this repo and this branch.
+When a conversation file changes, Agent CI reads new lines and extracts minimal metadata: conversation ID, repository path (from cwd), and branch name (from gitBranch). Using that information, it records a simple mapping: this conversation ID belongs to this repo and this branch.
 
 We only store the mapping from branch to conversation IDs. We do not store the full message content. When we need to update a spec, we open the relevant JSONL files directly and extract the necessary conversation content on demand.
 
 Specs are stored locally in a deterministic location:
 
-~/.machinen/specs/<repo>/<branch>.md
+~/.agent-ci/specs/<repo>/<branch>.md
 
-The spec file is a first-class artifact. It is human-readable and durable. Machinen treats it as the canonical behaviour specification for that branch.
+The spec file is a first-class artifact. It is human-readable and durable. Agent CI treats it as the canonical behaviour specification for that branch.
 
-For each branch, Machinen programmatically creates and maintains a dedicated “spec maintenance” conversation using the claude CLI. This conversation is started automatically the first time we initialise a spec for that branch. We invoke the claude CLI programmatically, providing an initial system prompt that establishes its role: it is responsible for maintaining the behavioural specification of this branch based on development conversations.
+For each branch, Agent CI programmatically creates and maintains a dedicated “spec maintenance” conversation using the claude CLI. This conversation is started automatically the first time we initialise a spec for that branch. We invoke the claude CLI programmatically, providing an initial system prompt that establishes its role: it is responsible for maintaining the behavioural specification of this branch based on development conversations.
 
-We store the conversation ID of this spec-maintenance conversation alongside the branch mapping. From then on, whenever new relevant information comes to light — meaning new Claude conversations associated with that branch — Machinen gathers the relevant excerpts and sends them into this existing spec conversation using the claude CLI. This allows the spec-maintenance conversation to evolve incrementally, preserving context across revisions.
+We store the conversation ID of this spec-maintenance conversation alongside the branch mapping. From then on, whenever new relevant information comes to light — meaning new Claude conversations associated with that branch — Agent CI gathers the relevant excerpts and sends them into this existing spec conversation using the claude CLI. This allows the spec-maintenance conversation to evolve incrementally, preserving context across revisions.
 
 The flow for maintaining a spec is: 1. Identify the repo and branch. 2. Look up all Claude conversation IDs associated with that branch. 3. Open the corresponding files at:
 
@@ -50,7 +50,7 @@ The flow for maintaining a spec is: 1. Identify the repo and branch. 2. Look up 
     5.	Send those excerpts to the branch’s dedicated spec-maintenance conversation via the claude CLI, instructing it to revise the spec in light of new information.
     6.	Write the updated spec content to:
 
-~/.machinen/specs/<repo>/<branch>.md
+~/.agent-ci/specs/<repo>/<branch>.md
 
 The spec-maintenance conversation is long-lived. It accumulates understanding of the branch over time. We do not create a new conversation per revision; we append to the same one, allowing it to refine and stabilise the specification as the feature evolves.
 
@@ -69,13 +69,13 @@ This architecture keeps the system small and robust:
 • No inference logic for branch detection.
 • No heavy data modeling or migrations.
 
-Machinen is therefore a thin coordination layer between git branches, Claude conversations, and a living behavioural spec that is maintained programmatically over time.
+Agent CI is therefore a thin coordination layer between git branches, Claude conversations, and a living behavioural spec that is maintained programmatically over time.
 
 ---
 
 ## Investigated the JSONL conversation file format
 
-We opened an actual claude conversation file at `~/.claude/projects/-Users-justin-rw-worktrees-machinen-experiments-specs/66d813b0-...jsonl` and extracted its structure.
+We opened an actual claude conversation file at `~/.claude/projects/-Users-justin-rw-worktrees-agent-ci-experiments-specs/66d813b0-...jsonl` and extracted its structure.
 
 Record types observed:
 
@@ -105,7 +105,7 @@ Where `slugified_cwd` replaces `/` with `-` (e.g. `/Users/justin/rw/sdk` → `-U
 
 ## Investigated the claude CLI
 
-The Claude CLI at `~/.local/bin/claude` supports the following key flags relevant to Machinen:
+The Claude CLI at `~/.local/bin/claude` supports the following key flags relevant to Agent CI:
 
 - `-p, --print` — non-interactive mode, prints response and exits. Essential for programmatic use.
 - `-r, --resume <uuid>` — resume an existing conversation by its session ID. This is how we feed incremental updates to the spec-maintenance conversation.
@@ -120,11 +120,11 @@ The core programmatic flow for spec maintenance is therefore:
 
 ---
 
-## RFC: Machinen TypeScript Project — Initial Structure
+## RFC: Agent CI TypeScript Project — Initial Structure
 
 ### 2000ft View Narrative
 
-Machinen includes a local daemon that watches Claude conversation files and maintains a living behavioural spec per git branch. It reads the claude JSONL logs as the source of truth, stores only a minimal routing index in SQLite, and drives spec updates programmatically via the claude CLI.
+Agent CI includes a local daemon that watches Claude conversation files and maintains a living behavioural spec per git branch. It reads the claude JSONL logs as the source of truth, stores only a minimal routing index in SQLite, and drives spec updates programmatically via the claude CLI.
 
 We are scaffolding the initial TypeScript project in `specs/` as the root. The project is deliberately small. It should be runnable with `tsx` for development and type-checked with `tsc`. No build step is required for local use.
 
@@ -135,19 +135,19 @@ The key concern at this stage is laying down a clean, well-typed skeleton with c
 ```
 GIVEN the daemon is running
 WHEN a .jsonl file in ~/.claude/projects/**/ is modified
-THEN Machinen reads any new lines
+THEN Agent CI reads any new lines
 AND extracts sessionId, cwd, gitBranch from user/assistant records
 AND upserts a conversation→branch mapping in SQLite
 
 GIVEN a branch has new conversations indexed
 WHEN a spec update is triggered
-THEN Machinen reads the full message content from the relevant JSONL files
+THEN Agent CI reads the full message content from the relevant JSONL files
 AND sends excerpts to the branch's spec-maintenance conversation via claude CLI
-AND writes the updated spec to ~/.machinen/specs/<repo>/<branch>.md
+AND writes the updated spec to ~/.agent-ci/specs/<repo>/<branch>.md
 
 GIVEN a branch has no spec-maintenance conversation yet
 WHEN a spec update is triggered for the first time
-THEN Machinen creates a new conversation via claude CLI with a system prompt establishing its role
+THEN Agent CI creates a new conversation via claude CLI with a system prompt establishing its role
 AND stores the resulting session ID in SQLite for future updates
 ```
 
@@ -253,7 +253,7 @@ type BranchRecord = {
 - We never store full conversation content in the DB — only metadata and offsets.
 - We read JSONL files from the stored `lastLineOffset`, not from the start, to handle large files efficiently.
 - The spec-maintenance conversation is identified by a stored session ID. We never create a second one for the same branch.
-- Spec files live under `~/.machinen/specs/<repo_slug>/<branch>.md`.
+- Spec files live under `~/.agent-ci/specs/<repo_slug>/<branch>.md`.
 - The watcher ignores files that are not `.jsonl`.
 - We only process `type: "user"` and `type: "assistant"` records; all other record types are skipped.
 
@@ -265,7 +265,7 @@ After scaffolding:
 cd specs/
 npm install
 npx tsc --noEmit   # should pass cleanly
-npx tsx src/index.ts  # should start and log "Machinen daemon started"
+npx tsx src/index.ts  # should start and log "Agent CI daemon started"
 ```
 
 ### Tasks
@@ -600,7 +600,7 @@ All tasks complete. `pnpm typecheck` passes cleanly.
 
 ### Note on existing DB
 
-Existing `machinen.db` files still have the `spec_conversation_id` column in the `branches` table. SQLite's `CREATE TABLE IF NOT EXISTS` will not alter the existing table — the column will simply go unused. No migration needed.
+Existing `agent-ci.db` files still have the `spec_conversation_id` column in the `branches` table. SQLite's `CREATE TABLE IF NOT EXISTS` will not alter the existing table — the column will simply go unused. No migration needed.
 
 ### How "new excerpts" are determined
 
@@ -736,11 +736,11 @@ The daemon startup (`startWatcher`) is now gated inside an `else` — if `--rese
 ### Suggested verification
 
 ```bash
-cd /Users/justin/rw/worktrees/machinen-experiments_specs
+cd /Users/justin/rw/worktrees/agent-ci-experiments_specs
 npx tsx specs/src/index.ts --reset specs
 ```
 
-This should log the reset flow, invoke `claude -p` with the full conversation history, and write an updated spec to `~/.machinen/specs/`.
+This should log the reset flow, invoke `claude -p` with the full conversation history, and write an updated spec to `~/.agent-ci/specs/`.
 
 ---
 
@@ -1041,7 +1041,7 @@ The prompt already says "Do NOT reference internal function names, variable name
 
 We chose a variant of Option D that replaces the negative-example list with a more durable mechanism: the **black box test**. The two components:
 
-1. **Reader persona**: "You are writing for a QA engineer who has never seen the source code. They can only interact with the product through its external interfaces." This anchors perspective — the agent writes for someone who can only observe external behaviour. Critically, this is product-agnostic. We don't need to describe Machinen's interfaces; the agent infers them from the conversations.
+1. **Reader persona**: "You are writing for a QA engineer who has never seen the source code. They can only interact with the product through its external interfaces." This anchors perspective — the agent writes for someone who can only observe external behaviour. Critically, this is product-agnostic. We don't need to describe Agent CI's interfaces; the agent infers them from the conversations.
 
 2. **Black box test**: "Could this scenario be verified by someone who can only use the product's external interfaces, without reading source code or inspecting internal state? If not, do not include it." This gives the agent a concrete, repeatable filter to apply per scenario.
 

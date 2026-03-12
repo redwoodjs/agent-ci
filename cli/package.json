@@ -1,12 +1,12 @@
 {
-  "name": "machinen",
+  "name": "agent-ci",
   "version": "1.0.0",
   "description": "Local GitHub Actions runner",
   "keywords": [],
   "license": "FSL-1.1-MIT",
   "author": "",
   "bin": {
-    "machinen": "./dist/cli.js"
+    "agent-ci": "./dist/cli.js"
   },
   "files": [
     "dist",
@@ -19,7 +19,7 @@
   "scripts": {
     "build": "tsgo",
     "typecheck": "tsgo",
-    "machinen": "tsx src/cli.ts",
+    "agent-ci": "tsx src/cli.ts",
     "test": "vitest run"
   },
   "dependencies": {

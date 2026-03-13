@@ -1,5 +1,5 @@
 ---
-"agent-ci": minor
+"@redwoodjs/agent-ci": minor
 "dtu-github-actions": minor
 ---
 

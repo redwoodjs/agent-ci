@@ -3,7 +3,7 @@ import os from "node:os";
 import fs from "node:fs";
 import { fileURLToPath } from "node:url";
 
-// Pinned to the monorepo root (project root), not the cli package
+// Pinned to the cli package root
 export const PROJECT_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
 
 // When running inside a container with Docker-outside-of-Docker (shared socket),

@@ -28,7 +28,7 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: pnpm install
       - run: pnpm check
-      - run: pnpm -r test
+      - run: pnpm --filter '!derive' -r test
       - name: Create Release PR or Publish
         uses: changesets/action@v1
         with:

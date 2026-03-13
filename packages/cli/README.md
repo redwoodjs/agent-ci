@@ -47,12 +47,12 @@ agent-ci run --all
 
 Run GitHub Actions workflow jobs locally.
 
-| Flag                | Short | Description                                                    |
-| ------------------- | ----- | -------------------------------------------------------------- |
-| `--workflow <path>` | `-w`  | Path to the workflow file                                      |
-| `--all`             | `-a`  | Discover and run all relevant workflows for the current branch |
+| Flag                 | Short | Description                                                    |
+| -------------------- | ----- | -------------------------------------------------------------- |
+| `--workflow <path>`  | `-w`  | Path to the workflow file                                      |
+| `--all`              | `-a`  | Discover and run all relevant workflows for the current branch |
 | `--pause-on-failure` | `-p`  | Pause on step failure for interactive debugging                |
-| `--quiet`           | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)     |
+| `--quiet`            | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)     |
 
 ### `agent-ci retry`
 

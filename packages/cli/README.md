@@ -51,7 +51,7 @@ Run GitHub Actions workflow jobs locally.
 | ------------------- | ----- | -------------------------------------------------------------- |
 | `--workflow <path>` | `-w`  | Path to the workflow file                                      |
 | `--all`             | `-a`  | Discover and run all relevant workflows for the current branch |
-| `--exit-on-failure` | `-x`  | Exit immediately on failure instead of pausing                 |
+| `--pause-on-failure` | `-p`  | Pause on step failure for interactive debugging                |
 | `--quiet`           | `-q`  | Suppress animated rendering (also enabled by `AI_AGENT=1`)     |
 
 ### `agent-ci retry`

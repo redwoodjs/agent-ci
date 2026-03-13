@@ -1,5 +1,5 @@
 {
-  "name": "agent-ci",
+  "name": "@redwoodjs/agent-ci",
   "version": "0.1.0",
   "description": "Local GitHub Actions runner",
   "keywords": [],

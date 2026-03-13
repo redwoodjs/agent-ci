@@ -12,35 +12,34 @@ Agent CI runs on any machine that can run a container. When a step fails the run
 
 <!-- TODO: Add demo video/screen recording -->
 
-## Installation
-
-```bash
-npm install -g agent-ci
-```
-
-### Prerequisites
+## Prerequisites
 
 - **Docker** — A running Docker provider:
   - **macOS:** [OrbStack](https://orbstack.dev/) (recommended) or Docker Desktop
   - **Linux:** Native Docker Engine
 
-### Remote Docker
-
-Agent CI connects to Docker via the `DOCKER_HOST` environment variable. By default it uses the local socket (`unix:///var/run/docker.sock`), but you can point it at any remote Docker daemon:
+## Installation
 
 ```bash
-# Run containers on a remote machine via SSH
-DOCKER_HOST=ssh://user@remote-server agent-ci run --workflow .github/workflows/ci.yml
+npm install -D @redwoodjs/agent-ci
 ```
 
 ## Usage
 
 ```bash
 # Run a specific workflow
-agent-ci run --workflow .github/workflows/ci.yml
+npx agent-ci run --workflow .github/workflows/ci.yml
 
 # Run all relevant workflows for the current branch
-agent-ci run --all
+npx agent-ci run --all
+```
+
+### Remote Docker
+
+Agent CI connects to Docker via the `DOCKER_HOST` environment variable. By default it uses the local socket (`unix:///var/run/docker.sock`), but you can point it at any remote Docker daemon:
+
+```bash
+DOCKER_HOST=ssh://user@remote-server npx agent-ci run --workflow .github/workflows/ci.yml
 ```
 
 ### `agent-ci run`

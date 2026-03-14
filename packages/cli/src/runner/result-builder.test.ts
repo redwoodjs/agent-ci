@@ -326,3 +326,81 @@ describe("extractStepOutputs", () => {
     expect(outputs.tests).toBe("test1.ts\ntest2.ts\ntest3.ts");
   });
 });
+
+// ── resolveJobOutputs ─────────────────────────────────────────────────────────
+
+describe("resolveJobOutputs", () => {
+  it("resolves step output references in job output templates", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      skip: "${{ steps.check.outputs.skip }}",
+      count: "${{ steps.counter.outputs.shard_count }}",
+    };
+    const stepOutputs = {
+      skip: "false",
+      shard_count: "3",
+    };
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({
+      skip: "false",
+      count: "3",
+    });
+  });
+
+  it("returns empty string for unresolved step outputs", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      missing: "${{ steps.none.outputs.doesnt_exist }}",
+    };
+    const stepOutputs = {};
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({ missing: "" });
+  });
+
+  it("passes through literal values unchanged", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      version: "1.2.3",
+    };
+    const stepOutputs = {};
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({ version: "1.2.3" });
+  });
+
+  it("returns empty object when no output definitions", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const resolved = resolveJobOutputs({}, { some: "output" });
+    expect(resolved).toEqual({});
+  });
+
+  it("handles JSON values in step outputs", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      matrix: "${{ steps.plan.outputs.matrix }}",
+    };
+    const stepOutputs = {
+      matrix: '{"shard":[1,2,3]}',
+    };
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({
+      matrix: '{"shard":[1,2,3]}',
+    });
+  });
+
+  it("handles templates with surrounding text", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      label: "shard-${{ steps.plan.outputs.index }}",
+    };
+    const stepOutputs = {
+      index: "5",
+    };
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({ label: "shard-5" });
+  });
+});

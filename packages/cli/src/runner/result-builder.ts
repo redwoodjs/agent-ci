@@ -197,6 +197,39 @@ function parseOutputFileContent(content: string, outputs: Record<string, string>
   }
 }
 
+// ─── Job output resolution ────────────────────────────────────────────────────
+
+/**
+ * Resolve job output definitions against actual step outputs.
+ *
+ * Job output templates reference `steps.<stepId>.outputs.<name>`. Since the
+ * runner writes all step outputs to `$GITHUB_OUTPUT` files keyed only by
+ * output name (not step ID), we resolve by matching the output name from
+ * the template against the flat step outputs map.
+ *
+ * @param outputDefs  Job output definitions from parseJobOutputDefs
+ * @param stepOutputs Flat step outputs from extractStepOutputs
+ * @returns Resolved job outputs
+ */
+export function resolveJobOutputs(
+  outputDefs: Record<string, string>,
+  stepOutputs: Record<string, string>,
+): Record<string, string> {
+  const result: Record<string, string> = {};
+
+  for (const [outputName, template] of Object.entries(outputDefs)) {
+    // Replace ${{ steps.<id>.outputs.<name> }} with the actual step output value
+    result[outputName] = template.replace(
+      /\$\{\{\s*steps\.[^.]+\.outputs\.([^\s}]+)\s*\}\}/g,
+      (_match, outputKey: string) => {
+        return stepOutputs[outputKey] ?? "";
+      },
+    );
+  }
+
+  return result;
+}
+
 // ─── Job result builder ───────────────────────────────────────────────────────
 
 export interface BuildJobResultOpts {

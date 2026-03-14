@@ -103,6 +103,100 @@ export function extractFailureDetails(
   return result;
 }
 
+// ─── Step output extraction ───────────────────────────────────────────────────
+
+/**
+ * Extract step outputs from the runner's `_runner_file_commands/` directory.
+ *
+ * The GitHub Actions runner writes step outputs to files named `set_output_<uuid>`
+ * in `<workDir>/_runner_file_commands/`. Each file contains key=value pairs,
+ * with multiline values using the heredoc format:
+ *   key<<DELIMITER
+ *   line1
+ *   line2
+ *   DELIMITER
+ *
+ * @param workDir The container's work directory (bind-mounted from host)
+ * @returns Record<string, string> of all output key-value pairs
+ */
+export function extractStepOutputs(workDir: string): Record<string, string> {
+  const outputs: Record<string, string> = {};
+
+  // The runner writes to _runner_file_commands/ under the work dir
+  // Try both directly under workDir and under _work/ (runner convention)
+  const candidates = [
+    path.join(workDir, "_runner_file_commands"),
+    path.join(workDir, "_work", "_runner_file_commands"),
+  ];
+
+  for (const fileCommandsDir of candidates) {
+    if (!fs.existsSync(fileCommandsDir)) {
+      continue;
+    }
+
+    let entries: string[];
+    try {
+      entries = fs.readdirSync(fileCommandsDir).sort(); // Sort for deterministic override order
+    } catch {
+      continue;
+    }
+
+    for (const entry of entries) {
+      if (!entry.startsWith("set_output_")) {
+        continue;
+      }
+
+      try {
+        const content = fs.readFileSync(path.join(fileCommandsDir, entry), "utf-8");
+        parseOutputFileContent(content, outputs);
+      } catch {
+        // Best-effort: skip unreadable files
+      }
+    }
+  }
+
+  return outputs;
+}
+
+/**
+ * Parse the content of a single set_output file into the outputs record.
+ * Handles both `key=value` and `key<<DELIMITER\nvalue\nDELIMITER` formats.
+ */
+function parseOutputFileContent(content: string, outputs: Record<string, string>): void {
+  const lines = content.split("\n");
+  let i = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Heredoc format: key<<DELIMITER
+    const heredocMatch = line.match(/^([^=]+)<<(.+)$/);
+    if (heredocMatch) {
+      const key = heredocMatch[1];
+      const delimiter = heredocMatch[2];
+      const valueLines: string[] = [];
+      i++;
+      while (i < lines.length && lines[i] !== delimiter) {
+        valueLines.push(lines[i]);
+        i++;
+      }
+      outputs[key] = valueLines.join("\n");
+      i++; // Skip the closing delimiter
+      continue;
+    }
+
+    // Simple format: key=value
+    const eqIdx = line.indexOf("=");
+    if (eqIdx > 0) {
+      const key = line.slice(0, eqIdx);
+      const value = line.slice(eqIdx + 1);
+      outputs[key] = value;
+    }
+
+    i++;
+  }
+}
+
 // ─── Job result builder ───────────────────────────────────────────────────────
 
 export interface BuildJobResultOpts {

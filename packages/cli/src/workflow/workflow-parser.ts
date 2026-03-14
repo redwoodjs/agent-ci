@@ -26,6 +26,7 @@ export function expandExpressions(
   repoPath?: string,
   secrets?: Record<string, string>,
   matrixContext?: Record<string, string>,
+  needsContext?: Record<string, Record<string, string>>,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const trimmed = expr.trim();
@@ -66,6 +67,60 @@ export function expandExpressions(
       } catch {
         return "0000000000000000000000000000000000000000";
       }
+    }
+
+    // fromJSON(expr) — parse JSON from a string (or inner expression)
+    const fromJsonMatch = trimmed.match(/^fromJSON\(([\s\S]+)\)$/);
+    if (fromJsonMatch) {
+      const inner = fromJsonMatch[1].trim();
+      // If the inner arg is a quoted string literal, use it directly
+      let rawValue: string;
+      if (
+        (inner.startsWith("'") && inner.endsWith("'")) ||
+        (inner.startsWith('"') && inner.endsWith('"'))
+      ) {
+        rawValue = inner.slice(1, -1);
+      } else {
+        // Otherwise, treat it as an expression and expand it
+        rawValue = expandExpressions(
+          `\${{ ${inner} }}`,
+          repoPath,
+          secrets,
+          matrixContext,
+          needsContext,
+        );
+      }
+      try {
+        const parsed = JSON.parse(rawValue);
+        if (typeof parsed === "string") {
+          return parsed;
+        }
+        return JSON.stringify(parsed);
+      } catch {
+        return "";
+      }
+    }
+
+    // toJSON(expr) — serialize a value to JSON
+    const toJsonMatch = trimmed.match(/^toJSON\(([\s\S]+)\)$/);
+    if (toJsonMatch) {
+      const inner = toJsonMatch[1].trim();
+      let rawValue: string;
+      if (
+        (inner.startsWith("'") && inner.endsWith("'")) ||
+        (inner.startsWith('"') && inner.endsWith('"'))
+      ) {
+        rawValue = inner.slice(1, -1);
+      } else {
+        rawValue = expandExpressions(
+          `\${{ ${inner} }}`,
+          repoPath,
+          secrets,
+          matrixContext,
+          needsContext,
+        );
+      }
+      return JSON.stringify(rawValue);
     }
 
     // format('template {0} {1}', arg0, arg1)
@@ -137,6 +192,20 @@ export function expandExpressions(
       return "";
     }
     if (trimmed.startsWith("steps.")) {
+      return "";
+    }
+    if (trimmed.startsWith("needs.") && needsContext) {
+      // needs.<jobId>.outputs.<name> or needs.<jobId>.result
+      const parts = trimmed.split(".");
+      const jobId = parts[1];
+      const jobOutputs = needsContext[jobId];
+      if (parts[2] === "outputs" && parts[3]) {
+        return jobOutputs?.[parts[3]] ?? "";
+      }
+      if (parts[2] === "result") {
+        // If the job is in the needsContext, it completed (default to 'success')
+        return jobOutputs ? (jobOutputs["__result"] ?? "success") : "";
+      }
       return "";
     }
     if (trimmed.startsWith("needs.")) {
@@ -647,4 +716,210 @@ export function validateSecrets(
       missing.map((n) => `${n}=`).join("\n") +
       "\n",
   );
+}
+
+/**
+ * Parse `jobs.<id>.outputs` definitions from a workflow YAML file.
+ * Returns a Record<outputName, expressionTemplate> (e.g. { skip: "${{ steps.check.outputs.skip }}" }).
+ * Returns {} if the job has no outputs or doesn't exist.
+ */
+export function parseJobOutputDefs(filePath: string, jobId: string): Record<string, string> {
+  const yaml = parseYaml(fs.readFileSync(filePath, "utf8"));
+  const outputs = yaml?.jobs?.[jobId]?.outputs;
+  if (!outputs || typeof outputs !== "object") {
+    return {};
+  }
+  const result: Record<string, string> = {};
+  for (const [k, v] of Object.entries(outputs)) {
+    result[k] = String(v);
+  }
+  return result;
+}
+
+/**
+ * Parse the `if:` condition from a workflow job.
+ * Returns the raw expression string (with `${{ }}` wrapper stripped if present),
+ * or null if the job has no `if:`.
+ */
+export function parseJobIf(filePath: string, jobId: string): string | null {
+  const yaml = parseYaml(fs.readFileSync(filePath, "utf8"));
+  const rawIf = yaml?.jobs?.[jobId]?.if;
+  if (rawIf == null) {
+    return null;
+  }
+  let expr = String(rawIf).trim();
+  // Strip ${{ }} wrapper if present
+  const wrapped = expr.match(/^\$\{\{\s*([\s\S]*?)\s*\}\}$/);
+  if (wrapped) {
+    expr = wrapped[1];
+  }
+  return expr;
+}
+
+/**
+ * Evaluate a job-level `if:` condition.
+ *
+ * @param expr       The expression string (already stripped of `${{ }}`)
+ * @param jobResults Record<jobId, "success" | "failure"> for upstream jobs
+ * @param needsCtx   Optional needs output context (same shape as expandExpressions needsContext)
+ * @returns          Whether the job should run
+ */
+export function evaluateJobIf(
+  expr: string,
+  jobResults: Record<string, string>,
+  needsCtx?: Record<string, Record<string, string>>,
+): boolean {
+  const trimmed = expr.trim();
+
+  // Empty expression defaults to success()
+  if (!trimmed) {
+    return evaluateAtom("success()", jobResults, needsCtx);
+  }
+
+  // Handle || (split first — lower precedence)
+  if (trimmed.includes("||")) {
+    const parts = splitOnOperator(trimmed, "||");
+    if (parts.length > 1) {
+      return parts.some((p) => evaluateJobIf(p.trim(), jobResults, needsCtx));
+    }
+  }
+
+  // Handle &&
+  if (trimmed.includes("&&")) {
+    const parts = splitOnOperator(trimmed, "&&");
+    if (parts.length > 1) {
+      return parts.every((p) => evaluateJobIf(p.trim(), jobResults, needsCtx));
+    }
+  }
+
+  return evaluateAtom(trimmed, jobResults, needsCtx);
+}
+
+/**
+ * Split an expression on a logical operator, respecting parentheses and quotes.
+ */
+function splitOnOperator(expr: string, op: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let inQuote: string | null = null;
+  let current = "";
+
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (inQuote) {
+      current += ch;
+      if (ch === inQuote) {
+        inQuote = null;
+      }
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      inQuote = ch;
+      current += ch;
+      continue;
+    }
+    if (ch === "(") {
+      depth++;
+    }
+    if (ch === ")") {
+      depth--;
+    }
+    if (depth === 0 && expr.slice(i, i + op.length) === op) {
+      parts.push(current);
+      current = "";
+      i += op.length - 1;
+      continue;
+    }
+    current += ch;
+  }
+  parts.push(current);
+  return parts;
+}
+
+/**
+ * Evaluate a single atomic condition (no && or ||).
+ */
+function evaluateAtom(
+  expr: string,
+  jobResults: Record<string, string>,
+  needsCtx?: Record<string, Record<string, string>>,
+): boolean {
+  const trimmed = expr.trim();
+
+  // Status check functions
+  if (trimmed === "always()") {
+    return true;
+  }
+  if (trimmed === "cancelled()") {
+    return false;
+  }
+  if (trimmed === "success()") {
+    return Object.values(jobResults).every((r) => r === "success");
+  }
+  if (trimmed === "failure()") {
+    return Object.values(jobResults).some((r) => r === "failure");
+  }
+
+  // != comparison
+  const neqMatch = trimmed.match(/^(.+?)\s*!=\s*(.+)$/);
+  if (neqMatch) {
+    const left = resolveValue(neqMatch[1].trim(), needsCtx);
+    const right = resolveValue(neqMatch[2].trim(), needsCtx);
+    return left !== right;
+  }
+
+  // == comparison
+  const eqMatch = trimmed.match(/^(.+?)\s*==\s*(.+)$/);
+  if (eqMatch) {
+    const left = resolveValue(eqMatch[1].trim(), needsCtx);
+    const right = resolveValue(eqMatch[2].trim(), needsCtx);
+    return left === right;
+  }
+
+  // Bare truthy value (e.g. needs.setup.outputs.run_tests)
+  const val = resolveValue(trimmed, needsCtx);
+  return val !== "" && val !== "false" && val !== "0";
+}
+
+/**
+ * Resolve a value reference in a condition expression.
+ */
+function resolveValue(raw: string, needsCtx?: Record<string, Record<string, string>>): string {
+  const trimmed = raw.trim();
+  // Quoted string literal
+  if (
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  // needs.<jobId>.outputs.<name>
+  if (trimmed.startsWith("needs.") && needsCtx) {
+    const parts = trimmed.split(".");
+    const jobId = parts[1];
+    const jobOutputs = needsCtx[jobId];
+    if (parts[2] === "outputs" && parts[3]) {
+      return jobOutputs?.[parts[3]] ?? "";
+    }
+    if (parts[2] === "result") {
+      return jobOutputs ? (jobOutputs["__result"] ?? "success") : "";
+    }
+  }
+  return trimmed;
+}
+
+/**
+ * Parse `strategy.fail-fast` for a job.
+ * Returns true/false if explicitly set, undefined if not specified.
+ */
+export function parseFailFast(filePath: string, jobId: string): boolean | undefined {
+  const yaml = parseYaml(fs.readFileSync(filePath, "utf8"));
+  const strategy = yaml?.jobs?.[jobId]?.strategy;
+  if (!strategy || typeof strategy !== "object") {
+    return undefined;
+  }
+  if ("fail-fast" in strategy) {
+    return Boolean(strategy["fail-fast"]);
+  }
+  return undefined;
 }

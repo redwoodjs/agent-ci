@@ -21,7 +21,9 @@ import {
   expandMatrixCombinations,
   isWorkflowRelevant,
   getChangedFiles,
+  parseJobOutputDefs,
 } from "./workflow/workflow-parser.js";
+import { extractStepOutputs, resolveJobOutputs } from "./runner/result-builder.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
 import { isWarmNodeModules, computeLockfileHash } from "./output/cleanup.js";
@@ -575,7 +577,10 @@ async function handleWorkflow(options: {
       };
     };
 
-    const runJob = async (ej: ExpandedJob): Promise<JobResult> => {
+    const runJob = async (
+      ej: ExpandedJob,
+      needsContext?: Record<string, Record<string, string>>,
+    ): Promise<JobResult> => {
       const { taskName, matrixContext } = ej;
       debugCli(
         `Running: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""}`,
@@ -583,7 +588,13 @@ async function handleWorkflow(options: {
       const secrets = loadMachineSecrets(repoRoot);
       const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
       validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
-      const steps = await parseWorkflowSteps(workflowPath, taskName, secrets, matrixContext);
+      const steps = await parseWorkflowSteps(
+        workflowPath,
+        taskName,
+        secrets,
+        matrixContext,
+        needsContext,
+      );
       const services = await parseWorkflowServices(workflowPath, taskName);
       const container = await parseWorkflowContainer(workflowPath, taskName);
 
@@ -592,13 +603,27 @@ async function handleWorkflow(options: {
       job.services = services;
       job.container = container ?? undefined;
 
-      return executeLocalJob(job, { pauseOnFailure, store });
+      const result = await executeLocalJob(job, { pauseOnFailure, store });
+
+      // Extract step outputs from $GITHUB_OUTPUT files and resolve to job outputs
+      if (result.succeeded) {
+        const dirs = result.debugLogPath ? path.dirname(result.debugLogPath) : undefined;
+        if (dirs) {
+          const stepOutputs = extractStepOutputs(path.resolve(dirs, "..", "work"));
+          const outputDefs = parseJobOutputDefs(workflowPath, taskName);
+          result.outputs = resolveJobOutputs(outputDefs, stepOutputs);
+        }
+      }
+
+      return result;
     };
 
     pruneOrphanedDockerResources();
 
     const limiter = createConcurrencyLimiter(maxJobs);
     const allResults: JobResult[] = [];
+    // Accumulate job outputs across waves for needs.*.outputs.* resolution
+    const jobOutputs = new Map<string, Record<string, string>>();
 
     // ── Dependency-aware wave scheduling ──────────────────────────────────────
     const deps = parseJobDependencies(workflowPath);
@@ -613,6 +638,28 @@ async function handleWorkflow(options: {
       filteredWaves.push(Array.from(taskNamesInWf));
     }
 
+    /** Build a needsContext for a job from its dependencies' accumulated outputs */
+    const buildNeedsContext = (
+      jobId: string,
+    ): Record<string, Record<string, string>> | undefined => {
+      const jobDeps = deps.get(jobId);
+      if (!jobDeps || jobDeps.length === 0) {
+        return undefined;
+      }
+      const ctx: Record<string, Record<string, string>> = {};
+      for (const depId of jobDeps) {
+        ctx[depId] = jobOutputs.get(depId) ?? {};
+      }
+      return ctx;
+    };
+
+    /** Collect outputs from a completed job result */
+    const collectOutputs = (result: JobResult, taskName: string) => {
+      if (result.outputs && Object.keys(result.outputs).length > 0) {
+        jobOutputs.set(taskName, result.outputs);
+      }
+    };
+
     for (let wi = 0; wi < filteredWaves.length; wi++) {
       const waveJobIds = new Set(filteredWaves[wi]);
       const waveJobs = expandedJobs.filter((j) => waveJobIds.has(j.taskName));
@@ -624,25 +671,35 @@ async function handleWorkflow(options: {
       // ── Warm-cache serialization for the first wave ────────────────────────
       if (!warm && wi === 0 && waveJobs.length > 1) {
         debugCli("Cold cache — running first job to populate warm modules...");
-        const firstResult = await runJob(waveJobs[0]);
+        const needsCtx = buildNeedsContext(waveJobs[0].taskName);
+        const firstResult = await runJob(waveJobs[0], needsCtx);
         allResults.push(firstResult);
+        collectOutputs(firstResult, waveJobs[0].taskName);
 
         const results = await Promise.allSettled(
-          waveJobs.slice(1).map((ej) => limiter.run(() => runJob(ej))),
+          waveJobs.slice(1).map((ej) => {
+            const ctx = buildNeedsContext(ej.taskName);
+            return limiter.run(() => runJob(ej, ctx));
+          }),
         );
         for (const r of results) {
           if (r.status === "fulfilled") {
             allResults.push(r.value);
+            collectOutputs(r.value, r.value.taskId);
           }
         }
         warm = true;
       } else {
         const results = await Promise.allSettled(
-          waveJobs.map((ej) => limiter.run(() => runJob(ej))),
+          waveJobs.map((ej) => {
+            const ctx = buildNeedsContext(ej.taskName);
+            return limiter.run(() => runJob(ej, ctx));
+          }),
         );
         for (const r of results) {
           if (r.status === "fulfilled") {
             allResults.push(r.value);
+            collectOutputs(r.value, r.value.taskId);
           }
         }
       }

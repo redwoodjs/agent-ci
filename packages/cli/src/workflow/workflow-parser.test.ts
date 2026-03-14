@@ -1194,3 +1194,63 @@ jobs:
     expect(parseFailFast(filePath, "build")).toBeUndefined();
   });
 });
+
+// ─── parseWorkflowSteps with needsContext ─────────────────────────────────────
+
+import { parseWorkflowSteps } from "./workflow-parser.js";
+
+describe("parseWorkflowSteps with needsContext", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflowTree(content: string): string {
+    // Create a minimal repo structure: repoRoot/.github/workflows/test.yml
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-steps-needs-"));
+    const workflowDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowDir, { recursive: true });
+    const filePath = path.join(workflowDir, "test.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("resolves needs.*.outputs.* in step scripts when needsContext is provided", async () => {
+    const filePath = writeWorkflowTree(`
+name: Needs Test
+on: [push]
+jobs:
+  test:
+    needs: [setup]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo \${{ needs.setup.outputs.skip }}
+`);
+    const needsCtx = { setup: { skip: "false" } };
+    const steps = await parseWorkflowSteps(filePath, "test", undefined, undefined, needsCtx);
+
+    // The step script should have "false" substituted in
+    expect((steps[0] as any).Inputs.script).toBe("echo false");
+  });
+
+  it("resolves needs context in step names", async () => {
+    const filePath = writeWorkflowTree(`
+name: Needs Name Test
+on: [push]
+jobs:
+  test:
+    needs: [setup]
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Shard \${{ needs.setup.outputs.index }}"
+        run: echo hello
+`);
+    const needsCtx = { setup: { index: "3" } };
+    const steps = await parseWorkflowSteps(filePath, "test", undefined, undefined, needsCtx);
+
+    expect((steps[0] as any).Name).toBe("Shard 3");
+  });
+});

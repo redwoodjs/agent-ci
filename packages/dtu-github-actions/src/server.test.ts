@@ -163,6 +163,172 @@ describe("DTU Server", () => {
     expect(body.JobDisplayName).toBe("poll-job");
   });
 
+  it("should dispatch a job seeded AFTER polling begins (issue #47 race condition)", async () => {
+    const runnerName = "agent-ci-race-test";
+
+    // 1. Register the runner with the DTU (so sessionToRunner mapping exists)
+    await request("POST", "/_dtu/start-runner", {
+      runnerName,
+      logDir: "/tmp/agent-ci-race-test-logs",
+      timelineDir: "/tmp/agent-ci-race-test-logs",
+    });
+
+    // 2. Create a session as this runner
+    const sessionRes = await request("POST", "/_apis/distributedtask/pools/1/sessions", {
+      agent: { name: runnerName },
+    });
+    const sessionId = sessionRes.body.sessionId;
+    expect(sessionRes.status).toBe(200);
+
+    // 3. Start the long-poll — this will block for up to 20s waiting for a job.
+    //    The runner arrives BEFORE the job is seeded, exactly reproducing the race.
+    const pollPromise = request(
+      "GET",
+      `/_apis/distributedtask/pools/1/messages?sessionId=${sessionId}`,
+    );
+
+    // 4. Give the event loop a tick so the poll handler registers in pendingPolls
+    await new Promise((r) => setTimeout(r, 50));
+
+    // 5. Now seed a job targeted at this runner — the seed handler should
+    //    find the pending poll and dispatch immediately.
+    const seedRes = await request("POST", "/_dtu/seed", {
+      id: 999,
+      name: "race-test-job",
+      runnerName,
+    });
+    expect(seedRes.status).toBe(201);
+
+    // 6. The poll should resolve almost instantly with the job (200),
+    //    NOT after the 20s timeout (204).
+    const pollRes = await pollPromise;
+    expect(pollRes.status).toBe(200);
+    expect(pollRes.body.MessageType).toBe("PipelineAgentJobRequest");
+    const body = JSON.parse(pollRes.body.Body);
+    expect(body.JobDisplayName).toBe("race-test-job");
+  }, 10_000);
+
+  it("should dispatch jobs to 8 concurrent runners seeded after polling (--all mode stress)", async () => {
+    const RUNNER_COUNT = 8;
+    const runners: Array<{ name: string; sessionId: string }> = [];
+
+    // 1. Register and create sessions for all runners
+    for (let i = 0; i < RUNNER_COUNT; i++) {
+      const name = `agent-ci-stress-${i + 1}`;
+      await request("POST", "/_dtu/start-runner", {
+        runnerName: name,
+        logDir: `/tmp/agent-ci-stress-${i + 1}-logs`,
+        timelineDir: `/tmp/agent-ci-stress-${i + 1}-logs`,
+      });
+      const sessionRes = await request("POST", "/_apis/distributedtask/pools/1/sessions", {
+        agent: { name },
+      });
+      runners.push({ name, sessionId: sessionRes.body.sessionId });
+    }
+
+    // 2. Start all polls concurrently — all runners are waiting before any job is seeded
+    const pollPromises = runners.map((r) =>
+      request("GET", `/_apis/distributedtask/pools/1/messages?sessionId=${r.sessionId}`),
+    );
+
+    // 3. Let the polls register in pendingPolls
+    await new Promise((r) => setTimeout(r, 100));
+
+    // 4. Seed all jobs with staggered timing (simulating concurrent executeLocalJob calls)
+    for (let i = 0; i < RUNNER_COUNT; i++) {
+      await request("POST", "/_dtu/seed", {
+        id: 2000 + i,
+        name: `stress-job-${i + 1}`,
+        runnerName: runners[i].name,
+      });
+      // Small stagger like real concurrent CLI calls
+      if (i < RUNNER_COUNT - 1) {
+        await new Promise((r) => setTimeout(r, 5));
+      }
+    }
+
+    // 5. ALL polls should resolve with 200 (their specific job), not 204
+    const pollResults = await Promise.all(pollPromises);
+    for (let i = 0; i < RUNNER_COUNT; i++) {
+      expect(pollResults[i].status).toBe(200);
+      expect(pollResults[i].body.MessageType).toBe("PipelineAgentJobRequest");
+      const body = JSON.parse(pollResults[i].body.Body);
+      expect(body.JobDisplayName).toBe(`stress-job-${i + 1}`);
+    }
+  }, 15_000);
+
+  it("should NOT let runner B steal runner A's job from the generic pool (issue #47)", async () => {
+    // This reproduces the core race in --all mode:
+    // 1. Job for runner A is seeded
+    // 2. Runner B creates a session and polls BEFORE its own job is seeded
+    // 3. BUG: Runner B falls through to the generic state.jobs pool and steals A's job
+    // 4. Runner B's actual job arrives later, but A's real runner never gets its job
+
+    const runnerA = "agent-ci-runner-A";
+    const runnerB = "agent-ci-runner-B";
+
+    // Register both runners
+    await request("POST", "/_dtu/start-runner", {
+      runnerName: runnerA,
+      logDir: "/tmp/agent-ci-A-logs",
+      timelineDir: "/tmp/agent-ci-A-logs",
+    });
+    await request("POST", "/_dtu/start-runner", {
+      runnerName: runnerB,
+      logDir: "/tmp/agent-ci-B-logs",
+      timelineDir: "/tmp/agent-ci-B-logs",
+    });
+
+    // Seed runner A's job
+    await request("POST", "/_dtu/seed", {
+      id: 3001,
+      name: "job-for-A",
+      runnerName: runnerA,
+    });
+
+    // Runner B creates a session and polls — its job hasn't been seeded yet.
+    const sessionB = await request("POST", "/_apis/distributedtask/pools/1/sessions", {
+      agent: { name: runnerB },
+    });
+    const pollBPromise = request(
+      "GET",
+      `/_apis/distributedtask/pools/1/messages?sessionId=${sessionB.body.sessionId}`,
+    );
+
+    // Wait 200ms — if B stole A's job, the poll would have resolved instantly.
+    let pollBResolved = false;
+    pollBPromise.then(() => {
+      pollBResolved = true;
+    });
+    await new Promise((r) => setTimeout(r, 200));
+    expect(pollBResolved).toBe(false); // B should still be long-polling, NOT holding A's job
+
+    // Now seed runner B's actual job — this unblocks B's long-poll via notify-on-seed
+    await request("POST", "/_dtu/seed", {
+      id: 3002,
+      name: "job-for-B",
+      runnerName: runnerB,
+    });
+
+    // B should now receive its own job
+    const pollB = await pollBPromise;
+    expect(pollB.status).toBe(200);
+    const bodyB = JSON.parse(pollB.body.Body);
+    expect(bodyB.JobDisplayName).toBe("job-for-B");
+
+    // Runner A should still get its own job (not stolen)
+    const sessionA = await request("POST", "/_apis/distributedtask/pools/1/sessions", {
+      agent: { name: runnerA },
+    });
+    const pollA = await request(
+      "GET",
+      `/_apis/distributedtask/pools/1/messages?sessionId=${sessionA.body.sessionId}`,
+    );
+    expect(pollA.status).toBe(200);
+    const bodyA = JSON.parse(pollA.body.Body);
+    expect(bodyA.JobDisplayName).toBe("job-for-A");
+  }, 10_000);
+
   it("should log unhandled requests to 404.log", async () => {
     const logDir = path.dirname(getDtuLogPath());
     const logFile = path.join(logDir, "404.log");

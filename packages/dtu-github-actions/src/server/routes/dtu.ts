@@ -30,12 +30,14 @@ export function registerDtuRoutes(app: Polka) {
 
         const jobPayload = { ...payload, steps: mappedSteps };
 
-        // Store job both in the generic map AND keyed by runner name for per-runner dispatch.
-        // The runnerName is passed in the body (from local-job.ts which spreads the Job object).
+        // Store the job for dispatch. Runner-targeted jobs go ONLY into runnerJobs
+        // to prevent other runners from stealing them via the generic pool fallback.
+        // Jobs without a runnerName go into the generic pool for any runner to pick up.
         const runnerName: string | undefined = payload.runnerName;
-        state.jobs.set(jobId, jobPayload);
         if (runnerName) {
           state.runnerJobs.set(runnerName, jobPayload);
+        } else {
+          state.jobs.set(jobId, jobPayload);
         }
         console.log(`[DTU] Seeded job: ${jobId}${runnerName ? ` for runner ${runnerName}` : ""}`);
 

@@ -87,3 +87,76 @@ export function wrapJobSteps(steps: any[], pauseOnFailure: boolean): any[] {
     };
   });
 }
+
+// ─── Output capture step injection ────────────────────────────────────────────
+//
+// Appends a synthetic step that reads `$GITHUB_OUTPUT` files and echoes their
+// contents to stdout with a `::agent-ci-output::` prefix. The DTU parses these
+// lines and persists them to `outputs.json` so the CLI can resolve cross-job
+// outputs via `needs.*.outputs.*`.
+//
+// This step is necessary because the runner's FinalizeJob step deletes
+// `_temp/_runner_file_commands/` _inside_ the container before it exits,
+// making the files unreachable from the host.
+
+/**
+ * Build the shell script for the output-capture synthetic step.
+ *
+ * Reads all `set_output_*` files from `GITHUB_OUTPUT`'s directory and
+ * echoes each `key=value` line with the prefix `::agent-ci-output::`.
+ * Multiline values (heredoc format) are flattened into single-line JSON.
+ */
+function outputCaptureScript(): string {
+  return `# Agent CI: capture step outputs for cross-job passing
+DIR="$(dirname "$GITHUB_OUTPUT")"
+if [ -d "$DIR" ]; then
+  for f in "$DIR"/set_output_*; do
+    [ -f "$f" ] || continue
+    while IFS= read -r line || [ -n "$line" ]; do
+      if echo "$line" | grep -q '<<'; then
+        # Heredoc: key<<DELIMITER ... DELIMITER
+        KEY=$(echo "$line" | cut -d'<' -f1)
+        DELIM=$(echo "$line" | sed 's/^[^<]*<<//')
+        VAL=""
+        while IFS= read -r hline || [ -n "$hline" ]; do
+          [ "$hline" = "$DELIM" ] && break
+          [ -n "$VAL" ] && VAL="$VAL\\\\n$hline" || VAL="$hline"
+        done
+        echo "::agent-ci-output::$KEY=$VAL"
+      else
+        echo "::agent-ci-output::$line"
+      fi
+    done < "$f"
+  done
+fi`;
+}
+
+/**
+ * Create a synthetic step object for output capture.
+ * Uses `if: always()` semantics by setting `Condition` so it runs even
+ * if prior steps failed.
+ */
+export function createOutputCaptureStep(): Record<string, any> {
+  return {
+    Name: "__agent_ci_output_capture",
+    DisplayName: "Capture outputs",
+    Reference: { Type: "Script" },
+    Inputs: {
+      script: outputCaptureScript(),
+    },
+    Condition: "always()",
+    Environment: {},
+    ContextName: "__agent_ci_output_capture",
+  };
+}
+
+/**
+ * Append the output-capture step to a steps array.
+ * Only adds it if there are existing steps and the job has outputs defined.
+ */
+export function appendOutputCaptureStep(steps: any[]): any[] {
+  if (!steps || steps.length === 0) {
+    return steps;
+  }
+  return [...steps, createOutputCaptureStep()];
+}

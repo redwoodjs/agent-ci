@@ -31,7 +31,7 @@ import {
   resolveDockerApiUrl,
 } from "../docker/container-config.js";
 import { buildJobResult, sanitizeStepName } from "./result-builder.js";
-import { wrapJobSteps } from "./step-wrapper.js";
+import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
 import { syncWorkspaceForRetry } from "./sync.js";
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
@@ -215,7 +215,8 @@ export async function executeLocalJob(
         }
       : job.repository;
 
-    const seededSteps = pauseOnFailure ? wrapJobSteps(job.steps ?? [], true) : job.steps;
+    const wrappedSteps = pauseOnFailure ? wrapJobSteps(job.steps ?? [], true) : job.steps;
+    const seededSteps = appendOutputCaptureStep(wrappedSteps ?? []);
 
     t0 = Date.now();
     const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {
@@ -765,6 +766,19 @@ export async function executeLocalJob(
     if (fs.existsSync(hostRunnerDir)) {
       fs.rmSync(hostRunnerDir, { recursive: true, force: true });
     }
+    // Read step outputs captured by the DTU server via the runner's outputs API
+    let stepOutputs: Record<string, string> = {};
+    if (jobSucceeded) {
+      const outputsFile = path.join(logDir, "outputs.json");
+      try {
+        if (fs.existsSync(outputsFile)) {
+          stepOutputs = JSON.parse(fs.readFileSync(outputsFile, "utf-8"));
+        }
+      } catch {
+        /* best-effort */
+      }
+    }
+
     if (jobSucceeded && fs.existsSync(dirs.containerWorkDir)) {
       fs.rmSync(dirs.containerWorkDir, { recursive: true, force: true });
     }
@@ -781,6 +795,7 @@ export async function executeLocalJob(
       timelinePath,
       logDir,
       debugLogPath,
+      stepOutputs,
     });
   } finally {
     process.removeListener("SIGINT", signalCleanup);

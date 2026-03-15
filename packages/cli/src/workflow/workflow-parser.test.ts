@@ -806,3 +806,451 @@ describe("isWorkflowRelevant", () => {
     expect(isWorkflowRelevant(template, "feature", ["cli/src/cli.ts"])).toBe(true);
   });
 });
+
+// ─── fromJSON / toJSON ────────────────────────────────────────────────────────
+
+describe("expandExpressions — fromJSON", () => {
+  it("fromJSON parses a JSON array string and returns it", () => {
+    expect(expandExpressions('${{ fromJSON(\'["a","b","c"]\') }}')).toBe('["a","b","c"]');
+  });
+
+  it("fromJSON parses a JSON string value and unwraps it", () => {
+    expect(expandExpressions("${{ fromJSON('\"hello\"') }}")).toBe("hello");
+  });
+
+  it("fromJSON parses a JSON number and returns it as string", () => {
+    expect(expandExpressions("${{ fromJSON('42') }}")).toBe("42");
+  });
+
+  it("fromJSON parses a JSON boolean", () => {
+    expect(expandExpressions("${{ fromJSON('true') }}")).toBe("true");
+    expect(expandExpressions("${{ fromJSON('false') }}")).toBe("false");
+  });
+
+  it("fromJSON parses a JSON object string", () => {
+    const result = expandExpressions('${{ fromJSON(\'{"key":"val"}\') }}');
+    expect(JSON.parse(result)).toEqual({ key: "val" });
+  });
+
+  it("fromJSON returns empty string for invalid JSON", () => {
+    expect(expandExpressions("${{ fromJSON('not valid json') }}")).toBe("");
+  });
+
+  it("fromJSON with a nested expression resolves the inner expr first", () => {
+    // Simulates fromJSON(needs.setup.outputs.matrix) — the inner expr resolves first
+    const needsCtx = { setup: { matrix: '["x","y"]' } };
+    expect(
+      expandExpressions(
+        "${{ fromJSON(needs.setup.outputs.matrix) }}",
+        undefined,
+        undefined,
+        undefined,
+        needsCtx,
+      ),
+    ).toBe('["x","y"]');
+  });
+});
+
+describe("expandExpressions — toJSON", () => {
+  it("toJSON wraps a string value in quotes", () => {
+    expect(expandExpressions("${{ toJSON('hello') }}")).toBe('"hello"');
+  });
+});
+
+// ─── Cross-job outputs: needs context ─────────────────────────────────────────
+
+import { parseJobOutputDefs } from "./workflow-parser.js";
+
+describe("parseJobOutputDefs", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-outputs-test-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("parses job output definitions from YAML", () => {
+    const filePath = writeWorkflow(`
+name: Test Outputs
+on: [push]
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      skip: \${{ steps.check.outputs.skip }}
+      shard_count: \${{ steps.count.outputs.shard_count }}
+    steps:
+      - run: echo ok
+`);
+    const defs = parseJobOutputDefs(filePath, "setup");
+    expect(defs).toEqual({
+      skip: "${{ steps.check.outputs.skip }}",
+      shard_count: "${{ steps.count.outputs.shard_count }}",
+    });
+  });
+
+  it("returns empty object when job has no outputs", () => {
+    const filePath = writeWorkflow(`
+name: No Outputs
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    const defs = parseJobOutputDefs(filePath, "build");
+    expect(defs).toEqual({});
+  });
+
+  it("returns empty object for nonexistent job", () => {
+    const filePath = writeWorkflow(`
+name: Test
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    const defs = parseJobOutputDefs(filePath, "nonexistent");
+    expect(defs).toEqual({});
+  });
+});
+
+describe("expandExpressions with needsContext", () => {
+  it("resolves needs.build.outputs.sha to the provided value", () => {
+    const needsCtx = { build: { sha: "abc123" } };
+    expect(
+      expandExpressions(
+        "sha=${{ needs.build.outputs.sha }}",
+        undefined,
+        undefined,
+        undefined,
+        needsCtx,
+      ),
+    ).toBe("sha=abc123");
+  });
+
+  it("resolves needs.setup.outputs.skip to 'false'", () => {
+    const needsCtx = { setup: { skip: "false" } };
+    expect(
+      expandExpressions(
+        "${{ needs.setup.outputs.skip }}",
+        undefined,
+        undefined,
+        undefined,
+        needsCtx,
+      ),
+    ).toBe("false");
+  });
+
+  it("returns empty string for unknown needs output", () => {
+    const needsCtx = { build: { sha: "abc123" } };
+    expect(
+      expandExpressions(
+        "${{ needs.build.outputs.unknown }}",
+        undefined,
+        undefined,
+        undefined,
+        needsCtx,
+      ),
+    ).toBe("");
+  });
+
+  it("returns empty string for unknown needs job", () => {
+    const needsCtx = { build: { sha: "abc123" } };
+    expect(
+      expandExpressions(
+        "${{ needs.other.outputs.sha }}",
+        undefined,
+        undefined,
+        undefined,
+        needsCtx,
+      ),
+    ).toBe("");
+  });
+
+  it("resolves needs.build.result to success when not explicitly set", () => {
+    const needsCtx = { build: {} };
+    // needs.build.result should default to 'success' if the job succeeded
+    expect(
+      expandExpressions("${{ needs.build.result }}", undefined, undefined, undefined, needsCtx),
+    ).toBe("success");
+  });
+});
+
+// ─── Job-level if conditions ──────────────────────────────────────────────────
+
+import { evaluateJobIf, parseJobIf } from "./workflow-parser.js";
+
+describe("parseJobIf", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-job-if-test-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("returns the if expression when present", () => {
+    const filePath = writeWorkflow(`
+name: If Test
+on: [push]
+jobs:
+  test:
+    if: needs.setup.outputs.skip == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobIf(filePath, "test")).toBe("needs.setup.outputs.skip == 'false'");
+  });
+
+  it("returns null when job has no if", () => {
+    const filePath = writeWorkflow(`
+name: No If
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobIf(filePath, "build")).toBeNull();
+  });
+
+  it("strips ${{ }} wrapper if present", () => {
+    const filePath = writeWorkflow(`
+name: If Wrapped
+on: [push]
+jobs:
+  check:
+    if: \${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(parseJobIf(filePath, "check")).toBe("always()");
+  });
+});
+
+describe("evaluateJobIf", () => {
+  it("always() returns true", () => {
+    expect(evaluateJobIf("always()", {})).toBe(true);
+  });
+
+  it("success() returns true when all upstream jobs succeeded", () => {
+    expect(evaluateJobIf("success()", { build: "success", lint: "success" })).toBe(true);
+  });
+
+  it("success() returns false when any upstream job failed", () => {
+    expect(evaluateJobIf("success()", { build: "success", lint: "failure" })).toBe(false);
+  });
+
+  it("failure() returns true when any upstream job failed", () => {
+    expect(evaluateJobIf("failure()", { build: "success", lint: "failure" })).toBe(true);
+  });
+
+  it("failure() returns false when all upstream succeeded", () => {
+    expect(evaluateJobIf("failure()", { build: "success" })).toBe(false);
+  });
+
+  it("cancelled() returns false (locally, nothing is ever cancelled)", () => {
+    expect(evaluateJobIf("cancelled()", {})).toBe(false);
+  });
+
+  it("evaluates string equality with needs outputs", () => {
+    const needsCtx = { setup: { run_tests: "true" } };
+    expect(evaluateJobIf("needs.setup.outputs.run_tests == 'true'", {}, needsCtx)).toBe(true);
+  });
+
+  it("evaluates string inequality with needs outputs", () => {
+    const needsCtx = { setup: { run_tests: "false" } };
+    expect(evaluateJobIf("needs.setup.outputs.run_tests == 'true'", {}, needsCtx)).toBe(false);
+  });
+
+  it("evaluates != operator", () => {
+    const needsCtx = { setup: { skip: "false" } };
+    expect(evaluateJobIf("needs.setup.outputs.skip != 'true'", {}, needsCtx)).toBe(true);
+  });
+
+  it("evaluates compound condition with &&", () => {
+    const needsCtx = { setup: { skip: "false", run_tests: "true" } };
+    expect(
+      evaluateJobIf(
+        "needs.setup.outputs.skip == 'false' && needs.setup.outputs.run_tests == 'true'",
+        {},
+        needsCtx,
+      ),
+    ).toBe(true);
+  });
+
+  it("evaluates compound condition with || where first is false", () => {
+    expect(evaluateJobIf("failure() || always()", { build: "success" })).toBe(true);
+  });
+
+  it("defaults to success() when expression is empty", () => {
+    expect(evaluateJobIf("", { build: "success" })).toBe(true);
+    expect(evaluateJobIf("", { build: "failure" })).toBe(false);
+  });
+});
+
+// ─── strategy.fail-fast ──────────────────────────────────────────────────────
+
+import { parseFailFast } from "./workflow-parser.js";
+
+describe("parseFailFast", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflow(content: string): string {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-failfast-test-"));
+    const filePath = path.join(tmpDir, "workflow.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("returns false when strategy.fail-fast is explicitly false", () => {
+    const filePath = writeWorkflow(`
+name: Fail Fast False
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - run: echo ok
+`);
+    expect(parseFailFast(filePath, "test")).toBe(false);
+  });
+
+  it("returns true when strategy.fail-fast is explicitly true", () => {
+    const filePath = writeWorkflow(`
+name: Fail Fast True
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        shard: [1, 2]
+    steps:
+      - run: echo ok
+`);
+    expect(parseFailFast(filePath, "test")).toBe(true);
+  });
+
+  it("returns undefined when strategy has no fail-fast key", () => {
+    const filePath = writeWorkflow(`
+name: No Fail Fast
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shard: [1, 2]
+    steps:
+      - run: echo ok
+`);
+    expect(parseFailFast(filePath, "test")).toBeUndefined();
+  });
+
+  it("returns undefined when job has no strategy", () => {
+    const filePath = writeWorkflow(`
+name: No Strategy
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ok
+`);
+    expect(parseFailFast(filePath, "build")).toBeUndefined();
+  });
+});
+
+// ─── parseWorkflowSteps with needsContext ─────────────────────────────────────
+
+import { parseWorkflowSteps } from "./workflow-parser.js";
+
+describe("parseWorkflowSteps with needsContext", () => {
+  let tmpDir: string;
+
+  afterEach(() => {
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  function writeWorkflowTree(content: string): string {
+    // Create a minimal repo structure: repoRoot/.github/workflows/test.yml
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-steps-needs-"));
+    const workflowDir = path.join(tmpDir, ".github", "workflows");
+    fs.mkdirSync(workflowDir, { recursive: true });
+    const filePath = path.join(workflowDir, "test.yml");
+    fs.writeFileSync(filePath, content);
+    return filePath;
+  }
+
+  it("resolves needs.*.outputs.* in step scripts when needsContext is provided", async () => {
+    const filePath = writeWorkflowTree(`
+name: Needs Test
+on: [push]
+jobs:
+  test:
+    needs: [setup]
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo \${{ needs.setup.outputs.skip }}
+`);
+    const needsCtx = { setup: { skip: "false" } };
+    const steps = await parseWorkflowSteps(filePath, "test", undefined, undefined, needsCtx);
+
+    // The step script should have "false" substituted in
+    expect((steps[0] as any).Inputs.script).toBe("echo false");
+  });
+
+  it("resolves needs context in step names", async () => {
+    const filePath = writeWorkflowTree(`
+name: Needs Name Test
+on: [push]
+jobs:
+  test:
+    needs: [setup]
+    runs-on: ubuntu-latest
+    steps:
+      - name: "Shard \${{ needs.setup.outputs.index }}"
+        run: echo hello
+`);
+    const needsCtx = { setup: { index: "3" } };
+    const steps = await parseWorkflowSteps(filePath, "test", undefined, undefined, needsCtx);
+
+    expect((steps[0] as any).Name).toBe("Shard 3");
+  });
+});

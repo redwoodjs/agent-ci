@@ -485,8 +485,41 @@ export function registerActionRoutes(app: Polka) {
     );
   });
 
-  // 18. Generic Step Outputs Handler
-  app.post("/_apis/distributedtask/hubs/:hub/plans/:planId/outputs", (req, res) => {
+  // 18. Step Outputs Handler — capture outputs sent by the runner
+  app.post("/_apis/distributedtask/hubs/:hub/plans/:planId/outputs", (req: any, res) => {
+    const planId = req.params.planId;
+    const payload = req.body || {};
+
+    // The runner posts step outputs as { stepId: { <name>: { value: <val> } } }
+    // Persist to the runner's log directory as outputs.json
+    const logDir = state.planToLogDir.get(planId);
+    if (logDir && payload && typeof payload === "object") {
+      try {
+        const outputsPath = path.join(logDir, "outputs.json");
+        // Merge with existing outputs
+        let existing: Record<string, any> = {};
+        try {
+          existing = JSON.parse(fs.readFileSync(outputsPath, "utf-8"));
+        } catch {
+          /* no existing file */
+        }
+
+        // Flatten step outputs: { stepId: { name: { value: v } } } → { "stepId.name": v }
+        for (const [stepId, outputs] of Object.entries(payload)) {
+          if (outputs && typeof outputs === "object") {
+            for (const [name, meta] of Object.entries(outputs as Record<string, any>)) {
+              const value = meta?.value ?? (typeof meta === "string" ? meta : "");
+              existing[`${stepId}.${name}`] = value;
+            }
+          }
+        }
+
+        fs.writeFileSync(outputsPath, JSON.stringify(existing, null, 2));
+      } catch {
+        /* best-effort */
+      }
+    }
+
     res.writeHead(200);
     res.end(JSON.stringify({ value: {} }));
   });
@@ -568,6 +601,9 @@ export function registerActionRoutes(app: Polka) {
       /^\[(?:RUNNER|WORKER) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z (?:INFO|WARN|ERR)\s/;
     let content = "";
 
+    // Collect agent-ci-output lines for cross-job output passing
+    const outputEntries: Array<[string, string]> = [];
+
     for (const rawLine of lines) {
       const line = rawLine.trimEnd();
       if (!line) {
@@ -578,6 +614,17 @@ export function registerActionRoutes(app: Polka) {
       const stripped = line
         .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
         .replace(/^\uFEFF/, "");
+
+      // Parse agent-ci-output lines: ::agent-ci-output::key=value
+      if (stripped.startsWith("::agent-ci-output::")) {
+        const kv = stripped.slice("::agent-ci-output::".length);
+        const eqIdx = kv.indexOf("=");
+        if (eqIdx > 0) {
+          outputEntries.push([kv.slice(0, eqIdx), kv.slice(eqIdx + 1)]);
+        }
+        continue; // Don't include in regular step logs
+      }
+
       if (
         !stripped ||
         stripped.startsWith("##[") ||
@@ -587,6 +634,25 @@ export function registerActionRoutes(app: Polka) {
         continue;
       }
       content += stripped + "\n";
+    }
+
+    // Persist captured outputs to outputs.json
+    if (outputEntries.length > 0) {
+      try {
+        const outputsPath = path.join(logDir, "outputs.json");
+        let existing: Record<string, string> = {};
+        try {
+          existing = JSON.parse(fs.readFileSync(outputsPath, "utf-8"));
+        } catch {
+          /* no existing file */
+        }
+        for (const [key, value] of outputEntries) {
+          existing[key] = value;
+        }
+        fs.writeFileSync(outputsPath, JSON.stringify(existing, null, 2));
+      } catch {
+        /* best-effort */
+      }
     }
 
     if (content) {

@@ -22,6 +22,8 @@ export interface JobResult {
   lastOutputLines?: string[];
   /** Number of attempts (only set when > 1, i.e. retried) */
   attempt?: number;
+  /** Step outputs captured from $GITHUB_OUTPUT files */
+  outputs?: Record<string, string>;
 }
 
 // ─── Formatting helpers ───────────────────────────────────────────────────────

@@ -22,34 +22,34 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 
 ## Job-Level Keys
 
-| Key                                   | Status | Notes                                                  |
-| ------------------------------------- | ------ | ------------------------------------------------------ |
-| `jobs.<id>`                           | ✅     | Multiple jobs in a single workflow                     |
-| `jobs.<id>.name`                      | ✅     |                                                        |
-| `jobs.<id>.needs`                     | ✅     | Topological sort into dependency waves                 |
-| `jobs.<id>.if`                        | ❌     | Job-level conditions not evaluated                     |
-| `jobs.<id>.runs-on`                   | 🟡     | Accepted; always runs in a Linux container             |
-| `jobs.<id>.environment`               | 🟡     | Accepted, not enforced                                 |
-| `jobs.<id>.env`                       | ✅     |                                                        |
-| `jobs.<id>.defaults.run`              | ✅     | shell, working-directory                               |
-| `jobs.<id>.outputs`                   | ❌     | Cross-job output passing not wired                     |
-| `jobs.<id>.timeout-minutes`           | ❌     |                                                        |
-| `jobs.<id>.continue-on-error`         | ❌     |                                                        |
-| `jobs.<id>.concurrency`               | ❌     |                                                        |
-| `jobs.<id>.container`                 | ✅     | Short & long form; image, env, ports, volumes, options |
-| `jobs.<id>.services`                  | ✅     | Sidecar containers with image, env, ports, options     |
-| `jobs.<id>.uses` (reusable workflows) | ❌     |                                                        |
-| `jobs.<id>.secrets`                   | ❌     | Use `.env.agent-ci` file instead                       |
+| Key                                   | Status | Notes                                                                         |
+| ------------------------------------- | ------ | ----------------------------------------------------------------------------- | --- | --- |
+| `jobs.<id>`                           | ✅     | Multiple jobs in a single workflow                                            |
+| `jobs.<id>.name`                      | ✅     |                                                                               |
+| `jobs.<id>.needs`                     | ✅     | Topological sort into dependency waves                                        |
+| `jobs.<id>.if`                        | ⚠️     | Simplified evaluator: `always()`, `success()`, `failure()`, `==`/`!=`, `&&`/` |     | `   |
+| `jobs.<id>.runs-on`                   | 🟡     | Accepted; always runs in a Linux container                                    |
+| `jobs.<id>.environment`               | 🟡     | Accepted, not enforced                                                        |
+| `jobs.<id>.env`                       | ✅     |                                                                               |
+| `jobs.<id>.defaults.run`              | ✅     | shell, working-directory                                                      |
+| `jobs.<id>.outputs`                   | ⚠️     | Parser-level support; CLI orchestration wiring pending                        |
+| `jobs.<id>.timeout-minutes`           | ❌     |                                                                               |
+| `jobs.<id>.continue-on-error`         | ❌     |                                                                               |
+| `jobs.<id>.concurrency`               | ❌     |                                                                               |
+| `jobs.<id>.container`                 | ✅     | Short & long form; image, env, ports, volumes, options                        |
+| `jobs.<id>.services`                  | ✅     | Sidecar containers with image, env, ports, options                            |
+| `jobs.<id>.uses` (reusable workflows) | ❌     |                                                                               |
+| `jobs.<id>.secrets`                   | ❌     | Use `.env.agent-ci` file instead                                              |
 
 ## Strategy / Matrix
 
-| Key                       | Status | Notes                                              |
-| ------------------------- | ------ | -------------------------------------------------- |
-| `strategy.matrix`         | ✅     | Cartesian product expansion                        |
-| `strategy.matrix.include` | ❌     |                                                    |
-| `strategy.matrix.exclude` | ❌     |                                                    |
-| `strategy.fail-fast`      | ❌     | Currently always aborts remaining waves on failure |
-| `strategy.max-parallel`   | ❌     | Controlled by host concurrency, not per-job        |
+| Key                       | Status | Notes                                                   |
+| ------------------------- | ------ | ------------------------------------------------------- |
+| `strategy.matrix`         | ✅     | Cartesian product expansion                             |
+| `strategy.matrix.include` | ❌     |                                                         |
+| `strategy.matrix.exclude` | ❌     |                                                         |
+| `strategy.fail-fast`      | ✅     | Parser support; respects `false` to continue on failure |
+| `strategy.max-parallel`   | ❌     | Controlled by host concurrency, not per-job             |
 
 ## Step-Level Keys
 
@@ -69,22 +69,23 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 
 ## Expressions (`${{ }}`)
 
-| Expression                                                 | Status | Notes                                           |
-| ---------------------------------------------------------- | ------ | ----------------------------------------------- |
-| `hashFiles(...)`                                           | ✅     | SHA-256 of matching files, multi-glob           |
-| `format(...)`                                              | ✅     | Template substitution with recursive expansion  |
-| `matrix.*`                                                 | ✅     |                                                 |
-| `secrets.*`                                                | ✅     | Via `.env.agent-ci` file                        |
-| `runner.os`                                                | ✅     | Always returns `Linux`                          |
-| `runner.arch`                                              | ✅     | Always returns `X64`                            |
-| `github.sha`, `github.ref_name`, etc.                      | ⚠️     | Returns static/dummy values                     |
-| `github.event.*`                                           | ⚠️     | Returns empty strings                           |
-| `strategy.job-total`, `strategy.job-index`                 | ✅     |                                                 |
-| `steps.*.outputs.*`                                        | ⚠️     | Resolves to empty string at parse time          |
-| `needs.*.outputs.*`                                        | ❌     | Resolves to empty string                        |
-| Boolean/comparison operators                               | ❌     | The runner handles `if:` expressions internally |
-| `toJSON`, `fromJSON`, `contains`, `startsWith`, `endsWith` | ❌     |                                                 |
-| `success()`, `failure()`, `always()`, `cancelled()`        | ⚠️     | Evaluated by the runner, not by Agent CI        |
+| Expression                                          | Status | Notes                                          |
+| --------------------------------------------------- | ------ | ---------------------------------------------- | --- | ----------------- |
+| `hashFiles(...)`                                    | ✅     | SHA-256 of matching files, multi-glob          |
+| `format(...)`                                       | ✅     | Template substitution with recursive expansion |
+| `matrix.*`                                          | ✅     |                                                |
+| `secrets.*`                                         | ✅     | Via `.env.agent-ci` file                       |
+| `runner.os`                                         | ✅     | Always returns `Linux`                         |
+| `runner.arch`                                       | ✅     | Always returns `X64`                           |
+| `github.sha`, `github.ref_name`, etc.               | ⚠️     | Returns static/dummy values                    |
+| `github.event.*`                                    | ⚠️     | Returns empty strings                          |
+| `strategy.job-total`, `strategy.job-index`          | ✅     |                                                |
+| `steps.*.outputs.*`                                 | ⚠️     | Resolves to empty string at parse time         |
+| `needs.*.outputs.*`                                 | ⚠️     | Resolved from needsContext when provided       |
+| Boolean/comparison operators                        | ⚠️     | `==`, `!=`, `&&`, `                            |     | `in job-level`if` |
+| `toJSON`, `fromJSON`                                | ✅     |                                                |
+| `contains`, `startsWith`, `endsWith`                | ❌     |                                                |
+| `success()`, `failure()`, `always()`, `cancelled()` | ✅     | Evaluated by Agent CI for job-level `if`       |
 
 ## GitHub API Features (DTU Mock)
 

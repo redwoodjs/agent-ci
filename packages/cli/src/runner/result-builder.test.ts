@@ -228,3 +228,179 @@ describe("buildJobResult", () => {
     expect(result.lastOutputLines).toContain("compile error");
   });
 });
+
+// ── extractStepOutputs ────────────────────────────────────────────────────────
+
+describe("extractStepOutputs", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "step-outputs-test-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("extracts simple key=value outputs from set_output files", async () => {
+    const { extractStepOutputs } = await import("./result-builder.js");
+    // Simulate the runner's file_commands directory structure
+    const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
+    fs.mkdirSync(fileCommandsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(fileCommandsDir, "set_output_abc123"),
+      "skip=false\nshard_count=3\n",
+    );
+
+    const outputs = extractStepOutputs(tmpDir);
+    expect(outputs).toEqual({
+      skip: "false",
+      shard_count: "3",
+    });
+  });
+
+  it("extracts multiline (heredoc) values", async () => {
+    const { extractStepOutputs } = await import("./result-builder.js");
+    const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
+    fs.mkdirSync(fileCommandsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(fileCommandsDir, "set_output_def456"),
+      'matrix<<EOF\n["1","2","3"]\nEOF\n',
+    );
+
+    const outputs = extractStepOutputs(tmpDir);
+    expect(outputs).toEqual({
+      matrix: '["1","2","3"]',
+    });
+  });
+
+  it("merges outputs from multiple set_output files", async () => {
+    const { extractStepOutputs } = await import("./result-builder.js");
+    const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
+    fs.mkdirSync(fileCommandsDir, { recursive: true });
+    fs.writeFileSync(path.join(fileCommandsDir, "set_output_aaa"), "key1=val1\n");
+    fs.writeFileSync(path.join(fileCommandsDir, "set_output_bbb"), "key2=val2\n");
+
+    const outputs = extractStepOutputs(tmpDir);
+    expect(outputs.key1).toBe("val1");
+    expect(outputs.key2).toBe("val2");
+  });
+
+  it("returns empty object when no _runner_file_commands directory exists", async () => {
+    const { extractStepOutputs } = await import("./result-builder.js");
+    const outputs = extractStepOutputs(tmpDir);
+    expect(outputs).toEqual({});
+  });
+
+  it("returns empty object when directory has no set_output files", async () => {
+    const { extractStepOutputs } = await import("./result-builder.js");
+    const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
+    fs.mkdirSync(fileCommandsDir, { recursive: true });
+    fs.writeFileSync(path.join(fileCommandsDir, "add_path_xyz"), "/usr/local/bin\n");
+
+    const outputs = extractStepOutputs(tmpDir);
+    expect(outputs).toEqual({});
+  });
+
+  it("later files override earlier ones for the same key", async () => {
+    const { extractStepOutputs } = await import("./result-builder.js");
+    const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
+    fs.mkdirSync(fileCommandsDir, { recursive: true });
+    fs.writeFileSync(path.join(fileCommandsDir, "set_output_aaa"), "key=first\n");
+    fs.writeFileSync(path.join(fileCommandsDir, "set_output_zzz"), "key=second\n");
+
+    const outputs = extractStepOutputs(tmpDir);
+    expect(outputs.key).toBe("second");
+  });
+
+  it("handles multiline heredoc with multiple lines", async () => {
+    const { extractStepOutputs } = await import("./result-builder.js");
+    const fileCommandsDir = path.join(tmpDir, "_runner_file_commands");
+    fs.mkdirSync(fileCommandsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(fileCommandsDir, "set_output_multi"),
+      "tests<<DELIM\ntest1.ts\ntest2.ts\ntest3.ts\nDELIM\n",
+    );
+
+    const outputs = extractStepOutputs(tmpDir);
+    expect(outputs.tests).toBe("test1.ts\ntest2.ts\ntest3.ts");
+  });
+});
+
+// ── resolveJobOutputs ─────────────────────────────────────────────────────────
+
+describe("resolveJobOutputs", () => {
+  it("resolves step output references in job output templates", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      skip: "${{ steps.check.outputs.skip }}",
+      count: "${{ steps.counter.outputs.shard_count }}",
+    };
+    const stepOutputs = {
+      skip: "false",
+      shard_count: "3",
+    };
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({
+      skip: "false",
+      count: "3",
+    });
+  });
+
+  it("returns empty string for unresolved step outputs", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      missing: "${{ steps.none.outputs.doesnt_exist }}",
+    };
+    const stepOutputs = {};
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({ missing: "" });
+  });
+
+  it("passes through literal values unchanged", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      version: "1.2.3",
+    };
+    const stepOutputs = {};
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({ version: "1.2.3" });
+  });
+
+  it("returns empty object when no output definitions", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const resolved = resolveJobOutputs({}, { some: "output" });
+    expect(resolved).toEqual({});
+  });
+
+  it("handles JSON values in step outputs", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      matrix: "${{ steps.plan.outputs.matrix }}",
+    };
+    const stepOutputs = {
+      matrix: '{"shard":[1,2,3]}',
+    };
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({
+      matrix: '{"shard":[1,2,3]}',
+    });
+  });
+
+  it("handles templates with surrounding text", async () => {
+    const { resolveJobOutputs } = await import("./result-builder.js");
+    const outputDefs = {
+      label: "shard-${{ steps.plan.outputs.index }}",
+    };
+    const stepOutputs = {
+      index: "5",
+    };
+
+    const resolved = resolveJobOutputs(outputDefs, stepOutputs);
+    expect(resolved).toEqual({ label: "shard-5" });
+  });
+});

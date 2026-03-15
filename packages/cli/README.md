@@ -76,3 +76,24 @@ Abort a paused runner and tear down its container.
 ## YAML Compatibility
 
 See [compatibility.md](./compatibility.md) for detailed GitHub Actions workflow syntax support.
+
+## Debugging
+
+Set the `DEBUG` environment variable to enable verbose debug logging. It accepts a comma-separated list of glob patterns matching the namespaces you want to see:
+
+| Value                             | What it shows                 |
+| --------------------------------- | ----------------------------- |
+| `DEBUG=agent-ci:*`                | All debug output              |
+| `DEBUG=agent-ci:cli`              | CLI-level logs only           |
+| `DEBUG=agent-ci:runner`           | Runner/container logs only    |
+| `DEBUG=agent-ci:dtu`              | DTU mock-server logs only     |
+| `DEBUG=agent-ci:boot`             | Boot/startup timing logs only |
+| `DEBUG=agent-ci:cli,agent-ci:dtu` | Multiple namespaces           |
+
+- Output goes to **stderr** so stdout stays clean for piping.
+- If `DEBUG` is unset or empty, all debug loggers become **no-ops** (zero overhead).
+- Pattern matching uses [minimatch](https://github.com/isaacs/minimatch) globs, so `agent-ci:*` matches all four namespaces.
+
+```bash
+DEBUG=agent-ci:* npx agent-ci run
+```

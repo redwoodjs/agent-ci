@@ -127,3 +127,44 @@ jobs:
         env:
           CACHE_HOST: cache-db
           CACHE_PORT: "6379"
+
+  # ── Cross-job outputs smoke test ───────────────────────────────────────────────
+
+  # Wave 1: setup-outputs sets step outputs via $GITHUB_OUTPUT
+  setup-outputs:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy_env: ${{ steps.set-env.outputs.deploy_env }}
+      shard_count: ${{ steps.set-shards.outputs.shard_count }}
+    steps:
+      - name: Set deploy environment
+        id: set-env
+        run: echo "deploy_env=staging" >> "$GITHUB_OUTPUT"
+
+      - name: Set shard count
+        id: set-shards
+        run: echo "shard_count=4" >> "$GITHUB_OUTPUT"
+
+  # Wave 2: consume-outputs reads the values via needs.*.outputs.*
+  consume-outputs:
+    needs: setup-outputs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify cross-job outputs
+        run: |
+          echo "deploy_env=${{ needs.setup-outputs.outputs.deploy_env }}"
+          echo "shard_count=${{ needs.setup-outputs.outputs.shard_count }}"
+          [ "${{ needs.setup-outputs.outputs.deploy_env }}" = "staging" ] || (echo "❌ deploy_env is '${{ needs.setup-outputs.outputs.deploy_env }}', expected 'staging'" && exit 1)
+          [ "${{ needs.setup-outputs.outputs.shard_count }}" = "4" ] || (echo "❌ shard_count is '${{ needs.setup-outputs.outputs.shard_count }}', expected '4'" && exit 1)
+          echo "✅ Cross-job outputs resolved correctly"
+
+  # ── Job-level if: condition smoke test ──────────────────────────────────────────
+
+  # This job always runs (if: always()) even if upstream jobs fail
+  always-runs:
+    needs: [build, setup-outputs]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify this job ran despite upstream state
+        run: echo "✅ Job with if:always() ran correctly"

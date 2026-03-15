@@ -765,6 +765,19 @@ export async function executeLocalJob(
     if (fs.existsSync(hostRunnerDir)) {
       fs.rmSync(hostRunnerDir, { recursive: true, force: true });
     }
+    // Read step outputs captured by the DTU server via the runner's outputs API
+    let stepOutputs: Record<string, string> = {};
+    if (jobSucceeded) {
+      const outputsFile = path.join(logDir, "outputs.json");
+      try {
+        if (fs.existsSync(outputsFile)) {
+          stepOutputs = JSON.parse(fs.readFileSync(outputsFile, "utf-8"));
+        }
+      } catch {
+        /* best-effort */
+      }
+    }
+
     if (jobSucceeded && fs.existsSync(dirs.containerWorkDir)) {
       fs.rmSync(dirs.containerWorkDir, { recursive: true, force: true });
     }
@@ -781,6 +794,7 @@ export async function executeLocalJob(
       timelinePath,
       logDir,
       debugLogPath,
+      stepOutputs,
     });
   } finally {
     process.removeListener("SIGINT", signalCleanup);

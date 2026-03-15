@@ -122,11 +122,11 @@ export function extractFailureDetails(
 export function extractStepOutputs(workDir: string): Record<string, string> {
   const outputs: Record<string, string> = {};
 
-  // The runner writes to _runner_file_commands/ under the work dir
-  // Try both directly under workDir and under _work/ (runner convention)
+  // The runner writes to _temp/_runner_file_commands/ under the work dir
+  // $GITHUB_OUTPUT = /home/runner/_work/_temp/_runner_file_commands/set_output_<uuid>
   const candidates = [
+    path.join(workDir, "_temp", "_runner_file_commands"),
     path.join(workDir, "_runner_file_commands"),
-    path.join(workDir, "_work", "_runner_file_commands"),
   ];
 
   for (const fileCommandsDir of candidates) {
@@ -242,6 +242,8 @@ export interface BuildJobResultOpts {
   timelinePath: string;
   logDir: string;
   debugLogPath: string;
+  /** Raw step outputs from $GITHUB_OUTPUT files */
+  stepOutputs?: Record<string, string>;
 }
 
 /**
@@ -258,6 +260,7 @@ export function buildJobResult(opts: BuildJobResultOpts): JobResult {
     timelinePath,
     logDir,
     debugLogPath,
+    stepOutputs,
   } = opts;
 
   const steps = parseTimelineSteps(timelinePath);
@@ -287,6 +290,11 @@ export function buildJobResult(opts: BuildJobResultOpts): JobResult {
     } else {
       result.lastOutputLines = [];
     }
+  }
+
+  // Attach raw step outputs (will be resolved to job outputs by cli.ts)
+  if (stepOutputs && Object.keys(stepOutputs).length > 0) {
+    result.outputs = stepOutputs;
   }
 
   return result;

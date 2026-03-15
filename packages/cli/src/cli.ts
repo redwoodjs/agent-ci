@@ -26,7 +26,7 @@ import {
   evaluateJobIf,
   parseFailFast,
 } from "./workflow/workflow-parser.js";
-import { extractStepOutputs, resolveJobOutputs } from "./runner/result-builder.js";
+import { resolveJobOutputs } from "./runner/result-builder.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
 import { isWarmNodeModules, computeLockfileHash } from "./output/cleanup.js";
@@ -608,13 +608,13 @@ async function handleWorkflow(options: {
 
       const result = await executeLocalJob(job, { pauseOnFailure, store });
 
-      // Extract step outputs from $GITHUB_OUTPUT files and resolve to job outputs
-      if (result.succeeded) {
-        const dirs = result.debugLogPath ? path.dirname(result.debugLogPath) : undefined;
-        if (dirs) {
-          const stepOutputs = extractStepOutputs(path.resolve(dirs, "..", "work"));
-          const outputDefs = parseJobOutputDefs(workflowPath, taskName);
-          result.outputs = resolveJobOutputs(outputDefs, stepOutputs);
+      // result.outputs now contains raw step outputs (extracted inside executeLocalJob
+      // before workspace cleanup). Resolve them to job-level outputs using the
+      // output definitions from the workflow YAML.
+      if (result.outputs && Object.keys(result.outputs).length > 0) {
+        const outputDefs = parseJobOutputDefs(workflowPath, taskName);
+        if (Object.keys(outputDefs).length > 0) {
+          result.outputs = resolveJobOutputs(outputDefs, result.outputs);
         }
       }
 

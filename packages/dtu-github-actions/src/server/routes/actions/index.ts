@@ -485,8 +485,41 @@ export function registerActionRoutes(app: Polka) {
     );
   });
 
-  // 18. Generic Step Outputs Handler
-  app.post("/_apis/distributedtask/hubs/:hub/plans/:planId/outputs", (req, res) => {
+  // 18. Step Outputs Handler — capture outputs sent by the runner
+  app.post("/_apis/distributedtask/hubs/:hub/plans/:planId/outputs", (req: any, res) => {
+    const planId = req.params.planId;
+    const payload = req.body || {};
+
+    // The runner posts step outputs as { stepId: { <name>: { value: <val> } } }
+    // Persist to the runner's log directory as outputs.json
+    const logDir = state.planToLogDir.get(planId);
+    if (logDir && payload && typeof payload === "object") {
+      try {
+        const outputsPath = path.join(logDir, "outputs.json");
+        // Merge with existing outputs
+        let existing: Record<string, any> = {};
+        try {
+          existing = JSON.parse(fs.readFileSync(outputsPath, "utf-8"));
+        } catch {
+          /* no existing file */
+        }
+
+        // Flatten step outputs: { stepId: { name: { value: v } } } → { "stepId.name": v }
+        for (const [stepId, outputs] of Object.entries(payload)) {
+          if (outputs && typeof outputs === "object") {
+            for (const [name, meta] of Object.entries(outputs as Record<string, any>)) {
+              const value = meta?.value ?? (typeof meta === "string" ? meta : "");
+              existing[`${stepId}.${name}`] = value;
+            }
+          }
+        }
+
+        fs.writeFileSync(outputsPath, JSON.stringify(existing, null, 2));
+      } catch {
+        /* best-effort */
+      }
+    }
+
     res.writeHead(200);
     res.end(JSON.stringify({ value: {} }));
   });

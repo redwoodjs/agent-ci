@@ -31,7 +31,7 @@ import {
   resolveDockerApiUrl,
 } from "../docker/container-config.js";
 import { buildJobResult, sanitizeStepName } from "./result-builder.js";
-import { wrapJobSteps } from "./step-wrapper.js";
+import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
 import { syncWorkspaceForRetry } from "./sync.js";
 
 // ─── Docker setup ─────────────────────────────────────────────────────────────
@@ -215,7 +215,8 @@ export async function executeLocalJob(
         }
       : job.repository;
 
-    const seededSteps = pauseOnFailure ? wrapJobSteps(job.steps ?? [], true) : job.steps;
+    const wrappedSteps = pauseOnFailure ? wrapJobSteps(job.steps ?? [], true) : job.steps;
+    const seededSteps = appendOutputCaptureStep(wrappedSteps ?? []);
 
     t0 = Date.now();
     const seedResponse = await fetch(`${dtuUrl}/_dtu/seed`, {

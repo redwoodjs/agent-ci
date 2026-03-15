@@ -601,6 +601,9 @@ export function registerActionRoutes(app: Polka) {
       /^\[(?:RUNNER|WORKER) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z (?:INFO|WARN|ERR)\s/;
     let content = "";
 
+    // Collect agent-ci-output lines for cross-job output passing
+    const outputEntries: Array<[string, string]> = [];
+
     for (const rawLine of lines) {
       const line = rawLine.trimEnd();
       if (!line) {
@@ -611,6 +614,17 @@ export function registerActionRoutes(app: Polka) {
       const stripped = line
         .replace(/^\uFEFF?\d{4}-\d{2}-\d{2}T[\d:.]+Z\s*/, "")
         .replace(/^\uFEFF/, "");
+
+      // Parse agent-ci-output lines: ::agent-ci-output::key=value
+      if (stripped.startsWith("::agent-ci-output::")) {
+        const kv = stripped.slice("::agent-ci-output::".length);
+        const eqIdx = kv.indexOf("=");
+        if (eqIdx > 0) {
+          outputEntries.push([kv.slice(0, eqIdx), kv.slice(eqIdx + 1)]);
+        }
+        continue; // Don't include in regular step logs
+      }
+
       if (
         !stripped ||
         stripped.startsWith("##[") ||
@@ -620,6 +634,25 @@ export function registerActionRoutes(app: Polka) {
         continue;
       }
       content += stripped + "\n";
+    }
+
+    // Persist captured outputs to outputs.json
+    if (outputEntries.length > 0) {
+      try {
+        const outputsPath = path.join(logDir, "outputs.json");
+        let existing: Record<string, string> = {};
+        try {
+          existing = JSON.parse(fs.readFileSync(outputsPath, "utf-8"));
+        } catch {
+          /* no existing file */
+        }
+        for (const [key, value] of outputEntries) {
+          existing[key] = value;
+        }
+        fs.writeFileSync(outputsPath, JSON.stringify(existing, null, 2));
+      } catch {
+        /* best-effort */
+      }
     }
 
     if (content) {

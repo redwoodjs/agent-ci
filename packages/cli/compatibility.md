@@ -22,24 +22,24 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 
 ## Job-Level Keys
 
-| Key                                   | Status | Notes                                                                         |
-| ------------------------------------- | ------ | ----------------------------------------------------------------------------- | --- | --- |
-| `jobs.<id>`                           | ✅     | Multiple jobs in a single workflow                                            |
-| `jobs.<id>.name`                      | ✅     |                                                                               |
-| `jobs.<id>.needs`                     | ✅     | Topological sort into dependency waves                                        |
-| `jobs.<id>.if`                        | ⚠️     | Simplified evaluator: `always()`, `success()`, `failure()`, `==`/`!=`, `&&`/` |     | `   |
-| `jobs.<id>.runs-on`                   | 🟡     | Accepted; always runs in a Linux container                                    |
-| `jobs.<id>.environment`               | 🟡     | Accepted, not enforced                                                        |
-| `jobs.<id>.env`                       | ✅     |                                                                               |
-| `jobs.<id>.defaults.run`              | ✅     | shell, working-directory                                                      |
-| `jobs.<id>.outputs`                   | ✅     | Resolved via `resolveJobOutputs`, accumulated across waves                    |
-| `jobs.<id>.timeout-minutes`           | ❌     |                                                                               |
-| `jobs.<id>.continue-on-error`         | ❌     |                                                                               |
-| `jobs.<id>.concurrency`               | ❌     |                                                                               |
-| `jobs.<id>.container`                 | ✅     | Short & long form; image, env, ports, volumes, options                        |
-| `jobs.<id>.services`                  | ✅     | Sidecar containers with image, env, ports, options                            |
-| `jobs.<id>.uses` (reusable workflows) | ❌     |                                                                               |
-| `jobs.<id>.secrets`                   | ❌     | Use `.env.agent-ci` file instead                                              |
+| Key                                   | Status | Notes                                                                              |
+| ------------------------------------- | ------ | ---------------------------------------------------------------------------------- |
+| `jobs.<id>`                           | ✅     | Multiple jobs in a single workflow                                                 |
+| `jobs.<id>.name`                      | ✅     |                                                                                    |
+| `jobs.<id>.needs`                     | ✅     | Topological sort into dependency waves                                             |
+| `jobs.<id>.if`                        | ⚠️     | Simplified evaluator: `always()`, `success()`, `failure()`, `==`/`!=`, `&&`/`\|\|` |
+| `jobs.<id>.runs-on`                   | 🟡     | Accepted; always runs in a Linux container                                         |
+| `jobs.<id>.environment`               | 🟡     | Accepted, not enforced                                                             |
+| `jobs.<id>.env`                       | ✅     |                                                                                    |
+| `jobs.<id>.defaults.run`              | ✅     | shell, working-directory                                                           |
+| `jobs.<id>.outputs`                   | ✅     | Resolved via `resolveJobOutputs`, accumulated across waves                         |
+| `jobs.<id>.timeout-minutes`           | ❌     |                                                                                    |
+| `jobs.<id>.continue-on-error`         | ❌     |                                                                                    |
+| `jobs.<id>.concurrency`               | ❌     |                                                                                    |
+| `jobs.<id>.container`                 | ✅     | Short & long form; image, env, ports, volumes, options                             |
+| `jobs.<id>.services`                  | ✅     | Sidecar containers with image, env, ports, options                                 |
+| `jobs.<id>.uses` (reusable workflows) | ❌     |                                                                                    |
+| `jobs.<id>.secrets`                   | ❌     | Use `.env.agent-ci` file instead                                                   |
 
 ## Strategy / Matrix
 
@@ -70,7 +70,7 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 ## Expressions (`${{ }}`)
 
 | Expression                                          | Status | Notes                                          |
-| --------------------------------------------------- | ------ | ---------------------------------------------- | --- | ----------------- |
+| --------------------------------------------------- | ------ | ---------------------------------------------- |
 | `hashFiles(...)`                                    | ✅     | SHA-256 of matching files, multi-glob          |
 | `format(...)`                                       | ✅     | Template substitution with recursive expansion |
 | `matrix.*`                                          | ✅     |                                                |
@@ -82,7 +82,7 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 | `strategy.job-total`, `strategy.job-index`          | ✅     |                                                |
 | `steps.*.outputs.*`                                 | ⚠️     | Resolves to empty string at parse time         |
 | `needs.*.outputs.*`                                 | ⚠️     | Resolved from needsContext when provided       |
-| Boolean/comparison operators                        | ⚠️     | `==`, `!=`, `&&`, `                            |     | `in job-level`if` |
+| Boolean/comparison operators                        | ⚠️     | `==`, `!=`, `&&`, `\|\|` in job-level `if`     |
 | `toJSON`, `fromJSON`                                | ✅     |                                                |
 | `contains`, `startsWith`, `endsWith`                | ❌     |                                                |
 | `success()`, `failure()`, `always()`, `cancelled()` | ✅     | Evaluated by Agent CI for job-level `if`       |

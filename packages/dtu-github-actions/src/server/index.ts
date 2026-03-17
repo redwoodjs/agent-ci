@@ -1,6 +1,6 @@
 import polka from "polka";
 import bodyParser from "body-parser";
-import { execa } from "execa";
+import { exec } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { config } from "../config.js";
@@ -17,7 +17,9 @@ import { registerArtifactRoutes } from "./routes/artifacts.js";
 async function terminateOldProcess() {
   // Kill existing process on DTU port
   try {
-    await execa("kill", ["-9", `$(lsof -t -i:${config.DTU_PORT})`], { shell: true, reject: false });
+    await new Promise<void>((resolve) => {
+      exec(`lsof -t -i:${config.DTU_PORT} | xargs kill -9`, () => resolve());
+    });
   } catch {
     // Ignore error if no process found
   }

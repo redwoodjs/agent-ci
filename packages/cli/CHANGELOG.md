@@ -1,5 +1,12 @@
 # @redwoodjs/agent-ci
 
+## 0.3.1
+
+### Patch Changes
+
+- 6e0ace7: Fix rejected promise handling in job execution and refactor error handling to use type guards with `taskName` attached to errors.
+  - dtu-github-actions@0.3.1
+
 ## 0.3.0
 
 ### Minor Changes

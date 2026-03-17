@@ -1,11 +1,15 @@
 name: Smoke Tests
 
-on: [push]
+on:
+  push:
+  pull_request_target:
+    types: [labeled, synchronize]
 
 jobs:
   # Wave 1 (parallel): matrix sharding smoke — verifies matrix strategy fan-out
   matrix-shards:
     name: Shard
+    if: github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -22,6 +26,7 @@ jobs:
 
   # Wave 1: build job — uploads the artifact
   build:
+    if: github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     steps:
       - name: Caching is natively supported
@@ -132,6 +137,7 @@ jobs:
 
   # Wave 1: setup-outputs sets step outputs via $GITHUB_OUTPUT
   setup-outputs:
+    if: github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft)
     runs-on: ubuntu-latest
     outputs:
       deploy_env: ${{ steps.set-env.outputs.deploy_env }}
@@ -163,7 +169,7 @@ jobs:
   # This job always runs (if: always()) even if upstream jobs fail
   always-runs:
     needs: [build, setup-outputs]
-    if: always()
+    if: always() && (github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft))
     runs-on: ubuntu-latest
     steps:
       - name: Verify this job ran despite upstream state

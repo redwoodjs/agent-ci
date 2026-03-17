@@ -174,3 +174,51 @@ jobs:
     steps:
       - name: Verify this job ran despite upstream state
         run: echo "✅ Job with if:always() ran correctly"
+
+  # ── Binary smoke test ──────────────────────────────────────────────────────────
+  # Builds the actual release binary and verifies it executes correctly,
+  # catching shebang issues, broken imports, and bin-field misconfigurations.
+
+  binary-smoke:
+    name: Binary Smoke
+    if: github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.1
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - run: pnpm install
+      - run: pnpm -r build
+      - name: Verify shebang
+        run: |
+          head -1 packages/cli/dist/cli.js | grep -q '#!/usr/bin/env node'
+          echo "✅ Shebang is correct"
+      - name: Run built binary (node)
+        run: |
+          set +e
+          output=$(node packages/cli/dist/cli.js 2>&1)
+          exit_code=$?
+          set -e
+          echo "$output"
+          [ "$exit_code" -eq 1 ] || (echo "❌ Expected exit code 1, got $exit_code" && exit 1)
+          echo "$output" | grep -q "Usage: agent-ci" || (echo "❌ Usage text not found" && exit 1)
+          echo "✅ Built binary executes correctly via node"
+      - name: Run built binary (npx)
+        run: |
+          set +e
+          output=$(npx --yes ./packages/cli 2>&1)
+          exit_code=$?
+          set -e
+          echo "$output"
+          [ "$exit_code" -eq 1 ] || (echo "❌ Expected exit code 1, got $exit_code" && exit 1)
+          echo "$output" | grep -q "Usage: agent-ci" || (echo "❌ Usage text not found in npx output" && exit 1)
+          echo "✅ Built binary executes correctly via npx"

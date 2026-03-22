@@ -1,5 +1,12 @@
 # @redwoodjs/agent-ci
 
+## 0.3.4
+
+### Patch Changes
+
+- 6ada721: Fix Node 22 crash caused by `@actions/workflow-parser` importing JSON without the required `type: "json"` import attribute. A custom ESM loader hook now transparently adds the missing attribute at runtime. Fixes #67.
+  - dtu-github-actions@0.3.4
+
 ## 0.3.3
 
 ### Patch Changes

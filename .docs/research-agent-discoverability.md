@@ -21,13 +21,17 @@ X-Llms-Txt: /llms.txt
 
 ### Adoption Numbers
 
-Over 844,000 websites had implemented `llms.txt` as of October 2025. Major adopters include Anthropic (Claude docs), Cloudflare, and Stripe. The Fern platform reports it as a standard for AI-discoverable APIs as of January 2026.
+According to [BuiltWith's technology tracking dashboard](https://trends.builtwith.com/robots/LLMS-Text), over 844,000 websites had implemented `llms.txt` as of October 25, 2025. Major adopters include Anthropic (Claude docs), Cloudflare, and Stripe. The Fern platform reports it as a standard for AI-discoverable APIs as of January 2026.
+
+**Important caveat:** BuiltWith counts any file detected at `/llms.txt` regardless of content quality. Other measurement approaches show much lower numbers — NerdyData reported ~951 verified domains as of mid-2025; SE Ranking found ~10% of ~300k domains tested had the file. The 844k figure reflects BuiltWith's broad crawl methodology. The accurate characterization is: adoption is widespread but the quality/intent of those implementations varies significantly.
+
+Sources: [BuiltWith LLMS Text tracking](https://trends.builtwith.com/robots/LLMS-Text), [getpublii.com llms.txt guide (citing BuiltWith)](https://getpublii.com/blog/llms-txt-complete-guide.html), [SE Ranking: llms.txt adoption study](https://www.searchenginejournal.com/llms-txt-shows-no-clear-effect-on-ai-citations-based-on-300k-domains/561542/)
 
 ### Does It Actually Influence LLM Behavior?
 
 **Verdict: Partially, in a specific and narrow way.**
 
-- ChatGPT, Claude (in general inference), and Perplexity do **not** use `llms.txt` during general chat as of early 2026. No major AI platform has officially confirmed reading these files during inference.
+- No major AI platform (ChatGPT, Claude in general inference, Perplexity) has publicly documented using `llms.txt` during general chat as of early 2026. The absence here is absence of documentation, not a tested negative — no platform has stated "we do not read llms.txt," and none has stated "we do." The practical implication is the same: do not design strategy around general LLMs reading these files.
 - AI **coding assistants** — specifically Cursor, Claude Code, and VS Code Copilot — **do** actively use `llms.txt` when an agent encounters a new API or library in a user's codebase. They parse it to build context rather than scraping raw HTML.
 - Efficiency argument: an HTML page that costs 5,000 tokens may cost only 800 tokens as clean Markdown — enabling 6x more documentation in the same context window.
 
@@ -219,7 +223,7 @@ From highest to lowest reliability:
 
 | Question | Evidence Quality | Gap |
 |---|---|---|
-| Does `llms.txt` influence general LLM inference? | Strong (negative): major platforms don't read it | No public commitment from any platform |
+| Does `llms.txt` influence general LLM inference? | Moderate (absence of documentation): no platform has publicly confirmed reading it | No platform has stated yes or no; behavior untested |
 | Do GitHub stars influence training data selection? | Weak: no published weighting data | Model providers don't disclose this |
 | Does `package.json` keywords field affect agent tool selection? | Moderate: emerging pattern + anecdote | No controlled study |
 | MCP dynamic discovery timeline | Moderate: Anthropic announced, no ship date | Timeline unclear |
@@ -231,6 +235,9 @@ From highest to lowest reliability:
 ## Sources
 
 - [llmstxt.org](https://llmstxt.org)
+- [BuiltWith LLMS Text tracking (primary source for 844k figure)](https://trends.builtwith.com/robots/LLMS-Text)
+- [getpublii.com llms.txt guide (cites BuiltWith)](https://getpublii.com/blog/llms-txt-complete-guide.html)
+- [SE Ranking / Search Engine Journal: llms.txt adoption study (300k domain research)](https://www.searchenginejournal.com/llms-txt-shows-no-clear-effect-on-ai-citations-based-on-300k-domains/561542/)
 - [Mintlify llms.txt docs](https://www.mintlify.com/docs/ai/llmstxt)
 - [Bluehost 2026 guide on llms.txt](https://www.bluehost.com/blog/what-is-llms-txt/)
 - [Fern best platforms Jan 2026](https://buildwithfern.com/post/best-llms-txt-implementation-platforms-ai-discoverable-apis)

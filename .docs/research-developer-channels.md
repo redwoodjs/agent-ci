@@ -20,7 +20,14 @@ Key adoption drivers identified:
 
 **a) Pain-first positioning.** Act's README leads with the problem before the solution: avoid pushing code just to test workflow changes. This framing converts passive readers into active users.
 
-**b) Organic search dominance.** Tutorial blogs, corporate engineering posts (Red Hat, BrowserStack, Microsoft Azure, LogRocket, freeCodeCamp), and framework documentation pages (SciPy, NHS Digital) all recommend `act`, so it appears at the top of any search for "run GitHub Actions locally." Each post acts as a long-tail SEO node. As of early 2026, there are at least 10 distinct dev.to posts alone.
+**b) Organic search dominance.** Tutorial blogs and corporate engineering posts all recommend `act`, making it the top result for any search on "run GitHub Actions locally." Each post acts as a long-tail SEO node. Verified sources:
+- [Red Hat: Testing Github Actions Locally](https://www.redhat.com/en/blog/testing-github-actions-locally)
+- [BrowserStack: How to Test GitHub Actions Locally?](https://www.browserstack.com/guide/test-github-actions-locally)
+- [Microsoft Azure Blog: Using Act to Test GitHub Workflows Locally for Azure Deployments](https://techcommunity.microsoft.com/blog/azureinfrastructureblog/using-act-to-test-github-workflows-locally-for-azure-deployments-cicd/4414310)
+- [LogRocket: A Guide to Using act with GitHub Actions](https://blog.logrocket.com/guide-using-act-with-github-actions/)
+- [freeCodeCamp: How to Run GitHub Actions Locally Using the act CLI Tool](https://www.freecodecamp.org/news/how-to-run-github-actions-locally/)
+
+On dev.to alone, at least 10 distinct articles recommend `act`: [1](https://dev.to/tejastn10/run-github-actions-locally-with-act-a-developers-guide-1j33) [2](https://dev.to/ken_mwaura1/run-github-actions-on-your-local-machine-bdm) [3](https://dev.to/serhii_korol_ab7776c50dba/mac-how-locally-run-github-actions-its-easy-2ece) [4](https://dev.to/cicube/how-to-run-github-actions-locally-with-act-1en3) [5](https://dev.to/icanhazstring/local-testing-for-github-actions-on-macos-4lob) [6](https://dev.to/rajikaimal/run-github-actions-locally-1ejo) [7](https://dev.to/stelixx-insider/streamline-your-github-actions-workflow-with-act-4la7) [8](https://dev.to/minompi/how-to-test-github-actions-locally-3ipk) [9](https://dev.to/frontenddeveli/how-to-run-github-actions-locally-28nh) [10](https://dev.to/celeron/doing-github-actions-local-first-17kn). The LogRocket article is also cross-posted to dev.to, so the count is conservative.
 
 **c) GitHub topics compounding.** The `nektos/act` repo is the canonical result for GitHub topic searches related to `github-actions` + local testing. With 1.9k forks and 220+ dependent projects, network effects are self-reinforcing.
 
@@ -185,6 +192,11 @@ The phrase **"the CI loop your AI agent actually needs"** has no incumbent owner
 ## Sources
 
 - [GitHub - nektos/act: Run your GitHub Actions locally](https://github.com/nektos/act)
+- [Red Hat: Testing Github Actions Locally](https://www.redhat.com/en/blog/testing-github-actions-locally)
+- [BrowserStack: How to Test GitHub Actions Locally?](https://www.browserstack.com/guide/test-github-actions-locally)
+- [Microsoft Azure: Using Act to Test GitHub Workflows Locally](https://techcommunity.microsoft.com/blog/azureinfrastructureblog/using-act-to-test-github-workflows-locally-for-azure-deployments-cicd/4414310)
+- [LogRocket: A Guide to Using act with GitHub Actions](https://blog.logrocket.com/guide-using-act-with-github-actions/)
+- [freeCodeCamp: How to Run GitHub Actions Locally](https://www.freecodecamp.org/news/how-to-run-github-actions-locally/)
 - [Act: Run your GitHub Actions locally | Hacker News](https://news.ycombinator.com/item?id=33750654)
 - [Run GitHub Actions locally | Hacker News](https://news.ycombinator.com/item?id=44003184)
 - [Dagger: a new way to build CI/CD pipelines | Hacker News](https://news.ycombinator.com/item?id=30857012)

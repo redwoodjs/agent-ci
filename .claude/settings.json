@@ -1,0 +1,15 @@
+{
+  "permissions": {},
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm check:fix && pnpm check && pnpm agent-ci-dev run --all --quiet"
+          }
+        ]
+      }
+    ]
+  }
+}

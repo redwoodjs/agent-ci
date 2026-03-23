@@ -1,9 +1,15 @@
 {
-  "permissions": {
-    "allow": [
-      "WebFetch(domain:withcatai.github.io)",
-      "WebFetch(domain:node-llama-cpp.withcat.ai)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+  "permissions": {},
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pnpm check:fix && pnpm check && pnpm agent-ci-dev run --all --quiet"
+          }
+        ]
+      }
     ]
   }
 }

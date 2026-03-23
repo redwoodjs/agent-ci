@@ -17,14 +17,14 @@ Cache is bind-mounted (instant). When a step fails, the container pauses — you
 
 ## Key commands
 
-- Run workflow: `npx agent-ci run --workflow <path>`
-- Run all relevant workflows (those whose `on` triggers match the current branch/event, just like GitHub): `npx agent-ci run --all`
-- Retry after fix: `npx agent-ci retry --name <runner>`
-- Abort: `npx agent-ci abort --name <runner>`
+- Run workflow: `npx @redwoodjs/agent-ci run --workflow <path>`
+- Run all relevant workflows (those whose `on` triggers match the current branch/event, just like GitHub): `npx @redwoodjs/agent-ci run --all`
+- Retry after fix: `npx @redwoodjs/agent-ci retry --name <runner>`
+- Abort: `npx @redwoodjs/agent-ci abort --name <runner>`
 
 ## Common mistakes
 
-- Don't push to remote CI to test changes — use `npx agent-ci run` locally first
+- Don't push to remote CI to test changes — use `npx @redwoodjs/agent-ci run` locally first
 - Don't use `--from-start` when only the last step failed — use `retry` with no flags to re-run only the failed step
 - The `AI_AGENT=1` env variable disables animated output for cleaner agent logs
 - Use `--no-matrix` to collapse matrix jobs into a single run — your local machine is likely faster than GitHub's runners, so parallelizing across matrix combinations is unnecessary

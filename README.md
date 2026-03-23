@@ -144,8 +144,8 @@ Agent CI is designed for AI-agent-driven development loops. Add the following sn
 ```markdown
 ## agent-ci
 
-- Use `npx agent-ci run --quiet --workflow .github/workflows/ci.yml` to run CI locally
-- When a step fails, the run pauses automatically. Use `npx agent-ci retry --name <runner>` to retry after fixing the failure
+- Use `npx @redwoodjs/agent-ci run --quiet --workflow .github/workflows/ci.yml` to run CI locally
+- When a step fails, the run pauses automatically. Use `npx @redwoodjs/agent-ci retry --name <runner>` to retry after fixing the failure
 - Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free
 - CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures
 - Use `--no-matrix` to collapse matrix jobs into a single run when you don't need full matrix coverage

@@ -1,5 +1,16 @@
 # @redwoodjs/agent-ci
 
+## 0.5.0
+
+### Minor Changes
+
+- 179405b: Add package metadata, SKILL.md, and AI agent discoverability section to README
+
+### Patch Changes
+
+- Updated dependencies [179405b]
+  - dtu-github-actions@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes

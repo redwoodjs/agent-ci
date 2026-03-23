@@ -281,6 +281,23 @@ export async function getWorkflowTemplate(filePath: string) {
 }
 
 /**
+ * Collapse a matrix definition to a single job using the first value of each key.
+ * Sets __job_total to "1" and __job_index to "0".
+ * Used by the --no-matrix flag to run a matrix workflow as a single container.
+ */
+export function collapseMatrixToSingle(matrixDef: Record<string, any[]>): Record<string, string>[] {
+  const combo: Record<string, string> = {};
+  for (const [key, values] of Object.entries(matrixDef)) {
+    if (values.length > 0) {
+      combo[key] = String(values[0]);
+    }
+  }
+  combo.__job_total = "1";
+  combo.__job_index = "0";
+  return [combo];
+}
+
+/**
  * Compute the Cartesian product of a matrix definition.
  * Values are always coerced to strings.
  * Returns [{}] for an empty matrix so callers always get at least one combination.

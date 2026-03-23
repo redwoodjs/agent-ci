@@ -20,6 +20,7 @@ import {
   validateSecrets,
   parseMatrixDef,
   expandMatrixCombinations,
+  collapseMatrixToSingle,
   isWorkflowRelevant,
   getChangedFiles,
   parseJobOutputDefs,
@@ -68,6 +69,7 @@ async function run() {
     let workflow: string | undefined;
     let pauseOnFailure = false;
     let runAll = false;
+    let noMatrix = false;
 
     for (let i = 1; i < args.length; i++) {
       if ((args[i] === "--workflow" || args[i] === "-w") && args[i + 1]) {
@@ -79,6 +81,8 @@ async function run() {
         runAll = true;
       } else if (args[i] === "--quiet" || args[i] === "-q") {
         setQuietMode(true);
+      } else if (args[i] === "--no-matrix") {
+        noMatrix = true;
       } else if (!args[i].startsWith("-")) {
         sha = args[i];
       }
@@ -144,7 +148,12 @@ async function run() {
         process.exit(0);
       }
 
-      const results = await runWorkflows({ workflowPaths: relevant, sha, pauseOnFailure });
+      const results = await runWorkflows({
+        workflowPaths: relevant,
+        sha,
+        pauseOnFailure,
+        noMatrix,
+      });
       printSummary(results);
       const anyFailed = results.some((r) => !r.succeeded);
       process.exit(anyFailed ? 1 : 0);
@@ -173,7 +182,12 @@ async function run() {
       workflowPath = pathsToTry.find((p) => fs.existsSync(p)) || pathsToTry[1];
     }
 
-    const results = await runWorkflows({ workflowPaths: [workflowPath], sha, pauseOnFailure });
+    const results = await runWorkflows({
+      workflowPaths: [workflowPath],
+      sha,
+      pauseOnFailure,
+      noMatrix,
+    });
     printSummary(results);
     if (results.some((r) => !r.succeeded)) {
       process.exit(1);
@@ -254,8 +268,9 @@ async function runWorkflows(options: {
   workflowPaths: string[];
   sha?: string;
   pauseOnFailure: boolean;
+  noMatrix?: boolean;
 }): Promise<JobResult[]> {
-  const { workflowPaths, sha, pauseOnFailure } = options;
+  const { workflowPaths, sha, pauseOnFailure, noMatrix = false } = options;
 
   // Create the run state store — single source of truth for all progress
   const runId = `run-${Date.now()}`;
@@ -342,6 +357,7 @@ async function runWorkflows(options: {
         workflowPath: workflowPaths[0],
         sha,
         pauseOnFailure,
+        noMatrix,
         store,
       });
       allResults.push(...results);
@@ -370,6 +386,7 @@ async function runWorkflows(options: {
           workflowPath: workflowPaths[0],
           sha,
           pauseOnFailure,
+          noMatrix,
           store,
         });
         allResults.push(...firstResults);
@@ -377,7 +394,9 @@ async function runWorkflows(options: {
         const settled = await Promise.allSettled(
           workflowPaths
             .slice(1)
-            .map((wf) => handleWorkflow({ workflowPath: wf, sha, pauseOnFailure, store })),
+            .map((wf) =>
+              handleWorkflow({ workflowPath: wf, sha, pauseOnFailure, noMatrix, store }),
+            ),
         );
         for (const s of settled) {
           if (s.status === "fulfilled") {
@@ -389,7 +408,7 @@ async function runWorkflows(options: {
       } else {
         const settled = await Promise.allSettled(
           workflowPaths.map((wf) =>
-            handleWorkflow({ workflowPath: wf, sha, pauseOnFailure, store }),
+            handleWorkflow({ workflowPath: wf, sha, pauseOnFailure, noMatrix, store }),
           ),
         );
         for (const s of settled) {
@@ -427,9 +446,10 @@ async function handleWorkflow(options: {
   workflowPath: string;
   sha?: string;
   pauseOnFailure: boolean;
+  noMatrix?: boolean;
   store: RunStateStore;
 }): Promise<JobResult[]> {
-  const { sha, pauseOnFailure, store } = options;
+  const { sha, pauseOnFailure, noMatrix = false, store } = options;
   let workflowPath = options.workflowPath;
 
   try {
@@ -470,17 +490,21 @@ async function handleWorkflow(options: {
       const id = job.id.toString();
       const matrixDef = await parseMatrixDef(workflowPath, id);
       if (matrixDef) {
-        const combos = expandMatrixCombinations(matrixDef);
+        const combos = noMatrix
+          ? collapseMatrixToSingle(matrixDef)
+          : expandMatrixCombinations(matrixDef);
         const total = combos.length;
         for (let ci = 0; ci < combos.length; ci++) {
           expandedJobs.push({
             workflowPath,
             taskName: id,
-            matrixContext: {
-              ...combos[ci],
-              __job_total: String(total),
-              __job_index: String(ci),
-            },
+            matrixContext: noMatrix
+              ? combos[ci]
+              : {
+                  ...combos[ci],
+                  __job_total: String(total),
+                  __job_index: String(ci),
+                },
           });
         }
       } else {
@@ -824,6 +848,9 @@ function printUsage() {
   console.log("  -p, --pause-on-failure         Pause on step failure for interactive debugging");
   console.log(
     "  -q, --quiet                   Suppress animated rendering (also enabled by AI_AGENT=1)",
+  );
+  console.log(
+    "      --no-matrix               Collapse all matrix combinations into a single job (uses first value of each key)",
   );
 }
 

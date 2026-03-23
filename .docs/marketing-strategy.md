@@ -296,7 +296,7 @@ Publish on Dev.to, Medium, Hashnode (all maximally scraped). Stack Overflow answ
 
 | Action | Channel | Impact |
 |---|---|---|
-| "Show HN:" post (timed to polished release) | HackerNews | Spike: typically 10k–100k visitors est., 300+ stars [[Nebula Graph](https://www.nebula-graph.io/posts/nebula-graph-being-on-hacker-new-front-page)] |
+| "Show HN:" post (timed to polished release) | HackerNews | Spike: commonly estimated 10k–100k visitors, 300+ stars reported in case studies [[Nebula Graph](https://www.nebula-graph.io/posts/nebula-graph-being-on-hacker-new-front-page)] |
 | Tutorial post on DEV Community | Blog / SEO | Compounding; scraping target |
 | Tutorial post on BetterStack Community | Blog / SEO | High-ranking property for CI searches |
 | Authentic r/selfhosted participation | Reddit | Credibility-building before product mention |
@@ -367,7 +367,7 @@ Run monthly: prompt Claude, ChatGPT, and Cursor with "I want to run GitHub Actio
 
 No competitor currently owns the "AI coding agent CI" positioning. As of March 2026:
 - Spotify Engineering has documented the unsolved CI-loop problem for background agents
-- GitHub Actions reliability is degrading (February 2026 outage)
+- GitHub Actions reliability is degrading (February 9, 2026 outage [documented by WebProNews](https://www.webpronews.com/developers-ditch-github-actions-over-reliability-and-pricing-issues/))
 - The "overnight agent" pattern (teams waking to large batches of agent-generated commits across multiple codebases) creates acute demand for fast, local, pausable CI
 
 Agent-ci is the first tool that directly solves this. The window to claim this positioning before a well-funded player does is open now.

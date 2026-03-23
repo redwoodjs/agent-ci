@@ -29,7 +29,7 @@ Key adoption drivers identified:
 
 On dev.to alone, at least 10 distinct articles recommend `act`: [1](https://dev.to/tejastn10/run-github-actions-locally-with-act-a-developers-guide-1j33) [2](https://dev.to/ken_mwaura1/run-github-actions-on-your-local-machine-bdm) [3](https://dev.to/serhii_korol_ab7776c50dba/mac-how-locally-run-github-actions-its-easy-2ece) [4](https://dev.to/cicube/how-to-run-github-actions-locally-with-act-1en3) [5](https://dev.to/icanhazstring/local-testing-for-github-actions-on-macos-4lob) [6](https://dev.to/rajikaimal/run-github-actions-locally-1ejo) [7](https://dev.to/stelixx-insider/streamline-your-github-actions-workflow-with-act-4la7) [8](https://dev.to/minompi/how-to-test-github-actions-locally-3ipk) [9](https://dev.to/frontenddeveli/how-to-run-github-actions-locally-28nh) [10](https://dev.to/celeron/doing-github-actions-local-first-17kn). The LogRocket article is also cross-posted to dev.to, so the count is conservative.
 
-**c) GitHub topics compounding.** The `nektos/act` repo is the canonical result for GitHub topic searches related to `github-actions` + local testing. With 1.9k forks and 220+ dependent projects, network effects are self-reinforcing.
+**c) GitHub topics compounding.** The `nektos/act` repo is the canonical result for GitHub topic searches related to `github-actions` + local testing. act has built a large ecosystem with thousands of forks and hundreds of dependent projects (see [github.com/nektos/act](https://github.com/nektos/act) for current stats), and network effects are self-reinforcing.
 
 **d) HackerNews recurring resurfacing.** `act` has appeared on HN multiple times with significant traction (two confirmed instances with item IDs):
 - `news.ycombinator.com/item?id=33750654` — 273 points, 133 comments
@@ -64,9 +64,9 @@ Top CI tools in the GitHub Actions local-runner space use these topics consisten
 ### Hacker News: Highest-ROI Single Event
 
 A well-timed HN front-page appearance is the highest-density single-moment ROI for a developer tool launch. Evidence:
-- Front-page residence: ~13 hours typical
+- Front-page residence: commonly observed as ~13 hours (act, Dagger cases)
 - Traffic range: commonly estimated at 10,000–100,000 unique visitors in 48 hours (based on developer-reported case studies; no single controlled measurement)
-- GitHub stars: 300+ in 24 hours typical for well-positioned project [[Nebula Graph case study](https://www.nebula-graph.io/posts/nebula-graph-being-on-hacker-new-front-page)]
+- GitHub stars: 300+ in 24 hours reported in case studies [[Nebula Graph](https://www.nebula-graph.io/posts/nebula-graph-being-on-hacker-new-front-page)]
 - HN traffic converts ~3:1 vs. Product Hunt (100 installs from HN front page vs. 30 from Product Hunt in one developer's documented experience [[Medium](https://medium.com/@baristaGeek/lessons-launching-a-developer-tool-on-hacker-news-vs-product-hunt-and-other-channels-27be8784338b)])
 
 **What works on HN for CI tools:**
@@ -118,7 +118,7 @@ From HN discussion analysis and blog post aggregation, the most-resonating pain 
 
 ### Messaging Frameworks That Have Worked
 
-**Dagger.io** (397 HN upvotes, 259 comments): Led with developer identity — "your pipelines are software. This makes you a developer, and you deserve a proper developer experience." Positioned CI lock-in as an indignity and Dagger as the correction. Solomon Shykes engaging on every comment was credited with building credibility.
+**Dagger** ([HN discussion](https://news.ycombinator.com/item?id=30857012): 397 upvotes, 259 comments): Led with developer identity — "your pipelines are software. This makes you a developer, and you deserve a proper developer experience." Positioned CI lock-in as an indignity and Dagger as the correction. Solomon Shykes engaging on every comment was credited with building credibility.
 
 **act (nektos):** "Think globally, `act` locally" — pithy, memorable. Secondary hook: two explicit use-cases: (1) fast feedback loop, (2) use GitHub Actions as a Makefile replacement. The second use case dramatically expanded target audience beyond "people debugging workflows."
 
@@ -173,7 +173,7 @@ The most significant emerging opportunity:
 - **Spotify Engineering** explicitly documented that CI integration for background coding agents is planned future work: "enabling it to act on CI checks in GitHub pull requests." They have the problem, no solution.
 - **The "overnight agent loop" pattern** is gaining traction — teams are waking to large batches of agent-generated commits across multiple codebases from unattended agents. These agents need a local CI loop that doesn't consume cloud minutes.
 - **IT Revolution's three-loop framework** positions CI in the "outer loop" — agent-ci specifically targets collapsing the inner/outer distinction by making CI local and instant.
-- **GitHub Actions reliability is failing** (February 9, 2026 outage documented) — developers using AI agents are dependent on an unreliable external service.
+- **GitHub Actions reliability is failing** (February 9, 2026 outage [documented by WebProNews](https://www.webpronews.com/developers-ditch-github-actions-over-reliability-and-pricing-issues/)) — developers using AI agents are dependent on an unreliable external service.
 
 The phrase **"the CI loop your AI agent actually needs"** has no incumbent owner as of March 2026.
 

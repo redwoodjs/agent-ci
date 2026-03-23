@@ -1,5 +1,11 @@
 # dtu-github-actions
 
+## 0.5.0
+
+### Minor Changes
+
+- 179405b: Add package metadata, SKILL.md, and AI agent discoverability section to README
+
 ## 0.4.0
 
 ### Minor Changes

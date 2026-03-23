@@ -134,3 +134,18 @@ DEBUG=agent-ci:* npx agent-ci run --workflow .github/workflows/ci.yml
 ```
 
 Output goes to **stderr**. If `DEBUG` is unset, debug loggers are no-ops with zero overhead.
+
+---
+
+## Using with AI coding agents
+
+Agent CI is designed for AI-agent-driven development loops. Add the following snippet to your project's `CLAUDE.md` (for Claude Code) or `.cursorrules` (for Cursor) so your AI agent automatically discovers and uses agent-ci:
+
+```markdown
+## agent-ci
+
+- Use `npx agent-ci run --workflow .github/workflows/ci.yml` to run CI locally
+- When a step fails, the run pauses automatically. Use `npx agent-ci retry --name <runner>` to retry after fixing the failure
+- Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free
+- Set `AI_AGENT=1` for quieter output suitable for agent consumption
+```

@@ -2,7 +2,14 @@
   "name": "dtu-github-actions",
   "version": "0.4.0",
   "description": "Digital Twin Universe - GitHub Actions Mock and Simulation",
-  "keywords": [],
+  "keywords": [
+    "ci",
+    "digital-twin",
+    "github-actions",
+    "mock",
+    "simulation",
+    "testing"
+  ],
   "license": "FSL-1.1-MIT",
   "author": "",
   "repository": {

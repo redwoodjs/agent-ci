@@ -1,8 +1,20 @@
 {
   "name": "@redwoodjs/agent-ci",
   "version": "0.4.0",
-  "description": "Local GitHub Actions runner",
-  "keywords": [],
+  "description": "Local GitHub Actions runner — pause on failure, ~0ms cache, official runner binary. Built for AI coding agents.",
+  "keywords": [
+    "act-alternative",
+    "ai-agent",
+    "ci",
+    "coding-agent",
+    "devtools",
+    "github-actions",
+    "local-ci",
+    "local-runner",
+    "pause-on-failure",
+    "runner",
+    "workflow"
+  ],
   "license": "FSL-1.1-MIT",
   "author": "",
   "repository": {
@@ -15,7 +27,8 @@
   },
   "files": [
     "dist",
-    "shim.sh"
+    "shim.sh",
+    "SKILL.md"
   ],
   "type": "module",
   "publishConfig": {

@@ -39,7 +39,7 @@ Two hooks, for two audiences:
 The `nektos/act` case study (0 → 69k stars) provides the primary evidence base. Key patterns:
 
 - **Pain-first positioning wins.** Act's success came from naming a universal frustration before offering a solution. "Think globally, `act` locally" — one line that requires no explanation.
-- **HackerNews is the highest-ROI single event** for a well-positioned developer tool: 10,000–100,000 unique visitors in 48 hours, 300+ GitHub stars in 24 hours from a front-page appearance.
+- **HackerNews is the highest-ROI single event** for a well-positioned developer tool: commonly estimated at 10,000–100,000 unique visitors in 48 hours (developer-reported case studies; no single controlled measurement), and 300+ GitHub stars in 24 hours from a front-page appearance [[Nebula Graph](https://www.nebula-graph.io/posts/nebula-graph-being-on-hacker-new-front-page)].
 - **Tutorial blog posts compound over time.** Multiple third-party tutorials about `act` (Red Hat, BrowserStack, Microsoft Azure, LogRocket, freeCodeCamp) are what dominate search results — not the official repo alone.
 - **Reddit drives 41% of traffic** for developer tools in measured cases, ahead of GitHub and Twitter combined.
 - **Organic search via GitHub topics** reinforces itself — once a repo is the canonical result for a topic, forks and dependent projects compound the effect.
@@ -73,7 +73,7 @@ Install: npm install -D @redwoodjs/agent-ci
 - r/selfhosted (350k+) — rewards "here's what I built" stories; fastest to build credibility
 - r/programming (6.6M) — high bar; needs reputation first
 
-**Tactic:** Use personal engineer/founder accounts. 90:10 ratio of helpful contributions to product mentions. A single well-timed, genuinely helpful comment in a "what do you use for local CI?" thread drives qualified signups for months via Google indexing. Post a self-post in r/selfhosted with a builder story before any product-forward posts.
+**Tactic:** Use personal engineer/founder accounts. 90:10 ratio of helpful contributions to product mentions. A single well-timed, genuinely helpful comment in a "what do you use for local CI?" thread can drive sustained qualified traffic for months via Google indexing (Reddit threads are indexed and frequently resurface in search; this reflects best-practice inference from Reddit's SEO behavior, not a measured case study). Post a self-post in r/selfhosted with a builder story before any product-forward posts.
 
 #### 3. Tutorial Content — Long-Tail SEO Compounding
 
@@ -296,7 +296,7 @@ Publish on Dev.to, Medium, Hashnode (all maximally scraped). Stack Overflow answ
 
 | Action | Channel | Impact |
 |---|---|---|
-| "Show HN:" post (timed to polished release) | HackerNews | Spike: 10k–100k visitors, 300+ stars |
+| "Show HN:" post (timed to polished release) | HackerNews | Spike: typically 10k–100k visitors est., 300+ stars [[Nebula Graph](https://www.nebula-graph.io/posts/nebula-graph-being-on-hacker-new-front-page)] |
 | Tutorial post on DEV Community | Blog / SEO | Compounding; scraping target |
 | Tutorial post on BetterStack Community | Blog / SEO | High-ranking property for CI searches |
 | Authentic r/selfhosted participation | Reddit | Credibility-building before product mention |
@@ -368,7 +368,7 @@ Run monthly: prompt Claude, ChatGPT, and Cursor with "I want to run GitHub Actio
 No competitor currently owns the "AI coding agent CI" positioning. As of March 2026:
 - Spotify Engineering has documented the unsolved CI-loop problem for background agents
 - GitHub Actions reliability is degrading (February 2026 outage)
-- The "overnight agent" pattern (teams waking to 1,000+ agent-generated commits) creates acute demand for fast, local, pausable CI
+- The "overnight agent" pattern (teams waking to large batches of agent-generated commits across multiple codebases) creates acute demand for fast, local, pausable CI
 
 Agent-ci is the first tool that directly solves this. The window to claim this positioning before a well-funded player does is open now.
 

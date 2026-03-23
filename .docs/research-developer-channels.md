@@ -20,7 +20,7 @@ Key adoption drivers identified:
 
 **a) Pain-first positioning.** Act's README leads with the problem before the solution: avoid pushing code just to test workflow changes. This framing converts passive readers into active users.
 
-**b) Organic search dominance.** Tutorial blogs and corporate engineering posts all recommend `act`, making it the top result for any search on "run GitHub Actions locally." Each post acts as a long-tail SEO node. Verified sources:
+**b) Organic search dominance.** Leading tutorial blogs and corporate engineering posts recommend `act`, making it the dominant result for searches on "run GitHub Actions locally." Each post acts as a long-tail SEO node. Verified sources:
 - [Red Hat: Testing Github Actions Locally](https://www.redhat.com/en/blog/testing-github-actions-locally)
 - [BrowserStack: How to Test GitHub Actions Locally?](https://www.browserstack.com/guide/test-github-actions-locally)
 - [Microsoft Azure Blog: Using Act to Test GitHub Workflows Locally for Azure Deployments](https://techcommunity.microsoft.com/blog/azureinfrastructureblog/using-act-to-test-github-workflows-locally-for-azure-deployments-cicd/4414310)
@@ -31,9 +31,9 @@ On dev.to alone, at least 10 distinct articles recommend `act`: [1](https://dev.
 
 **c) GitHub topics compounding.** The `nektos/act` repo is the canonical result for GitHub topic searches related to `github-actions` + local testing. With 1.9k forks and 220+ dependent projects, network effects are self-reinforcing.
 
-**d) HackerNews recurring resurfacing.** `act` has appeared on HN at least four times with significant traction:
+**d) HackerNews recurring resurfacing.** `act` has appeared on HN multiple times with significant traction (two confirmed instances with item IDs):
 - `news.ycombinator.com/item?id=33750654` — 273 points, 133 comments
-- `news.ycombinator.com/item?id=44003184` — multiple resurfaces showing continued relevance
+- `news.ycombinator.com/item?id=44003184` — continued relevance demonstrated by resurfacing
 - Organic mentions in unrelated CI/CD threads
 
 HN repeatedly surfaces `act` because it is the only well-known answer to a repeatedly-asked question.
@@ -65,9 +65,9 @@ Top CI tools in the GitHub Actions local-runner space use these topics consisten
 
 A well-timed HN front-page appearance is the highest-density single-moment ROI for a developer tool launch. Evidence:
 - Front-page residence: ~13 hours typical
-- Traffic range: 10,000–100,000 unique visitors in 48 hours
-- GitHub stars: 300+ in 24 hours typical for well-positioned project
-- HN traffic converts ~3:1 vs. Product Hunt (100 installs from HN front page vs. 30 from Product Hunt in one documented comparison)
+- Traffic range: commonly estimated at 10,000–100,000 unique visitors in 48 hours (based on developer-reported case studies; no single controlled measurement)
+- GitHub stars: 300+ in 24 hours typical for well-positioned project [[Nebula Graph case study](https://www.nebula-graph.io/posts/nebula-graph-being-on-hacker-new-front-page)]
+- HN traffic converts ~3:1 vs. Product Hunt (100 installs from HN front page vs. 30 from Product Hunt in one developer's documented experience [[Medium](https://medium.com/@baristaGeek/lessons-launching-a-developer-tool-on-hacker-news-vs-product-hunt-and-other-channels-27be8784338b)])
 
 **What works on HN for CI tools:**
 - Use "Show HN:" prefix
@@ -171,7 +171,7 @@ npm's search weights the description string heavily:
 The most significant emerging opportunity:
 
 - **Spotify Engineering** explicitly documented that CI integration for background coding agents is planned future work: "enabling it to act on CI checks in GitHub pull requests." They have the problem, no solution.
-- **The "overnight agent loop" pattern** is gaining traction — teams woke up to 1,000+ commits across six codebases from unattended agents. These agents need a local CI loop that doesn't consume cloud minutes.
+- **The "overnight agent loop" pattern** is gaining traction — teams are waking to large batches of agent-generated commits across multiple codebases from unattended agents. These agents need a local CI loop that doesn't consume cloud minutes.
 - **IT Revolution's three-loop framework** positions CI in the "outer loop" — agent-ci specifically targets collapsing the inner/outer distinction by making CI local and instant.
 - **GitHub Actions reliability is failing** (February 9, 2026 outage documented) — developers using AI agents are dependent on an unreliable external service.
 

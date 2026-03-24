@@ -171,9 +171,26 @@ describe("resolveDockerApiUrl", () => {
       "https://host.docker.internal",
     );
   });
+
+  it("does not rewrite non-loopback hosts", async () => {
+    const { resolveDockerApiUrl } = await import("./container-config.js");
+    expect(
+      resolveDockerApiUrl("https://dtu.internal.example.com:8910", "host.docker.internal"),
+    ).toBe("https://dtu.internal.example.com:8910");
+  });
 });
 
 describe("resolveDtuHost", () => {
+  const originalBridgeGateway = process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY;
+
+  afterEach(() => {
+    if (originalBridgeGateway === undefined) {
+      delete process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY;
+    } else {
+      process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY = originalBridgeGateway;
+    }
+  });
+
   it("uses host alias when available outside Docker", async () => {
     const { resolveDtuHost } = await import("./container-config.js");
     const originalExistsSync = fs.existsSync;
@@ -189,7 +206,7 @@ describe("resolveDtuHost", () => {
     await expect(resolveDtuHost()).resolves.toBe("host.docker.internal");
   });
 
-  it("falls back to bridge gateway when host alias is unavailable", async () => {
+  it("keeps host alias when host DNS lookup fails outside Docker", async () => {
     const { resolveDtuHost } = await import("./container-config.js");
     const originalExistsSync = fs.existsSync;
 
@@ -201,7 +218,23 @@ describe("resolveDtuHost", () => {
     });
     vi.spyOn(dns, "lookup").mockRejectedValue(new Error("ENOTFOUND"));
 
-    await expect(resolveDtuHost()).resolves.toBe("172.17.0.1");
+    await expect(resolveDtuHost()).resolves.toBe("host.docker.internal");
+  });
+
+  it("falls back to configured bridge gateway when host alias lookup fails", async () => {
+    const { resolveDtuHost } = await import("./container-config.js");
+    const originalExistsSync = fs.existsSync;
+
+    vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {
+      if (filePath === "/.dockerenv") {
+        return false;
+      }
+      return originalExistsSync(filePath);
+    });
+    vi.spyOn(dns, "lookup").mockRejectedValue(new Error("ENOTFOUND"));
+    process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY = "10.10.0.1";
+
+    await expect(resolveDtuHost()).resolves.toBe("10.10.0.1");
   });
 });
 

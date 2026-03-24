@@ -175,6 +175,10 @@ const DEFAULT_DTU_HOST_ALIAS = "host.docker.internal";
 const DEFAULT_DOCKER_BRIDGE_GATEWAY = "172.17.0.1";
 const DEFAULT_DOCKER_HOST_GATEWAY = "host-gateway";
 
+function isLoopbackHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
 function parseCsvEnv(value: string): string[] {
   return value
     .split(",")
@@ -208,12 +212,18 @@ export async function resolveDtuHost(): Promise<string> {
     await dns.lookup(DEFAULT_DTU_HOST_ALIAS);
     return DEFAULT_DTU_HOST_ALIAS;
   } catch (error: unknown) {
-    const fallbackGateway =
-      process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY?.trim() || DEFAULT_DOCKER_BRIDGE_GATEWAY;
+    const configuredGateway = process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY?.trim();
+    if (configuredGateway) {
+      debugRunner(
+        `DTU host alias '${DEFAULT_DTU_HOST_ALIAS}' is unavailable, falling back to configured bridge gateway '${configuredGateway}': ${String(error)}`,
+      );
+      return configuredGateway;
+    }
+
     debugRunner(
-      `DTU host alias '${DEFAULT_DTU_HOST_ALIAS}' is unavailable, falling back to '${fallbackGateway}': ${String(error)}`,
+      `DTU host alias '${DEFAULT_DTU_HOST_ALIAS}' is unavailable on host, keeping alias so Docker ExtraHosts can resolve it in-container: ${String(error)}`,
     );
-    return fallbackGateway;
+    return DEFAULT_DTU_HOST_ALIAS;
   }
 }
 
@@ -241,7 +251,10 @@ export function resolveDockerExtraHosts(dtuHost: string): string[] | undefined {
  */
 export function resolveDockerApiUrl(dtuUrl: string, dtuHost: string): string {
   const parsed = new URL(dtuUrl);
-  parsed.hostname = dtuHost;
+
+  if (isLoopbackHostname(parsed.hostname)) {
+    parsed.hostname = dtuHost;
+  }
 
   const serialized = parsed.toString();
   if (parsed.pathname === "/" && !parsed.search && !parsed.hash && serialized.endsWith("/")) {

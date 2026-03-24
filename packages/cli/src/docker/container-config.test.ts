@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 
 // ── buildContainerEnv ─────────────────────────────────────────────────────────
 
@@ -150,6 +150,84 @@ describe("resolveDockerApiUrl", () => {
     expect(resolveDockerApiUrl("http://127.0.0.1:3000", "host.docker.internal")).toBe(
       "http://host.docker.internal:3000",
     );
+  });
+
+  it("preserves path and query components", async () => {
+    const { resolveDockerApiUrl } = await import("./container-config.js");
+    expect(resolveDockerApiUrl("http://localhost:8910/api/v1?foo=bar", "10.0.0.8")).toBe(
+      "http://10.0.0.8:8910/api/v1?foo=bar",
+    );
+  });
+
+  it("keeps implicit https default port behavior", async () => {
+    const { resolveDockerApiUrl } = await import("./container-config.js");
+    expect(resolveDockerApiUrl("https://localhost", "host.docker.internal")).toBe(
+      "https://host.docker.internal",
+    );
+  });
+});
+
+describe("resolveDockerExtraHosts", () => {
+  const originalExtraHosts = process.env.AGENT_CI_DOCKER_EXTRA_HOSTS;
+  const originalDisable = process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS;
+  const originalGateway = process.env.AGENT_CI_DOCKER_HOST_GATEWAY;
+
+  afterEach(() => {
+    if (originalExtraHosts === undefined) {
+      delete process.env.AGENT_CI_DOCKER_EXTRA_HOSTS;
+    } else {
+      process.env.AGENT_CI_DOCKER_EXTRA_HOSTS = originalExtraHosts;
+    }
+
+    if (originalDisable === undefined) {
+      delete process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS;
+    } else {
+      process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS = originalDisable;
+    }
+
+    if (originalGateway === undefined) {
+      delete process.env.AGENT_CI_DOCKER_HOST_GATEWAY;
+    } else {
+      process.env.AGENT_CI_DOCKER_HOST_GATEWAY = originalGateway;
+    }
+  });
+
+  it("maps host.docker.internal to host-gateway by default", async () => {
+    delete process.env.AGENT_CI_DOCKER_EXTRA_HOSTS;
+    delete process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS;
+    delete process.env.AGENT_CI_DOCKER_HOST_GATEWAY;
+
+    const { resolveDockerExtraHosts } = await import("./container-config.js");
+    expect(resolveDockerExtraHosts("host.docker.internal")).toEqual([
+      "host.docker.internal:host-gateway",
+    ]);
+  });
+
+  it("uses AGENT_CI_DOCKER_EXTRA_HOSTS when provided", async () => {
+    process.env.AGENT_CI_DOCKER_EXTRA_HOSTS = "host.docker.internal:172.17.0.1,api.local:10.0.0.2";
+    delete process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS;
+
+    const { resolveDockerExtraHosts } = await import("./container-config.js");
+    expect(resolveDockerExtraHosts("host.docker.internal")).toEqual([
+      "host.docker.internal:172.17.0.1",
+      "api.local:10.0.0.2",
+    ]);
+  });
+
+  it("returns undefined when defaults are disabled", async () => {
+    delete process.env.AGENT_CI_DOCKER_EXTRA_HOSTS;
+    process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS = "1";
+
+    const { resolveDockerExtraHosts } = await import("./container-config.js");
+    expect(resolveDockerExtraHosts("host.docker.internal")).toBeUndefined();
+  });
+
+  it("does not add default mapping for non-host.docker.internal hosts", async () => {
+    delete process.env.AGENT_CI_DOCKER_EXTRA_HOSTS;
+    delete process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS;
+
+    const { resolveDockerExtraHosts } = await import("./container-config.js");
+    expect(resolveDockerExtraHosts("10.10.10.10")).toBeUndefined();
   });
 });
 

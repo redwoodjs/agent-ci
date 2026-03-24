@@ -29,6 +29,7 @@ import {
   buildContainerCmd,
   resolveDtuHost,
   resolveDockerApiUrl,
+  resolveDockerExtraHosts,
 } from "../docker/container-config.js";
 import { buildJobResult, sanitizeStepName } from "./result-builder.js";
 import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
@@ -279,9 +280,11 @@ export async function executeLocalJob(
     })();
 
     // 6. Spawn container
-    const dtuPort = new URL(dtuContainerUrl).port || "80";
     const dtuHost = resolveDtuHost();
     const dockerApiUrl = resolveDockerApiUrl(dtuContainerUrl, dtuHost);
+    const parsedDockerApiUrl = new URL(dockerApiUrl);
+    const dtuPort =
+      parsedDockerApiUrl.port || (parsedDockerApiUrl.protocol === "https:" ? "443" : "80");
     const githubRepo = job.githubRepo || config.GITHUB_REPO;
     const repoUrl = `${dockerApiUrl}/${githubRepo}`;
 
@@ -409,9 +412,7 @@ export async function executeLocalJob(
       containerName,
     });
 
-    // On Linux, host.docker.internal doesn't work by default - need to add explicit mapping
-    const isLinux = process.platform === "linux";
-    const extraHosts = isLinux && !serviceCtx ? ["host.docker.internal:172.17.0.1"] : undefined;
+    const extraHosts = resolveDockerExtraHosts(dtuHost);
 
     t0 = Date.now();
     const container = await docker.createContainer({

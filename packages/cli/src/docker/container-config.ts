@@ -169,13 +169,23 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
 import fs from "fs";
 import { execSync } from "child_process";
 
-/**
- * Resolve the DTU host address that nested Docker containers can reach.
- * Inside Docker: use the container's own bridge IP.
- * On host macOS: use `host.docker.internal`.
- * On host Linux: use docker bridge gateway (172.17.0.1).
- */
+const DEFAULT_DTU_HOST_ALIAS = "host.docker.internal";
+const DEFAULT_DOCKER_BRIDGE_GATEWAY = "172.17.0.1";
+const DEFAULT_DOCKER_HOST_GATEWAY = "host-gateway";
+
+function parseCsvEnv(value: string): string[] {
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
 export function resolveDtuHost(): string {
+  const configuredHost = process.env.AGENT_CI_DTU_HOST?.trim();
+  if (configuredHost) {
+    return configuredHost;
+  }
+
   const isInsideDocker = fs.existsSync("/.dockerenv");
   if (isInsideDocker) {
     try {
@@ -186,25 +196,44 @@ export function resolveDtuHost(): string {
         return ip;
       }
     } catch {}
-    return "172.17.0.1";
+    return process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY?.trim() || DEFAULT_DOCKER_BRIDGE_GATEWAY;
   }
 
-  // On host - detect platform
-  const isMacOS = process.platform === "darwin";
-  if (isMacOS) {
-    return "host.docker.internal";
+  return DEFAULT_DTU_HOST_ALIAS;
+}
+
+export function resolveDockerExtraHosts(dtuHost: string): string[] | undefined {
+  const configuredExtraHosts = process.env.AGENT_CI_DOCKER_EXTRA_HOSTS;
+  if (configuredExtraHosts !== undefined) {
+    const parsed = parseCsvEnv(configuredExtraHosts);
+    return parsed.length > 0 ? parsed : undefined;
   }
 
-  // On Linux, use the docker bridge gateway
-  // This is the IP that containers can use to reach the host
-  return "172.17.0.1";
+  if (process.env.AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS === "1") {
+    return undefined;
+  }
+
+  if (dtuHost !== DEFAULT_DTU_HOST_ALIAS) {
+    return undefined;
+  }
+
+  const gateway = process.env.AGENT_CI_DOCKER_HOST_GATEWAY?.trim() || DEFAULT_DOCKER_HOST_GATEWAY;
+  return [`${DEFAULT_DTU_HOST_ALIAS}:${gateway}`];
 }
 
 /**
  * Rewrite a DTU URL to be reachable from inside Docker containers.
  */
 export function resolveDockerApiUrl(dtuUrl: string, dtuHost: string): string {
-  return dtuUrl.replace("localhost", dtuHost).replace("127.0.0.1", dtuHost);
+  const parsed = new URL(dtuUrl);
+  parsed.hostname = dtuHost;
+
+  const serialized = parsed.toString();
+  if (parsed.pathname === "/" && !parsed.search && !parsed.hash && serialized.endsWith("/")) {
+    return serialized.slice(0, -1);
+  }
+
+  return serialized;
 }
 
 // ─── Docker-outside-of-Docker path translation ──────────────────────────────

@@ -12,20 +12,9 @@ export interface EphemeralDtu {
   close(): Promise<void>;
 }
 
-/**
- * Resolve the host IP address that Docker containers can reach.
- * On macOS: use host.docker.internal
- * On Linux: use docker bridge gateway (172.17.0.1)
- */
 function resolveContainerHost(): string {
-  const isMacOS = process.platform === "darwin";
-  if (isMacOS) {
-    return "host.docker.internal";
-  }
-
-  // On Linux, use the docker bridge gateway
-  // This is the IP that containers can use to reach the host
-  return "172.17.0.1";
+  const configuredHost = process.env.AGENT_CI_DTU_HOST?.trim();
+  return configuredHost || "host.docker.internal";
 }
 
 /**

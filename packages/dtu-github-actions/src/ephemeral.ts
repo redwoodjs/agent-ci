@@ -3,11 +3,29 @@ import { setCacheDir } from "./server/store.js";
 import { bootstrapAndReturnApp } from "./server/index.js";
 
 export interface EphemeralDtu {
-  /** Full URL including port, e.g. "http://127.0.0.1:49823" */
+  /** Full URL including port for CLI access (127.0.0.1), e.g. "http://127.0.0.1:49823" */
   url: string;
+  /** Full URL including port for container access (host IP), e.g. "http://172.17.0.1:49823" */
+  containerUrl: string;
   port: number;
   /** Shut down the ephemeral DTU server. */
   close(): Promise<void>;
+}
+
+/**
+ * Resolve the host IP address that Docker containers can reach.
+ * On macOS: use host.docker.internal
+ * On Linux: use docker bridge gateway (172.17.0.1)
+ */
+function resolveContainerHost(): string {
+  const isMacOS = process.platform === "darwin";
+  if (isMacOS) {
+    return "host.docker.internal";
+  }
+
+  // On Linux, use the docker bridge gateway
+  // This is the IP that containers can use to reach the host
+  return "172.17.0.1";
 }
 
 /**
@@ -44,10 +62,14 @@ export async function startEphemeralDtu(cacheDir: string): Promise<EphemeralDtu>
     server.on("error", reject);
   });
 
-  const url = `http://127.0.0.1:${port}`;
+  // Use 127.0.0.1 for CLI access (same host) and host IP for container access
+  const containerHost = resolveContainerHost();
+  const cliUrl = `http://127.0.0.1:${port}`;
+  const containerUrl = `http://${containerHost}:${port}`;
 
   return {
-    url,
+    url: cliUrl,
+    containerUrl,
     port,
     close(): Promise<void> {
       return new Promise((resolve) => {

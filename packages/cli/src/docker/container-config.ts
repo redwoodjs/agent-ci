@@ -172,22 +172,32 @@ import { execSync } from "child_process";
 /**
  * Resolve the DTU host address that nested Docker containers can reach.
  * Inside Docker: use the container's own bridge IP.
- * On host: use `host.docker.internal`.
+ * On host macOS: use `host.docker.internal`.
+ * On host Linux: use docker bridge gateway (172.17.0.1).
  */
 export function resolveDtuHost(): string {
   const isInsideDocker = fs.existsSync("/.dockerenv");
-  if (!isInsideDocker) {
+  if (isInsideDocker) {
+    try {
+      const ip = execSync("hostname -I 2>/dev/null | awk '{print $1}'", {
+        encoding: "utf8",
+      }).trim();
+      if (ip) {
+        return ip;
+      }
+    } catch {}
+    return "172.17.0.1";
+  }
+
+  // On host - detect platform
+  const isMacOS = process.platform === "darwin";
+  if (isMacOS) {
     return "host.docker.internal";
   }
-  try {
-    const ip = execSync("hostname -I 2>/dev/null | awk '{print $1}'", {
-      encoding: "utf8",
-    }).trim();
-    if (ip) {
-      return ip;
-    }
-  } catch {}
-  return "172.17.0.1"; // fallback to bridge gateway
+
+  // On Linux, use the docker bridge gateway
+  // This is the IP that containers can use to reach the host
+  return "172.17.0.1";
 }
 
 /**

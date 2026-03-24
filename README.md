@@ -2,6 +2,10 @@
 
 **Run GitHub Actions on your machine. Caching in ~0 ms. Pause on failure. Let your agent fix it and retry — without pushing.**
 
+<p align="center">
+  <img src=".docs/marketing/demo.gif" alt="Agent CI demo — pause on failure, fix, retry" width="700" />
+</p>
+
 Agent CI is a ground-up rewrite of the GitHub Actions orchestration layer that runs entirely on your own machine. It doesn't wrap or shim the runner: it **replaces the cloud API** that the official [GitHub Actions Runner](https://github.com/actions/runner) talks to, so the same runner binary that executes your jobs on GitHub.com executes them locally, bit-for-bit.
 
 Actions like `actions/checkout`, `actions/setup-node`, and `actions/cache` work out of the box — no patches, no forks, no network calls to GitHub.

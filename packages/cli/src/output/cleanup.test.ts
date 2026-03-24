@@ -356,4 +356,36 @@ describe("repairWarmCache", () => {
     expect(fs.existsSync(brokenDir)).toBe(true);
     expect(fs.readdirSync(brokenDir)).toHaveLength(0);
   });
+
+  it("returns 'repaired' when sentinel exists but package dependency is missing", async () => {
+    const { repairWarmCache } = await import("./cleanup.js");
+    const warmDir = path.join(tmpDir, "warm-missing-dep");
+    const pkgDir = path.join(warmDir, "foo");
+
+    fs.mkdirSync(pkgDir, { recursive: true });
+    fs.writeFileSync(path.join(warmDir, ".modules.yaml"), "ok");
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({ name: "foo", version: "1.0.0", dependencies: { bar: "^1.0.0" } }),
+    );
+
+    expect(repairWarmCache(warmDir)).toBe("repaired");
+    expect(fs.existsSync(warmDir)).toBe(true);
+    expect(fs.readdirSync(warmDir)).toHaveLength(0);
+  });
+
+  it("returns 'warm' when only peerDependencies are declared", async () => {
+    const { repairWarmCache } = await import("./cleanup.js");
+    const warmDir = path.join(tmpDir, "warm-peer-only");
+    const pkgDir = path.join(warmDir, "foo");
+
+    fs.mkdirSync(pkgDir, { recursive: true });
+    fs.writeFileSync(path.join(warmDir, ".modules.yaml"), "ok");
+    fs.writeFileSync(
+      path.join(pkgDir, "package.json"),
+      JSON.stringify({ name: "foo", version: "1.0.0", peerDependencies: { react: "^19.0.0" } }),
+    );
+
+    expect(repairWarmCache(warmDir)).toBe("warm");
+  });
 });

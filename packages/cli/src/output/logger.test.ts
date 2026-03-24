@@ -107,6 +107,32 @@ describe("Logger utilities", () => {
       expect(fs.existsSync(ctx.runDir)).toBe(true);
     });
 
+    it("falls back to next run number when preferredName directory is not writable", async () => {
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { createLogContext } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
+
+      fs.mkdirSync(path.join(tmpDir, "runs", "agent-ci-1"), { recursive: true });
+
+      const originalMkdir = fs.mkdirSync;
+      let mkdirCalls = 0;
+      vi.spyOn(fs, "mkdirSync").mockImplementation(((...args: Parameters<typeof fs.mkdirSync>) => {
+        mkdirCalls += 1;
+        if (mkdirCalls === 2) {
+          const error = new Error("permission denied") as NodeJS.ErrnoException;
+          error.code = "EACCES";
+          throw error;
+        }
+        return originalMkdir(...args);
+      }) as typeof fs.mkdirSync);
+
+      const ctx = createLogContext("agent-ci", "agent-ci-1");
+
+      expect(ctx.name).toBe("agent-ci-2");
+      expect(ctx.runDir).toBe(path.join(tmpDir, "runs", "agent-ci-2"));
+      expect(fs.existsSync(ctx.logDir)).toBe(true);
+    });
+
     it("handles multiple consecutive collisions", async () => {
       const { setWorkingDirectory } = await import("./working-directory.js");
       const { createLogContext } = await import("./logger.js");
@@ -121,6 +147,26 @@ describe("Logger utilities", () => {
       expect(ctx.num).toBe(4);
       expect(ctx.name).toBe("agent-ci-4");
       expect(fs.existsSync(ctx.runDir)).toBe(true);
+    });
+
+    it("rethrows permission errors when preferredName is not provided", async () => {
+      const { setWorkingDirectory } = await import("./working-directory.js");
+      const { createLogContext } = await import("./logger.js");
+      setWorkingDirectory(tmpDir);
+
+      const originalMkdir = fs.mkdirSync;
+      let mkdirCalls = 0;
+      vi.spyOn(fs, "mkdirSync").mockImplementation(((...args: Parameters<typeof fs.mkdirSync>) => {
+        mkdirCalls += 1;
+        if (mkdirCalls === 2) {
+          const error = new Error("permission denied") as NodeJS.ErrnoException;
+          error.code = "EPERM";
+          throw error;
+        }
+        return originalMkdir(...args);
+      }) as typeof fs.mkdirSync);
+
+      expect(() => createLogContext("agent-ci")).toThrow(/permission denied/i);
     });
 
     it("concurrent calls each get a unique directory", async () => {

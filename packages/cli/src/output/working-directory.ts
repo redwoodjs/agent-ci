@@ -6,13 +6,14 @@ import { fileURLToPath } from "node:url";
 // Pinned to the cli package root
 export const PROJECT_ROOT = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
 
-// When running inside a container with Docker-outside-of-Docker (shared socket),
-// /tmp is NOT visible to the Docker host. Use a project-relative directory
-// so bind mounts resolve correctly on the host.
+// Use a persistent directory in the user's home directory by default.
+// This avoids disk space issues with /tmp and allows reuse of installed
+// dependencies between runs. Falls back to project-relative when running
+// inside Docker (Docker-outside-of-Docker with shared socket).
 const isInsideDocker = fs.existsSync("/.dockerenv");
 export const DEFAULT_WORKING_DIR = isInsideDocker
   ? path.join(PROJECT_ROOT, ".agent-ci")
-  : path.join(os.tmpdir(), "agent-ci", path.basename(PROJECT_ROOT));
+  : path.join(os.homedir(), ".agent-ci", path.basename(PROJECT_ROOT));
 
 let workingDirectory = DEFAULT_WORKING_DIR;
 

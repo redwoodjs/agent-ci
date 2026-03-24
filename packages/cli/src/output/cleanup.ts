@@ -214,8 +214,110 @@ export function isWarmNodeModules(warmDir: string): boolean {
 }
 
 /**
+ * Sample packages from node_modules and verify their dependencies exist.
+ * This catches corruption where packages exist but their dependencies are missing
+ * (e.g., partial /tmp cleanup).
+ *
+ * @returns `true` if sampled packages have their dependencies, `false` otherwise
+ */
+function verifyPackageIntegrity(warmDir: string): boolean {
+  try {
+    const topLevelEntries = fs.readdirSync(warmDir, { withFileTypes: true });
+    const packages: string[] = [];
+
+    for (const entry of topLevelEntries) {
+      if (entry.name.startsWith(".")) {
+        continue;
+      }
+
+      const isPackageEntry = entry.isDirectory() || entry.isSymbolicLink();
+      if (!isPackageEntry) {
+        continue;
+      }
+
+      if (!entry.name.startsWith("@")) {
+        packages.push(entry.name);
+        continue;
+      }
+
+      const scopePath = path.join(warmDir, entry.name);
+      let scopeEntries: fs.Dirent[] = [];
+      try {
+        scopeEntries = fs.readdirSync(scopePath, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+
+      for (const scopedPkg of scopeEntries) {
+        if (scopedPkg.name.startsWith(".")) {
+          continue;
+        }
+
+        if (scopedPkg.isDirectory() || scopedPkg.isSymbolicLink()) {
+          packages.push(`${entry.name}/${scopedPkg.name}`);
+        }
+      }
+    }
+
+    if (packages.length === 0) {
+      return true;
+    }
+
+    // Sample up to 5 packages for verification
+    const sampleSize = Math.min(5, packages.length);
+    const sampled = packages.sort().slice(0, sampleSize);
+
+    for (const pkgName of sampled) {
+      const pkgPath = path.join(warmDir, pkgName);
+      const pkgJsonPath = path.join(pkgPath, "package.json");
+
+      // Check package.json exists
+      if (!fs.existsSync(pkgJsonPath)) {
+        continue; // Some dirs like .bin don't have package.json
+      }
+
+      // Read package.json to check for dependencies
+      type PackageJson = {
+        dependencies?: Record<string, string>;
+        peerDependencies?: Record<string, string>;
+      };
+      let pkgJson: PackageJson;
+      try {
+        pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8"));
+      } catch {
+        continue; // Can't parse, skip this package
+      }
+
+      const depNames = Object.keys(pkgJson.dependencies ?? {});
+      if (depNames.length === 0) {
+        continue; // No dependencies to verify
+      }
+
+      // Sample one dependency and verify it exists
+      const firstDep = depNames[0];
+      const depPaths = [
+        path.join(warmDir, firstDep), // Top-level
+        path.join(pkgPath, "node_modules", firstDep), // Nested
+      ];
+
+      const hasDep = depPaths.some((p) => fs.existsSync(p));
+      if (!hasDep) {
+        // Dependency missing - cache is corrupted
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Detect and repair a corrupted warm cache directory.
- * A cache is corrupt if it has files but no install sentinel from any PM.
+ * A cache is corrupt if:
+ *   - It has files but no install sentinel from any PM, OR
+ *   - Sampled packages are missing their dependencies (partial cleanup corruption)
  *
  * When corruption is detected, the directory is deleted and recreated empty
  * so the next install starts from scratch.
@@ -234,6 +336,13 @@ export function repairWarmCache(warmDir: string): "repaired" | "warm" | "cold" {
     }
     // If any install sentinel exists, the cache is healthy.
     if (hasInstallSentinel(warmDir)) {
+      // Additional check: verify package integrity to catch partial cleanups
+      if (!verifyPackageIntegrity(warmDir)) {
+        // Cache has sentinel but packages are missing dependencies → corrupted
+        fs.rmSync(warmDir, { recursive: true, force: true });
+        fs.mkdirSync(warmDir, { recursive: true, mode: 0o777 });
+        return "repaired";
+      }
       return "warm";
     }
     // Non-empty but no sentinel → interrupted install. Nuke and recreate.

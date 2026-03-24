@@ -1,40 +1,55 @@
-import path from "path";
-import fs from "fs";
-import { getWorkingDirectory } from "./working-directory.js";
+import fs from "node:fs";
+import path from "node:path";
 
-/** Root of all run directories: `<workingDir>/runs/` */
-function getRunsDir(): string {
-  return path.join(getWorkingDirectory(), "runs");
-}
+let logRoot: string | null = null;
 
-export function ensureLogDirs(): void {
-  fs.mkdirSync(getRunsDir(), { recursive: true });
-}
-
-export function getNextLogNum(prefix: string): number {
-  const runsDir = getRunsDir();
-  if (!fs.existsSync(runsDir)) {
-    return 1;
+export function getLogRoot() {
+  if (!logRoot) {
+    throw new Error("Log root not set");
   }
+  return logRoot;
+}
 
-  const items = fs.readdirSync(runsDir, { withFileTypes: true });
-  const nums = items
-    .filter((item) => item.isDirectory() && item.name.startsWith(`${prefix}-`))
-    .map((item) => {
-      // Extract the trailing numeric run counter from a name like:
-      //   agent-ci-redwoodjssdk-14        → 14
-      //   agent-ci-redwoodjssdk-15-j1     → 15
-      //   agent-ci-redwoodjssdk-15-j1-m2  → 15
-      // Strategy: strip any -j<N>, -m<N>, -r<N> suffixes first, then grab the last number.
-      const baseName = item.name
-        .replace(/-j\d+(-m\d+)?(-r\d+)?$/, "")
-        .replace(/-m\d+(-r\d+)?$/, "")
-        .replace(/-r\d+$/, "");
-      const match = baseName.match(/-(\d+)$/);
-      return match ? parseInt(match[1], 10) : 0;
-    });
+export function setLogRoot(root: string) {
+  logRoot = root;
+}
+
+function getRunsDir() {
+  const runsDir = path.join(getLogRoot(), "runs");
+  if (!fs.existsSync(runsDir)) {
+    fs.mkdirSync(runsDir, { recursive: true });
+  }
+  return runsDir;
+}
+
+function ensureLogDirs() {
+  const root = getLogRoot();
+  if (!fs.existsSync(root)) {
+    fs.mkdirSync(root, { recursive: true });
+  }
+}
+
+function getNextLogNum(prefix: string): number {
+  const runsDir = getRunsDir();
+  const entries = fs.readdirSync(runsDir, { withFileTypes: true });
+  const nums = entries
+    .filter((e) => e.isDirectory() && e.name.startsWith(`${prefix}-`))
+    .map((e) => {
+      const n = parseInt(e.name.slice(prefix.length + 1), 10);
+      return Number.isNaN(n) ? 0 : n;
+    })
+    .filter((n) => n > 0);
 
   return nums.length > 0 ? Math.max(...nums) + 1 : 1;
+}
+
+function isPermissionError(error: unknown): error is NodeJS.ErrnoException {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const maybeCode = (error as { code?: unknown }).code;
+  return maybeCode === "EACCES" || maybeCode === "EPERM";
 }
 
 /**
@@ -78,25 +93,29 @@ export function createLogContext(prefix: string, preferredName?: string) {
     ({ num, name, runDir } = allocateRunDir(prefix));
   }
 
-  const logDir = path.join(runDir, "logs");
-  fs.mkdirSync(logDir, { recursive: true });
+  let logDir = path.join(runDir, "logs");
+  try {
+    fs.mkdirSync(logDir, { recursive: true });
+  } catch (error: unknown) {
+    if (!preferredName || !isPermissionError(error)) {
+      throw error;
+    }
+    num = getNextLogNum(prefix);
+    name = `${prefix}-${num}`;
+    runDir = path.join(getRunsDir(), name);
+    logDir = path.join(runDir, "logs");
+    fs.mkdirSync(logDir, { recursive: true });
+  }
 
   return {
     num,
     name,
     runDir,
     logDir,
-    outputLogPath: path.join(logDir, "output.log"),
-    debugLogPath: path.join(logDir, "debug.log"),
+    stepJsonPath: path.join(runDir, "steps.json") as `${string}/steps.json`,
+    getStepLogPath: (stepName: string) =>
+      path.join(logDir, `${stepName}.txt`) as `${string}/${string}.txt`,
   };
 }
 
-export function finalizeLog(
-  logPath: string,
-  _exitCode: number,
-  _commitSha?: string,
-  _preferredName?: string,
-): string {
-  // Log file stays in place; just return the path as-is.
-  return logPath;
-}
+export type LogContext = ReturnType<typeof createLogContext>;

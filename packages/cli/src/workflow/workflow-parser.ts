@@ -403,6 +403,18 @@ export async function parseWorkflowSteps(
         // Basic support for 'uses' steps
         // Parse uses string: owner/repo@ref
         const uses = step.uses.toString();
+
+        // Skip local actions (paths starting with ./ or /) - agent-ci doesn't support them yet
+        if (uses.startsWith("./") || uses.startsWith("/")) {
+          const workflowName = path.basename(filePath);
+          const message =
+            `[Agent CI] Local action "${uses}" is not supported in job "${taskName}" ` +
+            `from workflow "${workflowName}". Move the logic from "${uses}" into ` +
+            `workflow "${workflowName}" job "${taskName}" steps.`;
+          console.error(message);
+          throw new Error(message);
+        }
+
         let name = uses;
         let ref = "";
 
@@ -423,7 +435,7 @@ export async function parseWorkflowSteps(
           Reference: {
             Type: "Repository",
             Name: name,
-            Ref: ref,
+            Ref: ref || "main",
             RepositoryType: "GitHub",
             Path: "",
           },

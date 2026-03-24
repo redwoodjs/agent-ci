@@ -90,3 +90,33 @@ export function syncWorkspaceForRetry(runDir: string): void {
 
   console.log(`[Agent CI] Synced workspace from ${repoRoot}`);
 }
+
+export function syncFileToWorkspace(runDir: string, sourceFilePath: string): void {
+  const workspaceDir = findWorkspaceDir(runDir);
+  if (!workspaceDir) {
+    return;
+  }
+
+  if (!fs.existsSync(sourceFilePath) || !fs.statSync(sourceFilePath).isFile()) {
+    return;
+  }
+
+  const repoRoot = resolveRepoRoot();
+  const relativePath = path.relative(repoRoot, sourceFilePath);
+
+  if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+    console.warn(`[Agent CI] Skipping sync for file outside repo: ${sourceFilePath}`);
+    return;
+  }
+
+  const src = sourceFilePath;
+  const dest = path.join(workspaceDir, relativePath);
+
+  try {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    fs.copyFileSync(src, dest);
+    console.log(`[Agent CI] Synced file: ${relativePath}`);
+  } catch (err) {
+    console.error(`[Agent CI] Failed to sync file ${relativePath}: ${err}`);
+  }
+}

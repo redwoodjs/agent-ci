@@ -1,9 +1,9 @@
 import { execSync } from "child_process";
+import fs from "fs";
+import path from "path";
 import { copyWorkspace } from "../output/cleanup.js";
 import { findRepoRoot } from "./metadata.js";
 import { config } from "../config.js";
-
-// ─── Workspace preparation ────────────────────────────────────────────────────
 
 export interface PrepareWorkspaceOpts {
   workflowPath?: string;
@@ -12,16 +12,11 @@ export interface PrepareWorkspaceOpts {
   workspaceDir: string;
 }
 
-/**
- * Copy source files into the workspace directory, then initialise a fake
- * git repo so `actions/checkout` finds a valid workspace.
- */
 export function prepareWorkspace(opts: PrepareWorkspaceOpts): void {
   const { workflowPath, headSha, githubRepo, workspaceDir } = opts;
 
-  // Resolve repo root — needed for both archive and rsync paths.
-  // Derive from the workflow path (which lives inside the target repo) so we copy
-  // from the correct repo, not from the CLI's CWD (which is agent-ci).
+  // Resolve repo root from workflow path first so we always copy from the
+  // target repository (not from the CLI process cwd).
   let repoRoot: string | undefined;
   if (workflowPath) {
     repoRoot = findRepoRoot(workflowPath);
@@ -31,16 +26,31 @@ export function prepareWorkspace(opts: PrepareWorkspaceOpts): void {
   }
 
   if (headSha && headSha !== "HEAD") {
-    // Specific SHA requested — use git archive (clean snapshot)
+    // Snapshot mode: materialize the exact commit into the workspace.
     execSync(`git archive ${headSha} | tar -x -C ${workspaceDir}`, {
       stdio: "pipe",
       cwd: repoRoot,
     });
   } else {
-    // Default: copy the working directory as-is, including dirty/untracked files.
-    // Uses git ls-files to respect .gitignore (avoids copying node_modules, _/, etc.)
-    // On macOS: per-file APFS CoW clones. On Linux: rsync. Fallback: fs.cpSync.
+    // Live mode: include tracked + untracked non-ignored files from disk.
     copyWorkspace(repoRoot, workspaceDir);
+  }
+
+  if (workflowPath && fs.existsSync(workflowPath)) {
+    // Always copy the selected workflow file from disk so parser/runtime changes
+    // to the workflow are visible even when the workspace came from git archive.
+    const relativeWorkflowPath = path.relative(repoRoot, workflowPath);
+    if (relativeWorkflowPath.startsWith("..") || path.isAbsolute(relativeWorkflowPath)) {
+      console.warn(`[Agent CI] Skipping workflow copy outside repo root: ${workflowPath}`);
+    } else {
+      const destWorkflowPath = path.join(workspaceDir, relativeWorkflowPath);
+      try {
+        fs.mkdirSync(path.dirname(destWorkflowPath), { recursive: true });
+        fs.copyFileSync(workflowPath, destWorkflowPath);
+      } catch (error) {
+        console.warn(`[Agent CI] Failed to copy workflow into workspace: ${error}`);
+      }
+    }
   }
 
   initFakeGitRepo(workspaceDir, githubRepo || config.GITHUB_REPO);

@@ -56,7 +56,7 @@ If your setup is custom, use environment overrides:
 - `AGENT_CI_DOCKER_EXTRA_HOSTS` - comma-separated `host:ip` entries passed to Docker `ExtraHosts` (full replacement for defaults)
 - `AGENT_CI_DOCKER_HOST_GATEWAY` - override the default `host-gateway` token/IP for automatic mapping
 - `AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS=1` - disable the default `host.docker.internal` mapping
-- `AGENT_CI_DOCKER_BRIDGE_GATEWAY` - fallback gateway IP used when Agent CI runs inside Docker and cannot detect its container IP, or as an explicit fallback when `host.docker.internal` lookup fails on the host
+- `AGENT_CI_DOCKER_BRIDGE_GATEWAY` - fallback gateway IP used when Agent CI runs inside Docker and cannot detect its container IP, and as an explicit DTU host override outside Docker when `AGENT_CI_DTU_HOST` is not set
 
 When using a remote daemon (`DOCKER_HOST=ssh://...`), `host-gateway` resolves relative to the remote Docker host. If DTU is not reachable from that host, set `AGENT_CI_DTU_HOST` and `AGENT_CI_DOCKER_EXTRA_HOSTS` explicitly for your network.
 

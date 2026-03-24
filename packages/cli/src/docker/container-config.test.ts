@@ -1,6 +1,5 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import fs from "node:fs";
-import dns from "node:dns/promises";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -201,12 +200,11 @@ describe("resolveDtuHost", () => {
       }
       return originalExistsSync(filePath);
     });
-    vi.spyOn(dns, "lookup").mockResolvedValue({ address: "127.0.0.1", family: 4 });
 
     await expect(resolveDtuHost()).resolves.toBe("host.docker.internal");
   });
 
-  it("keeps host alias when host DNS lookup fails outside Docker", async () => {
+  it("uses configured bridge gateway outside Docker when provided", async () => {
     const { resolveDtuHost } = await import("./container-config.js");
     const originalExistsSync = fs.existsSync;
 
@@ -216,25 +214,23 @@ describe("resolveDtuHost", () => {
       }
       return originalExistsSync(filePath);
     });
-    vi.spyOn(dns, "lookup").mockRejectedValue(new Error("ENOTFOUND"));
-
-    await expect(resolveDtuHost()).resolves.toBe("host.docker.internal");
-  });
-
-  it("falls back to configured bridge gateway when host alias lookup fails", async () => {
-    const { resolveDtuHost } = await import("./container-config.js");
-    const originalExistsSync = fs.existsSync;
-
-    vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {
-      if (filePath === "/.dockerenv") {
-        return false;
-      }
-      return originalExistsSync(filePath);
-    });
-    vi.spyOn(dns, "lookup").mockRejectedValue(new Error("ENOTFOUND"));
     process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY = "10.10.0.1";
 
     await expect(resolveDtuHost()).resolves.toBe("10.10.0.1");
+  });
+
+  it("uses host alias outside Docker when no gateway override is configured", async () => {
+    const { resolveDtuHost } = await import("./container-config.js");
+    const originalExistsSync = fs.existsSync;
+
+    vi.spyOn(fs, "existsSync").mockImplementation((filePath: fs.PathLike) => {
+      if (filePath === "/.dockerenv") {
+        return false;
+      }
+      return originalExistsSync(filePath);
+    });
+
+    await expect(resolveDtuHost()).resolves.toBe("host.docker.internal");
   });
 });
 

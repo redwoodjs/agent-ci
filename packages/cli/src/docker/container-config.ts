@@ -167,7 +167,6 @@ export function buildContainerCmd(opts: ContainerCmdOpts): string[] {
 // ─── DTU host resolution ──────────────────────────────────────────────────────
 
 import fs from "fs";
-import dns from "node:dns/promises";
 import { execSync } from "child_process";
 import { debugRunner } from "../output/debug.js";
 
@@ -208,23 +207,15 @@ export async function resolveDtuHost(): Promise<string> {
     return process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY?.trim() || DEFAULT_DOCKER_BRIDGE_GATEWAY;
   }
 
-  try {
-    await dns.lookup(DEFAULT_DTU_HOST_ALIAS);
-    return DEFAULT_DTU_HOST_ALIAS;
-  } catch (error: unknown) {
-    const configuredGateway = process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY?.trim();
-    if (configuredGateway) {
-      debugRunner(
-        `DTU host alias '${DEFAULT_DTU_HOST_ALIAS}' is unavailable, falling back to configured bridge gateway '${configuredGateway}': ${String(error)}`,
-      );
-      return configuredGateway;
-    }
-
+  const configuredGateway = process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY?.trim();
+  if (configuredGateway) {
     debugRunner(
-      `DTU host alias '${DEFAULT_DTU_HOST_ALIAS}' is unavailable on host, keeping alias so Docker ExtraHosts can resolve it in-container: ${String(error)}`,
+      `Using configured bridge gateway '${configuredGateway}' for DTU host outside Docker`,
     );
-    return DEFAULT_DTU_HOST_ALIAS;
+    return configuredGateway;
   }
+
+  return DEFAULT_DTU_HOST_ALIAS;
 }
 
 export function resolveDockerExtraHosts(dtuHost: string): string[] | undefined {

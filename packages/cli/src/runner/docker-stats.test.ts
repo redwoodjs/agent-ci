@@ -33,15 +33,11 @@ describe("computeDockerCpuPercent", () => {
     expect(computeDockerCpuPercent(stats)).toBe(10);
   });
 
-  it("handles missing precpu_stats gracefully", () => {
+  it("returns 0 when previous CPU sample is missing", () => {
     const stats = {
       cpu_stats: {
         cpu_usage: { total_usage: 100 },
         system_cpu_usage: 1000,
-      },
-      precpu_stats: {
-        cpu_usage: { total_usage: 0 },
-        system_cpu_usage: 0,
       },
       memory_stats: { usage: 0, limit: 1 },
     };
@@ -81,7 +77,6 @@ describe("extractMemoryStats", () => {
         cpu_usage: { total_usage: 0 },
         system_cpu_usage: 0,
       },
-      memory_stats: undefined as any,
     };
     const result = extractMemoryStats(stats);
     expect(result.usageBytes).toBe(0);

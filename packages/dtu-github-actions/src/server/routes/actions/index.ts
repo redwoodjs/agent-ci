@@ -7,6 +7,7 @@ import path from "node:path";
 import { state, getActionTarballsDir } from "../../store.js";
 import { getBaseUrl } from "../dtu.js";
 import { createJobResponse } from "./generators.js";
+import { config } from "../../../config.js";
 
 // ─── Action tarball cache ──────────────────────────────────────────────────────
 // Downloads action tarballs from GitHub on first use and serves them from disk
@@ -394,7 +395,6 @@ export function registerActionRoutes(app: Polka) {
       }
     }
 
-    // Long poll: Wait up to 20 seconds before returning empty
     const timeout = setTimeout(() => {
       const pending = state.pendingPolls.get(sessionId);
       if (pending && pending.res === res) {
@@ -404,7 +404,7 @@ export function registerActionRoutes(app: Polka) {
           res.end();
         }
       }
-    }, 20000);
+    }, config.DTU_LONG_POLL_TIMEOUT_MS);
 
     res.on("close", () => {
       clearTimeout(timeout);
@@ -432,7 +432,7 @@ export function registerActionRoutes(app: Polka) {
     let payload = req.body || {};
     // If the request is a renewal (no result/finishTime), set lockedUntil
     if (!payload.result && !payload.finishTime) {
-      payload.lockedUntil = new Date(Date.now() + 60000).toISOString();
+      payload.lockedUntil = new Date(Date.now() + config.DTU_JOB_LOCK_RENEW_MS).toISOString();
     }
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify(payload));

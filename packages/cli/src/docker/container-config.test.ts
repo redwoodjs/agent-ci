@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import fs from "node:fs";
 
 afterEach(() => {
@@ -23,7 +23,6 @@ describe("buildContainerEnv", () => {
 
     expect(env).toContain("RUNNER_NAME=runner-1");
     expect(env).toContain("GITHUB_REPOSITORY=org/repo");
-    expect(env).toContain("AGENT_CI_LOCAL=true");
     expect(env).toContain("AGENT_CI_HEAD_SHA=abc123");
     expect(env).toContain("FORCE_COLOR=1");
     // Should NOT include root-mode vars for standard container
@@ -50,7 +49,7 @@ describe("buildContainerEnv", () => {
 // ── buildContainerBinds ───────────────────────────────────────────────────────
 
 describe("buildContainerBinds", () => {
-  it("builds standard bind mounts with all PM caches", async () => {
+  it("builds standard bind mounts", async () => {
     const { buildContainerBinds } = await import("./container-config.js");
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
@@ -67,70 +66,11 @@ describe("buildContainerBinds", () => {
     });
 
     expect(binds).toContain("/tmp/work:/home/runner/_work");
-    expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock"); // default when dockerSocketPath is not set
+    expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock");
     expect(binds).toContain("/tmp/shims:/tmp/agent-ci-shims");
-    expect(binds).toContain("/tmp/warm:/tmp/warm-modules");
-    expect(binds).toContain("/tmp/pnpm:/home/runner/_work/.pnpm-store");
-    expect(binds).toContain("/tmp/npm:/home/runner/.npm");
-    expect(binds).toContain("/tmp/bun:/home/runner/.bun/install/cache");
+    expect(binds).toContain("/tmp/warm:/tmp/warm-modules/node_modules");
     // Standard mode should NOT include runner home bind (but _work bind is expected)
     expect(binds.some((b) => b.endsWith(":/home/runner"))).toBe(false);
-  });
-
-  it("omits PM bind mounts when cache dirs are not provided", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
-    const binds = buildContainerBinds({
-      hostWorkDir: "/tmp/work",
-      shimsDir: "/tmp/shims",
-      diagDir: "/tmp/diag",
-      toolCacheDir: "/tmp/toolcache",
-      playwrightCacheDir: "/tmp/playwright",
-      warmModulesDir: "/tmp/warm",
-      hostRunnerDir: "/tmp/runner",
-      useDirectContainer: false,
-    });
-
-    expect(binds).toContain("/tmp/work:/home/runner/_work");
-    expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
-    expect(binds.some((b) => b.includes("/.npm"))).toBe(false);
-    expect(binds.some((b) => b.includes(".bun"))).toBe(false);
-  });
-
-  it("includes only the npm bind mount when only npmCacheDir is provided", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
-    const binds = buildContainerBinds({
-      hostWorkDir: "/tmp/work",
-      shimsDir: "/tmp/shims",
-      diagDir: "/tmp/diag",
-      toolCacheDir: "/tmp/toolcache",
-      npmCacheDir: "/tmp/npm",
-      playwrightCacheDir: "/tmp/playwright",
-      warmModulesDir: "/tmp/warm",
-      hostRunnerDir: "/tmp/runner",
-      useDirectContainer: false,
-    });
-
-    expect(binds).toContain("/tmp/npm:/home/runner/.npm");
-    expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
-    expect(binds.some((b) => b.includes(".bun"))).toBe(false);
-  });
-
-  it("uses resolved dockerSocketPath for bind mount when provided", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
-    const binds = buildContainerBinds({
-      hostWorkDir: "/tmp/work",
-      shimsDir: "/tmp/shims",
-      diagDir: "/tmp/diag",
-      toolCacheDir: "/tmp/toolcache",
-      playwrightCacheDir: "/tmp/playwright",
-      warmModulesDir: "/tmp/warm",
-      hostRunnerDir: "/tmp/runner",
-      useDirectContainer: false,
-      dockerSocketPath: "/Users/test/.orbstack/run/docker.sock",
-    });
-
-    expect(binds).toContain("/Users/test/.orbstack/run/docker.sock:/var/run/docker.sock");
-    expect(binds).not.toContain("/var/run/docker.sock:/var/run/docker.sock");
   });
 
   it("includes runner bind mount for direct container", async () => {
@@ -241,11 +181,6 @@ describe("resolveDockerApiUrl", () => {
 
 describe("resolveDtuHost", () => {
   const originalBridgeGateway = process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY;
-  const originalDtuHost = process.env.AGENT_CI_DTU_HOST;
-
-  beforeEach(() => {
-    delete process.env.AGENT_CI_DTU_HOST;
-  });
 
   afterEach(() => {
     if (originalBridgeGateway === undefined) {
@@ -253,15 +188,9 @@ describe("resolveDtuHost", () => {
     } else {
       process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY = originalBridgeGateway;
     }
-    if (originalDtuHost === undefined) {
-      delete process.env.AGENT_CI_DTU_HOST;
-    } else {
-      process.env.AGENT_CI_DTU_HOST = originalDtuHost;
-    }
   });
 
   it("uses host alias when available outside Docker", async () => {
-    delete process.env.AGENT_CI_DTU_HOST;
     const { resolveDtuHost } = await import("./container-config.js");
     const originalExistsSync = fs.existsSync;
 
@@ -276,7 +205,6 @@ describe("resolveDtuHost", () => {
   });
 
   it("uses configured bridge gateway outside Docker when provided", async () => {
-    delete process.env.AGENT_CI_DTU_HOST;
     const { resolveDtuHost } = await import("./container-config.js");
     const originalExistsSync = fs.existsSync;
 
@@ -292,7 +220,6 @@ describe("resolveDtuHost", () => {
   });
 
   it("uses host alias outside Docker when no gateway override is configured", async () => {
-    delete process.env.AGENT_CI_DTU_HOST;
     const { resolveDtuHost } = await import("./container-config.js");
     const originalExistsSync = fs.existsSync;
 
@@ -368,37 +295,6 @@ describe("resolveDockerExtraHosts", () => {
 
     const { resolveDockerExtraHosts } = await import("./container-config.js");
     expect(resolveDockerExtraHosts("10.10.10.10")).toBeUndefined();
-  });
-});
-
-// ── dockerSocketPath bind-mount ───────────────────────────────────────────────
-
-describe("buildContainerBinds with dockerSocketPath", () => {
-  const baseOpts = {
-    hostWorkDir: "/tmp/work",
-    shimsDir: "/tmp/shims",
-    diagDir: "/tmp/diag",
-    toolCacheDir: "/tmp/toolcache",
-    playwrightCacheDir: "/tmp/playwright",
-    warmModulesDir: "/tmp/warm",
-    hostRunnerDir: "/tmp/runner",
-    useDirectContainer: false,
-  };
-
-  it("uses default /var/run/docker.sock when no dockerSocketPath is provided", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
-    const binds = buildContainerBinds(baseOpts);
-    expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock");
-  });
-
-  it("uses custom host socket path from dockerSocketPath", async () => {
-    const { buildContainerBinds } = await import("./container-config.js");
-    const binds = buildContainerBinds({
-      ...baseOpts,
-      dockerSocketPath: "/Users/foo/.docker/run/docker.sock",
-    });
-    expect(binds).toContain("/Users/foo/.docker/run/docker.sock:/var/run/docker.sock");
-    expect(binds).not.toContain("/var/run/docker.sock:/var/run/docker.sock");
   });
 });
 

@@ -25,6 +25,9 @@ const configSchema = z.object({
    * Directory where cache archives should be stored.
    */
   DTU_CACHE_DIR: z.string().default(() => path.join(os.tmpdir(), "dtu_cache")),
+
+  DTU_LONG_POLL_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  DTU_JOB_LOCK_RENEW_MS: z.coerce.number().int().positive().default(300_000),
 });
 
 export type Config = z.infer<typeof configSchema>;
@@ -34,4 +37,6 @@ export const config = configSchema.parse({
   DTU_URL: process.env.DTU_URL,
   DTU_PORT: process.env.DTU_PORT,
   DTU_CACHE_DIR: process.env.DTU_CACHE_DIR,
+  DTU_LONG_POLL_TIMEOUT_MS: process.env.DTU_LONG_POLL_TIMEOUT_MS,
+  DTU_JOB_LOCK_RENEW_MS: process.env.DTU_JOB_LOCK_RENEW_MS,
 });

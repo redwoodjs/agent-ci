@@ -1,4 +1,4 @@
-import fs from "fs";
+//import fs from "fs";
 import path from "path";
 import crypto from "crypto";
 import { execSync } from "child_process";
@@ -503,7 +503,7 @@ export async function parseWorkflowSteps(
           Reference: {
             Type: "Repository",
             Name: name,
-            Ref: ref || "main",
+            Ref: ref,
             RepositoryType: "GitHub",
             Path: "",
           },

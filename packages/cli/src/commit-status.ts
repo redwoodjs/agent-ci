@@ -39,7 +39,7 @@ export function postCommitStatus(results: JobResult[], sha?: string): void {
 
   const state = allPassed ? "success" : "failure";
   const description = allPassed
-    ? `✓ "It works on my machine!"`
+    ? `"It works on my machine!"`
     : `${passed}/${total} jobs passed, ${total - passed} failed`;
 
   try {

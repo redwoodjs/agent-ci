@@ -11,7 +11,7 @@ on:
 
 jobs:
   test:
-    if: contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

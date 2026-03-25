@@ -11,7 +11,7 @@ on:
 
 jobs:
   install-a:
-    if: contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -28,7 +28,7 @@ jobs:
       - run: echo "✅ install-a complete — node_modules present $(ls node_modules | wc -l | tr -d ' ') packages"
 
   install-b:
-    if: contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +45,7 @@ jobs:
       - run: echo "✅ install-b complete — node_modules present $(ls node_modules | wc -l | tr -d ' ') packages"
 
   install-c:
-    if: contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft
+    if: '!github.event.pull_request.draft && (contains(fromJSON(''["MEMBER", "OWNER", "COLLABORATOR"]''), github.event.pull_request.author_association) || contains(github.event.pull_request.labels.*.name, ''safe-to-run''))'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

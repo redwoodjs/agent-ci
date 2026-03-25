@@ -42,6 +42,7 @@ import { renderRunState } from "./output/state-renderer.js";
 import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
 import logUpdate from "log-update";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
+import { postCommitStatus } from "./commit-status.js";
 
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();
@@ -155,6 +156,7 @@ async function run() {
         noMatrix,
       });
       printSummary(results);
+      postCommitStatus(results, sha);
       const anyFailed = results.some((r) => !r.succeeded);
       process.exit(anyFailed ? 1 : 0);
     }
@@ -189,6 +191,7 @@ async function run() {
       noMatrix,
     });
     printSummary(results);
+    postCommitStatus(results, sha);
     if (results.some((r) => !r.succeeded)) {
       process.exit(1);
     }

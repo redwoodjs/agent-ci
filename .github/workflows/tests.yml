@@ -1,12 +1,6 @@
 name: Tests
 
 on:
-  push:
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-      - ".docs/**"
-      - "LICENSE"
   pull_request_target:
     types: [labeled, synchronize]
     paths-ignore:
@@ -17,7 +11,7 @@ on:
 
 jobs:
   test:
-    if: github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft)
+    if: contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

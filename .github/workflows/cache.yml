@@ -6,13 +6,12 @@ name: Cache Tests
 #   - Subsequent runs: all three start in parallel immediately (node_modules already warm)
 
 on:
-  push:
   pull_request_target:
     types: [labeled, synchronize]
 
 jobs:
   install-a:
-    if: github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft)
+    if: contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +28,7 @@ jobs:
       - run: echo "✅ install-a complete — node_modules present $(ls node_modules | wc -l | tr -d ' ') packages"
 
   install-b:
-    if: github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft)
+    if: contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -46,7 +45,7 @@ jobs:
       - run: echo "✅ install-b complete — node_modules present $(ls node_modules | wc -l | tr -d ' ') packages"
 
   install-c:
-    if: github.event_name == 'push' || (contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft)
+    if: contains(github.event.pull_request.labels.*.name, 'safe-to-run') && !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

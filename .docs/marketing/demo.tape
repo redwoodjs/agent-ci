@@ -10,6 +10,7 @@
 #   cd .docs/marketing && vhs demo.tape
 
 Output demo.gif
+Output demo.mp4
 
 Require tmux
 

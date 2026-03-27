@@ -6,19 +6,19 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 
 ## Workflow-Level Keys
 
-| Key                                | Status | Notes                                      |
-| ---------------------------------- | ------ | ------------------------------------------ |
-| `name`                             | ✅     |                                            |
-| `run-name`                         | 🟡     | Parsed but not displayed                   |
-| `on` (push, pull_request)          | ✅     | Branch/path filters evaluated by `--all`   |
-| `on` (schedule, workflow_dispatch) | 🟡     | Accepted but triggers are not simulated    |
-| `on` (workflow_call)               | ❌     | Reusable workflow calls not supported      |
-| `on` (other events)                | 🟡     | Parsed, not simulated                      |
-| `env`                              | ✅     | Workflow-level env propagated to steps     |
-| `defaults.run.shell`               | ✅     | Passed through to the runner               |
-| `defaults.run.working-directory`   | ✅     | Passed through to the runner               |
-| `permissions`                      | 🟡     | Accepted, not enforced (mock GITHUB_TOKEN) |
-| `concurrency`                      | ❌     |                                            |
+| Key                                | Status | Notes                                                                                                                      |
+| ---------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `name`                             | ✅     |                                                                                                                            |
+| `run-name`                         | 🟡     | Parsed but not displayed                                                                                                   |
+| `on` (push, pull_request)          | ✅     | Branch/path filters evaluated by `--all`                                                                                   |
+| `on` (schedule, workflow_dispatch) | 🟡     | Accepted but triggers are not simulated                                                                                    |
+| `on` (workflow_call)               | ❌     | Reusable workflow calls not supported                                                                                      |
+| `on` (other events)                | 🟡     | Parsed, not simulated                                                                                                      |
+| `env`                              | ✅     | Workflow-level env propagated to steps                                                                                     |
+| `defaults.run.shell`               | ✅     | Passed through to the runner                                                                                               |
+| `defaults.run.working-directory`   | ✅     | Passed through to the runner                                                                                               |
+| `permissions`                      | 🟡     | Accepted, not enforced (mock GITHUB_TOKEN)                                                                                 |
+| `concurrency`                      | ❌     | Concurrency groups are a server-side queue/cancel mechanism; there is no persistent local server to coordinate across runs |
 
 ## Job-Level Keys
 
@@ -35,7 +35,7 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 | `jobs.<id>.outputs`                   | ✅     | Resolved via `resolveJobOutputs`, accumulated across waves                         |
 | `jobs.<id>.timeout-minutes`           | ❌     |                                                                                    |
 | `jobs.<id>.continue-on-error`         | ❌     |                                                                                    |
-| `jobs.<id>.concurrency`               | ❌     |                                                                                    |
+| `jobs.<id>.concurrency`               | ❌     | See workflow-level `concurrency`                                                   |
 | `jobs.<id>.container`                 | ✅     | Short & long form; image, env, ports, volumes, options                             |
 | `jobs.<id>.services`                  | ✅     | Sidecar containers with image, env, ports, options                                 |
 | `jobs.<id>.uses` (reusable workflows) | ❌     |                                                                                    |
@@ -53,19 +53,20 @@ Agent CI aims to run real GitHub Actions workflows locally. The table below show
 
 ## Step-Level Keys
 
-| Key                          | Status | Notes                                                                                          |
-| ---------------------------- | ------ | ---------------------------------------------------------------------------------------------- |
-| `steps[*].id`                | ✅     |                                                                                                |
-| `steps[*].name`              | ✅     | Expression expansion in names                                                                  |
-| `steps[*].if`                | ⚠️     | Evaluated by the runner, not by Agent CI; `steps.*.outputs.cache-hit` resolves to empty string |
-| `steps[*].run`               | ✅     | Multiline scripts, `${{ }}` expansion                                                          |
-| `steps[*].uses`              | ✅     | Public actions downloaded via GitHub API                                                       |
-| `steps[*].with`              | ✅     | Expression expansion in values                                                                 |
-| `steps[*].env`               | ✅     | Expression expansion in values                                                                 |
-| `steps[*].working-directory` | ✅     |                                                                                                |
-| `steps[*].shell`             | ✅     | Passed through to the runner                                                                   |
-| `steps[*].continue-on-error` | ❌     |                                                                                                |
-| `steps[*].timeout-minutes`   | ❌     |                                                                                                |
+| Key                                | Status | Notes                                                                                             |
+| ---------------------------------- | ------ | ------------------------------------------------------------------------------------------------- |
+| `steps[*].id`                      | ✅     |                                                                                                   |
+| `steps[*].name`                    | ✅     | Expression expansion in names                                                                     |
+| `steps[*].if`                      | ⚠️     | Evaluated by the runner, not by Agent CI; `steps.*.outputs.cache-hit` resolves to empty string    |
+| `steps[*].run`                     | ✅     | Multiline scripts, `${{ }}` expansion                                                             |
+| `steps[*].uses`                    | ✅     | Public actions downloaded via GitHub API                                                          |
+| `steps[*].uses` (local, e.g. `./`) | ❌     | Local actions (defined within the repo) are not supported; agent-ci fails fast with a clear error |
+| `steps[*].with`                    | ✅     | Expression expansion in values                                                                    |
+| `steps[*].env`                     | ✅     | Expression expansion in values                                                                    |
+| `steps[*].working-directory`       | ✅     |                                                                                                   |
+| `steps[*].shell`                   | ✅     | Passed through to the runner                                                                      |
+| `steps[*].continue-on-error`       | ❌     |                                                                                                   |
+| `steps[*].timeout-minutes`         | ❌     |                                                                                                   |
 
 ## Expressions (`${{ }}`)
 

@@ -1,5 +1,20 @@
 # @redwoodjs/agent-ci
 
+## 0.6.0
+
+### Minor Changes
+
+- 6e53753: Post GitHub commit status via gh CLI after agent-ci run completes
+
+### Patch Changes
+
+- d273b76: Show full per-step log content in failure summary instead of a truncated 20-line tail.
+- a987818: Simplify Docker host resolution to be OS-agnostic by default, with explicit environment-variable overrides for custom networking setups.
+- Updated dependencies [6e53753]
+- Updated dependencies [d273b76]
+- Updated dependencies [a987818]
+  - dtu-github-actions@0.6.0
+
 ## 0.5.0
 
 ### Minor Changes

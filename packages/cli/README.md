@@ -34,6 +34,20 @@ npx agent-ci run --workflow .github/workflows/ci.yml
 npx agent-ci run --all
 ```
 
+## Codex plugin
+
+Agent CI also ships a Codex-ready plugin bundle under `codex-plugin/`.
+
+If you already install `@redwoodjs/agent-ci` in a repo, you can point Codex straight at the bundled skill:
+
+```toml
+[[skills.config]]
+path = "/absolute/path/to/node_modules/@redwoodjs/agent-ci/codex-plugin/skills/agent-ci/SKILL.md"
+enabled = true
+```
+
+The bundle also includes a full plugin manifest if you prefer plugin-style installation from the `codex-plugin/` directory.
+
 ### Remote Docker
 
 Agent CI connects to Docker via the `DOCKER_HOST` environment variable. By default it uses the local socket (`unix:///var/run/docker.sock`), but you can point it at any remote Docker daemon:

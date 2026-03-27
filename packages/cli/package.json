@@ -27,6 +27,7 @@
   },
   "files": [
     "dist",
+    "codex-plugin",
     "shim.sh",
     "SKILL.md"
   ],

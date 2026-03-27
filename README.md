@@ -160,3 +160,17 @@ Agent CI is designed for AI-agent-driven development loops. Add the following sn
 - CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures
 - Use `--no-matrix` to collapse matrix jobs into a single run when you don't need full matrix coverage
 ```
+
+### Codex plugin
+
+If you use Codex, Agent CI now includes a ready-made plugin bundle in [`packages/cli/codex-plugin`](./packages/cli/codex-plugin).
+
+After installing `@redwoodjs/agent-ci`, you can register the bundled skill directly in your Codex config:
+
+```toml
+[[skills.config]]
+path = "/absolute/path/to/node_modules/@redwoodjs/agent-ci/codex-plugin/skills/agent-ci/SKILL.md"
+enabled = true
+```
+
+That gives Codex a built-in workflow for running local CI, pausing on failure, and retrying only the broken step.

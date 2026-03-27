@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Agent CI icon">
+  <rect width="64" height="64" rx="16" fill="#101418"/>
+  <path d="M18 32h10l6-10 8 20 4-10h10" fill="none" stroke="#F97316" stroke-linecap="round" stroke-linejoin="round" stroke-width="5"/>
+</svg>

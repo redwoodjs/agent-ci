@@ -1,0 +1,6 @@
+interface:
+  display_name: "Agent CI"
+  short_description: "Run GitHub Actions locally, pause on failure, and retry only the broken step"
+  icon_small: "./assets/agent-ci-small.svg"
+  icon_large: "./assets/agent-ci.svg"
+  default_prompt: "Use Agent CI to run this repo's GitHub Actions locally, pause on failure, and help fix then retry any broken step."

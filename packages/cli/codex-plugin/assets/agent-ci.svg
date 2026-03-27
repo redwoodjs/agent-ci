@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Agent CI logo">
+  <rect width="256" height="256" rx="56" fill="#101418"/>
+  <path d="M52 128h38l24-38 32 76 18-44h40" fill="none" stroke="#F97316" stroke-linecap="round" stroke-linejoin="round" stroke-width="18"/>
+  <circle cx="114" cy="90" r="10" fill="#FDBA74"/>
+  <circle cx="146" cy="166" r="10" fill="#FDBA74"/>
+</svg>

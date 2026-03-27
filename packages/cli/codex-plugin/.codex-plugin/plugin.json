@@ -1,0 +1,30 @@
+{
+  "name": "agent-ci",
+  "version": "0.1.0",
+  "description": "Run GitHub Actions locally with pause-on-failure and retry loops built for coding agents.",
+  "author": {
+    "name": "RedwoodJS",
+    "url": "https://github.com/redwoodjs/agent-ci"
+  },
+  "homepage": "https://github.com/redwoodjs/agent-ci",
+  "repository": "https://github.com/redwoodjs/agent-ci",
+  "license": "FSL-1.1-MIT",
+  "keywords": ["agent-ci", "github-actions", "local-ci", "coding-agent", "docker"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Agent CI",
+    "shortDescription": "Run GitHub Actions locally, pause on failure, and retry only the broken step",
+    "longDescription": "Use Agent CI to run a repo's GitHub Actions on your machine with the official runner, keep the failed container alive, and let an agent fix and retry without pushing.",
+    "developerName": "RedwoodJS",
+    "category": "Coding",
+    "capabilities": ["Interactive", "Read"],
+    "websiteURL": "https://github.com/redwoodjs/agent-ci",
+    "defaultPrompt": [
+      "Use Agent CI to run this repo's GitHub Actions locally, pause on failure, and help fix then retry any broken step."
+    ],
+    "brandColor": "#E34C26",
+    "composerIcon": "./assets/agent-ci-small.svg",
+    "logo": "./assets/agent-ci.svg",
+    "screenshots": []
+  }
+}

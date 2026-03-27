@@ -1,3 +1,4 @@
 packages:
   - "packages/cli"
   - "packages/dtu-github-actions"
+  - "website"

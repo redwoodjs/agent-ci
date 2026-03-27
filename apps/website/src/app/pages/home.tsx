@@ -269,7 +269,7 @@ export const Home = () => {
               </Panel>
 
               <Panel title="x.com/cyrusnewday" className="bg-[#12211c]">
-                <Quote className="text-[#34594c] mb-4" size={32} />
+                <QuoteIcon className="text-[#34594c] mb-4" size={32} />
                 <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
                   "Clever dude!"
                 </p>
@@ -288,7 +288,7 @@ export const Home = () => {
               </Panel>
 
               <Panel title="x.com/chriszeuch" className="bg-[#12211c]">
-                <Quote className="text-[#34594c] mb-4" size={32} />
+                <QuoteIcon className="text-[#34594c] mb-4" size={32} />
                 <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
                   "Okay this is awesome"
                 </p>
@@ -307,7 +307,7 @@ export const Home = () => {
               </Panel>
 
               <Panel title="x.com/EastlondonDev" className="bg-[#12211c]">
-                <Quote className="text-[#34594c] mb-4" size={32} />
+                <QuoteIcon className="text-[#34594c] mb-4" size={32} />
                 <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
                   "I like the look of what you're cooking here 👀"
                 </p>

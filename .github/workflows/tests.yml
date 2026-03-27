@@ -32,3 +32,12 @@ jobs:
         run: pnpm --filter dtu-github-actions test
       - name: Test CLI
         run: pnpm --filter agent-ci test
+      - name: Test retry-proof failure output
+        run: |
+          set +e
+          output=$(pnpm agent-ci-dev run -w .github/workflows/retry-proof.yml 2>/dev/null)
+          exit_code=$?
+          set -e
+          [ "$exit_code" -eq 1 ] || (echo "❌ Expected exit 1, got $exit_code" && exit 1)
+          echo "$output" | grep -q "expect(value).toBe" || (echo "❌ Step output not found in summary" && exit 1)
+          echo "✅ Failure output includes step log"

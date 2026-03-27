@@ -2,7 +2,7 @@ name: Tests
 
 on:
   pull_request_target:
-    types: [labeled, synchronize]
+    types: [opened, labeled, synchronize]
     paths-ignore:
       - "**/*.md"
       - "docs/**"

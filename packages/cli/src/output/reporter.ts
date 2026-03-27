@@ -53,14 +53,11 @@ export function printSummary(results: JobResult[], runDir?: string): void {
       } else {
         process.stdout.write(`  ✗ ${f.workflow} > ${f.taskId}\n`);
       }
-      if (f.failedExitCode !== undefined) {
-        process.stdout.write(`    Exit code: ${f.failedExitCode}\n`);
-      }
-      if (f.lastOutputLines && f.lastOutputLines.length > 0) {
-        process.stdout.write(`    Last output:\n`);
-        for (const line of f.lastOutputLines) {
-          process.stdout.write(`      ${line}\n`);
-        }
+      if (f.failedStepLogPath && fs.existsSync(f.failedStepLogPath)) {
+        const content = fs.readFileSync(f.failedStepLogPath, "utf-8");
+        process.stdout.write("\n" + content);
+      } else if (f.lastOutputLines && f.lastOutputLines.length > 0) {
+        process.stdout.write("\n" + f.lastOutputLines.join("\n") + "\n");
       }
       process.stdout.write("\n");
     }

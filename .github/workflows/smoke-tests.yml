@@ -2,7 +2,7 @@ name: Smoke Tests
 
 on:
   pull_request_target:
-    types: [labeled, synchronize]
+    types: [opened, labeled, synchronize]
 
 jobs:
   # Wave 1 (parallel): matrix sharding smoke — verifies matrix strategy fan-out

@@ -2,6 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
+import YAML from "yaml";
 import { config, loadMachineSecrets } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
@@ -473,7 +474,16 @@ async function handleWorkflow(options: {
     const [owner, name] = githubRepo.split("/");
 
     const template = await getWorkflowTemplate(workflowPath);
-    const jobs = template.jobs.filter((j) => j.type === "job");
+    const jobs = Array.isArray(template?.jobs)
+      ? template.jobs.filter((j) => j.type === "job")
+      : Object.entries((YAML.parse(fs.readFileSync(workflowPath, "utf8"))?.jobs ?? {}) as Record<
+          string,
+          any
+        >).map(([id, rawJob]) => ({
+          type: "job",
+          id,
+          name: rawJob?.name ?? id,
+        }));
 
     if (jobs.length === 0) {
       debugCli(`[Agent CI] No jobs found in workflow: ${path.basename(workflowPath)}`);

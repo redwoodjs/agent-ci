@@ -359,22 +359,36 @@ export async function parseWorkflowSteps(
   // Derive repoPath from filePath (.../repoPath/.github/workflows/foo.yml → repoPath)
   const repoPath = path.dirname(path.dirname(path.dirname(filePath)));
   // Find the job by ID or Name
-  const job = template.jobs.find((j) => {
+  const parsedJobs = Array.isArray((template as any)?.jobs) ? (template as any).jobs : [];
+  let job = parsedJobs.find((j: any) => {
     if (j.type !== "job") {
       return false;
     }
     return j.id.toString() === taskName || (j.name && j.name.toString() === taskName);
   });
 
+  const rawJob = rawYaml.jobs?.[taskName] || {};
+  const rawSteps = rawJob.steps || [];
+  if (!job && rawJob && Array.isArray(rawSteps)) {
+    job = {
+      type: "job",
+      id: taskName,
+      name: rawJob.name || taskName,
+      steps: rawSteps.map((step: any) => ({
+        id: step.id,
+        name: step.name,
+        ...(step.run ? { run: String(step.run) } : {}),
+        ...(step.uses ? { uses: String(step.uses), with: step.with || {} } : {}),
+      })),
+    } as any;
+  }
+
   if (!job || job.type !== "job") {
     throw new Error(`Task "${taskName}" not found in workflow "${filePath}"`);
   }
 
-  const rawJob = rawYaml.jobs?.[taskName] || {};
-  const rawSteps = rawJob.steps || [];
-
   return job.steps
-    .map((step, index) => {
+    .map((step: any, index: number) => {
       const stepId = step.id || `step-${index + 1}`;
       const rawStep = rawSteps[index] || {};
       // Prefer raw YAML name to preserve ${{ }} expressions for our own expansion

@@ -44,7 +44,7 @@ const dockerConfig = dockerHost.startsWith("unix://")
 
 const docker = new Docker(dockerConfig);
 
-const IMAGE = "ghcr.io/actions/actions-runner:latest";
+const IMAGE = process.env.AGENT_CI_RUNNER_IMAGE || "ghcr.io/actions/actions-runner:latest";
 
 // ─── Pre-baked runner credentials ─────────────────────────────────────────────
 // The GitHub Actions runner normally requires `config.sh` (a .NET binary) to

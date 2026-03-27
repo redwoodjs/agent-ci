@@ -19,6 +19,7 @@ export function copyWorkspace(repoRoot: string, dest: string): void {
   const files = execSync("git ls-files --cached --others --exclude-standard -z", {
     stdio: "pipe",
     cwd: repoRoot,
+    maxBuffer: 100 * 1024 * 1024, // 100MB — default 1MB overflows in large monorepos
   })
     .toString()
     .split("\0")

@@ -3,7 +3,13 @@
   "$schema": "node_modules/wrangler/config-schema.json",
 
   // Name of your worker
-  "name": "__change_me__",
+  "name": "agent-ci-website",
+
+  // Custom domain
+  "routes": [
+    { "pattern": "agent-ci.dev", "custom_domain": true },
+    { "pattern": "www.agent-ci.dev", "custom_domain": true },
+  ],
 
   // Entry point for your worker
   "main": "src/worker.tsx",

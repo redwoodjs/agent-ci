@@ -1,5 +1,5 @@
-import { Terminal as TerminalIcon } from "lucide-react";
 import { CompatibilityMatrix } from "../components/CompatibilityMatrix";
+import { Terminal as TerminalIcon } from "lucide-react";
 
 export const Compatibility = () => {
   return (
@@ -77,7 +77,7 @@ export const Compatibility = () => {
           <div className="text-[#528b76] text-sm font-mono">
             Built by{" "}
             <a
-              href="https://github.com/redwoodjs"
+              href="https://rwsdk.com"
               className="text-[#9bc5b3] hover:text-[#e0eee5] transition-colors underline decoration-[#34594c] underline-offset-4"
             >
               RedwoodJS

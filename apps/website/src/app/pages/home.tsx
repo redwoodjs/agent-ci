@@ -1,7 +1,7 @@
-import { Terminal as TerminalIcon, Star, Quote } from "lucide-react";
 import { Panel } from "../components/Panel";
 import { Terminal } from "../components/Terminal";
 import { HeroSection } from "../components/HeroSection";
+import { Terminal as TerminalIcon, Star as StarIcon, Quote as QuoteIcon } from "lucide-react";
 
 export const Home = () => {
   return (
@@ -16,14 +16,9 @@ export const Home = () => {
       {/* Sticky Navbar */}
       <nav className="sticky top-0 z-50 border-b border-[#2b483e] bg-[#0d110f]/80 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-[#12211c] border border-[#528b76] flex items-center justify-center rounded-sm shadow-[0_0_10px_rgba(82,139,118,0.3)]">
-              <TerminalIcon className="text-[#9bc5b3]" size={16} />
-            </div>
-            <span className="text-xl font-bold tracking-tight text-[#e0eee5] font-sans">
-              AGENT-CI
-            </span>
-          </div>
+          <span className="text-xl font-bold tracking-tight text-[#e0eee5] font-sans">
+            AGENT-CI
+          </span>
 
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-[#9bc5b3]">
             <a href="#quick-start" className="hover:text-[#e0eee5] transition-colors">
@@ -51,7 +46,7 @@ export const Home = () => {
             rel="noopener noreferrer"
             className="flex items-center gap-2 px-4 py-2 bg-[#161b18] border border-[#3f6f5e] text-[#9bc5b3] hover:bg-[#243c34] hover:text-[#e0eee5] transition-all rounded-sm font-mono text-sm uppercase tracking-wider"
           >
-            <Star size={16} />
+            <StarIcon size={16} />
             <span className="hidden sm:inline">Star us</span>
           </a>
         </div>
@@ -59,7 +54,6 @@ export const Home = () => {
 
       <div className="max-w-6xl mx-auto px-6 py-12 relative z-10">
         <main>
-          {/* Hero Section — client component (animations + copy button) */}
           <HeroSection />
 
           {/* Principles Section */}
@@ -235,7 +229,7 @@ export const Home = () => {
 
             <div className="grid md:grid-cols-2 gap-6">
               <Panel title="x.com/jessmartin" className="bg-[#12211c]">
-                <Quote className="text-[#34594c] mb-4" size={32} />
+                <QuoteIcon className="text-[#34594c] mb-4" size={32} />
                 <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
                   "Waiting for CI could be the subtitle of the book of the last 3 weeks of my life
                   <br />
@@ -256,7 +250,7 @@ export const Home = () => {
               </Panel>
 
               <Panel title="x.com/ericclemmons" className="bg-[#12211c]">
-                <Quote className="text-[#34594c] mb-4" size={32} />
+                <QuoteIcon className="text-[#34594c] mb-4" size={32} />
                 <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
                   "An alternative to Act for AI? I'll take it!"
                 </p>
@@ -359,7 +353,7 @@ export const Home = () => {
           <div className="text-[#528b76] text-sm font-mono">
             Built by{" "}
             <a
-              href="https://github.com/redwoodjs"
+              href="https://rwsdk.com"
               className="text-[#9bc5b3] hover:text-[#e0eee5] transition-colors underline decoration-[#34594c] underline-offset-4"
             >
               RedwoodJS

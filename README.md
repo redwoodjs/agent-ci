@@ -23,6 +23,7 @@ Traditional CI is a fire-and-forget loop: push → wait → fail → read logs �
 | Cache round-trip           | Network (~seconds) | Varies                   | **~0 ms (bind-mount)**                  |
 | On failure                 | Start over         | Start over               | **Pause → fix → retry the failed step** |
 | Container state on failure | Destroyed          | Destroyed                | **Kept alive**                          |
+| Requires a clean commit    | Yes                | Yes                      | **No — runs against working tree**      |
 
 ### ~0 ms caching
 
@@ -63,6 +64,8 @@ npx agent-ci run --workflow .github/workflows/ci.yml
 # Run all relevant workflows for the current branch
 npx agent-ci run --all
 ```
+
+Agent CI runs against your **current working tree** — uncommitted changes are included automatically. No need to commit or stash before running.
 
 ### Retry a failed step
 
@@ -119,6 +122,31 @@ DOCKER_HOST=ssh://user@remote-server npx agent-ci run --workflow .github/workflo
 For default behavior, env overrides, and remote-daemon caveats, see the CLI package docs:
 
 - [`packages/cli/README.md#docker-host-resolution-for-job-containers`](./packages/cli/README.md#docker-host-resolution-for-job-containers)
+
+---
+
+## Environment variables
+
+All configuration is available via environment variables. For persistent machine-local overrides, create a `.env.agent-ci` file in your project root — Agent CI loads it automatically (`KEY=VALUE` syntax, `#` comments supported).
+
+### General
+
+| Variable      | Default                         | Description                                                                                                               |
+| ------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `GITHUB_REPO` | auto-detected from `git remote` | Override the `owner/repo` used when emulating the GitHub API. Useful when the remote URL can't be detected automatically. |
+| `AI_AGENT`    | unset                           | Set to `1` to enable quiet mode (suppress animated rendering). Same effect as `--quiet`.                                  |
+| `DEBUG`       | unset                           | Enable verbose debug logging. See [Debugging](#debugging) for supported namespaces.                                       |
+
+### Docker
+
+| Variable                                      | Default                             | Description                                                                                           |
+| --------------------------------------------- | ----------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `DOCKER_HOST`                                 | `unix:///var/run/docker.sock`       | Docker daemon socket or URL. Set to `ssh://user@host` to use a remote daemon.                         |
+| `AGENT_CI_DTU_HOST`                           | `host.docker.internal`              | Hostname or IP that runner containers use to reach the DTU mock server on the host.                   |
+| `AGENT_CI_DOCKER_EXTRA_HOSTS`                 | `host.docker.internal:host-gateway` | Comma-separated `host:ip` entries passed to Docker `ExtraHosts`. Fully replaces the default when set. |
+| `AGENT_CI_DOCKER_HOST_GATEWAY`                | `host-gateway`                      | Override the default `host-gateway` token or IP for the automatic host mapping.                       |
+| `AGENT_CI_DOCKER_DISABLE_DEFAULT_EXTRA_HOSTS` | unset                               | Set to `1` to disable the default `host.docker.internal` mapping.                                     |
+| `AGENT_CI_DOCKER_BRIDGE_GATEWAY`              | auto-detected                       | Fallback gateway IP when Agent CI runs inside Docker and cannot detect its container IP.              |
 
 ---
 

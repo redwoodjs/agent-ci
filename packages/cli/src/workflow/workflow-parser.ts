@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { execSync } from "child_process";
 import { minimatch } from "minimatch";
 import { parse as parseYaml } from "yaml";
+import { assertNoUnsupportedFeatures } from "./unsupported-features.js";
 
 // @actions/workflow-parser imports .json files without `with { type: "json" }`,
 // which Node 22+ rejects. Register a custom ESM loader hook that transparently
@@ -40,7 +41,6 @@ export function expandExpressions(
   secrets?: Record<string, string>,
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
-  inputsContext?: Record<string, string>,
 ): string {
   return value.replace(/\$\{\{([\s\S]*?)\}\}/g, (_match, expr: string) => {
     const trimmed = expr.trim();
@@ -102,7 +102,6 @@ export function expandExpressions(
           secrets,
           matrixContext,
           needsContext,
-          inputsContext,
         );
       }
       try {
@@ -133,7 +132,6 @@ export function expandExpressions(
           secrets,
           matrixContext,
           needsContext,
-          inputsContext,
         );
       }
       return JSON.stringify(rawValue);
@@ -150,14 +148,7 @@ export function expandExpressions(
         const i = parseInt(idx, 10);
         if (i < args.length) {
           // Recursively expand the arg value in case it's a context reference
-          return expandExpressions(
-            `\${{ ${args[i]} }}`,
-            repoPath,
-            secrets,
-            matrixContext,
-            needsContext,
-            inputsContext,
-          );
+          return expandExpressions(`\${{ ${args[i]} }}`, repoPath);
         }
         return "";
       });
@@ -211,18 +202,11 @@ export function expandExpressions(
       const name = trimmed.slice("secrets.".length);
       return secrets?.[name] ?? "";
     }
-    if (trimmed.startsWith("inputs.")) {
-      const name = trimmed.slice("inputs.".length);
-      return inputsContext?.[name] ?? "";
-    }
     if (trimmed.startsWith("steps.") && trimmed.endsWith(".outputs.cache-hit")) {
       return "";
     }
     if (trimmed.startsWith("steps.")) {
-      // Leave steps.* expressions for the runner to resolve at execution time.
-      // The runner maintains the steps context as steps complete, so these
-      // must not be expanded at parse time.
-      return _match;
+      return "";
     }
     if (trimmed.startsWith("needs.") && needsContext) {
       // needs.<jobId>.outputs.<name> or needs.<jobId>.result
@@ -369,17 +353,15 @@ export async function parseWorkflowSteps(
   secrets?: Record<string, string>,
   matrixContext?: Record<string, string>,
   needsContext?: Record<string, Record<string, string>>,
-  inputsContext?: Record<string, string>,
 ) {
+  assertNoUnsupportedFeatures(filePath, taskName, { emitWarnings: false });
+
   const template = await getWorkflowTemplate(filePath);
   const rawYaml = parseYaml(fs.readFileSync(filePath, "utf8"));
 
   // Derive repoPath from filePath (.../repoPath/.github/workflows/foo.yml → repoPath)
   const repoPath = path.dirname(path.dirname(path.dirname(filePath)));
   // Find the job by ID or Name
-  if (!template.jobs) {
-    throw new Error(`No jobs found in workflow "${filePath}"`);
-  }
   const job = template.jobs.find((j) => {
     if (j.type !== "job") {
       return false;
@@ -401,7 +383,7 @@ export async function parseWorkflowSteps(
       // Prefer raw YAML name to preserve ${{ }} expressions for our own expansion
       const rawName = rawStep.name != null ? String(rawStep.name) : step.name?.toString();
       let stepName = rawName
-        ? expandExpressions(rawName, repoPath, secrets, matrixContext, needsContext, inputsContext)
+        ? expandExpressions(rawName, repoPath, secrets, matrixContext, needsContext)
         : stepId;
 
       // If a step lacks an explicit name, we map it to standard GitHub Actions defaults
@@ -427,14 +409,7 @@ export async function parseWorkflowSteps(
         // string is always the complete literal block scalar.
         const rawScript = rawStep.run != null ? String(rawStep.run) : step.run.toString();
         const inputs: Record<string, string> = {
-          script: expandExpressions(
-            rawScript,
-            repoPath,
-            secrets,
-            matrixContext,
-            needsContext,
-            inputsContext,
-          ),
+          script: expandExpressions(rawScript, repoPath, secrets, matrixContext, needsContext),
         };
         if (rawStep["working-directory"]) {
           inputs.workingDirectory = rawStep["working-directory"];
@@ -444,7 +419,6 @@ export async function parseWorkflowSteps(
           Name: stepName,
           DisplayName: stepName,
           Id: crypto.randomUUID(),
-          ContextName: step.id ? step.id.toString() : undefined,
           Reference: {
             Type: "Script",
           },
@@ -453,45 +427,26 @@ export async function parseWorkflowSteps(
             ? Object.fromEntries(
                 Object.entries(rawStep.env).map(([k, v]) => [
                   k,
-                  expandExpressions(
-                    String(v),
-                    repoPath,
-                    secrets,
-                    undefined,
-                    needsContext,
-                    inputsContext,
-                  ),
+                  expandExpressions(String(v), repoPath, secrets, undefined, needsContext),
                 ]),
               )
             : undefined,
         };
       } else if ("uses" in step) {
         // Basic support for 'uses' steps
-        // Parse uses string: owner/repo@ref or ./.github/actions/foo (local)
+        // Parse uses string: owner/repo@ref
         const uses = step.uses.toString();
 
-        // Skip local actions (paths starting with ./ or /) - agent-ci doesn't support them yet
-        if (uses.startsWith("./") || uses.startsWith("/")) {
-          const workflowName = path.basename(filePath);
-          const message =
-            `[Agent CI] Local action "${uses}" is not supported in job "${taskName}" ` +
-            `from workflow "${workflowName}". Move the logic from "${uses}" into ` +
-            `workflow "${workflowName}" job "${taskName}" steps.`;
-          console.error(message);
-          throw new Error(message);
-        }
-
-        const isLocalAction = uses.startsWith("./");
         let name = uses;
         let ref = "";
 
-        if (!isLocalAction && uses.indexOf("@") >= 0) {
+        if (uses.indexOf("@") >= 0) {
           const parts = uses.split("@");
           name = parts[0];
           ref = parts[1];
         }
 
-        const isCheckout = !isLocalAction && name.trim().toLowerCase() === "actions/checkout";
+        const isCheckout = name.trim().toLowerCase() === "actions/checkout";
         const stepWith = rawStep.with || {};
 
         return {
@@ -499,7 +454,6 @@ export async function parseWorkflowSteps(
           Name: stepName,
           DisplayName: stepName,
           Id: crypto.randomUUID(),
-          ContextName: step.id ? step.id.toString() : undefined,
           Reference: {
             Type: "Repository",
             Name: name,
@@ -513,14 +467,7 @@ export async function parseWorkflowSteps(
               ? Object.fromEntries(
                   Object.entries((step as any).with).map(([k, v]) => [
                     k,
-                    expandExpressions(
-                      String(v),
-                      repoPath,
-                      secrets,
-                      matrixContext,
-                      needsContext,
-                      inputsContext,
-                    ),
+                    expandExpressions(String(v), repoPath, secrets, matrixContext, needsContext),
                   ]),
                 )
               : {}),
@@ -528,14 +475,7 @@ export async function parseWorkflowSteps(
             ...Object.fromEntries(
               Object.entries(stepWith).map(([k, v]) => [
                 k,
-                expandExpressions(
-                  String(v),
-                  repoPath,
-                  secrets,
-                  matrixContext,
-                  needsContext,
-                  inputsContext,
-                ),
+                expandExpressions(String(v), repoPath, secrets, matrixContext, needsContext),
               ]),
             ),
             ...(isCheckout
@@ -547,14 +487,7 @@ export async function parseWorkflowSteps(
                   ...Object.fromEntries(
                     Object.entries(stepWith).map(([k, v]) => [
                       k,
-                      expandExpressions(
-                        String(v),
-                        repoPath,
-                        secrets,
-                        undefined,
-                        needsContext,
-                        inputsContext,
-                      ),
+                      expandExpressions(String(v), repoPath, secrets, undefined, needsContext),
                     ]),
                   ),
                 }
@@ -564,14 +497,7 @@ export async function parseWorkflowSteps(
             ? Object.fromEntries(
                 Object.entries(rawStep.env).map(([k, v]) => [
                   k,
-                  expandExpressions(
-                    String(v),
-                    repoPath,
-                    secrets,
-                    matrixContext,
-                    needsContext,
-                    inputsContext,
-                  ),
+                  expandExpressions(String(v), repoPath, secrets, matrixContext, needsContext),
                 ]),
               )
             : undefined,
@@ -755,24 +681,7 @@ export function isWorkflowRelevant(template: any, branch: string, changedFiles?:
     }
   }
 
-  // 2. Check pull_request_target (same logic as pull_request)
-  if (events.pull_request_target) {
-    const prt = events.pull_request_target;
-    let branchMatches = false;
-    if (!prt.branches && !prt["branches-ignore"]) {
-      branchMatches = true;
-    } else if (prt.branches) {
-      branchMatches = prt.branches.some((pattern: string) => minimatch("main", pattern));
-    } else if (prt["branches-ignore"]) {
-      branchMatches = !prt["branches-ignore"].some((pattern: string) => minimatch("main", pattern));
-    }
-
-    if (branchMatches && matchesPaths(prt, changedFiles)) {
-      return true;
-    }
-  }
-
-  // 3. Check push
+  // 2. Check push
   if (events.push) {
     const push = events.push;
     let branchMatches = false;

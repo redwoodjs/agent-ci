@@ -2,7 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { config, loadMachineSecrets, resolveRepoSlug } from "./config.js";
+import { config, loadMachineSecrets } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
   setWorkingDirectory,
@@ -13,6 +13,7 @@ import { debugCli } from "./output/debug.js";
 
 import { executeLocalJob } from "./runner/local-job.js";
 import {
+  getWorkflowTemplate,
   parseWorkflowSteps,
   parseWorkflowServices,
   parseWorkflowContainer,
@@ -26,17 +27,15 @@ import {
   parseJobIf,
   evaluateJobIf,
   parseFailFast,
-  expandExpressions,
 } from "./workflow/workflow-parser.js";
+import { assertNoUnsupportedFeatures } from "./workflow/unsupported-features.js";
 import { resolveJobOutputs } from "./runner/result-builder.js";
 import { Job } from "./types.js";
 import { createConcurrencyLimiter, getDefaultMaxConcurrentJobs } from "./output/concurrency.js";
 import { isWarmNodeModules, computeLockfileHash } from "./output/cleanup.js";
 import { getWorkingDirectory } from "./output/working-directory.js";
 import { pruneOrphanedDockerResources } from "./docker/shutdown.js";
-import { topoSort } from "./workflow/job-scheduler.js";
-import { expandReusableJobs } from "./workflow/reusable-workflow.js";
-import { prefetchRemoteWorkflows } from "./workflow/remote-workflow-fetch.js";
+import { parseJobDependencies, topoSort } from "./workflow/job-scheduler.js";
 import { printSummary, type JobResult } from "./output/reporter.js";
 import { syncWorkspaceForRetry } from "./runner/sync.js";
 import { RunStateStore } from "./output/run-state.js";
@@ -157,11 +156,9 @@ async function run() {
         pauseOnFailure,
         noMatrix,
       });
-      if (results.length > 0) {
-        printSummary(results);
-      }
+      printSummary(results);
       postCommitStatus(results, sha);
-      const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
+      const anyFailed = results.some((r) => !r.succeeded);
       process.exit(anyFailed ? 1 : 0);
     }
 
@@ -194,11 +191,9 @@ async function run() {
       pauseOnFailure,
       noMatrix,
     });
-    if (results.length > 0) {
-      printSummary(results);
-    }
+    printSummary(results);
     postCommitStatus(results, sha);
-    if (results.length === 0 || results.some((r) => !r.succeeded)) {
+    if (results.some((r) => !r.succeeded)) {
       process.exit(1);
     }
     process.exit(0);
@@ -281,10 +276,6 @@ async function runWorkflows(options: {
 }): Promise<JobResult[]> {
   const { workflowPaths, sha, pauseOnFailure, noMatrix = false } = options;
 
-  // Suppress EventEmitter MaxListenersExceeded warnings when running many
-  // parallel jobs (each job adds SIGINT/SIGTERM listeners).
-  process.setMaxListeners(0);
-
   // Create the run state store — single source of truth for all progress
   const runId = `run-${Date.now()}`;
   const storeFilePath = path.join(getWorkingDirectory(), "runs", runId, "run-state.json");
@@ -361,16 +352,6 @@ async function runWorkflows(options: {
     }, 80);
   }
 
-  // Top-level signal handler: exit the process after per-job handlers have
-  // cleaned up their containers. All listeners fire synchronously in
-  // registration order, so we defer the exit to let per-job handlers
-  // (registered later in local-job.ts) run first.
-  const exitOnSignal = () => {
-    setTimeout(() => process.exit(1), 0);
-  };
-  process.on("SIGINT", exitOnSignal);
-  process.on("SIGTERM", exitOnSignal);
-
   try {
     const allResults: JobResult[] = [];
 
@@ -388,8 +369,7 @@ async function runWorkflows(options: {
       // Multiple workflows (--all mode)
       // Determine warm-cache status from the first workflow's repo root
       const firstRepoRoot = resolveRepoRootFromWorkflow(workflowPaths[0]);
-      config.GITHUB_REPO ??= resolveRepoSlug(firstRepoRoot);
-      const repoSlug = config.GITHUB_REPO.replace("/", "-");
+      const repoSlug = resolveRepoInfo(firstRepoRoot).replace("/", "-");
       let lockfileHash = "no-lockfile";
       try {
         lockfileHash = computeLockfileHash(firstRepoRoot);
@@ -403,12 +383,6 @@ async function runWorkflows(options: {
       );
       const warm = isWarmNodeModules(warmModulesDir);
 
-      // Pre-allocate unique run numbers so parallel workflows don't collide.
-      // Each workflow gets its own baseRunNum (e.g. 306, 307, 308) so their
-      // job suffixes (-j1, -j2, -j3) never produce duplicate container names.
-      const baseRunNum = getNextLogNum("agent-ci");
-      const runNums = workflowPaths.map((_, i) => baseRunNum + i);
-
       if (!warm && workflowPaths.length > 1) {
         // Cold cache — run first workflow serially to populate warm modules,
         // then launch the rest in parallel.
@@ -418,21 +392,15 @@ async function runWorkflows(options: {
           pauseOnFailure,
           noMatrix,
           store,
-          baseRunNum: runNums[0],
         });
         allResults.push(...firstResults);
 
         const settled = await Promise.allSettled(
-          workflowPaths.slice(1).map((wf, i) =>
-            handleWorkflow({
-              workflowPath: wf,
-              sha,
-              pauseOnFailure,
-              noMatrix,
-              store,
-              baseRunNum: runNums[i + 1],
-            }),
-          ),
+          workflowPaths
+            .slice(1)
+            .map((wf) =>
+              handleWorkflow({ workflowPath: wf, sha, pauseOnFailure, noMatrix, store }),
+            ),
         );
         for (const s of settled) {
           if (s.status === "fulfilled") {
@@ -443,15 +411,8 @@ async function runWorkflows(options: {
         }
       } else {
         const settled = await Promise.allSettled(
-          workflowPaths.map((wf, i) =>
-            handleWorkflow({
-              workflowPath: wf,
-              sha,
-              pauseOnFailure,
-              noMatrix,
-              store,
-              baseRunNum: runNums[i],
-            }),
+          workflowPaths.map((wf) =>
+            handleWorkflow({ workflowPath: wf, sha, pauseOnFailure, noMatrix, store }),
           ),
         );
         for (const s of settled) {
@@ -467,8 +428,6 @@ async function runWorkflows(options: {
     store.complete(allResults.some((r) => !r.succeeded) ? "failed" : "completed");
     return allResults;
   } finally {
-    process.removeListener("SIGINT", exitOnSignal);
-    process.removeListener("SIGTERM", exitOnSignal);
     if (renderInterval) {
       clearInterval(renderInterval);
     }
@@ -493,531 +452,395 @@ async function handleWorkflow(options: {
   pauseOnFailure: boolean;
   noMatrix?: boolean;
   store: RunStateStore;
-  baseRunNum?: number;
 }): Promise<JobResult[]> {
   const { sha, pauseOnFailure, noMatrix = false, store } = options;
   let workflowPath = options.workflowPath;
 
-  if (!fs.existsSync(workflowPath)) {
-    throw new Error(`Workflow file not found: ${workflowPath}`);
-  }
+  try {
+    if (!fs.existsSync(workflowPath)) {
+      throw new Error(`Workflow file not found: ${workflowPath}`);
+    }
 
-  const repoRoot = resolveRepoRootFromWorkflow(workflowPath);
+    const repoRoot = resolveRepoRootFromWorkflow(workflowPath);
 
-  if (!process.env.AGENT_CI_WORKING_DIR) {
-    setWorkingDirectory(DEFAULT_WORKING_DIR);
-  }
+    if (!process.env.AGENT_CI_WORKING_DIR) {
+      setWorkingDirectory(DEFAULT_WORKING_DIR);
+    }
 
-  const { headSha, shaRef } = sha
-    ? resolveHeadSha(repoRoot, sha)
-    : { headSha: undefined, shaRef: undefined };
-  // Always resolve the real HEAD SHA for the push event context (before/after).
-  // This is separate from headSha which may be undefined for dirty workspace copies.
-  const realHeadSha = headSha ?? resolveHeadSha(repoRoot, "HEAD").headSha;
-  const baseSha = resolveBaseSha(repoRoot, realHeadSha);
-  const githubRepo = config.GITHUB_REPO ?? resolveRepoSlug(repoRoot);
-  config.GITHUB_REPO = githubRepo;
-  const [owner, name] = githubRepo.split("/");
+    const { headSha, shaRef } = sha
+      ? resolveHeadSha(repoRoot, sha)
+      : { headSha: undefined, shaRef: undefined };
+    const githubRepo = resolveRepoInfo(repoRoot);
+    const [owner, name] = githubRepo.split("/");
 
-  const remoteCacheDir = path.resolve(getWorkingDirectory(), "cache", "remote-workflows");
-  const remoteCache = await prefetchRemoteWorkflows(workflowPath, remoteCacheDir);
-  const expandedEntries = expandReusableJobs(workflowPath, repoRoot, remoteCache);
+    assertNoUnsupportedFeatures(workflowPath);
 
-  if (expandedEntries.length === 0) {
-    debugCli(`[Agent CI] No jobs found in workflow: ${path.basename(workflowPath)}`);
+    const template = await getWorkflowTemplate(workflowPath);
+    const jobs = template.jobs.filter((j) => j.type === "job");
+
+    if (jobs.length === 0) {
+      debugCli(`[Agent CI] No jobs found in workflow: ${path.basename(workflowPath)}`);
+      return [];
+    }
+
+    // ── Collect expanded jobs (with matrix expansion) ─────────────────────────
+    type ExpandedJob = {
+      workflowPath: string;
+      taskName: string;
+      matrixContext?: Record<string, string>;
+    };
+
+    const expandedJobs: ExpandedJob[] = [];
+
+    for (const job of jobs) {
+      const id = job.id.toString();
+      const matrixDef = await parseMatrixDef(workflowPath, id);
+      if (matrixDef) {
+        const combos = noMatrix
+          ? collapseMatrixToSingle(matrixDef)
+          : expandMatrixCombinations(matrixDef);
+        const total = combos.length;
+        for (let ci = 0; ci < combos.length; ci++) {
+          expandedJobs.push({
+            workflowPath,
+            taskName: id,
+            matrixContext: noMatrix
+              ? combos[ci]
+              : {
+                  ...combos[ci],
+                  __job_total: String(total),
+                  __job_index: String(ci),
+                },
+          });
+        }
+      } else {
+        expandedJobs.push({ workflowPath, taskName: id });
+      }
+    }
+
+    // For single-job workflows, run directly without extra orchestration
+    if (expandedJobs.length === 1) {
+      const ej = expandedJobs[0];
+      const secrets = loadMachineSecrets(repoRoot);
+      const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
+      validateSecrets(workflowPath, ej.taskName, secrets, secretsFilePath);
+
+      const steps = await parseWorkflowSteps(workflowPath, ej.taskName, secrets, ej.matrixContext);
+      const services = await parseWorkflowServices(workflowPath, ej.taskName);
+      const container = await parseWorkflowContainer(workflowPath, ej.taskName);
+
+      const job: Job = {
+        deliveryId: `run-${Date.now()}`,
+        eventType: "workflow_job",
+        githubJobId: `local-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+        githubRepo: githubRepo,
+        githubToken: "mock_token",
+        headSha: headSha,
+        shaRef: shaRef,
+        env: { AGENT_CI_LOCAL: "true" },
+        repository: {
+          name: name,
+          full_name: githubRepo,
+          owner: { login: owner },
+          default_branch: "main",
+        },
+        steps,
+        services,
+        container: container ?? undefined,
+        workflowPath,
+        taskId: ej.taskName,
+      };
+
+      const result = await executeLocalJob(job, { pauseOnFailure, store });
+      return [result];
+    }
+
+    // ── Multi-job orchestration ────────────────────────────────────────────────
+    const maxJobs = getDefaultMaxConcurrentJobs();
+
+    // ── Warm-cache check ───────────────────────────────────────────────────────
+    const repoSlug = githubRepo.replace("/", "-");
+    let lockfileHash = "no-lockfile";
+    try {
+      lockfileHash = computeLockfileHash(repoRoot);
+    } catch {}
+    const warmModulesDir = path.resolve(
+      getWorkingDirectory(),
+      "cache",
+      "warm-modules",
+      repoSlug,
+      lockfileHash,
+    );
+    let warm = isWarmNodeModules(warmModulesDir);
+
+    // Naming convention: agent-ci-<N>[-j<idx>][-m<shardIdx>]
+    const baseRunNum = getNextLogNum("agent-ci");
+    let globalIdx = 0;
+
+    const buildJob = (ej: ExpandedJob): Job => {
+      const secrets = loadMachineSecrets(repoRoot);
+      const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
+      validateSecrets(workflowPath, ej.taskName, secrets, secretsFilePath);
+
+      const idx = globalIdx++;
+      let suffix = `-j${idx + 1}`;
+      if (ej.matrixContext) {
+        const shardIdx = parseInt(ej.matrixContext.__job_index ?? "0", 10) + 1;
+        suffix += `-m${shardIdx}`;
+      }
+      const derivedRunnerName = `agent-ci-${baseRunNum}${suffix}`;
+
+      return {
+        deliveryId: `run-${Date.now()}`,
+        eventType: "workflow_job",
+        githubJobId: Math.floor(Math.random() * 1000000).toString(),
+        githubRepo: githubRepo,
+        githubToken: "mock_token",
+        headSha: headSha,
+        shaRef: shaRef,
+        env: { AGENT_CI_LOCAL: "true" },
+        repository: {
+          name: name,
+          full_name: githubRepo,
+          owner: { login: owner },
+          default_branch: "main",
+        },
+        runnerName: derivedRunnerName,
+        steps: undefined as any,
+        services: undefined as any,
+        container: undefined,
+        workflowPath,
+        taskId: ej.taskName,
+      };
+    };
+
+    const runJob = async (
+      ej: ExpandedJob,
+      needsContext?: Record<string, Record<string, string>>,
+    ): Promise<JobResult> => {
+      const { taskName, matrixContext } = ej;
+      debugCli(
+        `Running: ${path.basename(workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""}`,
+      );
+      const secrets = loadMachineSecrets(repoRoot);
+      const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
+      validateSecrets(workflowPath, taskName, secrets, secretsFilePath);
+      const steps = await parseWorkflowSteps(
+        workflowPath,
+        taskName,
+        secrets,
+        matrixContext,
+        needsContext,
+      );
+      const services = await parseWorkflowServices(workflowPath, taskName);
+      const container = await parseWorkflowContainer(workflowPath, taskName);
+
+      const job = buildJob(ej);
+      job.steps = steps;
+      job.services = services;
+      job.container = container ?? undefined;
+
+      const result = await executeLocalJob(job, { pauseOnFailure, store });
+
+      // result.outputs now contains raw step outputs (extracted inside executeLocalJob
+      // before workspace cleanup). Resolve them to job-level outputs using the
+      // output definitions from the workflow YAML.
+      if (result.outputs && Object.keys(result.outputs).length > 0) {
+        const outputDefs = parseJobOutputDefs(workflowPath, taskName);
+        if (Object.keys(outputDefs).length > 0) {
+          result.outputs = resolveJobOutputs(outputDefs, result.outputs);
+        }
+      }
+
+      return result;
+    };
+
+    pruneOrphanedDockerResources();
+
+    const limiter = createConcurrencyLimiter(maxJobs);
+    const allResults: JobResult[] = [];
+    // Accumulate job outputs across waves for needs.*.outputs.* resolution
+    const jobOutputs = new Map<string, Record<string, string>>();
+
+    // ── Dependency-aware wave scheduling ──────────────────────────────────────
+    const deps = parseJobDependencies(workflowPath);
+    const waves = topoSort(deps);
+
+    const taskNamesInWf = new Set(expandedJobs.map((j) => j.taskName));
+    const filteredWaves = waves
+      .map((wave) => wave.filter((jobId) => taskNamesInWf.has(jobId)))
+      .filter((wave) => wave.length > 0);
+
+    if (filteredWaves.length === 0) {
+      filteredWaves.push(Array.from(taskNamesInWf));
+    }
+
+    /** Build a needsContext for a job from its dependencies' accumulated outputs */
+    const buildNeedsContext = (
+      jobId: string,
+    ): Record<string, Record<string, string>> | undefined => {
+      const jobDeps = deps.get(jobId);
+      if (!jobDeps || jobDeps.length === 0) {
+        return undefined;
+      }
+      const ctx: Record<string, Record<string, string>> = {};
+      for (const depId of jobDeps) {
+        ctx[depId] = jobOutputs.get(depId) ?? {};
+      }
+      return ctx;
+    };
+
+    /** Collect outputs from a completed job result */
+    const collectOutputs = (result: JobResult, taskName: string) => {
+      if (result.outputs && Object.keys(result.outputs).length > 0) {
+        jobOutputs.set(taskName, result.outputs);
+      }
+    };
+
+    // Track job results for if-condition evaluation (success/failure status)
+    const jobResultStatus = new Map<string, string>();
+
+    /** Check if a job should be skipped based on its if: condition */
+    const shouldSkipJob = (jobId: string): boolean => {
+      const ifExpr = parseJobIf(workflowPath, jobId);
+      if (ifExpr === null) {
+        // No if: condition — default behavior is success() (skip if any upstream failed)
+        const jobDeps = deps.get(jobId);
+        if (jobDeps && jobDeps.length > 0) {
+          const anyFailed = jobDeps.some((d) => jobResultStatus.get(d) === "failure");
+          if (anyFailed) {
+            return true;
+          }
+        }
+        return false;
+      }
+      // Build upstream job results for the evaluator
+      const upstreamResults: Record<string, string> = {};
+      const jobDeps = deps.get(jobId) ?? [];
+      for (const depId of jobDeps) {
+        upstreamResults[depId] = jobResultStatus.get(depId) ?? "success";
+      }
+      const needsCtx = buildNeedsContext(jobId);
+      return !evaluateJobIf(ifExpr, upstreamResults, needsCtx);
+    };
+
+    /** Create a synthetic skipped result for a job that was skipped by if: */
+    const skippedResult = (ej: ExpandedJob): JobResult => ({
+      name: `agent-ci-skipped-${ej.taskName}`,
+      workflow: path.basename(workflowPath),
+      taskId: ej.taskName,
+      succeeded: true,
+      durationMs: 0,
+      debugLogPath: "",
+      steps: [],
+    });
+
+    /** Run a job or skip it based on if: condition */
+    const runOrSkipJob = async (ej: ExpandedJob): Promise<JobResult> => {
+      if (shouldSkipJob(ej.taskName)) {
+        debugCli(`Skipping ${ej.taskName} (if: condition is false)`);
+        const result = skippedResult(ej);
+        jobResultStatus.set(ej.taskName, "skipped");
+        return result;
+      }
+      const ctx = buildNeedsContext(ej.taskName);
+      const result = await runJob(ej, ctx);
+      jobResultStatus.set(ej.taskName, result.succeeded ? "success" : "failure");
+      collectOutputs(result, ej.taskName);
+      return result;
+    };
+
+    for (let wi = 0; wi < filteredWaves.length; wi++) {
+      const waveJobIds = new Set(filteredWaves[wi]);
+      const waveJobs = expandedJobs.filter((j) => waveJobIds.has(j.taskName));
+
+      if (waveJobs.length === 0) {
+        continue;
+      }
+
+      // ── Warm-cache serialization for the first wave ────────────────────────
+      if (!warm && wi === 0 && waveJobs.length > 1) {
+        debugCli("Cold cache — running first job to populate warm modules...");
+        const firstResult = await runOrSkipJob(waveJobs[0]);
+        allResults.push(firstResult);
+
+        const results = await Promise.allSettled(
+          waveJobs.slice(1).map((ej) =>
+            limiter.run(() =>
+              runOrSkipJob(ej).catch((error) => {
+                throw wrapJobError(ej.taskName, error);
+              }),
+            ),
+          ),
+        );
+        for (const r of results) {
+          if (r.status === "fulfilled") {
+            allResults.push(r.value);
+          } else {
+            const taskName = isJobError(r.reason) ? r.reason.taskName : "unknown";
+            const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
+            console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
+            console.error(`  Error: ${errorMessage}`);
+            allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
+          }
+        }
+        warm = true;
+      } else {
+        const results = await Promise.allSettled(
+          waveJobs.map((ej) =>
+            limiter.run(() =>
+              runOrSkipJob(ej).catch((error) => {
+                throw wrapJobError(ej.taskName, error);
+              }),
+            ),
+          ),
+        );
+        for (const r of results) {
+          if (r.status === "fulfilled") {
+            allResults.push(r.value);
+          } else {
+            const taskName = isJobError(r.reason) ? r.reason.taskName : "unknown";
+            const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
+            console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
+            console.error(`  Error: ${errorMessage}`);
+            allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
+          }
+        }
+      }
+
+      // Check whether to abort remaining waves on failure
+      const waveHadFailures = allResults.some((r) => !r.succeeded);
+      if (waveHadFailures && wi < filteredWaves.length - 1) {
+        // Check fail-fast setting for jobs in this wave
+        const waveFailFastSettings = waveJobs.map((ej) => parseFailFast(workflowPath, ej.taskName));
+        // Abort unless ALL jobs in the wave explicitly set fail-fast: false
+        const shouldAbort = !waveFailFastSettings.every((ff) => ff === false);
+        if (shouldAbort) {
+          debugCli(
+            `Wave ${wi + 1} had failures — aborting remaining waves for ${path.basename(workflowPath)}`,
+          );
+          break;
+        } else {
+          debugCli(`Wave ${wi + 1} had failures but fail-fast is disabled — continuing`);
+        }
+      }
+    }
+
+    return allResults;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith("[Agent CI]")) {
+      const normalized = message.replace(/^\[Agent CI\]\s*/, "");
+      const indented = normalized
+        .split("\n")
+        .map((line) => `  ${line}`)
+        .join("\n");
+      console.error(`\n[Agent CI]\nFailed to trigger run:\n${indented}`);
+    } else {
+      console.error(`\n[Agent CI]\nFailed to trigger run:\n  ${message}`);
+    }
     return [];
   }
-
-  // ── Collect expanded jobs (with matrix expansion) ─────────────────────────
-  type ExpandedJob = {
-    workflowPath: string;
-    taskName: string;
-    sourceTaskName?: string;
-    matrixContext?: Record<string, string>;
-    inputs?: Record<string, string>;
-    inputDefaults?: Record<string, string>;
-    workflowCallOutputDefs?: Record<string, string>;
-    callerJobId?: string;
-  };
-
-  const expandedJobs: ExpandedJob[] = [];
-
-  for (const entry of expandedEntries) {
-    const matrixDef = await parseMatrixDef(entry.workflowPath, entry.sourceTaskName);
-    if (matrixDef) {
-      const combos = noMatrix
-        ? collapseMatrixToSingle(matrixDef)
-        : expandMatrixCombinations(matrixDef);
-      const total = combos.length;
-      for (let ci = 0; ci < combos.length; ci++) {
-        expandedJobs.push({
-          workflowPath: entry.workflowPath,
-          taskName: entry.id,
-          sourceTaskName: entry.sourceTaskName,
-          matrixContext: noMatrix
-            ? combos[ci]
-            : {
-                ...combos[ci],
-                __job_total: String(total),
-                __job_index: String(ci),
-              },
-          inputs: entry.inputs,
-          inputDefaults: entry.inputDefaults,
-          workflowCallOutputDefs: entry.workflowCallOutputDefs,
-          callerJobId: entry.callerJobId,
-        });
-      }
-    } else {
-      expandedJobs.push({
-        workflowPath: entry.workflowPath,
-        taskName: entry.id,
-        sourceTaskName: entry.sourceTaskName,
-        inputs: entry.inputs,
-        inputDefaults: entry.inputDefaults,
-        workflowCallOutputDefs: entry.workflowCallOutputDefs,
-        callerJobId: entry.callerJobId,
-      });
-    }
-  }
-
-  // For single-job workflows, run directly without extra orchestration
-  if (expandedJobs.length === 1) {
-    const ej = expandedJobs[0];
-    const actualTaskName = ej.sourceTaskName ?? ej.taskName;
-    const secrets = loadMachineSecrets(repoRoot);
-    const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
-    validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
-
-    // Resolve inputs for called workflow jobs
-    let inputsContext: Record<string, string> | undefined;
-    if (ej.callerJobId) {
-      inputsContext = { ...ej.inputDefaults };
-      if (ej.inputs) {
-        for (const [k, v] of Object.entries(ej.inputs)) {
-          inputsContext[k] = expandExpressions(v, repoRoot, secrets);
-        }
-      }
-      if (Object.keys(inputsContext).length === 0) {
-        inputsContext = undefined;
-      }
-    }
-
-    const steps = await parseWorkflowSteps(
-      ej.workflowPath,
-      actualTaskName,
-      secrets,
-      ej.matrixContext,
-      undefined,
-      inputsContext,
-    );
-    const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
-    const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
-
-    const job: Job = {
-      deliveryId: `run-${Date.now()}`,
-      eventType: "workflow_job",
-      githubJobId: `local-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
-      githubRepo: githubRepo,
-      githubToken: "mock_token",
-      headSha: headSha,
-      baseSha: baseSha,
-      realHeadSha: realHeadSha,
-      repoRoot: repoRoot,
-      shaRef: shaRef,
-      env: { AGENT_CI_LOCAL: "true" },
-      repository: {
-        name: name,
-        full_name: githubRepo,
-        owner: { login: owner },
-        default_branch: "main",
-      },
-      steps,
-      services,
-      container: container ?? undefined,
-      workflowPath: ej.workflowPath,
-      taskId: ej.taskName,
-    };
-
-    const result = await executeLocalJob(job, { pauseOnFailure, store });
-    return [result];
-  }
-
-  // ── Multi-job orchestration ────────────────────────────────────────────────
-  const maxJobs = getDefaultMaxConcurrentJobs();
-
-  // ── Warm-cache check ───────────────────────────────────────────────────────
-  const repoSlug = githubRepo.replace("/", "-");
-  let lockfileHash = "no-lockfile";
-  try {
-    lockfileHash = computeLockfileHash(repoRoot);
-  } catch {}
-  const warmModulesDir = path.resolve(
-    getWorkingDirectory(),
-    "cache",
-    "warm-modules",
-    repoSlug,
-    lockfileHash,
-  );
-  let warm = isWarmNodeModules(warmModulesDir);
-
-  // Naming convention: agent-ci-<N>[-j<idx>][-m<shardIdx>]
-  const baseRunNum = options.baseRunNum ?? getNextLogNum("agent-ci");
-  let globalIdx = 0;
-
-  const buildJob = (ej: ExpandedJob): Job => {
-    const actualTaskName = ej.sourceTaskName ?? ej.taskName;
-    const secrets = loadMachineSecrets(repoRoot);
-    const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
-    validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
-
-    const idx = globalIdx++;
-    let suffix = `-j${idx + 1}`;
-    if (ej.matrixContext) {
-      const shardIdx = parseInt(ej.matrixContext.__job_index ?? "0", 10) + 1;
-      suffix += `-m${shardIdx}`;
-    }
-    const derivedRunnerName = `agent-ci-${baseRunNum}${suffix}`;
-
-    return {
-      deliveryId: `run-${Date.now()}`,
-      eventType: "workflow_job",
-      githubJobId: Math.floor(Math.random() * 1000000).toString(),
-      githubRepo: githubRepo,
-      githubToken: "mock_token",
-      headSha: headSha,
-      baseSha: baseSha,
-      realHeadSha: realHeadSha,
-      repoRoot: repoRoot,
-      shaRef: shaRef,
-      env: { AGENT_CI_LOCAL: "true" },
-      repository: {
-        name: name,
-        full_name: githubRepo,
-        owner: { login: owner },
-        default_branch: "main",
-      },
-      runnerName: derivedRunnerName,
-      steps: undefined as any,
-      services: undefined as any,
-      container: undefined,
-      workflowPath: ej.workflowPath,
-      taskId: ej.taskName,
-    };
-  };
-
-  // Cache resolved inputs per callerJobId (all sub-jobs share the same inputs)
-  const resolvedInputsCache = new Map<string, Record<string, string>>();
-
-  const resolveInputsForJob = (
-    ej: ExpandedJob,
-    secrets: Record<string, string>,
-    needsContext?: Record<string, Record<string, string>>,
-  ): Record<string, string> | undefined => {
-    if (!ej.callerJobId) {
-      return undefined;
-    }
-    const cached = resolvedInputsCache.get(ej.callerJobId);
-    if (cached) {
-      return cached;
-    }
-
-    // Start with defaults, then override with caller's `with:` values (expanded)
-    const resolved: Record<string, string> = { ...ej.inputDefaults };
-    if (ej.inputs) {
-      for (const [k, v] of Object.entries(ej.inputs)) {
-        resolved[k] = expandExpressions(v, repoRoot, secrets, undefined, needsContext);
-      }
-    }
-    resolvedInputsCache.set(ej.callerJobId, resolved);
-    return Object.keys(resolved).length > 0 ? resolved : undefined;
-  };
-
-  const runJob = async (
-    ej: ExpandedJob,
-    needsContext?: Record<string, Record<string, string>>,
-  ): Promise<JobResult> => {
-    const { taskName, matrixContext } = ej;
-    const actualTaskName = ej.sourceTaskName ?? taskName;
-    debugCli(
-      `Running: ${path.basename(ej.workflowPath)} | Task: ${taskName}${matrixContext ? ` | Matrix: ${JSON.stringify(Object.fromEntries(Object.entries(matrixContext).filter(([k]) => !k.startsWith("__"))))}` : ""}`,
-    );
-    const secrets = loadMachineSecrets(repoRoot);
-    const secretsFilePath = path.join(repoRoot, ".env.agent-ci");
-    validateSecrets(ej.workflowPath, actualTaskName, secrets, secretsFilePath);
-    const inputsContext = resolveInputsForJob(ej, secrets, needsContext);
-    const steps = await parseWorkflowSteps(
-      ej.workflowPath,
-      actualTaskName,
-      secrets,
-      matrixContext,
-      needsContext,
-      inputsContext,
-    );
-    const services = await parseWorkflowServices(ej.workflowPath, actualTaskName);
-    const container = await parseWorkflowContainer(ej.workflowPath, actualTaskName);
-
-    const job = buildJob(ej);
-    job.steps = steps;
-    job.services = services;
-    job.container = container ?? undefined;
-
-    const result = await executeLocalJob(job, { pauseOnFailure, store });
-
-    // result.outputs now contains raw step outputs (extracted inside executeLocalJob
-    // before workspace cleanup). Resolve them to job-level outputs using the
-    // output definitions from the workflow YAML.
-    if (result.outputs && Object.keys(result.outputs).length > 0) {
-      const outputDefs = parseJobOutputDefs(ej.workflowPath, actualTaskName);
-      if (Object.keys(outputDefs).length > 0) {
-        result.outputs = resolveJobOutputs(outputDefs, result.outputs);
-      }
-    }
-
-    return result;
-  };
-
-  pruneOrphanedDockerResources();
-
-  const limiter = createConcurrencyLimiter(maxJobs);
-  const allResults: JobResult[] = [];
-  // Accumulate job outputs across waves for needs.*.outputs.* resolution
-  const jobOutputs = new Map<string, Record<string, string>>();
-
-  // ── Dependency-aware wave scheduling ──────────────────────────────────────
-  const deps = new Map<string, string[]>();
-  for (const entry of expandedEntries) {
-    deps.set(entry.id, entry.needs);
-  }
-  const waves = topoSort(deps);
-
-  const taskNamesInWf = new Set(expandedJobs.map((j) => j.taskName));
-  const filteredWaves = waves
-    .map((wave) => wave.filter((jobId) => taskNamesInWf.has(jobId)))
-    .filter((wave) => wave.length > 0);
-
-  if (filteredWaves.length === 0) {
-    filteredWaves.push(Array.from(taskNamesInWf));
-  }
-
-  /** Build a needsContext for a job from its dependencies' accumulated outputs */
-  const buildNeedsContext = (jobId: string): Record<string, Record<string, string>> | undefined => {
-    const jobDeps = deps.get(jobId);
-    if (!jobDeps || jobDeps.length === 0) {
-      return undefined;
-    }
-    const ctx: Record<string, Record<string, string>> = {};
-    for (const depId of jobDeps) {
-      ctx[depId] = jobOutputs.get(depId) ?? {};
-      if (depId.includes("/")) {
-        const callerJobId = depId.split("/")[0];
-        const calledJobId = depId.split("/").slice(1).join("/");
-        // For composite IDs like "lint/setup", also add the called job ID ("setup")
-        // so intra-workflow `needs.setup.outputs.*` references resolve correctly
-        if (!ctx[calledJobId]) {
-          ctx[calledJobId] = jobOutputs.get(depId) ?? {};
-        }
-        // If workflow_call outputs were resolved for the caller (e.g. "lint"),
-        // add them so downstream `needs.lint.outputs.*` references work
-        if (jobOutputs.has(callerJobId)) {
-          ctx[callerJobId] = jobOutputs.get(callerJobId)!;
-        }
-      }
-    }
-    return Object.keys(ctx).length > 0 ? ctx : undefined;
-  };
-
-  /** Collect outputs from a completed job result */
-  const collectOutputs = (result: JobResult, taskName: string) => {
-    if (result.outputs && Object.keys(result.outputs).length > 0) {
-      jobOutputs.set(taskName, result.outputs);
-    }
-  };
-
-  /**
-   * After a wave completes, resolve workflow_call outputs for any caller jobs
-   * whose sub-jobs have all finished. This allows downstream jobs to access
-   * `needs.<callerJobId>.outputs.*`.
-   */
-  const resolveWorkflowCallOutputs = () => {
-    // Group expanded jobs by callerJobId
-    const byCallerJobId = new Map<string, ExpandedJob[]>();
-    for (const ej of expandedJobs) {
-      if (ej.callerJobId) {
-        const group = byCallerJobId.get(ej.callerJobId) ?? [];
-        group.push(ej);
-        byCallerJobId.set(ej.callerJobId, group);
-      }
-    }
-
-    for (const [callerJobId, subJobs] of byCallerJobId) {
-      // Check if all sub-jobs have completed (have results)
-      const allDone = subJobs.every((sj) => jobResultStatus.has(sj.taskName));
-      if (!allDone) {
-        continue;
-      }
-      // Already resolved
-      if (jobOutputs.has(callerJobId)) {
-        continue;
-      }
-
-      // Find the output defs (all sub-jobs share the same defs)
-      const outputDefs = subJobs[0]?.workflowCallOutputDefs;
-      if (!outputDefs || Object.keys(outputDefs).length === 0) {
-        continue;
-      }
-
-      // Resolve each output value expression: ${{ jobs.<id>.outputs.<name> }}
-      const resolved: Record<string, string> = {};
-      for (const [outputName, valueExpr] of Object.entries(outputDefs)) {
-        resolved[outputName] = valueExpr.replace(
-          /\$\{\{\s*jobs\.([^.]+)\.outputs\.([^}\s]+)\s*\}\}/g,
-          (_match, jobId, outputKey) => {
-            const compositeId = `${callerJobId}/${jobId}`;
-            return jobOutputs.get(compositeId)?.[outputKey] ?? "";
-          },
-        );
-      }
-      jobOutputs.set(callerJobId, resolved);
-    }
-  };
-
-  // Track job results for if-condition evaluation (success/failure status)
-  const jobResultStatus = new Map<string, string>();
-
-  /** Check if a job should be skipped based on its if: condition */
-  const shouldSkipJob = (jobId: string, ej?: ExpandedJob): boolean => {
-    const ejWorkflowPath = ej?.workflowPath ?? workflowPath;
-    const actualTaskName = ej?.sourceTaskName ?? jobId;
-    const ifExpr = parseJobIf(ejWorkflowPath, actualTaskName);
-    if (ifExpr === null) {
-      // No if: condition — default behavior is success() (skip if any upstream failed)
-      const jobDeps = deps.get(jobId);
-      if (jobDeps && jobDeps.length > 0) {
-        const anyFailed = jobDeps.some((d) => jobResultStatus.get(d) === "failure");
-        if (anyFailed) {
-          return true;
-        }
-      }
-      return false;
-    }
-    // Build upstream job results for the evaluator
-    const upstreamResults: Record<string, string> = {};
-    const jobDeps = deps.get(jobId) ?? [];
-    for (const depId of jobDeps) {
-      upstreamResults[depId] = jobResultStatus.get(depId) ?? "success";
-    }
-    const needsCtx = buildNeedsContext(jobId);
-    return !evaluateJobIf(ifExpr, upstreamResults, needsCtx);
-  };
-
-  /** Create a synthetic skipped result for a job that was skipped by if: */
-  const skippedResult = (ej: ExpandedJob): JobResult => ({
-    name: `agent-ci-skipped-${ej.taskName}`,
-    workflow: path.basename(ej.workflowPath),
-    taskId: ej.taskName,
-    succeeded: true,
-    durationMs: 0,
-    debugLogPath: "",
-    steps: [],
-  });
-
-  /** Run a job or skip it based on if: condition */
-  const runOrSkipJob = async (ej: ExpandedJob): Promise<JobResult> => {
-    if (shouldSkipJob(ej.taskName, ej)) {
-      debugCli(`Skipping ${ej.taskName} (if: condition is false)`);
-      const result = skippedResult(ej);
-      jobResultStatus.set(ej.taskName, "skipped");
-      return result;
-    }
-    const ctx = buildNeedsContext(ej.taskName);
-    const result = await runJob(ej, ctx);
-    jobResultStatus.set(ej.taskName, result.succeeded ? "success" : "failure");
-    collectOutputs(result, ej.taskName);
-    return result;
-  };
-
-  for (let wi = 0; wi < filteredWaves.length; wi++) {
-    const waveJobIds = new Set(filteredWaves[wi]);
-    const waveJobs = expandedJobs.filter((j) => waveJobIds.has(j.taskName));
-
-    if (waveJobs.length === 0) {
-      continue;
-    }
-
-    // ── Warm-cache serialization for the first wave ────────────────────────
-    if (!warm && wi === 0 && waveJobs.length > 1) {
-      debugCli("Cold cache — running first job to populate warm modules...");
-      const firstResult = await runOrSkipJob(waveJobs[0]);
-      allResults.push(firstResult);
-
-      const results = await Promise.allSettled(
-        waveJobs.slice(1).map((ej) =>
-          limiter.run(() =>
-            runOrSkipJob(ej).catch((error) => {
-              throw wrapJobError(ej.taskName, error);
-            }),
-          ),
-        ),
-      );
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          allResults.push(r.value);
-        } else {
-          const taskName = isJobError(r.reason) ? r.reason.taskName : "unknown";
-          const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
-          console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
-          console.error(`  Error: ${errorMessage}`);
-          allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
-        }
-      }
-      warm = true;
-    } else {
-      const results = await Promise.allSettled(
-        waveJobs.map((ej) =>
-          limiter.run(() =>
-            runOrSkipJob(ej).catch((error) => {
-              throw wrapJobError(ej.taskName, error);
-            }),
-          ),
-        ),
-      );
-      for (const r of results) {
-        if (r.status === "fulfilled") {
-          allResults.push(r.value);
-        } else {
-          const taskName = isJobError(r.reason) ? r.reason.taskName : "unknown";
-          const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
-          console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
-          console.error(`  Error: ${errorMessage}`);
-          allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
-        }
-      }
-    }
-
-    // After each wave, resolve workflow_call outputs for completed caller jobs
-    resolveWorkflowCallOutputs();
-
-    // Check whether to abort remaining waves on failure
-    const waveHadFailures = allResults.some((r) => !r.succeeded);
-    if (waveHadFailures && wi < filteredWaves.length - 1) {
-      // Check fail-fast setting for jobs in this wave
-      const waveFailFastSettings = waveJobs.map((ej) =>
-        parseFailFast(ej.workflowPath, ej.sourceTaskName ?? ej.taskName),
-      );
-      // Abort unless ALL jobs in the wave explicitly set fail-fast: false
-      const shouldAbort = !waveFailFastSettings.every((ff) => ff === false);
-      if (shouldAbort) {
-        debugCli(
-          `Wave ${wi + 1} had failures — aborting remaining waves for ${path.basename(workflowPath)}`,
-        );
-        break;
-      } else {
-        debugCli(`Wave ${wi + 1} had failures but fail-fast is disabled — continuing`);
-      }
-    }
-  }
-
-  return allResults;
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
@@ -1063,6 +886,20 @@ function resolveRepoRootFromWorkflow(workflowPath: string): string {
   return repoRoot === "/" ? resolveRepoRoot() : repoRoot;
 }
 
+function resolveRepoInfo(repoRoot: string) {
+  let githubRepo = config.GITHUB_REPO;
+  try {
+    const remoteUrl = execSync("git remote get-url origin", { cwd: repoRoot }).toString().trim();
+    const match = remoteUrl.match(/[:/]([^/]+\/[^/]+)\.git$/);
+    if (match) {
+      githubRepo = match[1];
+    }
+  } catch {
+    debugCli("Could not detect remote 'origin', using config default.");
+  }
+  return githubRepo;
+}
+
 function resolveHeadSha(repoRoot: string, sha: string) {
   try {
     return {
@@ -1071,16 +908,6 @@ function resolveHeadSha(repoRoot: string, sha: string) {
     };
   } catch {
     throw new Error(`Failed to resolve ref: ${sha}`);
-  }
-}
-
-/** Resolve the parent commit SHA for push-event `before` context. */
-function resolveBaseSha(repoRoot: string, headSha?: string): string | undefined {
-  try {
-    const ref = headSha && headSha !== "HEAD" ? `${headSha}~1` : "HEAD~1";
-    return execSync(`git rev-parse ${ref}`, { cwd: repoRoot, stdio: "pipe" }).toString().trim();
-  } catch {
-    return undefined;
   }
 }
 

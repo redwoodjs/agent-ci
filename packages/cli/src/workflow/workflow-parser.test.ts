@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1350,31 +1350,6 @@ jobs:
     const steps = await parseWorkflowSteps(filePath, "test", undefined, undefined, needsCtx);
 
     expect((steps[0] as any).Name).toBe("Shard 3");
-  });
-
-  it("fails with actionable guidance for local uses steps", async () => {
-    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const filePath = writeWorkflowTree(`
-name: Local Action Skip Test
-on: [push]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: ./actions/local-build
-      - uses: actions/checkout@v4
-`);
-
-    await expect(parseWorkflowSteps(filePath, "test")).rejects.toThrow(
-      /Local action ".\/actions\/local-build" is not supported in job "test"/,
-    );
-    expect(errorSpy).toHaveBeenCalledWith(
-      expect.stringContaining(
-        'Move the logic from "./actions/local-build" into workflow "test.yml" job "test" steps.',
-      ),
-    );
-
-    errorSpy.mockRestore();
   });
 });
 

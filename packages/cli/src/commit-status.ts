@@ -48,7 +48,7 @@ export function postCommitStatus(results: JobResult[], sha?: string): void {
         `-f state=${state} ` +
         `-f context=agent-ci ` +
         `-f description=${JSON.stringify(description)} ` +
-        `-f target_url=https://rwsdk.com/agent-ci`,
+        `-f target_url=https://agent-ci.dev`,
       { stdio: "ignore" },
     );
   } catch {

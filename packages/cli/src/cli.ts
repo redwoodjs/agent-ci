@@ -2,6 +2,7 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
+import { pathToFileURL } from "url";
 import YAML from "yaml";
 import { config, loadMachineSecrets } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
@@ -44,6 +45,22 @@ import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
 import logUpdate from "log-update";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
+
+export function getWorkflowJobsWithFallback(template: any, workflowPath: string) {
+  if (Array.isArray(template?.jobs)) {
+    return template.jobs.filter((j: any) => j.type === "job");
+  }
+
+  const rawJobs = (YAML.parse(fs.readFileSync(workflowPath, "utf8"))?.jobs ?? {}) as Record<
+    string,
+    any
+  >;
+  return Object.entries(rawJobs).map(([id, rawJob]) => ({
+    type: "job",
+    id,
+    name: rawJob?.name ?? id,
+  }));
+}
 
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();
@@ -474,16 +491,7 @@ async function handleWorkflow(options: {
     const [owner, name] = githubRepo.split("/");
 
     const template = await getWorkflowTemplate(workflowPath);
-    const jobs = Array.isArray(template?.jobs)
-      ? template.jobs.filter((j) => j.type === "job")
-      : Object.entries((YAML.parse(fs.readFileSync(workflowPath, "utf8"))?.jobs ?? {}) as Record<
-          string,
-          any
-        >).map(([id, rawJob]) => ({
-          type: "job",
-          id,
-          name: rawJob?.name ?? id,
-        }));
+    const jobs = getWorkflowJobsWithFallback(template, workflowPath);
 
     if (jobs.length === 0) {
       debugCli(`[Agent CI] No jobs found in workflow: ${path.basename(workflowPath)}`);
@@ -908,7 +916,12 @@ function resolveHeadSha(repoRoot: string, sha: string) {
   }
 }
 
-run().catch((err) => {
-  console.error("[Agent CI] Fatal error:", err);
-  process.exit(1);
-});
+const invokedAsScript =
+  !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (invokedAsScript) {
+  run().catch((err) => {
+    console.error("[Agent CI] Fatal error:", err);
+    process.exit(1);
+  });
+}

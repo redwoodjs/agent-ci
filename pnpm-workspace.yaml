@@ -3,4 +3,3 @@ packages:
   - "packages/dtu-github-actions"
   - "packages/ts-runner"
   - "apps/website"
-  - "experiments/retry-proof"

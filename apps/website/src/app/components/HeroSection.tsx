@@ -1,5 +1,6 @@
 import { Panel } from "./Panel";
 import { Play as PlayIcon } from "lucide-react";
+import { CopyAgentInstructionsButton } from "./CopyAgentInstructionsButton";
 
 export function HeroSection() {
   return (
@@ -20,6 +21,7 @@ export function HeroSection() {
             <PlayIcon size={18} />
             Quick start
           </a>
+          <CopyAgentInstructionsButton />
         </div>
       </div>
 

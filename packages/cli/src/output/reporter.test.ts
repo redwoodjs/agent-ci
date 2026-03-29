@@ -84,4 +84,19 @@ describe("printSummary", () => {
     expect(output).toContain("✓ 1 passed");
     expect(output).not.toContain("FAILURES");
   });
+
+  it("strips ansi escape codes from failure logs", () => {
+    const logPath = path.join(tmpDir, "ansi.log");
+    fs.writeFileSync(logPath, "\u001b[31mexpect\u001b[39m(value).\u001b[34mtoBe\u001b[39m('pass')\n");
+
+    printSummary([
+      makeResult({
+        failedStep: "Run assertion test",
+        failedStepLogPath: logPath,
+      }),
+    ]);
+
+    expect(output).toContain("expect(value).toBe('pass')");
+    expect(output).not.toContain("\u001b[31m");
+  });
 });

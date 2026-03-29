@@ -38,6 +38,10 @@ function formatDuration(ms: number): string {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
+function stripAnsi(input: string): string {
+  return input.replace(/\x1b\[[0-9;]*m/g, "");
+}
+
 // ─── Failures-first summary (emitted after all jobs complete) ─────────────────
 
 export function printSummary(results: JobResult[], runDir?: string): void {
@@ -55,9 +59,9 @@ export function printSummary(results: JobResult[], runDir?: string): void {
       }
       if (f.failedStepLogPath && fs.existsSync(f.failedStepLogPath)) {
         const content = fs.readFileSync(f.failedStepLogPath, "utf-8");
-        process.stdout.write("\n" + content);
+        process.stdout.write("\n" + stripAnsi(content));
       } else if (f.lastOutputLines && f.lastOutputLines.length > 0) {
-        process.stdout.write("\n" + f.lastOutputLines.join("\n") + "\n");
+        process.stdout.write("\n" + stripAnsi(f.lastOutputLines.join("\n")) + "\n");
       }
       process.stdout.write("\n");
     }

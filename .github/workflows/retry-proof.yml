@@ -18,5 +18,4 @@ jobs:
           cache: "pnpm"
       - run: pnpm install
       - name: Run assertion test
-        working-directory: experiments/retry-proof
-        run: pnpm test
+        run: pnpm --filter retry-proof test

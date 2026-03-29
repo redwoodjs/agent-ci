@@ -2,3 +2,4 @@ packages:
   - "packages/cli"
   - "packages/dtu-github-actions"
   - "apps/website"
+  - "experiments/retry-proof"

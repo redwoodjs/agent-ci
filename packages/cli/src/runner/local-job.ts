@@ -798,12 +798,7 @@ export async function executeLocalJob(
     }
 
     if (jobSucceeded && fs.existsSync(dirs.containerWorkDir)) {
-      try {
-        fs.rmSync(dirs.containerWorkDir, { recursive: true, force: true });
-      } catch {
-        // Best-effort cleanup — ENOTEMPTY can occur when container
-        // processes haven't fully released file handles yet.
-      }
+      fs.rmSync(dirs.containerWorkDir, { recursive: true, force: true });
     }
 
     await ephemeralDtu?.close().catch(() => {});

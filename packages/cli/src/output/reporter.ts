@@ -47,7 +47,7 @@ function stripAnsi(input: string): string {
 
 function maybeEmitAssertionHint(text: string): void {
   const normalized = stripAnsi(text).replace(/\s+/g, " ");
-  if (/expect\s*\(value\)\s*\.\s*toBe/.test(normalized)) {
+  if (/expect[\s\S]*toBe/.test(normalized)) {
     process.stdout.write("\nexpect(value).toBe\n");
   }
 }

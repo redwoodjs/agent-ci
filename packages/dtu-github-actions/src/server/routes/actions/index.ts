@@ -532,7 +532,10 @@ export function registerActionRoutes(app: Polka) {
 
     for (const action of actions) {
       const key = `${action.nameWithOwner}@${action.ref}`;
-      const downloadUrl = `https://api.github.com/repos/${action.nameWithOwner}/tarball/${action.ref}`;
+      // Strip sub-path from nameWithOwner (e.g. "actions/cache/save" → "actions/cache")
+      // Sub-path actions share the same repo tarball as the parent action.
+      const repoPath = action.nameWithOwner.split("/").slice(0, 2).join("/");
+      const downloadUrl = `https://api.github.com/repos/${repoPath}/tarball/${action.ref}`;
 
       result.actions[key] = {
         nameWithOwner: action.nameWithOwner,

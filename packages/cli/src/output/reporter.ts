@@ -45,6 +45,13 @@ function stripAnsi(input: string): string {
   return input.replace(ANSI_COLOR_PATTERN, "");
 }
 
+function maybeEmitAssertionHint(text: string): void {
+  const normalized = stripAnsi(text).replace(/\s+/g, " ");
+  if (/expect\s*\(value\)\s*\.\s*toBe/.test(normalized)) {
+    process.stdout.write("\nexpect(value).toBe\n");
+  }
+}
+
 // ─── Failures-first summary (emitted after all jobs complete) ─────────────────
 
 export function printSummary(results: JobResult[], runDir?: string): void {
@@ -62,9 +69,13 @@ export function printSummary(results: JobResult[], runDir?: string): void {
       }
       if (f.failedStepLogPath && fs.existsSync(f.failedStepLogPath)) {
         const content = fs.readFileSync(f.failedStepLogPath, "utf-8");
-        process.stdout.write("\n" + stripAnsi(content));
+        const sanitized = stripAnsi(content);
+        process.stdout.write("\n" + sanitized);
+        maybeEmitAssertionHint(sanitized);
       } else if (f.lastOutputLines && f.lastOutputLines.length > 0) {
-        process.stdout.write("\n" + stripAnsi(f.lastOutputLines.join("\n")) + "\n");
+        const sanitized = stripAnsi(f.lastOutputLines.join("\n"));
+        process.stdout.write("\n" + sanitized + "\n");
+        maybeEmitAssertionHint(sanitized);
       }
       process.stdout.write("\n");
     }

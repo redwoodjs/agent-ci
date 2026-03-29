@@ -101,4 +101,18 @@ describe("printSummary", () => {
     expect(output).toContain("expect(value).toBe('pass')");
     expect(output).not.toContain("\u001b[31m");
   });
+
+  it("emits assertion hint when assertion text is wrapped", () => {
+    const logPath = path.join(tmpDir, "wrapped.log");
+    fs.writeFileSync(logPath, "expect(value)\n.toBe('pass')\n");
+
+    printSummary([
+      makeResult({
+        failedStep: "Run assertion test",
+        failedStepLogPath: logPath,
+      }),
+    ]);
+
+    expect(output).toContain("expect(value).toBe");
+  });
 });

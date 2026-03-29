@@ -827,7 +827,7 @@ async function handleWorkflow(options: {
     return allResults;
   } catch (error) {
     console.error(`[Agent CI] Failed to trigger run: ${(error as Error).message}`);
-    return [];
+    return [createFailedJobResult("workflow-bootstrap", workflowPath, error)];
   }
 }
 

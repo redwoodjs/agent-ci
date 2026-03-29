@@ -2,8 +2,6 @@
 import { execSync } from "child_process";
 import path from "path";
 import fs from "fs";
-import { pathToFileURL } from "url";
-import YAML from "yaml";
 import { config, loadMachineSecrets } from "./config.js";
 import { getNextLogNum } from "./output/logger.js";
 import {
@@ -45,22 +43,7 @@ import { isAgentMode, setQuietMode } from "./output/agent-mode.js";
 import logUpdate from "log-update";
 import { createFailedJobResult, wrapJobError, isJobError } from "./runner/job-result.js";
 import { postCommitStatus } from "./commit-status.js";
-
-export function getWorkflowJobsWithFallback(template: any, workflowPath: string) {
-  if (Array.isArray(template?.jobs)) {
-    return template.jobs.filter((j: any) => j.type === "job");
-  }
-
-  const rawJobs = (YAML.parse(fs.readFileSync(workflowPath, "utf8"))?.jobs ?? {}) as Record<
-    string,
-    any
-  >;
-  return Object.entries(rawJobs).map(([id, rawJob]) => ({
-    type: "job",
-    id,
-    name: rawJob?.name ?? id,
-  }));
-}
+import { getWorkflowJobsWithFallback } from "./workflow/job-fallback.js";
 
 function findSignalsDir(runnerName: string): string | null {
   const workDir = getWorkingDirectory();
@@ -916,12 +899,7 @@ function resolveHeadSha(repoRoot: string, sha: string) {
   }
 }
 
-const invokedAsScript =
-  !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-
-if (invokedAsScript) {
-  run().catch((err) => {
-    console.error("[Agent CI] Fatal error:", err);
-    process.exit(1);
-  });
-}
+run().catch((err) => {
+  console.error("[Agent CI] Fatal error:", err);
+  process.exit(1);
+});

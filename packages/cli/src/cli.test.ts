@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { getWorkflowTemplate } from "./workflow/workflow-parser.js";
-import { getWorkflowJobsWithFallback } from "./cli.js";
+import { getWorkflowJobsWithFallback } from "./workflow/job-fallback.js";
 
 describe("getWorkflowJobsWithFallback", () => {
   let tmpDir: string;

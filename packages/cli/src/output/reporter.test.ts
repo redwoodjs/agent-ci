@@ -87,7 +87,9 @@ describe("printSummary", () => {
 
   it("strips ansi escape codes from failure logs", () => {
     const logPath = path.join(tmpDir, "ansi.log");
-    fs.writeFileSync(logPath, "\u001b[31mexpect\u001b[39m(value).\u001b[34mtoBe\u001b[39m('pass')\n");
+    const esc = String.fromCharCode(27);
+    const ansiText = `${esc}[31mexpect${esc}[39m(value).${esc}[34mtoBe${esc}[39m('pass')\n`;
+    fs.writeFileSync(logPath, ansiText);
 
     printSummary([
       makeResult({

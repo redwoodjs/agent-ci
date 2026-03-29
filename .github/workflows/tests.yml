@@ -35,7 +35,7 @@ jobs:
       - name: Test retry-proof failure output
         run: |
           set +e
-          output=$(pnpm agent-ci-dev run -w .github/workflows/retry-proof.yml 2>/dev/null)
+          output=$(cd packages/dtu-github-actions && pnpm run build >/dev/null && cd ../cli && pnpm exec tsx src/cli.ts run -w ../../.github/workflows/retry-proof.yml 2>&1)
           exit_code=$?
           set -e
           [ "$exit_code" -eq 1 ] || (echo "❌ Expected exit 1, got $exit_code" && exit 1)

@@ -181,12 +181,19 @@ describe("resolveDockerApiUrl", () => {
 
 describe("resolveDtuHost", () => {
   const originalBridgeGateway = process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY;
+  const originalDtuHost = process.env.AGENT_CI_DTU_HOST;
 
   afterEach(() => {
     if (originalBridgeGateway === undefined) {
       delete process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY;
     } else {
       process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY = originalBridgeGateway;
+    }
+
+    if (originalDtuHost === undefined) {
+      delete process.env.AGENT_CI_DTU_HOST;
+    } else {
+      process.env.AGENT_CI_DTU_HOST = originalDtuHost;
     }
   });
 
@@ -200,6 +207,7 @@ describe("resolveDtuHost", () => {
       }
       return originalExistsSync(filePath);
     });
+    delete process.env.AGENT_CI_DTU_HOST;
 
     await expect(resolveDtuHost()).resolves.toBe("host.docker.internal");
   });
@@ -214,6 +222,7 @@ describe("resolveDtuHost", () => {
       }
       return originalExistsSync(filePath);
     });
+    delete process.env.AGENT_CI_DTU_HOST;
     process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY = "10.10.0.1";
 
     await expect(resolveDtuHost()).resolves.toBe("10.10.0.1");
@@ -229,6 +238,7 @@ describe("resolveDtuHost", () => {
       }
       return originalExistsSync(filePath);
     });
+    delete process.env.AGENT_CI_DTU_HOST;
 
     await expect(resolveDtuHost()).resolves.toBe("host.docker.internal");
   });

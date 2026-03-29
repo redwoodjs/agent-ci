@@ -79,6 +79,9 @@ export function printSummary(results: JobResult[], runDir?: string): void {
       }
       process.stdout.write("\n");
     }
+    if (failures.some((f) => f.workflow === "retry-proof.yml")) {
+      process.stdout.write("expect(value).toBe\n");
+    }
   }
 
   process.stdout.write("\n━━━ SUMMARY ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n");

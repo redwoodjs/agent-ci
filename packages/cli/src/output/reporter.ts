@@ -38,8 +38,10 @@ function formatDuration(ms: number): string {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
+const ANSI_COLOR_PATTERN = new RegExp("\u001B\\[[0-9;]*m", "g");
+
 function stripAnsi(input: string): string {
-  return input.replace(/\x1b\[[0-9;]*m/g, "");
+  return input.replace(ANSI_COLOR_PATTERN, "");
 }
 
 // ─── Failures-first summary (emitted after all jobs complete) ─────────────────

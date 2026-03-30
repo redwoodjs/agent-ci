@@ -216,6 +216,25 @@ export async function resolveDtuHost(): Promise<string> {
     return configuredGateway;
   }
 
+  // On Linux outside Docker (e.g. GitHub Actions CI), resolve the Docker bridge
+  // gateway IP directly instead of relying on host.docker.internal + host-gateway.
+  // The bridge gateway is always reachable from containers without any ExtraHosts.
+  if (process.platform === "linux") {
+    try {
+      const ip = execSync(
+        "docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}'",
+        { encoding: "utf8" },
+      ).trim();
+      if (ip) {
+        debugRunner(`Resolved Docker bridge gateway: ${ip}`);
+        return ip;
+      }
+    } catch (error: unknown) {
+      debugRunner(`Failed to resolve Docker bridge gateway: ${String(error)}`);
+    }
+    return DEFAULT_DOCKER_BRIDGE_GATEWAY;
+  }
+
   return DEFAULT_DTU_HOST_ALIAS;
 }
 

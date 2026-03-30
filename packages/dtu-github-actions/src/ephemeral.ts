@@ -1,4 +1,6 @@
 import http from "node:http";
+import { execSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { setCacheDir } from "./server/store.js";
 import { bootstrapAndReturnApp } from "./server/index.js";
 
@@ -14,7 +16,30 @@ export interface EphemeralDtu {
 
 function resolveContainerHost(): string {
   const configuredHost = process.env.AGENT_CI_DTU_HOST?.trim();
-  return configuredHost || "host.docker.internal";
+  if (configuredHost) {
+    return configuredHost;
+  }
+
+  const isInsideDocker = existsSync("/.dockerenv");
+  // On Linux outside Docker (e.g. GitHub Actions CI), resolve the Docker bridge
+  // gateway IP directly instead of using host.docker.internal + host-gateway.
+  // The bridge gateway is always reachable from containers without any ExtraHosts.
+  if (process.platform === "linux" && !isInsideDocker) {
+    try {
+      const ip = execSync(
+        "docker network inspect bridge --format '{{range .IPAM.Config}}{{.Gateway}}{{end}}'",
+        { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+      ).trim();
+      if (ip) {
+        return ip;
+      }
+    } catch {
+      // fall through to default
+    }
+    return "172.17.0.1";
+  }
+
+  return "host.docker.internal";
 }
 
 /**

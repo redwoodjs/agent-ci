@@ -771,7 +771,10 @@ export async function executeLocalJob(
     }
     const containerExitCode = waitResult.StatusCode;
 
-    const jobSucceeded = lastFailedStep === null && containerExitCode === 0;
+    // isBooting stays true if the runner never sent any timeline entries — it
+    // started but couldn't reach the DTU or crashed before executing any steps.
+    // Treat that as a failure regardless of the container exit code.
+    const jobSucceeded = lastFailedStep === null && containerExitCode === 0 && !isBooting;
 
     // Update store with final exit code on failure
     if (!jobSucceeded) {

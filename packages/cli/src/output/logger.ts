@@ -13,9 +13,7 @@ export function ensureLogDirs(): void {
 
 export function getNextLogNum(prefix: string): number {
   const runsDir = getRunsDir();
-  if (!fs.existsSync(runsDir)) {
-    return 1;
-  }
+  fs.mkdirSync(runsDir, { recursive: true });
 
   const items = fs.readdirSync(runsDir, { withFileTypes: true });
   const nums = items
@@ -34,7 +32,24 @@ export function getNextLogNum(prefix: string): number {
       return match ? parseInt(match[1], 10) : 0;
     });
 
-  return nums.length > 0 ? Math.max(...nums) + 1 : 1;
+  const maxNum = nums.length > 0 ? Math.max(...nums) : 0;
+
+  // Atomically claim the next available number by creating the directory.
+  // fs.mkdirSync (without recursive) throws EEXIST if the directory already
+  // exists, making the claim race-free across concurrent jobs/workflows.
+  for (let n = maxNum + 1; n <= maxNum + 100; n++) {
+    try {
+      fs.mkdirSync(path.join(runsDir, `${prefix}-${n}`));
+      return n;
+    } catch (err: any) {
+      if (err.code === "EEXIST") {
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw new Error(`[Agent CI] Could not allocate a unique run number for '${prefix}'`);
 }
 
 export function createLogContext(prefix: string, preferredName?: string) {

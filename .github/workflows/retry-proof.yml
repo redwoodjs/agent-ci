@@ -17,5 +17,8 @@ jobs:
           node-version: 22
           cache: "pnpm"
       - run: pnpm install
+      - name: Seed failing fixture
+        run: echo "fail" > experiments/retry-proof/value.txt
       - name: Run assertion test
-        run: pnpm --filter retry-proof test
+        working-directory: experiments/retry-proof
+        run: NO_COLOR=1 pnpm test

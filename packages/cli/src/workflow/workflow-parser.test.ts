@@ -790,6 +790,37 @@ describe("isWorkflowRelevant", () => {
     expect(isWorkflowRelevant(template, "feature", ["cli/src/cli.ts"])).toBe(false);
   });
 
+  // ── pull_request_target ───────────────────────────────────────────────────
+
+  it("matches pull_request_target with no branch/path filters", () => {
+    expect(isWorkflowRelevant({ events: { pull_request_target: {} } }, "feature")).toBe(true);
+  });
+
+  it("matches pull_request_target when 'main' satisfies branch filter", () => {
+    expect(
+      isWorkflowRelevant({ events: { pull_request_target: { branches: ["main"] } } }, "feature"),
+    ).toBe(true);
+  });
+
+  it("skips pull_request_target when 'main' does not satisfy branch filter", () => {
+    expect(
+      isWorkflowRelevant(
+        { events: { pull_request_target: { branches: ["release/**"] } } },
+        "feature",
+      ),
+    ).toBe(false);
+  });
+
+  it("skips pull_request_target when all changed files match paths-ignore", () => {
+    expect(
+      isWorkflowRelevant(
+        { events: { pull_request_target: { "paths-ignore": ["**/*.md"] } } },
+        "feature",
+        ["README.md"],
+      ),
+    ).toBe(false);
+  });
+
   // ── pull_request with paths ───────────────────────────────────────────────
 
   it("skips PR workflow when all changed files match paths-ignore", () => {

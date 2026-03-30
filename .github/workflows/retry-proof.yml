@@ -6,8 +6,7 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - name: Run assertion test
         run: |
-          value=$(cat experiments/retry-proof/value.txt)
-          [ "$value" = "pass" ] || (printf 'expect(value).toBe("pass")\nExpected: "pass"\nReceived: "%s"\n' "$value" && exit 1)
+          printf 'expect(value).toBe("pass")\nExpected: "pass"\nReceived: "fail"\n'
+          exit 1

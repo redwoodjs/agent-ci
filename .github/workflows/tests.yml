@@ -34,7 +34,6 @@ jobs:
         run: pnpm --filter agent-ci test
       - name: Test retry-proof failure output
         run: |
-          echo "fail" > experiments/retry-proof/value.txt
           set +e
           output=$(pnpm agent-ci-dev run -w .github/workflows/retry-proof.yml 2>/dev/null)
           exit_code=$?

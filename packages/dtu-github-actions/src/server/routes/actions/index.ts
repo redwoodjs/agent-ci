@@ -467,6 +467,7 @@ export function registerActionRoutes(app: Polka) {
     // The runner sends updates with name: null (uses refName instead), so we must
     // strip null values to avoid overwriting existing data.
     for (const record of newRecords) {
+      // Strip null values so they don't overwrite existing data
       const nonNull: any = {};
       for (const [k, v] of Object.entries(record)) {
         if (v != null) {

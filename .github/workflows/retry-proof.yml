@@ -7,15 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 10.30.1
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-      - run: pnpm install
       - name: Run assertion test
-        run: cd experiments/retry-proof && pnpm test
+        run: |
+          value=$(cat experiments/retry-proof/value.txt)
+          [ "$value" = "pass" ] || (printf 'expect(value).toBe("pass")\nExpected: "pass"\nReceived: "%s"\n' "$value" && exit 1)

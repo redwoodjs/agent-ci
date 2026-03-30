@@ -52,6 +52,21 @@ export function killRunnerContainers(runnerName: string): void {
  * exhausting its address pool ("all predefined address pools have been fully subnetted").
  */
 export function pruneOrphanedDockerResources(): void {
+  // 0. Remove stopped agent-ci-* containers left behind by crashed/interrupted runs
+  try {
+    const ids = execSync(
+      `docker ps -aq --filter "name=agent-ci-" --filter "status=exited" --filter "status=created"`,
+      { encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] },
+    ).trim();
+    if (ids) {
+      execSync(`docker rm -f ${ids.split("\n").join(" ")}`, {
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+    }
+  } catch {
+    // Docker not reachable or no containers to remove
+  }
+
   // 1. Remove orphaned agent-ci-net-* networks
   try {
     const nets = execSync(`docker network ls -q --filter "name=agent-ci-net-"`, {

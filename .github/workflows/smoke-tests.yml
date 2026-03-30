@@ -196,7 +196,7 @@ jobs:
           node-version: 22
           cache: "pnpm"
       - run: pnpm install
-      - run: pnpm -r build
+      - run: pnpm --filter "./packages/**" -r build && chmod +x packages/cli/dist/cli.js
       - name: Verify shebang
         run: |
           head -1 packages/cli/dist/cli.js | grep -q '#!/usr/bin/env node'

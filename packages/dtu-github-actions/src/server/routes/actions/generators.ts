@@ -215,6 +215,14 @@ export function createJobResponse(
     "build.repository.uri": { Value: `https://github.com/${repoFullName}`, IsSecret: false },
   };
 
+  // Merge job-level env: vars (e.g. AGENT_CI_LOCAL=true) into Variables first so that
+  // step-level env can override them if needed.
+  if (payload.env && typeof payload.env === "object") {
+    for (const [key, val] of Object.entries(payload.env as Record<string, string>)) {
+      Variables[key] = { Value: String(val), IsSecret: false };
+    }
+  }
+
   // Merge all step-level env: vars into the job Variables.
   // The runner exports every Variable as a process env var for all steps, so this is the
   // reliable mechanism to get DB_HOST=mysql, DB_PORT=3306 etc. into the step subprocess.

@@ -34,8 +34,12 @@ jobs:
         run: pnpm --filter agent-ci test
       - name: Test retry-proof failure output
         run: |
+          if [ "${AGENT_CI_LOCAL:-false}" = "true" ]; then
+            echo "⏭️ Skipping: nested agent-ci runs are not supported in DinD (network isolation)"
+            exit 0
+          fi
           set +e
-          output=$(pnpm agent-ci-dev run -w .github/workflows/retry-proof.yml 2>/dev/null)
+          output=$(pnpm agent-ci-dev run -w .github/workflows/retry-proof.yml 2>&1)
           exit_code=$?
           set -e
           [ "$exit_code" -eq 1 ] || (echo "❌ Expected exit 1, got $exit_code" && exit 1)

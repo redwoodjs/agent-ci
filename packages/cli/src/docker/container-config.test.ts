@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import fs from "node:fs";
 
 afterEach(() => {
@@ -181,12 +181,24 @@ describe("resolveDockerApiUrl", () => {
 
 describe("resolveDtuHost", () => {
   const originalBridgeGateway = process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY;
+  const originalDtuHost = process.env.AGENT_CI_DTU_HOST;
+
+  beforeEach(() => {
+    // AGENT_CI_DTU_HOST is set in the container environment when running inside agent-ci.
+    // Clear it so tests exercise the full resolution logic instead of short-circuiting.
+    delete process.env.AGENT_CI_DTU_HOST;
+  });
 
   afterEach(() => {
     if (originalBridgeGateway === undefined) {
       delete process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY;
     } else {
       process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY = originalBridgeGateway;
+    }
+    if (originalDtuHost === undefined) {
+      delete process.env.AGENT_CI_DTU_HOST;
+    } else {
+      process.env.AGENT_CI_DTU_HOST = originalDtuHost;
     }
   });
 

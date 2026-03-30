@@ -66,6 +66,11 @@ async function run() {
   const command = args[0];
 
   if (command === "run") {
+    // Each concurrent job registers its own SIGINT/SIGTERM cleanup listener.
+    // Set to 0 (unlimited) to suppress the MaxListenersExceededWarning when
+    // running many jobs in parallel via --all.
+    process.setMaxListeners(0);
+
     let sha: string | undefined;
     let workflow: string | undefined;
     let pauseOnFailure = false;
@@ -778,6 +783,9 @@ async function handleWorkflow(options: {
             const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
             console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
             console.error(`  Error: ${errorMessage}`);
+            console.error(
+              `  This is an unexpected error. If it persists, please report it at https://github.com/redwoodjs/agent-ci/issues`,
+            );
             allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
           }
         }
@@ -800,6 +808,9 @@ async function handleWorkflow(options: {
             const errorMessage = isJobError(r.reason) ? r.reason.message : String(r.reason);
             console.error(`\n[Agent CI] Job failed with error: ${taskName}`);
             console.error(`  Error: ${errorMessage}`);
+            console.error(
+              `  This is an unexpected error. If it persists, please report it at https://github.com/redwoodjs/agent-ci/issues`,
+            );
             allResults.push(createFailedJobResult(taskName, workflowPath, r.reason));
           }
         }

@@ -136,6 +136,12 @@ export async function executeLocalJob(
     debugLogPath,
   } = createLogContext("agent-ci", job.runnerName);
 
+  // All ephemeral DTU instances share the same in-process state singleton, so jobs
+  // seeded without a runnerName go into the shared generic pool and can be picked up
+  // by any runner. Pin every job to its container so it's stored in runnerJobs and
+  // only dispatched to the matching runner.
+  job.runnerName = containerName;
+
   // Register the job in the store so the render loop can show the boot spinner
   store?.addJob(job.workflowPath ?? "", job.taskId ?? "job", containerName, {
     logDir,
@@ -213,6 +219,8 @@ export async function executeLocalJob(
   };
   process.once("SIGINT", signalCleanup);
   process.once("SIGTERM", signalCleanup);
+
+  let container: Docker.Container | null = null;
 
   try {
     // 1. Seed the job to Local DTU
@@ -325,9 +333,13 @@ export async function executeLocalJob(
     if (useDirectContainer) {
       await fs.promises.mkdir(hostRunnerSeedDir, { recursive: true });
       const markerFile = path.join(hostRunnerSeedDir, ".seeded");
-      try {
-        await fs.promises.access(markerFile);
-      } catch {
+      const runShPath = path.join(hostRunnerSeedDir, "run.sh");
+      const seedValid = await fs.promises
+        .access(markerFile)
+        .then(() => fs.promises.access(runShPath))
+        .then(() => true)
+        .catch(() => false);
+      if (!seedValid) {
         debugRunner(`Extracting runner binary to host (one-time)...`);
         const tmpName = `agent-ci-seed-runner-${Date.now()}`;
         const seedContainer = await docker.createContainer({
@@ -415,7 +427,7 @@ export async function executeLocalJob(
     const extraHosts = resolveDockerExtraHosts(dtuHost);
 
     t0 = Date.now();
-    const container = await docker.createContainer({
+    container = await docker.createContainer({
       Image: containerImage,
       name: containerName,
       Env: containerEnv,
@@ -534,6 +546,13 @@ export async function executeLocalJob(
               attempt: lastSeenAttempt,
               lastOutputLines: tailLines,
             });
+
+            // In non-interactive environments (CI or running inside an agent-ci container),
+            // auto-abort so the process doesn't hang waiting for a human who isn't there.
+            const isNonInteractive = !process.stdin.isTTY || process.env.AGENT_CI_LOCAL === "true";
+            if (isNonInteractive) {
+              fs.writeFileSync(path.join(dirs.signalsDir, "abort"), "");
+            }
           }
         } else if (isPaused && !fs.existsSync(pausedSignalPath)) {
           // Pause signal removed — job is retrying
@@ -806,8 +825,6 @@ export async function executeLocalJob(
       }
     }
 
-    await ephemeralDtu?.close().catch(() => {});
-
     return buildJobResult({
       containerName,
       job,
@@ -823,5 +840,7 @@ export async function executeLocalJob(
   } finally {
     process.removeListener("SIGINT", signalCleanup);
     process.removeListener("SIGTERM", signalCleanup);
+    await container?.remove({ force: true }).catch(() => {});
+    await ephemeralDtu?.close().catch(() => {});
   }
 }

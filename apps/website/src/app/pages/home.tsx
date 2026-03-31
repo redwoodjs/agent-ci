@@ -325,6 +325,44 @@ export const Home = () => {
                   </div>
                 </div>
               </Panel>
+
+              <Panel title="x.com/bebraw" className="bg-[#12211c]">
+                <QuoteIcon className="text-[#34594c] mb-4" size={32} />
+                <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
+                  "Nice! Exactly what I needed."
+                </p>
+                <div className="flex items-center gap-3">
+                  <img
+                    src="https://unavatar.io/x/bebraw"
+                    alt="Juho Vepsäläinen"
+                    className="w-10 h-10 rounded-full border border-[#3f6f5e]"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div>
+                    <p className="text-[#e0eee5] font-bold text-sm">Juho Vepsäläinen</p>
+                    <p className="text-[#71a792] text-xs font-mono">@bebraw</p>
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel title="x.com/MrAhmadAwais" className="bg-[#12211c]">
+                <QuoteIcon className="text-[#34594c] mb-4" size={32} />
+                <p className="text-[#e0eee5] text-xl leading-relaxed mb-6 font-serif">
+                  "Oh noice."
+                </p>
+                <div className="flex items-center gap-3">
+                  <img
+                    src="https://unavatar.io/x/MrAhmadAwais"
+                    alt="Ahmad Awais"
+                    className="w-10 h-10 rounded-full border border-[#3f6f5e]"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div>
+                    <p className="text-[#e0eee5] font-bold text-sm">Ahmad Awais</p>
+                    <p className="text-[#71a792] text-xs font-mono">@MrAhmadAwais</p>
+                  </div>
+                </div>
+              </Panel>
             </div>
           </div>
 

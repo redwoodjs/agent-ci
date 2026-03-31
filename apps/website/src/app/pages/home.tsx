@@ -1,6 +1,7 @@
 import { Panel } from "../components/Panel";
 import { Terminal } from "../components/Terminal";
 import { HeroSection } from "../components/HeroSection";
+import { CopyAgentInstructions } from "../components/CopyAgentInstructions";
 import { Terminal as TerminalIcon, Star as StarIcon, Quote as QuoteIcon } from "lucide-react";
 
 export const Home = () => {
@@ -332,6 +333,7 @@ export const Home = () => {
             <div>
               <div className="flex items-center gap-4 mb-8">
                 <h2 className="text-3xl font-bold text-[#e0eee5] font-serif">Quick Start</h2>
+                <CopyAgentInstructions />
                 <div className="h-px bg-[#2b483e] flex-1"></div>
               </div>
 
@@ -395,7 +397,7 @@ export const Home = () => {
               <Terminal
                 title="AGENTS.md"
                 language="markdown"
-                code={`## agent-ci\n\n- Use \`npx @redwoodjs/agent-ci run --quiet --workflow .github/workflows/ci.yml\` to run CI locally\n- When a step fails, the run pauses automatically. Use \`npx @redwoodjs/agent-ci retry --name <runner>\` to retry after fixing the failure\n- Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free\n- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures\n- Use \`--no-matrix\` to collapse matrix jobs into a single run when you don't need full matrix coverage`}
+                code={`## agent-ci\n\n- Use \`npx @redwoodjs/agent-ci run --quiet --all\` to run CI locally\n- When a step fails, the run pauses automatically. Use \`npx @redwoodjs/agent-ci retry --name <runner>\` to retry after fixing the failure\n- Do NOT push to trigger remote CI when agent-ci can run it locally — it's instant and free\n- CI was green before you started. Any failure is caused by your changes — do not assume pre-existing failures\n- Use \`--no-matrix\` to collapse matrix jobs into a single run when you don't need full matrix coverage`}
               />
             </div>
           </div>

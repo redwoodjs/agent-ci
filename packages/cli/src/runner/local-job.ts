@@ -178,6 +178,7 @@ export async function executeLocalJob(
     githubRepo: job.githubRepo,
     workflowPath: job.workflowPath,
   });
+  debugRunner(`Detected package manager: ${dirs.detectedPM ?? "none (mounting all PM caches)"}`);
 
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",

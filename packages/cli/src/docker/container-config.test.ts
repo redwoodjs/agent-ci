@@ -49,7 +49,7 @@ describe("buildContainerEnv", () => {
 // ── buildContainerBinds ───────────────────────────────────────────────────────
 
 describe("buildContainerBinds", () => {
-  it("builds standard bind mounts", async () => {
+  it("builds standard bind mounts with all PM caches", async () => {
     const { buildContainerBinds } = await import("./container-config.js");
     const binds = buildContainerBinds({
       hostWorkDir: "/tmp/work",
@@ -69,8 +69,49 @@ describe("buildContainerBinds", () => {
     expect(binds).toContain("/var/run/docker.sock:/var/run/docker.sock");
     expect(binds).toContain("/tmp/shims:/tmp/agent-ci-shims");
     expect(binds).toContain("/tmp/warm:/tmp/warm-modules");
+    expect(binds).toContain("/tmp/pnpm:/home/runner/_work/.pnpm-store");
+    expect(binds).toContain("/tmp/npm:/home/runner/.npm");
+    expect(binds).toContain("/tmp/bun:/home/runner/.bun/install/cache");
     // Standard mode should NOT include runner home bind (but _work bind is expected)
     expect(binds.some((b) => b.endsWith(":/home/runner"))).toBe(false);
+  });
+
+  it("omits PM bind mounts when cache dirs are not provided", async () => {
+    const { buildContainerBinds } = await import("./container-config.js");
+    const binds = buildContainerBinds({
+      hostWorkDir: "/tmp/work",
+      shimsDir: "/tmp/shims",
+      diagDir: "/tmp/diag",
+      toolCacheDir: "/tmp/toolcache",
+      playwrightCacheDir: "/tmp/playwright",
+      warmModulesDir: "/tmp/warm",
+      hostRunnerDir: "/tmp/runner",
+      useDirectContainer: false,
+    });
+
+    expect(binds).toContain("/tmp/work:/home/runner/_work");
+    expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
+    expect(binds.some((b) => b.includes("/.npm"))).toBe(false);
+    expect(binds.some((b) => b.includes(".bun"))).toBe(false);
+  });
+
+  it("includes only the npm bind mount when only npmCacheDir is provided", async () => {
+    const { buildContainerBinds } = await import("./container-config.js");
+    const binds = buildContainerBinds({
+      hostWorkDir: "/tmp/work",
+      shimsDir: "/tmp/shims",
+      diagDir: "/tmp/diag",
+      toolCacheDir: "/tmp/toolcache",
+      npmCacheDir: "/tmp/npm",
+      playwrightCacheDir: "/tmp/playwright",
+      warmModulesDir: "/tmp/warm",
+      hostRunnerDir: "/tmp/runner",
+      useDirectContainer: false,
+    });
+
+    expect(binds).toContain("/tmp/npm:/home/runner/.npm");
+    expect(binds.some((b) => b.includes(".pnpm-store"))).toBe(false);
+    expect(binds.some((b) => b.includes(".bun"))).toBe(false);
   });
 
   it("includes runner bind mount for direct container", async () => {

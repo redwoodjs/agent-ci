@@ -178,6 +178,62 @@ describe("computeLockfileHash", () => {
   });
 });
 
+// ── detectPackageManager tests ────────────────────────────────────────────────
+
+describe("detectPackageManager", () => {
+  let repoDir: string;
+
+  beforeEach(() => {
+    repoDir = fs.mkdtempSync(path.join(os.tmpdir(), "oa-pm-detect-"));
+  });
+
+  afterEach(() => {
+    fs.rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it("detects pnpm from pnpm-lock.yaml", async () => {
+    const { detectPackageManager } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    expect(detectPackageManager(repoDir)).toBe("pnpm");
+  });
+
+  it("detects npm from package-lock.json", async () => {
+    const { detectPackageManager } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "package-lock.json"), '{"lockfileVersion": 3}');
+    expect(detectPackageManager(repoDir)).toBe("npm");
+  });
+
+  it("detects yarn from yarn.lock", async () => {
+    const { detectPackageManager } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "yarn.lock"), "# yarn lockfile v1");
+    expect(detectPackageManager(repoDir)).toBe("yarn");
+  });
+
+  it("detects bun from bun.lock", async () => {
+    const { detectPackageManager } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "bun.lock"), '{"lockfileVersion": 0}');
+    expect(detectPackageManager(repoDir)).toBe("bun");
+  });
+
+  it("detects bun from bun.lockb", async () => {
+    const { detectPackageManager } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "bun.lockb"), Buffer.from([0x00]));
+    expect(detectPackageManager(repoDir)).toBe("bun");
+  });
+
+  it("returns null when no lockfile exists", async () => {
+    const { detectPackageManager } = await import("./cleanup.js");
+    expect(detectPackageManager(repoDir)).toBeNull();
+  });
+
+  it("prefers pnpm over npm when both lockfiles exist", async () => {
+    const { detectPackageManager } = await import("./cleanup.js");
+    fs.writeFileSync(path.join(repoDir, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
+    fs.writeFileSync(path.join(repoDir, "package-lock.json"), '{"lockfileVersion": 3}');
+    expect(detectPackageManager(repoDir)).toBe("pnpm");
+  });
+});
+
 // ── isWarmNodeModules tests ───────────────────────────────────────────────────
 
 describe("isWarmNodeModules", () => {

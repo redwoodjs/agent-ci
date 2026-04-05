@@ -15,9 +15,9 @@ export interface ContainerBindsOpts {
   signalsDir?: string;
   diagDir: string;
   toolCacheDir: string;
-  pnpmStoreDir: string;
-  npmCacheDir: string;
-  bunCacheDir: string;
+  pnpmStoreDir?: string;
+  npmCacheDir?: string;
+  bunCacheDir?: string;
   playwrightCacheDir: string;
   warmModulesDir: string;
   hostRunnerDir: string;
@@ -105,10 +105,10 @@ export function buildContainerBinds(opts: ContainerBindsOpts): string[] {
     ...(signalsDir ? [`${h(signalsDir)}:/tmp/agent-ci-signals`] : []),
     `${h(diagDir)}:/home/runner/_diag`,
     `${h(toolCacheDir)}:/opt/hostedtoolcache`,
-    // Package manager caches (persist across runs)
-    `${h(pnpmStoreDir)}:/home/runner/_work/.pnpm-store`,
-    `${h(npmCacheDir)}:/home/runner/.npm`,
-    `${h(bunCacheDir)}:/home/runner/.bun/install/cache`,
+    // Package manager caches (persist across runs, only for detected PM)
+    ...(pnpmStoreDir ? [`${h(pnpmStoreDir)}:/home/runner/_work/.pnpm-store`] : []),
+    ...(npmCacheDir ? [`${h(npmCacheDir)}:/home/runner/.npm`] : []),
+    ...(bunCacheDir ? [`${h(bunCacheDir)}:/home/runner/.bun/install/cache`] : []),
     `${h(playwrightCacheDir)}:/home/runner/.cache/ms-playwright`,
     // Warm node_modules: mounted outside the workspace so actions/checkout can
     // delete the symlink without EBUSY. A symlink in the entrypoint points

@@ -1,7 +1,8 @@
 import path from "path";
 import fs from "fs";
 import { getWorkingDirectory } from "../output/working-directory.js";
-import { computeLockfileHash, repairWarmCache } from "../output/cleanup.js";
+import { computeLockfileHash, detectPackageManager, repairWarmCache } from "../output/cleanup.js";
+import type { PackageManager } from "../output/cleanup.js";
 import { config } from "../config.js";
 import { findRepoRoot } from "./metadata.js";
 import { debugRunner } from "../output/debug.js";
@@ -14,13 +15,14 @@ export interface RunDirectories {
   signalsDir: string;
   diagDir: string;
   toolCacheDir: string;
-  pnpmStoreDir: string;
-  npmCacheDir: string;
-  bunCacheDir: string;
+  pnpmStoreDir?: string;
+  npmCacheDir?: string;
+  bunCacheDir?: string;
   playwrightCacheDir: string;
   warmModulesDir: string;
   workspaceDir: string;
   repoSlug: string;
+  detectedPM: PackageManager | null;
 }
 
 export interface CreateRunDirectoriesOpts {
@@ -50,15 +52,32 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
   // Shared caches
   const repoSlug = (githubRepo || config.GITHUB_REPO).replace("/", "-");
   const toolCacheDir = path.resolve(workDir, "cache", "toolcache");
-  const pnpmStoreDir = path.resolve(workDir, "cache", "pnpm-store", repoSlug);
-  const npmCacheDir = path.resolve(workDir, "cache", "npm-cache", repoSlug);
-  const bunCacheDir = path.resolve(workDir, "cache", "bun-cache", repoSlug);
   const playwrightCacheDir = path.resolve(workDir, "cache", "playwright", repoSlug);
+
+  // Detect the project's package manager so we only mount the relevant cache
+  let detectedPM: PackageManager | null = null;
+  const repoRoot = workflowPath ? findRepoRoot(workflowPath) : undefined;
+  if (repoRoot) {
+    detectedPM = detectPackageManager(repoRoot);
+  }
+
+  // Only create cache dirs for the detected PM (or all if unknown)
+  const pnpmStoreDir =
+    !detectedPM || detectedPM === "pnpm"
+      ? path.resolve(workDir, "cache", "pnpm-store", repoSlug)
+      : undefined;
+  const npmCacheDir =
+    !detectedPM || detectedPM === "npm"
+      ? path.resolve(workDir, "cache", "npm-cache", repoSlug)
+      : undefined;
+  const bunCacheDir =
+    !detectedPM || detectedPM === "bun"
+      ? path.resolve(workDir, "cache", "bun-cache", repoSlug)
+      : undefined;
 
   // Warm node_modules: keyed by the lockfile hash (any supported PM)
   let lockfileHash = "no-lockfile";
   try {
-    const repoRoot = workflowPath ? findRepoRoot(workflowPath) : undefined;
     if (repoRoot) {
       lockfileHash = computeLockfileHash(repoRoot);
     }
@@ -84,7 +103,7 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
     bunCacheDir,
     playwrightCacheDir,
     warmModulesDir,
-  ];
+  ].filter((d): d is string => d !== undefined);
   for (const dir of allDirs) {
     fs.mkdirSync(dir, { recursive: true, mode: 0o777 });
   }
@@ -111,6 +130,7 @@ export function createRunDirectories(opts: CreateRunDirectoriesOpts): RunDirecto
     warmModulesDir,
     workspaceDir,
     repoSlug,
+    detectedPM,
   };
 }
 

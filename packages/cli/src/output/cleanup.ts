@@ -85,6 +85,29 @@ const LOCKFILE_NAMES = [
   "bun.lockb",
 ];
 
+export type PackageManager = "pnpm" | "npm" | "yarn" | "bun";
+
+const LOCKFILE_TO_PM: Record<string, PackageManager> = {
+  "pnpm-lock.yaml": "pnpm",
+  "package-lock.json": "npm",
+  "yarn.lock": "yarn",
+  "bun.lock": "bun",
+  "bun.lockb": "bun",
+};
+
+/**
+ * Detect the project's package manager by looking for lockfiles in the repo root.
+ * Returns the first match in priority order, or null if no lockfile is found.
+ */
+export function detectPackageManager(repoRoot: string): PackageManager | null {
+  for (const name of LOCKFILE_NAMES) {
+    if (fs.existsSync(path.join(repoRoot, name))) {
+      return LOCKFILE_TO_PM[name]!;
+    }
+  }
+  return null;
+}
+
 /**
  * Compute a short SHA-256 hash of lockfiles tracked in the repo.
  * Searches for all known lockfile types (pnpm, npm, yarn, bun) and hashes

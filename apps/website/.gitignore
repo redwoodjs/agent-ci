@@ -65,3 +65,6 @@ coverage
 
 # Wrangler
 .wrangler
+
+# Content Collections
+.content-collections

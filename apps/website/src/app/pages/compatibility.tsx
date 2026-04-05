@@ -33,6 +33,9 @@ export const Compatibility = () => {
             <a href="/compatibility" className="text-[#e0eee5]">
               Compatibility
             </a>
+            <a href="/blog" className="hover:text-[#e0eee5] transition-colors">
+              Blog
+            </a>
             <a
               href="https://github.com/redwoodjs/agent-ci"
               target="_blank"

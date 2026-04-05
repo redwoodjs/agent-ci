@@ -61,17 +61,17 @@ Ideas sourced from https://github.com/redwoodjs/agent-ci/pull/98#issuecomment-41
 
 ---
 
-## [ ] Commits as Save Points (Reframing the Friction)
+## [ ] Commits as Save Points (A Pattern, Not a Requirement)
 
-**The idea:** agent-ci requires committed code, which feels like friction — but in squash-merge workflows it becomes a feature.
+**The idea:** agent-ci can run against dirty/uncommitted code, but committing before a run turns the commit into a save point — especially useful in the fix-retry loop.
 
 **Points to make:**
 
-- The objection: "I don't want to commit half-baked work just to run CI"
-- The reframe: with squash-merge, intermediate commits are throwaway anyway
-- The workflow: commit → run → fail → fix with `--pause-on-failure` → retry → commit fix → done. The commit is a save point, not a publication
-- Tightens the test-repair-fix loop vs. `git stash`-based workflows
-- Address when this doesn't work well (e.g. non-squash workflows, large teams with noisy history)
+- Clarify: agent-ci runs against your working tree, committed or not — no friction required
+- The optional pattern: commit → run → fail → fix with `--pause-on-failure` → retry → commit fix → done
+- When you do commit, the commit becomes a save point you can return to if the fix makes things worse
+- Particularly useful with squash-merge workflows where intermediate commits are throwaway anyway
+- The agentic angle: Claude Code benefits from save points because it can roll back to a known-good state before trying a different fix
 
 ---
 

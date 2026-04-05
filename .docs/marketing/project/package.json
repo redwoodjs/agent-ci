@@ -1,7 +1,0 @@
-{
-  "name": "demo-project",
-  "private": true,
-  "scripts": {
-    "test": "node --test value.test.mjs"
-  }
-}

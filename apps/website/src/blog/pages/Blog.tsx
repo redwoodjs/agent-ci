@@ -1,17 +1,15 @@
-import { CompatibilityMatrix } from "../components/CompatibilityMatrix";
+import { allPosts } from "content-collections";
 import { Terminal as TerminalIcon } from "lucide-react";
 
-export const Compatibility = () => {
+export function Blog() {
+  const posts = allPosts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
   return (
     <div className="min-h-screen relative overflow-hidden selection:bg-[#528b76] selection:text-[#f2f7f4]">
-      {/* CRT Effects */}
       <div className="crt-flicker pointer-events-none" />
       <div className="scanline pointer-events-none" />
-
-      {/* Background Grid */}
       <div className="absolute inset-0 bg-[linear-gradient(rgba(43,72,62,0.1)_1px,transparent_1px),linear-gradient(90deg,rgba(43,72,62,0.1)_1px,transparent_1px)] bg-[size:40px_40px] [mask-image:radial-gradient(ellipse_80%_80%_at_50%_50%,#000_20%,transparent_100%)] pointer-events-none" />
 
-      {/* Sticky Navbar */}
       <nav className="sticky top-0 z-50 border-b border-[#2b483e] bg-[#0d110f]/80 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-6 h-16 flex justify-between items-center">
           <a href="/" className="flex items-center gap-3">
@@ -30,10 +28,10 @@ export const Compatibility = () => {
             <a href="/#principles" className="hover:text-[#e0eee5] transition-colors">
               Principles
             </a>
-            <a href="/compatibility" className="text-[#e0eee5]">
+            <a href="/compatibility" className="hover:text-[#e0eee5] transition-colors">
               Compatibility
             </a>
-            <a href="/blog" className="hover:text-[#e0eee5] transition-colors">
+            <a href="/blog" className="text-[#e0eee5]">
               Blog
             </a>
             <a
@@ -48,30 +46,57 @@ export const Compatibility = () => {
         </div>
       </nav>
 
-      <div className="max-w-6xl mx-auto px-6 py-12 relative z-10">
+      <div className="max-w-3xl mx-auto px-6 py-12 relative z-10">
         <div className="mb-12">
           <div className="flex items-center gap-4 mb-4">
-            <h1 className="text-4xl font-bold text-[#e0eee5] font-serif">YAML Compatibility</h1>
+            <h1 className="text-4xl font-bold text-[#e0eee5] font-serif">Blog</h1>
             <div className="h-px bg-[#2b483e] flex-1"></div>
           </div>
-          <p className="text-[#9bc5b3] text-lg max-w-2xl">
-            Agent CI aims to run real GitHub Actions workflows locally. Below is current support
-            against the{" "}
-            <a
-              href="https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#71a792] hover:text-[#e0eee5] underline decoration-[#34594c] underline-offset-4 transition-colors"
-            >
-              official workflow syntax
-            </a>
-            .
-          </p>
+          <p className="text-[#9bc5b3] text-lg">Articles and updates from the Agent CI team.</p>
         </div>
 
-        <CompatibilityMatrix />
+        <div className="flex flex-col gap-6">
+          {posts.map((post) => {
+            const slug = post._meta.path.replace(/\.md$/, "");
+            return (
+              <article
+                key={post._meta.path}
+                className="border border-[#2b483e] rounded-sm bg-[#12211c] p-6 hover:border-[#3f6f5e] transition-colors"
+              >
+                <h2 className="text-xl font-bold font-serif text-[#e0eee5] mb-2 leading-snug">
+                  <a href={`/blog/${slug}`} className="hover:text-[#9bc5b3] transition-colors">
+                    {post.title}
+                    {post.protected && (
+                      <span className="ml-2 text-sm text-[#71a792] font-mono">🔒</span>
+                    )}
+                  </a>
+                </h2>
 
-        {/* Footer */}
+                <div className="flex items-center gap-3 text-xs font-mono text-[#71a792] mb-3 uppercase tracking-wider">
+                  <span>{post.author}</span>
+                  <span className="text-[#34594c]">·</span>
+                  <time>
+                    {new Date(post.date).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </time>
+                </div>
+
+                <p className="text-[#9bc5b3] text-sm leading-relaxed mb-4">{post.summary}</p>
+
+                <a
+                  href={`/blog/${slug}`}
+                  className="text-[#528b76] hover:text-[#9bc5b3] text-sm font-mono transition-colors"
+                >
+                  Read more →
+                </a>
+              </article>
+            );
+          })}
+        </div>
+
         <footer className="border-t border-[#2b483e] pt-8 mt-12 flex flex-col md:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2 text-[#71a792] font-mono text-sm">
             <TerminalIcon size={16} />
@@ -90,4 +115,4 @@ export const Compatibility = () => {
       </div>
     </div>
   );
-};
+}

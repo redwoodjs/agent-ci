@@ -677,7 +677,24 @@ export function isWorkflowRelevant(template: any, branch: string, changedFiles?:
     }
   }
 
-  // 2. Check push
+  // 2. Check pull_request_target (same logic as pull_request)
+  if (events.pull_request_target) {
+    const prt = events.pull_request_target;
+    let branchMatches = false;
+    if (!prt.branches && !prt["branches-ignore"]) {
+      branchMatches = true;
+    } else if (prt.branches) {
+      branchMatches = prt.branches.some((pattern: string) => minimatch("main", pattern));
+    } else if (prt["branches-ignore"]) {
+      branchMatches = !prt["branches-ignore"].some((pattern: string) => minimatch("main", pattern));
+    }
+
+    if (branchMatches && matchesPaths(prt, changedFiles)) {
+      return true;
+    }
+  }
+
+  // 3. Check push
   if (events.push) {
     const push = events.push;
     let branchMatches = false;

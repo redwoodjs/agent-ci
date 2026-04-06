@@ -805,6 +805,34 @@ describe("isWorkflowRelevant", () => {
     });
     expect(isWorkflowRelevant(template, "feature", ["cli/src/cli.ts"])).toBe(true);
   });
+
+  // ── pull_request_target ─────────────────────────────────────────────────
+
+  function prtTemplate(config: Record<string, any> = {}) {
+    return { events: { pull_request_target: config } };
+  }
+
+  it("matches pull_request_target with no filters", () => {
+    expect(isWorkflowRelevant(prtTemplate(), "feature")).toBe(true);
+  });
+
+  it("matches pull_request_target when branch filter includes main", () => {
+    expect(isWorkflowRelevant(prtTemplate({ branches: ["main"] }), "feature")).toBe(true);
+  });
+
+  it("skips pull_request_target when branch filter excludes main", () => {
+    expect(isWorkflowRelevant(prtTemplate({ branches: ["develop"] }), "feature")).toBe(false);
+  });
+
+  it("matches pull_request_target with paths filter when files match", () => {
+    const template = prtTemplate({ paths: ["src/**"] });
+    expect(isWorkflowRelevant(template, "feature", ["src/index.ts"])).toBe(true);
+  });
+
+  it("skips pull_request_target with paths filter when no files match", () => {
+    const template = prtTemplate({ paths: ["src/**"] });
+    expect(isWorkflowRelevant(template, "feature", ["README.md"])).toBe(false);
+  });
 });
 
 // ─── fromJSON / toJSON ────────────────────────────────────────────────────────

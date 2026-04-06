@@ -1,5 +1,20 @@
 # @redwoodjs/agent-ci
 
+## 0.7.0
+
+### Minor Changes
+
+- c2fe31b: Cache action tarballs on first download and serve from disk on subsequent runs, eliminating ~30s GitHub CDN delays. Capture step output via tee to signals dir for reliable pause-on-failure tail display. Fix CLI to treat empty results as failure.
+- acb750f: Show Docker image pull progress (bytes downloaded / total) as a sub-step under "Starting runner" during boot.
+
+### Patch Changes
+
+- f9f17fd: Detect project package manager and only mount relevant PM cache directories into the container. Projects using npm, yarn, or bun no longer get unnecessary pnpm store bind mounts (and vice versa). Falls back to mounting all PM caches when no lockfile is detected.
+- Updated dependencies [f9f17fd]
+- Updated dependencies [c2fe31b]
+- Updated dependencies [acb750f]
+  - dtu-github-actions@0.7.0
+
 ## 0.6.0
 
 ### Minor Changes

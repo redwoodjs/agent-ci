@@ -37,18 +37,47 @@ export function getNextLogNum(prefix: string): number {
   return nums.length > 0 ? Math.max(...nums) + 1 : 1;
 }
 
+/**
+ * Atomically allocate a numbered run directory under `runs/`.
+ * Uses mkdirSync without `recursive` so that EEXIST signals a
+ * collision — the caller just increments and retries.
+ */
+function allocateRunDir(prefix: string): { num: number; name: string; runDir: string } {
+  const runsDir = getRunsDir();
+  let num = getNextLogNum(prefix);
+
+  for (;;) {
+    const name = `${prefix}-${num}`;
+    const runDir = path.join(runsDir, name);
+    try {
+      fs.mkdirSync(runDir); // atomic — fails with EEXIST on collision
+      return { num, name, runDir };
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+        num++;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
 export function createLogContext(prefix: string, preferredName?: string) {
   ensureLogDirs();
 
-  let num = 0;
-  let name = preferredName;
+  let num: number;
+  let name: string;
+  let runDir: string;
 
-  if (!name) {
-    num = getNextLogNum(prefix);
-    name = `${prefix}-${num}`;
+  if (preferredName) {
+    num = 0;
+    name = preferredName;
+    runDir = path.join(getRunsDir(), name);
+    fs.mkdirSync(runDir, { recursive: true });
+  } else {
+    ({ num, name, runDir } = allocateRunDir(prefix));
   }
 
-  const runDir = path.join(getRunsDir(), name);
   const logDir = path.join(runDir, "logs");
   fs.mkdirSync(logDir, { recursive: true });
 

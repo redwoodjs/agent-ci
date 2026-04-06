@@ -170,6 +170,16 @@ export async function executeLocalJob(
   const dtuContainerUrl = ephemeralDtu?.containerUrl ?? dtuUrl;
   t0 = bt("dtu-start", t0);
 
+  // ── Create run directories ────────────────────────────────────────────────
+  // Done before DTU registration so we can use the detected package manager
+  // to scope virtualCachePatterns to only the relevant PM.
+  const dirs = createRunDirectories({
+    runDir,
+    githubRepo: job.githubRepo,
+    workflowPath: job.workflowPath,
+  });
+  debugRunner(`Detected package manager: ${dirs.detectedPM ?? "none (mounting all PM caches)"}`);
+
   await fetch(`${dtuUrl}/_dtu/start-runner`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -181,7 +191,7 @@ export async function executeLocalJob(
       // no need for the runner to tar/gzip them. Tell the DTU to return a
       // synthetic hit for any cache key matching these patterns — skipping the
       // 60s+ tar entirely.
-      virtualCachePatterns: ["pnpm", "npm", "yarn", "bun"],
+      virtualCachePatterns: dirs.detectedPM ? [dirs.detectedPM] : ["pnpm", "npm", "yarn", "bun"],
     }),
   }).catch(() => {
     /* non-fatal */
@@ -193,13 +203,6 @@ export async function executeLocalJob(
 
   // Open debug stream to capture raw container output
   const debugStream = fs.createWriteStream(debugLogPath);
-
-  // ── Create run directories ────────────────────────────────────────────────
-  const dirs = createRunDirectories({
-    runDir,
-    githubRepo: job.githubRepo,
-    workflowPath: job.workflowPath,
-  });
 
   // Signal handler: ensure cleanup runs even when killed.
   const signalCleanup = () => {

@@ -386,6 +386,12 @@ async function runWorkflows(options: {
       );
       const warm = isWarmNodeModules(warmModulesDir);
 
+      // Pre-allocate unique run numbers so parallel workflows don't collide.
+      // Each workflow gets its own baseRunNum (e.g. 306, 307, 308) so their
+      // job suffixes (-j1, -j2, -j3) never produce duplicate container names.
+      const baseRunNum = getNextLogNum("agent-ci");
+      const runNums = workflowPaths.map((_, i) => baseRunNum + i);
+
       if (!warm && workflowPaths.length > 1) {
         // Cold cache — run first workflow serially to populate warm modules,
         // then launch the rest in parallel.
@@ -395,15 +401,21 @@ async function runWorkflows(options: {
           pauseOnFailure,
           noMatrix,
           store,
+          baseRunNum: runNums[0],
         });
         allResults.push(...firstResults);
 
         const settled = await Promise.allSettled(
-          workflowPaths
-            .slice(1)
-            .map((wf) =>
-              handleWorkflow({ workflowPath: wf, sha, pauseOnFailure, noMatrix, store }),
-            ),
+          workflowPaths.slice(1).map((wf, i) =>
+            handleWorkflow({
+              workflowPath: wf,
+              sha,
+              pauseOnFailure,
+              noMatrix,
+              store,
+              baseRunNum: runNums[i + 1],
+            }),
+          ),
         );
         for (const s of settled) {
           if (s.status === "fulfilled") {
@@ -414,8 +426,15 @@ async function runWorkflows(options: {
         }
       } else {
         const settled = await Promise.allSettled(
-          workflowPaths.map((wf) =>
-            handleWorkflow({ workflowPath: wf, sha, pauseOnFailure, noMatrix, store }),
+          workflowPaths.map((wf, i) =>
+            handleWorkflow({
+              workflowPath: wf,
+              sha,
+              pauseOnFailure,
+              noMatrix,
+              store,
+              baseRunNum: runNums[i],
+            }),
           ),
         );
         for (const s of settled) {
@@ -455,6 +474,7 @@ async function handleWorkflow(options: {
   pauseOnFailure: boolean;
   noMatrix?: boolean;
   store: RunStateStore;
+  baseRunNum?: number;
 }): Promise<JobResult[]> {
   const { sha, pauseOnFailure, noMatrix = false, store } = options;
   let workflowPath = options.workflowPath;
@@ -575,7 +595,7 @@ async function handleWorkflow(options: {
     let warm = isWarmNodeModules(warmModulesDir);
 
     // Naming convention: agent-ci-<N>[-j<idx>][-m<shardIdx>]
-    const baseRunNum = getNextLogNum("agent-ci");
+    const baseRunNum = options.baseRunNum ?? getNextLogNum("agent-ci");
     let globalIdx = 0;
 
     const buildJob = (ej: ExpandedJob): Job => {

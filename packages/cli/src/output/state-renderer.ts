@@ -109,18 +109,12 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
     };
     const children: TreeNode[] = [];
     if (job.pullProgress) {
-      const { phase, currentBytes, totalBytes, image, startedAt } = job.pullProgress;
+      const { phase, currentBytes, totalBytes } = job.pullProgress;
       const pct = totalBytes > 0 ? Math.round((currentBytes / totalBytes) * 100) : 0;
       const label = phase === "extracting" ? "Extracting" : "Downloading";
       children.push({
         label: `${DIM}${label}: ${fmtBytes(currentBytes)} / ${fmtBytes(totalBytes)} (${pct}%)${RESET}`,
       });
-      const pullElapsed = Math.round((Date.now() - new Date(startedAt).getTime()) / 1000);
-      if (pullElapsed >= 30) {
-        children.push({
-          label: `${DIM}Taking a while? Run: docker rmi ${image}${RESET}`,
-        });
-      }
     }
     if (job.logDir) {
       const shortLogDir = job.logDir.replace(/^.*?(agent-ci\/)/, "$1");

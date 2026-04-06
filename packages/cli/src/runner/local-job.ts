@@ -373,7 +373,6 @@ export async function executeLocalJob(
           const extractProgress = new Map<string, { current: number; total: number }>();
           let lastProgressUpdate = 0;
           let currentPhase: "downloading" | "extracting" = "downloading";
-          const pullStartedAt = new Date().toISOString();
 
           const flushProgress = (force = false) => {
             const map = currentPhase === "downloading" ? downloadProgress : extractProgress;
@@ -392,13 +391,7 @@ export async function executeLocalJob(
               currentBytes += layer.current;
             }
             store?.updateJob(containerName, {
-              pullProgress: {
-                phase: currentPhase,
-                currentBytes,
-                totalBytes,
-                image: containerImage,
-                startedAt: pullStartedAt,
-              },
+              pullProgress: { phase: currentPhase, currentBytes, totalBytes },
             });
           };
 

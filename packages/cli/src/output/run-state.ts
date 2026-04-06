@@ -53,8 +53,6 @@ export interface JobState {
     phase: "downloading" | "extracting";
     currentBytes: number;
     totalBytes: number;
-    image: string;
-    startedAt: string;
   };
 }
 

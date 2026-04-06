@@ -108,7 +108,6 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
       label: `${getSpinnerFrame()} Starting runner ${job.runnerId} (${elapsed}s)`,
     };
     const children: TreeNode[] = [];
-    process.stderr.write(`[debug-renderer] logDir=${job.logDir ?? "UNSET"} pullProgress=${job.pullProgress ? "SET" : "UNSET"}\n`);
     if (job.pullProgress) {
       const { phase, currentBytes, totalBytes, image, startedAt } = job.pullProgress;
       const pct = totalBytes > 0 ? Math.round((currentBytes / totalBytes) * 100) : 0;
@@ -117,14 +116,15 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
         label: `${DIM}${label}: ${fmtBytes(currentBytes)} / ${fmtBytes(totalBytes)} (${pct}%)${RESET}`,
       });
       const pullElapsed = Math.round((Date.now() - new Date(startedAt).getTime()) / 1000);
-      if (pullElapsed >= 60) {
+      if (pullElapsed >= 30) {
         children.push({
           label: `${DIM}Taking a while? Run: docker rmi ${image}${RESET}`,
         });
       }
     }
     if (job.logDir) {
-      children.push({ label: `${DIM}Logs: ${job.logDir}${RESET}` });
+      const shortLogDir = job.logDir.replace(/^.*?(agent-ci\/)/, "$1");
+      children.push({ label: `${DIM}Logs: ${shortLogDir}${RESET}` });
     }
     if (children.length > 0) {
       bootNode.children = children;

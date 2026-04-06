@@ -109,10 +109,11 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
     };
     const children: TreeNode[] = [];
     if (job.pullProgress) {
-      const { currentBytes, totalBytes } = job.pullProgress;
+      const { phase, currentBytes, totalBytes } = job.pullProgress;
       const pct = totalBytes > 0 ? Math.round((currentBytes / totalBytes) * 100) : 0;
+      const label = phase === "extracting" ? "Extracting" : "Downloading";
       children.push({
-        label: `${DIM}Pulling image: ${fmtBytes(currentBytes)} / ${fmtBytes(totalBytes)} (${pct}%)${RESET}`,
+        label: `${DIM}${label}: ${fmtBytes(currentBytes)} / ${fmtBytes(totalBytes)} (${pct}%)${RESET}`,
       });
     }
     if (job.logDir) {

@@ -368,16 +368,34 @@ export async function executeLocalJob(
           if (err) {
             return reject(err);
           }
-          // Track per-layer download progress so the UI can show bytes downloaded / total
-          const layerProgress = new Map<string, { current: number; total: number }>();
+          // Track per-layer progress across download and extraction phases
+          const downloadProgress = new Map<string, { current: number; total: number }>();
+          const extractProgress = new Map<string, { current: number; total: number }>();
           let lastProgressUpdate = 0;
+          let currentPhase: "downloading" | "extracting" = "downloading";
+
+          const flushProgress = () => {
+            const map = currentPhase === "downloading" ? downloadProgress : extractProgress;
+            if (map.size === 0) {
+              return;
+            }
+            let totalBytes = 0;
+            let currentBytes = 0;
+            for (const layer of map.values()) {
+              totalBytes += layer.total;
+              currentBytes += layer.current;
+            }
+            store?.updateJob(containerName, {
+              pullProgress: { phase: currentPhase, currentBytes, totalBytes },
+            });
+          };
+
           docker.modem.followProgress(
             stream,
             (err: Error | null) => {
               if (err) {
                 return reject(err);
               }
-              // Clear pull progress once complete
               store?.updateJob(containerName, { pullProgress: undefined });
               resolve();
             },
@@ -386,47 +404,49 @@ export async function executeLocalJob(
               id?: string;
               progressDetail?: { current?: number; total?: number };
             }) => {
-              debugRunner(
-                `pull event: id=${event.id ?? "—"} status=${event.status ?? "—"} current=${event.progressDetail?.current ?? "—"} total=${event.progressDetail?.total ?? "—"}`,
-              );
-
               if (!event.id) {
                 return;
               }
 
-              // "Download complete" marks a layer done — set current = total
-              if (event.status === "Download complete") {
-                const existing = layerProgress.get(event.id);
+              const detail = event.progressDetail;
+              const hasByteCounts =
+                detail &&
+                typeof detail.current === "number" &&
+                typeof detail.total === "number" &&
+                detail.total > 0;
+
+              if (event.status === "Downloading" && hasByteCounts) {
+                downloadProgress.set(event.id, {
+                  current: detail.current!,
+                  total: detail.total!,
+                });
+              } else if (event.status === "Download complete") {
+                const existing = downloadProgress.get(event.id);
                 if (existing) {
                   existing.current = existing.total;
                 }
-              } else if (event.status === "Downloading" && event.progressDetail) {
-                const { current, total } = event.progressDetail;
-                if (typeof current !== "number" || typeof total !== "number" || total === 0) {
-                  return;
+              } else if (event.status === "Extracting" && hasByteCounts) {
+                currentPhase = "extracting";
+                extractProgress.set(event.id, {
+                  current: detail.current!,
+                  total: detail.total!,
+                });
+              } else if (event.status === "Pull complete") {
+                const existing = extractProgress.get(event.id);
+                if (existing) {
+                  existing.current = existing.total;
                 }
-                layerProgress.set(event.id, { current, total });
               } else {
                 return;
               }
 
-              // Throttle store updates to avoid excessive disk writes
+              // Throttle store updates but always flush on phase changes
               const now = Date.now();
               if (now - lastProgressUpdate < 250) {
                 return;
               }
               lastProgressUpdate = now;
-
-              let totalBytes = 0;
-              let currentBytes = 0;
-              for (const layer of layerProgress.values()) {
-                totalBytes += layer.total;
-                currentBytes += layer.current;
-              }
-
-              store?.updateJob(containerName, {
-                pullProgress: { currentBytes, totalBytes },
-              });
+              flushProgress();
             },
           );
         });

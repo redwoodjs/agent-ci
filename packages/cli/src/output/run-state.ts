@@ -49,7 +49,11 @@ export interface JobState {
   debugLogPath?: string;
   logDir?: string;
   /** Docker image pull progress (bytes downloaded / total) */
-  pullProgress?: { currentBytes: number; totalBytes: number };
+  pullProgress?: {
+    phase: "downloading" | "extracting";
+    currentBytes: number;
+    totalBytes: number;
+  };
 }
 
 export interface WorkflowState {

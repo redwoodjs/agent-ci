@@ -89,20 +89,21 @@ describe("Action Tarball Cache", () => {
     expect(res.status).toBeGreaterThanOrEqual(200);
   });
 
-  it("should use correct cache path format with sanitized refs", async () => {
+  it("should not match slash-containing refs as a single route param", async () => {
     const baseUrl = `http://localhost:${PORT}`;
     const dir = getActionTarballsDir();
     fs.mkdirSync(dir, { recursive: true });
 
-    // Ref with special chars: "refs/heads/main" → "refs-heads-main"
+    // This is the cache file that would be used if "refs/heads/main" were accepted
+    // as a single ref value and sanitized to "refs-heads-main".
     const tarballPath = path.join(dir, "my-org__my-repo@refs-heads-main.tar.gz");
     fs.writeFileSync(tarballPath, "test-content");
 
     const res = await fetch(`${baseUrl}/_dtu/action-tarball/my-org/my-repo/refs/heads/main`);
-    // The ref param is "refs/heads/main" but polka captures it as the :ref segment.
-    // Polka only captures the first path segment after the last /, so ref=refs
-    // Let's verify the actual route behavior with a simple ref
-    expect(res.status).toBeGreaterThanOrEqual(200);
+    // Polka does not bind :ref across slashes, so this URL does not hit the route
+    // as a single ref value and therefore must not serve the cached tarball above.
+    expect(res.status).toBe(404);
+    await expect(res.text()).resolves.not.toBe("test-content");
   });
 
   it("should serve different tarballs for different repos", async () => {

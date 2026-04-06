@@ -85,3 +85,47 @@ describe("printSummary", () => {
     expect(output).not.toContain("FAILURES");
   });
 });
+
+// ── Empty results behavior (CLI exit logic) ──────────────────────────────────
+// The CLI treats empty results as failure. These tests verify the logic pattern
+// used in cli.ts: `results.length === 0 || results.some(r => !r.succeeded)`
+
+describe("empty results exit logic", () => {
+  function shouldFail(results: JobResult[]): boolean {
+    return results.length === 0 || results.some((r) => !r.succeeded);
+  }
+
+  function shouldPrintSummary(results: JobResult[]): boolean {
+    return results.length > 0;
+  }
+
+  it("treats empty results as failure", () => {
+    expect(shouldFail([])).toBe(true);
+  });
+
+  it("treats results with a failure as failure", () => {
+    expect(shouldFail([makeResult({ succeeded: false })])).toBe(true);
+  });
+
+  it("treats all-passing results as success", () => {
+    const passing: JobResult[] = [
+      {
+        name: "c1",
+        workflow: "ci.yml",
+        taskId: "test",
+        succeeded: true,
+        durationMs: 100,
+        debugLogPath: "/tmp/x",
+      },
+    ];
+    expect(shouldFail(passing)).toBe(false);
+  });
+
+  it("skips summary print for empty results", () => {
+    expect(shouldPrintSummary([])).toBe(false);
+  });
+
+  it("prints summary for non-empty results", () => {
+    expect(shouldPrintSummary([makeResult()])).toBe(true);
+  });
+});

@@ -42,6 +42,11 @@ describe("wrapStepScript", () => {
     const wrapped = wrapStepScript("npm test", "My Step", 1);
     expect(wrapped).toContain(`"$__FROM_STEP" != '*'`);
   });
+
+  it("captures output via tee to signals dir", () => {
+    const wrapped = wrapStepScript("npm test", "Run tests", 1);
+    expect(wrapped).toContain('> >(tee "$__SIGNALS/step-output") 2>&1');
+  });
 });
 
 // ── wrapJobSteps ──────────────────────────────────────────────────────────────

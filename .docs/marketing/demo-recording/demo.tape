@@ -41,7 +41,7 @@ Type "echo fail > value.txt"
 Enter
 Sleep 500ms
 # Pre-build DTU so the first run starts instantly
-Type "(cd /Users/peterp/gh/redwoodjs/agent-ci/packages/dtu-github-actions && pnpm run build --silent) 2>/dev/null"
+Type "(cd ../../../packages/dtu-github-actions && pnpm run build --silent) 2>/dev/null"
 Enter
 Sleep 10s
 Type "clear"

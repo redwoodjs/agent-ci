@@ -829,8 +829,10 @@ async function handleWorkflow(options: {
 
     return allResults;
   } catch (error) {
-    console.error(`[Agent CI] Failed to trigger run: ${(error as Error).message}`);
-    return [];
+    console.error(
+      `[Agent CI] Failed to run workflow ${path.basename(workflowPath)}: ${(error as Error).message}`,
+    );
+    throw error;
   }
 }
 

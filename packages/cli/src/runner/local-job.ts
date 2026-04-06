@@ -31,7 +31,7 @@ import {
   resolveDockerApiUrl,
   resolveDockerExtraHosts,
 } from "../docker/container-config.js";
-import { buildJobResult, sanitizeStepName } from "./result-builder.js";
+import { buildJobResult } from "./result-builder.js";
 import { wrapJobSteps, appendOutputCaptureStep } from "./step-wrapper.js";
 import { syncWorkspaceForRetry } from "./sync.js";
 
@@ -495,46 +495,26 @@ export async function executeLocalJob(
           const lines = content.split("\n");
           pausedStepName = lines[0] || null;
           const attempt = parseInt(lines[1] || "1", 10);
-          if (attempt !== lastSeenAttempt) {
+          const isNewAttempt = attempt !== lastSeenAttempt;
+          if (isNewAttempt) {
             lastSeenAttempt = attempt;
             isPaused = true;
             pausedAtMs = Date.now();
             setupStdinRetry();
-
-            // Read last output lines from the failed step's log
-            let tailLines: string[] = [];
-            if (pausedStepName) {
-              const stepsDir = path.join(logDir, "steps");
-              const sanitized = sanitizeStepName(pausedStepName);
-              const byName = path.join(stepsDir, `${sanitized}.log`);
-              tailLines = tailLogFile(byName, 20);
-              if (tailLines.length === 0 && fs.existsSync(stepsDir)) {
-                let newest = "";
-                let newestMtime = 0;
-                for (const f of fs.readdirSync(stepsDir)) {
-                  if (!f.endsWith(".log")) {
-                    continue;
-                  }
-                  const mt = fs.statSync(path.join(stepsDir, f)).mtimeMs;
-                  if (mt > newestMtime) {
-                    newestMtime = mt;
-                    newest = f;
-                  }
-                }
-                if (newest) {
-                  tailLines = tailLogFile(path.join(stepsDir, newest), 20);
-                }
-              }
-            }
-
-            store?.updateJob(containerName, {
-              status: "paused",
-              pausedAtStep: pausedStepName || undefined,
-              pausedAtMs: new Date(pausedAtMs).toISOString(),
-              attempt: lastSeenAttempt,
-              lastOutputLines: tailLines,
-            });
           }
+
+          // Read output captured by the wrapper script's tee — written directly
+          // to the signals dir so it's always available when paused.
+          const tailLines = tailLogFile(path.join(dirs.signalsDir, "step-output"), 20);
+
+          store?.updateJob(containerName, {
+            status: "paused",
+            pausedAtStep: pausedStepName || undefined,
+            ...(isNewAttempt && pausedAtMs !== null
+              ? { pausedAtMs: new Date(pausedAtMs).toISOString(), attempt: lastSeenAttempt }
+              : {}),
+            lastOutputLines: tailLines,
+          });
         } else if (isPaused && !fs.existsSync(pausedSignalPath)) {
           // Pause signal removed — job is retrying
           isPaused = false;

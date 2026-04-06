@@ -41,7 +41,7 @@ while true; do
   set +e
   (
     ${script}
-  )
+  ) > >(tee "$__SIGNALS/step-output") 2>&1
   __EC=$?
   set -e
   if [ $__EC -eq 0 ]; then exit 0; fi

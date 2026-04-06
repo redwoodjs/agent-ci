@@ -374,11 +374,16 @@ export async function executeLocalJob(
           let lastProgressUpdate = 0;
           let currentPhase: "downloading" | "extracting" = "downloading";
 
-          const flushProgress = () => {
+          const flushProgress = (force = false) => {
             const map = currentPhase === "downloading" ? downloadProgress : extractProgress;
             if (map.size === 0) {
               return;
             }
+            const now = Date.now();
+            if (!force && now - lastProgressUpdate < 250) {
+              return;
+            }
+            lastProgressUpdate = now;
             let totalBytes = 0;
             let currentBytes = 0;
             for (const layer of map.values()) {
@@ -426,11 +431,17 @@ export async function executeLocalJob(
                   existing.current = existing.total;
                 }
               } else if (event.status === "Extracting" && hasByteCounts) {
+                const phaseChanged = currentPhase !== "extracting";
                 currentPhase = "extracting";
                 extractProgress.set(event.id, {
                   current: detail.current!,
                   total: detail.total!,
                 });
+                // Force update on first extraction event so the phase change is visible immediately
+                if (phaseChanged) {
+                  flushProgress(true);
+                  return;
+                }
               } else if (event.status === "Pull complete") {
                 const existing = extractProgress.get(event.id);
                 if (existing) {
@@ -440,12 +451,6 @@ export async function executeLocalJob(
                 return;
               }
 
-              // Throttle store updates but always flush on phase changes
-              const now = Date.now();
-              if (now - lastProgressUpdate < 250) {
-                return;
-              }
-              lastProgressUpdate = now;
               flushProgress();
             },
           );

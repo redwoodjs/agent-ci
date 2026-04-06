@@ -386,20 +386,25 @@ export async function executeLocalJob(
               id?: string;
               progressDetail?: { current?: number; total?: number };
             }) => {
-              // Only track "Downloading" events — "Extracting" resets current
-              // and would make overall progress appear to go backwards
-              if (event.status !== "Downloading") {
-                return;
-              }
-              if (!event.id || !event.progressDetail) {
-                return;
-              }
-              const { current, total } = event.progressDetail;
-              if (typeof current !== "number" || typeof total !== "number" || total === 0) {
+              if (!event.id) {
                 return;
               }
 
-              layerProgress.set(event.id, { current, total });
+              // "Download complete" marks a layer done — set current = total
+              if (event.status === "Download complete") {
+                const existing = layerProgress.get(event.id);
+                if (existing) {
+                  existing.current = existing.total;
+                }
+              } else if (event.status === "Downloading" && event.progressDetail) {
+                const { current, total } = event.progressDetail;
+                if (typeof current !== "number" || typeof total !== "number" || total === 0) {
+                  return;
+                }
+                layerProgress.set(event.id, { current, total });
+              } else {
+                return;
+              }
 
               // Throttle store updates to avoid excessive disk writes
               const now = Date.now();

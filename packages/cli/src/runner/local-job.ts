@@ -386,6 +386,11 @@ export async function executeLocalJob(
               id?: string;
               progressDetail?: { current?: number; total?: number };
             }) => {
+              // Only track "Downloading" events — "Extracting" resets current
+              // and would make overall progress appear to go backwards
+              if (event.status !== "Downloading") {
+                return;
+              }
               if (!event.id || !event.progressDetail) {
                 return;
               }

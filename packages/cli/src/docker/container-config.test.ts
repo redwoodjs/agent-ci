@@ -222,6 +222,7 @@ describe("resolveDockerApiUrl", () => {
 
 describe("resolveDtuHost", () => {
   const originalBridgeGateway = process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY;
+  const originalDtuHost = process.env.AGENT_CI_DTU_HOST;
 
   afterEach(() => {
     if (originalBridgeGateway === undefined) {
@@ -229,9 +230,15 @@ describe("resolveDtuHost", () => {
     } else {
       process.env.AGENT_CI_DOCKER_BRIDGE_GATEWAY = originalBridgeGateway;
     }
+    if (originalDtuHost === undefined) {
+      delete process.env.AGENT_CI_DTU_HOST;
+    } else {
+      process.env.AGENT_CI_DTU_HOST = originalDtuHost;
+    }
   });
 
   it("uses host alias when available outside Docker", async () => {
+    delete process.env.AGENT_CI_DTU_HOST;
     const { resolveDtuHost } = await import("./container-config.js");
     const originalExistsSync = fs.existsSync;
 
@@ -246,6 +253,7 @@ describe("resolveDtuHost", () => {
   });
 
   it("uses configured bridge gateway outside Docker when provided", async () => {
+    delete process.env.AGENT_CI_DTU_HOST;
     const { resolveDtuHost } = await import("./container-config.js");
     const originalExistsSync = fs.existsSync;
 
@@ -261,6 +269,7 @@ describe("resolveDtuHost", () => {
   });
 
   it("uses host alias outside Docker when no gateway override is configured", async () => {
+    delete process.env.AGENT_CI_DTU_HOST;
     const { resolveDtuHost } = await import("./container-config.js");
     const originalExistsSync = fs.existsSync;
 

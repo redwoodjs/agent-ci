@@ -27,6 +27,19 @@ function fmtMs(ms: number): string {
   return ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
 }
 
+function fmtBytes(bytes: number): string {
+  if (bytes >= 1_000_000_000) {
+    return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
+  }
+  if (bytes >= 1_000_000) {
+    return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  }
+  if (bytes >= 1_000) {
+    return `${(bytes / 1_000).toFixed(1)} KB`;
+  }
+  return `${bytes} B`;
+}
+
 // ─── Step node builder ────────────────────────────────────────────────────────
 
 function buildStepNode(step: StepState, job: JobState, padW: number): TreeNode {
@@ -94,8 +107,19 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
     const bootNode: TreeNode = {
       label: `${getSpinnerFrame()} Starting runner ${job.runnerId} (${elapsed}s)`,
     };
+    const children: TreeNode[] = [];
+    if (job.pullProgress) {
+      const { currentBytes, totalBytes } = job.pullProgress;
+      const pct = totalBytes > 0 ? Math.round((currentBytes / totalBytes) * 100) : 0;
+      children.push({
+        label: `${DIM}Pulling image: ${fmtBytes(currentBytes)} / ${fmtBytes(totalBytes)} (${pct}%)${RESET}`,
+      });
+    }
     if (job.logDir) {
-      bootNode.children = [{ label: `${DIM}Logs: ${job.logDir}${RESET}` }];
+      children.push({ label: `${DIM}Logs: ${job.logDir}${RESET}` });
+    }
+    if (children.length > 0) {
+      bootNode.children = children;
     }
     return [bootNode];
   }

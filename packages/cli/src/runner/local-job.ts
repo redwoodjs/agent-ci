@@ -368,12 +368,53 @@ export async function executeLocalJob(
           if (err) {
             return reject(err);
           }
-          docker.modem.followProgress(stream, (err: Error | null) => {
-            if (err) {
-              return reject(err);
-            }
-            resolve();
-          });
+          // Track per-layer download progress so the UI can show bytes downloaded / total
+          const layerProgress = new Map<string, { current: number; total: number }>();
+          let lastProgressUpdate = 0;
+          docker.modem.followProgress(
+            stream,
+            (err: Error | null) => {
+              if (err) {
+                return reject(err);
+              }
+              // Clear pull progress once complete
+              store?.updateJob(containerName, { pullProgress: undefined });
+              resolve();
+            },
+            (event: {
+              status?: string;
+              id?: string;
+              progressDetail?: { current?: number; total?: number };
+            }) => {
+              if (!event.id || !event.progressDetail) {
+                return;
+              }
+              const { current, total } = event.progressDetail;
+              if (typeof current !== "number" || typeof total !== "number" || total === 0) {
+                return;
+              }
+
+              layerProgress.set(event.id, { current, total });
+
+              // Throttle store updates to avoid excessive disk writes
+              const now = Date.now();
+              if (now - lastProgressUpdate < 250) {
+                return;
+              }
+              lastProgressUpdate = now;
+
+              let totalBytes = 0;
+              let currentBytes = 0;
+              for (const layer of layerProgress.values()) {
+                totalBytes += layer.total;
+                currentBytes += layer.current;
+              }
+
+              store?.updateJob(containerName, {
+                pullProgress: { currentBytes, totalBytes },
+              });
+            },
+          );
         });
       });
     }

@@ -386,6 +386,10 @@ export async function executeLocalJob(
               id?: string;
               progressDetail?: { current?: number; total?: number };
             }) => {
+              debugRunner(
+                `pull event: id=${event.id ?? "—"} status=${event.status ?? "—"} current=${event.progressDetail?.current ?? "—"} total=${event.progressDetail?.total ?? "—"}`,
+              );
+
               if (!event.id) {
                 return;
               }

@@ -108,6 +108,7 @@ function buildJobNodes(job: JobState, singleJobMode: boolean): TreeNode[] {
       label: `${getSpinnerFrame()} Starting runner ${job.runnerId} (${elapsed}s)`,
     };
     const children: TreeNode[] = [];
+    process.stderr.write(`[debug-renderer] logDir=${job.logDir ?? "UNSET"} pullProgress=${job.pullProgress ? "SET" : "UNSET"}\n`);
     if (job.pullProgress) {
       const { phase, currentBytes, totalBytes, image, startedAt } = job.pullProgress;
       const pct = totalBytes > 0 ? Math.round((currentBytes / totalBytes) * 100) : 0;

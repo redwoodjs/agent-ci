@@ -1,13 +1,131 @@
 import { Polka } from "polka";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import https from "node:https";
+import http from "node:http";
 import path from "node:path";
-import { state } from "../../store.js";
+import { state, getActionTarballsDir } from "../../store.js";
 import { getBaseUrl } from "../dtu.js";
 import { createJobResponse } from "./generators.js";
 
+// ─── Action tarball cache ──────────────────────────────────────────────────────
+// Downloads action tarballs from GitHub on first use and serves them from disk
+// on subsequent runs, eliminating ~30s GitHub CDN download delays.
+
+/** Tracks in-flight downloads so concurrent cache misses for the same tarball
+ *  coalesce into a single GitHub fetch instead of racing on the same tmp file. */
+const inflightDownloads = new Map<string, Promise<void>>();
+
+function actionTarballPath(repoPath: string, ref: string): string {
+  const key = `${repoPath.replace("/", "__")}@${ref.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+  return path.join(getActionTarballsDir(), `${key}.tar.gz`);
+}
+
+/** Follow redirects and invoke callback with the final response. */
+function fetchWithRedirects(
+  url: string,
+  callback: (res: http.IncomingMessage) => void,
+  redirects = 0,
+): void {
+  if (redirects > 5) {
+    return;
+  }
+  const mod = url.startsWith("https") ? https : http;
+  mod.get(url, { headers: { "User-Agent": "agent-ci/1.0" } }, (res) => {
+    if ((res.statusCode === 301 || res.statusCode === 302) && res.headers.location) {
+      res.resume();
+      return fetchWithRedirects(res.headers.location, callback, redirects + 1);
+    }
+    callback(res);
+  });
+}
+
 // Helper to reliably find log Id from URLs like /_apis/distributedtask/hubs/Hub/plans/Plan/logs/123
 export function registerActionRoutes(app: Polka) {
+  // ── Action tarball proxy: serves cached tarballs to the runner ──────────────
+  // First run: proxies from GitHub while saving to disk (same speed as direct download).
+  // Subsequent runs: serves from disk cache instantly (~0ms).
+  app.get("/_dtu/action-tarball/:owner/:repo/:ref", (req: any, res) => {
+    const { owner, repo, ref } = req.params;
+    const repoPath = `${owner}/${repo}`;
+    const dest = actionTarballPath(repoPath, ref);
+
+    /** Serve a completed cache file from disk. */
+    const serveFromDisk = () => {
+      const stat = fs.statSync(dest);
+      res.writeHead(200, {
+        "Content-Type": "application/x-tar",
+        "Content-Length": String(stat.size),
+      });
+      fs.createReadStream(dest).pipe(res as any);
+    };
+
+    // Cache hit: serve from disk
+    if (fs.existsSync(dest)) {
+      serveFromDisk();
+      return;
+    }
+
+    // Another request is already downloading this tarball — wait for it,
+    // then serve from the completed cache file.
+    const inflight = inflightDownloads.get(dest);
+    if (inflight) {
+      inflight.then(
+        () => serveFromDisk(),
+        () => {
+          res.writeHead(502);
+          res.end();
+        },
+      );
+      return;
+    }
+
+    // Cache miss: proxy from GitHub, write to disk simultaneously.
+    // Register a promise so concurrent requests can coalesce.
+    let resolveDownload: () => void;
+    let rejectDownload: (err: unknown) => void;
+    const downloadPromise = new Promise<void>((resolve, reject) => {
+      resolveDownload = resolve;
+      rejectDownload = reject;
+    });
+    // Prevent unhandled-rejection when no concurrent waiter is attached.
+    downloadPromise.catch(() => {});
+    inflightDownloads.set(dest, downloadPromise);
+
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    const githubUrl = `https://api.github.com/repos/${repoPath}/tarball/${ref}`;
+    fetchWithRedirects(githubUrl, (upstream) => {
+      if (upstream.statusCode !== 200) {
+        inflightDownloads.delete(dest);
+        rejectDownload!(new Error(`upstream ${upstream.statusCode}`));
+        res.writeHead(upstream.statusCode ?? 502);
+        res.end();
+        return;
+      }
+      res.writeHead(200, { "Content-Type": "application/x-tar" });
+      const tmp = dest + ".tmp." + process.pid;
+      const file = fs.createWriteStream(tmp);
+      upstream.pipe(res as any);
+      upstream.pipe(file);
+      file.on("finish", () =>
+        file.close(() => {
+          try {
+            fs.renameSync(tmp, dest);
+          } catch {
+            /* best-effort */
+          }
+          inflightDownloads.delete(dest);
+          resolveDownload!();
+        }),
+      );
+      file.on("error", () => {
+        fs.rmSync(tmp, { force: true });
+        inflightDownloads.delete(dest);
+        rejectDownload!(new Error("write failed"));
+      });
+    });
+  });
+
   // 7. Pipeline Service Discovery Mock
   const serviceDiscoveryHandler = (req: any, res: any) => {
     console.log(`[DTU] Handling service discovery: ${req.url}`);
@@ -525,35 +643,43 @@ export function registerActionRoutes(app: Polka) {
   });
 
   // 18. Resolve Action Download Info Mock
-  app.post("/_apis/distributedtask/hubs/:hub/plans/:planId/actiondownloadinfo", (req: any, res) => {
-    const payload = req.body || {};
-    const actions = payload.actions || [];
-    const result: any = { actions: {} };
+  app.post(
+    "/_apis/distributedtask/hubs/:hub/plans/:planId/actiondownloadinfo",
+    async (req: any, res) => {
+      const payload = req.body || {};
+      const actions = payload.actions || [];
+      const result: any = { actions: {} };
+      const baseUrl = getBaseUrl(req);
 
-    for (const action of actions) {
-      const key = `${action.nameWithOwner}@${action.ref}`;
-      // Strip sub-path from nameWithOwner (e.g. "actions/cache/save" → "actions/cache")
-      // Sub-path actions share the same repo tarball as the parent action.
-      const repoPath = action.nameWithOwner.split("/").slice(0, 2).join("/");
-      const downloadUrl = `https://api.github.com/repos/${repoPath}/tarball/${action.ref}`;
+      for (const action of actions) {
+        const key = `${action.nameWithOwner}@${action.ref}`;
+        // Strip sub-path from nameWithOwner (e.g. "actions/cache/save" → "actions/cache")
+        // Sub-path actions share the same repo tarball as the parent action.
+        const repoPath = action.nameWithOwner.split("/").slice(0, 2).join("/");
+        const [owner, repo] = repoPath.split("/");
 
-      result.actions[key] = {
-        nameWithOwner: action.nameWithOwner,
-        resolvedNameWithOwner: action.nameWithOwner,
-        ref: action.ref,
-        resolvedSha: crypto
-          .createHash("sha1")
-          .update(`${action.nameWithOwner}@${action.ref}`)
-          .digest("hex"),
-        tarballUrl: downloadUrl,
-        zipballUrl: downloadUrl.replace("tarball", "zipball"),
-        authentication: null,
-      };
-    }
+        // Point the runner at our local proxy; on cache miss the proxy streams from GitHub
+        // while saving to disk — subsequent runs are served instantly from the local cache.
+        const localUrl = `${baseUrl}/_dtu/action-tarball/${owner}/${repo}/${action.ref}`;
 
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(result));
-  });
+        result.actions[key] = {
+          nameWithOwner: action.nameWithOwner,
+          resolvedNameWithOwner: action.nameWithOwner,
+          ref: action.ref,
+          resolvedSha: crypto
+            .createHash("sha1")
+            .update(`${action.nameWithOwner}@${action.ref}`)
+            .digest("hex"),
+          tarballUrl: localUrl,
+          zipballUrl: localUrl,
+          authentication: null,
+        };
+      }
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(result));
+    },
+  );
 
   // 19. Generic Job Retrieval Handler
   app.get("/_apis/distributedtask/pools/:poolId/jobs/:jobId", (req, res) => {
@@ -603,6 +729,7 @@ export function registerActionRoutes(app: Polka) {
     const RUNNER_INTERNAL_RE =
       /^\[(?:RUNNER|WORKER) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}Z (?:INFO|WARN|ERR)\s/;
     let content = "";
+    let inGroup = false;
 
     // Collect agent-ci-output lines for cross-job output passing
     const outputEntries: Array<[string, string]> = [];
@@ -610,7 +737,9 @@ export function registerActionRoutes(app: Polka) {
     for (const rawLine of lines) {
       const line = rawLine.trimEnd();
       if (!line) {
-        content += "\n";
+        if (!inGroup) {
+          content += "\n";
+        }
         continue;
       }
       // Strip BOM + timestamp prefix before filtering
@@ -628,7 +757,17 @@ export function registerActionRoutes(app: Polka) {
         continue; // Don't include in regular step logs
       }
 
+      if (stripped.startsWith("##[group]")) {
+        inGroup = true;
+        continue;
+      }
+      if (stripped.startsWith("##[endgroup]")) {
+        inGroup = false;
+        continue;
+      }
+
       if (
+        inGroup ||
         !stripped ||
         stripped.startsWith("##[") ||
         stripped.startsWith("[command]") ||

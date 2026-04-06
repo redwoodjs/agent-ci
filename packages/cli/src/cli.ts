@@ -155,9 +155,11 @@ async function run() {
         pauseOnFailure,
         noMatrix,
       });
-      printSummary(results);
+      if (results.length > 0) {
+        printSummary(results);
+      }
       postCommitStatus(results, sha);
-      const anyFailed = results.some((r) => !r.succeeded);
+      const anyFailed = results.length === 0 || results.some((r) => !r.succeeded);
       process.exit(anyFailed ? 1 : 0);
     }
 
@@ -190,9 +192,11 @@ async function run() {
       pauseOnFailure,
       noMatrix,
     });
-    printSummary(results);
+    if (results.length > 0) {
+      printSummary(results);
+    }
     postCommitStatus(results, sha);
-    if (results.some((r) => !r.succeeded)) {
+    if (results.length === 0 || results.some((r) => !r.succeeded)) {
       process.exit(1);
     }
     process.exit(0);

@@ -1,2 +1,0 @@
-#!/usr/bin/env bash
-exec node /Users/peterp/gh/redwoodjs/agent-ci/packages/cli/dist/cli.js "$@"

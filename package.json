@@ -11,7 +11,8 @@
     "format": "oxfmt",
     "format:fix": "oxfmt",
     "format:check": "oxfmt --check",
-    "agent-ci-dev": "cd packages/dtu-github-actions && pnpm run build && cd ../cli && tsx src/cli.ts",
+    "agent-ci": "cd packages/dtu-github-actions && pnpm run build && cd ../cli && tsx src/cli.ts",
+    "agent-ci-dev": "pnpm run agent-ci",
     "start": "./scripts/run.sh",
     "prepare": "husky",
     "changeset": "changeset",
@@ -32,7 +33,7 @@
     "vitest": "^4.0.18"
   },
   "lint-staged": {
-    "*.{js,ts,jsx,tsx,json,md,yml,yaml,css,html}": [
+    "*.{js,ts,jsx,tsx,json,md,css,html}": [
       "oxfmt --check"
     ],
     "*.{js,ts,jsx,tsx}": [

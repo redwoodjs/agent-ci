@@ -5,11 +5,17 @@ import { config } from "../config.js";
 
 let CACHE_DIR = config.DTU_CACHE_DIR;
 let CACHES_FILE = path.join(CACHE_DIR, "caches.json");
+let ACTION_TARBALLS_DIR = path.join(CACHE_DIR, "action-tarballs");
 
 /** Override the cache directory at runtime (e.g. for ephemeral per-repo DTU instances). */
 export function setCacheDir(dir: string): void {
   CACHE_DIR = dir;
   CACHES_FILE = path.join(dir, "caches.json");
+  ACTION_TARBALLS_DIR = path.join(dir, "action-tarballs");
+}
+
+export function getActionTarballsDir(): string {
+  return ACTION_TARBALLS_DIR;
 }
 
 export const state = {

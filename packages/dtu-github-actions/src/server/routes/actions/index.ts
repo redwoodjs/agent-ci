@@ -12,6 +12,10 @@ import { createJobResponse } from "./generators.js";
 // Downloads action tarballs from GitHub on first use and serves them from disk
 // on subsequent runs, eliminating ~30s GitHub CDN download delays.
 
+/** Tracks in-flight downloads so concurrent cache misses for the same tarball
+ *  coalesce into a single GitHub fetch instead of racing on the same tmp file. */
+const inflightDownloads = new Map<string, Promise<void>>();
+
 function actionTarballPath(repoPath: string, ref: string): string {
   const key = `${repoPath.replace("/", "__")}@${ref.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
   return path.join(getActionTarballsDir(), `${key}.tar.gz`);
@@ -46,33 +50,79 @@ export function registerActionRoutes(app: Polka) {
     const repoPath = `${owner}/${repo}`;
     const dest = actionTarballPath(repoPath, ref);
 
-    // Cache hit: serve from disk
-    if (fs.existsSync(dest)) {
+    /** Serve a completed cache file from disk. */
+    const serveFromDisk = () => {
       const stat = fs.statSync(dest);
       res.writeHead(200, {
         "Content-Type": "application/x-tar",
         "Content-Length": String(stat.size),
       });
       fs.createReadStream(dest).pipe(res as any);
+    };
+
+    // Cache hit: serve from disk
+    if (fs.existsSync(dest)) {
+      serveFromDisk();
       return;
     }
 
-    // Cache miss: proxy from GitHub, write to disk simultaneously
+    // Another request is already downloading this tarball — wait for it,
+    // then serve from the completed cache file.
+    const inflight = inflightDownloads.get(dest);
+    if (inflight) {
+      inflight.then(
+        () => serveFromDisk(),
+        () => {
+          res.writeHead(502);
+          res.end();
+        },
+      );
+      return;
+    }
+
+    // Cache miss: proxy from GitHub, write to disk simultaneously.
+    // Register a promise so concurrent requests can coalesce.
+    let resolveDownload: () => void;
+    let rejectDownload: (err: unknown) => void;
+    const downloadPromise = new Promise<void>((resolve, reject) => {
+      resolveDownload = resolve;
+      rejectDownload = reject;
+    });
+    // Prevent unhandled-rejection when no concurrent waiter is attached.
+    downloadPromise.catch(() => {});
+    inflightDownloads.set(dest, downloadPromise);
+
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     const githubUrl = `https://api.github.com/repos/${repoPath}/tarball/${ref}`;
     fetchWithRedirects(githubUrl, (upstream) => {
       if (upstream.statusCode !== 200) {
+        inflightDownloads.delete(dest);
+        rejectDownload!(new Error(`upstream ${upstream.statusCode}`));
         res.writeHead(upstream.statusCode ?? 502);
         res.end();
         return;
       }
       res.writeHead(200, { "Content-Type": "application/x-tar" });
-      const tmp = dest + ".tmp";
+      const tmp = dest + ".tmp." + process.pid;
       const file = fs.createWriteStream(tmp);
       upstream.pipe(res as any);
       upstream.pipe(file);
-      file.on("finish", () => file.close(() => fs.renameSync(tmp, dest)));
-      file.on("error", () => fs.rmSync(tmp, { force: true }));
+      file.on("finish", () =>
+        file.close(() => {
+          try {
+            fs.renameSync(tmp, dest);
+          } catch {
+            /* best-effort */
+          }
+          inflightDownloads.delete(dest);
+          resolveDownload!();
+        }),
+      );
+      file.on("error", () => {
+        fs.rmSync(tmp, { force: true });
+        inflightDownloads.delete(dest);
+        rejectDownload!(new Error("write failed"));
+      });
     });
   });
 

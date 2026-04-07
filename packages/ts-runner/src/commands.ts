@@ -45,8 +45,7 @@ export interface WorkflowCommands {
 export function parseCommand(line: string, state: WorkflowCommands): string | null {
   // If stop-commands is active, only look for the resume token
   if (state.stopToken) {
-    const resumeMatch = line.match(new RegExp(`^::${state.stopToken}::`));
-    if (resumeMatch) {
+    if (line === `::${state.stopToken}::`) {
       state.stopToken = null;
       return null;
     }

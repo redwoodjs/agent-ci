@@ -239,9 +239,14 @@ function runProcess(args: string[], opts: RunOptions): Promise<number> {
       }, opts.timeoutMs);
     }
 
-    const handleData = (data: Buffer) => {
-      const text = data.toString();
-      for (const line of text.split("\n")) {
+    let stdoutRemainder = "";
+    let stderrRemainder = "";
+
+    const processLines = (text: string, remainder: string): [string] | [string, string] => {
+      const combined = remainder + text;
+      const lines = combined.split("\n");
+      const incomplete = lines.pop() ?? "";
+      for (const line of lines) {
         if (line === "") {
           continue;
         }
@@ -250,10 +255,26 @@ function runProcess(args: string[], opts: RunOptions): Promise<number> {
           opts.onOutput(display);
         }
       }
+      return [incomplete];
     };
 
-    proc.stdout.on("data", handleData);
-    proc.stderr.on("data", handleData);
+    const flushRemainder = (remainder: string) => {
+      if (remainder) {
+        const display = parseCommand(remainder, opts.commands);
+        if (display !== null && opts.onOutput) {
+          opts.onOutput(display);
+        }
+      }
+    };
+
+    proc.stdout.on("data", (data: Buffer) => {
+      const [incomplete] = processLines(data.toString(), stdoutRemainder);
+      stdoutRemainder = incomplete;
+    });
+    proc.stderr.on("data", (data: Buffer) => {
+      const [incomplete] = processLines(data.toString(), stderrRemainder);
+      stderrRemainder = incomplete;
+    });
 
     proc.on("error", (err) => {
       if (timer) {
@@ -266,6 +287,8 @@ function runProcess(args: string[], opts: RunOptions): Promise<number> {
       if (timer) {
         clearTimeout(timer);
       }
+      flushRemainder(stdoutRemainder);
+      flushRemainder(stderrRemainder);
       resolve(code ?? 1);
     });
   });

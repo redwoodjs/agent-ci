@@ -67,7 +67,7 @@ the official GitHub Actions runner.
 
 Follows GitHub's rules:
 
-- **To boolean:** `null` → false, `0` → false, `""` → false, `"false"` → false, `"0"` → false, everything else → true
+- **To boolean:** `null` → false, `0` → false, `""` → false, everything else → true (note: strings `"0"` and `"false"` are truthy — only typed `false`, `0`, and empty string are falsy)
 - **To string:** `null` → `""`, `true` → `"true"`, numbers → decimal string, objects → JSON
 - **Comparison:** Strings compared case-insensitively. Numbers compared numerically. Mixed string/number attempts numeric coercion.
 

@@ -268,3 +268,36 @@ describe("evaluateCondition", () => {
     expect(evaluateCondition("github.actor == 'octocat'", makeCtx())).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Regression tests for bug fixes (#133)
+// ---------------------------------------------------------------------------
+
+describe("bug fixes", () => {
+  it("parses escaped single quotes in string literals", () => {
+    const ctx = makeCtx();
+    // 'it''s' should parse as the string "it's"
+    expect(evaluate("'it''s'", ctx)).toBe("it's");
+    expect(evaluate("'don''t stop'", ctx)).toBe("don't stop");
+    // Empty escaped quote: '''' = single quote
+    expect(evaluate("''''", ctx)).toBe("'");
+  });
+
+  it("treats string '0' and 'false' as truthy", () => {
+    const ctx = makeCtx({ env: { ...makeCtx().env, ZERO: "0", FALSE: "false" } });
+    // In GitHub Actions, non-empty strings are truthy
+    expect(evaluate("env.ZERO && 'yes'", ctx)).toBe("yes");
+    expect(evaluate("env.FALSE && 'yes'", ctx)).toBe("yes");
+    // Empty string is still falsy
+    expect(evaluate("'' && 'yes'", ctx)).toBe("");
+  });
+
+  it("simpleMatch escapes regex metacharacters in glob patterns", () => {
+    // hashFiles uses simpleMatch internally — test via evaluate
+    // The key thing is that patterns with regex metacharacters don't crash
+    const ctx = makeCtx({ workspace: "/nonexistent" });
+    // This should not throw (previously would crash on unbalanced brackets)
+    expect(() => evaluate("hashFiles('src/file[1].txt')", ctx)).not.toThrow();
+    expect(() => evaluate("hashFiles('src/c++/main.cpp')", ctx)).not.toThrow();
+  });
+});

@@ -182,10 +182,12 @@ function tokenize(input: string): Token[] {
     if (ch === "'") {
       let str = "";
       i++; // skip opening quote
-      while (i < input.length && input[i] !== "'") {
+      while (i < input.length) {
         if (input[i] === "'" && i + 1 < input.length && input[i + 1] === "'") {
-          str += "'"; // escaped quote
+          str += "'"; // escaped quote ''
           i += 2;
+        } else if (input[i] === "'") {
+          break; // closing quote
         } else {
           str += input[i];
           i++;
@@ -541,7 +543,7 @@ function coerceToBool(v: ExpressionValue): boolean {
     return v !== 0;
   }
   if (typeof v === "string") {
-    return v !== "" && v !== "0" && v !== "false";
+    return v !== "";
   }
   return true;
 }
@@ -642,10 +644,12 @@ function findFiles(rootDir: string, pattern: string): string[] {
 function simpleMatch(filepath: string, pattern: string): boolean {
   const regex = pattern
     .replace(/\*\*/g, "{{GLOBSTAR}}")
-    .replace(/\*/g, "[^/]*")
+    .replace(/\*/g, "{{STAR}}")
+    .replace(/\?/g, "{{QMARK}}")
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
     .replace(/\{\{GLOBSTAR\}\}/g, ".*")
-    .replace(/\?/g, "[^/]")
-    .replace(/\./g, "\\.");
+    .replace(/\{\{STAR\}\}/g, "[^/]*")
+    .replace(/\{\{QMARK\}\}/g, "[^/]");
   return new RegExp(`^${regex}$`).test(filepath);
 }
 

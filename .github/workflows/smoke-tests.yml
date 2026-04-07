@@ -196,7 +196,7 @@ jobs:
           node-version: 22
           cache: "pnpm"
       - run: pnpm install
-      - run: pnpm -r build
+      - run: pnpm --filter @redwoodjs/agent-ci... -r build
       - name: Verify shebang
         run: |
           head -1 packages/cli/dist/cli.js | grep -q '#!/usr/bin/env node'
